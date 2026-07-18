@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 #[cfg(feature = "http-server")]
 use std::io::Read;
@@ -132,12 +132,29 @@ const ORPHAN_SESSION_SWEEP_INTERVAL: Duration = Duration::from_hours(1);
 const MAX_ORPHAN_SCAN_ENTRIES: usize = 4096;
 const MAX_ORPHAN_REMOVALS: usize = 64;
 const MAX_TEMP_INDEX_ENTRIES: usize = 4096;
+const MAX_LEGACY_BASELINE_STORE_BYTES: usize = 4 * 1024 * 1024;
+const MAX_LEGACY_BASELINE_RECORDS: usize = 512;
+const MAX_LEGACY_BASELINE_REPOSITORIES: usize = 64;
+const MAX_LEGACY_REF_OUTPUT_BYTES: usize = 1024 * 1024;
+const LEGACY_GIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SessionOwner {
     session_id: String,
     capability_token: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyAgentTurnBaselineStore {
+    records: Vec<LegacyAgentTurnBaselineRecord>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyAgentTurnBaselineRecord {
+    repo_root: PathBuf,
 }
 // Branch regeneration runs Git commands with 60-second deadlines, then writes
 // the page, patch, assets, and manifest. Keep the outer safety deadline above
@@ -248,6 +265,34 @@ pub async fn run_rpc(config: ServerConfig) -> Result<(), String> {
         MAX_ORPHAN_SCAN_ENTRIES,
     )
     .await;
+    let migration_home = std::env::var_os("HOME")
+        .filter(|home| !home.is_empty())
+        .map(PathBuf::from);
+    let _legacy_cleanup = migration_home
+        .clone()
+        .map(|home| tokio::spawn(migrate_legacy_agent_turn_baselines(home)));
+    let default_legacy_state = migration_home.as_ref().map(|home| home.join(".cmuxterm"));
+    let _legacy_override_cleanup = std::env::var_os("CMUX_AGENT_HOOK_STATE_DIR")
+        .filter(|directory| !directory.is_empty())
+        .map(PathBuf::from)
+        .map(|directory| {
+            migration_home.as_ref().map_or(directory.clone(), |home| {
+                if directory == Path::new("~") {
+                    home.clone()
+                } else if let Ok(suffix) = directory.strip_prefix("~/") {
+                    home.join(suffix)
+                } else {
+                    directory
+                }
+            })
+        })
+        .filter(|directory| directory.is_absolute())
+        .filter(|directory| default_legacy_state.as_ref() != Some(directory))
+        .map(|directory| {
+            tokio::spawn(migrate_legacy_agent_turn_baselines_in_state_directory(
+                directory,
+            ))
+        });
     let sweep_root = config.root.clone();
     let rpc_session = async move {
         tokio::select! {
@@ -1300,6 +1345,162 @@ async fn sweep_orphaned_sessions_periodically(
     }
 }
 
+async fn migrate_legacy_agent_turn_baselines(home: PathBuf) {
+    migrate_legacy_agent_turn_baselines_in_state_directory(home.join(".cmuxterm")).await;
+}
+
+async fn migrate_legacy_agent_turn_baselines_in_state_directory(state_directory: PathBuf) {
+    let store_path = state_directory.join("agent-turn-diff-baselines.json");
+    let Some(store) = read_legacy_baseline_store(&store_path).await else {
+        return;
+    };
+    if store.records.len() > MAX_LEGACY_BASELINE_RECORDS {
+        return;
+    }
+    let mut repositories = HashSet::new();
+    for record in store.records {
+        if !record.repo_root.is_absolute() {
+            return;
+        }
+        repositories.insert(record.repo_root);
+        if repositories.len() > MAX_LEGACY_BASELINE_REPOSITORIES {
+            return;
+        }
+    }
+    for repository in repositories {
+        if !remove_legacy_baseline_refs(&repository).await {
+            return;
+        }
+    }
+    for name in [
+        "agent-turn-diff-baseline-snapshots",
+        "agent-turn-diff-baseline-snapshots-staging",
+    ] {
+        let path = state_directory.join(name);
+        if let Err(error) = tokio::fs::remove_dir_all(&path).await
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            return;
+        }
+    }
+    if tokio::fs::remove_file(&store_path).await.is_err() {
+        return;
+    }
+    let _ = tokio::fs::remove_file(store_path.with_extension("json.lock")).await;
+}
+
+async fn read_legacy_baseline_store(path: &Path) -> Option<LegacyAgentTurnBaselineStore> {
+    let file = tokio::fs::File::open(path).await.ok()?;
+    let byte_length = file.metadata().await.ok()?.len();
+    if byte_length > MAX_LEGACY_BASELINE_STORE_BYTES as u64 {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(usize::try_from(byte_length).ok()?);
+    file.take((MAX_LEGACY_BASELINE_STORE_BYTES as u64).saturating_add(1))
+        .read_to_end(&mut bytes)
+        .await
+        .ok()?;
+    if bytes.len() > MAX_LEGACY_BASELINE_STORE_BYTES {
+        return None;
+    }
+    serde_json::from_slice(&bytes).ok()
+}
+
+async fn remove_legacy_baseline_refs(repository: &Path) -> bool {
+    if !repository.join(".git").exists() {
+        return true;
+    }
+    let Some(output) = git_stdout_bounded(
+        repository,
+        &["for-each-ref", "--format=%(refname)", "refs/cmux/last-turn"],
+        MAX_LEGACY_REF_OUTPUT_BYTES,
+    )
+    .await
+    else {
+        return false;
+    };
+    let Ok(output) = String::from_utf8(output) else {
+        return false;
+    };
+    let mut updates = Vec::new();
+    for reference in output.lines() {
+        if !reference.starts_with("refs/cmux/last-turn/")
+            || reference.len() > 1024
+            || reference.chars().any(char::is_control)
+        {
+            return false;
+        }
+        updates.extend_from_slice(format!("delete {reference}\n").as_bytes());
+        if updates.len() > MAX_LEGACY_REF_OUTPUT_BYTES {
+            return false;
+        }
+    }
+    if updates.is_empty() {
+        return true;
+    }
+    let mut command = Command::new("/usr/bin/git");
+    command
+        .arg("-C")
+        .arg(repository)
+        .args(["update-ref", "--stdin"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let Ok(mut child) = command.spawn() else {
+        return false;
+    };
+    let Some(mut stdin) = child.stdin.take() else {
+        let _ = child.kill().await;
+        return false;
+    };
+    matches!(
+        tokio::time::timeout(LEGACY_GIT_TIMEOUT, async {
+            stdin.write_all(&updates).await.ok()?;
+            drop(stdin);
+            child.wait().await.ok()
+        })
+        .await,
+        Ok(Some(status)) if status.success()
+    )
+}
+
+async fn git_stdout_bounded(
+    repository: &Path,
+    arguments: &[&str],
+    maximum_bytes: usize,
+) -> Option<Vec<u8>> {
+    let mut command = Command::new("/usr/bin/git");
+    command
+        .arg("-C")
+        .arg(repository)
+        .args(arguments)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let mut child = command.spawn().ok()?;
+    let mut stdout = child.stdout.take()?;
+    tokio::time::timeout(LEGACY_GIT_TIMEOUT, async {
+        let mut output = Vec::new();
+        let mut buffer = [0_u8; 8192];
+        loop {
+            let read = stdout.read(&mut buffer).await.ok()?;
+            if read == 0 {
+                break;
+            }
+            if output.len().checked_add(read)? > maximum_bytes {
+                return None;
+            }
+            output.extend_from_slice(&buffer[..read]);
+        }
+        child.wait().await.ok()?.success().then_some(output)
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
 fn reconcile_session_owners(root: &Path, minimum_age: Duration, scan_limit: usize) {
     let Ok(entries) = std::fs::read_dir(session_owner_directory(root)) else {
         return;
@@ -2329,9 +2530,9 @@ mod tests {
         AllowedFile, DiffSource, Manifest, OpenOptions, RpcRequestRead, SessionOpenError,
         TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID, handle_protocol_request,
         migrate_legacy_agent_turn_baselines, prune_orphaned_session_temp_files, read_rpc_request,
-        register_session_temp,
-        remove_trajectory_scan_if_current, reserve_session_owner, run_git_patch_with_limit,
-        session_lease_lock_is_active, sweep_orphaned_sessions_periodically, valid_group_id,
+        register_session_temp, remove_trajectory_scan_if_current, reserve_session_owner,
+        run_git_patch_with_limit, session_lease_lock_is_active,
+        sweep_orphaned_sessions_periodically, valid_group_id,
     };
 
     #[tokio::test]
@@ -2353,7 +2554,11 @@ mod tests {
                 .args(arguments)
                 .output()
                 .expect("run git");
-            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
             String::from_utf8(output.stdout).expect("git stdout")
         };
         run_git(&["init"]);
@@ -2363,7 +2568,11 @@ mod tests {
         run_git(&["add", "tracked.txt"]);
         run_git(&["commit", "-m", "baseline"]);
         let commit = run_git(&["rev-parse", "HEAD"]).trim().to_owned();
-        run_git(&["update-ref", &format!("refs/cmux/last-turn/{commit}"), &commit]);
+        run_git(&[
+            "update-ref",
+            &format!("refs/cmux/last-turn/{commit}"),
+            &commit,
+        ]);
         let snapshot = state.join("agent-turn-diff-baseline-snapshots/snapshot");
         let staging = state.join("agent-turn-diff-baseline-snapshots-staging/staging");
         std::fs::create_dir_all(&snapshot).expect("create snapshot");
@@ -2381,14 +2590,20 @@ mod tests {
         )
         .expect("write store");
 
-        migrate_legacy_agent_turn_baselines(&home).await;
+        migrate_legacy_agent_turn_baselines(home.clone()).await;
 
         assert!(!store.exists());
         assert!(!state.join("agent-turn-diff-baseline-snapshots").exists());
-        assert!(!state.join("agent-turn-diff-baseline-snapshots-staging").exists());
-        assert!(run_git(&["for-each-ref", "--format=%(refname)", "refs/cmux/last-turn"])
-            .trim()
-            .is_empty());
+        assert!(
+            !state
+                .join("agent-turn-diff-baseline-snapshots-staging")
+                .exists()
+        );
+        assert!(
+            run_git(&["for-each-ref", "--format=%(refname)", "refs/cmux/last-turn"])
+                .trim()
+                .is_empty()
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 

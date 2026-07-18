@@ -191,6 +191,14 @@ struct HookStore {
 struct HookRecord {
     cwd: Option<String>,
     transcript_path: Option<String>,
+    launch_command: Option<HookLaunchCommand>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HookLaunchCommand {
+    #[serde(default)]
+    environment: HashMap<String, String>,
 }
 
 /// Resolves the patch recorded for an agent session's latest turn.
@@ -328,8 +336,9 @@ fn codex_location(
     roots: &TrajectoryRoots,
 ) -> Result<(PathBuf, PathBuf), TrajectoryError> {
     let hook = read_hook_record(roots, identity.provider, &identity.session_id);
-    let (transcript, repo_root) = if let Some(record) =
-        hook.filter(|record| record.transcript_path.is_some() && record.cwd.is_some())
+    let (transcript, repo_root) = if let Some(record) = hook
+        .as_ref()
+        .filter(|record| record.transcript_path.is_some() && record.cwd.is_some())
     {
         (
             expanded_path(
@@ -341,9 +350,17 @@ fn codex_location(
             expanded_path(record.cwd.as_deref().ok_or(TrajectoryError::Unavailable)?),
         )
     } else {
-        let (transcript, repo_root) =
-            read_codex_database_record(&roots.codex_database(), &identity.session_id)
-                .ok_or(TrajectoryError::Unavailable)?;
+        let database = hook
+            .as_ref()
+            .and_then(|record| record.launch_command.as_ref())
+            .and_then(|command| command.environment.get("CODEX_HOME"))
+            .filter(|path| !path.trim().is_empty())
+            .map_or_else(
+                || roots.codex_database(),
+                |path| expand_home(Path::new(path), &roots.home).join("state_5.sqlite"),
+            );
+        let (transcript, repo_root) = read_codex_database_record(&database, &identity.session_id)
+            .ok_or(TrajectoryError::Unavailable)?;
         (
             expanded_path(&transcript),
             expanded_path(repo_root.as_deref().ok_or(TrajectoryError::Unavailable)?),

@@ -36,6 +36,39 @@ actor DiffSidecarProcessExitSignal {
     }
 }
 
+final class DiffSidecarSynchronousTerminationHandle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var processID: Int32?
+
+    func register(processID: Int32) {
+        guard processID > 0 else { return }
+        lock.lock()
+        self.processID = processID
+        lock.unlock()
+    }
+
+    func clear(processID: Int32) {
+        lock.lock()
+        if self.processID == processID {
+            self.processID = nil
+        }
+        lock.unlock()
+    }
+
+    func terminateSynchronously() {
+        lock.lock()
+        let processID = self.processID
+        self.processID = nil
+        lock.unlock()
+        guard let processID, processID > 0 else { return }
+        if Darwin.getpgid(processID) == processID {
+            _ = Darwin.kill(-processID, SIGTERM)
+        } else {
+            _ = Darwin.kill(processID, SIGTERM)
+        }
+    }
+}
+
 /// Reply-capable transport for the Rust diff sidecar. Requests share one
 /// app-scoped child over bounded stdin/stdout frames. The sidecar never opens a
 /// socket, and WebKit never receives filesystem paths or process access.
@@ -47,7 +80,10 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
     private static var handlerInstalledKey: UInt8 = 0
     private static let maximumRequestBytes = 1024 * 1024
     private nonisolated static let processPool = DiffSidecarProcessPool(limit: 4)
-    private nonisolated static let sidecarProcess = DiffSidecarProcessSupervisor()
+    private nonisolated static let terminationHandle = DiffSidecarSynchronousTerminationHandle()
+    private nonisolated static let sidecarProcess = DiffSidecarProcessSupervisor(
+        terminationHandle: terminationHandle
+    )
     private static let pendingSessionID = "00000000-0000-0000-0000-000000000000"
     private struct ViewerInvocationKey: Hashable {
         let webView: ObjectIdentifier
@@ -59,6 +95,7 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
     private var discardedSessionInvocations: Set<UUID> = []
 
     nonisolated static func shutdown() {
+        terminationHandle.terminateSynchronously()
         Task.detached(priority: .utility) {
             await sidecarProcess.shutdown()
         }
@@ -277,6 +314,11 @@ actor DiffSidecarProcessSupervisor {
     private var outputContinuation: AsyncStream<Data>.Continuation?
     private var generation: UInt64 = 0
     private var pending: [String: PendingRequest] = [:]
+    private let terminationHandle: DiffSidecarSynchronousTerminationHandle
+
+    init(terminationHandle: DiffSidecarSynchronousTerminationHandle = .init()) {
+        self.terminationHandle = terminationHandle
+    }
 
     func run(request: Data) async throws -> Data {
         let requestID = try Self.requestID(from: request)
@@ -345,6 +387,7 @@ actor DiffSidecarProcessSupervisor {
         self.readiness = readiness
 
         try process.run()
+        terminationHandle.register(processID: process.processIdentifier)
         try await Self.waitForProcessGroupReady(from: readiness.fileHandleForReading)
 
         let outputHandle = output.fileHandleForReading
@@ -494,6 +537,9 @@ actor DiffSidecarProcessSupervisor {
         try? output?.fileHandleForReading.close()
         try? readiness?.fileHandleForReading.close()
         let processToReap = process
+        if let processToReap {
+            terminationHandle.clear(processID: processToReap.processIdentifier)
+        }
         processToReap?.terminationHandler = nil
         process = nil
         input = nil
