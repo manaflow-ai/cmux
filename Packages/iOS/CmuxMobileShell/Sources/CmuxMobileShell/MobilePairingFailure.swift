@@ -409,7 +409,7 @@ extension MobilePairingFailureCategory {
                 return .authFailed
             case .accountMismatch:
                 return .accountMismatch
-            case .connectionClosed:
+            case .connectionClosed, .transportWriteTimedOut:
                 return .connectionDropped(host: host, port: port)
             case .invalidResponse:
                 return .unknown(host: host, port: port)

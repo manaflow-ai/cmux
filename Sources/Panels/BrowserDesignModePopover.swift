@@ -176,6 +176,9 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let textView = BrowserDesignModeTokenTextView()
         textView.delegate = context.coordinator
+        textView.onHoveredTokenIdentityChanged = { [weak coordinator = context.coordinator] identity in
+            coordinator?.hoverToken(identity)
+        }
         textView.drawsBackground = false
         textView.isRichText = false
         textView.allowsUndo = true
@@ -246,6 +249,13 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
         context.coordinator.sync(selections: selections, requestedChange: controller.requestedChange)
     }
 
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        if let textView = scrollView.documentView as? BrowserDesignModeTokenTextView {
+            textView.onHoveredTokenIdentityChanged = nil
+        }
+        coordinator.hoverToken(nil)
+    }
+
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         private let controller: BrowserDesignModeController
@@ -253,11 +263,8 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
         weak var textView: BrowserDesignModeTokenTextView?
         private var syncing = false
         var frameObserver: (any NSObjectProtocol)?
-        /// Identities the user deleted locally whose page-side removal has
-        /// not been confirmed by a snapshot yet. sync() must treat these as
-        /// gone, or it would re-append every just-deleted pill and rapid
-        /// backspaces would cascade into mass deletions.
-        private var pendingRemovals: Set<String> = []
+        /// Debounces repeated delete actions while the runtime owns the mutation.
+        private var removalRequests: Set<String> = []
         private var lastResetGeneration: UInt = 0
 
         deinit {
@@ -285,7 +292,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             storage.setAttributedString(NSAttributedString(string: "", attributes: typingAttributes))
             syncing = false
             lastIdentities = []
-            pendingRemovals.removeAll()
+            removalRequests.removeAll()
             controller.requestedChange = ""
             controller.promptRuns = []
             // Runs inside updateNSView; a synchronous @State write would be
@@ -302,11 +309,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
         /// lands after a newly appended token to continue typing.
         func sync(selections: [BrowserDesignModeSelection], requestedChange: String) {
             guard let textView, let storage = textView.textStorage else { return }
-            // Snapshots confirm removals by dropping the identity; anything
-            // still pending stays masked out of the reconciliation.
-            pendingRemovals.formIntersection(selections.map(\.selector))
-            let effective = selections.filter { !pendingRemovals.contains($0.selector) }
-            let identities = effective.map(\.selector)
+            let identities = selections.map(\.selector)
             let current = attachmentIdentities(in: storage)
             guard identities.sorted() != current.sorted()
                 || plainText(of: storage) != requestedChange else {
@@ -342,8 +345,8 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             // pills always deletes a pill, never an invisible space.
             let present = Set(attachmentIdentities(in: storage))
             var appended = false
-            for selection in effective where !present.contains(selection.selector) {
-                storage.append(BrowserDesignModeTokenAttachment.attributedToken(for: selection, at: 0))
+            for selection in selections where !present.contains(selection.selector) {
+                storage.append(attributedToken(for: selection))
                 appended = true
             }
 
@@ -381,9 +384,8 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             ]
         }
 
-        /// A deletion that removes a pill also absorbs the pill's trailing
-        /// separator space; otherwise every removed token strands one space
-        /// and the prompt accumulates gaps.
+        /// Plain text follows normal editing semantics immediately. Pills wait
+        /// for the authoritative page-runtime mutation before storage changes.
         func textView(
             _ textView: NSTextView,
             shouldChangeTextIn affectedRange: NSRange,
@@ -392,17 +394,24 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             guard replacementString?.isEmpty == true,
                   affectedRange.length > 0,
                   let storage = textView.textStorage else { return true }
-            let content = storage.string as NSString
-            guard content.substring(with: affectedRange).contains("\u{FFFC}") else { return true }
-            var expanded = affectedRange
-            if expanded.upperBound < content.length,
-               content.character(at: expanded.upperBound) == 0x20 {
-                expanded.length += 1
+            let identities = attachmentIdentities(in: storage, range: affectedRange)
+            guard !identities.isEmpty else { return true }
+            let textRanges = BrowserDesignModeTokenDeletion.textRangesOutsideAttachments(
+                in: storage,
+                range: affectedRange
+            )
+            for range in textRanges.reversed() {
+                storage.deleteCharacters(in: range)
             }
-            guard expanded != affectedRange else { return true }
-            storage.deleteCharacters(in: expanded)
-            textView.setSelectedRange(NSRange(location: expanded.location, length: 0))
-            textView.didChangeText()
+            if !textRanges.isEmpty {
+                textView.setSelectedRange(
+                    NSRange(location: min(affectedRange.location, storage.length), length: 0)
+                )
+                textView.didChangeText()
+            }
+            for identity in identities {
+                requestTokenRemoval(identity: identity)
+            }
             return false
         }
 
@@ -412,31 +421,14 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             controller.requestedChange = plainText(of: textView.textStorage)
             archivePrompt()
             if identities != lastIdentities {
-                // Tokens were deleted through editing. Storage order can
-                // diverge from the runtime's click order (tokens may be
-                // moved around in the text), so map each removed identity to
-                // its index in the controller's selections, highest first.
-                var remaining = identities
-                var removedIdentities: [String] = []
-                for identity in lastIdentities {
-                    if let position = remaining.firstIndex(of: identity) {
-                        remaining.remove(at: position)
-                    } else {
-                        removedIdentities.append(identity)
-                    }
-                }
-                lastIdentities = identities
-                pendingRemovals.formUnion(removedIdentities)
-                let toRemove = removedIdentities
-                Task { @MainActor [controller] in
-                    // Resolve each index at removal time: every removal
-                    // shifts the indices of the remaining selections.
-                    for identity in toRemove {
-                        guard let index = controller.snapshot?.selections
-                            .firstIndex(where: { $0.selector == identity }) else { continue }
-                        await controller.removeSelection(at: index)
-                    }
-                }
+                // Every supported removal is intercepted before AppKit edits
+                // storage. If another mutation path removes a pill, restore
+                // it from the authoritative runtime snapshot.
+                sync(
+                    selections: controller.snapshot?.selections ?? [],
+                    requestedChange: controller.requestedChange
+                )
+                return
             }
             reportHeight()
         }
@@ -474,6 +466,13 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
                   let selections = controller.snapshot?.selections,
                   let position = selections.firstIndex(where: { $0.selector == token.identity })
             else { return }
+            if let event = NSApp.currentEvent {
+                let point = view.convert(event.locationInWindow, from: nil)
+                if token.deleteHitRect(in: cellFrame).contains(point) {
+                    token.performRemoval()
+                    return
+                }
+            }
             // The XPath is the element's copyable identity: clicking a pill
             // puts the full path on the clipboard and flashes the element.
             let selection = selections[position]
@@ -509,10 +508,14 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             onHeightChange(height)
         }
 
-        private func attachmentIdentities(in storage: NSTextStorage?) -> [String] {
+        private func attachmentIdentities(
+            in storage: NSTextStorage?,
+            range: NSRange? = nil
+        ) -> [String] {
             guard let storage else { return [] }
             var identities: [String] = []
-            storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
+            let enumerationRange = range ?? NSRange(location: 0, length: storage.length)
+            storage.enumerateAttribute(.attachment, in: enumerationRange) { value, _, _ in
                 if let attachment = value as? BrowserDesignModeTokenAttachment {
                     identities.append(attachment.identity)
                 }
@@ -553,7 +556,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
                     storage.append(NSAttributedString(string: string, attributes: typingAttributes))
                 case .token(let identity):
                     guard let selection = selections.first(where: { $0.selector == identity }) else { continue }
-                    storage.append(BrowserDesignModeTokenAttachment.attributedToken(for: selection, at: 0))
+                    storage.append(attributedToken(for: selection))
                 }
             }
             syncing = false
@@ -570,12 +573,112 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             let text = storage.string.replacingOccurrences(of: "\u{FFFC}", with: "")
             return String(text.drop(while: { $0 == " " }))
         }
+
+        private func attributedToken(for selection: BrowserDesignModeSelection) -> NSAttributedString {
+            BrowserDesignModeTokenAttachment.attributedToken(for: selection) { [weak self] identity in
+                self?.requestTokenRemoval(identity: identity)
+            }
+        }
+
+        private func requestTokenRemoval(identity: String) {
+            guard removalRequests.insert(identity).inserted else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer { removalRequests.remove(identity) }
+                guard let index = controller.snapshot?.selections
+                    .firstIndex(where: { $0.selector == identity }) else { return }
+                _ = await controller.removeSelection(at: index)
+            }
+        }
+
+        func hoverToken(_ identity: String?) {
+            Task { @MainActor [controller] in
+                await controller.setSelectionHover(identity: identity)
+            }
+        }
     }
 }
 
 /// Text view that draws the placeholder after the trailing token when no
 /// change text has been typed yet.
 final class BrowserDesignModeTokenTextView: NSTextView {
+    private var tokenTrackingArea: NSTrackingArea?
+    private var hoveredTokenHit: (
+        identity: String,
+        cell: BrowserDesignModeTokenCell,
+        frame: NSRect
+    )?
+    var onHoveredTokenIdentityChanged: ((String?) -> Void)?
+    private(set) var hoveredTokenIdentity: String? {
+        didSet {
+            guard oldValue != hoveredTokenIdentity else { return }
+            needsDisplay = true
+            window?.invalidateCursorRects(for: self)
+            onHoveredTokenIdentityChanged?(hoveredTokenIdentity)
+        }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tokenTrackingArea { removeTrackingArea(tokenTrackingArea) }
+        let trackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        tokenTrackingArea = trackingArea
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let previousFrame = hoveredTokenHit?.frame
+        let hit = tokenHit(at: convert(event.locationInWindow, from: nil))
+        hoveredTokenHit = hit
+        if previousFrame != hit?.frame {
+            window?.invalidateCursorRects(for: self)
+        }
+        hoveredTokenIdentity = hit?.identity
+        super.mouseMoved(with: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hoveredTokenHit = nil
+        hoveredTokenIdentity = nil
+        super.mouseExited(with: event)
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        if let hit = hoveredTokenHit, hit.identity == hoveredTokenIdentity {
+            addCursorRect(hit.cell.deleteHitRect(in: hit.frame), cursor: .pointingHand)
+        }
+    }
+
+    func tokenHit(
+        at point: NSPoint
+    ) -> (identity: String, cell: BrowserDesignModeTokenCell, frame: NSRect)? {
+        guard let storage = textStorage, storage.length > 0,
+              let layoutManager, let textContainer else { return nil }
+        let origin = textContainerOrigin
+        let containerPoint = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer)
+        let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        guard characterIndex < storage.length,
+              let attachment = storage.attribute(
+                  .attachment,
+                  at: characterIndex,
+                  effectiveRange: nil
+              ) as? BrowserDesignModeTokenAttachment,
+              let cell = attachment.attachmentCell as? BrowserDesignModeTokenCell else { return nil }
+        let frame = layoutManager.boundingRect(
+            forGlyphRange: NSRange(location: glyphIndex, length: 1),
+            in: textContainer
+        ).offsetBy(dx: origin.x, dy: origin.y)
+        guard frame.insetBy(dx: -2, dy: -2).contains(point) else { return nil }
+        return (attachment.identity, cell, frame)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard let storage = textStorage,
@@ -642,18 +745,24 @@ enum BrowserDesignModeTokenStyle {
 final class BrowserDesignModeTokenAttachment: NSTextAttachment {
     let identity: String
 
-    init(selection: BrowserDesignModeSelection) {
+    init(
+        selection: BrowserDesignModeSelection,
+        onRemove: @escaping @MainActor (String) -> Void
+    ) {
         identity = selection.selector
         super.init(data: nil, ofType: nil)
-        attachmentCell = BrowserDesignModeTokenCell(selection: selection)
+        attachmentCell = BrowserDesignModeTokenCell(selection: selection, onRemove: onRemove)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    static func attributedToken(for selection: BrowserDesignModeSelection, at index: Int) -> NSAttributedString {
+    static func attributedToken(
+        for selection: BrowserDesignModeSelection,
+        onRemove: @escaping @MainActor (String) -> Void
+    ) -> NSAttributedString {
         let token = NSMutableAttributedString(
-            attachment: BrowserDesignModeTokenAttachment(selection: selection)
+            attachment: BrowserDesignModeTokenAttachment(selection: selection, onRemove: onRemove)
         )
         // Hovering a pill shows its (middle-truncated) XPath; clicking the
         // pill copies the full path.
@@ -680,109 +789,5 @@ final class BrowserDesignModeTokenAttachment: NSTextAttachment {
             range: NSRange(location: 0, length: token.length)
         )
         return token
-    }
-}
-
-/// Draws a token as an inline pill: element-kind glyph plus tag name in blue.
-final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
-    let identity: String
-    private let tagTitle: String
-    private let icon: NSImage?
-    private let tint: NSColor
-    private let titleAttributes: [NSAttributedString.Key: Any]
-
-    /// Parses the runtime's palette hex (#RRGGBB); falls back to accent blue.
-    private static func tintColor(fromHex hex: String) -> NSColor {
-        var value: UInt64 = 0
-        let trimmed = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
-        guard trimmed.count == 6, Scanner(string: trimmed).scanHexInt64(&value) else {
-            return BrowserDesignModeTokenStyle.blue
-        }
-        return NSColor(
-            calibratedRed: CGFloat((value >> 16) & 0xFF) / 255,
-            green: CGFloat((value >> 8) & 0xFF) / 255,
-            blue: CGFloat(value & 0xFF) / 255,
-            alpha: 1
-        )
-    }
-
-    init(selection: BrowserDesignModeSelection) {
-        identity = selection.selector
-        tagTitle = selection.tagName
-        let tint = Self.tintColor(fromHex: selection.color)
-        self.tint = tint
-        titleAttributes = [
-            // Same point size as the typed text so pills read as inline words;
-            // medium weight alone marks them as tags.
-            .font: NSFont.systemFont(ofSize: 13.5, weight: .medium),
-            .foregroundColor: tint,
-        ]
-        let configuration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
-        let symbol = NSImage(
-            systemSymbolName: BrowserDesignModeTagSymbol.symbol(forTag: selection.tagName),
-            accessibilityDescription: selection.tagName
-        )?.withSymbolConfiguration(configuration)
-        // Tint once; draw(withFrame:in:) runs on every text-view redraw.
-        icon = symbol.map { base in
-            NSImage(size: base.size, flipped: false) { rect in
-                base.draw(in: rect)
-                tint.set()
-                rect.fill(using: .sourceAtop)
-                return true
-            }
-        }
-        super.init(textCell: "")
-        setAccessibilityLabel(selection.tagName)
-    }
-
-    @available(*, unavailable)
-    required init(coder: NSCoder) { fatalError("unsupported") }
-
-    private var titleSize: NSSize {
-        (tagTitle as NSString).size(withAttributes: titleAttributes)
-    }
-
-    override func cellSize() -> NSSize {
-        // Width includes the visual breathing room between pills (no literal
-        // space characters live in the storage).
-        let iconWidth: CGFloat = icon == nil ? 0 : 13
-        return NSSize(
-            width: titleSize.width + iconWidth + 16,
-            height: BrowserDesignModeTokenStyle.naturalLineHeight
-        )
-    }
-
-    override func cellBaselineOffset() -> NSPoint {
-        // With the field's fixed 20pt lines, AppKit pins each baseline at
-        // AppKit pins each baseline at fragmentBottom - maxDescent, so a cell
-        // descending deeper than the font shifts text on rows that gain or
-        // lose a pill. With the cell sized to naturalLineHeight, this offset
-        // makes its ascent and descent match the font's exactly — pill rows
-        // and text rows keep identical fragments and baselines.
-        NSPoint(x: 0, y: BrowserDesignModeTokenStyle.font.descender)
-    }
-
-    override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
-        // Cursor-style: plain tinted icon + tag name, no pill background.
-        // Share the surrounding text's baseline so pills read as inline words.
-        let baseline = cellFrame.minY + cellFrame.height
-            + BrowserDesignModeTokenStyle.font.descender
-        let titleFont = titleAttributes[.font] as? NSFont
-            ?? BrowserDesignModeTokenStyle.font
-        var textX = cellFrame.minX + 8
-        if let icon {
-            let iconRect = NSRect(
-                x: textX,
-                y: baseline - titleFont.capHeight / 2 - icon.size.height / 2,
-                width: icon.size.width,
-                height: icon.size.height
-            )
-            icon.draw(in: iconRect)
-            textX = iconRect.maxX + 3
-        }
-        (tagTitle as NSString).draw(
-            at: NSPoint(x: textX, y: baseline - titleFont.ascender),
-            withAttributes: titleAttributes
-        )
     }
 }

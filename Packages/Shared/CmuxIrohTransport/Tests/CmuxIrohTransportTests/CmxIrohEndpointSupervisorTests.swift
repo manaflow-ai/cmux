@@ -221,6 +221,81 @@ struct CmxIrohEndpointSupervisorTests {
         #expect(configurations[1].bindPolicy == bindPolicy)
     }
 
+    @Test("successful relay replacement publishes a reachability change")
+    func successfulRelayReplacementPublishesNetworkChange() async throws {
+        let relayHint = try CmxIrohPathHint(
+            kind: .relayURL,
+            value: "https://usw1-1.relay.lawrence.cmux.iroh.link/",
+            source: .native,
+            privacyScope: .publicInternet
+        )
+        let endpoint = TestIrohEndpoint(
+            identity: identity,
+            pathHintsAfterRelayReplacement: [relayHint]
+        )
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: try endpointConfiguration()
+        )
+        let changes = HostRuntimeLANRefreshRecorder()
+        let events = await supervisor.events()
+        let observation = Task {
+            for await event in events {
+                if case .networkChanged = event {
+                    await changes.record()
+                }
+            }
+        }
+        _ = try await supervisor.activate()
+        let replacement = try relayConfiguration(
+            url: "https://usw1-1.relay.lawrence.cmux.iroh.link/",
+            token: "bbbb"
+        )
+
+        try await supervisor.replaceRelays([replacement])
+
+        let emittedChange = await changes.waitForRefresh(timeout: .seconds(1))
+        #expect(
+            emittedChange,
+            "A successful relay replacement must publish a network-change event"
+        )
+        observation.cancel()
+        await supervisor.deactivate()
+    }
+
+    @Test("relay credential rotation does not republish an unchanged address")
+    func unchangedRelayAddressDoesNotPublishNetworkChange() async throws {
+        let endpoint = TestIrohEndpoint(identity: identity)
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: try endpointConfiguration()
+        )
+        let changes = HostRuntimeLANRefreshRecorder()
+        let events = await supervisor.events()
+        let observation = Task {
+            for await event in events {
+                if case .networkChanged = event {
+                    await changes.record()
+                }
+            }
+        }
+        _ = try await supervisor.activate()
+        let replacement = try relayConfiguration(
+            url: "https://usw1-1.relay.lawrence.cmux.iroh.link/",
+            token: "bbbb"
+        )
+
+        try await supervisor.replaceRelays([replacement])
+
+        let emittedChange = await changes.waitForRefresh(timeout: .milliseconds(50))
+        #expect(
+            !emittedChange,
+            "Rotating credentials without changing the published address must not refresh policy"
+        )
+        observation.cancel()
+        await supervisor.deactivate()
+    }
+
     @Test
     func customProfileReplacementSurvivesEndpointRecovery() async throws {
         let firstEndpoint = TestIrohEndpoint(identity: identity)
