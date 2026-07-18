@@ -1322,6 +1322,120 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
     }
 
+    @Test func agentInspectionDiscoversConfiguredVaultSidecarsWithoutALiveObservation() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-configured-provider-\(UUID().uuidString)", isDirectory: true)
+        let stateDirectory = root.appendingPathComponent("state", isDirectory: true)
+        let configDirectory = root.appendingPathComponent(".config/cmux", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: stateDirectory,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: configDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let provider = "custom-sidecar"
+        try Data("""
+        {
+          // Offline inspection must use the configured provider catalog.
+          "vault": {
+            "agents": [{
+              "id": "\(provider)",
+              "name": "Custom Sidecar",
+              "detect": { "processName": "custom-sidecar" },
+              "sessionIdSource": { "type": "argvOption", "argvOption": "--session" },
+              "resumeCommand": "custom-sidecar --session {{sessionId}}",
+            }],
+          },
+        }
+        """.utf8).write(
+            to: configDirectory.appendingPathComponent("cmux.json"),
+            options: .atomic
+        )
+        try writeAgentTreeStore(
+            parentIndices: [nil],
+            to: stateDirectory.appendingPathComponent("\(provider)-hook-sessions.json")
+        )
+
+        let cliPath = try bundledCLIPath()
+        let environment = isolatedAgentTreeEnvironment(home: root)
+        for subcommand in ["list", "tree"] {
+            for filters in [[], ["--agent", provider]] {
+                let result = runProcess(
+                    executablePath: cliPath,
+                    arguments: ["agents", subcommand]
+                        + filters
+                        + ["--all", "--json", "--state-dir", stateDirectory.path],
+                    environment: environment,
+                    timeout: 5
+                )
+                let context = "agents \(subcommand) \(filters.joined(separator: " ")): \(result.stdout)"
+
+                #expect(!result.timedOut, Comment(rawValue: context))
+                #expect(result.status == 0, Comment(rawValue: context))
+                let payload = try #require(
+                    JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+                    Comment(rawValue: context)
+                )
+                let rows = subcommand == "list"
+                    ? try #require(payload["sessions"] as? [[String: Any]])
+                    : try #require(payload["nodes"] as? [[String: Any]])
+                #expect(rows.contains {
+                    ($0["agent"] as? String) == provider || ($0["provider"] as? String) == provider
+                }, Comment(rawValue: context))
+            }
+        }
+    }
+
+    @Test func agentInspectionDiscoversRegistryOnlyProvidersWithoutALiveObservation() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-registry-provider-\(UUID().uuidString)", isDirectory: true)
+        let stateDirectory = root.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: stateDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let provider = "custom-sqlite"
+        let registry = CmuxAgentSessionRegistry(
+            url: stateDirectory.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        try seedAuthoritativeAgentSessions(count: 1, provider: provider, registry: registry)
+
+        let cliPath = try bundledCLIPath()
+        let environment = isolatedAgentTreeEnvironment(home: root)
+        for subcommand in ["list", "tree"] {
+            for filters in [[], ["--agent", provider]] {
+                let result = runProcess(
+                    executablePath: cliPath,
+                    arguments: ["agents", subcommand]
+                        + filters
+                        + ["--all", "--json", "--state-dir", stateDirectory.path],
+                    environment: environment,
+                    timeout: 5
+                )
+                let context = "agents \(subcommand) \(filters.joined(separator: " ")): \(result.stdout)"
+
+                #expect(!result.timedOut, Comment(rawValue: context))
+                #expect(result.status == 0, Comment(rawValue: context))
+                let payload = try #require(
+                    JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+                    Comment(rawValue: context)
+                )
+                let rows = subcommand == "list"
+                    ? try #require(payload["sessions"] as? [[String: Any]])
+                    : try #require(payload["nodes"] as? [[String: Any]])
+                #expect(rows.contains {
+                    ($0["agent"] as? String) == provider || ($0["provider"] as? String) == provider
+                }, Comment(rawValue: context))
+            }
+        }
+    }
+
     @Test func providerStopAdapterDistinguishesInterruptionsFromCompletion() throws {
         let adapter = AgentStopStateAdapter()
         let kimiInterrupt = ClaudeHookParsedInput(
