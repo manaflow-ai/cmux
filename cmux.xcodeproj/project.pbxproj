@@ -6668,6 +6668,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				"$(SRCROOT)/Native/DiffSidecar/src/manifest.rs",
 				"$(SRCROOT)/Native/DiffSidecar/src/protocol.rs",
 				"$(SRCROOT)/Native/DiffSidecar/src/server.rs",
+				"$(SRCROOT)/Native/DiffSidecar/src/trajectory.rs",
 				"$(SRCROOT)/scripts/build-diff-sidecar.sh",
 				"$(SRCROOT)/scripts/run-diff-sidecar-cargo.sh",
 				"$(SRCROOT)/scripts/verify-diff-sidecar-artifact.sh",
