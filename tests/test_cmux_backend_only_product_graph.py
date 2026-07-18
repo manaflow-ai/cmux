@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import os
 import plistlib
 import re
@@ -30,6 +31,15 @@ FRONTEND_DOMAIN_EXPORTS = (
     TERMINAL_PACKAGE
     / "Sources/CmuxTerminalFrontend/Exports/CmuxTerminalDomainExports.swift"
 )
+
+
+def load_verifier_module():
+    spec = importlib.util.spec_from_file_location("cmux_backend_only_verifier", VERIFIER)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def run_verifier(
@@ -112,10 +122,14 @@ def write_artifact_fixture(root: Path) -> tuple[Path, Path]:
     app = root / "cmux.app"
     macos = app / "Contents/MacOS"
     macos.mkdir(parents=True)
+    frameworks = app / "Contents/Frameworks"
+    frameworks.mkdir(parents=True)
     executable = macos / "cmux"
     debug_library = macos / "cmux.debug.dylib"
+    nucleo_library = frameworks / "libcmux_command_palette_nucleo_ffi.dylib"
     executable.write_bytes(b"host fixture\n")
     debug_library.write_bytes(b"debug fixture\n")
+    nucleo_library.write_bytes(b"nucleo fixture\n")
     with (app / "Contents/Info.plist").open("wb") as stream:
         plistlib.dump(
             {
@@ -131,7 +145,14 @@ def write_artifact_fixture(root: Path) -> tuple[Path, Path]:
     write_fake_tool(tools / "file", "printf '%s: Mach-O 64-bit executable arm64\\n' \"$1\"\n")
     write_fake_tool(
         tools / "nm",
-        """if [[ "${CMUX_PRODUCT_GRAPH_FIXTURE:-clean}" == "dlopen" ]]; then
+        """mode="${CMUX_PRODUCT_GRAPH_FIXTURE:-clean}"
+if [[ "$mode" == "allowed-host-loaders" && "$2" == */MacOS/* ]]; then
+  printf '                 U _dlopen\n'
+  printf '                 U _dlsym\n'
+  printf '                 U _dlclose\n'
+elif [[ "$mode" == "unsupported-host-loader" && "$2" == */MacOS/* ]]; then
+  printf '                 U _dlmopen\n'
+elif [[ "$mode" == "nucleo-loader" && "$2" == */libcmux_command_palette_nucleo_ffi.dylib ]]; then
   printf '                 U _dlopen\n'
 fi
 """,
@@ -266,6 +287,7 @@ def test_artifact_attestation_binds_graph_to_recursive_host_load_closure() -> No
         assert {item["path"] for item in artifact["load_closure"]} == {
             "Contents/MacOS/cmux",
             "Contents/MacOS/cmux.debug.dylib",
+            "Contents/Frameworks/libcmux_command_palette_nucleo_ffi.dylib",
         }
         assert artifact["load_edges"] == [
             {
@@ -274,12 +296,67 @@ def test_artifact_attestation_binds_graph_to_recursive_host_load_closure() -> No
                 "to": "Contents/MacOS/cmux.debug.dylib",
             }
         ]
+        assert artifact["sanctioned_dynamic_loads"] == [
+            "Contents/Frameworks/libcmux_command_palette_nucleo_ffi.dylib"
+        ]
+        assert {item["path"] for item in artifact["dynamic_load_sources"]} == {
+            "Sources/SystemCommandRunner.swift",
+            (
+                "Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/"
+                "Nucleo/CommandPaletteNucleoSearchLibrary.swift"
+            ),
+        }
         assert len(artifact["attestation_sha256"]) == 64
 
-        environment["CMUX_PRODUCT_GRAPH_FIXTURE"] = "dlopen"
+        environment["CMUX_PRODUCT_GRAPH_FIXTURE"] = "allowed-host-loaders"
+        result = run_verifier(package, "--app-bundle", str(app), environment=environment)
+        assert result.returncode == 0, result.stderr
+
+        environment["CMUX_PRODUCT_GRAPH_FIXTURE"] = "unsupported-host-loader"
         result = run_verifier(package, "--app-bundle", str(app), environment=environment)
         assert result.returncode != 0
-        assert "dynamic-load symbol _dlopen" in result.stderr
+        assert "unapproved dynamic-load symbols: _dlmopen" in result.stderr
+
+        environment["CMUX_PRODUCT_GRAPH_FIXTURE"] = "nucleo-loader"
+        result = run_verifier(package, "--app-bundle", str(app), environment=environment)
+        assert result.returncode != 0
+        assert "unapproved dynamic-load symbols: _dlopen" in result.stderr
+
+
+def test_dynamic_load_source_policy_is_exact_and_hash_bound() -> None:
+    verifier = load_verifier_module()
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        allowed = root / "Sources/AllowedLoader.swift"
+        allowed.parent.mkdir(parents=True)
+        allowed.write_text('func load() { _ = dlopen("/system", 0) }\n', encoding="utf-8")
+        allowed_hash = verifier.sha256_file(allowed)
+
+        verifier.REPOSITORY_ROOT = root
+        verifier.ALLOWED_DYNAMIC_LOAD_SOURCES = {
+            "Sources/AllowedLoader.swift": allowed_hash,
+        }
+        report = verifier.verify_dynamic_load_source_policy()
+        assert report == [
+            {"path": "Sources/AllowedLoader.swift", "sha256": allowed_hash}
+        ]
+
+        allowed.write_text('func load() { _ = dlopen("/changed", 0) }\n', encoding="utf-8")
+        try:
+            verifier.verify_dynamic_load_source_policy()
+        except verifier.VerificationError as error:
+            assert "reviewed dynamic-load source changed" in str(error)
+        else:
+            raise AssertionError("changed loader source was accepted")
+
+        unexpected = root / "Sources/UnexpectedLoader.swift"
+        unexpected.write_text('func load() { _ = dlsym(nil, "escape") }\n', encoding="utf-8")
+        try:
+            verifier.verify_dynamic_load_source_policy()
+        except verifier.VerificationError as error:
+            assert "unreviewed dynamic-load callsites" in str(error)
+        else:
+            raise AssertionError("unreviewed loader source was accepted")
 
 
 def main() -> int:
@@ -287,6 +364,7 @@ def main() -> int:
     test_source_policy_rejects_ghostty_and_dynamic_loading()
     test_product_closure_rejects_legacy_targets_even_without_forbidden_imports()
     test_artifact_attestation_binds_graph_to_recursive_host_load_closure()
+    test_dynamic_load_source_policy_is_exact_and_hash_bound()
     print("PASS: backend-only product graph and host artifact are bound")
     return 0
 

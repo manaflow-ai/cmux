@@ -74,7 +74,7 @@ FORBIDDEN_SOURCE_PATTERNS = (
     ),
     ("C symbol escape hatch", re.compile(r"@_silgen_name\b|@_cdecl\b")),
 )
-FORBIDDEN_DYNAMIC_SYMBOLS = frozenset(
+DYNAMIC_LOAD_SYMBOLS = frozenset(
     {
         "_CFBundleLoadExecutable",
         "_CFBundleLoadExecutableAndReturnError",
@@ -90,6 +90,25 @@ FORBIDDEN_DYNAMIC_SYMBOLS = frozenset(
         "_dlopen_preflight",
         "_dlsym",
     }
+)
+ALLOWED_HOST_DYNAMIC_SYMBOLS = frozenset({"_dlclose", "_dlopen", "_dlsym"})
+ALLOWED_DYNAMIC_LOAD_SOURCES = {
+    "Sources/SystemCommandRunner.swift": (
+        "89de1b38b36ff54cc8090b00567f24e5564c827e38fa759a81db850205727bff"
+    ),
+    (
+        "Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/"
+        "Nucleo/CommandPaletteNucleoSearchLibrary.swift"
+    ): "8ea6e218020a417e91e290b57f21fd2b371005902f832306fcc644e3246294bc",
+}
+DYNAMIC_LOAD_SOURCE_PATTERN = re.compile(
+    r"\b(?:dlopen|dlclose|dlsym|dladdr|dlerror|dlmopen|"
+    r"NSCreateObjectFileImageFromFile|NSLinkModule|NSLookupSymbolInModule)\s*\(|"
+    r"\b(?:Bundle|NSBundle)(?:\s*\([^\n]*\)|\.[A-Za-z_][A-Za-z0-9_]*)?"
+    r"\s*\.\s*(?:load|loadAndReturnError|preflightAndReturnError|unload)\s*\("
+)
+SANCTIONED_DYNAMIC_LOADS = (
+    "Contents/Frameworks/libcmux_command_palette_nucleo_ffi.dylib",
 )
 ALLOWED_EXTERNAL_LOAD_PREFIXES = (
     "/System/Library/",
@@ -409,6 +428,53 @@ def run_tool(arguments: list[str]) -> str:
     return process.stdout
 
 
+def verify_dynamic_load_source_policy() -> list[dict[str, str]]:
+    """Bind every production dynamic-loader callsite to an exact reviewed source."""
+
+    observed: dict[str, str] = {}
+    for relative_root in (Path("Sources"), Path("Packages/macOS")):
+        source_root = REPOSITORY_ROOT / relative_root
+        for source_path in sorted(source_root.rglob("*")):
+            if not source_path.is_file() or source_path.suffix not in {
+                ".swift",
+                ".c",
+                ".m",
+                ".mm",
+            }:
+                continue
+            relative = source_path.relative_to(REPOSITORY_ROOT)
+            if "Tests" in relative.parts:
+                continue
+            contents = source_path.read_text(encoding="utf-8")
+            if not DYNAMIC_LOAD_SOURCE_PATTERN.search(contents):
+                continue
+            relative_text = relative.as_posix()
+            observed[relative_text] = sha256_bytes(contents.encode("utf-8"))
+
+    unexpected = sorted(set(observed) - set(ALLOWED_DYNAMIC_LOAD_SOURCES))
+    if unexpected:
+        raise VerificationError(
+            "host source closure contains unreviewed dynamic-load callsites: "
+            + ", ".join(unexpected)
+        )
+    missing = sorted(set(ALLOWED_DYNAMIC_LOAD_SOURCES) - set(observed))
+    if missing:
+        raise VerificationError(
+            "reviewed host dynamic-load callsites are missing: " + ", ".join(missing)
+        )
+    for relative, expected_hash in ALLOWED_DYNAMIC_LOAD_SOURCES.items():
+        actual_hash = observed[relative]
+        if actual_hash != expected_hash:
+            raise VerificationError(
+                f"reviewed dynamic-load source changed: {relative} "
+                f"(expected {expected_hash}, got {actual_hash})"
+            )
+    return [
+        {"path": relative, "sha256": observed[relative]}
+        for relative in sorted(observed)
+    ]
+
+
 def macho_loads(binary: Path) -> list[str]:
     output = run_tool(["otool", "-L", str(binary)])
     loads: list[str] = []
@@ -478,29 +544,21 @@ def resolve_load(
     raise VerificationError(f"unsupported relative Mach-O load {load} from {loader}")
 
 
-def verify_no_dynamic_load_symbols(binary: Path) -> None:
+def verify_dynamic_load_symbols(binary: Path, *, permits_host_loaders: bool) -> list[str]:
     output = run_tool(["nm", "-a", str(binary)])
-    for symbol in sorted(FORBIDDEN_DYNAMIC_SYMBOLS):
-        if re.search(rf"(?m)(?:^|\s){re.escape(symbol)}(?:\s|$)", output):
-            raise VerificationError(f"host load closure contains dynamic-load symbol {symbol}")
-    swift_bundle_loader = re.search(
-        r"\$s10Foundation6BundleC(?:4load|6unload|18loadAndReturnError)",
-        output,
+    observed = sorted(
+        symbol
+        for symbol in DYNAMIC_LOAD_SYMBOLS
+        if re.search(rf"(?m)(?:^|\s){re.escape(symbol)}(?:\s|$)", output)
     )
-    if swift_bundle_loader:
+    allowed = ALLOWED_HOST_DYNAMIC_SYMBOLS if permits_host_loaders else frozenset()
+    unexpected = sorted(set(observed) - allowed)
+    if unexpected:
         raise VerificationError(
-            f"host load closure contains dynamic-load symbol {swift_bundle_loader.group(0)}"
+            "host load closure contains unapproved dynamic-load symbols: "
+            + ", ".join(unexpected)
         )
-    if "_OBJC_CLASS_$_NSBundle" in output:
-        embedded_strings = run_tool(["strings", "-a", str(binary)])
-        selector = re.search(
-            r"(?m)^(?:load|loadAndReturnError:|preflightAndReturnError:|unload)$",
-            embedded_strings,
-        )
-        if selector:
-            raise VerificationError(
-                f"host load closure contains NSBundle dynamic-load selector {selector.group(0)}"
-            )
+    return observed
 
 
 def relative_bundle_path(path: Path, bundle_root: Path) -> str:
@@ -533,11 +591,23 @@ def verify_host_artifact(app_bundle: Path, graph_sha256: str) -> dict[str, Any]:
     if audit.returncode != 0:
         raise VerificationError(audit.stderr.strip() or audit.stdout.strip())
 
+    dynamic_load_sources = verify_dynamic_load_source_policy()
     initial = [executable]
     initial.extend(sorted(executable.parent.glob("*.debug.dylib")))
+    sanctioned_dynamic_paths: set[Path] = set()
+    for relative in SANCTIONED_DYNAMIC_LOADS:
+        dynamic_binary = (bundle_root / relative).resolve(strict=False)
+        if not dynamic_binary.is_file():
+            raise VerificationError(
+                f"sanctioned dynamic-load artifact is missing: {dynamic_binary}"
+            )
+        dynamic_binary = dynamic_binary.resolve(strict=True)
+        sanctioned_dynamic_paths.add(dynamic_binary)
+        initial.append(dynamic_binary)
     queue = deque(path.resolve(strict=True) for path in initial)
     visited: set[Path] = set()
     load_edges: set[tuple[str, str, str]] = set()
+    dynamic_symbol_reports: list[dict[str, Any]] = []
     executable_directory = executable.parent.resolve(strict=True)
     while queue:
         binary = queue.popleft()
@@ -545,7 +615,19 @@ def verify_host_artifact(app_bundle: Path, graph_sha256: str) -> dict[str, Any]:
             continue
         relative_bundle_path(binary, bundle_root)
         visited.add(binary)
-        verify_no_dynamic_load_symbols(binary)
+        relative_binary = relative_bundle_path(binary, bundle_root)
+        permits_host_loaders = binary == executable or (
+            binary.parent == executable.parent and binary.name.endswith(".debug.dylib")
+        )
+        dynamic_symbol_reports.append(
+            {
+                "path": relative_binary,
+                "symbols": verify_dynamic_load_symbols(
+                    binary,
+                    permits_host_loaders=permits_host_loaders,
+                ),
+            }
+        )
         for load in macho_loads(binary):
             target = resolve_load(
                 load,
@@ -588,6 +670,11 @@ def verify_host_artifact(app_bundle: Path, graph_sha256: str) -> dict[str, Any]:
         "executable": relative_bundle_path(executable, bundle_root),
         "load_closure": closure,
         "load_edges": edges,
+        "sanctioned_dynamic_loads": sorted(
+            relative_bundle_path(path, bundle_root) for path in sanctioned_dynamic_paths
+        ),
+        "dynamic_load_sources": dynamic_load_sources,
+        "dynamic_symbols": sorted(dynamic_symbol_reports, key=lambda item: item["path"]),
         "linkage_auditor_sha256": sha256_file(MACHO_AUDITOR),
     }
     artifact["attestation_sha256"] = sha256_bytes(
