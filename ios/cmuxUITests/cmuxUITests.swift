@@ -8,6 +8,22 @@ final class cmuxUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    func testMockHostInstanceTagFollowsTargetBuildScope() {
+        XCTAssertEqual(
+            mockHostInstanceTag(
+                testBundleIdentifier: "dev.cmux.ios.spark"
+            ),
+            "spark"
+        )
+        XCTAssertEqual(
+            mockHostInstanceTag(
+                testBundleIdentifier: "dev.cmux.ios.uitests"
+            ),
+            "dev"
+        )
+        XCTAssertNotEqual(mockHostInstanceTag(), "uitests")
+    }
+
     @MainActor
     func testStackAuthEntryUsesStableIdentifiers() throws {
         let app = launchApp(mockData: false, clearAuth: true)
@@ -2694,6 +2710,7 @@ final class cmuxUITests: XCTestCase {
             terminalID: nil,
             macDeviceID: "ui-test-mac",
             macDisplayName: "UI Test Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
             routes: [route],
             expiresAt: Date(timeIntervalSinceNow: 60 * 60),
             authToken: "ui-test-ticket"
@@ -4938,6 +4955,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let createdWorkspaceTerminalDelay: TimeInterval?
     private let supportsManualAttachTicket: Bool
     private let workspaceCreateSelectsCreatedWorkspace: Bool
+    private let macInstanceTag: String
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
     private var connections: [NWConnection] = []
     private var selectedWorkspaceID = "workspace-main"
@@ -4999,12 +5017,14 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         additionalMainTerminalCount: Int = 0,
         createdWorkspaceTerminalDelay: TimeInterval? = nil,
         supportsManualAttachTicket: Bool = false,
-        workspaceCreateSelectsCreatedWorkspace: Bool = true
+        workspaceCreateSelectsCreatedWorkspace: Bool = true,
+        macInstanceTag: String = mockHostInstanceTag()
     ) throws {
         listener = try NWListener(using: .tcp, on: .any)
         self.createdWorkspaceTerminalDelay = createdWorkspaceTerminalDelay
         self.supportsManualAttachTicket = supportsManualAttachTicket
         self.workspaceCreateSelectsCreatedWorkspace = workspaceCreateSelectsCreatedWorkspace
+        self.macInstanceTag = macInstanceTag
         appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
         // color-band render test so the bands stream on attach without a flaky
@@ -5177,6 +5197,12 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     }
 
     private func receiveRequest(on connection: NWConnection, buffer: Data = Data()) {
+        var buffered = buffer
+        if let payload = Self.nextFrame(from: &buffered) {
+            respond(to: payload, on: connection, remainingBuffer: buffered)
+            return
+        }
+
         connection.receive(
             minimumIncompleteLength: 1,
             maximumLength: 64 * 1024
@@ -5185,7 +5211,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 return
             }
 
-            var nextBuffer = buffer
+            var nextBuffer = buffered
             if let data, !data.isEmpty {
                 nextBuffer.append(data)
             }
@@ -5282,7 +5308,10 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     }
 
     private func mobileHostStatusResult() -> [String: Any] {
-        var result: [String: Any] = [
+        [
+            "mac_device_id": "ui-test-mac",
+            "mac_display_name": "UI Test Mac",
+            "mac_instance_tag": macInstanceTag,
             "routes": [],
             "terminal_fidelity": "render_grid",
             "capabilities": [
@@ -5302,12 +5331,6 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 "workspace.groups.v1",
             ],
         ]
-        if supportsManualAttachTicket {
-            result["mac_device_id"] = "ui-test-mac"
-            result["mac_display_name"] = "UI Test Mac"
-            result["mac_instance_tag"] = "dev"
-        }
-        return result
     }
 
     private func manualAttachTicketResult() throws -> [String: Any] {
@@ -5604,6 +5627,25 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private func serverError(_ message: String) -> NSError {
         NSError(domain: "MobileSyncMockHostServer", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
     }
+}
+
+/// Maps the XCUITest bundle back to the target app's tagged DEBUG build scope.
+/// Tagged builds override the test bundle identifier with the app identifier;
+/// ordinary UI tests retain their reserved `uitests` identifier and map to the
+/// production policy's `dev` fallback.
+private func mockHostInstanceTag(
+    testBundleIdentifier: String? = Bundle(for: cmuxUITests.self).bundleIdentifier
+) -> String {
+    let runnerSuffix = ".xctrunner"
+    guard let testBundleIdentifier else { return "dev" }
+    let appBundleIdentifier = testBundleIdentifier.hasSuffix(runnerSuffix)
+        ? String(testBundleIdentifier.dropLast(runnerSuffix.count))
+        : testBundleIdentifier
+    guard appBundleIdentifier != "dev.cmux.ios.uitests" else { return "dev" }
+    return MobileIOSBuildScope.current(
+        infoDictionary: nil,
+        bundleIdentifier: appBundleIdentifier
+    )?.value ?? "dev"
 }
 
 private extension XCUIApplication {
