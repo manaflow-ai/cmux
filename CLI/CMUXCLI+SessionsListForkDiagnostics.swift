@@ -108,14 +108,15 @@ final class SessionsListClaudeTranscriptLookupCache {
         projectRoots: [String],
         excludingSessionId excludedSessionId: String
     ) -> (sessionId: String, path: String)? {
-        var matches: [(sessionId: String, path: String)] = []
+        var match: (sessionId: String, path: String)?
         for projectRoot in projectRoots {
-            matches.append(contentsOf: workflowTranscripts(inProjectRoot: projectRoot).filter {
-                $0.sessionId != excludedSessionId
-            })
+            for candidate in workflowTranscripts(inProjectRoot: projectRoot) {
+                guard candidate.sessionId != excludedSessionId else { continue }
+                guard match == nil else { return nil }
+                match = candidate
+            }
         }
-        guard matches.count == 1 else { return nil }
-        return matches[0]
+        return match
     }
 
     func projectDirs(configRoot: String) -> [String] {
