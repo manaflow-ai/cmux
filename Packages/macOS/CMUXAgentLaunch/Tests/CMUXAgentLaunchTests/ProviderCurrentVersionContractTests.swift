@@ -903,4 +903,51 @@ struct ProviderCurrentVersionContractTests {
             ) == ["qodercli", "--max-turns", "10", "--yolo", "--model", "qoder"]
         )
     }
+
+    @Test("Interactive subcommands fail closed on unknown options")
+    func interactiveSubcommandsFailClosedOnUnknownOptions() {
+        let cases: [(process: String, kind: String, arguments: [String])] = [
+            ("codex", "codex", ["codex", "resume", "session-1", "--cmux-unknown"]),
+            ("codex", "codex", ["codex", "fork", "session-1", "--cmux-unknown=value"]),
+            ("opencode", "opencode", ["opencode", "attach", "http://127.0.0.1:4096", "--cmux-unknown"]),
+            ("opencode", "opencode", ["opencode", "pr", "123", "--cmux-unknown=value"]),
+            ("kiro-cli", "kiro", ["kiro-cli", "chat", "--cmux-unknown"]),
+        ]
+
+        for testCase in cases {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: testCase.process,
+                    arguments: testCase.arguments,
+                    kind: testCase.kind
+                ) == .unknown,
+                "\(testCase.arguments)"
+            )
+        }
+    }
+
+    @Test("Current interactive subcommand options remain recognized")
+    func currentInteractiveSubcommandOptionsRemainRecognized() {
+        let cases: [(process: String, kind: String, arguments: [String])] = [
+            ("codex", "codex", ["codex", "resume", "--include-non-interactive", "--last"]),
+            ("codex", "codex", ["codex", "fork", "--all", "--last"]),
+            ("opencode", "opencode", [
+                "opencode", "attach", "http://127.0.0.1:4096",
+                "--dir", "/tmp/project", "--username", "cmux", "--password", "secret",
+            ]),
+            ("opencode", "opencode", ["opencode", "pr", "123", "--pure"]),
+            ("kiro-cli", "kiro", ["kiro-cli", "chat", "--effort", "high", "--trust-all-tools"]),
+        ]
+
+        for testCase in cases {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: testCase.process,
+                    arguments: testCase.arguments,
+                    kind: testCase.kind
+                ) == .interactive,
+                "\(testCase.arguments)"
+            )
+        }
+    }
 }
