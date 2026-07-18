@@ -756,6 +756,19 @@ final class TerminalPanel: Panel, ObservableObject {
         return .resumed(queuedStartupInput: resumeStartupInput != nil)
     }
 
+    /// Abandons a persisted hibernation placeholder whose durable session
+    /// binding could not be adopted. Unlike resume, this never queues the
+    /// agent's resume command, so a newer live owner cannot be duplicated.
+    @discardableResult
+    func discardRestoredAgentHibernation() -> Bool {
+        guard agentHibernationState != nil else { return false }
+        agentHibernationState = nil
+        surface.prepareAgentHibernationResume(initialInput: nil)
+        requestViewReattach()
+        surface.requestBackgroundSurfaceStartIfNeeded()
+        return true
+    }
+
     func requestViewReattach() {
         viewReattachToken &+= 1
     }

@@ -199,6 +199,16 @@ extension Workspace {
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
     }
 
+    func discardRejectedRestoredAgentHibernation(
+        panelId: UUID,
+        restoredAgent: SessionRestorableAgentSnapshot
+    ) {
+        _ = (panels[panelId] as? TerminalPanel)?.discardRestoredAgentHibernation()
+        invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
+        clearAgentLifecycleStates(panelId: panelId)
+        clearRejectedRestoredAgentHibernationMetadata(panelId: panelId)
+    }
+
     func seedDetachedRestoredAgentState(from detached: DetachedSurfaceTransfer) {
         if let shellActivityState = detached.shellActivityState {
             panelShellActivityStates[detached.panelId] = shellActivityState

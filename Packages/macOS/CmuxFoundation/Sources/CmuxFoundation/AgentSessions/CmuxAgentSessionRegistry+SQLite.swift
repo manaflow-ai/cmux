@@ -167,6 +167,16 @@ extension CmuxAgentSessionRegistry {
         return Int(sqlite3_column_int64(statement, 0))
     }
 
+    func hasRecord(database: OpaquePointer, provider: String) throws -> Bool {
+        let statement = try prepare(
+            database,
+            "SELECT 1 FROM agent_sessions WHERE provider = ?1 LIMIT 1"
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(provider, to: 1, in: statement)
+        return try stepRow(statement, database: database, operation: "find session")
+    }
+
     func readSlots(database: OpaquePointer, provider: String) throws -> [ActiveSlot] {
         let statement = try prepare(
             database,

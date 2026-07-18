@@ -48,6 +48,17 @@ private struct SessionPaneRestoreEntry {
     let snapshot: SessionPaneLayoutSnapshot
 }
 
+private struct PendingRestoredAgentHibernationAdoption {
+    let request: AgentHookSessionStateWriter.RestoredHibernationAdoptionRequest
+    let resumeWorkingDirectory: String?
+}
+
+private struct AgentHibernationRestoreSuppressionState {
+    let wasRestoring: Bool
+    let presentationVisible: Bool
+    let presentationVisibilityWasUpdated: Bool
+}
+
 extension Workspace {
     func sessionSnapshot(
         includeScrollback: Bool,
@@ -152,8 +163,12 @@ extension Workspace {
     @discardableResult
     func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot, excludingStableIdentities: Set<UUID> = []) -> [UUID: UUID] {
         let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
+        let hibernationSuppression = beginAgentHibernationRestoreSuppression()
         suppressClosedPanelHistory = true
-        defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
+        defer {
+            suppressClosedPanelHistory = previousSuppressClosedPanelHistory
+            endAgentHibernationRestoreSuppression(hibernationSuppression)
+        }
         sessionRestoreIdentityExclusions.beginRestore(excluding: excludingStableIdentities)
         defer { sessionRestoreIdentityExclusions.endRestore() }
 
@@ -212,6 +227,7 @@ extension Workspace {
             return restoreSessionLayout(snapshot.layout)
         }()
         var oldToNewPanelIds: [UUID: UUID] = [:]
+        var pendingAgentHibernationAdoptions: [PendingRestoredAgentHibernationAdoption] = []
 
         for entry in leafEntries {
             restorePane(
@@ -220,9 +236,12 @@ extension Workspace {
                 panelSnapshotsById: panelSnapshotsById,
                 snapshotWorkspaceId: snapshot.workspaceId,
                 shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal,
-                oldToNewPanelIds: &oldToNewPanelIds
+                oldToNewPanelIds: &oldToNewPanelIds,
+                pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions
             )
         }
+
+        finalizeRestoredAgentHibernationAdoptions(pendingAgentHibernationAdoptions)
 
         pruneSurfaceMetadata(validSurfaceIds: Set(panels.keys))
         applySessionDividerPositions(snapshotNode: snapshot.layout, liveNode: bonsplitController.treeSnapshot())
@@ -292,6 +311,71 @@ extension Workspace {
         AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
         syncUnreadBadgeStateForAllPanels()
         return oldToNewPanelIds
+    }
+
+    private func finalizeRestoredAgentHibernationAdoptions(
+        _ pending: [PendingRestoredAgentHibernationAdoption]
+    ) {
+        guard !pending.isEmpty else { return }
+        let adoptedSurfaceIds = AgentHookSessionStateWriter.recordRestoredHibernations(
+            pending.map(\.request)
+        )
+        for adoption in pending {
+            let request = adoption.request
+            if adoptedSurfaceIds.contains(request.surfaceId) {
+                AgentChatTranscriptService.recordResumeIntent(
+                    sessionID: request.agent.sessionId,
+                    source: request.agent.kind.rawValue,
+                    surfaceID: request.surfaceId.uuidString,
+                    workspaceID: request.workspaceId.uuidString,
+                    workingDirectory: adoption.resumeWorkingDirectory
+                )
+            } else {
+                discardRejectedRestoredAgentHibernation(
+                    panelId: request.surfaceId,
+                    restoredAgent: request.agent
+                )
+                NSLog(
+                    "[Workspace] discarded unowned restored agent hibernation session=%@",
+                    request.agent.sessionId
+                )
+            }
+        }
+    }
+
+    private func beginAgentHibernationRestoreSuppression() -> AgentHibernationRestoreSuppressionState {
+        let state = AgentHibernationRestoreSuppressionState(
+            wasRestoring: isRestoringSessionSnapshot,
+            presentationVisible: agentHibernationAutoResumePresentationVisible,
+            presentationVisibilityWasUpdated: agentHibernationPresentationVisibilityWasUpdatedDuringSessionRestore
+        )
+        isRestoringSessionSnapshot = true
+        agentHibernationAutoResumePresentationVisible = false
+        agentHibernationPresentationVisibilityWasUpdatedDuringSessionRestore = false
+        return state
+    }
+
+    private func endAgentHibernationRestoreSuppression(
+        _ state: AgentHibernationRestoreSuppressionState
+    ) {
+        let presentationVisible = agentHibernationPresentationVisibilityWasUpdatedDuringSessionRestore
+            ? agentHibernationAutoResumePresentationVisible
+            : state.presentationVisible
+        isRestoringSessionSnapshot = state.wasRestoring
+        agentHibernationPresentationVisibilityWasUpdatedDuringSessionRestore =
+            state.presentationVisibilityWasUpdated
+        if state.wasRestoring {
+            agentHibernationAutoResumePresentationVisible = presentationVisible
+            agentHibernationPresentationVisibilityWasUpdatedDuringSessionRestore = true
+        } else {
+            setAgentHibernationAutoResumePresentationVisible(presentationVisible)
+        }
+    }
+
+    func clearRejectedRestoredAgentHibernationMetadata(panelId: UUID) {
+        restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
+        restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+        restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
     }
 
     private func sessionLayoutSnapshot(from node: ExternalTreeNode) -> SessionWorkspaceLayoutSnapshot {
@@ -822,12 +906,17 @@ extension Workspace {
 
     @discardableResult
     private func restoreClosedPanel(_ entry: ClosedPanelHistoryEntry, inPane pane: PaneID) -> UUID? {
+        let hibernationSuppression = beginAgentHibernationRestoreSuppression()
+        defer { endAgentHibernationRestoreSuppression(hibernationSuppression) }
+        var pendingAgentHibernationAdoptions: [PendingRestoredAgentHibernationAdoption] = []
         guard let panelId = createPanel(
             from: entry.snapshot,
             inPane: pane,
-            snapshotWorkspaceId: nil,
-            shouldRestoreSingleDefaultCloudTerminal: false
+            snapshotWorkspaceId: entry.workspaceId,
+            shouldRestoreSingleDefaultCloudTerminal: false,
+            pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions
         ) else { return nil }
+        finalizeRestoredAgentHibernationAdoptions(pendingAgentHibernationAdoptions)
 
         let maxIndex = max(0, bonsplitController.tabs(inPane: pane).count - 1)
         _ = reorderSurface(panelId: panelId, toIndex: min(max(entry.tabIndex, 0), maxIndex))
@@ -842,6 +931,8 @@ extension Workspace {
 
     @discardableResult
     private func restoreClosedPanelInFallbackSplit(_ entry: ClosedPanelHistoryEntry) -> UUID? {
+        let hibernationSuppression = beginAgentHibernationRestoreSuppression()
+        defer { endAgentHibernationRestoreSuppression(hibernationSuppression) }
         guard let placement = entry.fallbackSplitPlacement,
               let anchorPanelId = placement.anchorPanelId,
               panels[anchorPanelId] != nil else {
@@ -861,15 +952,18 @@ extension Workspace {
             return nil
         }
 
+        var pendingAgentHibernationAdoptions: [PendingRestoredAgentHibernationAdoption] = []
         guard let panelId = createPanel(
             from: entry.snapshot,
             inPane: pane,
-            snapshotWorkspaceId: nil,
-            shouldRestoreSingleDefaultCloudTerminal: false
+            snapshotWorkspaceId: entry.workspaceId,
+            shouldRestoreSingleDefaultCloudTerminal: false,
+            pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions
         ) else {
             _ = closePanel(placeholderPanel.id, force: true)
             return nil
         }
+        finalizeRestoredAgentHibernationAdoptions(pendingAgentHibernationAdoptions)
 
         _ = closePanel(placeholderPanel.id, force: true)
         guard panels[panelId] != nil else {
@@ -1156,7 +1250,8 @@ extension Workspace {
         panelSnapshotsById: [UUID: SessionPanelSnapshot],
         snapshotWorkspaceId: UUID?,
         shouldRestoreSingleDefaultCloudTerminal: Bool,
-        oldToNewPanelIds: inout [UUID: UUID]
+        oldToNewPanelIds: inout [UUID: UUID],
+        pendingAgentHibernationAdoptions: inout [PendingRestoredAgentHibernationAdoption]
     ) {
         let existingPanelIds = bonsplitController
             .tabs(inPane: paneId)
@@ -1171,7 +1266,8 @@ extension Workspace {
                 from: panelSnapshot,
                 inPane: paneId,
                 snapshotWorkspaceId: snapshotWorkspaceId,
-                shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal
+                shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal,
+                pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions
             ) else { continue }
             createdPanelIds.append(createdPanelId)
             oldToNewPanelIds[oldPanelId] = createdPanelId
@@ -1251,7 +1347,8 @@ extension Workspace {
         from snapshot: SessionPanelSnapshot,
         inPane paneId: PaneID,
         snapshotWorkspaceId: UUID?,
-        shouldRestoreSingleDefaultCloudTerminal: Bool
+        shouldRestoreSingleDefaultCloudTerminal: Bool,
+        pendingAgentHibernationAdoptions: inout [PendingRestoredAgentHibernationAdoption]
     ) -> UUID? {
         let restoresUntrustedSavedDirectory = snapshot.directoryIsTrustedRemoteReport != true &&
             (snapshot.directoryRequiresRemoteTrust == true ||
@@ -1479,32 +1576,6 @@ extension Workspace {
                 return nil
             }
             terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
-            // Re-bind the resumed agent session from cmux's own authority, keyed
-            // on the surface that was actually created. `terminalPanel.id` equals
-            // `snapshot.id` on the normal path, but on a surface-id collision
-            // (restore-into-live / duplicate-workspace) `newTerminalSurface`
-            // minted a fresh id, so keying on `snapshot.id` would bind to a
-            // surface that does not exist and the GUI would never find the
-            // session. This is unconditional on whether cmux runs the resume
-            // command itself: a restored surface that CARRIES a resumable agent
-            // binding must flip its registry record to live/.idle so the iOS GUI
-            // is editable, even when auto-resume is off and the user resumes
-            // manually (e.g. `sr codex resume`). Recording .idle here is the safe
-            // direction per the spec — never invent `ended`.
-            if let resumeReboundSession {
-                // The chat record's cwd feeds transcript-path resolution
-                // (Claude transcripts live under the project the agent ran
-                // in), so it must be the resume launcher's real target, not
-                // the persisted terminal cwd a stray report may have parked
-                // on home (#7155).
-                AgentChatTranscriptService.recordResumeIntent(
-                    sessionID: resumeReboundSession.sessionID,
-                    source: resumeReboundSession.source,
-                    surfaceID: terminalPanel.id.uuidString,
-                    workspaceID: id.uuidString,
-                    workingDirectory: resumeSessionWorkingDirectory
-                )
-            }
             if let restoredRemotePTYSessionID {
                 registerRemoteRelayIDAliases(
                     remotePTYSessionID: restoredRemotePTYSessionID,
@@ -1553,6 +1624,7 @@ extension Workspace {
             } else {
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: terminalPanel.id)
             }
+            let shouldRecordResumeIntent = restoredHibernation == nil
             if let restorableAgent {
                 seedSessionRestoredAgentState(
                     panelId: terminalPanel.id,
@@ -1560,27 +1632,35 @@ extension Workspace {
                     willRunStartupCommand: restoredAgentWillRunStartupCommand,
                     willRunStartupInput: restoredAgentWillRunStartupInput
                 )
-                if let restoredHibernation,
-                   restorableAgent.resumeCommand != nil {
-                    let didRestoreHibernation = terminalPanel.enterAgentHibernation(
-                        agent: restorableAgent,
-                        lastActivityAt: Date(timeIntervalSince1970: restoredHibernation.lastActivityAt),
-                        hibernatedAt: Date(timeIntervalSince1970: restoredHibernation.hibernatedAt)
-                    )
-                    if didRestoreHibernation {
-                        let didRebindRegistry = AgentHookSessionStateWriter.recordRestoredHibernation(
+                if let restoredHibernation {
+                    let didEnterHibernation = restorableAgent.resumeCommand != nil &&
+                        terminalPanel.enterAgentHibernation(
                             agent: restorableAgent,
-                            previousWorkspaceId: snapshotWorkspaceId,
-                            previousSurfaceId: snapshot.id,
-                            workspaceId: id,
-                            surfaceId: terminalPanel.id
+                            lastActivityAt: Date(timeIntervalSince1970: restoredHibernation.lastActivityAt),
+                            hibernatedAt: Date(timeIntervalSince1970: restoredHibernation.hibernatedAt)
                         )
-                        if !didRebindRegistry {
-                            NSLog(
-                                "[Workspace] restored hibernated agent registry rebind deferred or rejected session=%@",
-                                restorableAgent.sessionId
+                    if didEnterHibernation {
+                        pendingAgentHibernationAdoptions.append(
+                            PendingRestoredAgentHibernationAdoption(
+                                request: .init(
+                                    agent: restorableAgent,
+                                    previousWorkspaceId: snapshotWorkspaceId,
+                                    previousSurfaceId: snapshot.id,
+                                    workspaceId: id,
+                                    surfaceId: terminalPanel.id
+                                ),
+                                resumeWorkingDirectory: resumeSessionWorkingDirectory
                             )
-                        }
+                        )
+                    } else {
+                        discardRejectedRestoredAgentHibernation(
+                            panelId: terminalPanel.id,
+                            restoredAgent: restorableAgent
+                        )
+                        NSLog(
+                            "[Workspace] discarded unowned restored agent hibernation session=%@",
+                            restorableAgent.sessionId
+                        )
                     }
                 }
             } else {
@@ -1589,6 +1669,17 @@ extension Workspace {
                     restorableAgent: nil,
                     willRunStartupCommand: restoredAgentWillRunStartupCommand,
                     willRunStartupInput: restoredAgentWillRunStartupInput
+                )
+            }
+            if shouldRecordResumeIntent, let resumeReboundSession {
+                // The chat record's cwd feeds Claude transcript resolution, so
+                // use the resume launcher's target rather than a stray shell cwd.
+                AgentChatTranscriptService.recordResumeIntent(
+                    sessionID: resumeReboundSession.sessionID,
+                    source: resumeReboundSession.source,
+                    surfaceID: terminalPanel.id.uuidString,
+                    workspaceID: id.uuidString,
+                    workingDirectory: resumeSessionWorkingDirectory
                 )
             }
             // While an auto-resumed agent-hook or restorable-agent launcher
@@ -3433,7 +3524,9 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpStalledAttemptCount = 0
     private var pendingReparentFocusSuppressionViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
     private var portalRenderingEnabled = true
-    private var agentHibernationAutoResumePresentationVisible = true
+    private var agentHibernationAutoResumePresentationVisible = false
+    private var isRestoringSessionSnapshot = false
+    private var agentHibernationPresentationVisibilityWasUpdatedDuringSessionRestore = false
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
     /// The pending non-focusing-split focus re-assert request (the value
@@ -9556,10 +9649,13 @@ final class Workspace: Identifiable, ObservableObject {
 
         if let targetPaneId {
             let activationIntent = focusIntent ?? panels[panelId]?.preferredFocusIntentForActivation()
+            let suppressRestoredHibernationFocus =
+                isRestoringSessionSnapshot &&
+                (panels[panelId] as? TerminalPanel)?.isAgentHibernated == true
             applyTabSelection(
                 tabId: tabId,
                 inPane: targetPaneId,
-                reassertAppKitFocus: !shouldSuppressReentrantRefocus,
+                reassertAppKitFocus: !shouldSuppressReentrantRefocus && !suppressRestoredHibernationFocus,
                 focusIntent: activationIntent,
                 resumeHibernatedAgent: true,
                 previousTerminalHostedView: previousTerminalHostedView
@@ -9792,9 +9888,15 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func setAgentHibernationAutoResumePresentationVisible(_ isVisible: Bool) {
-        guard agentHibernationAutoResumePresentationVisible != isVisible else { return }
         agentHibernationAutoResumePresentationVisible = isVisible
+        if isRestoringSessionSnapshot {
+            agentHibernationPresentationVisibilityWasUpdatedDuringSessionRestore = true
+            return
+        }
         guard isVisible else { return }
+        // Visibility can become true before a restore installs its hibernated
+        // placeholders. Treat every visible update as an idempotent sweep so
+        // that lifecycle ordering cannot strand a visible agent asleep.
         _ = resumeVisibleAgentHibernationPanels(panelIds: agentHibernationVisiblePanelIdsForCurrentLayout())
     }
 
@@ -9916,8 +10018,14 @@ final class Workspace: Identifiable, ObservableObject {
             panel.unfocus()
         }
 
-        targetPanel.focus()
-        if let terminalPanel = targetPanel as? TerminalPanel {
+        let suppressHibernatedPanelFocus =
+            (targetPanel as? TerminalPanel)?.isAgentHibernated == true &&
+            !agentHibernationAutoResumePresentationVisible
+        if !suppressHibernatedPanelFocus {
+            targetPanel.focus()
+        }
+        if let terminalPanel = targetPanel as? TerminalPanel,
+           !suppressHibernatedPanelFocus {
             terminalPanel.hostedView.ensureFocus(for: id, surfaceId: targetPanelId)
         }
         if let dir = panelDirectories[targetPanelId] {
@@ -10505,7 +10613,14 @@ final class Workspace: Identifiable, ObservableObject {
                 terminalPanel.hostedView.setVisibleInUI(shouldBeVisible)
                 didChange = true
             }
-            let shouldBeActive = shouldBeVisible && focusedPanelId == terminalPanel.id && !rightSidebarOwnsFocus
+            let suppressHibernatedPanelActivation =
+                terminalPanel.isAgentHibernated &&
+                !agentHibernationAutoResumePresentationVisible
+            let shouldBeActive =
+                shouldBeVisible &&
+                focusedPanelId == terminalPanel.id &&
+                !rightSidebarOwnsFocus &&
+                !suppressHibernatedPanelActivation
             if terminalPanel.hostedView.debugPortalActive != shouldBeActive {
                 terminalPanel.hostedView.setActive(shouldBeActive)
                 didChange = true
@@ -11460,6 +11575,9 @@ extension Workspace: BonsplitDelegate {
         guard let panel = panels[effectiveFocusedPanelId] else {
             return
         }
+        let suppressRestoredHibernationActivation =
+            isRestoringSessionSnapshot &&
+            (panel as? TerminalPanel)?.isAgentHibernated == true
 
         if debugStressPreloadSelectionDepth > 0 {
             if let terminalPanel = panel as? TerminalPanel {
@@ -11476,7 +11594,7 @@ extension Workspace: BonsplitDelegate {
         }
         // Selecting a hibernated tab means the user is visiting it again. Resume by
         // default so sidebar/tab selection behaves the same as pressing Resume.
-        let shouldResumeHibernatedAgent = resumeHibernatedAgent ?? true
+        let shouldResumeHibernatedAgent = (resumeHibernatedAgent ?? true) && !isRestoringSessionSnapshot
         let activationIntent = focusIntent ?? panel.preferredFocusIntentForActivation()
         panel.prepareFocusIntentForActivation(activationIntent)
         let panelId = effectiveFocusedPanelId
@@ -11507,7 +11625,8 @@ extension Workspace: BonsplitDelegate {
         hideBrowserPortalsForDeselectedTabs(inPane: focusedPane, selectedTabId: selectedTabId)
         reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
 
-        if let focusWindow = activationWindow(for: panel) {
+        if !suppressRestoredHibernationActivation,
+           let focusWindow = activationWindow(for: panel) {
             yieldForeignOwnedFocusIfNeeded(
                 in: focusWindow,
                 targetPanelId: panelId,
@@ -11515,11 +11634,13 @@ extension Workspace: BonsplitDelegate {
             )
         }
 
-        activatePanel(
-            panel,
-            focusIntent: activationIntent,
-            reassertAppKitFocus: reassertAppKitFocus
-        )
+        if !suppressRestoredHibernationActivation {
+            activatePanel(
+                panel,
+                focusIntent: activationIntent,
+                reassertAppKitFocus: reassertAppKitFocus
+            )
+        }
         let focusIntentAllowsBrowserOmnibarAutofocus =
             explicitFocusIntent ||
             TerminalController.socketCommandAllowsInAppFocusMutations()
@@ -11534,7 +11655,9 @@ extension Workspace: BonsplitDelegate {
 
         // Converge AppKit first responder with bonsplit's selected tab in the focused pane.
         // Without this, keyboard input can remain on a different terminal than the blue tab indicator.
-        if reassertAppKitFocus, let terminalPanel = panel as? TerminalPanel {
+        if reassertAppKitFocus,
+           !suppressRestoredHibernationActivation,
+           let terminalPanel = panel as? TerminalPanel {
             if shouldMoveTerminalSurfaceFocus(for: activationIntent) {
                 if !terminalPanel.hostedView.isSurfaceViewFirstResponder() {
 #if DEBUG
@@ -11558,7 +11681,8 @@ extension Workspace: BonsplitDelegate {
             }
         }
 
-        if shouldRestoreFocusIntentAfterActivation(activationIntent) {
+        if !suppressRestoredHibernationActivation,
+           shouldRestoreFocusIntentAfterActivation(activationIntent) {
             _ = panel.restoreFocusIntent(activationIntent)
         }
 
