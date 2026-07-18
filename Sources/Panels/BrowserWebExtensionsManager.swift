@@ -21,7 +21,9 @@ final class BrowserWebExtensionsManager: NSObject {
     /// omits the JavaScript namespace outside its private test mode. Extensions
     /// such as 1Password register notification listeners during startup without
     /// feature detection, so the missing namespace aborts their background page.
-    /// Keep an in-memory implementation until WebKit ships the public API.
+    /// WebKit also omits `webNavigation.onCreatedNavigationTarget`, which
+    /// 1Password registers during the same startup sequence. Keep these small
+    /// compatibility surfaces until WebKit ships the public APIs.
     static let notificationsCompatibilityScriptSource = #"""
     (() => {
       const notifications = new Map();
@@ -68,14 +70,25 @@ final class BrowserWebExtensionsManager: NSObject {
       };
       const install = () => {
         for (const namespace of [globalThis.chrome, globalThis.browser]) {
-          if (!namespace || namespace.notifications) continue;
-          try {
-            Object.defineProperty(namespace, 'notifications', {
-              configurable: true,
-              enumerable: true,
-              value: api
-            });
-          } catch (_) {}
+          if (!namespace) continue;
+          if (!namespace.notifications) {
+            try {
+              Object.defineProperty(namespace, 'notifications', {
+                configurable: true,
+                enumerable: true,
+                value: api
+              });
+            } catch (_) {}
+          }
+          if (namespace.webNavigation && !namespace.webNavigation.onCreatedNavigationTarget) {
+            try {
+              Object.defineProperty(namespace.webNavigation, 'onCreatedNavigationTarget', {
+                configurable: true,
+                enumerable: true,
+                value: makeEvent()
+              });
+            } catch (_) {}
+          }
         }
       };
       install();
