@@ -355,6 +355,85 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(fileManager.existenceCheckCount <= (count * 4) + 8)
     }
 
+    @Test func testClaudeSingleSiblingTranscriptReturnsOnlyNonExcludedMatch() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sessions-list-claude-sibling-\(UUID().uuidString)", isDirectory: true)
+        let projectRoot = root.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let containerSessionId = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa"
+        let siblingSessionId = "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb"
+        for sessionId in [containerSessionId, siblingSessionId] {
+            try "{}\n".write(
+                to: projectRoot.appendingPathComponent("\(sessionId).jsonl"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let lookup = SessionsListClaudeTranscriptLookupCache(homeDirectory: root.path)
+        let resolved = try #require(lookup.singleSiblingTranscript(
+            projectRoots: [projectRoot.path],
+            excludingSessionId: containerSessionId
+        ))
+
+        #expect(resolved.sessionId == siblingSessionId)
+        #expect(resolved.path == projectRoot.appendingPathComponent("\(siblingSessionId).jsonl").path)
+    }
+
+    @Test func testClaudeSingleSiblingTranscriptStopsBeforeScanningEveryCachedTranscript() throws {
+        let source = try String(
+            contentsOf: sessionsListForkDiagnosticsSourceURL(),
+            encoding: .utf8
+        )
+        let body = try #require(sessionsListSourceFunctionBody(
+            signature: "func singleSiblingTranscript(",
+            source: source
+        ))
+
+        #expect(!body.contains(".filter"))
+        #expect(!body.contains("append(contentsOf:"))
+    }
+
+    @Test func testClaudeSingleSiblingTranscriptSharedProjectScaleIsBounded() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sessions-list-claude-sibling-scale-\(UUID().uuidString)", isDirectory: true)
+        let projectRoot = root.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let count = 6_000
+        let sessionIds = (0..<count).map { String(format: "session-%05d", $0) }
+        for sessionId in sessionIds {
+            try "{}\n".write(
+                to: projectRoot.appendingPathComponent("\(sessionId).jsonl"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let lookup = SessionsListClaudeTranscriptLookupCache(homeDirectory: root.path)
+        #expect(lookup.singleSiblingTranscript(
+            projectRoots: [projectRoot.path],
+            excludingSessionId: "warm-cache"
+        ) == nil)
+
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        for sessionId in sessionIds {
+            #expect(lookup.singleSiblingTranscript(
+                projectRoots: [projectRoot.path],
+                excludingSessionId: sessionId
+            ) == nil)
+        }
+        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+
+        #expect(
+            elapsed < 1.5,
+            "Resolving \(count) records in one shared project took \(elapsed)s"
+        )
+    }
+
     @Test func testSessionsListIgnoresOutOfRangeStoredPID() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -554,6 +633,38 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["fork_unavailable_reason"] as? String == "agent_has_no_fork_command")
         #expect(session["fork_startup_input_available"] as? Bool == false)
         #expect(session["stale_pid_blocks_restore_in_0_64_17"] as? Bool == true)
+    }
+
+    private func sessionsListForkDiagnosticsSourceURL() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("CLI/CMUXCLI+SessionsListForkDiagnostics.swift")
+    }
+
+    private func sessionsListSourceFunctionBody(signature: String, source: String) -> String? {
+        guard let signatureRange = source.range(of: signature),
+              let openingBrace = source[signatureRange.lowerBound...].firstIndex(of: "{") else {
+            return nil
+        }
+
+        var depth = 0
+        var index = openingBrace
+        while index < source.endIndex {
+            switch source[index] {
+            case "{":
+                depth += 1
+            case "}":
+                depth -= 1
+                if depth == 0 {
+                    return String(source[openingBrace...index])
+                }
+            default:
+                break
+            }
+            index = source.index(after: index)
+        }
+        return nil
     }
 }
 

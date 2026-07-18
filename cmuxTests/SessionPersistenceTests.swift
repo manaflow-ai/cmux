@@ -874,6 +874,30 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testRestoreCompletionSaveUsesOnlyNonblockingAgentCache() throws {
+        let source = try String(contentsOf: appDelegateSourceURL(), encoding: .utf8)
+        let body = try XCTUnwrap(appDelegateSourceFunctionBody(
+            signature: "private func completeSessionRestoreOperation(",
+            source: source
+        ))
+
+        XCTAssertTrue(body.contains("restorableAgentIndex:"))
+        XCTAssertTrue(body.contains("currentIndexSchedulingRefresh()"))
+        XCTAssertTrue(body.contains("?? .empty"))
+    }
+
+    func testClosedWindowHistoryUsesOnlyNonblockingAgentCache() throws {
+        let source = try String(contentsOf: appDelegateSourceURL(), encoding: .utf8)
+        let body = try XCTUnwrap(appDelegateSourceFunctionBody(
+            signature: "private func recordClosedWindowHistoryIfNeeded(",
+            source: source
+        ))
+
+        XCTAssertTrue(body.contains("currentIndexSchedulingRefresh()"))
+        XCTAssertTrue(body.contains("?? .empty"))
+        XCTAssertFalse(body.contains("RestorableAgentSessionIndex.load()"))
+    }
+
     func testUnchangedAutosaveFingerprintSkipsWithinStalenessWindow() {
         let now = Date()
         XCTAssertTrue(
@@ -1866,6 +1890,38 @@ final class SessionPersistenceTests: XCTestCase {
             createdAt: Date().timeIntervalSince1970,
             windows: [window]
         )
+    }
+
+    private func appDelegateSourceURL() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/AppDelegate.swift")
+    }
+
+    private func appDelegateSourceFunctionBody(signature: String, source: String) -> String? {
+        guard let signatureRange = source.range(of: signature),
+              let openingBrace = source[signatureRange.lowerBound...].firstIndex(of: "{") else {
+            return nil
+        }
+
+        var depth = 0
+        var index = openingBrace
+        while index < source.endIndex {
+            switch source[index] {
+            case "{":
+                depth += 1
+            case "}":
+                depth -= 1
+                if depth == 0 {
+                    return String(source[openingBrace...index])
+                }
+            default:
+                break
+            }
+            index = source.index(after: index)
+        }
+        return nil
     }
 
     private func fileNumber(for fileURL: URL) throws -> Int {
