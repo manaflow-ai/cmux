@@ -514,7 +514,16 @@ mod tests {
             .unwrap();
 
         registry.release_connection(1);
-        registry.ensure_surface_seed(surface, Some("https://private.invalid/replay-seed")).unwrap();
+        let replay_error = registry
+            .ensure_surface_seed(
+                surface,
+                Some("https://private.invalid/sentinel-changed-replay-seed"),
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(replay_error.contains("replay source changed"));
+        assert!(!replay_error.contains("sentinel"));
+        registry.ensure_surface_seed(surface, None).unwrap();
         let replacement = registry
             .claim(
                 surface,
