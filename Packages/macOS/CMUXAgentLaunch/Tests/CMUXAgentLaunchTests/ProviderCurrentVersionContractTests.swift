@@ -993,6 +993,14 @@ struct ProviderCurrentVersionContractTests {
         for invalid in [
             ["claude", "--forward-subagent-text", "fix this"],
             ["claude", "--print", "--forward-subagent-text", "fix this"],
+            [
+                "claude", "--print", "--input-format", "stream-json",
+                "--forward-subagent-text",
+            ],
+            [
+                "claude", "--input-format", "stream-json",
+                "--output-format", "stream-json", "--forward-subagent-text",
+            ],
         ] {
             #expect(
                 AgentLaunchModeClassifier.processMode(
