@@ -188,7 +188,6 @@ extension CMUXCLI {
                 .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
-            aliases: ["droid"],
             feedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
@@ -215,6 +214,7 @@ extension CMUXCLI {
                 .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
+            aliases: ["droid"],
             feedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
