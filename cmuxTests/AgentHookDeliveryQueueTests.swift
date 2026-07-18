@@ -1,0 +1,299 @@
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@Suite("Agent hook durable delivery", .serialized)
+struct AgentHookDeliveryQueueTests {
+    @Test func encodedEventPreservesExactPayloadAndValidatedEnvironment() throws {
+        let payload = Data([0x00, 0x7b, 0x22, 0xff, 0x0a])
+        let event = try #require(makeEvent(
+            deliveryID: "encoded-event",
+            payload: payload,
+            environment: [
+                "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
+                "CMUX_AGENT_LAUNCH_CWD": "/tmp/project with spaces",
+                "CMUX_TAG": "test-tag",
+            ]
+        ))
+
+        #expect(event.payload == payload)
+        #expect(event.socketPath == "/tmp/cmux-test.sock")
+        #expect(event.environment["CMUX_AGENT_LAUNCH_CWD"] == "/tmp/project with spaces")
+
+        for subcommand in [
+            "session-start", "prompt-submit", "stop",
+            "pre-tool-use", "post-tool-use", "notification",
+        ] {
+            #expect(makeEvent(
+                deliveryID: "accepted:\(subcommand)",
+                payload: payload,
+                environment: ["CMUX_SOCKET_PATH": "/tmp/cmux-test.sock"],
+                subcommand: subcommand
+            ) != nil)
+        }
+        #expect(makeEvent(
+            deliveryID: "invalid/id",
+            payload: payload,
+            environment: ["CMUX_SOCKET_PATH": "/tmp/cmux-test.sock"]
+        ) == nil)
+        #expect(makeEvent(
+            deliveryID: "invalid event",
+            payload: payload,
+            environment: ["CMUX_SOCKET_PATH": "/tmp/cmux-test.sock"]
+        ) == nil)
+
+        #expect(makeEvent(
+            deliveryID: "unknown-environment",
+            payload: payload,
+            environment: [
+                "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
+                "UNTRUSTED_KEY": "value",
+            ]
+        ) == nil)
+        #expect(makeEvent(
+            deliveryID: "missing-socket",
+            payload: payload,
+            environment: ["CMUX_TAG": "test-tag"]
+        ) == nil)
+    }
+
+    @Test func diskBacklogSurvivesQueueReplacementAndDeduplicatesBurst() async throws {
+        let root = try temporaryDirectory(named: "burst")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
+        let scriptURL = root.appendingPathComponent("deliver.sh")
+        try writeExecutable(
+            at: scriptURL,
+            contents: """
+            #!/bin/sh
+            if ! /bin/mkdir "$TMPDIR/active-child" 2>/dev/null; then
+              printf 'overlap\n' >> "$TMPDIR/overlap"
+            fi
+            trap '/bin/rmdir "$TMPDIR/active-child" 2>/dev/null || true' EXIT
+            /bin/cat > "$TMPDIR/payload-$CMUX_AGENT_HOOK_DELIVERY_ID"
+            printf '%s\n' "$CMUX_AGENT_HOOK_DELIVERY_ID" >> "$TMPDIR/delivered"
+            /bin/sleep 0.005
+            """
+        )
+
+        let unavailableQueue = AgentHookDeliveryQueue(
+            databaseURL: databaseURL,
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        var events: [AgentHookDeliveryEvent] = []
+        for index in 0..<64 {
+            let payload = Data("payload-\(index)".utf8)
+            let event = try #require(makeEvent(
+                deliveryID: "burst-\(index)",
+                payload: payload,
+                environment: testEnvironment(root: root)
+            ))
+            events.append(event)
+            try unavailableQueue.enqueue(event)
+        }
+        let emptyPayloadEvent = try #require(makeEvent(
+            deliveryID: "burst-empty",
+            payload: Data(),
+            environment: testEnvironment(root: root)
+        ))
+        events.append(emptyPayloadEvent)
+        try unavailableQueue.enqueue(emptyPayloadEvent)
+        await unavailableQueue.waitUntilCurrentDrainFinishes()
+
+        let recoveredQueue = AgentHookDeliveryQueue(
+            databaseURL: databaseURL,
+            executableURLProvider: { scriptURL },
+            processTimeout: 2,
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        try await recoveredQueue.retryPendingDeliveries()
+        await recoveredQueue.waitUntilCurrentDrainFinishes()
+
+        let delivered = try lines(at: root.appendingPathComponent("delivered"))
+        #expect(delivered.count == 65)
+        #expect(Set(delivered) == Set((0..<64).map { "burst-\($0)" } + ["burst-empty"]))
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("overlap").path))
+        for index in 0..<64 {
+            let actual = try Data(contentsOf: root.appendingPathComponent("payload-burst-\(index)"))
+            #expect(actual == Data("payload-\(index)".utf8))
+        }
+        #expect(try Data(contentsOf: root.appendingPathComponent("payload-burst-empty")).isEmpty)
+
+        try recoveredQueue.enqueue(events[0])
+        await recoveredQueue.waitUntilCurrentDrainFinishes()
+        #expect(try lines(at: root.appendingPathComponent("delivered")).count == 65)
+
+        let conflicting = try #require(makeEvent(
+            deliveryID: "burst-0",
+            payload: Data("different".utf8),
+            environment: testEnvironment(root: root)
+        ))
+        var collisionWasRejected = false
+        do {
+            try recoveredQueue.enqueue(conflicting)
+        } catch {
+            collisionWasRejected = true
+        }
+        #expect(collisionWasRejected)
+    }
+
+    @Test func failedChildIsObservableRetriableAndDoesNotBlockLaterEvent() async throws {
+        let root = try temporaryDirectory(named: "retry")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let scriptURL = root.appendingPathComponent("deliver.sh")
+        try writeExecutable(
+            at: scriptURL,
+            contents: """
+            #!/bin/sh
+            /bin/cat > "$TMPDIR/payload-$CMUX_AGENT_HOOK_DELIVERY_ID"
+            if [ "$CMUX_AGENT_HOOK_DELIVERY_ID" = "retry-first" ] && [ ! -e "$TMPDIR/failed-once" ]; then
+              : > "$TMPDIR/failed-once"
+              printf 'intentional first failure\n' >&2
+              exit 9
+            fi
+            printf '%s\n' "$CMUX_AGENT_HOOK_DELIVERY_ID" >> "$TMPDIR/delivered"
+            """
+        )
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
+            executableURLProvider: { scriptURL },
+            processTimeout: 2,
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        let first = try #require(makeEvent(
+            deliveryID: "retry-first",
+            payload: Data("first".utf8),
+            environment: testEnvironment(root: root)
+        ))
+        let later = try #require(makeEvent(
+            deliveryID: "retry-later",
+            payload: Data("later".utf8),
+            environment: testEnvironment(root: root)
+        ))
+        try queue.enqueue(first)
+        try queue.enqueue(later)
+        await queue.waitUntilCurrentDrainFinishes()
+
+        let firstFailure = try await queue.diagnosticStatus(for: first.deliveryID)
+        let laterSuccess = try await queue.diagnosticStatus(for: later.deliveryID)
+        #expect(firstFailure?["state"] == "pending")
+        #expect(firstFailure?["attempts"] == "1")
+        #expect(firstFailure?["last_error"]?.contains("status 9") == true)
+        #expect(firstFailure?["last_error"]?.contains("intentional first failure") == true)
+        #expect(laterSuccess?["state"] == "delivered")
+
+        try await queue.retryPendingDeliveries()
+        await queue.waitUntilCurrentDrainFinishes()
+        let retried = try await queue.diagnosticStatus(for: first.deliveryID)
+        #expect(retried?["state"] == "delivered")
+        #expect(retried?["attempts"] == "2")
+        #expect(Set(try lines(at: root.appendingPathComponent("delivered"))) == ["retry-first", "retry-later"])
+    }
+
+    @Test func hungChildIsKilledWithinDeadlineAndLaterEventRuns() async throws {
+        let root = try temporaryDirectory(named: "timeout")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let scriptURL = root.appendingPathComponent("deliver.sh")
+        try writeExecutable(
+            at: scriptURL,
+            contents: """
+            #!/bin/sh
+            /bin/cat > "$TMPDIR/payload-$CMUX_AGENT_HOOK_DELIVERY_ID"
+            if [ "$CMUX_AGENT_HOOK_DELIVERY_ID" = "timeout-first" ]; then
+              trap 'exit 143' TERM
+              while :; do :; done
+            fi
+            printf '%s\n' "$CMUX_AGENT_HOOK_DELIVERY_ID" >> "$TMPDIR/delivered"
+            """
+        )
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
+            executableURLProvider: { scriptURL },
+            processTimeout: 0.2,
+            terminationGrace: 0.05,
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        let hung = try #require(makeEvent(
+            deliveryID: "timeout-first",
+            payload: Data("hang".utf8),
+            environment: testEnvironment(root: root)
+        ))
+        let later = try #require(makeEvent(
+            deliveryID: "timeout-later",
+            payload: Data("later".utf8),
+            environment: testEnvironment(root: root)
+        ))
+
+        let started = ContinuousClock().now
+        try queue.enqueue(hung)
+        try queue.enqueue(later)
+        await queue.waitUntilCurrentDrainFinishes()
+        let elapsed = started.duration(to: ContinuousClock().now)
+
+        let hungStatus = try await queue.diagnosticStatus(for: hung.deliveryID)
+        let laterStatus = try await queue.diagnosticStatus(for: later.deliveryID)
+        #expect(hungStatus?["state"] == "pending")
+        #expect(hungStatus?["last_error"]?.contains("exceeded") == true)
+        #expect(laterStatus?["state"] == "delivered")
+        #expect(elapsed < .seconds(2))
+        #expect(try lines(at: root.appendingPathComponent("delivered")) == ["timeout-later"])
+    }
+
+    private func makeEvent(
+        deliveryID: String,
+        payload: Data,
+        environment: [String: String],
+        subcommand: String = "session-start"
+    ) -> AgentHookDeliveryEvent? {
+        var environmentData = Data()
+        for key in environment.keys.sorted() {
+            environmentData.append(contentsOf: key.utf8)
+            environmentData.append(0)
+            environmentData.append(contentsOf: (environment[key] ?? "").utf8)
+            environmentData.append(0)
+        }
+        return AgentHookDeliveryEvent(params: [
+            "delivery_id": deliveryID,
+            "agent": "codex",
+            "subcommand": subcommand,
+            "payload_b64": payload.base64EncodedString(),
+            "environment_b64": environmentData.base64EncodedString(),
+        ])
+    }
+
+    private func testEnvironment(root: URL) -> [String: String] {
+        [
+            "CMUX_SOCKET_PATH": "/tmp/cmux-agent-hook-delivery-test.sock",
+            "CMUX_SURFACE_ID": "surface:test",
+            "TMPDIR": root.path,
+        ]
+    }
+
+    private func temporaryDirectory(named name: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-hook-\(name)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func writeExecutable(at url: URL, contents: String) throws {
+        try Data(contents.utf8).write(to: url, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    private func lines(at url: URL) throws -> [String] {
+        try String(contentsOf: url, encoding: .utf8)
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+    }
+}
