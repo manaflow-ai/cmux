@@ -2,8 +2,8 @@ import { ImageResponse } from "next/og";
 import { readFile } from "fs/promises";
 import { join } from "path";
 import { openGraphImageTagline } from "@/i18n/seo";
+import { routing, type Locale } from "@/i18n/routing";
 
-export const runtime = "nodejs";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -53,6 +53,19 @@ const localeFonts: Record<string, { name: string; url: string }> = {
 const FONT_FETCH_TIMEOUT_MS = 1500;
 const remoteFontData = new Map<string, ArrayBuffer>();
 
+type OpenGraphImageRenderer = (locale: string) => Response | Promise<Response>;
+
+export async function openGraphImageResponse(
+  locale: string,
+  render: OpenGraphImageRenderer = renderOpenGraphImage,
+): Promise<Response> {
+  if (!routing.locales.includes(locale as Locale)) {
+    return new Response(null, { status: 404 });
+  }
+
+  return render(locale);
+}
+
 async function fetchRemoteFont(url: string) {
   const existing = remoteFontData.get(url);
   if (existing) {
@@ -74,12 +87,7 @@ async function fetchRemoteFont(url: string) {
   }
 }
 
-export default async function Image({
-  params,
-}: {
-  params: Promise<{ locale: string }>;
-}) {
-  const { locale } = await params;
+export async function renderOpenGraphImage(locale: string) {
   const tagline = openGraphImageTagline(locale);
   const localeFont = localeFonts[locale];
   const [logoData, screenshotData, geistRegular, geistSemiBold, localeFontData] =
