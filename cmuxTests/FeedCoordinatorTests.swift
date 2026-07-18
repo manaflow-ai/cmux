@@ -109,6 +109,38 @@ struct FeedCoordinatorTests {
         )
     }
 
+    @Test func feedJumpResolverRetainsBoundedFlatLegacyFallback() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-feed-flat-legacy-\(UUID().uuidString)", isDirectory: true)
+        let stateDirectory = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let sessionID = "flat-session"
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let data = try JSONSerialization.data(withJSONObject: [
+            sessionID: [
+                "workspaceId": workspaceID,
+                "surfaceId": surfaceID,
+                "updatedAt": 1.0,
+            ],
+        ], options: [.sortedKeys])
+        try data.write(
+            to: stateDirectory.appendingPathComponent("codex-hook-sessions.json"),
+            options: .atomic
+        )
+
+        let target = FeedJumpResolver.lookup(
+            agent: "codex",
+            sessionId: sessionID,
+            homeDirectory: home,
+            environment: [:]
+        )
+        #expect(target?.workspaceId == workspaceID)
+        #expect(target?.surfaceId == surfaceID)
+    }
+
     @Test func feedJumpResolverKeepsHyphenatedProviderIdentity() {
         #expect(
             FeedJumpResolver.parse(

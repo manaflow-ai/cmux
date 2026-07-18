@@ -56,6 +56,37 @@ struct AgentChatSessionRegistryHookStoreTests {
         #expect(store.entries(agentSource: "claude").count == 301)
     }
 
+    @Test func hookStoreRetainsBoundedFlatLegacyFallback() throws {
+        let home = try temporaryHomeDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let stateDirectory = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+
+        let sessionID = "flat-chat-session"
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let data = try JSONSerialization.data(withJSONObject: [
+            sessionID: [
+                "workspaceId": workspaceID,
+                "surfaceId": surfaceID,
+                "cwd": "/tmp/flat-chat",
+                "updatedAt": 1.0,
+            ],
+        ], options: [.sortedKeys])
+        try data.write(
+            to: stateDirectory.appendingPathComponent("claude-hook-sessions.json"),
+            options: .atomic
+        )
+
+        let entry = try #require(
+            AgentChatHookSessionStore(homeDirectory: home)
+                .entry(agentSource: "claude", sessionID: sessionID)
+        )
+        #expect(entry.workspaceID == workspaceID)
+        #expect(entry.surfaceID == surfaceID)
+        #expect(entry.workingDirectory == "/tmp/flat-chat")
+    }
+
     @Test func mobileChatObserverDetectsCmuxLaunchedOpaqueClaudeWrapper() throws {
         let workspaceID = UUID()
         let surfaceID = UUID()
