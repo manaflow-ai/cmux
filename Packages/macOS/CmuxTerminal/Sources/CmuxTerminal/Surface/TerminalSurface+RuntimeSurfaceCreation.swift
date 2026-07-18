@@ -97,6 +97,7 @@ extension TerminalSurface {
            runtimeFilesystem.isExecutableFile(bundledCLIURL.path) {
             setManagedEnvironmentValue("CMUX_BUNDLED_CLI_PATH", bundledCLIURL.path)
         }
+        setManagedEnvironmentValue("CMUX_AGENT_HOOK_ENQUEUE_V1", "1")
         if let bundleId = Bundle.main.bundleIdentifier, !bundleId.isEmpty {
             setManagedEnvironmentValue("CMUX_BUNDLE_ID", bundleId)
         }

@@ -1097,9 +1097,18 @@ int main(int argument_count, char **arguments) {
         : NULL;
     const char *socket_path = getenv("CMUX_SOCKET_PATH");
     const char *capability = getenv("CMUX_SOCKET_CAPABILITY");
-    CMUXSubmissionResult submission = CMUX_SUBMISSION_RETRYABLE;
+    const char *queue_protocol = getenv("CMUX_AGENT_HOOK_ENQUEUE_V1");
+    const bool queue_protocol_advertised = queue_protocol != NULL
+        && strcmp(queue_protocol, "1") == 0;
+    // An older app never exports this capability. Skip the new socket method
+    // entirely in that case so a global new helper cannot lose events while
+    // talking to an older app/CLI during a rolling upgrade.
+    CMUXSubmissionResult submission = queue_protocol_advertised
+        ? CMUX_SUBMISSION_RETRYABLE
+        : CMUX_SUBMISSION_UNSUPPORTED;
     CMUXBuffer request = {0};
-    if (payload_base64 != NULL
+    if (queue_protocol_advertised
+        && payload_base64 != NULL
         && environment_base64 != NULL
         && socket_path != NULL
         && cmux_capability_is_valid(capability)
