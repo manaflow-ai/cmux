@@ -88,7 +88,7 @@ scroll-surface
 {"id":11,"cmd":"move-workspace","workspace":3,"index":0}
 ```
 
-Protocol-v7 split nodes serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. The `split` value remains stable until that node collapses. Resize an exact divider with:
+Protocol-v8 split nodes serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. The `split` value remains stable until that node collapses. Resize an exact divider with:
 
 ```json
 {"id":12,"cmd":"set-split-ratio","split":9,"ratio":0.65}

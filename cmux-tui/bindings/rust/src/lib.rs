@@ -438,6 +438,7 @@ impl CmuxClient {
     }
 
     pub fn set_split_ratio(&mut self, split: u64, ratio: f32) -> Result<()> {
+        self.require_protocol(8, "set-split-ratio")?;
         let mut params = Map::new();
         params.insert("split".to_string(), Value::from(split));
         params.insert("ratio".to_string(), Value::from(ratio));
@@ -584,6 +585,24 @@ impl CmuxClient {
             )));
         }
         self.open_stream("attach-surface", surface_params(surface))
+    }
+
+    fn require_protocol(&mut self, minimum: u32, feature: &str) -> Result<()> {
+        let protocol = match self.protocol {
+            Some(protocol) => protocol,
+            None => self.identify()?.protocol,
+        };
+        if protocol > 8 {
+            return Err(CmuxError::ProtocolVersion(format!(
+                "unsupported protocol {protocol}; maximum supported is 8"
+            )));
+        }
+        if protocol < minimum {
+            return Err(CmuxError::ProtocolVersion(format!(
+                "{feature} requires protocol {minimum}; server uses protocol {protocol}"
+            )));
+        }
+        Ok(())
     }
 
     fn open_stream(&mut self, cmd: &str, mut params: Map<String, Value>) -> Result<CmuxStream> {

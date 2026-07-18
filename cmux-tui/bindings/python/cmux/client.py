@@ -431,6 +431,7 @@ class CmuxClient:
         return EmptyResult()
 
     def set_split_ratio(self, split: int, ratio: float) -> EmptyResult:
+        self._require_protocol(8, "set-split-ratio")
         self._request("set-split-ratio", split=split, ratio=ratio)
         return EmptyResult()
 
@@ -552,6 +553,15 @@ class CmuxClient:
         if protocol > 5 and not self.allow_protocol_v6_attach:
             raise ProtocolError("protocol v6+ attach streams require resized replay handling")
         return AttachStream(self, {"cmd": "attach-surface", "surface": surface})
+
+    def _require_protocol(self, minimum: int, feature: str) -> None:
+        protocol = self._protocol if self._protocol is not None else self.identify().protocol
+        if protocol > 8:
+            raise ProtocolError(f"unsupported protocol {protocol}; maximum supported is 8")
+        if protocol < minimum:
+            raise ProtocolError(
+                f"{feature} requires protocol {minimum}; server uses protocol {protocol}"
+            )
 
 
 def default_socket_path(session: str) -> str:

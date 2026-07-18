@@ -202,6 +202,29 @@ func (c *Client) Identify(ctx context.Context) (IdentifyResult, error) {
 	return result, err
 }
 
+func (c *Client) requireProtocol(ctx context.Context, minimum uint32, feature string) error {
+	protocol := c.protocol
+	if protocol == nil {
+		info, err := c.Identify(ctx)
+		if err != nil {
+			return err
+		}
+		protocol = &info.Protocol
+	}
+	if *protocol > 8 {
+		return &protocolError{msg: fmt.Sprintf(
+			"unsupported protocol %d; maximum supported is 8", *protocol,
+		)}
+	}
+	if *protocol < minimum {
+		return &protocolError{msg: fmt.Sprintf(
+			"%s requires protocol %d; server uses protocol %d",
+			feature, minimum, *protocol,
+		)}
+	}
+	return nil
+}
+
 func (c *Client) ListWorkspaces(ctx context.Context) (Tree, error) {
 	var result Tree
 	return result, c.request(ctx, "list-workspaces", nil, &result)
@@ -266,6 +289,9 @@ func (c *Client) SetRatio(ctx context.Context, pane uint64, dir string, ratio fl
 }
 
 func (c *Client) SetSplitRatio(ctx context.Context, split uint64, ratio float32) error {
+	if err := c.requireProtocol(ctx, 8, "set-split-ratio"); err != nil {
+		return err
+	}
 	return c.request(ctx, "set-split-ratio", map[string]any{"split": split, "ratio": ratio}, nil)
 }
 
