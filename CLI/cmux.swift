@@ -10182,6 +10182,7 @@ struct CMUXCLI {
         }
         if authenticationLockPath != nil {
             authScriptLines += [
+                "cmux_ssh_clear_auth_inflight",
                 "zsystem flock -u \"$cmux_ssh_auth_lock_fd\" || exit 255",
                 "trap - EXIT HUP INT TERM",
             ]
