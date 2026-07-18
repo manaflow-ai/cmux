@@ -146,11 +146,13 @@ struct TerminalClientCompositionTests {
     }
 
     @Test @MainActor
-    func backendModeCloudReplacementUsesExternalSafeLaunchMetadata() async throws {
+    func backendModeCloudReplacementFailsClosedBeforeCanonicalAdoption() async throws {
         let client = RecordingPersistentTerminalBackendClient()
+        var failures: [String] = []
         let composition = TerminalClientComposition.persistent(
             backendClient: client,
-            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
+            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies,
+            topologyFailureReporter: { failures.append($0) }
         )
         let workspace = Workspace(
             initialSurface: .cloudVMLoading,
@@ -159,27 +161,18 @@ struct TerminalClientCompositionTests {
         defer { workspace.teardownAllPanels() }
 
         let loadingPanelID = try #require(workspace.focusedPanelId)
-        let authorizationGate = try #require(composition.terminalBackendTopologyAuthorizationGate)
-        await authorizationGate.authorize([
-            TerminalBackendTopologyPlacement(
-                workspaceID: workspace.id,
-                surfaceID: loadingPanelID
-            ),
-        ])
         let command = "cmux vm-pty-connect --config /tmp/cmux.json --id vm_external"
-        let terminal = try #require(workspace.replaceCloudVMLoadingSurfaceWithTerminal(
+        #expect(workspace.replaceCloudVMLoadingSurfaceWithTerminal(
             workspaceId: workspace.id,
             initialCommand: command,
             focus: false
-        ))
+        ) == nil)
+        for _ in 0..<8 { await Task.yield() }
 
-        await client.waitForEnsureCount(1)
-        let request = try #require((await client.ensureRequests()).last)
-        #expect(terminal.id == loadingPanelID)
-        #expect(terminal.surface.isExternallyManaged)
-        #expect(terminal.surface.debugTmuxStartCommand() == nil)
-        #expect(request.appSurfaceID == loadingPanelID)
-        #expect(request.command == command)
+        #expect(workspace.panels[loadingPanelID] is CloudVMLoadingPanel)
+        #expect((await client.ensureRequests()).isEmpty)
+        #expect(failures.count == 1)
+        #expect(failures[0].contains(TerminalBackendTopologyMutation.attachSurface.rawValue))
     }
 
     @Test @MainActor
