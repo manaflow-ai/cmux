@@ -19,6 +19,12 @@
 //! reservation. A retry of the committed request therefore cannot replay
 //! initial input.
 //!
+//! On macOS, release additionally requires a kernel `NOTE_EXEC` event for the
+//! exact child PID. Close-on-exec EOF alone is insufficient because a helper
+//! killed between release and `exec` closes the same descriptor. Other Unix
+//! platforms retain the weaker EOF/error-pipe protocol and do not claim this
+//! exact exec proof.
+//!
 //! Generic initial input is limited to canonical-safe records. Arbitrary raw
 //! bootstrapping that depends on application termios readiness requires an
 //! explicit application-specific readiness protocol outside this barrier.
@@ -52,6 +58,8 @@ mod unix {
     use std::path::{Path, PathBuf};
     use std::process::Command;
     use std::time::Duration;
+    #[cfg(target_os = "macos")]
+    use std::time::Instant;
 
     use anyhow::Context;
     use portable_pty::CommandBuilder;
@@ -66,7 +74,6 @@ mod unix {
     const MAX_SPEC_BYTES: usize = 4 * 1024 * 1024;
     const READY_DEADLINE: Duration = Duration::from_secs(10);
     const RELEASE_ACK_DEADLINE: Duration = Duration::from_secs(10);
-    const CHILD_RELEASE_DEADLINE: Duration = Duration::from_secs(60);
 
     pub(crate) struct PendingTerminalLaunchGate {
         listener: UnixListener,
@@ -77,6 +84,14 @@ mod unix {
 
     pub(crate) struct TerminalLaunchGate {
         stream: UnixStream,
+        #[cfg(target_os = "macos")]
+        process_id: u32,
+    }
+
+    #[cfg(target_os = "macos")]
+    struct ProcessExecWatcher {
+        queue: libc::c_int,
+        process_id: u32,
     }
 
     struct GatePaths {
@@ -190,19 +205,35 @@ mod unix {
             if let Some(paths) = self.paths.take() {
                 paths.remove_now()?;
             }
-            Ok(TerminalLaunchGate { stream })
+            Ok(TerminalLaunchGate {
+                stream,
+                #[cfg(target_os = "macos")]
+                process_id: expected_process_id,
+            })
         }
     }
 
     impl TerminalLaunchGate {
         pub(crate) fn release(mut self) -> anyhow::Result<()> {
+            #[cfg(target_os = "macos")]
+            let exec_deadline = Instant::now() + RELEASE_ACK_DEADLINE;
+            #[cfg(target_os = "macos")]
+            let exec_watcher = ProcessExecWatcher::new(self.process_id)
+                .context("register exact-child exec witness before release")?;
             self.stream.set_read_timeout(Some(RELEASE_ACK_DEADLINE))?;
             self.stream.set_write_timeout(Some(RELEASE_ACK_DEADLINE))?;
             self.stream.write_all(RELEASE_MAGIC)?;
             self.stream.flush()?;
             let mut first = [0u8; 1];
             match self.stream.read(&mut first) {
-                Ok(0) => return Ok(()),
+                Ok(0) => {
+                    #[cfg(target_os = "macos")]
+                    return exec_watcher
+                        .require_exec_before(exec_deadline)
+                        .context("prove exact terminal child exec after release");
+                    #[cfg(not(target_os = "macos"))]
+                    return Ok(());
+                }
                 Ok(1) => {}
                 Ok(_) => unreachable!("one-byte launch gate read returned more than one byte"),
                 Err(error) => return Err(error.into()),
@@ -225,6 +256,105 @@ mod unix {
                 "terminal exec failed after durable commit: {}",
                 String::from_utf8_lossy(&message)
             )
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    impl ProcessExecWatcher {
+        fn new(process_id: u32) -> std::io::Result<Self> {
+            let queue = unsafe { libc::kqueue() };
+            if queue < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            let watcher = Self { queue, process_id };
+            let change = libc::kevent {
+                ident: process_id as libc::uintptr_t,
+                filter: libc::EVFILT_PROC,
+                flags: libc::EV_ADD | libc::EV_ONESHOT,
+                fflags: libc::NOTE_EXEC | libc::NOTE_EXIT,
+                data: 0,
+                udata: std::ptr::null_mut(),
+            };
+            if unsafe {
+                libc::kevent(watcher.queue, &change, 1, std::ptr::null_mut(), 0, std::ptr::null())
+            } < 0
+            {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(watcher)
+        }
+
+        fn require_exec_before(self, deadline: Instant) -> std::io::Result<()> {
+            let event = self.wait_event_before(deadline)?;
+            Self::require_exec_event(self.process_id, event)
+        }
+
+        fn wait_event_before(&self, deadline: Instant) -> std::io::Result<libc::kevent> {
+            loop {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                let timeout = libc::timespec {
+                    tv_sec: remaining.as_secs().try_into().unwrap_or(libc::time_t::MAX),
+                    tv_nsec: remaining.subsec_nanos().into(),
+                };
+                let mut event = std::mem::MaybeUninit::<libc::kevent>::zeroed();
+                let count = unsafe {
+                    libc::kevent(self.queue, std::ptr::null(), 0, event.as_mut_ptr(), 1, &timeout)
+                };
+                if count < 0 {
+                    let error = std::io::Error::last_os_error();
+                    if error.kind() == std::io::ErrorKind::Interrupted {
+                        continue;
+                    }
+                    return Err(error);
+                }
+                if count == 0 {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        format!("terminal child {} exec witness deadline elapsed", self.process_id),
+                    ));
+                }
+                let event = unsafe { event.assume_init() };
+                if event.ident != self.process_id as libc::uintptr_t
+                    || event.filter != libc::EVFILT_PROC
+                {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "terminal exec watcher received an event for another process",
+                    ));
+                }
+                if event.flags & libc::EV_ERROR != 0 && event.data != 0 {
+                    return Err(std::io::Error::from_raw_os_error(event.data as i32));
+                }
+                return Ok(event);
+            }
+        }
+
+        fn require_exec_event(process_id: u32, event: libc::kevent) -> std::io::Result<()> {
+            // Process notes may coalesce. An observed exec is authoritative even
+            // when the same delivery reports that a very short-lived target has
+            // already exited.
+            if event.fflags & libc::NOTE_EXEC != 0 {
+                return Ok(());
+            }
+            if event.fflags & libc::NOTE_EXIT != 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionAborted,
+                    format!("terminal child {process_id} exited before exec"),
+                ));
+            }
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "terminal exec watcher received neither NOTE_EXEC nor NOTE_EXIT",
+            ))
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    impl Drop for ProcessExecWatcher {
+        fn drop(&mut self) {
+            unsafe {
+                libc::close(self.queue);
+            }
         }
     }
 
@@ -273,7 +403,6 @@ mod unix {
         validate_child_socket(&socket)?;
         let token = parse_token(&token)?;
         let mut stream = UnixStream::connect(&socket)?;
-        stream.set_read_timeout(Some(CHILD_RELEASE_DEADLINE))?;
         stream.set_write_timeout(Some(READY_DEADLINE))?;
         stream.write_all(HELLO_MAGIC)?;
         stream.write_all(&token)?;
@@ -297,6 +426,12 @@ mod unix {
             anyhow::bail!("injected launch gate failure before ready");
         }
         set_close_on_exec(&stream)?;
+        #[cfg(test)]
+        if std::env::var_os(test_support::ASSERT_UNBOUNDED_RELEASE_ENV).is_some()
+            && stream.read_timeout()?.is_some()
+        {
+            anyhow::bail!("launch gate helper release wait has a wall-clock deadline");
+        }
         stream.write_all(READY_MAGIC)?;
         stream.flush()?;
 
@@ -306,6 +441,12 @@ mod unix {
             Ok(()) => anyhow::bail!("launch gate received an invalid release message"),
             Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
             Err(error) => return Err(error.into()),
+        }
+        #[cfg(test)]
+        if std::env::var_os(test_support::DIE_AFTER_RELEASE_ENV).is_some() {
+            unsafe {
+                libc::_exit(125);
+            }
         }
         use std::os::unix::process::CommandExt;
         let error = Command::new(&executable).arg0(&argv[0]).args(&argv[1..]).exec();
@@ -468,6 +609,9 @@ mod unix {
 
     #[cfg(test)]
     pub(crate) mod test_support {
+        pub(crate) const ASSERT_UNBOUNDED_RELEASE_ENV: &str =
+            "CMUX_TEST_LAUNCH_GATE_ASSERT_UNBOUNDED_RELEASE";
+        pub(crate) const DIE_AFTER_RELEASE_ENV: &str = "CMUX_TEST_LAUNCH_GATE_DIE_AFTER_RELEASE";
         pub(crate) const EXIT_MARKER_ENV: &str = "CMUX_TEST_LAUNCH_GATE_EXIT_MARKER";
         pub(crate) const FAIL_BEFORE_READY_ENV: &str = "CMUX_TEST_LAUNCH_GATE_FAIL_BEFORE_READY";
         pub(crate) const IGNORE_HUP_ENV: &str = "CMUX_TEST_LAUNCH_GATE_IGNORE_HUP";
@@ -475,7 +619,12 @@ mod unix {
 
     #[cfg(test)]
     mod tests {
+        #[cfg(target_os = "macos")]
+        use std::mem::{size_of, size_of_val};
         use std::os::unix::fs::PermissionsExt;
+
+        #[cfg(target_os = "macos")]
+        use portable_pty::{PtySize, native_pty_system};
 
         fn fixture() -> std::path::PathBuf {
             let path = std::env::temp_dir().join(format!(
@@ -541,6 +690,97 @@ mod unix {
                 path_tool
             );
             std::fs::remove_dir_all(root).unwrap();
+        }
+
+        #[cfg(target_os = "macos")]
+        #[test]
+        fn exact_exec_witness_rejects_helper_death_after_release() {
+            let pending =
+                super::PendingTerminalLaunchGate::new(&["/usr/bin/true".to_string()]).unwrap();
+            let pty = native_pty_system()
+                .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+                .unwrap();
+            let mut command = pending.helper_command().unwrap();
+            command.env(super::test_support::DIE_AFTER_RELEASE_ENV, "1");
+            let mut child = pty.slave.spawn_command(command).unwrap();
+            let gate = pending.finish(child.process_id()).unwrap();
+            drop(pty.slave);
+
+            let error = gate.release().unwrap_err();
+            assert!(format!("{error:#}").contains("exited before exec"), "{error:#}");
+            child.wait().unwrap();
+        }
+
+        #[cfg(target_os = "macos")]
+        #[test]
+        fn helper_release_wait_is_configured_without_a_child_deadline() {
+            let pending =
+                super::PendingTerminalLaunchGate::new(&["/usr/bin/true".to_string()]).unwrap();
+            let pty = native_pty_system()
+                .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+                .unwrap();
+            let mut command = pending.helper_command().unwrap();
+            command.env(super::test_support::ASSERT_UNBOUNDED_RELEASE_ENV, "1");
+            let mut child = pty.slave.spawn_command(command).unwrap();
+            let gate = pending.finish(child.process_id()).unwrap();
+            drop(pty.slave);
+
+            gate.release().unwrap();
+            child.wait().unwrap();
+        }
+
+        #[cfg(target_os = "macos")]
+        #[test]
+        fn exact_exec_witness_accepts_coalesced_exec_and_exit() {
+            let executable = std::ffi::CString::new("/usr/bin/true").unwrap();
+            let mut release_pipe = [0; 2];
+            assert_eq!(unsafe { libc::pipe(release_pipe.as_mut_ptr()) }, 0);
+            let process_id = unsafe { libc::fork() };
+            assert!(process_id >= 0, "fork failed: {}", std::io::Error::last_os_error());
+            if process_id == 0 {
+                unsafe {
+                    libc::close(release_pipe[1]);
+                    let mut release = 0u8;
+                    if libc::read(
+                        release_pipe[0],
+                        (&mut release as *mut u8).cast(),
+                        size_of_val(&release),
+                    ) == 1
+                    {
+                        libc::execl(
+                            executable.as_ptr(),
+                            executable.as_ptr(),
+                            std::ptr::null::<libc::c_char>(),
+                        );
+                    }
+                    libc::_exit(126);
+                }
+            }
+
+            unsafe {
+                libc::close(release_pipe[0]);
+            }
+            let watcher = super::ProcessExecWatcher::new(process_id as u32).unwrap();
+            assert_eq!(
+                unsafe {
+                    libc::write(release_pipe[1], (&1u8 as *const u8).cast(), size_of::<u8>())
+                },
+                1
+            );
+            unsafe {
+                libc::close(release_pipe[1]);
+            }
+            let mut status = 0;
+            assert_eq!(unsafe { libc::waitpid(process_id, &mut status, 0) }, process_id);
+            assert!(libc::WIFEXITED(status));
+            assert_eq!(libc::WEXITSTATUS(status), 0);
+
+            let event = watcher
+                .wait_event_before(std::time::Instant::now() + super::RELEASE_ACK_DEADLINE)
+                .unwrap();
+            assert_ne!(event.fflags & libc::NOTE_EXEC, 0);
+            assert_ne!(event.fflags & libc::NOTE_EXIT, 0);
+            super::ProcessExecWatcher::require_exec_event(process_id as u32, event).unwrap();
         }
 
         #[test]
