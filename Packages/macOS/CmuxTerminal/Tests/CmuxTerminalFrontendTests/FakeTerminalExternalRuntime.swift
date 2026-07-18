@@ -12,6 +12,8 @@ final class FakeTerminalExternalRuntime: TerminalExternalRuntime {
     private(set) var adoptedWorkspaceIDs: [UUID] = []
     private(set) var mutations: [TerminalExternalRuntimeMutation] = []
     private(set) var accessibilityEnableCount = 0
+    var stubbedIngressResults: [TerminalExternalIngressResult] = []
+    private var stubbedIngressResultIndex = 0
 
     func attachPresentation(
         _ presentation: TerminalExternalPresentation
@@ -28,6 +30,10 @@ final class FakeTerminalExternalRuntime: TerminalExternalRuntime {
         _ mutation: TerminalExternalRuntimeMutation
     ) -> TerminalExternalIngressResult {
         mutations.append(mutation)
+        if stubbedIngressResultIndex < stubbedIngressResults.count {
+            defer { stubbedIngressResultIndex += 1 }
+            return stubbedIngressResults[stubbedIngressResultIndex]
+        }
         return .accepted(sequence: UInt64(mutations.count))
     }
 
