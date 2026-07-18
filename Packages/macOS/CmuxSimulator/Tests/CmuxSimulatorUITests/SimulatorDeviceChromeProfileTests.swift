@@ -120,6 +120,30 @@ struct SimulatorDeviceChromeProfileTests {
         #expect(bodyPixel.alphaComponent == 1)
     }
 
+    @Test("DeviceKit edge artwork keeps its natural cap thickness")
+    func deviceKitArtworkUsesNaturalCapGeometry() throws {
+        let body = CGRect(x: 10, y: 20, width: 300, height: 500)
+        let layout = SimulatorDeviceChromeAssetLayout(
+            body: body,
+            imageSizes: [
+                "topLeft": CGSize(width: 96, height: 96),
+                "top": CGSize(width: 2, height: 96),
+                "topRight": CGSize(width: 96, height: 96),
+                "right": CGSize(width: 96, height: 2),
+                "bottomRight": CGSize(width: 96, height: 96),
+                "bottom": CGSize(width: 2, height: 96),
+                "bottomLeft": CGSize(width: 96, height: 96),
+                "left": CGSize(width: 96, height: 2),
+            ]
+        )
+
+        #expect(layout.rect(for: "topLeft") == CGRect(x: 10, y: 424, width: 96, height: 96))
+        #expect(layout.rect(for: "top") == CGRect(x: 106, y: 424, width: 108, height: 96))
+        #expect(layout.rect(for: "right") == CGRect(x: 214, y: 116, width: 96, height: 308))
+        #expect(layout.rect(for: "bottom") == CGRect(x: 106, y: 20, width: 108, height: 96))
+        #expect(layout.rect(for: "left") == CGRect(x: 10, y: 116, width: 96, height: 308))
+    }
+
     @Test("Loads screen and bezel geometry from DeviceKit metadata")
     func metadataLoading() async throws {
         let root = FileManager.default.temporaryDirectory
