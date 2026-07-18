@@ -7,6 +7,7 @@ public struct AgentTerminalProfileCatalog: Sendable {
 
     private let byID: [String: AgentTerminalFamilyProfile]
     private let byHint: [String: AgentTerminalFamilyProfile]
+    private let byExecutable: [String: AgentTerminalFamilyProfile]
 
     /// Validates a replacement catalog outside terminal-update paths.
     ///
@@ -37,6 +38,9 @@ public struct AgentTerminalProfileCatalog: Sendable {
         self.profiles = validatedProfiles
         self.byID = byID
         self.byHint = byHint
+        self.byExecutable = Dictionary(uniqueKeysWithValues: validatedProfiles.flatMap { profile in
+            profile.executableBasenames.map { ($0, profile) }
+        })
     }
 
     /// Returns the profile for a canonical identifier.
@@ -47,6 +51,11 @@ public struct AgentTerminalProfileCatalog: Sendable {
     /// Returns the profile declared by a scoped wrapper hint.
     public func profile(hint: String) -> AgentTerminalFamilyProfile? {
         byHint[Self.normalized(hint)]
+    }
+
+    /// Returns the unique profile that owns an executable basename.
+    func profile(executableBasename: String) -> AgentTerminalFamilyProfile? {
+        byExecutable[Self.normalizedNeedle(executableBasename)]
     }
 
     /// Returns profiles that publish the supplied cmux lifecycle key.

@@ -98,9 +98,11 @@ struct AgentTerminalStateClassifierTests {
 
     @Test
     func conflictingWrappedAgentExecutablesRemainUnknown() {
-        let wrapped = process(
-            executable: "node",
-            arguments: ["node", "/tmp/codex", "/tmp/claude"]
+        let wrapped = AgentTerminalProcessSnapshot(
+            identity: identity,
+            executablePath: "/usr/local/bin/node",
+            arguments: ["node", "/tmp/codex", "/tmp/claude"],
+            environment: ["CMUX_AGENT_LAUNCH_KIND": "codex"]
         )
 
         #expect(classifier.recognize(wrapped) == nil)
