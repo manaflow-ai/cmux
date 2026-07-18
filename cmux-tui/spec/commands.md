@@ -160,10 +160,10 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":7,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":8,"session":"main","pid":12345}}
 ```
 
-This implemented example reports the current protocol 6; a v7 server reports `7` in the same `protocol` field, including in `ping`.
+The current server reports protocol `8` in this field and in `ping`. Clients must negotiate before requiring stable split ids or sending `set-split-ratio`.
 
 ### ping
 
