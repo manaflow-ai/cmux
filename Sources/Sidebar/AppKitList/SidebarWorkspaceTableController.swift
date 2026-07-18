@@ -4,6 +4,24 @@ import CmuxAppKitSupportUI
 import CmuxFoundation
 import SwiftUI
 
+enum SidebarWorkspaceSelectionPreviewEvent {
+    case mouseDown
+    case dragStarted
+    case recognizedClick
+}
+
+/// NSTableView sends its target/action only for a recognized click. Dragging
+/// starts through the pasteboard-writer path instead, so only the action event
+/// may paint a workspace as selected.
+enum SidebarWorkspaceSelectionPreviewPolicy {
+    static func shouldPreview(_ event: SidebarWorkspaceSelectionPreviewEvent) -> Bool {
+        switch event {
+        case .recognizedClick: true
+        case .mouseDown, .dragStarted: false
+        }
+    }
+}
+
 /// Main-actor owner of the default sidebar table lifecycle and its AppKit interactions.
 @MainActor
 final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NSTableViewDelegate {
@@ -177,9 +195,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 #endif
         guard rows.indices.contains(row) else { return }
         if let actions = rows[row].appKitWorkspaceRowActions {
+            let modifiers = NSEvent.modifierFlags
+            // Paint at mouse-up, before a coalesced (trailing) model apply,
+            // so terminal loading cannot delay the completed click feedback.
+            previewSelection(row: row, modifiers: modifiers, event: .recognizedClick)
             // Capture modifiers at click time: a coalesced (trailing) apply
             // must not re-read the keyboard ~100ms later.
-            let modifiers = NSEvent.modifierFlags
             if modifiers.contains(.command) || modifiers.contains(.shift) {
                 // Multi-select mutations are order-dependent; apply in order,
                 // never dropping intermediates.
@@ -293,18 +314,22 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         dropTargetGeometry.setReorderTargetCollectionActive(false, rows: rows)
     }
 
-    /// Optimistic press highlight: paints the clicked workspace cell as
+    /// Optimistic mouse-up highlight: paints a completed workspace click as
     /// selected immediately and, for a plain click, peels the highlight off
     /// the outgoing rows so old and new selection never show together while
     /// the authoritative render is queued behind the terminal-view swap.
     /// The authoritative apply reconciles right after.
-    func previewSelection(row: Int, modifiers: NSEvent.ModifierFlags, hitView: NSView?) {
+    func previewSelection(
+        row: Int,
+        modifiers: NSEvent.ModifierFlags,
+        event: SidebarWorkspaceSelectionPreviewEvent
+    ) {
+        guard SidebarWorkspaceSelectionPreviewPolicy.shouldPreview(event) else { return }
         guard rows.indices.contains(row),
               rows[row].appKitWorkspaceRowModel != nil,
               let table = containerView?.tableView,
               let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
                 as? SidebarWorkspaceRowTableCellView else { return }
-        if let hitView, cell.selectionPreviewShouldIgnore(hitView) { return }
         let extendsSelection = modifiers.contains(.command) || modifiers.contains(.shift)
         if !extendsSelection {
             let visibleRows = table.rows(in: table.visibleRect)

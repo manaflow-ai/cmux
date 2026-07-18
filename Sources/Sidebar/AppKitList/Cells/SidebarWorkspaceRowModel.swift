@@ -14,7 +14,7 @@ struct SidebarWorkspaceRowModel: Equatable {
     let index: Int
     let snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
     let settings: SidebarTabItemSettingsSnapshot
-    // `var` (not `let`) so the optimistic press/deselect paint can apply a
+    // `var` (not `let`) so the optimistic mouse-up/deselect paint can apply a
     // selection-flipped copy of the model; the stored model stays
     // authoritative and reconciles on the next configure.
     var isActive: Bool
