@@ -25,7 +25,7 @@ extension View {
     func sidebarWorkspaceObservations(
         ids: [UUID],
         workspaces: [Workspace],
-        debouncedInterval: RunLoop.SchedulerTimeType.Stride,
+        debouncedInterval: DispatchQueue.SchedulerTimeType.Stride,
         onChange: @MainActor @escaping (UUID) -> Void
     ) -> some View {
         task(id: ids) { @MainActor in
@@ -34,8 +34,13 @@ extension View {
                     let immediateChanges = workspace.sidebarImmediateObservationPublisher
                         .values
                     let debouncedChanges = workspace.sidebarObservationPublisher
-                        .receive(on: RunLoop.main)
-                        .debounce(for: debouncedInterval, scheduler: RunLoop.main)
+                        // DispatchQueue.main, not RunLoop.main: the RunLoop
+                        // scheduler delivers only in the DEFAULT runloop mode,
+                        // so modal panels (rename alert), context menus, and
+                        // drag tracking stalled every sidebar row update until
+                        // the mode unwound. Main-queue delivery is mode-agnostic.
+                        .receive(on: DispatchQueue.main)
+                        .debounce(for: debouncedInterval, scheduler: DispatchQueue.main)
                         .values
                     group.addTask { @MainActor in
                         for await _ in immediateChanges {
@@ -200,7 +205,7 @@ extension Workspace {
     // and the settle model's deferral deadline still republishes during
     // sustained churn so a row's title cannot stay stale until the agent
     // goes quiet. See https://github.com/manaflow-ai/cmux/issues/5570.
-    static let sidebarImmediateObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(50)
+    static let sidebarImmediateObservationCoalesceInterval: DispatchQueue.SchedulerTimeType.Stride = .milliseconds(50)
     func makeSidebarImmediateObservationPublisher() -> AnyPublisher<Void, Never> {
         let workspaceFields = Publishers.CombineLatest4(
             $customTitle,
@@ -241,7 +246,7 @@ extension Workspace {
             .removeDuplicates()
             .coalesceLatest(
                 for: Self.sidebarImmediateObservationCoalesceInterval,
-                scheduler: RunLoop.main
+                scheduler: DispatchQueue.main
             )
             .map { _ in () }
 
@@ -256,10 +261,10 @@ extension Workspace {
     /// as before.
     static func mergedImmediateObservationPublisher(for workspaces: [Workspace]) -> AnyPublisher<Void, Never> {
         Publishers.MergeMany(workspaces.map { $0.sidebarImmediateObservationPublisher })
-            .receive(on: RunLoop.main)
+            .receive(on: DispatchQueue.main)
             .coalesceLatest(
                 for: sidebarImmediateObservationCoalesceInterval,
-                scheduler: RunLoop.main
+                scheduler: DispatchQueue.main
             )
             .eraseToAnyPublisher()
     }
