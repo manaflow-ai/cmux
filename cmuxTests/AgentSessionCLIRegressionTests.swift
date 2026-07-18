@@ -176,6 +176,77 @@ extension CMUXCLIErrorOutputRegressionTests {
         })
     }
 
+    @Test func agentsListRejectsPartiallyDecodableRegistrySnapshot() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-partial-registry-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let legacySessionID = "legacy-complete"
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [legacySessionID: [
+                "sessionId": legacySessionID,
+                "workspaceId": "workspace-legacy",
+                "surfaceId": "surface-legacy",
+                "startedAt": 100.0,
+                "updatedAt": 200.0,
+            ]],
+        ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
+
+        let registry = CmuxAgentSessionRegistry(
+            url: root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        _ = try registry.snapshotImportingLegacy(
+            provider: "codex", legacyURL: stateURL, fileManager: .default
+        )
+        let registryOnlySessionID = "registry-only"
+        try registry.apply(provider: "codex", records: [
+            CmuxAgentSessionRegistry.Record(
+                provider: "codex", sessionID: registryOnlySessionID, updatedAt: 400,
+                json: try JSONSerialization.data(withJSONObject: [
+                    "sessionId": registryOnlySessionID,
+                    "workspaceId": "workspace-registry",
+                    "surfaceId": "surface-registry",
+                    "startedAt": 300.0,
+                    "updatedAt": 400.0,
+                ], options: [.sortedKeys])
+            ),
+            CmuxAgentSessionRegistry.Record(
+                provider: "codex", sessionID: "malformed", updatedAt: 500,
+                json: Data("{}".utf8)
+            ),
+        ])
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "agents", "list", "--agent", "codex", "--all", "--json",
+                "--state-dir", root.path, "--codex-home", root.path,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let output = try #require(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        let sessions = try #require(output["sessions"] as? [[String: Any]])
+        #expect(sessions.contains { $0["session_id"] as? String == legacySessionID })
+        #expect(
+            !sessions.contains { $0["session_id"] as? String == registryOnlySessionID },
+            "One malformed registry record must reject the entire CLI projection instead of returning partial state."
+        )
+    }
+
     @Test func kimiHookProviderHasLifecycleRestoreAndHelpParity() throws {
         #expect(AgentHibernationLifecycleStatusKeys.isAllowed("kimi"))
 
