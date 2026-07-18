@@ -32,6 +32,7 @@
   const maxSnippetCharacters = 2400;
   const maxSnippetNodes = 512;
   const maxSelectionRecoveryAttempts = 8;
+  const maxAnnotationReferences = 8;
   const mutationEmissionInterval = 100;
   const redactedValue = "<redacted>";
   const sensitiveNamePattern = /(?:^|[-_:])(api[-_]?key|auth|authorization|credential|csrf|password|passwd|secret|session|token)(?:$|[-_:])/i;
@@ -45,6 +46,7 @@
   let selectedIdentity = null;
   let activeReference = null;
   let hoveredElement = null;
+  let hoveredSelectionIndex = null;
   let overlayHost = null;
   let overlay = null;
   let observer = null;
@@ -93,12 +95,15 @@
     return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.62 ? "rgba(0, 0, 0, 0.88)" : "white";
   };
 
-  // Marquee region captures: page-anchored rects drawn by dragging.
+  // Captured annotation cards: one immutable context artifact per stroke.
   const regionReferences = [];
   const marqueeThresholdPixels = 5;
   let pendingPointer = null;
   let marqueeActive = false;
   let marqueePoints = [];
+  let annotationSequence = 0;
+  let pendingAnnotation = null;
+  let annotationPhase = "idle";
   let suppressClicksUntil = 0;
   // Exclusive interaction modes: "select" picks elements, "draw" captures
   // freehand regions. Never both at once.
@@ -624,13 +629,13 @@
     };
   };
 
-  // Region snapshots translate page-anchored rects to current viewport
-  // coordinates so capture crops stay correct after scrolling.
+  // Annotation snapshots translate page-anchored cards to current viewport
+  // coordinates while keeping a stable identity across scrolling.
   const regionSnapshotFor = (region) => {
     const x = region.pageX - (globalThis.scrollX || 0);
     const y = region.pageY - (globalThis.scrollY || 0);
     return {
-      selector: `@region(${Math.round(x)},${Math.round(y)},${Math.round(region.width)},${Math.round(region.height)})`,
+      selector: `@annotation(${region.id})`,
       selectors: [],
       xpath: "",
       tag_name: "region",
@@ -1007,8 +1012,8 @@
       background: "rgba(10, 132, 255, 0.07)",
     });
 
-    // Freehand pen stroke rendered while dragging a capture region,
-    // Cursor-style; the region is the stroke's bounding box.
+    // Freehand ink is the only visible feedback until native capture returns
+    // the context-rich composited card.
     const svgNS = "http://www.w3.org/2000/svg";
     const strokeSvg = document.createElementNS(svgNS, "svg");
     Object.assign(strokeSvg.style, {
@@ -1067,6 +1072,25 @@
     return element;
   };
 
+  const annotationCard = () => {
+    const element = document.createElement("div");
+    Object.assign(element.style, {
+      display: "none",
+      position: "fixed",
+      pointerEvents: "none",
+      boxSizing: "border-box",
+      border: "1.5px dashed rgb(10, 132, 255)",
+      borderRadius: "14px",
+      backgroundColor: "white",
+      backgroundPosition: "center",
+      backgroundRepeat: "no-repeat",
+      backgroundSize: "100% 100%",
+      boxShadow: "0 8px 24px rgba(0, 0, 0, 0.18)",
+      overflow: "hidden",
+    });
+    return element;
+  };
+
   const refreshSelectedOutlines = () => {
     if (!overlay) return;
     while (overlay.selectionOutlines.length < selectedReferences.length) {
@@ -1083,7 +1107,11 @@
         continue;
       }
       // The selection's lifetime color, matching its composer pill.
-      outline.style.borderColor = selectionColor(reference.colorIndex || 0);
+      const tint = selectionColor(reference.colorIndex || 0);
+      outline.style.borderColor = tint;
+      const isHovered = hoveredSelectionIndex === index;
+      outline.style.background = isHovered ? colorWithAlpha(tint, 0.13) : "transparent";
+      outline.style.boxShadow = isHovered ? `0 0 0 4px ${colorWithAlpha(tint, 0.55)}` : "none";
       place(outline, element.getBoundingClientRect());
     }
     refreshRegionOutlines();
@@ -1092,9 +1120,7 @@
   const refreshRegionOutlines = () => {
     if (!overlay) return;
     while (overlay.regionOutlines.length < regionReferences.length) {
-      const outline = selectedOutline();
-      outline.style.borderStyle = "dashed";
-      outline.style.borderWidth = "1.5px";
+      const outline = annotationCard();
       overlay.regionOutlines.push(outline);
       overlay.selectionLayer.append(outline);
     }
@@ -1105,7 +1131,13 @@
         outline.style.display = "none";
         continue;
       }
-      outline.style.borderColor = selectionColor(region.colorIndex || 0);
+      const tint = selectionColor(region.colorIndex || 0);
+      const isHovered = hoveredSelectionIndex === selectedReferences.length + index;
+      outline.style.borderColor = tint;
+      outline.style.boxShadow = isHovered
+        ? `0 0 0 4px ${colorWithAlpha(tint, 0.55)}, 0 8px 24px rgba(0, 0, 0, 0.18)`
+        : "0 8px 24px rgba(0, 0, 0, 0.18)";
+      outline.style.backgroundImage = `url("${region.imageURL}")`;
       place(outline, {
         x: region.pageX - (globalThis.scrollX || 0),
         y: region.pageY - (globalThis.scrollY || 0),
@@ -1113,6 +1145,33 @@
         height: region.height,
       });
     }
+  };
+
+  const annotationInkPoints = () => {
+    if (!pendingAnnotation) return marqueePoints;
+    const scrollX = globalThis.scrollX || 0;
+    const scrollY = globalThis.scrollY || 0;
+    return pendingAnnotation.pagePoints.map((point) => ({
+      x: point.x - scrollX,
+      y: point.y - scrollY,
+    }));
+  };
+
+  const showAnnotationInkOnly = () => {
+    createOverlay();
+    if (!overlay) return;
+    for (const name of ["margin", "border", "padding", "content", "badge", "marqueeBox"]) {
+      overlay[name].style.display = "none";
+    }
+    for (const outline of overlay.selectionOutlines) outline.style.display = "none";
+    for (const outline of overlay.regionOutlines) outline.style.display = "none";
+    const points = annotationInkPoints();
+    overlay.strokePath.setAttribute(
+      "points",
+      points.map((point) => `${point.x},${point.y}`).join(" "),
+    );
+    overlay.strokeSvg.style.display = points.length > 1 ? "block" : "none";
+    overlay.shield.style.display = enabled ? "block" : "none";
   };
 
   const displaySelectorFor = (element) => {
@@ -1133,15 +1192,21 @@
     hovered_selector: displaySelectorFor(hoveredElement),
     can_copy: Boolean(selectedReferences.length && selectedBaseline) || regionReferences.length > 0,
     focused: false,
+    annotation_phase: annotationPhase,
   });
 
   const refreshOverlay = () => {
+    if (overlayFrame) cancelAnimationFrame(overlayFrame);
     overlayFrame = 0;
     if (!enabled || captureHidden) {
       hideOverlay();
       return;
     }
     createOverlay();
+    if (["drawing", "ink_only", "capturing"].includes(annotationPhase)) {
+      showAnnotationInkOnly();
+      return;
+    }
     if (hoveredElement && !hoveredElement.isConnected) hoveredElement = null;
     const selected = resolveSelectedElement();
     refreshSelectedOutlines();
@@ -1338,7 +1403,27 @@
     if (touchesSelection) scheduleMutationRefresh();
   };
 
+  const resetPendingAnnotation = (notifyNative) => {
+    const id = pendingAnnotation?.id || pendingPointer?.annotationID || null;
+    pendingAnnotation = null;
+    pendingPointer = null;
+    marqueeActive = false;
+    marqueePoints = [];
+    annotationPhase = "idle";
+    if (overlay) {
+      overlay.marqueeBox.style.display = "none";
+      overlay.strokeSvg.style.display = "none";
+      overlay.strokePath.setAttribute("points", "");
+    }
+    if (notifyNative && id) {
+      try { handler?.postMessage({ type: "annotation_cancelled", id }); } catch (_) {}
+    }
+    scheduleOverlayRefresh();
+    return id;
+  };
+
   const clearSelection = () => {
+    resetPendingAnnotation(true);
     if (!selectedReferences.length && !regionReferences.length) return snapshot();
     restoreAll();
     selectedReferences.length = 0;
@@ -1348,6 +1433,7 @@
     // instead of restarting at blue.
     setActiveReference(null);
     hoveredElement = null;
+    hoveredSelectionIndex = null;
     selectionIdentityNeedsRefresh = false;
     selectionRecoveryAttemptsRemaining = 0;
     captureSelectionValid = true;
@@ -1363,6 +1449,7 @@
     if (Number.isInteger(index) && index >= selectedReferences.length
         && index < selectedReferences.length + regionReferences.length) {
       regionReferences.splice(index - selectedReferences.length, 1);
+      hoveredSelectionIndex = null;
       revision += 1;
       scheduleOverlayRefresh();
       return emit();
@@ -1373,6 +1460,7 @@
     const reference = selectedReferences[index];
     if (reference === activeReference && edits.size) restoreAll();
     selectedReferences.splice(index, 1);
+    hoveredSelectionIndex = null;
     if (reference === activeReference) {
       setActiveReference(selectedReferences[selectedReferences.length - 1]);
       selectionIdentityNeedsRefresh = false;
@@ -1384,8 +1472,21 @@
     return emit();
   };
 
+  const selectionIndex = (selection) => {
+    if (typeof selection !== "string") return Number(selection);
+    const elementIndex = selectedReferences.findIndex(
+      (reference) => reference.baseline?.selector === selection,
+    );
+    if (elementIndex >= 0) return elementIndex;
+    const regionIndex = regionReferences.findIndex(
+      (region) => regionSnapshotFor(region).selector === selection,
+    );
+    return regionIndex >= 0 ? selectedReferences.length + regionIndex : -1;
+  };
+
   const selectElement = (element, stack = false) => {
     if (!element || element === overlayHost || overlayHost?.contains(element)) return snapshot();
+    annotationPhase = "idle";
     cancelSelectionRecovery();
     cancelMutationEmission();
     const elementIndex = selectedReferences.findIndex((reference) => reference.element === element);
@@ -1431,7 +1532,7 @@
   };
 
   const onPointerMove = (event) => {
-    if (!enabled || captureHidden) return;
+    if (!enabled || captureHidden || pendingAnnotation) return;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
@@ -1451,11 +1552,22 @@
       }
       return;
     }
-    if (pendingPointer && interactionMode === "draw") {
+    if (pendingPointer) {
       const dx = event.clientX - pendingPointer.x;
       const dy = event.clientY - pendingPointer.y;
       if (marqueeActive || Math.hypot(dx, dy) > marqueeThresholdPixels) {
-        if (!marqueeActive) marqueePoints = [{ x: pendingPointer.x, y: pendingPointer.y }];
+        if (!marqueeActive) {
+          if (!pendingPointer.annotationID) {
+            interactionMode = "draw";
+            pendingPointer.annotationID = String(++annotationSequence);
+            annotationPhase = "drawing";
+            try { handler?.postMessage({ type: "interaction_mode_changed", mode: "draw" }); } catch (_) {}
+            try {
+              handler?.postMessage({ type: "annotation_drawing", id: pendingPointer.annotationID });
+            } catch (_) {}
+          }
+          marqueePoints = [{ x: pendingPointer.x, y: pendingPointer.y }];
+        }
         marqueeActive = true;
         hoveredElement = null;
         marqueePoints.push({ x: event.clientX, y: event.clientY });
@@ -1472,9 +1584,9 @@
 
   // The captured region is the bounding box of the whole freehand stroke,
   // not just its endpoints, so circling or scribbling over an area crops it.
-  const marqueeBounds = () => {
+  const boundsForPoints = (points) => {
     let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
-    for (const point of marqueePoints) {
+    for (const point of points) {
       minX = Math.min(minX, point.x);
       minY = Math.min(minY, point.y);
       maxX = Math.max(maxX, point.x);
@@ -1484,6 +1596,25 @@
     return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
   };
 
+  const marqueeBounds = () => boundsForPoints(marqueePoints);
+
+  const annotationCaptureDescriptor = (id) => {
+    if (!pendingAnnotation || pendingAnnotation.id !== String(id || "")) return null;
+    const scrollX = globalThis.scrollX || 0;
+    const scrollY = globalThis.scrollY || 0;
+    const viewportPoints = pendingAnnotation.pagePoints.map((point) => ({
+      x: point.x - scrollX,
+      y: point.y - scrollY,
+    }));
+    return {
+      id: pendingAnnotation.id,
+      stroke_bounds: boundsForPoints(viewportPoints),
+      viewport: { width: globalThis.innerWidth || 0, height: globalThis.innerHeight || 0 },
+      scroll_x: scrollX,
+      scroll_y: scrollY,
+    };
+  };
+
   const updateMarqueeBox = () => {
     createOverlay();
     if (!overlay) return;
@@ -1491,13 +1622,14 @@
     overlay.marqueeBox.style.border = `1.5px dashed ${colorWithAlpha(tint, 0.85)}`;
     overlay.marqueeBox.style.background = colorWithAlpha(tint, 0.07);
     overlay.strokePath.setAttribute("stroke", tint);
-    place(overlay.marqueeBox, marqueeBounds());
+    overlay.marqueeBox.style.display = "none";
     overlay.strokePath.setAttribute(
       "points",
       marqueePoints.map((point) => `${point.x},${point.y}`).join(" "),
     );
     overlay.strokeSvg.style.display = "block";
     hideHoverFeedback();
+    showAnnotationInkOnly();
   };
 
   const hideHoverFeedback = () => {
@@ -1530,17 +1662,29 @@
   // selects the element. Real pointer sequences suppress the trailing click;
   // a standalone synthetic click still selects (fallback for tests/automation).
   const onPointerDown = (event) => {
-    if (!enabled || captureHidden) return;
+    if (!enabled || captureHidden || pendingAnnotation) return;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
     if (event.button !== 0) return;
-    pendingPointer = { x: event.clientX, y: event.clientY, shift: event.shiftKey === true };
+    const annotationID = interactionMode === "draw" ? String(++annotationSequence) : null;
+    pendingPointer = {
+      x: event.clientX,
+      y: event.clientY,
+      shift: event.shiftKey === true,
+      annotationID,
+    };
     marqueeActive = false;
+    if (annotationID) {
+      annotationPhase = "drawing";
+      try { handler?.postMessage({ type: "annotation_drawing", id: annotationID }); } catch (_) {}
+      scheduleOverlayRefresh();
+      showAnnotationInkOnly();
+    }
   };
 
   const onPointerUp = (event) => {
-    if (!enabled || captureHidden) return;
+    if (!enabled || captureHidden || pendingAnnotation) return;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
@@ -1552,39 +1696,57 @@
     suppressClicksUntil = (globalThis.performance?.now?.() || 0) + 500;
     if (overlay) {
       overlay.marqueeBox.style.display = "none";
-      overlay.strokeSvg.style.display = "none";
-      overlay.strokePath.setAttribute("points", "");
     }
     if (wasMarquee) {
       marqueePoints.push({ x: event.clientX, y: event.clientY });
+      updateMarqueeBox();
       const bounds = marqueeBounds();
-      marqueePoints = [];
-      finalizeRegion(bounds);
+      finalizeRegion(bounds, armed.annotationID);
       return;
     }
     // Draw mode never element-selects; a tap there is a no-op.
-    if (interactionMode === "draw") return;
+    if (interactionMode === "draw") {
+      marqueePoints = [];
+      annotationPhase = "idle";
+      if (overlay) {
+        overlay.strokeSvg.style.display = "none";
+        overlay.strokePath.setAttribute("points", "");
+      }
+      try { handler?.postMessage({ type: "annotation_cancelled", id: armed.annotationID }); } catch (_) {}
+      return;
+    }
     // Clicks always stack: every picked element becomes another prompt
     // token; tokens are removed in the composer (backspace or click-out).
     const candidate = elementUnderPoint(armed.x, armed.y);
     if (candidate) selectElement(candidate, true);
   };
 
-  const finalizeRegion = (rect) => {
-    if (rect.width < 8 || rect.height < 8) return;
-    // Draws stack like clicks: every capture becomes another prompt token
-    // and existing element/region selections persist.
-    regionReferences.push({
-      pageX: rect.x + (globalThis.scrollX || 0),
-      pageY: rect.y + (globalThis.scrollY || 0),
-      width: rect.width,
-      height: rect.height,
-      colorIndex: colorSequence++,
-    });
+  const finalizeRegion = (rect, id) => {
+    // Accept deliberate strokes in any direction, including horizontal or
+    // vertical marks whose bounding box has a zero-sized minor axis.
+    if (!id || Math.max(rect.width, rect.height) < 8) {
+      annotationPhase = "idle";
+      marqueePoints = [];
+      if (overlay) {
+        overlay.strokeSvg.style.display = "none";
+        overlay.strokePath.setAttribute("points", "");
+      }
+      try { handler?.postMessage({ type: "annotation_cancelled", id }); } catch (_) {}
+      return;
+    }
+    const scrollX = globalThis.scrollX || 0;
+    const scrollY = globalThis.scrollY || 0;
+    pendingAnnotation = {
+      id,
+      pagePoints: marqueePoints.map((point) => ({ x: point.x + scrollX, y: point.y + scrollY })),
+      colorIndex: colorSequence,
+    };
+    marqueePoints = [];
+    annotationPhase = "ink_only";
     hoveredElement = null;
-    revision += 1;
     scheduleOverlayRefresh();
-    emit();
+    const request = annotationCaptureDescriptor(id);
+    try { handler?.postMessage({ type: "annotation_capture_requested", request }); } catch (_) {}
   };
 
   const onClickFallback = (event) => {
@@ -1611,7 +1773,7 @@
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
-    if (selectedBaseline || regionReferences.length) {
+    if (pendingAnnotation || pendingPointer?.annotationID || selectedBaseline || regionReferences.length) {
       // First Escape resets the whole prompt: selections here, and the
       // composer clears its typed text on this message.
       clearSelection();
@@ -1698,11 +1860,14 @@
       restoreAll();
       selectedReferences.length = 0;
       regionReferences.length = 0;
+      pendingAnnotation = null;
+      annotationPhase = "idle";
       setActiveReference(null);
       selectionIdentityNeedsRefresh = false;
       selectionRecoveryAttemptsRemaining = 0;
       cancelSelectionRecovery();
       hoveredElement = null;
+      hoveredSelectionIndex = null;
       overlayHost?.remove();
       overlayHost = null;
       overlay = null;
@@ -1776,14 +1941,27 @@
       return snapshot();
     },
 
+    setSelectionHover(selection) {
+      const position = selection == null ? null : selectionIndex(selection);
+      const selectionCount = selectedReferences.length + regionReferences.length;
+      hoveredSelectionIndex = Number.isInteger(position) && position >= 0 && position < selectionCount
+        ? position
+        : null;
+      hoveredElement = null;
+      refreshOverlay();
+      return snapshot();
+    },
+
     setMode(value) {
       const mode = value === "draw" ? "draw" : "select";
       if (mode !== interactionMode) {
+        resetPendingAnnotation(true);
         interactionMode = mode;
         pendingPointer = null;
         marqueeActive = false;
         marqueePoints = [];
         hoveredElement = null;
+        hoveredSelectionIndex = null;
         if (overlay) {
           overlay.marqueeBox.style.display = "none";
           overlay.strokeSvg.style.display = "none";
@@ -1802,8 +1980,8 @@
 
     composerState,
 
-    removeSelection(index) {
-      return removeSelectionAt(Number(index));
+    removeSelection(selection) {
+      return removeSelectionAt(selectionIndex(selection));
     },
 
     applyStyle(property, value) {
@@ -1862,6 +2040,81 @@
       return emit();
     },
 
+    prepareAnnotationCapture(id) {
+      const descriptor = annotationCaptureDescriptor(id);
+      if (!descriptor) return null;
+      annotationPhase = "capturing";
+      showAnnotationInkOnly();
+      // Synchronize page layout before WebKit snapshots the ink-only frame.
+      document.documentElement.getBoundingClientRect();
+      return annotationCaptureDescriptor(id);
+    },
+
+    annotationCaptureDescriptor(id) {
+      return annotationCaptureDescriptor(id);
+    },
+
+    completeAnnotationCapture(
+      id,
+      x,
+      y,
+      width,
+      height,
+      imageURL,
+      expectedScrollX,
+      expectedScrollY,
+      expectedViewportWidth,
+      expectedViewportHeight,
+    ) {
+      const descriptor = annotationCaptureDescriptor(id);
+      const values = [x, y, width, height, expectedScrollX, expectedScrollY,
+        expectedViewportWidth, expectedViewportHeight];
+      if (!descriptor || !values.every(Number.isFinite)
+          || width <= 0 || height <= 0
+          || descriptor.scroll_x !== expectedScrollX
+          || descriptor.scroll_y !== expectedScrollY
+          || descriptor.viewport.width !== expectedViewportWidth
+          || descriptor.viewport.height !== expectedViewportHeight
+          || !String(imageURL || "").startsWith("data:image/png;base64,")) {
+        return null;
+      }
+      regionReferences.push({
+        id: pendingAnnotation.id,
+        pageX: x + expectedScrollX,
+        pageY: y + expectedScrollY,
+        width,
+        height,
+        imageURL: String(imageURL),
+        colorIndex: pendingAnnotation.colorIndex,
+      });
+      // Each card retains screenshot-sized encoded and decoded image data.
+      // Keep a useful multi-stroke stack while evicting the oldest card so a
+      // long drawing session has a fixed memory ceiling.
+      if (regionReferences.length > maxAnnotationReferences) {
+        regionReferences.splice(0, regionReferences.length - maxAnnotationReferences);
+        hoveredSelectionIndex = null;
+      }
+      colorSequence += 1;
+      pendingAnnotation = null;
+      annotationPhase = "captured";
+      if (overlay) {
+        overlay.strokeSvg.style.display = "none";
+        overlay.strokePath.setAttribute("points", "");
+      }
+      revision += 1;
+      // Native capture completion is the authoritative phase transition.
+      // Reconcile it directly so a frame request paused during WebKit's
+      // snapshot cannot strand the card behind an outstanding frame token.
+      refreshOverlay();
+      return emit();
+    },
+
+    cancelAnnotationCapture(id) {
+      if (pendingAnnotation?.id !== String(id || "")) return snapshot();
+      resetPendingAnnotation(false);
+      return snapshot();
+    },
+
     prepareCapture() {
       captureHidden = true;
       hideOverlay();
@@ -1874,7 +2127,10 @@
     finishCapture() {
       captureHidden = false;
       captureSelectionValid = true;
-      scheduleOverlayRefresh();
+      // Restore synchronously. Native keeps a visual shield above the webview
+      // until an after-screen-updates snapshot confirms this state has painted.
+      refreshOverlay();
+      document.documentElement.getBoundingClientRect();
       return snapshot();
     },
   };
