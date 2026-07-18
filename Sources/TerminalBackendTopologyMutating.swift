@@ -22,6 +22,57 @@ protocol TerminalBackendTopologyMutating: Sendable {
         rows: UInt16?
     ) async throws -> BackendSurfacePlacement
 
+    func createBrowserWorkspace(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        name: String?,
+        url: URL,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement
+
+    func createBrowserTab(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        in paneID: PaneID,
+        url: URL,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement
+
+    func splitBrowserPane(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        _ paneID: PaneID,
+        direction: BackendSplitDirection,
+        initialRatio: Float,
+        url: URL,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement
+
+    /// Materializes a daemon-owned terminal with caller-stable identities in
+    /// the active pane of an existing canonical workspace.
+    func materializeTerminal(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement
+
+    /// Atomically replaces one terminal runtime while preserving its stable
+    /// surface UUID and canonical placement.
+    func respawnTerminal(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement
+
     func splitPane(
         requestID: UUID,
         surfaceID: SurfaceID,

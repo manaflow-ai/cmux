@@ -253,6 +253,156 @@ actor TerminalBackendClientCoordinator:
         }
     }
 
+    func createBrowserWorkspace(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        name: String?,
+        url: URL,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try await performCanonicalTopologyMutation(
+            command: "canonical-new-browser-workspace",
+            requestID: requestID,
+            receipt: \BackendSurfacePlacement.receipt
+        ) { session, expectation in
+            let placement = try await session.newBrowserWorkspace(
+                expectation: expectation,
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                name: name,
+                url: url,
+                columns: columns,
+                rows: rows
+            )
+            guard placement.workspaceID == workspaceID,
+                  placement.surfaceID == surfaceID else {
+                throw BackendProtocolError.peerIdentityMismatch
+            }
+            return placement
+        }
+    }
+
+    func createBrowserTab(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        in paneID: PaneID,
+        url: URL,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try await performCanonicalTopologyMutation(
+            command: "canonical-new-browser-tab",
+            requestID: requestID,
+            receipt: \BackendSurfacePlacement.receipt
+        ) { session, expectation in
+            let placement = try await session.newBrowserTab(
+                expectation: expectation,
+                paneID: paneID,
+                surfaceID: surfaceID,
+                url: url,
+                columns: columns,
+                rows: rows
+            )
+            guard placement.paneID == paneID,
+                  placement.surfaceID == surfaceID else {
+                throw BackendProtocolError.peerIdentityMismatch
+            }
+            return placement
+        }
+    }
+
+    func splitBrowserPane(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        _ paneID: PaneID,
+        direction: BackendSplitDirection,
+        initialRatio: Float,
+        url: URL,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        guard initialRatio.isFinite, initialRatio > 0, initialRatio < 1 else {
+            throw TerminalBackendTopologyMutationError.invalidSplitRatio(initialRatio)
+        }
+        return try await performCanonicalTopologyMutation(
+            command: "canonical-split-browser-pane",
+            requestID: requestID,
+            receipt: \BackendSurfacePlacement.receipt
+        ) { session, expectation in
+            let placement = try await session.splitBrowserPane(
+                expectation: expectation,
+                paneID: paneID,
+                surfaceID: surfaceID,
+                direction: direction,
+                initialRatio: initialRatio,
+                url: url,
+                columns: columns,
+                rows: rows
+            )
+            guard placement.surfaceID == surfaceID else {
+                throw BackendProtocolError.peerIdentityMismatch
+            }
+            return placement
+        }
+    }
+
+    func materializeTerminal(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try await performCanonicalTopologyMutation(
+            command: "canonical-materialize-terminal",
+            requestID: requestID,
+            receipt: \BackendSurfacePlacement.receipt
+        ) { session, expectation in
+            let placement = try await session.materializeTerminal(
+                expectation: expectation,
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                launch: launch,
+                columns: columns,
+                rows: rows
+            )
+            guard placement.workspaceID == workspaceID,
+                  placement.surfaceID == surfaceID else {
+                throw BackendProtocolError.peerIdentityMismatch
+            }
+            return placement
+        }
+    }
+
+    func respawnTerminal(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try await performCanonicalTopologyMutation(
+            command: "canonical-respawn-terminal",
+            requestID: requestID,
+            receipt: \BackendSurfacePlacement.receipt
+        ) { session, expectation in
+            let placement = try await session.respawnTerminal(
+                expectation: expectation,
+                surfaceID: surfaceID,
+                launch: launch,
+                columns: columns,
+                rows: rows
+            )
+            guard placement.surfaceID == surfaceID else {
+                throw BackendProtocolError.peerIdentityMismatch
+            }
+            return placement
+        }
+    }
+
     func splitPane(
         requestID: UUID,
         surfaceID: SurfaceID,

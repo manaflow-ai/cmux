@@ -966,6 +966,75 @@ public actor BackendCanonicalSession {
         )
     }
 
+    /// Creates one daemon-owned browser in a new canonical workspace.
+    public func newBrowserWorkspace(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        name: String? = nil,
+        url: URL,
+        columns: UInt16? = nil,
+        rows: UInt16? = nil
+    ) async throws -> BackendSurfacePlacement {
+        try requireCanonicalTopologyMutation(command: "canonical-new-browser-workspace")
+        return try await client.canonicalNewBrowserWorkspace(
+            expectation: expectation,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            name: name,
+            url: url,
+            columns: columns,
+            rows: rows
+        )
+    }
+
+    /// Creates one daemon-owned browser tab in a stable canonical pane.
+    public func newBrowserTab(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        surfaceID: SurfaceID,
+        url: URL,
+        columns: UInt16? = nil,
+        rows: UInt16? = nil
+    ) async throws -> BackendSurfacePlacement {
+        try requireCanonicalTopologyMutation(command: "canonical-new-browser-tab")
+        return try await client.canonicalNewBrowserTab(
+            expectation: expectation,
+            paneID: paneID,
+            surfaceID: surfaceID,
+            url: url,
+            columns: columns,
+            rows: rows
+        )
+    }
+
+    /// Creates one daemon-owned browser in a new pane next to a stable pane.
+    public func splitBrowserPane(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        surfaceID: SurfaceID,
+        direction: BackendSplitDirection,
+        initialRatio: Float,
+        url: URL,
+        columns: UInt16? = nil,
+        rows: UInt16? = nil
+    ) async throws -> BackendSurfacePlacement {
+        try requireCanonicalTopologyMutation(command: "canonical-split-browser-pane")
+        guard initialRatio.isFinite, initialRatio > 0, initialRatio < 1 else {
+            throw BackendProtocolError.malformedMessage
+        }
+        return try await client.canonicalSplitBrowserPane(
+            expectation: expectation,
+            paneID: paneID,
+            surfaceID: surfaceID,
+            direction: direction,
+            initialRatio: initialRatio,
+            url: url,
+            columns: columns,
+            rows: rows
+        )
+    }
+
     public func splitPane(
         expectation: BackendTopologyMutationExpectation,
         paneID: PaneID,

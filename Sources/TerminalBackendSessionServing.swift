@@ -50,6 +50,48 @@ protocol TerminalBackendSessionServing: Sendable {
         columns: UInt16?,
         rows: UInt16?
     ) async throws -> BackendSurfacePlacement
+    func newBrowserWorkspace(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        name: String?,
+        url: URL,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement
+    func newBrowserTab(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        surfaceID: SurfaceID,
+        url: URL,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement
+    func splitBrowserPane(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        surfaceID: SurfaceID,
+        direction: BackendSplitDirection,
+        initialRatio: Float,
+        url: URL,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement
+    func materializeTerminal(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement
+    func respawnTerminal(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement
     func splitPane(
         expectation: BackendTopologyMutationExpectation,
         paneID: PaneID,
@@ -307,6 +349,95 @@ extension TerminalBackendSessionServing {
     ) async throws -> BackendSurfacePlacement {
         _ = expectation
         _ = paneID
+        _ = surfaceID
+        _ = launch
+        _ = columns
+        _ = rows
+        throw BackendProtocolError.notConnected
+    }
+
+    func newBrowserWorkspace(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        name: String?,
+        url: URL,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        _ = expectation
+        _ = workspaceID
+        _ = surfaceID
+        _ = name
+        _ = url
+        _ = columns
+        _ = rows
+        throw BackendProtocolError.notConnected
+    }
+
+    func newBrowserTab(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        surfaceID: SurfaceID,
+        url: URL,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        _ = expectation
+        _ = paneID
+        _ = surfaceID
+        _ = url
+        _ = columns
+        _ = rows
+        throw BackendProtocolError.notConnected
+    }
+
+    func splitBrowserPane(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        surfaceID: SurfaceID,
+        direction: BackendSplitDirection,
+        initialRatio: Float,
+        url: URL,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        _ = expectation
+        _ = paneID
+        _ = surfaceID
+        _ = direction
+        _ = initialRatio
+        _ = url
+        _ = columns
+        _ = rows
+        throw BackendProtocolError.notConnected
+    }
+
+    func materializeTerminal(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        _ = expectation
+        _ = workspaceID
+        _ = surfaceID
+        _ = launch
+        _ = columns
+        _ = rows
+        throw BackendProtocolError.notConnected
+    }
+
+    func respawnTerminal(
+        expectation: BackendTopologyMutationExpectation,
+        surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        _ = expectation
         _ = surfaceID
         _ = launch
         _ = columns

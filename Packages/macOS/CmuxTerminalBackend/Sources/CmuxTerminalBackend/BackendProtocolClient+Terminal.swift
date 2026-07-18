@@ -1,3 +1,5 @@
+import Foundation
+
 public extension BackendProtocolClient {
     /// Idempotently creates or reattaches one caller-identified canonical terminal.
     ///
@@ -189,6 +191,78 @@ public extension BackendProtocolClient {
         if let rows { parameters["rows"] = .unsignedInteger(UInt64(rows)) }
         return try await call(
             command: "canonical-new-tab",
+            parameters: parameters,
+            as: BackendSurfacePlacement.self
+        )
+    }
+
+    /// Creates one exactly identified daemon-owned browser in a new workspace.
+    func canonicalNewBrowserWorkspace(
+        expectation: BackendTopologyMutationExpectation,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        name: String? = nil,
+        url: URL,
+        columns: UInt16? = nil,
+        rows: UInt16? = nil
+    ) async throws -> BackendSurfacePlacement {
+        var parameters = expectation.jsonParameters
+        parameters["workspace_uuid"] = .string(workspaceID.description)
+        parameters["surface_uuid"] = .string(surfaceID.description)
+        parameters["url"] = .string(url.absoluteString)
+        if let name { parameters["name"] = .string(name) }
+        if let columns { parameters["cols"] = .unsignedInteger(UInt64(columns)) }
+        if let rows { parameters["rows"] = .unsignedInteger(UInt64(rows)) }
+        return try await call(
+            command: "canonical-new-browser-workspace",
+            parameters: parameters,
+            as: BackendSurfacePlacement.self
+        )
+    }
+
+    /// Creates one exactly identified daemon-owned browser tab in a stable pane.
+    func canonicalNewBrowserTab(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        surfaceID: SurfaceID,
+        url: URL,
+        columns: UInt16? = nil,
+        rows: UInt16? = nil
+    ) async throws -> BackendSurfacePlacement {
+        var parameters = expectation.jsonParameters
+        parameters["pane_uuid"] = .string(paneID.description)
+        parameters["surface_uuid"] = .string(surfaceID.description)
+        parameters["url"] = .string(url.absoluteString)
+        if let columns { parameters["cols"] = .unsignedInteger(UInt64(columns)) }
+        if let rows { parameters["rows"] = .unsignedInteger(UInt64(rows)) }
+        return try await call(
+            command: "canonical-new-browser-tab",
+            parameters: parameters,
+            as: BackendSurfacePlacement.self
+        )
+    }
+
+    /// Creates one exactly identified daemon-owned browser in a new adjacent pane.
+    func canonicalSplitBrowserPane(
+        expectation: BackendTopologyMutationExpectation,
+        paneID: PaneID,
+        surfaceID: SurfaceID,
+        direction: BackendSplitDirection,
+        initialRatio: Float,
+        url: URL,
+        columns: UInt16? = nil,
+        rows: UInt16? = nil
+    ) async throws -> BackendSurfacePlacement {
+        var parameters = expectation.jsonParameters
+        parameters["pane_uuid"] = .string(paneID.description)
+        parameters["surface_uuid"] = .string(surfaceID.description)
+        parameters["dir"] = .string(direction.rawValue)
+        parameters["ratio"] = .number(Double(initialRatio))
+        parameters["url"] = .string(url.absoluteString)
+        if let columns { parameters["cols"] = .unsignedInteger(UInt64(columns)) }
+        if let rows { parameters["rows"] = .unsignedInteger(UInt64(rows)) }
+        return try await call(
+            command: "canonical-split-browser-pane",
             parameters: parameters,
             as: BackendSurfacePlacement.self
         )
