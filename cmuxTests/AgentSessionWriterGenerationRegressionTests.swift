@@ -9,6 +9,40 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func corruptLegacyReadFallsBackToLastCompleteRegistrySnapshot() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-corrupt-legacy-read-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let sessionID = "last-complete"
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [sessionID: [
+                "sessionId": sessionID,
+                "workspaceId": "workspace",
+                "surfaceId": "surface",
+                "startedAt": 100.0,
+                "updatedAt": 200.0,
+            ]],
+        ]).write(to: stateURL, options: .atomic)
+        let bridge = AgentHookSessionRegistryBridge(
+            provider: "codex",
+            statePath: stateURL.path,
+            environment: ["CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path],
+            fileManager: .default
+        )
+        #expect(bridge.load().sessions[sessionID] != nil)
+
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [sessionID: "partial-record"],
+        ]).write(to: stateURL, options: .atomic)
+
+        #expect(bridge.load().sessions[sessionID] != nil)
+    }
+
     @Test func permissionModeOnlyMutationAdvancesRegistryProjection() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-permission-mode-\(UUID().uuidString)", isDirectory: true)
