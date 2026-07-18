@@ -3376,6 +3376,9 @@ impl App {
             if surface.kind() != SurfaceKind::Browser {
                 continue;
             }
+            if area.content.width == 0 || area.content.height == 0 {
+                continue;
+            }
             if self.browser_graphic_occluded(area.content) {
                 continue;
             }
