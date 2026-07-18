@@ -418,11 +418,23 @@ test("generic request preserves exact wire command and typed result", async () =
   let sent: Record<string, unknown> | undefined;
   const transport = new ScriptedTransport((request, connection) => {
     sent = request;
-    connection.emit({ id: request.id, ok: true, data: { ok: true, version: "0.1.2", protocol: 6 } });
+    connection.emit({
+      id: request.id,
+      ok: true,
+      data: {
+        ok: true,
+        version: "0.1.2",
+        build_commit: "cmux-sha",
+        ghostty_commit: "ghostty-sha",
+        protocol: 6,
+      },
+    });
   });
   const client = new CmuxClient({ transport });
   const result = await client.request({ cmd: "ping" });
   assert.equal(result.protocol, 6);
+  assert.equal(result.build_commit, "cmux-sha");
+  assert.equal(result.ghostty_commit, "ghostty-sha");
   assert.deepEqual(sent, { id: 1, cmd: "ping" });
   await client.close();
 });

@@ -31,6 +31,29 @@ func TestResizeResponsePreservesReservationIdentity(t *testing.T) {
 	}
 }
 
+func TestIdentifyResultPreservesArtifactRevisions(t *testing.T) {
+	var result IdentifyResult
+	if err := json.Unmarshal([]byte(`{"app":"cmux-tui","version":"0.1.2","build_commit":"cmux-sha","ghostty_commit":"ghostty-sha","protocol":7,"session":"main","pid":42}`), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.BuildCommit == nil || *result.BuildCommit != "cmux-sha" {
+		t.Fatalf("build commit = %v, want cmux-sha", result.BuildCommit)
+	}
+	if result.GhosttyCommit == nil || *result.GhosttyCommit != "ghostty-sha" {
+		t.Fatalf("ghostty commit = %v, want ghostty-sha", result.GhosttyCommit)
+	}
+}
+
+func TestIdentifyResultAcceptsMissingArtifactRevisions(t *testing.T) {
+	var result IdentifyResult
+	if err := json.Unmarshal([]byte(`{"app":"cmux-tui","version":"0.1.2","protocol":7,"session":"main","pid":42}`), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.BuildCommit != nil || result.GhosttyCommit != nil {
+		t.Fatalf("artifact revisions = %v, %v; want nil", result.BuildCommit, result.GhosttyCommit)
+	}
+}
+
 func TestStreamYieldsBufferedOverflowOnceThenStops(t *testing.T) {
 	client, server := net.Pipe()
 	defer server.Close()

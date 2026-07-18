@@ -74,7 +74,15 @@ const requests = [
 ] satisfies CmuxRequest[];
 
 type IdentifyData = CmuxResponseData<(typeof requests)[0]>;
-const identify: IdentifyData = { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 };
+const identify: IdentifyData = {
+  app: "cmux-tui",
+  version: "0.1.2",
+  build_commit: "cmux-sha",
+  ghostty_commit: null,
+  protocol: 6,
+  session: "main",
+  pid: 1,
+};
 void identify;
 
 function surfaceFromKnownEvent(event: KnownCmuxEvent): number | undefined {
