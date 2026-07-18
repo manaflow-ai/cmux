@@ -132,6 +132,12 @@ pub struct TerminalRegistryCommit {
     pub replayed: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalBatchClose {
+    pub revision: u64,
+    pub closed: usize,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TerminalRegistryEvent {
     pub revision: u64,
@@ -435,6 +441,24 @@ impl WorkspaceRegistry {
             );
         }
         let existing = read_terminal(&tx, &terminal.terminal_id)?;
+        if let Some(existing) = existing.as_ref()
+            && existing.lifecycle == TerminalLifecycle::Exited
+            && terminal.lifecycle == TerminalLifecycle::Exited
+        {
+            if existing.incarnation != terminal.incarnation {
+                anyhow::bail!("terminal_incarnation_mismatch");
+            }
+            // Process exit is a latch: the first observed reason/status is
+            // authoritative. Reader EOF, child wait, and reconnect failure can
+            // race, but later observations neither rewrite metadata nor mint a
+            // new durable revision/event.
+            tx.commit()?;
+            return Ok(TerminalRegistryCommit {
+                revision: current_revision,
+                result: result.clone(),
+                replayed: true,
+            });
+        }
         validate_terminal_transition(existing.as_ref(), terminal)?;
         if terminal.lifecycle != TerminalLifecycle::Tombstoned {
             require_live_workspace(&tx, &terminal.workspace_key)?;
@@ -620,6 +644,91 @@ impl WorkspaceRegistry {
         )?;
         tx.commit()?;
         Ok(TerminalRegistryCommit { revision, result, replayed: false })
+    }
+
+    /// Tombstone every hosted tab in one pane/screen as one SQLite unit. All
+    /// identities and incarnations are validated before the first update, and
+    /// any later SQLite failure rolls the entire set back. Hosts are signaled
+    /// only after this method commits successfully.
+    pub fn close_terminals_atomically(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        terminals: &[(String, Option<String>)],
+    ) -> anyhow::Result<TerminalBatchClose> {
+        validate_identifier("mutation id", &mutation.id)?;
+        validate_identifier("mutation origin", &mutation.origin)?;
+        let mut unique = std::collections::HashSet::with_capacity(terminals.len());
+        for (terminal_id, incarnation) in terminals {
+            validate_terminal_identity("terminal id", terminal_id)?;
+            if let Some(incarnation) = incarnation {
+                validate_terminal_identity("terminal incarnation", incarnation)?;
+            }
+            if !unique.insert(terminal_id.as_str()) {
+                anyhow::bail!("duplicate terminal in batch close: {terminal_id}");
+            }
+        }
+
+        let tx = self.connection.transaction()?;
+        let mut rows = Vec::with_capacity(terminals.len());
+        for (terminal_id, expected_incarnation) in terminals {
+            let terminal = read_terminal(&tx, terminal_id)?.ok_or_else(|| {
+                anyhow::anyhow!("unknown terminal {terminal_id}; it may not have been adopted yet")
+            })?;
+            if let Some(expected) = expected_incarnation
+                && terminal.incarnation.as_deref() != Some(expected)
+            {
+                anyhow::bail!("terminal_incarnation_mismatch");
+            }
+            rows.push(terminal);
+        }
+
+        let mut revision = transaction_terminal_revision(&tx)?;
+        let mut closed = 0usize;
+        for terminal in rows {
+            if terminal.lifecycle == TerminalLifecycle::Tombstoned {
+                continue;
+            }
+            revision = revision
+                .checked_add(1)
+                .ok_or_else(|| anyhow::anyhow!("terminal revision exhausted"))?;
+            let sqlite_revision = i64::try_from(revision)
+                .context("terminal revision exceeds SQLite integer range")?;
+            let result_json = canonical_json(&serde_json::json!({
+                "terminal_id": terminal.terminal_id,
+                "workspace_key": terminal.workspace_key,
+                "incarnation": terminal.incarnation,
+                "closed": true,
+                "reason": "topology-closed",
+            }))?;
+            tx.execute(
+                "UPDATE terminal_placements
+                 SET lifecycle = 'tombstoned', updated_revision = ?1, deleted_revision = ?1
+                 WHERE terminal_id = ?2 AND lifecycle != 'tombstoned'",
+                params![sqlite_revision, terminal.terminal_id],
+            )?;
+            tx.execute(
+                "INSERT INTO terminal_events(
+                   revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json
+                 ) VALUES(?1, 'terminal-closed', ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    sqlite_revision,
+                    terminal.terminal_id,
+                    terminal.workspace_key,
+                    mutation.origin,
+                    mutation.id,
+                    result_json,
+                ],
+            )?;
+            closed += 1;
+        }
+        if closed != 0 {
+            tx.execute(
+                "UPDATE meta SET value = ?1 WHERE key = 'terminal_revision'",
+                [revision.to_string()],
+            )?;
+        }
+        tx.commit()?;
+        Ok(TerminalBatchClose { revision, closed })
     }
 
     pub fn terminal_events_after(
@@ -1267,7 +1376,6 @@ fn validate_terminal_transition(
             | (TerminalLifecycle::Running, TerminalLifecycle::Exited)
             | (TerminalLifecycle::Running, TerminalLifecycle::Tombstoned)
             | (TerminalLifecycle::Exited, TerminalLifecycle::Exited)
-            | (TerminalLifecycle::Exited, TerminalLifecycle::Launching)
             | (TerminalLifecycle::Exited, TerminalLifecycle::Tombstoned)
     );
     if !allowed {
@@ -1839,6 +1947,134 @@ mod tests {
         assert_eq!(terminals.terminals, vec![running]);
         assert_eq!(registry.snapshot().unwrap().revision, 1);
         assert_eq!(registry.terminal_events_after(0).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn first_exit_metadata_wins_and_exited_ids_cannot_be_relaunched() {
+        let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
+        seed_workspace(&mut registry, "one");
+        let launching = terminal(TERMINAL_ONE, "one");
+        registry
+            .commit_terminal(
+                &WorkspaceMutation::new("reserve", "browser").unwrap(),
+                &json!({"op":"reserve-terminal","terminal_id":TERMINAL_ONE}),
+                None,
+                Some(0),
+                "terminal-reserved",
+                &launching,
+                &json!({"terminal_id":TERMINAL_ONE}),
+            )
+            .unwrap();
+
+        let mut first_exit = launching.clone();
+        first_exit.lifecycle = TerminalLifecycle::Exited;
+        first_exit.exit = Some(json!({"reason":"first-observer","status":17}));
+        let first = registry
+            .commit_terminal(
+                &WorkspaceMutation::new("exit-one", "daemon").unwrap(),
+                &json!({"op":"terminal-exited","terminal_id":TERMINAL_ONE}),
+                None,
+                Some(1),
+                "terminal-exited",
+                &first_exit,
+                &json!({"terminal_id":TERMINAL_ONE}),
+            )
+            .unwrap();
+        assert_eq!(first.revision, 2);
+
+        let mut late_exit = first_exit.clone();
+        late_exit.exit = Some(json!({"reason":"late-observer","status":99}));
+        let duplicate = registry
+            .commit_terminal(
+                &WorkspaceMutation::new("exit-two", "daemon").unwrap(),
+                &json!({"op":"terminal-exited-again","terminal_id":TERMINAL_ONE}),
+                None,
+                Some(2),
+                "terminal-exited",
+                &late_exit,
+                &json!({"terminal_id":TERMINAL_ONE}),
+            )
+            .unwrap();
+        assert!(duplicate.replayed);
+        assert_eq!(duplicate.revision, 2);
+        assert_eq!(registry.terminal_record(TERMINAL_ONE).unwrap().unwrap().exit, first_exit.exit);
+        assert_eq!(registry.terminal_events_after(0).unwrap().len(), 2);
+
+        let error = registry
+            .commit_terminal(
+                &WorkspaceMutation::new("reuse-exited", "browser").unwrap(),
+                &json!({"op":"reserve-terminal","terminal_id":TERMINAL_ONE}),
+                None,
+                Some(2),
+                "terminal-reserved",
+                &launching,
+                &json!({"terminal_id":TERMINAL_ONE}),
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("invalid terminal transition Exited -> Launching"));
+        assert_eq!(
+            registry.terminal_record(TERMINAL_ONE).unwrap().unwrap().lifecycle,
+            TerminalLifecycle::Exited
+        );
+    }
+
+    #[test]
+    fn batch_terminal_close_rolls_back_every_tab_on_mid_transaction_failure() {
+        let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
+        seed_workspace(&mut registry, "one");
+        for (revision, terminal_id) in [(0, TERMINAL_ONE), (1, TERMINAL_TWO)] {
+            registry
+                .commit_terminal(
+                    &WorkspaceMutation::new(format!("reserve-{revision}"), "browser").unwrap(),
+                    &json!({"op":"reserve-terminal","terminal_id":terminal_id}),
+                    None,
+                    Some(revision),
+                    "terminal-reserved",
+                    &terminal(terminal_id, "one"),
+                    &json!({"terminal_id":terminal_id}),
+                )
+                .unwrap();
+        }
+        registry
+            .connection
+            .execute_batch(&format!(
+                "CREATE TEMP TRIGGER fail_second_terminal_close
+                 BEFORE UPDATE OF lifecycle ON terminal_placements
+                 WHEN NEW.terminal_id = '{TERMINAL_TWO}'
+                 BEGIN SELECT RAISE(ABORT, 'forced batch failure'); END;"
+            ))
+            .unwrap();
+        let requests = vec![(TERMINAL_ONE.to_string(), None), (TERMINAL_TWO.to_string(), None)];
+        let error = registry
+            .close_terminals_atomically(
+                &WorkspaceMutation::new("close-pane-failed", "tui").unwrap(),
+                &requests,
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("forced batch failure"));
+        assert_eq!(registry.terminal_snapshot().unwrap().revision, 2);
+        for terminal_id in [TERMINAL_ONE, TERMINAL_TWO] {
+            assert_eq!(
+                registry.terminal_record(terminal_id).unwrap().unwrap().lifecycle,
+                TerminalLifecycle::Launching
+            );
+        }
+        registry.connection.execute_batch("DROP TRIGGER fail_second_terminal_close").unwrap();
+
+        let closed = registry
+            .close_terminals_atomically(
+                &WorkspaceMutation::new("close-pane", "tui").unwrap(),
+                &requests,
+            )
+            .unwrap();
+        assert_eq!(closed, TerminalBatchClose { revision: 4, closed: 2 });
+        assert_eq!(registry.terminal_events_after(2).unwrap().len(), 2);
+        for terminal_id in [TERMINAL_ONE, TERMINAL_TWO] {
+            assert_eq!(
+                registry.terminal_record(terminal_id).unwrap().unwrap().lifecycle,
+                TerminalLifecycle::Tombstoned
+            );
+        }
     }
 
     #[test]

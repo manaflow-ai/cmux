@@ -20,6 +20,8 @@ use crate::pairing::PairingBroker;
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
 use crate::terminal_host::TerminalId;
 use crate::terminal_host_runtime::TerminalHostIdentity;
+#[cfg(unix)]
+use crate::terminal_host_runtime::TerminalHostLiveness;
 use crate::workspace_registry::{
     FrontendProjection, ProjectionCommit, RegistryCommit, RegistryTerminal, RegistryWorkspace,
     TerminalLifecycle, TerminalRegistrySnapshot, WorkspaceMutation, WorkspaceRegistry,
@@ -70,8 +72,9 @@ pub enum MuxEvent {
         retry_after_ms: Option<u64>,
         reservation_id: Option<u64>,
     },
-    /// A surface's child exited. The mux has already reaped it from the
-    /// tree (a tree-changed follows) by the time this arrives.
+    /// A surface's child exited. Hosted terminals remain in the tree as an
+    /// addressable Exited tab until an explicit close tombstones them; local
+    /// terminals have already been reaped when this arrives.
     SurfaceExited(SurfaceId),
     TitleChanged {
         surface: SurfaceId,
@@ -516,6 +519,8 @@ pub struct Mux {
     client_sizing: Mutex<ClientSizingState>,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    terminal_move_before_projection: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
@@ -603,6 +608,8 @@ impl Mux {
             client_sizing: Mutex::new(ClientSizingState::default()),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
+            #[cfg(test)]
+            terminal_move_before_projection: Mutex::new(None),
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(DefaultColors::default()),
@@ -625,19 +632,13 @@ impl Mux {
     #[cfg(unix)]
     fn adopt_terminal_hosts(self: &Arc<Self>) -> anyhow::Result<()> {
         let options = self.surface_options.lock().unwrap().clone();
-        let Some(root) = options.terminal_host_root.clone() else {
-            return Ok(());
+        let records = match options.terminal_host_root.as_deref() {
+            Some(root) => crate::terminal_host_runtime::load_terminal_host_records(root)?,
+            None => Vec::new(),
         };
-        let records = crate::terminal_host_runtime::load_terminal_host_records(&root)?;
-        let mut retained_records = HashSet::new();
+        let mut handled_terminals = HashSet::new();
         for (record_path, record) in records {
             let terminal_id = record.terminal_id.clone();
-            if TerminalId::from_hex(&terminal_id).is_none()
-                || TerminalId::from_hex(&record.incarnation).is_none()
-            {
-                crate::terminal_host_runtime::remove_terminal_host_record(&record_path);
-                continue;
-            }
             let mut terminal =
                 self.workspace_registry.lock().unwrap().terminal_record(&terminal_id)?;
             if terminal.is_none() {
@@ -665,67 +666,121 @@ impl Mux {
                     self.emit_terminal_registry_changed(&registry, revision);
                     terminal = Some(imported);
                 } else {
-                    terminate_host_record(record, record_path);
+                    if !cleanup_terminal_host_record(&record, &record_path) {
+                        self.schedule_terminal_adoption(options.clone(), record, record_path);
+                    }
                     continue;
                 }
             }
             let terminal = terminal.expect("terminal imported or loaded");
-            if matches!(
-                terminal.lifecycle,
-                TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
-            ) {
-                terminate_host_record(record, record_path);
+            if terminal.lifecycle == TerminalLifecycle::Tombstoned {
+                if !cleanup_terminal_host_record(&record, &record_path) {
+                    self.schedule_terminal_adoption(options.clone(), record, record_path);
+                }
+                continue;
+            }
+            if terminal.lifecycle == TerminalLifecycle::Exited {
+                self.materialize_exited_terminal(&terminal.terminal_id, &options)?;
+                handled_terminals.insert(terminal_id.clone());
+                if !cleanup_terminal_host_record(&record, &record_path) {
+                    self.schedule_terminal_adoption(options.clone(), record, record_path);
+                }
                 continue;
             }
             if terminal.incarnation.as_deref().is_some_and(|value| value != record.incarnation) {
-                terminate_host_record(record, record_path);
-                let _ = self.transition_terminal_lifecycle(
-                    "terminal-exited",
-                    "terminal-incarnation-mismatch",
+                self.mark_terminal_exited_and_materialize(
                     &terminal_id,
-                    TerminalLifecycle::Exited,
-                    terminal.incarnation.as_deref(),
-                    Some(serde_json::json!({"reason":"host-incarnation-mismatch"})),
-                );
+                    "terminal-incarnation-mismatch",
+                    "host-incarnation-mismatch",
+                    &options,
+                )?;
+                handled_terminals.insert(terminal_id.clone());
+                if !cleanup_terminal_host_record(&record, &record_path) {
+                    self.schedule_terminal_adoption(options.clone(), record, record_path);
+                }
                 continue;
             }
-            self.transition_terminal_lifecycle(
+            if let Err(error) = self.transition_terminal_lifecycle(
                 "terminal-adopting",
                 "adopt-terminal",
                 &terminal_id,
                 TerminalLifecycle::Adopting,
                 Some(&record.incarnation),
                 None,
-            )?;
-            let id = self.next_id();
-            let mut adopted = None;
-            for attempt in 0..3 {
-                match Surface::adopt_hosted(
-                    id,
-                    options.clone(),
-                    Arc::downgrade(self),
-                    record.clone(),
-                    record_path.clone(),
-                ) {
-                    Ok(surface) => {
-                        adopted = Some(surface);
-                        break;
+            ) {
+                let current =
+                    self.workspace_registry.lock().unwrap().terminal_record(&terminal_id)?;
+                if current.as_ref().is_some_and(|terminal| {
+                    matches!(
+                        terminal.lifecycle,
+                        TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
+                    )
+                }) {
+                    if current
+                        .as_ref()
+                        .is_some_and(|terminal| terminal.lifecycle == TerminalLifecycle::Exited)
+                    {
+                        self.materialize_exited_terminal(&terminal_id, &options)?;
                     }
-                    Err(_) if attempt < 2 => {
-                        std::thread::sleep(Duration::from_millis(25 * (1 << attempt)));
+                    handled_terminals.insert(terminal_id.clone());
+                    if !cleanup_terminal_host_record(&record, &record_path) {
+                        self.schedule_terminal_adoption(options.clone(), record, record_path);
                     }
-                    Err(_) => {}
+                    continue;
                 }
+                return Err(error);
             }
+            if terminal_host_record_liveness(&record_path, &record) == TerminalHostLiveness::Dead {
+                let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
+                    &record_path,
+                    &record,
+                );
+                self.mark_terminal_exited_and_materialize(
+                    &terminal_id,
+                    "terminal-host-proven-dead",
+                    "host-process-ended-before-adoption",
+                    &options,
+                )?;
+                handled_terminals.insert(terminal_id.clone());
+                continue;
+            }
+            let id = self.next_id();
+            // Bound startup head-of-line blocking per host. One handshake is
+            // enough for healthy hosts; live or indeterminate failures
+            // continue on the asynchronous adoption loop instead of retrying
+            // serially ahead of every later terminal.
+            let adopted = Surface::adopt_hosted(
+                id,
+                options.clone(),
+                Arc::downgrade(self),
+                record.clone(),
+                record_path.clone(),
+            )
+            .ok();
             let surface = match adopted {
                 Some(surface) => surface,
-                // A failed connection can be a transient host startup or
-                // descriptor-pressure failure. The host owns cleanup of its
-                // record on exit; deleting the capability here would turn a
-                // retryable interruption into permanent terminal loss.
                 None => {
-                    retained_records.insert(terminal_id.clone());
-                    self.schedule_terminal_adoption(options.clone(), record, record_path);
+                    if terminal_host_record_liveness(&record_path, &record)
+                        == TerminalHostLiveness::Dead
+                    {
+                        let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
+                            &record_path,
+                            &record,
+                        );
+                        self.mark_terminal_exited_and_materialize(
+                            &terminal_id,
+                            "terminal-host-proven-dead",
+                            "host-process-ended-before-adoption",
+                            &options,
+                        )?;
+                        handled_terminals.insert(terminal_id.clone());
+                    } else {
+                        // Socket loss and descriptor pressure are not process
+                        // death proof. Keep the capability and retry the same
+                        // host rather than spawning a replacement shell.
+                        handled_terminals.insert(terminal_id.clone());
+                        self.schedule_terminal_adoption(options.clone(), record, record_path);
+                    }
                     continue;
                 }
             };
@@ -734,9 +789,19 @@ impl Mux {
                 .is_err()
             {
                 surface.kill();
+                self.mark_terminal_exited_and_materialize(
+                    &terminal_id,
+                    "terminal-adoption-failed",
+                    "host-adoption-topology-failed",
+                    &options,
+                )?;
+                handled_terminals.insert(terminal_id.clone());
+                if !cleanup_terminal_host_record(&record, &record_path) {
+                    self.schedule_terminal_adoption(options.clone(), record, record_path);
+                }
                 continue;
             }
-            retained_records.insert(terminal_id);
+            handled_terminals.insert(terminal_id);
             self.reap_if_dead(&surface);
         }
 
@@ -745,20 +810,160 @@ impl Mux {
         // window, not permission to spawn a replacement shell.
         let snapshot = self.workspace_registry.lock().unwrap().terminal_snapshot()?;
         for terminal in snapshot.terminals {
-            if retained_records.contains(&terminal.terminal_id)
-                || terminal.lifecycle == TerminalLifecycle::Exited
+            if terminal.lifecycle == TerminalLifecycle::Tombstoned
+                || handled_terminals.contains(&terminal.terminal_id)
             {
                 continue;
             }
-            let _ = self.transition_terminal_lifecycle(
-                "terminal-exited",
-                "terminal-record-missing",
+            if terminal.lifecycle == TerminalLifecycle::Exited {
+                self.materialize_exited_terminal(&terminal.terminal_id, &options)?;
+                continue;
+            }
+            self.mark_terminal_exited_and_materialize(
                 &terminal.terminal_id,
+                "terminal-record-missing",
+                "missing-host-record",
+                &options,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Project durable Exited state into the normal topology. The placeholder
+    /// owns no PTY and can never respawn a shell, but it retains the stable
+    /// terminal/incarnation identity until an explicit close tombstones it.
+    /// Re-reading under registry -> state makes a concurrent move or close
+    /// authoritative.
+    #[cfg(unix)]
+    fn materialize_exited_terminal(
+        self: &Arc<Self>,
+        terminal_id: &str,
+        options: &SurfaceOptions,
+    ) -> anyhow::Result<Option<RunPlacement>> {
+        let terminal = self.workspace_registry.lock().unwrap().terminal_record(terminal_id)?;
+        let Some(terminal) = terminal.filter(|terminal| {
+            terminal.lifecycle == TerminalLifecycle::Exited && terminal.incarnation.is_some()
+        }) else {
+            return Ok(None);
+        };
+        let identity = TerminalHostIdentity {
+            terminal_id: terminal.terminal_id,
+            incarnation: terminal.incarnation.expect("filtered Exited incarnation"),
+        };
+        let existing_projection = {
+            let registry = self.workspace_registry.lock().unwrap();
+            let Some(current) = registry.terminal_record(terminal_id)? else {
+                return Ok(None);
+            };
+            if current.lifecycle != TerminalLifecycle::Exited
+                || current.incarnation.as_deref() != Some(identity.incarnation.as_str())
+            {
+                return Ok(None);
+            }
+            let mut state = self.state.lock().unwrap();
+            let existing = unique_terminal_match(
+                terminal_id,
+                state.surfaces.values().filter_map(|surface| {
+                    surface.terminal_host_identity().map(|identity| (surface.id, identity))
+                }),
+            )?;
+            if existing.is_some() {
+                Some(self.project_terminal_to_workspace_in_state(
+                    &mut state,
+                    terminal_id,
+                    &current.workspace_key,
+                )?)
+            } else {
+                None
+            }
+        };
+        if let Some((placement, changed)) = existing_projection {
+            if changed {
+                self.emit(MuxEvent::TreeChanged);
+            }
+            return Ok(placement);
+        }
+        let placeholder = Surface::exited_terminal_placeholder(
+            self.next_id(),
+            options.clone(),
+            Arc::downgrade(self),
+            identity.clone(),
+        )?;
+
+        let (placement, changed) = {
+            let registry = self.workspace_registry.lock().unwrap();
+            let Some(current) = registry.terminal_record(terminal_id)? else {
+                return Ok(None);
+            };
+            if current.lifecycle != TerminalLifecycle::Exited
+                || current.incarnation.as_deref() != Some(identity.incarnation.as_str())
+            {
+                return Ok(None);
+            }
+            let mut state = self.state.lock().unwrap();
+            let existing = unique_terminal_match(
+                terminal_id,
+                state.surfaces.values().filter_map(|surface| {
+                    surface.terminal_host_identity().map(|identity| (surface.id, identity))
+                }),
+            )?;
+            if existing.is_none() {
+                insert_surface_checked(&mut state, placeholder.clone())?;
+            }
+            match self.project_terminal_to_workspace_in_state(
+                &mut state,
+                terminal_id,
+                &current.workspace_key,
+            ) {
+                Ok(result) => result,
+                Err(error) => {
+                    if existing.is_none() {
+                        state.surfaces.remove(&placeholder.id);
+                    }
+                    return Err(error);
+                }
+            }
+        };
+        if changed {
+            self.emit(MuxEvent::TreeChanged);
+        }
+        Ok(placement)
+    }
+
+    #[cfg(unix)]
+    fn mark_terminal_exited_and_materialize(
+        self: &Arc<Self>,
+        terminal_id: &str,
+        operation: &str,
+        reason: &str,
+        options: &SurfaceOptions,
+    ) -> anyhow::Result<()> {
+        let terminal = self.workspace_registry.lock().unwrap().terminal_record(terminal_id)?;
+        let Some(terminal) = terminal else { return Ok(()) };
+        if terminal.lifecycle == TerminalLifecycle::Tombstoned {
+            return Ok(());
+        }
+        if terminal.lifecycle != TerminalLifecycle::Exited
+            && let Err(error) = self.transition_terminal_lifecycle(
+                "terminal-exited",
+                operation,
+                terminal_id,
                 TerminalLifecycle::Exited,
                 terminal.incarnation.as_deref(),
-                Some(serde_json::json!({"reason":"missing-host-record"})),
-            );
+                Some(serde_json::json!({"reason":reason})),
+            )
+        {
+            let current = self.workspace_registry.lock().unwrap().terminal_record(terminal_id)?;
+            if !current.as_ref().is_some_and(|terminal| {
+                matches!(
+                    terminal.lifecycle,
+                    TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
+                )
+            }) {
+                return Err(error);
+            }
         }
+        self.materialize_exited_terminal(terminal_id, options)?;
         Ok(())
     }
 
@@ -876,35 +1081,42 @@ impl Mux {
                         .terminal_record(&terminal_id)
                         .ok()
                         .flatten();
-                    let Some(terminal) = terminal else { break };
-                    if terminal.lifecycle == TerminalLifecycle::Tombstoned {
-                        if terminate_host_record(record.clone(), record_path.clone()) {
+                    let Some(terminal) = terminal else {
+                        if cleanup_terminal_host_record(&record, &record_path) {
                             break;
                         }
                         delay = (delay * 2).min(Duration::from_secs(5));
                         continue;
-                    }
-                    if terminal.lifecycle == TerminalLifecycle::Exited {
-                        break;
+                    };
+                    if matches!(
+                        terminal.lifecycle,
+                        TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
+                    ) {
+                        if terminal.lifecycle == TerminalLifecycle::Exited {
+                            let _ = mux.materialize_exited_terminal(&terminal_id, &options);
+                        }
+                        if cleanup_terminal_host_record(&record, &record_path) {
+                            break;
+                        }
+                        delay = (delay * 2).min(Duration::from_secs(5));
+                        continue;
                     }
                     if terminal
                         .incarnation
                         .as_deref()
                         .is_some_and(|incarnation| incarnation != record.incarnation)
                     {
-                        terminate_host_record(record.clone(), record_path.clone());
-                        break;
-                    }
-                    if !record_path.exists() {
-                        let _ = mux.transition_terminal_lifecycle(
-                            "terminal-exited",
-                            "terminal-record-disappeared",
+                        let _ = mux.mark_terminal_exited_and_materialize(
                             &terminal_id,
-                            TerminalLifecycle::Exited,
-                            terminal.incarnation.as_deref(),
-                            Some(serde_json::json!({"reason":"missing-host-record"})),
+                            "terminal-incarnation-mismatch",
+                            "host-incarnation-mismatch",
+                            &options,
                         );
-                        break;
+                        if cleanup_terminal_host_record(&record, &record_path) {
+                            break;
+                        }
+                        delay = (delay * 2).min(Duration::from_secs(5));
+                        continue;
                     }
                     if terminal.lifecycle == TerminalLifecycle::Running {
                         let already_live = mux
@@ -929,6 +1141,21 @@ impl Mux {
                             break;
                         }
                     }
+                    if terminal_host_record_liveness(&record_path, &record)
+                        == TerminalHostLiveness::Dead
+                    {
+                        let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
+                            &record_path,
+                            &record,
+                        );
+                        let _ = mux.mark_terminal_exited_and_materialize(
+                            &terminal_id,
+                            "terminal-host-proven-dead",
+                            "host-process-ended-before-adoption",
+                            &options,
+                        );
+                        break;
+                    }
                     let id = mux.next_id();
                     if let Ok(surface) = Surface::adopt_hosted(
                         id,
@@ -949,6 +1176,14 @@ impl Mux {
                             break;
                         }
                         surface.kill();
+                        let _ = mux.mark_terminal_exited_and_materialize(
+                            &terminal_id,
+                            "terminal-adoption-failed",
+                            "host-adoption-topology-failed",
+                            &options,
+                        );
+                        delay = (delay * 2).min(Duration::from_secs(5));
+                        continue;
                     }
                     delay = (delay * 2).min(Duration::from_secs(5));
                 }
@@ -1034,11 +1269,20 @@ impl Mux {
         self.workspace_registry.lock().unwrap().terminal_snapshot()
     }
 
-    pub fn terminal_registry_events_after(
+    pub fn terminal_registry_events_page(
         &self,
         revision: u64,
-    ) -> anyhow::Result<Vec<crate::workspace_registry::TerminalRegistryEvent>> {
-        self.workspace_registry.lock().unwrap().terminal_events_after(revision)
+    ) -> anyhow::Result<(
+        TerminalRegistrySnapshot,
+        Vec<crate::workspace_registry::TerminalRegistryEvent>,
+    )> {
+        // One writer guard is the read transaction boundary exposed to a
+        // frontend. Otherwise a commit between snapshot and event queries can
+        // return an event whose revision is newer than terminal_revision.
+        let registry = self.workspace_registry.lock().unwrap();
+        let snapshot = registry.terminal_snapshot()?;
+        let events = registry.terminal_events_after(revision)?;
+        Ok((snapshot, events))
     }
 
     pub fn workspace_registry_event(
@@ -1145,6 +1389,121 @@ impl Mux {
         )?;
         self.emit_terminal_registry_changed(&registry, result.1);
         Ok(result)
+    }
+
+    /// A broken admin stream is not evidence that the per-terminal process
+    /// died. The surface keeps its tab and reconnects the same incarnation;
+    /// this callback only exposes the transient lifecycle to frontends.
+    pub(crate) fn terminal_host_connection_lost(
+        &self,
+        surface_id: SurfaceId,
+        identity: &TerminalHostIdentity,
+    ) -> bool {
+        if self.shutting_down.load(Ordering::Acquire) {
+            return false;
+        }
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let state = self.state.lock().unwrap();
+        let identity_matches = state
+            .surfaces
+            .get(&surface_id)
+            .and_then(|surface| surface.terminal_host_identity())
+            .is_some_and(|current| current == *identity);
+        drop(state);
+        if !identity_matches {
+            return false;
+        }
+        let Ok(Some(terminal)) = registry.terminal_record(&identity.terminal_id) else {
+            return false;
+        };
+        if terminal.incarnation.as_deref() != Some(identity.incarnation.as_str())
+            || matches!(
+                terminal.lifecycle,
+                TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
+            )
+        {
+            return false;
+        }
+        if terminal.lifecycle == TerminalLifecycle::Adopting {
+            return true;
+        }
+        match commit_terminal_lifecycle(
+            &mut registry,
+            "terminal-adopting",
+            "terminal-admin-stream-lost",
+            &identity.terminal_id,
+            TerminalLifecycle::Adopting,
+            Some(&identity.incarnation),
+            None,
+        ) {
+            Ok((_, revision)) => {
+                self.emit_terminal_registry_changed(&registry, revision);
+                true
+            }
+            Err(error) => {
+                self.emit(MuxEvent::Status(format!(
+                    "could not persist terminal {} reconnect state: {error}",
+                    identity.terminal_id
+                )));
+                false
+            }
+        }
+    }
+
+    pub(crate) fn terminal_host_reconnected(
+        &self,
+        surface_id: SurfaceId,
+        identity: &TerminalHostIdentity,
+    ) -> bool {
+        if self.shutting_down.load(Ordering::Acquire) {
+            return false;
+        }
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let state = self.state.lock().unwrap();
+        let identity_matches = state
+            .surfaces
+            .get(&surface_id)
+            .and_then(|surface| surface.terminal_host_identity())
+            .is_some_and(|current| current == *identity);
+        drop(state);
+        if !identity_matches {
+            return false;
+        }
+        let Ok(Some(terminal)) = registry.terminal_record(&identity.terminal_id) else {
+            return false;
+        };
+        if terminal.incarnation.as_deref() != Some(identity.incarnation.as_str())
+            || matches!(
+                terminal.lifecycle,
+                TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
+            )
+        {
+            return false;
+        }
+        if terminal.lifecycle == TerminalLifecycle::Running {
+            return true;
+        }
+        match commit_terminal_lifecycle(
+            &mut registry,
+            "terminal-ready",
+            "terminal-admin-stream-reconnected",
+            &identity.terminal_id,
+            TerminalLifecycle::Running,
+            Some(&identity.incarnation),
+            None,
+        ) {
+            Ok((_, revision)) => {
+                self.emit_terminal_registry_changed(&registry, revision);
+                true
+            }
+            Err(error) => {
+                self.emit(MuxEvent::Status(format!(
+                    "could not persist terminal {} reconnect completion: {error}",
+                    identity.terminal_id
+                )));
+                false
+            }
+        }
     }
 
     pub(crate) fn lock_client_sizing_lifecycle(&self) -> MutexGuard<'_, ()> {
@@ -1821,6 +2180,11 @@ impl Mux {
         *self.client_resize_before_apply.lock().unwrap() = hook;
     }
 
+    #[cfg(test)]
+    fn set_terminal_move_before_projection(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
+        *self.terminal_move_before_projection.lock().unwrap() = hook;
+    }
+
     fn browser_runtime(&self) -> anyhow::Result<Arc<BrowserRuntime>> {
         let mut runtime = self.browser_runtime.lock().unwrap();
         if let Some(existing) = runtime.as_ref().filter(|existing| !existing.is_closed()) {
@@ -1899,7 +2263,7 @@ impl Mux {
         let state = self.state.lock().unwrap();
         let surface = unique_terminal_match(
             terminal_id,
-            state.surfaces.values().filter(|surface| !surface.is_dead()).filter_map(|surface| {
+            state.surfaces.values().filter_map(|surface| {
                 surface.terminal_host_identity().map(|identity| (surface.id, identity))
             }),
         )?
@@ -1957,11 +2321,9 @@ impl Mux {
             let mut state = self.state.lock().unwrap();
             let target = unique_terminal_match(
                 terminal_id,
-                state.surfaces.values().filter(|surface| !surface.is_dead()).filter_map(
-                    |surface| {
-                        surface.terminal_host_identity().map(|identity| (surface.id, identity))
-                    },
-                ),
+                state.surfaces.values().filter_map(|surface| {
+                    surface.terminal_host_identity().map(|identity| (surface.id, identity))
+                }),
             )?
             .map(|(surface, _)| surface);
             let changed_screen = target.and_then(|target| surface_screen_id(&state, target));
@@ -2620,14 +2982,22 @@ impl Mux {
         let (placement, delta) = {
             let mut state = self.state.lock().unwrap();
             let Some((wi, si)) = state.screen_of(target) else {
-                state.surfaces.remove(&surface.id);
-                surface.kill();
-                anyhow::bail!("pane disappeared while creating tab");
+                drop(state);
+                self.fail_hosted_terminal_attachment(
+                    &surface,
+                    "terminal-run-attach-failed",
+                    "pane-disappeared-before-attach",
+                )?;
+                anyhow::bail!("pane disappeared while creating tab")
             };
             let Some(pane) = state.panes.get_mut(&target) else {
-                state.surfaces.remove(&surface.id);
-                surface.kill();
-                anyhow::bail!("pane disappeared while creating tab");
+                drop(state);
+                self.fail_hosted_terminal_attachment(
+                    &surface,
+                    "terminal-run-attach-failed",
+                    "pane-disappeared-before-attach",
+                )?;
+                anyhow::bail!("pane disappeared while creating tab")
             };
             pane.tabs.push(surface.id);
             pane.active_tab = pane.tabs.len() - 1;
@@ -2740,14 +3110,15 @@ impl Mux {
                         workspace_revision: None,
                     })
                 }
-                None => {
-                    state.surfaces.remove(&surface.id);
-                    None
-                }
+                None => None,
             }
         };
         let Some(delta) = attached else {
-            surface.kill();
+            self.fail_hosted_terminal_attachment(
+                &surface,
+                "terminal-screen-attach-failed",
+                "workspace-disappeared-before-attach",
+            )?;
             anyhow::bail!("workspace disappeared while creating screen");
         };
         self.emit(MuxEvent::TreeDelta(delta));
@@ -2829,13 +3200,16 @@ impl Mux {
                 }
                 None => {
                     // Pane disappeared between validation and attach.
-                    state.surfaces.remove(&surface.id);
                     None
                 }
             }
         };
         let Some(delta) = attached else {
-            surface.kill();
+            self.fail_hosted_terminal_attachment(
+                &surface,
+                "terminal-tab-attach-failed",
+                "pane-disappeared-before-attach",
+            )?;
             anyhow::bail!("pane disappeared while creating tab");
         };
         self.emit(MuxEvent::TreeDelta(delta));
@@ -2990,35 +3364,12 @@ impl Mux {
         if let Some(name) = name {
             surface.set_name(Some(name));
         }
-        if let Some(identity) = surface.terminal_host_identity() {
+        if surface.terminal_host_identity().is_some() {
             // Launch/Ready intentionally releases the registry lock around
             // process startup. Re-read canonical placement after Ready and
             // hold registry -> state through the binding so a move committed
             // during launch is projected instead of the stale request target.
-            let projected = (|| -> anyhow::Result<(RunPlacement, String, bool)> {
-                let registry = self.workspace_registry.lock().unwrap();
-                let terminal = registry
-                    .terminal_record(&identity.terminal_id)?
-                    .ok_or_else(|| anyhow::anyhow!("created terminal has no registry row"))?;
-                if terminal.lifecycle != TerminalLifecycle::Running {
-                    anyhow::bail!(
-                        "created terminal is {} before topology binding",
-                        terminal_lifecycle_name(terminal.lifecycle)
-                    );
-                }
-                let mut state = self.state.lock().unwrap();
-                if !state.surfaces.contains_key(&surface.id) {
-                    anyhow::bail!("terminal closed while its topology binding was being created");
-                }
-                let (placement, changed) = self.project_terminal_to_workspace_in_state(
-                    &mut state,
-                    &identity.terminal_id,
-                    &terminal.workspace_key,
-                )?;
-                let placement = placement
-                    .ok_or_else(|| anyhow::anyhow!("created terminal has no live surface"))?;
-                Ok((placement, terminal.workspace_key, changed))
-            })();
+            let projected = self.bind_running_terminal_to_canonical_workspace(&surface);
             let (placement, canonical_workspace, changed) = match projected {
                 Ok(projected) => projected,
                 Err(error) => {
@@ -3128,6 +3479,40 @@ impl Mux {
         self.emit(MuxEvent::TreeDelta(attached.1));
         self.reap_if_dead(&surface);
         Ok(attached.0)
+    }
+
+    /// Bind a just-launched hosted surface using the latest durable row, not
+    /// the workspace requested before process launch. Holding registry ->
+    /// state through projection is the create/move serialization fence.
+    fn bind_running_terminal_to_canonical_workspace(
+        &self,
+        surface: &Arc<Surface>,
+    ) -> anyhow::Result<(RunPlacement, String, bool)> {
+        let identity = surface
+            .terminal_host_identity()
+            .ok_or_else(|| anyhow::anyhow!("created terminal has no host identity"))?;
+        let registry = self.workspace_registry.lock().unwrap();
+        let terminal = registry
+            .terminal_record(&identity.terminal_id)?
+            .ok_or_else(|| anyhow::anyhow!("created terminal has no registry row"))?;
+        if terminal.lifecycle != TerminalLifecycle::Running {
+            anyhow::bail!(
+                "created terminal is {} before topology binding",
+                terminal_lifecycle_name(terminal.lifecycle)
+            );
+        }
+        let mut state = self.state.lock().unwrap();
+        if !state.surfaces.contains_key(&surface.id) {
+            anyhow::bail!("terminal closed while its topology binding was being created");
+        }
+        let (placement, changed) = self.project_terminal_to_workspace_in_state(
+            &mut state,
+            &identity.terminal_id,
+            &terminal.workspace_key,
+        )?;
+        let placement =
+            placement.ok_or_else(|| anyhow::anyhow!("created terminal has no live surface"))?;
+        Ok((placement, terminal.workspace_key, changed))
     }
 
     /// Create a browser tab in a pane (default: the active pane). When
@@ -3538,12 +3923,14 @@ impl Mux {
                     entity,
                     workspace_revision: None,
                 });
-            } else {
-                state.surfaces.remove(&surface.id);
             }
         }
         if !done {
-            surface.kill();
+            self.fail_hosted_terminal_attachment(
+                &surface,
+                "terminal-split-attach-failed",
+                "pane-disappeared-before-attach",
+            )?;
             anyhow::bail!("pane {target} not found");
         }
         self.emit(MuxEvent::TreeDelta(delta.expect("successful split has a tree delta")));
@@ -3601,21 +3988,27 @@ impl Mux {
     /// Close every surface in `tabs` (helper for pane/screen/workspace
     /// close). Emits events outside the lock.
     fn close_surfaces(&self, tabs: Vec<SurfaceId>, delta: TreeDelta) {
-        let surfaces = {
-            let state = self.state.lock().unwrap();
-            tabs.iter().filter_map(|id| state.surfaces.get(id).cloned()).collect::<Vec<_>>()
-        };
-        for surface in &surfaces {
-            if let Err(error) = self.tombstone_hosted_surface(surface) {
-                self.emit(MuxEvent::Status(format!(
-                    "could not close terminal {}: {error}",
-                    surface.id
-                )));
-                return;
-            }
-        }
-        let (removed, changed_screens, empty) = {
+        let mutation = WorkspaceMutation::local("cmux-tui");
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let (removed, changed_screens, empty, batch) = {
             let mut state = self.state.lock().unwrap();
+            let hosted = tabs
+                .iter()
+                .filter_map(|id| state.surfaces.get(id))
+                .filter_map(|surface| surface.terminal_host_identity())
+                .map(|identity| (identity.terminal_id, Some(identity.incarnation)))
+                .collect::<Vec<_>>();
+            let batch = match registry.close_terminals_atomically(&mutation, &hosted) {
+                Ok(batch) => batch,
+                Err(error) => {
+                    drop(state);
+                    drop(registry);
+                    self.emit(MuxEvent::Status(format!(
+                        "could not atomically close terminal topology: {error}"
+                    )));
+                    return;
+                }
+            };
             let changed_screens = unique_screen_ids(
                 tabs.iter().filter_map(|surface| surface_screen_id(&state, *surface)),
             );
@@ -3625,8 +4018,12 @@ impl Mux {
                     removed.push(surface);
                 }
             }
-            (removed, changed_screens, state.workspaces.is_empty())
+            (removed, changed_screens, state.workspaces.is_empty(), batch)
         };
+        if batch.closed != 0 {
+            self.emit_terminal_registry_changed(&registry, batch.revision);
+        }
+        drop(registry);
         if !removed.is_empty() {
             for surface in removed {
                 self.purge_surface_side_tables(surface.id);
@@ -3980,19 +4377,24 @@ impl Mux {
         true
     }
 
-    /// Reap a surface whose child exited before its tree insert completed.
-    /// The exit handler sets the dead flag before calling `surface_exited`,
-    /// whose `close_surface` finds nothing to remove in that window; the
-    /// creator re-checks after the insert (a harmless no-op otherwise).
+    /// Reconcile a surface whose child exited before its tree insert
+    /// completed. Hosted terminals retain their binding as Exited tabs;
+    /// local terminals are reaped after the creator closes the insert race.
     fn reap_if_dead(&self, surface: &Arc<Surface>) {
         if surface.is_dead() {
-            if let Err(error) =
-                self.mark_hosted_surface_exited(surface, "host-exited-before-attach")
-            {
-                self.emit(MuxEvent::Status(format!(
-                    "could not persist terminal {} exit: {error}",
-                    surface.id
-                )));
+            if surface.terminal_host_identity().is_some() {
+                if let Err(error) =
+                    self.mark_hosted_surface_exited(surface, "host-exited-before-attach")
+                {
+                    self.emit(MuxEvent::Status(format!(
+                        "could not persist terminal {} exit: {error}",
+                        surface.id
+                    )));
+                    return;
+                }
+                // Hosted exits remain addressable/renderable placeholders
+                // until an explicit close mutation tombstones the terminal.
+                self.emit(MuxEvent::TreeChanged);
                 return;
             }
             self.remove_surface_after_registry(surface.id);
@@ -4013,18 +4415,25 @@ impl Mux {
         }
     }
 
-    /// Called by a surface's reader thread when its child exits. The mux
-    /// reaps the surface out of the tree itself, so frontends only need to
-    /// drop their render state.
+    /// Called by a surface's reader thread when its child exits. Hosted
+    /// terminals remain stable, renderable Exited tabs until an explicit
+    /// close; local surfaces are removed immediately.
     pub fn surface_exited(&self, id: SurfaceId) {
         if self.sidebar_surface_exited(id) {
             self.emit(MuxEvent::SurfaceExited(id));
             return;
         }
         if let Some(surface) = self.surface(id)
-            && let Err(error) = self.mark_hosted_surface_exited(&surface, "host-exited")
+            && surface.terminal_host_identity().is_some()
         {
-            self.emit(MuxEvent::Status(format!("could not persist terminal {id} exit: {error}")));
+            if let Err(error) = self.mark_hosted_surface_exited(&surface, "host-exited") {
+                self.emit(MuxEvent::Status(format!(
+                    "could not persist terminal {id} exit: {error}"
+                )));
+                return;
+            }
+            self.emit(MuxEvent::TreeChanged);
+            self.emit(MuxEvent::SurfaceExited(id));
             return;
         }
         self.remove_surface_after_registry(id);
@@ -4330,15 +4739,68 @@ impl Mux {
         if spawned.is_empty() {
             return;
         }
-        for surface in &spawned {
-            if let Err(error) = self.tombstone_hosted_surface(surface) {
+        let hosted = spawned
+            .iter()
+            .filter_map(|surface| surface.terminal_host_identity())
+            .map(|identity| (identity.terminal_id, Some(identity.incarnation)))
+            .collect::<Vec<_>>();
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let batch = match registry.close_terminals_atomically(
+            &WorkspaceMutation::local("cmux-tui-layout-discard"),
+            &hosted,
+        ) {
+            Ok(batch) => batch,
+            Err(error) => {
+                // The transaction rolled back, so killing or dropping these
+                // surfaces would leave durable Running rows unreachable. Put
+                // every still-canonical terminal into its registry workspace
+                // while the same registry -> state writer fence is held.
+                let mut topology_changed = false;
+                let mut projection_errors = Vec::new();
+                {
+                    let mut state = self.state.lock().unwrap();
+                    for (terminal_id, _) in &hosted {
+                        let terminal = match registry.terminal_record(terminal_id) {
+                            Ok(Some(terminal))
+                                if terminal.lifecycle != TerminalLifecycle::Tombstoned =>
+                            {
+                                terminal
+                            }
+                            Ok(_) => continue,
+                            Err(projection_error) => {
+                                projection_errors.push(format!(
+                                    "{terminal_id}: could not read canonical placement: {projection_error}"
+                                ));
+                                continue;
+                            }
+                        };
+                        match self.project_terminal_to_workspace_in_state(
+                            &mut state,
+                            terminal_id,
+                            &terminal.workspace_key,
+                        ) {
+                            Ok((_, changed)) => topology_changed |= changed,
+                            Err(projection_error) => projection_errors.push(format!(
+                                "{terminal_id}: could not restore topology: {projection_error}"
+                            )),
+                        }
+                    }
+                }
+                drop(registry);
+                let projection_errors = if projection_errors.is_empty() {
+                    String::new()
+                } else {
+                    format!("; {}", projection_errors.join("; "))
+                };
                 self.emit(MuxEvent::Status(format!(
-                    "could not close discarded terminal {}: {error}",
-                    surface.id
+                    "could not atomically close discarded terminals: {error}{projection_errors}"
                 )));
+                if topology_changed {
+                    self.emit(MuxEvent::TreeChanged);
+                }
                 return;
             }
-        }
+        };
         let ids = spawned.iter().map(|surface| surface.id).collect::<Vec<_>>();
         {
             let mut state = self.state.lock().unwrap();
@@ -4346,6 +4808,10 @@ impl Mux {
                 state.surfaces.remove(id);
             }
         }
+        if batch.closed != 0 {
+            self.emit_terminal_registry_changed(&registry, batch.revision);
+        }
+        drop(registry);
         for surface in spawned {
             surface.kill();
         }
@@ -4382,7 +4848,12 @@ impl Mux {
                 let terminal = registry
                     .terminal_record(terminal_id)?
                     .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
+                let current_revision = registry.terminal_snapshot()?.revision;
                 let changed = replay.result["changed"].as_bool().unwrap_or(true);
+                #[cfg(test)]
+                if let Some(hook) = self.terminal_move_before_projection.lock().unwrap().clone() {
+                    hook();
+                }
                 let (placement, topology_changed) =
                     if terminal.lifecycle == TerminalLifecycle::Tombstoned {
                         (None, false)
@@ -4393,7 +4864,7 @@ impl Mux {
                             &terminal.workspace_key,
                         )?
                     };
-                (terminal, replay.revision, true, changed, placement, topology_changed)
+                (terminal, current_revision, true, changed, placement, topology_changed)
             } else {
                 let snapshot = registry.terminal_snapshot()?;
                 let mut terminal = registry
@@ -4425,6 +4896,10 @@ impl Mux {
                     }),
                 )?;
                 self.emit_terminal_registry_changed(&registry, commit.revision);
+                #[cfg(test)]
+                if let Some(hook) = self.terminal_move_before_projection.lock().unwrap().clone() {
+                    hook();
+                }
                 let (placement, topology_changed) = self.project_terminal_to_workspace_in_state(
                     &mut state,
                     terminal_id,
@@ -5000,6 +5475,44 @@ fn terminate_host_record(
     }
 }
 
+#[cfg(unix)]
+fn terminal_host_record_liveness(
+    record_path: &Path,
+    record: &crate::terminal_host_runtime::TerminalHostRecord,
+) -> TerminalHostLiveness {
+    crate::terminal_host_runtime::terminal_host_record_liveness(record_path, record)
+        .unwrap_or(TerminalHostLiveness::Indeterminate)
+}
+
+/// Ask a host to terminate first; if its admin socket is unavailable, remove
+/// discovery artifacts only when the process-start nonce positively proves
+/// this exact incarnation is dead. `false` means the live/ambiguous record is
+/// deliberately retained for a later retry.
+#[cfg(unix)]
+fn cleanup_terminal_host_record(
+    record: &crate::terminal_host_runtime::TerminalHostRecord,
+    record_path: &Path,
+) -> bool {
+    match terminal_host_record_liveness(record_path, record) {
+        TerminalHostLiveness::Dead => {
+            match crate::terminal_host_runtime::remove_stale_terminal_host_record(
+                record_path,
+                record,
+            ) {
+                Ok(removed) => removed,
+                // Positive nonce/PID death proof remains authoritative when
+                // the host already removed its own record between probe and
+                // compare-delete.
+                Err(_) if !record_path.exists() => true,
+                Err(_) => false,
+            }
+        }
+        TerminalHostLiveness::Live | TerminalHostLiveness::Indeterminate => {
+            terminate_host_record(record.clone(), record_path.to_path_buf())
+        }
+    }
+}
+
 fn insert_surface_checked(state: &mut State, surface: Arc<Surface>) -> anyhow::Result<()> {
     if state.surfaces.contains_key(&surface.id) {
         anyhow::bail!("duplicate_surface_id");
@@ -5448,16 +5961,46 @@ mod tests {
         Mux::new_for_test("test", SurfaceOptions::default())
     }
 
+    #[cfg(unix)]
+    fn insert_terminal_identity_surface(
+        mux: &Arc<Mux>,
+        terminal_id: &str,
+        incarnation: &str,
+        workspace_key: &str,
+    ) -> Arc<Surface> {
+        let surface = Surface::exited_terminal_placeholder(
+            mux.next_id(),
+            mux.surface_options.lock().unwrap().clone(),
+            Arc::downgrade(mux),
+            TerminalHostIdentity {
+                terminal_id: terminal_id.to_string(),
+                incarnation: incarnation.to_string(),
+            },
+        )
+        .unwrap();
+        let _registry = mux.workspace_registry.lock().unwrap();
+        let mut state = mux.state.lock().unwrap();
+        insert_surface_checked(&mut state, surface.clone()).unwrap();
+        let (placement, changed) = mux
+            .project_terminal_to_workspace_in_state(&mut state, terminal_id, workspace_key)
+            .unwrap();
+        assert!(changed);
+        assert_eq!(placement.unwrap().surface, surface.id);
+        surface
+    }
+
     #[test]
     fn terminal_registry_launch_spec_never_persists_environment_secrets() {
         let sentinel = "cmux-secret-sentinel-do-not-persist";
-        let mut options = SurfaceOptions::default();
-        options.command = Some(vec!["/bin/sh".into(), "-c".into(), sentinel.into()]);
-        options.cwd = Some(format!("/tmp/{sentinel}"));
-        options.extra_env = vec![
-            ("API_BEARER_TOKEN".into(), sentinel.into()),
-            ("CMUX_TUI_SOCKET".into(), "/tmp/cmux.sock".into()),
-        ];
+        let options = SurfaceOptions {
+            command: Some(vec!["/bin/sh".into(), "-c".into(), sentinel.into()]),
+            cwd: Some(format!("/tmp/{sentinel}")),
+            extra_env: vec![
+                ("API_BEARER_TOKEN".into(), sentinel.into()),
+                ("CMUX_TUI_SOCKET".into(), "/tmp/cmux.sock".into()),
+            ],
+            ..SurfaceOptions::default()
+        };
         let encoded = serde_json::to_string(&terminal_launch_spec(&options)).unwrap();
         assert!(!encoded.contains(sentinel));
         assert!(!encoded.contains("API_BEARER_TOKEN"));
@@ -6799,9 +7342,13 @@ mod tests {
                 )
                 .unwrap();
         }
-        let mut options = SurfaceOptions::default();
-        options.terminal_host_root =
-            Some(crate::terminal_host_runtime::terminal_host_root(&root, "recover-terminal"));
+        let options = SurfaceOptions {
+            terminal_host_root: Some(crate::terminal_host_runtime::terminal_host_root(
+                &root,
+                "recover-terminal",
+            )),
+            ..SurfaceOptions::default()
+        };
         let mux = Mux::open_persistent("recover-terminal", options, &root).unwrap();
         let resolved = mux.resolve_terminal(TERMINAL).unwrap().unwrap();
         assert_eq!(resolved.surface, None);
@@ -6811,6 +7358,175 @@ mod tests {
         mux.shutdown();
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restart_materializes_exited_terminal_until_explicit_close() {
+        const TERMINAL: &str = "0000000000004000800000000000000c";
+        const INCARNATION: &str = "1000000000004000800000000000000c";
+        let root = std::env::temp_dir().join(format!(
+            "cmux-mux-exited-placeholder-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        {
+            let mut registry = WorkspaceRegistry::open(&root, "recover-exited").unwrap();
+            registry
+                .commit(
+                    &WorkspaceMutation::new("workspace", "test").unwrap(),
+                    &serde_json::json!({"op":"create-workspace"}),
+                    None,
+                    Some(0),
+                    "workspace-added",
+                    "workspace-one",
+                    &[RegistryWorkspace {
+                        id: 1,
+                        key: "workspace-one".into(),
+                        name: "One".into(),
+                        group_key: "recover-exited".into(),
+                    }],
+                    &serde_json::json!({"workspace":1,"key":"workspace-one"}),
+                )
+                .unwrap();
+            let reserved = RegistryTerminal {
+                terminal_id: TERMINAL.into(),
+                workspace_key: "workspace-one".into(),
+                incarnation: None,
+                lifecycle: TerminalLifecycle::Launching,
+                launch_spec: serde_json::json!({}),
+                exit: None,
+            };
+            commit_terminal_transition(
+                &mut registry,
+                "terminal-reserved",
+                "reserve-terminal",
+                &reserved,
+            )
+            .unwrap();
+            commit_terminal_lifecycle(
+                &mut registry,
+                "terminal-exited",
+                "host-exited",
+                TERMINAL,
+                TerminalLifecycle::Exited,
+                Some(INCARNATION),
+                Some(serde_json::json!({"reason":"persisted-exit"})),
+            )
+            .unwrap();
+        }
+        let options = SurfaceOptions {
+            terminal_host_root: Some(crate::terminal_host_runtime::terminal_host_root(
+                &root,
+                "recover-exited",
+            )),
+            ..SurfaceOptions::default()
+        };
+        let mux = Mux::open_persistent("recover-exited", options.clone(), &root).unwrap();
+        let resolved = mux.resolve_terminal(TERMINAL).unwrap().unwrap();
+        assert_eq!(resolved.terminal.lifecycle, TerminalLifecycle::Exited);
+        assert_eq!(resolved.terminal.exit.as_ref().unwrap()["reason"], "persisted-exit");
+        let surface = resolved.surface.expect("Exited terminal remains addressable");
+        let placement = mux
+            .with_state(|state| run_placement_for_surface(state, surface))
+            .expect("Exited terminal remains in topology");
+        assert_eq!(placement.workspace, 1);
+
+        // Duplicate exit observations preserve both the tab and first exit
+        // metadata. Only an explicit close removes it and burns the UUID.
+        mux.surface_exited(surface);
+        let after_exit = mux.resolve_terminal(TERMINAL).unwrap().unwrap();
+        assert_eq!(after_exit.surface, Some(surface));
+        assert_eq!(after_exit.terminal.exit.unwrap()["reason"], "persisted-exit");
+        let closed = mux.close_terminal(TERMINAL, INCARNATION).unwrap();
+        assert_eq!(closed.surface, Some(surface));
+        let closed = mux.resolve_terminal(TERMINAL).unwrap().unwrap();
+        assert_eq!(closed.surface, None);
+        assert_eq!(closed.terminal.lifecycle, TerminalLifecycle::Tombstoned);
+        mux.shutdown();
+        drop(mux);
+
+        let reopened = Mux::open_persistent("recover-exited", options, &root).unwrap();
+        let closed = reopened.resolve_terminal(TERMINAL).unwrap().unwrap();
+        assert_eq!(closed.surface, None);
+        assert_eq!(closed.terminal.lifecycle, TerminalLifecycle::Tombstoned);
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn create_move_during_launch_binds_only_latest_canonical_workspace() {
+        const TERMINAL: &str = "0000000000004000800000000000000d";
+        const INCARNATION: &str = "1000000000004000800000000000000d";
+        let mux = test_mux();
+        let first = mux.create_empty_workspace(None, Some("launch-a".into()), None).unwrap();
+        let second = mux.create_empty_workspace(None, Some("launch-b".into()), None).unwrap();
+        commit_terminal_transition(
+            &mut mux.workspace_registry.lock().unwrap(),
+            "terminal-reserved",
+            "reserve-terminal",
+            &RegistryTerminal {
+                terminal_id: TERMINAL.into(),
+                workspace_key: first.key,
+                incarnation: None,
+                lifecycle: TerminalLifecycle::Launching,
+                launch_spec: serde_json::json!({}),
+                exit: None,
+            },
+        )
+        .unwrap();
+
+        // The GUI move commits while process launch has released the writer
+        // lock and before the daemon-local surface exists.
+        let moved = mux
+            .move_terminal_with_mutation(
+                TERMINAL,
+                &second.key,
+                None,
+                None,
+                Some(1),
+                &WorkspaceMutation::new("move-during-launch", "browser").unwrap(),
+            )
+            .unwrap();
+        assert_eq!(moved.placement, None);
+        let (_, ready_revision) = commit_terminal_lifecycle(
+            &mut mux.workspace_registry.lock().unwrap(),
+            "terminal-ready",
+            "terminal-ready",
+            TERMINAL,
+            TerminalLifecycle::Running,
+            Some(INCARNATION),
+            None,
+        )
+        .unwrap();
+        assert_eq!(ready_revision, 3);
+
+        let surface = Surface::exited_terminal_placeholder(
+            mux.next_id(),
+            mux.surface_options.lock().unwrap().clone(),
+            Arc::downgrade(&mux),
+            TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() },
+        )
+        .unwrap();
+        insert_surface_checked(&mut mux.state.lock().unwrap(), surface.clone()).unwrap();
+        let (placement, canonical_workspace, changed) =
+            mux.bind_running_terminal_to_canonical_workspace(&surface).unwrap();
+        assert!(changed);
+        assert_eq!(canonical_workspace, second.key);
+        assert_eq!(placement.workspace, second.workspace);
+        mux.with_state(|state| {
+            assert_eq!(state.pane_of(surface.id), Some(placement.pane));
+            assert_eq!(
+                state
+                    .surfaces
+                    .values()
+                    .filter_map(|surface| surface.terminal_host_identity())
+                    .filter(|identity| identity.terminal_id == TERMINAL)
+                    .count(),
+                1
+            );
+        });
     }
 
     #[test]
@@ -6917,6 +7633,171 @@ mod tests {
             mux.resolve_terminal(TERMINAL).unwrap().unwrap().terminal.workspace_key,
             third.key
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn concurrent_terminal_moves_cannot_project_out_of_commit_order() {
+        const TERMINAL: &str = "0000000000004000800000000000000a";
+        const INCARNATION: &str = "1000000000004000800000000000000a";
+        let mux = test_mux();
+        let first = mux.create_empty_workspace(None, Some("race-a".into()), None).unwrap();
+        let second = mux.create_empty_workspace(None, Some("race-b".into()), None).unwrap();
+        let third = mux.create_empty_workspace(None, Some("race-c".into()), None).unwrap();
+        commit_terminal_transition(
+            &mut mux.workspace_registry.lock().unwrap(),
+            "terminal-reserved",
+            "reserve-terminal",
+            &RegistryTerminal {
+                terminal_id: TERMINAL.into(),
+                workspace_key: first.key.clone(),
+                incarnation: None,
+                lifecycle: TerminalLifecycle::Launching,
+                launch_spec: serde_json::json!({}),
+                exit: None,
+            },
+        )
+        .unwrap();
+        let surface = insert_terminal_identity_surface(&mux, TERMINAL, INCARNATION, &first.key);
+
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let release_rx = Arc::new(Mutex::new(release_rx));
+        mux.set_terminal_move_before_projection(Some(Arc::new(move || {
+            if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                entered_tx.send(()).unwrap();
+                release_rx.lock().unwrap().recv().unwrap();
+            }
+        })));
+
+        let moving_to_second = {
+            let mux = mux.clone();
+            let key = second.key.clone();
+            std::thread::spawn(move || {
+                mux.move_terminal_with_mutation(
+                    TERMINAL,
+                    &key,
+                    None,
+                    None,
+                    Some(1),
+                    &WorkspaceMutation::new("move-race-one", "browser").unwrap(),
+                )
+            })
+        };
+        entered_rx.recv().unwrap();
+        let (second_attempted_tx, second_attempted_rx) = std::sync::mpsc::channel();
+        let (second_done_tx, second_done_rx) = std::sync::mpsc::channel();
+        let moving_to_third = {
+            let mux = mux.clone();
+            let key = third.key.clone();
+            std::thread::spawn(move || {
+                second_attempted_tx.send(()).unwrap();
+                let result = mux.move_terminal_with_mutation(
+                    TERMINAL,
+                    &key,
+                    None,
+                    None,
+                    None,
+                    &WorkspaceMutation::new("move-race-two", "browser").unwrap(),
+                );
+                second_done_tx.send(result).unwrap();
+            })
+        };
+        second_attempted_rx.recv().unwrap();
+        assert!(second_done_rx.recv_timeout(Duration::from_millis(100)).is_err());
+        release_tx.send(()).unwrap();
+        assert_eq!(moving_to_second.join().unwrap().unwrap().terminal.workspace_key, second.key);
+        assert_eq!(second_done_rx.recv().unwrap().unwrap().terminal.workspace_key, third.key);
+        moving_to_third.join().unwrap();
+        mux.set_terminal_move_before_projection(None);
+        assert_eq!(
+            mux.resolve_terminal(TERMINAL).unwrap().unwrap().terminal.workspace_key,
+            third.key
+        );
+        let placement = mux
+            .with_state(|state| run_placement_for_surface(state, surface.id))
+            .expect("terminal has one final topology binding");
+        assert_eq!(placement.workspace, third.workspace);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_move_and_destination_close_have_one_registry_topology_order() {
+        const TERMINAL: &str = "0000000000004000800000000000000b";
+        const INCARNATION: &str = "1000000000004000800000000000000b";
+        let mux = test_mux();
+        let first = mux.create_empty_workspace(None, Some("close-race-a".into()), None).unwrap();
+        let second = mux.create_empty_workspace(None, Some("close-race-b".into()), None).unwrap();
+        commit_terminal_transition(
+            &mut mux.workspace_registry.lock().unwrap(),
+            "terminal-reserved",
+            "reserve-terminal",
+            &RegistryTerminal {
+                terminal_id: TERMINAL.into(),
+                workspace_key: first.key.clone(),
+                incarnation: None,
+                lifecycle: TerminalLifecycle::Launching,
+                launch_spec: serde_json::json!({}),
+                exit: None,
+            },
+        )
+        .unwrap();
+        let surface = insert_terminal_identity_surface(&mux, TERMINAL, INCARNATION, &first.key);
+
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let release_rx = Arc::new(Mutex::new(release_rx));
+        mux.set_terminal_move_before_projection(Some(Arc::new(move || {
+            entered_tx.send(()).unwrap();
+            release_rx.lock().unwrap().recv().unwrap();
+        })));
+        let move_thread = {
+            let mux = mux.clone();
+            let key = second.key.clone();
+            std::thread::spawn(move || {
+                mux.move_terminal_with_mutation(
+                    TERMINAL,
+                    &key,
+                    None,
+                    None,
+                    Some(1),
+                    &WorkspaceMutation::new("move-before-close", "browser").unwrap(),
+                )
+            })
+        };
+        entered_rx.recv().unwrap();
+        let (close_attempted_tx, close_attempted_rx) = std::sync::mpsc::channel();
+        let (close_done_tx, close_done_rx) = std::sync::mpsc::channel();
+        let close_thread = {
+            let mux = mux.clone();
+            std::thread::spawn(move || {
+                close_attempted_tx.send(()).unwrap();
+                close_done_tx
+                    .send(mux.close_workspace_at_revision(second.workspace, Some(2)))
+                    .unwrap();
+            })
+        };
+        close_attempted_rx.recv().unwrap();
+        assert!(close_done_rx.recv_timeout(Duration::from_millis(100)).is_err());
+        release_tx.send(()).unwrap();
+        assert_eq!(move_thread.join().unwrap().unwrap().terminal.workspace_key, second.key);
+        assert_eq!(close_done_rx.recv().unwrap().unwrap(), Some(3));
+        close_thread.join().unwrap();
+        mux.set_terminal_move_before_projection(None);
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Tombstoned
+        );
+        assert!(mux.with_state(|state| state.workspace_by_key(&second.key).is_none()));
+        assert_eq!(mux.resolve_terminal(TERMINAL).unwrap().unwrap().surface, None);
+        assert!(mux.surface(surface.id).is_none());
     }
 
     #[test]
