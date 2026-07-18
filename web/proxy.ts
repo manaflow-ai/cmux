@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import createMiddleware from "next-intl/middleware";
-import { routing } from "./i18n/routing";
+import { locales, routing } from "./i18n/routing";
 import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
 import {
   fallbackContentRequestForPathname,
@@ -62,6 +62,10 @@ export default function middleware(request: NextRequest) {
   }
 
   if (pathname === "/app-pro-welcome" || pathname === "/app-pro-welcome/") {
+    return NextResponse.next();
+  }
+
+  if (isNextMetadataFileRoute(pathname)) {
     return NextResponse.next();
   }
 
@@ -305,6 +309,30 @@ function setFeatureWorkflowDocLinkHeader(
 
 function requestOrigin(request: NextRequest) {
   return request.nextUrl.origin;
+}
+
+const localeSet = new Set<string>(locales);
+const metadataRouteNames = [
+  "opengraph-image",
+  "twitter-image",
+  "icon",
+  "apple-icon",
+] as const;
+
+function isNextMetadataFileRoute(pathname: string) {
+  const segments = pathname.split("/").filter(Boolean);
+  if (segments.length === 0 || segments.length > 2) {
+    return false;
+  }
+
+  const routeSegment =
+    segments.length === 2 && localeSet.has(segments[0])
+      ? segments[1]
+      : segments[0];
+
+  return metadataRouteNames.some(
+    (name) => routeSegment === name || routeSegment.startsWith(`${name}-`),
+  );
 }
 
 export const config = {
