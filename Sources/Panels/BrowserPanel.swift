@@ -4834,6 +4834,26 @@ final class BrowserPanel: Panel, ObservableObject {
         refreshNavigationAvailability()
         refreshWebViewLifecycleState()
     }
+
+    func sessionPersistenceSnapshot() -> SessionBrowserPanelSnapshot {
+        let history = sessionNavigationHistorySnapshot()
+        let diffViewer = diffViewerSessionComponents()
+        return SessionBrowserPanelSnapshot(
+            urlString: preferredURLStringForSessionSnapshot(),
+            profileID: profileID,
+            shouldRenderWebView: shouldRenderWebViewForSessionSnapshot(),
+            pageZoom: Double(currentPageZoomFactor()),
+            developerToolsVisible: isDeveloperToolsVisible(),
+            isMuted: isMuted,
+            omnibarVisible: isOmnibarVisible,
+            backHistoryURLStrings: history.backHistoryURLStrings,
+            forwardHistoryURLStrings: history.forwardHistoryURLStrings,
+            transparentBackground: sessionSnapshotTransparentBackground,
+            diffViewerToken: diffViewer?.token,
+            diffViewerRequestPath: diffViewer?.requestPath
+        )
+    }
+
     func shouldRenderWebViewForSessionSnapshot() -> Bool {
         // Diff viewer URLs are "temporary" so `preferredURLStringForSessionSnapshot()`
         // is nil, but they are restorable via their token, so honor their render

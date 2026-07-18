@@ -32,6 +32,13 @@ final class WorkspaceFloatingDockPresenter {
                             guard let workspace else { return }
                             _ = workspace.closeFloatingDock(id: dockId)
                             self?.refresh()
+                        },
+                        onCreateRequest: { [weak self] in
+                            guard let tabManager = self?.tabManager else { return }
+                            _ = AppDelegate.shared?.createWorkspaceFloatingDock(
+                                in: tabManager,
+                                focus: true
+                            )
                         }
                     )
                     controllers[dock.id] = created

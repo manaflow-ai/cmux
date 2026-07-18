@@ -24,7 +24,7 @@ final class WorkspaceFloatingDock: Identifiable {
         frame: CGRect,
         isPresented: Bool,
         noteFilePath: String,
-        existingNotePanelId: UUID? = nil,
+        seedsDefaultNote: Bool = true,
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings
     ) {
@@ -42,16 +42,8 @@ final class WorkspaceFloatingDock: Identifiable {
             remoteBrowserSettingsProvider: remoteBrowserSettingsProvider
         )
 
-        if let existingNotePanelId {
-            notePanelId = existingNotePanelId
-        } else if let rootPane = store.bonsplitController.allPaneIds.first {
-            notePanelId = store.newSurface(
-                kind: .note,
-                inPane: rootPane,
-                noteFilePath: noteFilePath,
-                noteTitle: String(localized: "floatingDock.note.title", defaultValue: "Notes"),
-                focus: false
-            )
+        if seedsDefaultNote {
+            seedDefaultNoteIfNeeded()
         }
     }
 
@@ -60,6 +52,31 @@ final class WorkspaceFloatingDock: Identifiable {
             return panel
         }
         return store.panels.values.first(where: { $0 is FilePreviewPanel }) as? FilePreviewPanel
+    }
+
+    func sessionContentSnapshot() -> SessionFloatingDockContentSnapshot? {
+        store.floatingDockSessionSnapshot(notePanelId: notePanel?.id)
+    }
+
+    func restoreSessionContent(_ snapshot: SessionFloatingDockContentSnapshot) {
+        notePanelId = store.restoreFloatingDockSessionSnapshot(
+            snapshot,
+            noteFilePath: noteFilePath,
+            noteTitle: String(localized: "floatingDock.note.title", defaultValue: "Notes")
+        )
+        seedDefaultNoteIfNeeded()
+    }
+
+    private func seedDefaultNoteIfNeeded() {
+        guard notePanel == nil,
+              let rootPane = store.bonsplitController.allPaneIds.first else { return }
+        notePanelId = store.newSurface(
+            kind: .note,
+            inPane: rootPane,
+            noteFilePath: noteFilePath,
+            noteTitle: String(localized: "floatingDock.note.title", defaultValue: "Notes"),
+            focus: false
+        )
     }
 
     func close() {

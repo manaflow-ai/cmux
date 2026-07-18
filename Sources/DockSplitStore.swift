@@ -230,6 +230,12 @@ final class DockSplitStore: BonsplitDelegate {
         removeAllPanels()
     }
 
+    func resetForSessionRestore() {
+        removeAllPanels()
+        hasLoadedConfiguration = true
+        hasAppliedConfigurationSeed = true
+    }
+
     func ensureLoaded() {
         guard !hasLoadedConfiguration else { return }
         hasLoadedConfiguration = true
@@ -312,6 +318,7 @@ final class DockSplitStore: BonsplitDelegate {
         tmuxStartCommand: String? = nil,
         noteFilePath: String? = nil,
         noteTitle: String? = nil,
+        preferredProfileID: UUID? = nil,
         initialDividerPosition: CGFloat? = nil,
         focus: Bool = true
     ) -> UUID? {
@@ -324,7 +331,8 @@ final class DockSplitStore: BonsplitDelegate {
             workingDirectory: workingDirectory ?? currentBaseDirectory(),
             tmuxStartCommand: tmuxStartCommand,
             noteFilePath: noteFilePath,
-            noteTitle: noteTitle
+            noteTitle: noteTitle,
+            preferredProfileID: preferredProfileID
         ) else { return nil }
 
         guard let source = resolveSourcePanelId(sourcePanelId), let sourcePaneId = paneId(forPanelId: source) else {

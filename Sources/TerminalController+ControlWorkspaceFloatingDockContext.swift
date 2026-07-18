@@ -57,8 +57,10 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
         case .list:
             return .resolved(floatingDockListPayload(workspace: workspace, tabManager: tabManager))
         case .create(let title, let frame, let focus):
-            let resolvedFrame = frame.map(CGRect.init(controlFrame:)) ?? floatingDockCascadeFrame(workspace)
-            guard let dock = workspace.createFloatingDock(title: title, frame: resolvedFrame) else {
+            guard let dock = workspace.createFloatingDock(
+                title: title,
+                frame: frame.map(CGRect.init(controlFrame:))
+            ) else {
                 return .operationFailed("Failed to create floating Dock")
             }
             refreshFloatingDockUI(dock: dock, workspace: workspace, tabManager: tabManager, focus: focus)
@@ -81,7 +83,7 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
             return .resolved(payload)
         case .setFrame(let selector, let frame):
             guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
-            dock.frame = CGRect(controlFrame: frame).floatingDockSanitized
+            dock.frame = Workspace.sanitizedFloatingDockFrame(CGRect(controlFrame: frame))
             AppDelegate.shared?.refreshWorkspaceFloatingDocks(for: tabManager)
             return .resolved(floatingDockMutationPayload(dock: dock, workspace: workspace, tabManager: tabManager))
         case .noteGet(let selector):
@@ -164,11 +166,6 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
         guard kind == .browser, let raw else { return nil }
         if let url = URL(string: raw), url.scheme != nil { return url }
         return URL(string: "https://\(raw)")
-    }
-
-    private func floatingDockCascadeFrame(_ workspace: Workspace) -> CGRect {
-        let cascade = CGFloat(workspace.floatingDocks.count % 6) * 24
-        return CGRect(x: 36 + cascade, y: 80 - cascade, width: 520, height: 380)
     }
 
     private func refreshFloatingDockUI(
@@ -311,9 +308,5 @@ private extension CGRect {
             width: controlFrame.width,
             height: controlFrame.height
         )
-    }
-
-    var floatingDockSanitized: CGRect {
-        CGRect(x: origin.x, y: origin.y, width: max(320, width), height: max(220, height))
     }
 }

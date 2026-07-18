@@ -54,8 +54,10 @@ extension Workspace {
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionWorkspaceSnapshot {
-        let tree = bonsplitController.treeSnapshot()
-        let rawLayout = sessionLayoutSnapshot(from: tree)
+        let rawLayout = BonsplitSessionLayoutCodec.capture(
+            controller: bonsplitController,
+            panelIdForTab: { [weak self] in self?.panelIdFromSurfaceId($0) }
+        )
         if let surfaceResumeBindingIndex {
             reconcileSurfaceResumeBindings(using: surfaceResumeBindingIndex)
         }
@@ -82,7 +84,7 @@ extension Workspace {
                 )
             }
         let persistedPanelIds = Set(panelSnapshots.map(\.id))
-        let layout = prunedSessionLayoutSnapshot(rawLayout, keeping: persistedPanelIds) ?? .pane(
+        let layout = BonsplitSessionLayoutCodec.pruning(rawLayout, keeping: persistedPanelIds) ?? .pane(
             SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)
         )
         let statusSnapshots = statusEntries.values
@@ -226,7 +228,7 @@ extension Workspace {
         }
 
         pruneSurfaceMetadata(validSurfaceIds: Set(panels.keys))
-        applySessionDividerPositions(snapshotNode: snapshot.layout, liveNode: bonsplitController.treeSnapshot())
+        BonsplitSessionLayoutCodec.applyDividerPositions(snapshot.layout, to: bonsplitController)
 
         applyProcessTitle(snapshot.processTitle)
         setCustomTitle(snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
@@ -294,106 +296,6 @@ extension Workspace {
         AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
         syncUnreadBadgeStateForAllPanels()
         return oldToNewPanelIds
-    }
-
-    private func sessionLayoutSnapshot(from node: ExternalTreeNode) -> SessionWorkspaceLayoutSnapshot {
-        switch node {
-        case .pane(let pane):
-            let panelIds = sessionPanelIDs(for: pane)
-            let selectedPanelId = pane.selectedTabId.flatMap(sessionPanelID(forExternalTabIDString:))
-            return .pane(
-                SessionPaneLayoutSnapshot(
-                    panelIds: panelIds,
-                    selectedPanelId: selectedPanelId,
-                    isFullWidthTabMode: UUID(uuidString: pane.id).map { paneId in
-                        bonsplitController.isFullWidthTabMode(inPane: PaneID(id: paneId))
-                    }
-                )
-            )
-        case .split(let split):
-            return .split(
-                SessionSplitLayoutSnapshot(
-                    orientation: split.orientation.lowercased() == "vertical" ? .vertical : .horizontal,
-                    dividerPosition: split.dividerPosition,
-                    first: sessionLayoutSnapshot(from: split.first),
-                    second: sessionLayoutSnapshot(from: split.second)
-                )
-            )
-        }
-    }
-
-    private func prunedSessionLayoutSnapshot(
-        _ node: SessionWorkspaceLayoutSnapshot,
-        keeping panelIdsToKeep: Set<UUID>
-    ) -> SessionWorkspaceLayoutSnapshot? {
-        switch node {
-        case .pane(let pane):
-            let panelIds = pane.panelIds.filter { panelIdsToKeep.contains($0) }
-            guard !panelIds.isEmpty else { return nil }
-            let selectedPanelId = pane.selectedPanelId.flatMap {
-                panelIdsToKeep.contains($0) ? $0 : nil
-            } ?? panelIds.first
-            return .pane(
-                SessionPaneLayoutSnapshot(
-                    panelIds: panelIds,
-                    selectedPanelId: selectedPanelId,
-                    isFullWidthTabMode: pane.isFullWidthTabMode
-                )
-            )
-        case .split(let split):
-            let first = prunedSessionLayoutSnapshot(split.first, keeping: panelIdsToKeep)
-            let second = prunedSessionLayoutSnapshot(split.second, keeping: panelIdsToKeep)
-            switch (first, second) {
-            case (.some(let first), .some(let second)):
-                return .split(
-                    SessionSplitLayoutSnapshot(
-                        orientation: split.orientation,
-                        dividerPosition: split.dividerPosition,
-                        first: first,
-                        second: second
-                    )
-                )
-            case (.some(let first), .none):
-                return first
-            case (.none, .some(let second)):
-                return second
-            case (.none, .none):
-                return nil
-            }
-        }
-    }
-    private func sessionPanelIDs(for pane: ExternalPaneNode) -> [UUID] {
-        var panelIds: [UUID] = []
-        var seen = Set<UUID>()
-        for tab in pane.tabs {
-            guard let panelId = sessionPanelID(forExternalTabIDString: tab.id) else { continue }
-            if seen.insert(panelId).inserted {
-                panelIds.append(panelId)
-            }
-        }
-        return panelIds
-    }
-    private func sessionPanelID(forExternalTabIDString tabIDString: String) -> UUID? {
-        guard let tabUUID = UUID(uuidString: tabIDString) else { return nil }
-        for (surfaceId, panelId) in surfaceIdToPanelId {
-            guard let surfaceUUID = sessionSurfaceUUID(for: surfaceId) else { continue }
-            if surfaceUUID == tabUUID {
-                return panelId
-            }
-        }
-        return nil
-    }
-
-    private func sessionSurfaceUUID(for surfaceId: TabID) -> UUID? {
-        struct EncodedSurfaceID: Decodable {
-            let id: UUID
-        }
-
-        guard let data = try? JSONEncoder().encode(surfaceId),
-              let decoded = try? JSONDecoder().decode(EncodedSurfaceID.self, from: data) else {
-            return nil
-        }
-        return decoded.id
     }
 
     private func sessionPanelSnapshot(
@@ -592,22 +494,7 @@ extension Workspace {
             guard let browserPanel = panel as? BrowserPanel else { return nil }
             guard browserPanel.shouldPersistSessionSnapshot() else { return nil }
             terminalSnapshot = nil
-            let historySnapshot = browserPanel.sessionNavigationHistorySnapshot()
-            let diffViewerComponents = browserPanel.diffViewerSessionComponents()
-            browserSnapshot = SessionBrowserPanelSnapshot(
-                urlString: browserPanel.preferredURLStringForSessionSnapshot(),
-                profileID: browserPanel.profileID,
-                shouldRenderWebView: browserPanel.shouldRenderWebViewForSessionSnapshot(),
-                pageZoom: Double(browserPanel.currentPageZoomFactor()),
-                developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
-                isMuted: browserPanel.isMuted,
-                omnibarVisible: browserPanel.isOmnibarVisible,
-                backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
-                forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings,
-                transparentBackground: browserPanel.sessionSnapshotTransparentBackground,
-                diffViewerToken: diffViewerComponents?.token,
-                diffViewerRequestPath: diffViewerComponents?.requestPath
-            )
+            browserSnapshot = browserPanel.sessionPersistenceSnapshot()
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
@@ -1811,25 +1698,6 @@ extension Workspace {
         return notifications
     }
 
-    private func applySessionDividerPositions(
-        snapshotNode: SessionWorkspaceLayoutSnapshot,
-        liveNode: ExternalTreeNode
-    ) {
-        switch (snapshotNode, liveNode) {
-        case (.split(let snapshotSplit), .split(let liveSplit)):
-            if let splitID = UUID(uuidString: liveSplit.id) {
-                _ = bonsplitController.setDividerPosition(
-                    CGFloat(snapshotSplit.dividerPosition),
-                    forSplit: splitID,
-                    fromExternal: true
-                )
-            }
-            applySessionDividerPositions(snapshotNode: snapshotSplit.first, liveNode: liveSplit.first)
-            applySessionDividerPositions(snapshotNode: snapshotSplit.second, liveNode: liveSplit.second)
-        default:
-            return
-        }
-    }
 }
 
 // MARK: - Config-driven terminal input delivery

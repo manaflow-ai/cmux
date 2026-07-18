@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
+import Observation
 import SwiftUI
 
 /// Owns the native child panel for one workspace floating Dock.
@@ -9,24 +10,20 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     private weak var parentWindow: NSWindow?
     private let onCloseRequest: (UUID) -> Void
     private let glassEffect = WindowGlassEffect()
-    private let glassBackdropPanel: WorkspaceFloatingDockGlassBackdropPanel
     private weak var compatibilityBlurView: NSVisualEffectView?
     private var isApplyingModelFrame = false
-
-    var glassBackdropWindowForTesting: NSWindow {
-        glassBackdropPanel
-    }
 
     init(
         dock: WorkspaceFloatingDock,
         parentWindow: NSWindow,
-        onCloseRequest: @escaping (UUID) -> Void
+        onCloseRequest: @escaping (UUID) -> Void,
+        onCreateRequest: @escaping () -> Void
     ) {
         self.dock = dock
         self.parentWindow = parentWindow
         self.onCloseRequest = onCloseRequest
 
-        let panel = NSPanel(
+        let panel = WorkspaceFloatingDockPanel(
             contentRect: Self.screenFrame(relativeFrame: dock.frame, parentWindow: parentWindow),
             styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView],
             backing: .buffered,
@@ -46,45 +43,24 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         panel.contentMinSize = NSSize(width: 320, height: 220)
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = false
-        panel.isMovable = true
+        panel.hasShadow = true
+        // Keep AppKit out of the full-size titlebar's drag decision. Bonsplit
+        // owns tab drags; the explicit grid handle temporarily enables native
+        // movement only while it calls performDrag.
+        panel.isMovable = false
         panel.isMovableByWindowBackground = false
         panel.contentView = WorkspaceFloatingDockHostingView(
             rootView: WorkspaceFloatingDockContentView(
-                dock: dock
+                dock: dock,
+                onCreateDock: onCreateRequest
             ),
             minimumContentSize: NSSize(width: 320, height: 220)
         )
 
-        let glassBackdropPanel = WorkspaceFloatingDockGlassBackdropPanel(
-            contentRect: panel.frame,
-            styleMask: [.titled, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        glassBackdropPanel.titleVisibility = .hidden
-        glassBackdropPanel.titlebarAppearsTransparent = true
-        Self.hideStandardWindowButtons(in: glassBackdropPanel)
-        glassBackdropPanel.identifier = NSUserInterfaceItemIdentifier(
-            "cmux.workspace.floatGlass.\(dock.id.uuidString)"
-        )
-        glassBackdropPanel.isReleasedWhenClosed = false
-        glassBackdropPanel.isFloatingPanel = false
-        glassBackdropPanel.hidesOnDeactivate = false
-        glassBackdropPanel.level = .normal
-        glassBackdropPanel.collectionBehavior = [.fullScreenAuxiliary]
-        glassBackdropPanel.isOpaque = false
-        glassBackdropPanel.backgroundColor = .clear
-        glassBackdropPanel.hasShadow = true
-        glassBackdropPanel.ignoresMouseEvents = true
-        glassBackdropPanel.isExcludedFromWindowsMenu = true
-        glassBackdropPanel.contentView = NSView(frame: panel.contentView?.bounds ?? .zero)
-        glassBackdropPanel.contentView?.wantsLayer = true
-        glassBackdropPanel.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
-
-        self.glassBackdropPanel = glassBackdropPanel
         super.init(window: panel)
         panel.delegate = self
+        panel.lockContentDrivenSizeChanges()
+        glassEffect.changesTintWithWindowKeyState = false
         applyGlassTexture()
     }
 
@@ -102,10 +78,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             if panel.parent !== parentWindow {
                 parentWindow.addChildWindow(panel, ordered: .above)
             }
-            attachGlassBackdrop(to: panel)
             panel.orderFront(nil)
-        } else if glassBackdropPanel.parent !== panel {
-            attachGlassBackdrop(to: panel)
         }
         dock.isPresented = true
         dock.store.setVisibleInUI(true)
@@ -114,6 +87,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
                 panel.deminiaturize(nil)
             }
             panel.makeKeyAndOrderFront(nil)
+            raiseAboveSiblingFloatingDocks(panel)
             _ = dock.store.focusFirstControl()
         }
     }
@@ -121,7 +95,6 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     func hide() {
         dock.ownsInputFocus = false
         dock.store.setVisibleInUI(false)
-        glassBackdropPanel.orderOut(nil)
         window?.orderOut(nil)
     }
 
@@ -131,12 +104,10 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         if let window, let parent = window.parent {
             parent.removeChildWindow(window)
         }
-        if glassBackdropPanel.parent != nil {
-            glassBackdropPanel.parent?.removeChildWindow(glassBackdropPanel)
+        if let window {
+            glassEffect.remove(from: window)
         }
-        glassEffect.remove(from: glassBackdropPanel)
         compatibilityBlurView?.removeFromSuperview()
-        glassBackdropPanel.orderOut(nil)
         window?.orderOut(nil)
         window?.delegate = nil
     }
@@ -147,12 +118,19 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     }
 
     func windowDidMove(_ notification: Notification) {
-        syncGlassBackdropFrame()
         captureModelFrame()
     }
 
     func windowDidResize(_ notification: Notification) {
-        syncGlassBackdropFrame()
+        captureModelFrame()
+    }
+
+    func windowWillStartLiveResize(_ notification: Notification) {
+        (notification.object as? WorkspaceFloatingDockPanel)?.beginUserResize()
+    }
+
+    func windowDidEndLiveResize(_ notification: Notification) {
+        (notification.object as? WorkspaceFloatingDockPanel)?.endUserResize()
         captureModelFrame()
     }
 
@@ -163,6 +141,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     func windowDidBecomeKey(_ notification: Notification) {
         if let panel = notification.object as? NSWindow {
             Self.configureStandardWindowButtons(in: panel)
+            raiseAboveSiblingFloatingDocks(panel)
         }
         dock.ownsInputFocus = true
     }
@@ -177,21 +156,17 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         dock.ownsInputFocus = false
     }
 
-    func windowDidMiniaturize(_ notification: Notification) {
-        glassBackdropPanel.orderOut(nil)
-    }
-
-    func windowDidDeminiaturize(_ notification: Notification) {
-        guard let panel = window, panel.isVisible else { return }
-        attachGlassBackdrop(to: panel)
-        panel.orderFront(nil)
-    }
-
     private func applyModelFrame() {
         guard let panel = window, let parentWindow else { return }
         isApplyingModelFrame = true
-        panel.setFrame(Self.screenFrame(relativeFrame: dock.frame, parentWindow: parentWindow), display: false)
-        syncGlassBackdropFrame()
+        if let panel = panel as? WorkspaceFloatingDockPanel {
+            panel.setExplicitFrame(
+                Self.screenFrame(relativeFrame: dock.frame, parentWindow: parentWindow),
+                display: false
+            )
+        } else {
+            panel.setFrame(Self.screenFrame(relativeFrame: dock.frame, parentWindow: parentWindow), display: false)
+        }
         isApplyingModelFrame = false
     }
 
@@ -212,54 +187,67 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         )
     }
 
-    private func attachGlassBackdrop(to panel: NSWindow) {
-        syncGlassBackdropFrame()
-        if glassBackdropPanel.parent !== panel {
-            glassBackdropPanel.parent?.removeChildWindow(glassBackdropPanel)
-            panel.addChildWindow(glassBackdropPanel, ordered: .below)
+    private func raiseAboveSiblingFloatingDocks(_ panel: NSWindow) {
+        guard let parentWindow else {
+            panel.orderFront(nil)
+            return
         }
-        glassBackdropPanel.orderFront(nil)
-        glassBackdropPanel.order(.below, relativeTo: panel.windowNumber)
-    }
 
-    private func syncGlassBackdropFrame() {
-        guard let panel = window, glassBackdropPanel.frame != panel.frame else { return }
-        glassBackdropPanel.setFrame(panel.frame, display: false)
+        // AppKit preserves ordering constraints between a parent and its child
+        // windows. Reattaching the activated Dock at the top of that child list
+        // makes click-to-front deterministic without changing its window level.
+        if panel.parent === parentWindow {
+            parentWindow.removeChildWindow(panel)
+        }
+        parentWindow.addChildWindow(panel, ordered: .above)
+        panel.orderFront(nil)
     }
 
     private func applyGlassTexture() {
-        glassEffect.remove(from: glassBackdropPanel)
+        guard let panel = window else { return }
+        glassEffect.remove(from: panel)
         compatibilityBlurView?.removeFromSuperview()
 
 #if DEBUG
+        glassEffect.backgroundOpacity = WorkspaceFloatingDockTextureDebugSettings.currentBackdropOpacity()
         let texture = WorkspaceFloatingDockTextureDebugSettings.currentStyle()
         if let liquidGlass = texture.liquidGlass {
             glassEffect.apply(
-                to: glassBackdropPanel,
-                tintColor: liquidGlass.tint,
+                to: panel,
+                tintColor: WorkspaceFloatingDockTextureDebugSettings.currentTintColor() ?? liquidGlass.tint,
                 style: liquidGlass.style
             )
         } else if let material = texture.compatibilityMaterial {
-            applyCompatibilityBlur(material: material)
+            applyCompatibilityBlur(
+                material: material,
+                to: panel,
+                opacity: WorkspaceFloatingDockTextureDebugSettings.currentBackdropOpacity()
+            )
         }
 #else
-        glassEffect.apply(to: glassBackdropPanel, tintColor: nil, style: .regular)
+        glassEffect.backgroundOpacity = 0.86
+        glassEffect.apply(to: panel, tintColor: nil, style: .regular)
 #endif
     }
 
-    private func applyCompatibilityBlur(material: NSVisualEffectView.Material) {
-        guard let contentView = glassBackdropPanel.contentView else { return }
-        let blurView = NSVisualEffectView(frame: contentView.bounds)
+    private func applyCompatibilityBlur(
+        material: NSVisualEffectView.Material,
+        to panel: NSWindow,
+        opacity: CGFloat
+    ) {
+        guard let contentView = panel.contentView, let themeFrame = contentView.superview else { return }
+        let blurView = NSVisualEffectView(frame: themeFrame.bounds)
         blurView.translatesAutoresizingMaskIntoConstraints = false
         blurView.material = material
         blurView.blendingMode = .behindWindow
         blurView.state = .active
-        contentView.addSubview(blurView)
+        blurView.alphaValue = opacity
+        themeFrame.addSubview(blurView, positioned: .below, relativeTo: contentView)
         NSLayoutConstraint.activate([
-            blurView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            blurView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-            blurView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            blurView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            blurView.topAnchor.constraint(equalTo: themeFrame.topAnchor),
+            blurView.bottomAnchor.constraint(equalTo: themeFrame.bottomAnchor),
+            blurView.leadingAnchor.constraint(equalTo: themeFrame.leadingAnchor),
+            blurView.trailingAnchor.constraint(equalTo: themeFrame.trailingAnchor),
         ])
         compatibilityBlurView = blurView
     }
@@ -273,15 +261,6 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         )
     }
 
-    private static func hideStandardWindowButtons(in panel: NSWindow) {
-        for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-            guard let button = panel.standardWindowButton(buttonType) else { continue }
-            button.isHidden = true
-            button.alphaValue = 0
-            button.isEnabled = false
-        }
-    }
-
     private static func configureStandardWindowButtons(in panel: NSWindow) {
         for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             guard let button = panel.standardWindowButton(buttonType) else { continue }
@@ -292,17 +271,51 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     }
 }
 
-/// Hosts only the visual material. Keeping this panel permanently non-key
-/// prevents native Liquid Glass from changing when the interactive Dock panel
-/// gains or loses focus.
-private final class WorkspaceFloatingDockGlassBackdropPanel: NSPanel {
-    override var canBecomeKey: Bool { false }
-    override var canBecomeMain: Bool { false }
+/// Keeps the floating Dock's dimensions owned by the user and the workspace
+/// model. Bonsplit content can relayout inside the panel, but it cannot grow
+/// the native window through AppKit fitting-size propagation.
+private final class WorkspaceFloatingDockPanel: NSPanel {
+    private enum SizeAuthority: Equatable {
+        case initializing
+        case contentLocked
+        case explicitMutation
+        case userResize
+    }
+
+    private var sizeAuthority = SizeAuthority.initializing
+
+    func lockContentDrivenSizeChanges() {
+        sizeAuthority = .contentLocked
+    }
+
+    func setExplicitFrame(_ frame: NSRect, display: Bool) {
+        sizeAuthority = .explicitMutation
+        setFrame(frame, display: display)
+        sizeAuthority = .contentLocked
+    }
+
+    func beginUserResize() {
+        sizeAuthority = .userResize
+    }
+
+    func endUserResize() {
+        sizeAuthority = .contentLocked
+    }
+
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        var resolvedFrame = frameRect
+        if sizeAuthority == .contentLocked, !frame.isEmpty {
+            resolvedFrame.size = frame.size
+        }
+        super.setFrame(resolvedFrame, display: flag)
+    }
 }
 
 /// Floating Dock controls should work on the first click even when another
 /// cmux window is currently key, matching native titlebar control behavior.
 private final class WorkspaceFloatingDockHostingView<Content: View>: UserSizedWindowHostingView<Content> {
+    override var mouseDownCanMoveWindow: Bool { false }
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
     }
@@ -409,10 +422,115 @@ enum WorkspaceFloatingDockTextureDebugStyle: String, CaseIterable, Identifiable 
 
 enum WorkspaceFloatingDockTextureDebugSettings {
     static let styleKey = "debugWorkspaceFloatingDockTextureStyle"
+    static let tintRedKey = "debugWorkspaceFloatingDockTintRed"
+    static let tintGreenKey = "debugWorkspaceFloatingDockTintGreen"
+    static let tintBlueKey = "debugWorkspaceFloatingDockTintBlue"
+    static let tintStrengthKey = "debugWorkspaceFloatingDockTintStrength"
+    static let backdropOpacityKey = "debugWorkspaceFloatingDockBackdropOpacity"
     static let defaultStyle = WorkspaceFloatingDockTextureDebugStyle.regular
+    static let defaultTintRed = 0.5
+    static let defaultTintGreen = 0.5
+    static let defaultTintBlue = 0.5
+    static let defaultTintStrength = 0.0
+    static let defaultBackdropOpacity = 0.86
 
     static func currentStyle(defaults: UserDefaults = .standard) -> WorkspaceFloatingDockTextureDebugStyle {
         WorkspaceFloatingDockTextureDebugStyle(rawValue: defaults.string(forKey: styleKey) ?? "") ?? defaultStyle
+    }
+
+    static func currentTintColor(defaults: UserDefaults = .standard) -> NSColor? {
+        let strength = value(forKey: tintStrengthKey, defaultValue: defaultTintStrength, defaults: defaults)
+        guard strength > 0.001 else { return nil }
+        return NSColor(
+            calibratedRed: value(forKey: tintRedKey, defaultValue: defaultTintRed, defaults: defaults),
+            green: value(forKey: tintGreenKey, defaultValue: defaultTintGreen, defaults: defaults),
+            blue: value(forKey: tintBlueKey, defaultValue: defaultTintBlue, defaults: defaults),
+            alpha: min(max(strength, 0), 1)
+        )
+    }
+
+    static func currentBackdropOpacity(defaults: UserDefaults = .standard) -> CGFloat {
+        CGFloat(min(max(
+            value(forKey: backdropOpacityKey, defaultValue: defaultBackdropOpacity, defaults: defaults),
+            0.15
+        ), 1))
+    }
+
+    static func value(forKey key: String, defaultValue: Double, defaults: UserDefaults = .standard) -> Double {
+        guard defaults.object(forKey: key) != nil else { return defaultValue }
+        return defaults.double(forKey: key)
+    }
+}
+
+@MainActor
+@Observable
+private final class WorkspaceFloatingDockTextureDebugModel {
+    var styleRawValue: String {
+        didSet { persistAndRefresh() }
+    }
+    var tintColor: Color {
+        didSet { persistAndRefresh() }
+    }
+    var tintStrength: Double {
+        didSet { persistAndRefresh() }
+    }
+    var backdropOpacity: Double {
+        didSet { persistAndRefresh() }
+    }
+
+    @ObservationIgnored private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        styleRawValue = WorkspaceFloatingDockTextureDebugSettings.currentStyle(defaults: defaults).rawValue
+        tintColor = Color(nsColor: NSColor(
+            calibratedRed: WorkspaceFloatingDockTextureDebugSettings.value(
+                forKey: WorkspaceFloatingDockTextureDebugSettings.tintRedKey,
+                defaultValue: WorkspaceFloatingDockTextureDebugSettings.defaultTintRed,
+                defaults: defaults
+            ),
+            green: WorkspaceFloatingDockTextureDebugSettings.value(
+                forKey: WorkspaceFloatingDockTextureDebugSettings.tintGreenKey,
+                defaultValue: WorkspaceFloatingDockTextureDebugSettings.defaultTintGreen,
+                defaults: defaults
+            ),
+            blue: WorkspaceFloatingDockTextureDebugSettings.value(
+                forKey: WorkspaceFloatingDockTextureDebugSettings.tintBlueKey,
+                defaultValue: WorkspaceFloatingDockTextureDebugSettings.defaultTintBlue,
+                defaults: defaults
+            ),
+            alpha: 1
+        ))
+        tintStrength = WorkspaceFloatingDockTextureDebugSettings.value(
+            forKey: WorkspaceFloatingDockTextureDebugSettings.tintStrengthKey,
+            defaultValue: WorkspaceFloatingDockTextureDebugSettings.defaultTintStrength,
+            defaults: defaults
+        )
+        backdropOpacity = Double(WorkspaceFloatingDockTextureDebugSettings.currentBackdropOpacity(defaults: defaults))
+    }
+
+    func reset() {
+        styleRawValue = WorkspaceFloatingDockTextureDebugSettings.defaultStyle.rawValue
+        tintColor = Color(nsColor: NSColor(
+            calibratedRed: WorkspaceFloatingDockTextureDebugSettings.defaultTintRed,
+            green: WorkspaceFloatingDockTextureDebugSettings.defaultTintGreen,
+            blue: WorkspaceFloatingDockTextureDebugSettings.defaultTintBlue,
+            alpha: 1
+        ))
+        tintStrength = WorkspaceFloatingDockTextureDebugSettings.defaultTintStrength
+        backdropOpacity = WorkspaceFloatingDockTextureDebugSettings.defaultBackdropOpacity
+    }
+
+    private func persistAndRefresh() {
+        defaults.set(styleRawValue, forKey: WorkspaceFloatingDockTextureDebugSettings.styleKey)
+        if let color = NSColor(tintColor).usingColorSpace(.sRGB) {
+            defaults.set(color.redComponent, forKey: WorkspaceFloatingDockTextureDebugSettings.tintRedKey)
+            defaults.set(color.greenComponent, forKey: WorkspaceFloatingDockTextureDebugSettings.tintGreenKey)
+            defaults.set(color.blueComponent, forKey: WorkspaceFloatingDockTextureDebugSettings.tintBlueKey)
+        }
+        defaults.set(tintStrength, forKey: WorkspaceFloatingDockTextureDebugSettings.tintStrengthKey)
+        defaults.set(backdropOpacity, forKey: WorkspaceFloatingDockTextureDebugSettings.backdropOpacityKey)
+        AppDelegate.shared?.refreshAllWorkspaceFloatingDocks()
     }
 }
 
@@ -421,7 +539,7 @@ final class WorkspaceFloatingDockTextureDebugWindowController: ReleasingWindowCo
 
     override func makeWindow() -> NSWindow {
         let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 230),
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 350),
             styleMask: [.titled, .closable, .utilityWindow],
             backing: .buffered,
             defer: false
@@ -446,21 +564,46 @@ final class WorkspaceFloatingDockTextureDebugWindowController: ReleasingWindowCo
 }
 
 private struct WorkspaceFloatingDockTextureDebugView: View {
-    @AppStorage(WorkspaceFloatingDockTextureDebugSettings.styleKey)
-    private var styleRawValue = WorkspaceFloatingDockTextureDebugSettings.defaultStyle.rawValue
+    @State private var settings = WorkspaceFloatingDockTextureDebugModel()
 
     var body: some View {
+        @Bindable var settings = settings
+
         VStack(alignment: .leading, spacing: 14) {
             Text("debug.floatingDockTexture.heading")
                 .cmuxFont(.headline)
 
             GroupBox("debug.floatingDockTexture.group") {
-                Picker("debug.floatingDockTexture.picker", selection: $styleRawValue) {
-                    ForEach(WorkspaceFloatingDockTextureDebugStyle.allCases) { style in
-                        Text(style.title).tag(style.rawValue)
+                VStack(alignment: .leading, spacing: 12) {
+                    Picker("debug.floatingDockTexture.picker", selection: $settings.styleRawValue) {
+                        ForEach(WorkspaceFloatingDockTextureDebugStyle.allCases) { style in
+                            Text(style.title).tag(style.rawValue)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    ColorPicker("debug.floatingDockTexture.tintColor", selection: $settings.tintColor)
+
+                    HStack {
+                        Text("debug.floatingDockTexture.tintStrength")
+                        Slider(value: $settings.tintStrength, in: 0...0.6)
+                        Text(settings.tintStrength, format: .percent.precision(.fractionLength(0)))
+                            .monospacedDigit()
+                            .frame(width: 42, alignment: .trailing)
+                    }
+
+                    HStack {
+                        Text("debug.floatingDockTexture.backdropOpacity")
+                        Slider(value: $settings.backdropOpacity, in: 0.15...1)
+                        Text(settings.backdropOpacity, format: .percent.precision(.fractionLength(0)))
+                            .monospacedDigit()
+                            .frame(width: 42, alignment: .trailing)
+                    }
+
+                    Button("debug.floatingDockTexture.reset") {
+                        settings.reset()
                     }
                 }
-                .pickerStyle(.menu)
                 .padding(.top, 2)
             }
 
@@ -475,9 +618,6 @@ private struct WorkspaceFloatingDockTextureDebugView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onChange(of: styleRawValue) {
-            AppDelegate.shared?.refreshAllWorkspaceFloatingDocks()
-        }
     }
 }
 #endif

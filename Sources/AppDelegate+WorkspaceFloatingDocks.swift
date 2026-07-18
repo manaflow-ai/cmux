@@ -28,11 +28,7 @@ extension AppDelegate {
         focus: Bool
     ) -> WorkspaceFloatingDock? {
         guard let workspace = tabManager.selectedWorkspace else { return nil }
-        let cascade = CGFloat(workspace.floatingDocks.count % 6) * 24
-        guard let dock = workspace.createFloatingDock(
-            title: title,
-            frame: CGRect(x: 36 + cascade, y: 80 - cascade, width: 520, height: 380)
-        ) else { return nil }
+        guard let dock = workspace.createFloatingDock(title: title) else { return nil }
         refreshWorkspaceFloatingDocks(for: tabManager, focusDockId: focus ? dock.id : nil)
         return dock
     }
