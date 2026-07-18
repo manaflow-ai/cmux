@@ -17,7 +17,10 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> SidebarWorkspaceTableContainerView {
-        context.coordinator.makeContainerView()
+#if DEBUG
+        sidebarLazyContractProbe.tableContainerMake?()
+#endif
+        return context.coordinator.makeContainerView()
     }
 
     func updateNSView(_ nsView: SidebarWorkspaceTableContainerView, context: Context) {
