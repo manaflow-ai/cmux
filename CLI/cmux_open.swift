@@ -939,14 +939,16 @@ extension CMUXCLI {
         )
         if let cwd = parsedArgs.cwd {
             if parsedArgs.source == .lastTurn {
-                diffSourceContext.repoRoot = try? gitRepoRoot(startingAt: resolvePath(cwd))
+                let resolvedCwd = resolvePath(cwd)
+                diffSourceContext.repoRoot = (try? gitRepoRoot(startingAt: resolvedCwd))
+                    ?? standardizedDiffSourcePath(resolvedCwd)
             } else {
                 diffSourceContext.repoRoot = try gitRepoRoot(startingAt: resolvePath(cwd))
             }
         } else if parsedArgs.source == .lastTurn {
-            diffSourceContext.repoRoot = try? gitRepoRoot(
-                startingAt: FileManager.default.currentDirectoryPath
-            )
+            let currentDirectory = FileManager.default.currentDirectoryPath
+            diffSourceContext.repoRoot = (try? gitRepoRoot(startingAt: currentDirectory))
+                ?? standardizedDiffSourcePath(currentDirectory)
         } else if parsedArgs.source == nil {
             // Piped patches get a best-effort repo root from the CLI's cwd so
             // diff comments can persist per repository.
@@ -3256,23 +3258,42 @@ extension CMUXCLI {
                     return completed
                 } catch {
                     let message = diffViewerErrorMessage(error)
-                    try? writeDiffViewerStatusHTML(
-                        to: openingFileURL,
-                        title: title,
-                        sourceLabel: sourceLabel,
-                        message: message,
-                        isError: true,
-                        pollForReplacement: false,
-                        layout: layout,
-                        layoutSource: layoutSource,
-                        appearance: appearance,
-                        sourceOptions: [],
-                        repoOptions: [],
-                        baseOptions: [],
-                        repoRoot: repoRoot,
-                        branchBaseRef: selectedSource == .branch ? context.branchBaseRef : nil,
-                        runtime: target.runtime
-                    )
+                    do {
+                        let assets = try ensureDiffViewerAssets(
+                            nextTo: openingFileURL,
+                            runtime: target.runtime
+                        )
+                        let errorAllowedFiles = try diffViewerAllowedFiles(
+                            pageURLs: [openingFileURL],
+                            assets: assets,
+                            mapper: mapper
+                        )
+                        try writeDiffViewerHTTPManifest(
+                            token: mapper.token,
+                            files: errorAllowedFiles,
+                            rootDirectory: directory
+                        )
+                        try writeDiffViewerStatusHTML(
+                            to: openingFileURL,
+                            title: title,
+                            sourceLabel: sourceLabel,
+                            message: message,
+                            isError: true,
+                            pollForReplacement: false,
+                            layout: layout,
+                            layoutSource: layoutSource,
+                            appearance: appearance,
+                            sourceOptions: [],
+                            repoOptions: [],
+                            baseOptions: [],
+                            repoRoot: repoRoot,
+                            branchBaseRef: selectedSource == .branch ? context.branchBaseRef : nil,
+                            assets: assets,
+                            runtime: target.runtime
+                        )
+                    } catch {
+                        // Preserve the original completion error for the caller.
+                    }
                     throw error
                 }
             }
