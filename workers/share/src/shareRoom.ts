@@ -48,7 +48,6 @@ const MAX_RECENT_NONCES = 128;
 const POINTER_INTERVAL_MS = 30;
 const CHAT_INTERVAL_MS = 750;
 const SELECTION_INTERVAL_MS = 30;
-const TEXT_OPERATION_INTERVAL_MS = 35;
 const RESYNC_INTERVAL_MS = 2_000;
 const MAX_SOCKET_BUFFERED_BYTES = 2 * 1_024 * 1_024;
 const VIEWER_REALTIME_EVENTS_PER_SECOND = 240;
@@ -90,7 +89,6 @@ type SocketAttachment = Principal & {
   readonly lastPointerAt: number;
   readonly lastChatAt: number;
   readonly lastSelectionAt: number;
-  readonly lastTextOperationAt: number;
   readonly lastResyncAt: number;
   readonly messageWindowStartedAt: number;
   readonly messageCount: number;
@@ -209,9 +207,7 @@ export class ShareRoom extends DurableObject<ShareRoomEnv> {
       nextAttachment = { ...nextAttachment, lastSelectionAt: now };
     }
     if (attachment.role === "viewer" && envelope.type === "textbox.operation") {
-      if (!validTextOperationPayload(envelope.payload, attachment.connectionId) ||
-          now - attachment.lastTextOperationAt < TEXT_OPERATION_INTERVAL_MS) return;
-      nextAttachment = { ...nextAttachment, lastTextOperationAt: now };
+      if (!validTextOperationPayload(envelope.payload, attachment.connectionId)) return;
     }
     if (attachment.role === "viewer" && envelope.type === "workspace.resync.request") {
       if (!validResyncPayload(envelope.payload) || now - attachment.lastResyncAt < RESYNC_INTERVAL_MS) return;
@@ -349,7 +345,6 @@ export class ShareRoom extends DurableObject<ShareRoomEnv> {
       lastPointerAt: 0,
       lastChatAt: 0,
       lastSelectionAt: 0,
-      lastTextOperationAt: 0,
       lastResyncAt: 0,
       messageWindowStartedAt: Date.now(),
       messageCount: 0,
@@ -429,7 +424,6 @@ export class ShareRoom extends DurableObject<ShareRoomEnv> {
       lastPointerAt: 0,
       lastChatAt: 0,
       lastSelectionAt: 0,
-      lastTextOperationAt: 0,
       lastResyncAt: 0,
       messageWindowStartedAt: Date.now(),
       messageCount: 0,
