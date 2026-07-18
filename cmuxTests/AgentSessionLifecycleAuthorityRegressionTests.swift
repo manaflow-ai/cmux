@@ -308,7 +308,7 @@ extension CMUXCLIErrorOutputRegressionTests {
     @Test func liveOneShotStopCompletesEverySupportedLaunchGeneration() throws {
         let launches: [(agent: String, executable: String, arguments: [String])] = [
             ("codex", "codex", ["exec", "fix this"]),
-            ("codex", "codex", ["review", "--uncommitted"]),
+            ("codex", "codex", ["review"]),
             ("claude", "claude", ["-p", "fix this"]),
             ("claude", "claude", ["--print", "fix this"]),
             ("gemini", "gemini", ["-p", "fix this"]),
@@ -318,18 +318,19 @@ extension CMUXCLIErrorOutputRegressionTests {
             ("opencode", "opencode", ["run", "fix this"]),
             ("grok", "grok", ["--single", "fix this"]),
             ("pi", "pi", ["--print", "fix this"]),
-            ("omp", "omp", ["--prompt", "fix this"]),
-            ("campfire", "campfire", ["--print", "fix this"]),
+            ("omp", "omp", ["--print", "fix this"]),
             ("amp", "amp", ["--execute", "fix this"]),
             ("amp", "amp", ["--print", "fix this"]),
             ("antigravity", "agy", ["--prompt", "fix this"]),
             ("antigravity", "agy", ["--print", "fix this"]),
             ("rovodev", "acli", ["rovodev", "run", "--prompt", "fix this"]),
             ("hermes-agent", "hermes", ["--oneshot", "fix this"]),
+            ("hermes-agent", "hermes", ["chat", "-q", "fix this"]),
             ("copilot", "copilot", ["--prompt", "fix this"]),
             ("codebuddy", "codebuddy", ["--print", "fix this"]),
             ("qoder", "qodercli", ["--print", "fix this"]),
             ("kimi", "kimi", ["--print", "fix this"]),
+            ("kimi", "kimi", ["--quiet", "fix this"]),
         ]
 
         for (index, launch) in launches.enumerated() {
@@ -405,23 +406,28 @@ extension CMUXCLIErrorOutputRegressionTests {
             ("codex", "codex", ["--future-launch-mode"]),
             ("claude", "claude", []),
             ("claude", "claude", ["--no-session-persistence"]),
+            ("claude", "claude", ["--background", "fix this"]),
             ("gemini", "gemini", []),
             ("gemini", "gemini", ["--prompt-interactive", "fix this"]),
             ("cursor", "cursor-agent", []),
             ("factory", "droid", []),
             ("opencode", "opencode", []),
             ("opencode", "opencode", ["pr", "123"]),
+            ("opencode", "opencode", ["run", "--interactive", "fix this"]),
             ("grok", "grok", []),
             ("pi", "pi", []),
             ("pi", "pi", ["--no-session"]),
             ("omp", "omp", []),
+            ("omp", "omp", ["--prompt", "fix this"]),
             ("campfire", "campfire", []),
+            ("campfire", "campfire", ["--print", "fix this"]),
             ("amp", "amp", []),
             ("antigravity", "agy", []),
             ("antigravity", "agy", ["--prompt-interactive", "fix this"]),
             ("rovodev", "acli", []),
             ("rovodev", "acli", ["rovodev", "run", "--prompt-interactive", "fix this"]),
             ("hermes-agent", "hermes", []),
+            ("hermes-agent", "hermes", ["-q", "fix this"]),
             ("copilot", "copilot", []),
             ("codebuddy", "codebuddy", []),
             ("qoder", "qodercli", []),
@@ -640,6 +646,107 @@ extension CMUXCLIErrorOutputRegressionTests {
         let old = try #require(try store.lookup(sessionId: "old-session"))
         #expect(old.completedAt != nil)
         #expect(old.restoreAuthority == false)
+    }
+
+    @Test func noPIDStopCannotResurrectAnEndedRecordOverAReplacement() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-no-pid-ended-stop-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("hook-sessions.json").path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": root.appendingPathComponent("sessions.sqlite3").path,
+        ], agentName: "codex")
+        #expect(try store.upsert(
+            sessionId: "ended-session",
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            markActive: true
+        ))
+        _ = try #require(try store.consume(
+            sessionId: "ended-session",
+            workspaceId: nil,
+            surfaceId: nil
+        ))
+        #expect(try store.upsert(
+            sessionId: "replacement-session",
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            markActive: true
+        ))
+
+        let staleStop = try store.upsertPromptStop(
+            sessionId: "ended-session",
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            pid: nil
+        )
+
+        #expect(!staleStop.accepted)
+        #expect(!staleStop.completedGeneration)
+        #expect(store.snapshot().activeSessionsByWorkspace["workspace-a"]?.sessionId == "replacement-session")
+        #expect(store.snapshot().activeSessionsBySurface["surface-a"]?.sessionId == "replacement-session")
+        let ended = try #require(try store.lookup(sessionId: "ended-session"))
+        #expect(ended.completedAt != nil)
+        #expect(ended.sessionState == .ended)
+        #expect(ended.restoreAuthority == false)
+    }
+
+    @Test func noPIDStopCannotMutateANewerLiveGenerationOfTheSameSession() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-no-pid-newer-generation-\(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("codex", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["30"]
+        try process.run()
+        defer {
+            if process.isRunning { process.terminate() }
+            process.waitUntilExit()
+        }
+        let pid = Int(process.processIdentifier)
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("hook-sessions.json").path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": root.appendingPathComponent("sessions.sqlite3").path,
+        ], agentName: "codex")
+        #expect(try store.upsert(
+            sessionId: "same-session",
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            pid: pid,
+            markActive: true
+        ))
+        let before = try #require(try store.lookup(sessionId: "same-session"))
+        let activeRunID = try #require(before.activeRunId)
+
+        let staleStop = try store.recordPromptStop(
+            sessionId: "same-session",
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            pid: nil,
+            launchCommand: nil,
+            lastSubtitle: nil,
+            lastBody: nil
+        )
+
+        #expect(!staleStop.accepted)
+        #expect(!staleStop.completedGeneration)
+        let after = try #require(try store.lookup(sessionId: "same-session"))
+        #expect(after.updatedAt == before.updatedAt)
+        #expect(after.activeRunId == activeRunID)
+        #expect(after.runs == before.runs)
+        #expect(after.completedAt == nil)
+        #expect(store.snapshot().activeSessionsByWorkspace["workspace-a"]?.sessionId == "same-session")
+        #expect(store.snapshot().activeSessionsBySurface["surface-a"]?.sessionId == "same-session")
     }
 
     @Test func rejectedLaunchSourceIsNonRestorableAcrossListTreeAndForkDiagnostics() throws {

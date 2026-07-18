@@ -309,6 +309,13 @@ struct AgentLaunchCaptureTrustTests {
         )
         #expect(
             AgentLaunchModeClassifier.processMode(
+                processName: "opencode",
+                arguments: ["opencode", "run", "--interactive", "fix this"],
+                kind: "opencode"
+            ) == .interactive
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
                 processName: "codex",
                 arguments: ["/opt/homebrew/bin/codex", "--future-launch-mode"],
                 kind: "codex"
@@ -334,6 +341,34 @@ struct AgentLaunchCaptureTrustTests {
                 arguments: ["opencode", "pr", "123"],
                 kind: "opencode"
             ) == .interactive
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "claude",
+                arguments: ["claude", "--background", "fix this"],
+                kind: "claude"
+            ) == .unknown
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "hermes",
+                arguments: ["hermes", "-q", "fix this"],
+                kind: "hermes-agent"
+            ) == .unknown
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "hermes",
+                arguments: ["hermes", "chat", "-q", "fix this"],
+                kind: "hermes-agent"
+            ) == .oneShot
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "kimi",
+                arguments: ["kimi", "--quiet", "fix this"],
+                kind: "kimi"
+            ) == .oneShot
         )
         #expect(
             AgentLaunchModeClassifier.processMode(
@@ -389,7 +424,7 @@ struct AgentLaunchCaptureTrustTests {
                     "fix this",
                 ],
                 kind: "campfire"
-            ) == .oneShot
+            ) == .unknown
         )
     }
 }
