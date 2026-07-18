@@ -82,13 +82,17 @@ extension MobileShellComposite {
             if disconnectForAuthorizationFailureIfNeeded(error) {
                 return .failure(.authorizationFailed(hostDisplayName: connectedHostName))
             }
-            markMacConnectionUnavailableIfNeeded(after: error)
+            handleMacAvailabilityFailureIfCurrent(
+                after: error,
+                expectedClient: client,
+                expectedGeneration: generation
+            )
             if appliesOperationalError {
                 applyOperationalError(error)
             }
             if let connectionError = error as? MobileShellConnectionError {
                 switch connectionError {
-                case .connectionClosed:
+                case .connectionClosed, .transportWriteTimedOut:
                     return .failure(.notConnected(hostDisplayName: connectedHostName))
                 case .requestTimedOut:
                     return .failure(.requestTimedOut(hostDisplayName: connectedHostName))
