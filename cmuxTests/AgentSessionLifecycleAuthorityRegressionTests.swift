@@ -21,6 +21,12 @@ extension CMUXCLIErrorOutputRegressionTests {
         process.executableURL = executable
         process.arguments = ["30"]
         try process.run()
+        defer {
+            if process.isRunning {
+                process.terminate()
+                process.waitUntilExit()
+            }
+        }
         let pid = Int(process.processIdentifier)
         let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
         let environment = [
@@ -233,6 +239,221 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(completed.runs?.first?.restoreAuthority == false)
         #expect(store.snapshot().activeSessionsByWorkspace.isEmpty)
         #expect(store.snapshot().activeSessionsBySurface.isEmpty)
+    }
+
+    @Test func liveLegacyPIDRecordMigratesToAnExactProcessGeneration() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-legacy-stop-generation-\(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("codex", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["30"]
+        try process.run()
+        defer {
+            if process.isRunning { process.terminate() }
+            process.waitUntilExit()
+        }
+        let pid = Int(process.processIdentifier)
+        let lineage = AgentHookSessionLineageResolver().resolve(
+            agentName: "codex",
+            sessionId: "legacy-live-session",
+            pid: pid,
+            environment: [:]
+        )
+        let processStartedAt = try #require(lineage.processStartedAt)
+        let recordStartedAt = Date().timeIntervalSince1970
+        #expect(processStartedAt <= recordStartedAt)
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: [
+            "version": 1,
+            "sessions": ["legacy-live-session": [
+                "sessionId": "legacy-live-session",
+                "workspaceId": "workspace-a",
+                "surfaceId": "surface-a",
+                "pid": pid,
+                "startedAt": recordStartedAt,
+                "updatedAt": recordStartedAt,
+            ]],
+        ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": root.appendingPathComponent("sessions.sqlite3").path,
+        ], agentName: "codex")
+
+        let stop = try store.recordPromptStop(
+            sessionId: "legacy-live-session",
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            cwd: root.path,
+            pid: pid,
+            launchCommand: nil,
+            lastSubtitle: nil,
+            lastBody: nil
+        )
+        #expect(stop.accepted)
+        let migrated = try #require(try store.lookup(sessionId: "legacy-live-session"))
+        let runID = try #require(migrated.activeRunId)
+        let run = try #require(migrated.runs?.first { $0.runId == runID })
+        let runStartedAt = try #require(run.processStartedAt)
+        #expect(migrated.completedAt == nil)
+        #expect(run.pid == pid)
+        #expect(abs(runStartedAt - processStartedAt) <= 0.001)
+        #expect(run.endedAt == nil)
+    }
+
+    @Test func liveOneShotStopCompletesEverySupportedLaunchGeneration() throws {
+        let launches: [(agent: String, executable: String, arguments: [String])] = [
+            ("codex", "codex", ["exec", "fix this"]),
+            ("claude", "claude", ["-p", "fix this"]),
+            ("claude", "claude", ["--print", "fix this"]),
+            ("gemini", "gemini", ["-p", "fix this"]),
+            ("gemini", "gemini", ["--prompt", "fix this"]),
+            ("cursor", "cursor-agent", ["--print", "fix this"]),
+            ("factory", "droid", ["exec", "fix this"]),
+            ("kimi", "kimi", ["--print", "fix this"]),
+            ("kimi", "kimi", ["--prompt", "fix this"]),
+            ("kimi", "kimi", ["-p", "fix this"]),
+        ]
+
+        for (index, launch) in launches.enumerated() {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-agent-live-one-shot-\(index)-\(UUID().uuidString)", isDirectory: true)
+            let executable = root.appendingPathComponent(launch.executable, isDirectory: false)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let process = Process()
+            process.executableURL = executable
+            process.arguments = ["30"]
+            try process.run()
+            defer {
+                if process.isRunning { process.terminate() }
+                process.waitUntilExit()
+            }
+            let pid = Int(process.processIdentifier)
+            let sessionID = "live-one-shot-\(index)"
+            let command = AgentHookLaunchCommandRecord(
+                launcher: launch.agent,
+                executablePath: executable.path,
+                arguments: [executable.path] + launch.arguments,
+                workingDirectory: root.path,
+                environment: nil,
+                capturedAt: Date().timeIntervalSince1970,
+                source: "process"
+            )
+            let store = ClaudeHookSessionStore(processEnv: [
+                "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("hook-sessions.json").path,
+                "CMUX_AGENT_SESSION_REGISTRY_PATH": root.appendingPathComponent("sessions.sqlite3").path,
+                "CMUX_RUNTIME_ID": "live-one-shot-runtime-\(index)",
+            ], agentName: launch.agent)
+            #expect(try store.upsert(
+                sessionId: sessionID,
+                workspaceId: "workspace-\(index)",
+                surfaceId: "surface-\(index)",
+                cwd: root.path,
+                pid: pid,
+                launchCommand: command,
+                markActive: true
+            ))
+
+            let stop = try store.recordPromptStop(
+                sessionId: sessionID,
+                workspaceId: "workspace-\(index)",
+                surfaceId: "surface-\(index)",
+                cwd: root.path,
+                pid: pid,
+                launchCommand: command,
+                lastSubtitle: nil,
+                lastBody: nil
+            )
+
+            #expect(!stop.accepted, "\(launch.agent) \(launch.arguments) stayed active")
+            let completed = try #require(try store.lookup(sessionId: sessionID))
+            #expect(completed.completedAt != nil)
+            #expect(completed.sessionState == .ended)
+            #expect(completed.restoreAuthority == false)
+            #expect(completed.activeRunId == nil)
+            #expect(completed.runs?.allSatisfy { $0.endedAt != nil && !$0.restoreAuthority } == true)
+            #expect(store.snapshot().activeSessionsByWorkspace.isEmpty)
+            #expect(store.snapshot().activeSessionsBySurface.isEmpty)
+        }
+    }
+
+    @Test func liveInteractiveStopRemainsATurnBoundaryForEverySupportedAgent() throws {
+        let launches: [(agent: String, executable: String)] = [
+            ("codex", "codex"),
+            ("claude", "claude"),
+            ("gemini", "gemini"),
+            ("cursor", "cursor-agent"),
+            ("factory", "droid"),
+            ("kimi", "kimi"),
+        ]
+
+        for (index, launch) in launches.enumerated() {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-agent-live-interactive-\(index)-\(UUID().uuidString)", isDirectory: true)
+            let executable = root.appendingPathComponent(launch.executable, isDirectory: false)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let process = Process()
+            process.executableURL = executable
+            process.arguments = ["30"]
+            try process.run()
+            defer {
+                if process.isRunning { process.terminate() }
+                process.waitUntilExit()
+            }
+            let pid = Int(process.processIdentifier)
+            let sessionID = "live-interactive-\(index)"
+            let command = AgentHookLaunchCommandRecord(
+                launcher: launch.agent,
+                executablePath: executable.path,
+                arguments: [executable.path],
+                workingDirectory: root.path,
+                environment: nil,
+                capturedAt: Date().timeIntervalSince1970,
+                source: "process"
+            )
+            let store = ClaudeHookSessionStore(processEnv: [
+                "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("hook-sessions.json").path,
+                "CMUX_AGENT_SESSION_REGISTRY_PATH": root.appendingPathComponent("sessions.sqlite3").path,
+            ], agentName: launch.agent)
+            #expect(try store.upsert(
+                sessionId: sessionID,
+                workspaceId: "workspace-\(index)",
+                surfaceId: "surface-\(index)",
+                cwd: root.path,
+                pid: pid,
+                launchCommand: command,
+                markActive: true
+            ))
+
+            let stop = try store.recordPromptStop(
+                sessionId: sessionID,
+                workspaceId: "workspace-\(index)",
+                surfaceId: "surface-\(index)",
+                cwd: root.path,
+                pid: pid,
+                launchCommand: command,
+                lastSubtitle: nil,
+                lastBody: nil
+            )
+
+            #expect(stop.accepted, "\(launch.agent) interactive Stop was consumed")
+            let active = try #require(try store.lookup(sessionId: sessionID))
+            let runID = try #require(active.activeRunId)
+            #expect(active.completedAt == nil)
+            #expect(active.sessionState == .active)
+            #expect(active.runs?.first { $0.runId == runID }?.endedAt == nil)
+            #expect(active.runs?.first { $0.runId == runID }?.restoreAuthority == true)
+        }
     }
 
     @Test func rejectedLaunchSourceIsNonRestorableAcrossListTreeAndForkDiagnostics() throws {
