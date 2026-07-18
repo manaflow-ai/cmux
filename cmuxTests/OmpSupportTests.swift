@@ -53,6 +53,92 @@ struct OmpSupportTests {
         #expect(CmuxVaultAgentRegistration.builtInOmp.forkCommand == nil)
     }
 
+    @Test func plainPiCompatibleProcessesDoNotBindToNewestSameDirectoryTranscript() throws {
+        let fileManager = FileManager.default
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-pi-process-identity-")
+        defer { try? fileManager.removeItem(at: root) }
+
+        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
+        let projectDirectoryName = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        let projectSessions = sessionsRoot.appendingPathComponent(projectDirectoryName, isDirectory: true)
+        try fileManager.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: projectSessions, withIntermediateDirectories: true)
+
+        for (index, sessionID) in ["same-cwd-session-a", "same-cwd-session-b"].enumerated() {
+            _ = try Self.writeSessionFile(
+                id: sessionID,
+                in: projectSessions,
+                modifiedAt: Date(timeIntervalSince1970: TimeInterval(index + 1))
+            )
+        }
+
+        var piCompatibleCampfire = CmuxVaultAgentRegistration.builtInCampfire
+        piCompatibleCampfire.sessionIdSource = .piSessionFile
+        let agents: [(registration: CmuxVaultAgentRegistration, executable: String)] = [
+            (.builtInPi, "pi"),
+            (.builtInOmp, "omp"),
+            (piCompatibleCampfire, "campfire"),
+        ]
+
+        for (index, agent) in agents.enumerated() {
+            let workspaceID = UUID()
+            let panelID = UUID()
+            let processID = 5_000 + index
+            let key = RestorableAgentSessionIndex.PanelKey(
+                workspaceId: workspaceID,
+                panelId: panelID
+            )
+            let processSnapshot = CmuxTopProcessSnapshot(
+                processes: [
+                    CmuxTopProcessInfo(
+                        pid: processID,
+                        parentPID: 1,
+                        name: agent.executable,
+                        path: "/usr/local/bin/\(agent.executable)",
+                        ttyDevice: nil,
+                        cmuxWorkspaceID: workspaceID,
+                        cmuxSurfaceID: panelID,
+                        cmuxAttributionReason: "cmux-test",
+                        processGroupID: nil,
+                        terminalProcessGroupID: nil,
+                        cpuPercent: 0,
+                        residentBytes: 0,
+                        virtualBytes: 0,
+                        threadCount: 1
+                    ),
+                ],
+                sampledAt: Date(timeIntervalSince1970: 0),
+                includesProcessDetails: true
+            )
+            let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+                registry: CmuxVaultAgentRegistry(registrations: [agent.registration]),
+                fileManager: fileManager,
+                processSnapshot: processSnapshot,
+                capturedAt: 42,
+                processArgumentsProvider: { requestedProcessID in
+                    guard requestedProcessID == processID else { return nil }
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/usr/local/bin/\(agent.executable)",
+                            "--session-dir",
+                            sessionsRoot.path,
+                        ],
+                        environment: [
+                            "PWD": workspace.path,
+                            "CAMPFIRE_SESSION_ROLE": "host",
+                        ]
+                    )
+                }
+            )
+
+            #expect(
+                detected[key] == nil,
+                Comment(rawValue: "\(agent.registration.id) needs explicit or hook-backed session identity")
+            )
+        }
+    }
+
     @Test func directProcessDetectionUsesExplicitSessionSelectorsBeforeLatestFallback() throws {
         struct Selector {
             let name: String
