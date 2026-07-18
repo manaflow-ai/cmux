@@ -67,6 +67,53 @@ import Testing
     #expect(coalesced.maxScrollbackRows == 600)
 }
 
+@Test func terminalScrollQueueMarksOppositeDirectionPendingStaleAndCarriesPrefetchWindow() throws {
+    var queue = TerminalScrollDeliveryQueue()
+    let inFlight = TerminalScrollDelivery(
+        surfaceID: "surface",
+        lines: 18,
+        col: 4,
+        row: 9,
+        maxScrollbackRows: 600
+    )
+    let reversedPending = TerminalScrollDelivery(
+        surfaceID: "surface",
+        lines: -7,
+        col: 5,
+        row: 10,
+        maxScrollbackRows: 240
+    )
+
+    #expect(queue.enqueue(inFlight) == inFlight)
+    #expect(queue.enqueue(reversedPending) == nil)
+
+    let completion = queue.completeInFlight(completedDelivery: inFlight)
+    let next = try #require(completion.next)
+    #expect(completion.shouldDeliverScrollPrefetchRenderGrid == false)
+    #expect(next.lines == -7)
+    #expect(next.col == 5)
+    #expect(next.row == 10)
+    #expect(next.maxScrollbackRows == 600)
+}
+
+@Test func terminalScrollQueueAllowsPrefetchDeliveryWhenNoNewerScrollIsPending() {
+    var queue = TerminalScrollDeliveryQueue()
+    let inFlight = TerminalScrollDelivery(
+        surfaceID: "surface",
+        lines: 3,
+        col: 1,
+        row: 1,
+        maxScrollbackRows: 600
+    )
+
+    #expect(queue.enqueue(inFlight) == inFlight)
+
+    let completion = queue.completeInFlight(completedDelivery: inFlight)
+    #expect(completion.next == nil)
+    #expect(completion.shouldDeliverScrollPrefetchRenderGrid)
+    #expect(queue.isIdle)
+}
+
 @Test func terminalScrollbackPrefetchStatePrimesThenRefreshesByDistance() {
     var state = TerminalScrollbackPrefetchState(windowRows: 600, refreshDistanceRows: 10)
 
@@ -105,8 +152,45 @@ import Testing
     store.terminalScrollQueuesBySurfaceID[surfaceID] = replacementQueue
     store.terminalScrollQueueTokensBySurfaceID[surfaceID] = currentToken
 
-    store.terminalScrollDidComplete(surfaceID: surfaceID, queueToken: staleToken)
+    let completion = store.terminalScrollDidComplete(delivery: inFlight, queueToken: staleToken)
 
+    #expect(completion.next == nil)
+    #expect(completion.shouldDeliverScrollPrefetchRenderGrid == false)
     var queueAfterStaleCompletion = try #require(store.terminalScrollQueuesBySurfaceID[surfaceID])
     #expect(queueAfterStaleCompletion.completeInFlight() == pending)
+}
+
+@MainActor
+@Test func staleScrollCompletionSuppressesPrefetchAndReturnsPendingNextScroll() throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "surface"
+    let queueToken = UUID()
+    let inFlight = TerminalScrollDelivery(
+        surfaceID: surfaceID,
+        lines: 12,
+        col: 2,
+        row: 3,
+        maxScrollbackRows: 600
+    )
+    let pending = TerminalScrollDelivery(
+        surfaceID: surfaceID,
+        lines: -5,
+        col: 8,
+        row: 13
+    )
+
+    var queue = TerminalScrollDeliveryQueue()
+    #expect(queue.enqueue(inFlight) == inFlight)
+    #expect(queue.enqueue(pending) == nil)
+    store.terminalScrollQueuesBySurfaceID[surfaceID] = queue
+    store.terminalScrollQueueTokensBySurfaceID[surfaceID] = queueToken
+
+    let completion = store.terminalScrollDidComplete(delivery: inFlight, queueToken: queueToken)
+    let next = try #require(completion.next)
+    #expect(completion.shouldDeliverScrollPrefetchRenderGrid == false)
+    #expect(next.surfaceID == surfaceID)
+    #expect(next.lines == -5)
+    #expect(next.col == 8)
+    #expect(next.row == 13)
+    #expect(next.maxScrollbackRows == 600)
 }

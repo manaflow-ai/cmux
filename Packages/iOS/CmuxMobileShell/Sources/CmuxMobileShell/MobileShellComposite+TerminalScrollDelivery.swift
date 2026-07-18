@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileRPC
 import Foundation
 import OSLog
@@ -47,25 +48,41 @@ extension MobileShellComposite {
     private func sendTerminalScroll(_ delivery: TerminalScrollDelivery, queueToken: UUID) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.performTerminalScroll(delivery)
-            self.terminalScrollDidComplete(surfaceID: delivery.surfaceID, queueToken: queueToken)
+            let prefetchRenderGrid = await self.performTerminalScroll(delivery)
+            let completion = self.terminalScrollDidComplete(delivery: delivery, queueToken: queueToken)
+            if completion.shouldDeliverScrollPrefetchRenderGrid, let prefetchRenderGrid {
+                self.deliverAuthoritativeTerminalRenderGrid(
+                    prefetchRenderGrid,
+                    expectedSurfaceID: delivery.surfaceID,
+                    source: "scroll_prefetch"
+                )
+            }
+            if let next = completion.next {
+                self.sendTerminalScroll(next, queueToken: queueToken)
+            }
         }
     }
 
-    func terminalScrollDidComplete(surfaceID: String, queueToken: UUID) {
-        guard terminalScrollQueueTokensBySurfaceID[surfaceID] == queueToken,
-              var queue = terminalScrollQueuesBySurfaceID[surfaceID] else { return }
-        let next = queue.completeInFlight()
-        terminalScrollQueuesBySurfaceID[surfaceID] = queue
-        if let next {
-            sendTerminalScroll(next, queueToken: queueToken)
+    func terminalScrollDidComplete(
+        delivery: TerminalScrollDelivery,
+        queueToken: UUID
+    ) -> TerminalScrollDeliveryCompletion {
+        guard terminalScrollQueueTokensBySurfaceID[delivery.surfaceID] == queueToken,
+              var queue = terminalScrollQueuesBySurfaceID[delivery.surfaceID] else {
+            return TerminalScrollDeliveryCompletion(
+                next: nil,
+                shouldDeliverScrollPrefetchRenderGrid: false
+            )
         }
+        let completion = queue.completeInFlight(completedDelivery: delivery)
+        terminalScrollQueuesBySurfaceID[delivery.surfaceID] = queue
+        return completion
     }
 
-    private func performTerminalScroll(_ delivery: TerminalScrollDelivery) async {
+    private func performTerminalScroll(_ delivery: TerminalScrollDelivery) async -> MobileTerminalRenderGridFrame? {
         guard let client = remoteClient,
               let workspaceID = workspaceID(forTerminalID: delivery.surfaceID) else {
-            return
+            return nil
         }
         do {
             let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
@@ -88,20 +105,17 @@ extension MobileShellComposite {
             guard let maxScrollbackRows = delivery.maxScrollbackRows,
                   maxScrollbackRows > 0,
                   remoteClient === client else {
-                return
+                return nil
             }
             guard let payload = try? MobileTerminalReplayResponse.decode(data),
                   let renderGrid = payload.renderGrid,
                   renderGrid.surfaceID == delivery.surfaceID else {
-                return
+                return nil
             }
-            deliverAuthoritativeTerminalRenderGrid(
-                renderGrid,
-                expectedSurfaceID: delivery.surfaceID,
-                source: "scroll_prefetch"
-            )
+            return renderGrid
         } catch {
             terminalScrollDeliveryLog.error("scroll forward failed surface=\(delivery.surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            return nil
         }
     }
 }

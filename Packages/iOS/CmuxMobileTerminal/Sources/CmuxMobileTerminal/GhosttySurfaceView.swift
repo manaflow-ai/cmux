@@ -175,6 +175,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var nextSurfaceOperationID: UInt64 = 0
     var pendingOutputApply: PendingSurfaceOperation?
     var pendingGeometryApply: PendingSurfaceOperation?
+    var localScrollbackScrollStartedAt: CFTimeInterval?
     var pendingVisibleSnapshot: PendingVisibleSnapshot?
     var pendingCopyableTextRead: PendingCopyableTextRead?
     /// Quiet-frame countdown for local visible-path detection. Output, geometry,
@@ -193,8 +194,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         visibleArtifactSnapshotGeneration
     }
     private var hasPendingSurfaceOperationDeadline: Bool {
-        pendingOutputApply != nil || pendingGeometryApply != nil || pendingVisibleSnapshot != nil
-            || pendingCopyableTextRead != nil
+        pendingOutputApply != nil || pendingGeometryApply != nil || localScrollbackScrollStartedAt != nil
+            || pendingVisibleSnapshot != nil || pendingCopyableTextRead != nil
     }
     private static let scrollMechanicsContentHeight: CGFloat = 1_000_000
     private var scrollMechanicsIsRecentering = false
@@ -273,6 +274,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var debugLastScrollbar: (total: Int, offset: Int, len: Int)?
     var debugBottomScrollStressPhase = "idle"
     var debugBottomViewportMismatchObserved = false
+    var debugScrollbackReversalStressPhase = "idle"
+    var debugScrollbackReversalStressFailure = "none"
 
     /// The live `key=value;…` description of the bottom dock, read by
     /// ``ComposerDockProbeView`` on every accessibility query. `fieldFocused` is the
@@ -320,14 +323,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "scrollTotal=\(debugLastScrollbar?.total ?? -1)", "scrollOffset=\(debugLastScrollbar?.offset ?? -1)",
             "scrollLen=\(debugLastScrollbar?.len ?? -1)", "scrollAtBottom=\(debugScrollbarAtBottomForTesting ? 1 : 0)",
             "staleViewportObserved=\(debugBottomViewportMismatchObserved ? 1 : 0)",
+            "scrollbackReversalPhase=\(debugScrollbackReversalStressPhase)",
+            "scrollbackReversalFailure=\(debugScrollbackReversalStressFailure)",
             inputProxy.accessoryLayoutDiagnostics,
         ].joined(separator: ";")
     }
 
-    private var debugScrollbarAtBottomForTesting: Bool {
-        guard let snapshot = debugLastScrollbar else { return false }
-        return snapshot.total > snapshot.len && snapshot.offset >= max(0, snapshot.total - snapshot.len - 1)
-    }
     #endif
     private let snapshotFallbackView: UITextView = {
         let view = UITextView()
@@ -1552,6 +1553,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Coalesced native scroll forwarded to the Mac once per display-link frame.
     private var pendingScrollLines: Double = 0
     private var pendingScrollCell: (col: Int, row: Int) = (0, 0)
+    var localScrollbackScrollQueue = LocalScrollbackScrollQueue()
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
     /// alt-screen mouse-wheel reports at the cell under the finger.
@@ -1570,7 +1572,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let cell = pendingScrollCell
         pendingScrollLines = 0
         applyLocalScrollbackScroll(lines: lines, col: cell.col, row: cell.row)
-        delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
     }
 
     /// A tap both raises the software keyboard (so the user can type) and
@@ -2271,6 +2272,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         artifactChipHost.setContent(nil)
         updateArtifactChipVisibility(animated: false)
         completePendingSurfaceOperations(returning: false)
+        resetLocalScrollbackScroll()
         cancelRenderPipelineRecoveryResumeTimer()
         renderPipelineRecoveryPaused = false
         renderPipelineRecoveryPausedAt = nil
@@ -2452,6 +2454,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func disposeSurface() {
         stopDisplayLink()
         cancelRenderPipelineRecoveryResumeTimer()
+        resetLocalScrollbackScroll()
         guard let surface else { return }
         GhosttySurfaceView.unregister(surface: surface)
         self.surface = nil
@@ -2557,12 +2560,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// in `scrollInitialOutputToBottomIfNeeded`).
     private func handleUserProducedInput() {
         resetCursorBlink()
-        // A flick still decelerating would fight the snap: deltas already in
-        // `pendingScrollLines` flush on the display-link frame AFTER the snap
-        // below, and UIScrollView momentum keeps producing more. Drop the
-        // pending deltas and freeze the scroll mechanics at the current offset
-        // (kill-deceleration idiom) so typed input lands at the bottom.
+        // Drop stale flick work and freeze momentum so typed input stays at bottom.
         pendingScrollLines = 0
+        suppressOutstandingLocalScrollbackScrollForwarding()
         scrollMechanicsView.setContentOffset(scrollMechanicsView.contentOffset, animated: false)
         enqueueScrollToBottom()
     }
