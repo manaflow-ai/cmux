@@ -133,7 +133,9 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
               throw error;
             }
             if (cancelled) return;
-            if (event.event === "vt-state") {
+            if (event.event === "detached") {
+              return;
+            } else if (event.event === "vt-state") {
               const replay = event as DecodedVtStateEvent;
               terminal.reset();
               applyColors(replay.colors);
@@ -184,6 +186,14 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
         if (!cancelled) onError(error instanceof Error ? error : new Error(String(error)));
       } finally {
         stream?.close();
+        if (!cancelled) {
+          reportedFit = null;
+          try {
+            await client.releaseSurfaceSize(surface);
+          } catch (error) {
+            onError(error instanceof Error ? error : new Error(String(error)));
+          }
+        }
       }
     })();
 
@@ -201,6 +211,8 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       if (stableTimer !== undefined) clearTimeout(stableTimer);
       wakeRetry?.();
       stream?.close();
+      reportedFit = null;
+      void client.releaseSurfaceSize(surface).catch(onError);
       webgl?.dispose();
       terminal.dispose();
       stage?.style.removeProperty("--surface-background");

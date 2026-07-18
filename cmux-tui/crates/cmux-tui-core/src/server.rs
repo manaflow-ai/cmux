@@ -942,8 +942,8 @@ impl MessageSink for QueuedSink {
 
 /// First-attach announcement payload: (transport, name, kind).
 type ClientAnnouncement = (String, Option<String>, Option<String>);
-/// Size-report update payload: (changed, name, kind).
-type ClientSizeUpdate = (bool, Option<String>, Option<String>);
+/// Size-report update payload: (changed, name, kind, previous size).
+pub(crate) type ClientSizeUpdate = (bool, Option<String>, Option<String>, Option<(u16, u16)>);
 
 #[derive(Clone, Copy)]
 enum ClientTransport {
@@ -1092,7 +1092,7 @@ impl ClientRegistry {
         false
     }
 
-    fn record_size(
+    pub(crate) fn record_size(
         &self,
         client: u64,
         surface: SurfaceId,
@@ -1103,9 +1103,22 @@ impl ClientRegistry {
         let record =
             clients.get_mut(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
         let Some(attached) = record.attached.get_mut(&surface) else { return Ok(None) };
-        let changed = attached.size != Some((cols, rows));
+        let previous = attached.size;
+        let changed = previous != Some((cols, rows));
         attached.size = Some((cols, rows));
-        Ok(Some((changed, record.name.clone(), record.kind.clone())))
+        Ok(Some((changed, record.name.clone(), record.kind.clone(), previous)))
+    }
+
+    pub(crate) fn restore_size(&self, client: u64, surface: SurfaceId, size: Option<(u16, u16)>) {
+        if let Some(attached) = self
+            .clients
+            .lock()
+            .unwrap()
+            .get_mut(&client)
+            .and_then(|record| record.attached.get_mut(&surface))
+        {
+            attached.size = size;
+        }
     }
 
     fn clear_size(
@@ -1145,7 +1158,7 @@ impl ClientRegistry {
             .lock()
             .unwrap()
             .iter()
-            .filter_map(|(client, record)| record.announced_attached.then_some(*client))
+            .filter_map(|(client, record)| (!record.attached.is_empty()).then_some(*client))
             .collect()
     }
 }
@@ -2803,13 +2816,14 @@ fn handle_command(
         }
         Command::ResizeSurface { surface, cols, rows } => {
             let (cols, rows) = clamp_terminal_size(cols, rows);
-            let attached = mux.control_clients.record_size(client, surface, cols, rows)?;
             // Every live control connection participates through the same
             // client-size reducer. An unattached one-shot resize is removed
             // when its connection closes, so it cannot bypass visible viewers.
-            let (accepted, reservation_id) =
-                mux.resize_surface_for_client_with_reservation(surface, client, cols, rows)?;
-            if let Some((true, name, kind)) = attached {
+            // Recording and reducing happen under the sizing lock so a
+            // concurrent detach cannot finish cleanup before this lease exists.
+            let (accepted, reservation_id, attached) = mux
+                .resize_surface_for_control_client_with_reservation(surface, client, cols, rows)?;
+            if let Some((true, name, kind, _)) = attached {
                 mux.emit(MuxEvent::ClientChanged { client, name, kind });
             }
             Ok(json!({"accepted": accepted, "reservation_id": reservation_id}))
@@ -3785,6 +3799,104 @@ mod tests {
     }
 
     #[test]
+    fn final_stream_detach_restores_excluded_report_fallback() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let reporter_writer = test_writer();
+        let reporter = mux.control_clients.register(ClientTransport::Unix, reporter_writer.clone());
+        let reporter_stream = reporter_writer.start_stream(&json!({"event": "test"})).unwrap();
+        mux.control_clients.attach_surface(reporter, surface.id, reporter_stream).unwrap();
+        handle_command(
+            &mux,
+            reporter,
+            Command::ResizeSurface { surface: surface.id, cols: 70, rows: 20 },
+            &reporter_writer,
+        )
+        .unwrap();
+        handle_command(
+            &mux,
+            reporter,
+            Command::SetClientSizing { client: Some(reporter), enabled: false, exclusive: false },
+            &reporter_writer,
+        )
+        .unwrap();
+
+        let blocker_writer = test_writer();
+        let blocker = mux.control_clients.register(ClientTransport::Unix, blocker_writer.clone());
+        let blocker_stream = blocker_writer.start_stream(&json!({"event": "test"})).unwrap();
+        let blocker_stream_id = blocker_stream.id;
+        mux.control_clients.attach_surface(blocker, surface.id, blocker_stream).unwrap();
+        mux.resize_surface(surface.id, 100, 40).unwrap();
+
+        assert!(mux.control_clients.detach_surface(blocker, surface.id, blocker_stream_id));
+        mux.remove_surface_size_client(surface.id, blocker);
+
+        assert_eq!(surface.size(), (70, 20));
+        assert!(!mux.control_clients.attached_client_ids().contains(&blocker));
+    }
+
+    #[test]
+    fn final_stream_detach_restores_excluded_reports_on_other_surfaces() {
+        let mux = test_mux();
+        let blocker_surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let reported_surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let reporter_writer = test_writer();
+        let reporter = mux.control_clients.register(ClientTransport::Unix, reporter_writer.clone());
+        let reporter_stream = reporter_writer.start_stream(&json!({"event": "test"})).unwrap();
+        mux.control_clients.attach_surface(reporter, reported_surface.id, reporter_stream).unwrap();
+        handle_command(
+            &mux,
+            reporter,
+            Command::ResizeSurface { surface: reported_surface.id, cols: 70, rows: 20 },
+            &reporter_writer,
+        )
+        .unwrap();
+        handle_command(
+            &mux,
+            reporter,
+            Command::SetClientSizing { client: Some(reporter), enabled: false, exclusive: false },
+            &reporter_writer,
+        )
+        .unwrap();
+
+        let blocker_writer = test_writer();
+        let blocker = mux.control_clients.register(ClientTransport::Unix, blocker_writer.clone());
+        let blocker_stream = blocker_writer.start_stream(&json!({"event": "test"})).unwrap();
+        let blocker_stream_id = blocker_stream.id;
+        mux.control_clients.attach_surface(blocker, blocker_surface.id, blocker_stream).unwrap();
+        mux.resize_surface(reported_surface.id, 100, 40).unwrap();
+
+        assert!(mux.control_clients.detach_surface(blocker, blocker_surface.id, blocker_stream_id));
+        mux.remove_surface_size_client(blocker_surface.id, blocker);
+
+        assert_eq!(reported_surface.size(), (70, 20));
+    }
+
+    #[test]
+    fn failed_reducer_resize_restores_registry_size() {
+        let mux = test_mux();
+        let missing_surface = 99_999;
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+        mux.control_clients.attach_surface(client, missing_surface, stream).unwrap();
+
+        assert!(mux
+            .resize_surface_for_control_client_with_reservation(
+                missing_surface,
+                client,
+                70,
+                20,
+            )
+            .is_err());
+
+        let clients = mux.control_clients.list_json(client);
+        assert_eq!(clients[0]["sizes"][0]["surface"], missing_surface);
+        assert_eq!(clients[0]["sizes"][0]["cols"], Value::Null);
+        assert_eq!(clients[0]["sizes"][0]["rows"], Value::Null);
+    }
+
+    #[test]
     fn detached_client_cannot_fall_through_to_direct_resize() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
@@ -3842,6 +3954,83 @@ mod tests {
 
         assert!(disconnect_client(&mux, control, false));
         assert_eq!(surface.size(), (100, 40));
+    }
+
+    #[test]
+    fn exclusive_sizing_excludes_clients_that_attach_later() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let target_writer = test_writer();
+        let target = mux.control_clients.register(ClientTransport::Unix, target_writer.clone());
+        let target_stream = target_writer.start_stream(&json!({"event": "test"})).unwrap();
+        mux.control_clients.attach_surface(target, surface.id, target_stream).unwrap();
+        handle_command(
+            &mux,
+            target,
+            Command::ResizeSurface { surface: surface.id, cols: 120, rows: 40 },
+            &target_writer,
+        )
+        .unwrap();
+        handle_command(
+            &mux,
+            target,
+            Command::SetClientSizing { client: Some(target), enabled: true, exclusive: true },
+            &target_writer,
+        )
+        .unwrap();
+
+        let later_writer = test_writer();
+        let later = mux.control_clients.register(ClientTransport::Unix, later_writer.clone());
+        let later_stream = later_writer.start_stream(&json!({"event": "test"})).unwrap();
+        mux.control_clients.attach_surface(later, surface.id, later_stream).unwrap();
+        handle_command(
+            &mux,
+            later,
+            Command::ResizeSurface { surface: surface.id, cols: 60, rows: 20 },
+            &later_writer,
+        )
+        .unwrap();
+
+        assert_eq!(surface.size(), (120, 40));
+        assert!(!mux.client_size_participates(later));
+        let clients = mux.control_clients_json(target);
+        assert_eq!(
+            clients.as_array().unwrap().iter().find(|client| client["client"] == later).unwrap()["size_participating"],
+            false
+        );
+    }
+
+    #[test]
+    fn ignored_report_does_not_replace_unsized_creation_default() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+
+        let blocker_writer = test_writer();
+        let blocker = mux.control_clients.register(ClientTransport::Unix, blocker_writer.clone());
+        let blocker_stream = blocker_writer.start_stream(&json!({"event": "test"})).unwrap();
+        mux.control_clients.attach_surface(blocker, surface.id, blocker_stream).unwrap();
+
+        let reporter_writer = test_writer();
+        let reporter = mux.control_clients.register(ClientTransport::Unix, reporter_writer.clone());
+        let reporter_stream = reporter_writer.start_stream(&json!({"event": "test"})).unwrap();
+        mux.control_clients.attach_surface(reporter, surface.id, reporter_stream).unwrap();
+        handle_command(
+            &mux,
+            reporter,
+            Command::SetClientSizing { client: Some(reporter), enabled: false, exclusive: false },
+            &reporter_writer,
+        )
+        .unwrap();
+        handle_command(
+            &mux,
+            reporter,
+            Command::ResizeSurface { surface: surface.id, cols: 60, rows: 20 },
+            &reporter_writer,
+        )
+        .unwrap();
+
+        assert_eq!(surface.size(), (100, 40));
+        assert_eq!(mux.new_workspace(None, None).unwrap().size(), (100, 40));
     }
 
     #[test]
