@@ -569,6 +569,30 @@ static bool cmux_reap_child_until(pid_t child, int64_t deadline) {
     }
 }
 
+static bool cmux_process_group_exists(pid_t group) {
+    if (kill(-group, 0) == 0) {
+        return true;
+    }
+    return errno == EPERM;
+}
+
+static bool cmux_wait_for_process_group_exit_until(pid_t group, int64_t deadline) {
+    while (cmux_process_group_exists(group)) {
+        const int64_t now = cmux_monotonic_milliseconds();
+        if (now >= deadline) {
+            return false;
+        }
+        const int64_t remaining = deadline - now;
+        const int64_t sleep_milliseconds = remaining < 5 ? remaining : 5;
+        struct timespec sleep_time = {
+            .tv_sec = 0,
+            .tv_nsec = sleep_milliseconds * 1000 * 1000,
+        };
+        while (nanosleep(&sleep_time, &sleep_time) != 0 && errno == EINTR) {}
+    }
+    return true;
+}
+
 static void cmux_terminate_and_reap_child(pid_t child) {
     if (kill(-child, SIGTERM) != 0 && errno == ESRCH) {
         (void)cmux_reap_child_until(child, cmux_monotonic_milliseconds() + 1);
@@ -576,13 +600,22 @@ static void cmux_terminate_and_reap_child(pid_t child) {
     }
     const int64_t grace_deadline = cmux_monotonic_milliseconds()
         + CMUX_HOOK_TERMINATION_GRACE_MILLISECONDS;
-    if (cmux_reap_child_until(child, grace_deadline)) {
-        return;
+    const bool child_reaped = cmux_reap_child_until(child, grace_deadline);
+    const bool group_exited = cmux_wait_for_process_group_exit_until(child, grace_deadline);
+    if (!group_exited) {
+        (void)kill(-child, SIGKILL);
     }
 
-    (void)kill(-child, SIGKILL);
-    int status = 0;
-    while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+    if (!child_reaped) {
+        int status = 0;
+        while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+    }
+    if (!group_exited) {
+        (void)cmux_wait_for_process_group_exit_until(
+            child,
+            cmux_monotonic_milliseconds() + CMUX_HOOK_TERMINATION_GRACE_MILLISECONDS
+        );
+    }
 }
 
 static void cmux_run_cli_fallback(
