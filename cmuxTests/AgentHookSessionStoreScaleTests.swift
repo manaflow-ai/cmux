@@ -225,6 +225,76 @@ struct AgentHookSessionStoreScaleTests {
         #expect(snapshot.records.map(\.sessionID) == ["b"])
     }
 
+    @Test("sidecar deletion after preflight falls back to a valid canonical snapshot")
+    func sidecarDeletionAfterPreflightUsesCanonicalFallback() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-deletion-race-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        let source = CmuxAgentSessionRegistry.LegacySource(
+            provider: "codex",
+            url: root.appendingPathComponent("codex.json")
+        )
+        let canonicalRoot = try #require(
+            try JSONSerialization.jsonObject(
+                with: inspectionSidecar(sessionID: "canonical")
+            ) as? [String: Any]
+        )
+        let canonicalSessions = try #require(canonicalRoot["sessions"] as? [String: Any])
+        let canonical = try #require(canonicalSessions["canonical"] as? [String: Any])
+        try registry.apply(provider: source.provider, records: [
+            CmuxAgentSessionRegistry.Record(
+                provider: source.provider,
+                sessionID: "canonical",
+                updatedAt: 1,
+                json: try JSONSerialization.data(
+                    withJSONObject: canonical,
+                    options: [.sortedKeys]
+                )
+            ),
+        ])
+        try writeRevision(
+            inspectionSidecar(sessionID: "legacy"),
+            to: source.url,
+            modifiedAt: 300
+        )
+        var attempts = 0
+
+        let preflight = try AgentHookSessionRegistryBridge.preflightInspectionSources(
+            [source],
+            registry: registry,
+            registryPath: registryURL.path,
+            fileManager: .default,
+            maximumLegacyGraphNodes: 20_000,
+            admissionLoader: { source, stamp, remainingGraphNodes in
+                attempts += 1
+                try FileManager.default.removeItem(at: source.url)
+                return try registry.hookLegacySourceAdmission(
+                    source: source,
+                    expectedStamp: stamp,
+                    maximumGraphNodes: remainingGraphNodes
+                )
+            }
+        )
+
+        #expect(attempts == 1)
+        #expect(preflight.admissions.isEmpty)
+        #expect(preflight.warnings == [AgentHookSessionStoreLoadWarning(
+            provider: source.provider,
+            path: source.url.path,
+            code: .legacySourceImportFailed,
+            fallback: .registry
+        )])
+        let snapshot = try #require(registry.snapshotsImportingAdmittedLegacy(
+            sources: [source],
+            admissions: preflight.admissions
+        )[source.provider])
+        #expect(snapshot.records.map(\.sessionID) == ["canonical"])
+    }
+
     @Test("continuously changing sidecars warn on valid canonical fallback and fail legacy-only")
     func unstableSidecarFallbackIsExplicitAndLossless() throws {
         func exercise(hasCanonical: Bool) throws -> (
