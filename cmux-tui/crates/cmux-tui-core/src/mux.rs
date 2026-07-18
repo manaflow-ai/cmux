@@ -12103,6 +12103,236 @@ mod tests {
         Mux::new_for_test("test", SurfaceOptions::default())
     }
 
+    const HANDOFF_TARGET_BUILD_ID: &str =
+        "2222222222222222222222222222222222222222222222222222222222222222";
+
+    fn empty_handoff_blockers() -> ServiceHandoffBlockers {
+        ServiceHandoffBlockers {
+            canonical_surfaces: 0,
+            pending_terminal_launches: 0,
+            presentations: 0,
+            projection_states: 0,
+            terminal_authorities: 0,
+            renderer_presentations: 0,
+            renderer_workers: 0,
+            pending_renderer_removals: 0,
+            renderer_release_routes: 0,
+            browser_runtime: false,
+            frontend_native_browser_runtimes: 0,
+            remote_external_producer_runtimes: 0,
+            sidebar_plugin_runtime: false,
+            agent_records: 0,
+            unresolved_durable_mutation: false,
+            unresolved_launch_attempts: 0,
+            durable_storage_degraded: false,
+        }
+    }
+
+    #[test]
+    fn every_state_destroying_runtime_blocks_service_handoff() {
+        let mut cases: Vec<(&str, Box<dyn Fn(&mut ServiceHandoffBlockers)>)> = vec![
+            ("canonical-surfaces", Box::new(|value| value.canonical_surfaces = 1)),
+            ("pending-terminal-launches", Box::new(|value| value.pending_terminal_launches = 1)),
+            ("presentations", Box::new(|value| value.presentations = 1)),
+            ("projection-states", Box::new(|value| value.projection_states = 1)),
+            ("terminal-authorities", Box::new(|value| value.terminal_authorities = 1)),
+            ("renderer-presentations", Box::new(|value| value.renderer_presentations = 1)),
+            ("renderer-workers", Box::new(|value| value.renderer_workers = 1)),
+            ("pending-renderer-removals", Box::new(|value| value.pending_renderer_removals = 1)),
+            ("renderer-release-routes", Box::new(|value| value.renderer_release_routes = 1)),
+            ("browser-runtime", Box::new(|value| value.browser_runtime = true)),
+            (
+                "frontend-native-browser-runtimes",
+                Box::new(|value| value.frontend_native_browser_runtimes = 1),
+            ),
+            (
+                "remote-external-producer-runtimes",
+                Box::new(|value| value.remote_external_producer_runtimes = 1),
+            ),
+            ("sidebar-plugin-runtime", Box::new(|value| value.sidebar_plugin_runtime = true)),
+            ("agent-records", Box::new(|value| value.agent_records = 1)),
+            (
+                "unresolved-durable-mutation",
+                Box::new(|value| value.unresolved_durable_mutation = true),
+            ),
+            (
+                "unresolved-launch-attempts",
+                Box::new(|value| value.unresolved_launch_attempts = 1),
+            ),
+            (
+                "durable-storage-degraded",
+                Box::new(|value| value.durable_storage_degraded = true),
+            ),
+        ];
+
+        assert!(empty_handoff_blockers().is_idle());
+        for (name, mutate) in cases.drain(..) {
+            let mut blockers = empty_handoff_blockers();
+            mutate(&mut blockers);
+            assert!(!blockers.is_idle(), "{name} must block replacement");
+        }
+    }
+
+    #[test]
+    fn prepare_transitions_to_draining_before_return_and_binds_exact_state() {
+        let mux = test_mux();
+        let owner_connection_id = uuid::Uuid::new_v4();
+
+        let prepared = mux
+            .prepare_service_handoff(owner_connection_id, HANDOFF_TARGET_BUILD_ID)
+            .unwrap();
+        let ServiceHandoffPreparation::Prepared(permit) = prepared else {
+            panic!("idle mux must prepare a handoff");
+        };
+
+        assert_eq!(permit.owner_connection_id, owner_connection_id);
+        assert_eq!(permit.daemon_instance_id, mux.daemon_instance_id);
+        assert_eq!(permit.session_id, mux.session_id);
+        assert_eq!(permit.session, mux.session);
+        assert_eq!(permit.source_build_id, crate::build_identity::BUILD_ID);
+        assert_eq!(permit.target_build_id, HANDOFF_TARGET_BUILD_ID);
+        assert_eq!(permit.topology_revision, 0);
+        assert_eq!(permit.canonical_topology_revision, 0);
+        assert_eq!(permit.durable_storage.state, "disabled");
+        assert_eq!(permit.capability.len(), 64);
+        assert!(permit.capability.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert_eq!(mux.service_handoff_phase(), ServiceHandoffPhase::Draining);
+
+        let mutation_error = mux.begin_service_mutation().unwrap_err();
+        assert!(mutation_error.to_string().contains("draining"));
+    }
+
+    #[test]
+    fn canonical_surface_defers_without_entering_draining() {
+        let mux = test_mux();
+        mux.new_workspace(None, Some((80, 24))).unwrap();
+
+        let result = mux
+            .prepare_service_handoff(uuid::Uuid::new_v4(), HANDOFF_TARGET_BUILD_ID)
+            .unwrap();
+        let ServiceHandoffPreparation::DeferredNotIdle(blockers) = result else {
+            panic!("active terminal must defer replacement");
+        };
+
+        assert_eq!(blockers.canonical_surfaces, 1);
+        assert_eq!(mux.service_handoff_phase(), ServiceHandoffPhase::Running);
+    }
+
+    #[test]
+    fn cancel_is_one_shot_owner_connection_and_build_bound() {
+        let mux = test_mux();
+        let owner = uuid::Uuid::new_v4();
+        let ServiceHandoffPreparation::Prepared(permit) = mux
+            .prepare_service_handoff(owner, HANDOFF_TARGET_BUILD_ID)
+            .unwrap()
+        else {
+            panic!("idle mux must prepare a handoff");
+        };
+
+        for (connection, capability, source, target, expected) in [
+            (
+                uuid::Uuid::new_v4(),
+                permit.capability.as_str(),
+                permit.source_build_id.as_str(),
+                permit.target_build_id.as_str(),
+                "connection",
+            ),
+            (
+                owner,
+                "0000000000000000000000000000000000000000000000000000000000000000",
+                permit.source_build_id.as_str(),
+                permit.target_build_id.as_str(),
+                "capability",
+            ),
+            (
+                owner,
+                permit.capability.as_str(),
+                "wrong-source-build",
+                permit.target_build_id.as_str(),
+                "source build",
+            ),
+            (
+                owner,
+                permit.capability.as_str(),
+                permit.source_build_id.as_str(),
+                "3333333333333333333333333333333333333333333333333333333333333333",
+                "target build",
+            ),
+        ] {
+            let error = mux
+                .cancel_service_handoff(connection, capability, source, target)
+                .unwrap_err();
+            assert!(error.to_string().contains(expected), "unexpected error: {error}");
+            assert_eq!(mux.service_handoff_phase(), ServiceHandoffPhase::Draining);
+        }
+
+        mux.cancel_service_handoff(
+            owner,
+            &permit.capability,
+            &permit.source_build_id,
+            &permit.target_build_id,
+        )
+        .unwrap();
+        assert_eq!(mux.service_handoff_phase(), ServiceHandoffPhase::Running);
+        assert!(mux
+            .cancel_service_handoff(
+                owner,
+                &permit.capability,
+                &permit.source_build_id,
+                &permit.target_build_id,
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("not draining"));
+    }
+
+    #[test]
+    fn owner_disconnect_cancels_drain_but_other_disconnect_does_not() {
+        let mux = test_mux();
+        let owner = uuid::Uuid::new_v4();
+        let ServiceHandoffPreparation::Prepared(_) = mux
+            .prepare_service_handoff(owner, HANDOFF_TARGET_BUILD_ID)
+            .unwrap()
+        else {
+            panic!("idle mux must prepare a handoff");
+        };
+
+        assert!(!mux.cancel_service_handoff_for_connection(uuid::Uuid::new_v4()));
+        assert_eq!(mux.service_handoff_phase(), ServiceHandoffPhase::Draining);
+        assert!(mux.cancel_service_handoff_for_connection(owner));
+        assert_eq!(mux.service_handoff_phase(), ServiceHandoffPhase::Running);
+    }
+
+    #[test]
+    fn prepare_cannot_race_an_admitted_mutation_into_draining() {
+        let mux = test_mux();
+        let admitted = mux.begin_service_mutation().unwrap();
+        let (waiting_tx, waiting_rx) = std::sync::mpsc::sync_channel(1);
+        mux.set_service_handoff_prepare_wait_hook_for_test(Arc::new(move || {
+            waiting_tx.send(()).unwrap();
+        }));
+
+        let preparing_mux = mux.clone();
+        let prepare = std::thread::spawn(move || {
+            preparing_mux
+                .prepare_service_handoff(uuid::Uuid::new_v4(), HANDOFF_TARGET_BUILD_ID)
+                .unwrap()
+        });
+        waiting_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        // This mutation was admitted before prepare could obtain exclusive
+        // lifecycle quiescence. Its committed state must be visible to the
+        // blocker snapshot rather than racing after a Draining response.
+        mux.new_workspace(None, Some((80, 24))).unwrap();
+        drop(admitted);
+
+        let ServiceHandoffPreparation::DeferredNotIdle(blockers) = prepare.join().unwrap() else {
+            panic!("the completed mutation must defer handoff");
+        };
+        assert_eq!(blockers.canonical_surfaces, 1);
+        assert_eq!(mux.service_handoff_phase(), ServiceHandoffPhase::Running);
+    }
+
     #[derive(Default)]
     struct TestRendererSupervisorState {
         desired: BTreeMap<crate::PresentationId, WorkspaceUuid>,

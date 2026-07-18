@@ -287,6 +287,40 @@ mod tests {
     }
 
     #[test]
+    fn service_coordinator_has_only_the_dedicated_handoff_permission() {
+        let mut coordinator = ConnectionAuthorization::unix(Some(same_user_peer()));
+        coordinator.register(9, Some("service-coordinator")).unwrap();
+
+        assert_eq!(coordinator.role(), ConnectionRole::ServiceCoordinator);
+        assert_eq!(
+            coordinator.registered_kind(),
+            Some(RegisteredClientKind::ServiceCoordinator)
+        );
+        assert!(coordinator.permits(ConnectionPermission::ServiceHandoff));
+        assert!(!coordinator.permits(ConnectionPermission::Control));
+        assert!(!coordinator.permits(ConnectionPermission::Frontend));
+        assert!(!coordinator.permits(ConnectionPermission::InputDelegate));
+        assert!(coordinator.topology_lease().is_none());
+
+        let mut websocket = ConnectionAuthorization::websocket();
+        websocket.register(9, Some("service-coordinator")).unwrap();
+        assert_eq!(websocket.role(), ConnectionRole::RemoteReadOnly);
+        assert!(!websocket.permits(ConnectionPermission::ServiceHandoff));
+
+        let mut legacy = ConnectionAuthorization::unix(Some(same_user_peer()));
+        legacy.register(8, Some("service-coordinator")).unwrap();
+        assert_eq!(legacy.role(), ConnectionRole::Unaffiliated);
+        assert!(!legacy.permits(ConnectionPermission::ServiceHandoff));
+
+        let mut foreign_peer = same_user_peer();
+        foreign_peer.user_id = foreign_peer.user_id.wrapping_add(1);
+        let mut foreign = ConnectionAuthorization::unix(Some(foreign_peer));
+        foreign.register(9, Some("service-coordinator")).unwrap();
+        assert_eq!(foreign.role(), ConnectionRole::Unaffiliated);
+        assert!(!foreign.permits(ConnectionPermission::ServiceHandoff));
+    }
+
+    #[test]
     fn websocket_and_foreign_or_missing_peers_never_receive_trusted_roles() {
         let mut websocket = ConnectionAuthorization::websocket();
         websocket.register(9, Some("swift-shell")).unwrap();

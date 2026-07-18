@@ -8576,6 +8576,142 @@ mod tests {
         (client, client_uuid, result)
     }
 
+    const HANDOFF_TARGET_BUILD_ID: &str =
+        "2222222222222222222222222222222222222222222222222222222222222222";
+
+    #[test]
+    fn service_coordinator_registration_is_handoff_only() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let (coordinator, _, registration) = register_v9_client_kind(
+            &mux,
+            &writer,
+            ClientTransport::Unix,
+            "service-coordinator",
+        );
+        assert_eq!(registration["role"], "service-coordinator");
+        assert!(registration["topology_lease_id"].is_null());
+
+        let normal_mutation = r#"{"id":1,"cmd":"new-workspace"}"#;
+        let error = preflight_request(&mux, coordinator, normal_mutation, None).unwrap_err();
+        assert!(error.to_string().contains("trusted frontend or automation"));
+
+        let frontend_writer = test_writer();
+        let (frontend, _) = register_v9_client(&mux, &frontend_writer);
+        let handoff = format!(
+            r#"{{"id":2,"cmd":"prepare-service-handoff","target_build_id":"{HANDOFF_TARGET_BUILD_ID}"}}"#
+        );
+        let error = preflight_request(&mux, frontend, &handoff, None).unwrap_err();
+        assert!(error.to_string().contains("service coordinator"));
+
+        preflight_request(&mux, coordinator, &handoff, None).unwrap();
+    }
+
+    #[test]
+    fn prepared_handoff_response_precedes_central_mutation_rejection() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let (coordinator, _, _) = register_v9_client_kind(
+            &mux,
+            &writer,
+            ClientTransport::Unix,
+            "service-coordinator",
+        );
+
+        let result = handle_command(
+            &mux,
+            coordinator,
+            Command::PrepareServiceHandoff {
+                target_build_id: HANDOFF_TARGET_BUILD_ID.to_owned(),
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(result["status"], "prepared");
+        assert_eq!(result["source_build_id"], crate::build_identity::BUILD_ID);
+        assert_eq!(result["target_build_id"], HANDOFF_TARGET_BUILD_ID);
+        assert_eq!(result["daemon_instance_id"], mux.daemon_instance_id.to_string());
+        assert_eq!(result["session_id"], mux.session_id.to_string());
+        assert_eq!(result["topology_revision"], 0);
+        assert_eq!(result["canonical_topology_revision"], 0);
+        assert_eq!(result["durable_storage"]["state"], "disabled");
+
+        // The transition occurs inside prepare before its response is built.
+        let error = handle_command(
+            &mux,
+            coordinator,
+            Command::SetWindowTitle { title: "too late".into() },
+            &writer,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("draining"));
+        assert_eq!(mux.service_handoff_phase(), crate::mux::ServiceHandoffPhase::Draining);
+
+        // Content-free authority observations remain available for diagnostics.
+        assert!(handle_command(&mux, coordinator, Command::Ping, &writer).is_ok());
+    }
+
+    #[test]
+    fn cancel_command_and_owner_disconnect_restore_running() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let (coordinator, _, _) = register_v9_client_kind(
+            &mux,
+            &writer,
+            ClientTransport::Unix,
+            "service-coordinator",
+        );
+        let prepared = handle_command(
+            &mux,
+            coordinator,
+            Command::PrepareServiceHandoff {
+                target_build_id: HANDOFF_TARGET_BUILD_ID.to_owned(),
+            },
+            &writer,
+        )
+        .unwrap();
+        let capability = prepared["capability"].as_str().unwrap().to_owned();
+
+        let wrong = handle_command(
+            &mux,
+            coordinator,
+            Command::CancelServiceHandoff {
+                capability: "0".repeat(64),
+                source_build_id: crate::build_identity::BUILD_ID.to_owned(),
+                target_build_id: HANDOFF_TARGET_BUILD_ID.to_owned(),
+            },
+            &writer,
+        )
+        .unwrap_err();
+        assert!(wrong.to_string().contains("capability"));
+
+        let cancelled = handle_command(
+            &mux,
+            coordinator,
+            Command::CancelServiceHandoff {
+                capability,
+                source_build_id: crate::build_identity::BUILD_ID.to_owned(),
+                target_build_id: HANDOFF_TARGET_BUILD_ID.to_owned(),
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(cancelled, json!({"status": "cancelled"}));
+        assert_eq!(mux.service_handoff_phase(), crate::mux::ServiceHandoffPhase::Running);
+
+        handle_command(
+            &mux,
+            coordinator,
+            Command::PrepareServiceHandoff {
+                target_build_id: HANDOFF_TARGET_BUILD_ID.to_owned(),
+            },
+            &writer,
+        )
+        .unwrap();
+        assert!(disconnect_client(&mux, coordinator, false));
+        assert_eq!(mux.service_handoff_phase(), crate::mux::ServiceHandoffPhase::Running);
+    }
+
     #[cfg(unix)]
     #[test]
     fn explicit_socket_path_requires_a_dedicated_private_parent_without_chmod() {
