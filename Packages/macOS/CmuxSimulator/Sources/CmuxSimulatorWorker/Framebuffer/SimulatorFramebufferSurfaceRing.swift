@@ -18,6 +18,7 @@ final class SimulatorFramebufferSurfaceRing: @unchecked Sendable {
     private let mapping: UnsafeMutableRawPointer
     private let layout: SimulatorFrameSharedMemoryLayout
     private var frameSequence: UInt64 = 0
+    private var isClosed = false
 
     let descriptor: SimulatorFrameTransportDescriptor
 
@@ -107,12 +108,23 @@ final class SimulatorFramebufferSurfaceRing: @unchecked Sendable {
     }
 
     deinit {
+        releaseResources()
+    }
+
+    func releaseResources() {
+        guard !isClosed else { return }
+        isClosed = true
         munmap(mapping, layout.totalByteCount)
         close(descriptorHandle)
         shm_unlink(descriptor.sharedMemoryName)
     }
 
     func publish(_ source: IOSurface) throws {
+        guard !isClosed else {
+            throw SimulatorWorkerFailure.framebufferUnavailable(
+                "The Simulator framebuffer ring is closed."
+            )
+        }
         let sourceWidth = IOSurfaceGetWidth(source)
         let sourceHeight = IOSurfaceGetHeight(source)
         guard sourceWidth > 0, sourceHeight > 0 else {

@@ -44,10 +44,12 @@ final class SimulatorFramebufferFramePublisher {
                     let transportChanged = ring.descriptor.width != frame.width
                         || ring.descriptor.height != frame.height
                     if transportChanged {
-                        ring = try SimulatorFramebufferSurfaceRing(
+                        let replacement = try SimulatorFramebufferSurfaceRing(
                             width: frame.width,
                             height: frame.height
                         )
+                        ring.releaseResources()
+                        ring = replacement
                     }
                     try ring.publish(frame.surface)
                     if transportChanged, !Task.isCancelled {
