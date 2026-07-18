@@ -643,6 +643,10 @@ final class WindowTerminalPortal: NSObject {
     private var referenceGeometryObservers: [NSObjectProtocol] = []
     private var hasDeferredFullSyncScheduled = false
     private var deferredFullSyncIncludesVisibleReconcile = false
+    /// Set by ContentView's sidebar dispatcher — the flag's single
+    /// evaluation site — when the AppKit sidebar branch mounts. The portal
+    /// consumes a plain bool so the feature-flag lint's one-file rule holds.
+    static var usesCoalescedAnchorFailsafe = false
     /// Surface redraws requested by a sync that ran inside someone else's
     /// layout/update pass (syncLayout == false). displayIfNeeded there reaches
     /// ghostty's Metal drawFrame while the window's transaction is still open,
@@ -1683,13 +1687,16 @@ final class WindowTerminalPortal: NSObject {
         // geometry callback while another fires. Reconcile all mapped hosted views so no stale
         // frame remains "stuck" onscreen until the next interaction.
         //
-        // With the AppKit sidebar enabled, the failsafe is coalesced to one pass per main-queue
-        // turn. Inline it ran per anchor callback, so one divider width
-        // commit cost panes x (all-hosted sync + all-visible reconcile) — 57% of drag-loop time
-        // in a Time Profiler capture. The deferred pass still runs within the same drag tick
-        // (the tracking loop spins the runloop per event), so the missed-callback window is
-        // unchanged. Flag off keeps the existing per-callback fan-out.
-        if CmuxFeatureFlags.shared.isAppKitSidebarListEnabled {
+        // With the AppKit sidebar experiment on (value pushed from
+        // ContentView's dispatcher, the flag's single evaluation site), the
+        // failsafe is coalesced to one pass per main-queue turn. Inline it
+        // ran per anchor callback, so one divider width commit cost panes x
+        // (all-hosted sync + all-visible reconcile) — 57% of drag-loop time
+        // in a Time Profiler capture. The deferred pass still runs within
+        // the same drag tick (the tracking loop spins the runloop per
+        // event), so the missed-callback window is unchanged. Experiment off
+        // keeps the existing per-callback fan-out.
+        if Self.usesCoalescedAnchorFailsafe {
             scheduleDeferredFullSynchronizeAll(includeVisibleReconcile: true)
         } else {
             synchronizeAllHostedViews(excluding: primaryHostedId, syncLayout: syncLayout)
@@ -2600,6 +2607,11 @@ enum TerminalWindowPortalRegistry {
             return
         }
         interactiveGeometryResizeCountsByWindowId[windowId, default: 0] += 1
+#if DEBUG
+        if interactiveGeometryResizeCountsByWindowId[windowId] == 1 {
+            cmuxDebugLog("portal.geometryResize.begin")
+        }
+#endif
     }
 
     private static func endInteractiveGeometryResize(windowId: ObjectIdentifier?) {
@@ -2623,6 +2635,17 @@ enum TerminalWindowPortalRegistry {
             if unscopedInteractiveGeometryResizeCount == 0 {
                 portalsByWindowId[windowId]?.scheduleExternalGeometrySynchronize(forceImmediate: false)
             }
+            // Single choke point every drag-end path funnels through (tracker
+            // onEnded, legacy gesture onEnded, cursor failsafe): observers
+            // that deferred work during the drag settle NOW instead of on a
+            // trailing timer.
+            NotificationCenter.default.post(
+                name: .cmuxInteractiveGeometryResizeDidEnd,
+                object: nil
+            )
+#if DEBUG
+            cmuxDebugLog("portal.geometryResize.end")
+#endif
         } else {
             interactiveGeometryResizeCountsByWindowId[windowId] = count - 1
         }
@@ -2724,4 +2747,13 @@ enum TerminalWindowPortalRegistry {
         return portal.terminalPaneDropTargetAtWindowPoint(windowPoint)
     }
 
+}
+
+extension Notification.Name {
+    /// Posted when the last interactive geometry resize session in a window
+    /// ends (sidebar/split divider drags). Fired from the registry's single
+    /// end path so every drag-end route (tracker, legacy gesture, failsafe)
+    /// reaches observers.
+    static let cmuxInteractiveGeometryResizeDidEnd =
+        Notification.Name("cmux.interactiveGeometryResizeDidEnd")
 }

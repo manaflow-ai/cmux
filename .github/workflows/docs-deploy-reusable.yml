@@ -31,6 +31,8 @@ jobs:
       - run: |
           mkdir -p .vercel
           printf '{"orgId":"%s","projectId":"%s"}' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          # Vercel reloads config from the linked project's web root.
+          cp web/vercel.docs-channel.json web/vercel.json
           bunx vercel@56.3.1 deploy --prod --yes \
             --build-env "CMUX_DOCS_CHANNEL=$DOCS_CHANNEL" \
             --env "CMUX_DOCS_CHANNEL=$DOCS_CHANNEL"
