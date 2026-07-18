@@ -183,6 +183,7 @@ final class BrowserWebExtensionsManager: NSObject {
     /// their own wait, but readiness never falls back to an elapsed-time guess:
     /// first navigation starts only after every approved context is registered.
     func waitUntilLoaded() async {
+        startLoading()
         guard !isLoaded, loadTask != nil else { return }
         let waiterID = UUID()
         loadWaiters[waiterID] = .pendingRegistration
@@ -204,6 +205,7 @@ final class BrowserWebExtensionsManager: NSObject {
     /// UI presentation waits for the same manager-owned readiness invariant as
     /// navigation and installation.
     func waitUntilPresentationReady() async {
+        startLoading()
         await loadTask?.value
     }
 

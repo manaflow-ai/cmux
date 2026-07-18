@@ -57,7 +57,6 @@ final class BrowserServices {
             profileID: profileID
         )
         webExtensionsManagerStorage[profileID] = manager
-        manager.startLoading()
         return manager
     }
 
@@ -79,11 +78,10 @@ final class BrowserServices {
     }
 
     /// Starts browser-wide services before restored browser panels are created.
+    /// Extension loading waits until a WebView exists so WebKit can attach
+    /// persisted declarative rules to its user-content controller.
     func start() {
         BrowserSystemProxyWatcher.shared.startObserving()
-        if #available(macOS 15.4, *) {
-            webExtensionsManager?.startLoading()
-        }
         BrowserPrewarmedWebViewPool.shared.configure(browserServices: self)
     }
 
@@ -289,7 +287,8 @@ final class BrowserServices {
         }
         previousManager.unregister(panelID: panel.id)
         registeredPanelProfileIDs[panel.id] = panel.profileID
-        webExtensionsManager(for: panel.profileID).register(
+        let manager = webExtensionsManager(for: panel.profileID)
+        manager.register(
             panel: panel,
             ownerID: owner.id,
             activePanelID: owner.activePanelID,
@@ -297,6 +296,7 @@ final class BrowserServices {
             focusPanel: owner.focusPanel,
             orderedPanelIDs: owner.orderedPanelIDs
         )
+        manager.startLoading()
     }
 
     @available(macOS 15.4, *)
@@ -385,7 +385,8 @@ final class BrowserServices {
             }
         }
         registeredPanelProfileIDs[panel.id] = panel.profileID
-        webExtensionsManager(for: panel.profileID).register(
+        let manager = webExtensionsManager(for: panel.profileID)
+        manager.register(
             panel: panel,
             ownerID: ownerID,
             activePanelID: activePanelID,
@@ -393,6 +394,7 @@ final class BrowserServices {
             focusPanel: focusPanel,
             orderedPanelIDs: orderedPanelIDs
         )
+        manager.startLoading()
     }
 
     nonisolated static func extensionDirectory(
