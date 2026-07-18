@@ -152,6 +152,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 startMicroseconds: 4,
                 cwd: "/tmp/kimi"
             ),
+            observation(
+                workspaceID: UUID(),
+                surfaceID: UUID(),
+                familyID: "devin",
+                provider: "devin",
+                lifecycleAuthoritative: false,
+                state: .working,
+                pid: 505,
+                startSeconds: 500,
+                startMicroseconds: 5,
+                cwd: "/tmp/devin"
+            ),
         ]
         let observationsData = try JSONEncoder().encode(observations)
 
@@ -159,7 +171,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let serverHandled = startMockServer(
             listenerFD: listenerFD,
             state: state,
-            connectionCount: 4
+            connectionCount: 5
         ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
@@ -207,7 +219,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             JSONSerialization.jsonObject(with: Data(fullList.stdout.utf8)) as? [String: Any]
         )
         let rows = try XCTUnwrap(fullPayload["sessions"] as? [[String: Any]])
-        XCTAssertEqual(rows.count, 4, fullList.stdout)
+        XCTAssertEqual(rows.count, 5, fullList.stdout)
         let durable = try XCTUnwrap(rows.first { $0["session_id"] as? String == durableSessionID })
         XCTAssertEqual(durable["identity_source"] as? String, "hook_session")
         XCTAssertEqual(durable["effective_state"] as? String, "needs_input")
@@ -215,8 +227,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(rows.filter { $0["pid"] as? Int32 == durablePID || $0["pid"] as? Int == Int(durablePID) }.count, 1)
 
         let processRows = rows.filter { $0["identity_source"] as? String == "terminal_process" }
-        XCTAssertEqual(Set(processRows.compactMap { $0["agent"] as? String }), ["claude", "codex", "kimi"])
-        XCTAssertTrue(processRows.allSatisfy { $0["session_id"] == nil })
+        XCTAssertEqual(
+            Set(processRows.compactMap { $0["agent"] as? String }),
+            ["claude", "codex", "devin", "kimi"]
+        )
+        XCTAssertTrue(processRows.allSatisfy {
+            $0.keys.contains("session_id") && $0["session_id"] is NSNull
+        })
         XCTAssertTrue(processRows.allSatisfy { $0["restore_authority"] as? Bool == false })
         XCTAssertTrue(processRows.allSatisfy { $0["is_restorable"] as? Bool == false })
         XCTAssertEqual(
@@ -258,6 +275,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let claudeRows = try XCTUnwrap(claudePayload["sessions"] as? [[String: Any]])
         XCTAssertEqual(claudeRows.count, 1)
         XCTAssertEqual(claudeRows.first?["pid"] as? Int, 303)
+
+        let devinFiltered = runProcess(
+            executablePath: cliPath,
+            arguments: ["agents", "list", "--agent", "devin", "--json", "--state-dir", root.path],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertEqual(devinFiltered.status, 0, devinFiltered.stderr)
+        let devinPayload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(devinFiltered.stdout.utf8)) as? [String: Any]
+        )
+        let devinRows = try XCTUnwrap(devinPayload["sessions"] as? [[String: Any]])
+        XCTAssertEqual(devinRows.count, 1)
+        XCTAssertEqual(devinRows.first?["pid"] as? Int, 505)
 
         let kimiText = runProcess(
             executablePath: cliPath,
