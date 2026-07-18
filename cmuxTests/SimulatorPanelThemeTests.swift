@@ -14,6 +14,75 @@ import Testing
 @MainActor
 @Suite("Simulator panel theme", .serialized)
 struct SimulatorPanelThemeTests {
+    @Test("A surviving Simulator host keeps framebuffer publication active")
+    func survivingHostKeepsFramebufferActive() async throws {
+        let device = SimulatorDevice(
+            id: "ipad",
+            name: "iPad",
+            runtimeIdentifier: "runtime",
+            runtimeName: "iOS 26.5",
+            deviceTypeIdentifier: "type",
+            family: .iPad,
+            state: .booted,
+            isAvailable: true,
+            lastBootedAt: nil
+        )
+        let client = SimulatorThemePaneClient(devices: [device])
+        let panel = SimulatorPanel(client: client)
+        defer { panel.close() }
+
+        let size = NSSize(width: 640, height: 480)
+        let root = NSView(frame: NSRect(origin: .zero, size: size))
+        var firstHost: NSHostingView<PanelContentView>? = NSHostingView(
+            rootView: content(panel: panel, background: .black)
+        )
+        let secondHost = NSHostingView(
+            rootView: content(panel: panel, background: .black)
+        )
+        firstHost?.frame = root.bounds
+        secondHost.frame = root.bounds
+        root.addSubview(firstHost!)
+        root.addSubview(secondHost)
+
+        let window = NSWindow(
+            contentRect: root.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = root
+        window.orderBack(nil)
+        defer { window.orderOut(nil) }
+        settle(root)
+
+        for _ in 0..<100 {
+            if await client.discoveryCount > 0 { break }
+            await Task.yield()
+        }
+        #expect(await client.discoveryCount == 1)
+        await client.emit(.status(.streaming))
+        await client.emit(.frameTransport(SimulatorFrameTransportDescriptor(
+            sharedMemoryName: "/cmux-test-frame",
+            width: 4,
+            height: 4,
+            bytesPerRow: 16,
+            slotCount: 2,
+            sharedMemoryByteCount: 256
+        )))
+        for _ in 0..<100 {
+            if panel.coordinator.frameTransport != nil { break }
+            await Task.yield()
+        }
+        #expect(panel.coordinator.frameTransport != nil)
+
+        firstHost?.removeFromSuperview()
+        firstHost = nil
+        settle(root)
+
+        #expect(panel.coordinator.frameTransport != nil)
+        #expect(!(await client.messages).contains(.setFramebufferPublishing(false)))
+    }
+
     @Test("Simulator pane renders the live Ghostty background")
     func rendersGhosttyBackground() throws {
         let monokai = try #require(NSColor(hex: "#272822"))
@@ -85,6 +154,14 @@ struct SimulatorPanelThemeTests {
         view.cacheDisplay(in: bounds, to: bitmap)
         return bitmap.colorAt(x: 2, y: 2)?.usingColorSpace(.sRGB)?.hexString()
     }
+
+    private func settle(_ view: NSView) {
+        for _ in 0..<4 {
+            view.layoutSubtreeIfNeeded()
+            view.displayIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+    }
 }
 
 @MainActor
@@ -154,16 +231,30 @@ private actor SimulatorThemePaneClient: SimulatorPaneClient {
         maximumBufferedEvents: 4,
         onTermination: {}
     )
+    private let devices: [SimulatorDevice]
+    private(set) var discoveryCount = 0
+    private(set) var messages: [SimulatorWorkerInbound] = []
 
-    func discoverDevices() async throws -> [SimulatorDevice] { [] }
+    init(devices: [SimulatorDevice] = []) {
+        self.devices = devices
+    }
+
+    func discoverDevices() async throws -> [SimulatorDevice] {
+        discoveryCount += 1
+        return devices
+    }
     func synchronizeOrientation(
         _ orientation: SimulatorOrientation
     ) async throws -> SimulatorDisplayMetadata? { nil }
     func activateDevice(id: String, geometry: SimulatorSurfaceGeometry?) async throws {}
     func shutdownDevice(id: String) async throws {}
     func subscribe() async -> SimulatorWorkerEventStream { events.stream }
-    func send(_ message: SimulatorWorkerInbound) async {}
+    func send(_ message: SimulatorWorkerInbound) async { messages.append(message) }
     func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult { .none }
     func invalidateWorker() async {}
     func stop() async {}
+
+    func emit(_ message: SimulatorWorkerOutbound) async {
+        _ = await events.continuation.yield(.message(message))
+    }
 }
