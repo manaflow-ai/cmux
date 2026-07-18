@@ -163,18 +163,79 @@ def create_process_census_receipt(
     timestamp: str,
     pids: list[int],
 ) -> tuple[str, str]:
+    assert len(pids) == 4
     stem = f"{criterion_id.lower()}-process-census"
     payload = evidence / f"{stem}-raw.json"
+    identity = {
+        "pid": pids[1],
+        "protocol": 9,
+        "session_id": "11111111-1111-4111-8111-111111111111",
+        "daemon_instance_id": "22222222-2222-4222-8222-222222222222",
+        "topology_revision": 7,
+        "canonical_topology_revision": 5,
+    }
     payload.write_text(
         json.dumps(
             {
                 "schema_version": 1,
                 "artifact_kind": "process-census",
-                "context": {},
+                "context": {
+                    "semantic_schema": acceptance.PROC1_PROCESS_CENSUS_SCHEMA,
+                    "backend_socket": "/tmp/test-cmux-backend.sock",
+                    "captured_at_before": "2026-07-17T11:59:59Z",
+                    "captured_at_after": "2026-07-17T12:00:01Z",
+                    "identity_before": identity,
+                    "identity_after": identity,
+                    "terminal_inventory": [
+                        {
+                            "surface_handle": 41,
+                            "terminal_id": "33333333-3333-4333-8333-333333333333",
+                            "workspace_id": "44444444-4444-4444-8444-444444444444",
+                            "dead": False,
+                            "runtime": "local",
+                        }
+                    ],
+                },
                 "records": [
-                    {"role": "swift-host", "pid": pids[0], "pty_master_fds": []},
-                    {"role": "terminal-backend", "pid": pids[1], "pty_master_fds": ["4:/dev/ptmx"]},
-                    {"role": "renderer-worker", "pid": pids[2], "pty_master_fds": []},
+                    {
+                        "role": "swift-host",
+                        "pid": pids[0],
+                        "started_at": timestamp,
+                        "executable_sha256": "1" * 64,
+                        "pty_masters": [],
+                    },
+                    {
+                        "role": "terminal-backend",
+                        "pid": pids[1],
+                        "started_at": timestamp,
+                        "executable_sha256": "2" * 64,
+                        "pty_masters": [
+                            {"fd": "4u", "name": "/dev/ptmx", "raw_device": "0xf00002a"}
+                        ],
+                    },
+                    {
+                        "role": "renderer-worker",
+                        "pid": pids[2],
+                        "started_at": timestamp,
+                        "executable_sha256": "3" * 64,
+                        "pty_masters": [],
+                    },
+                    {
+                        "role": "terminal-shell",
+                        "pid": pids[3],
+                        "started_at": timestamp,
+                        "executable_sha256": "4" * 64,
+                        "parent_pid": pids[1],
+                        "surface_handle": 41,
+                        "terminal_id": "33333333-3333-4333-8333-333333333333",
+                        "workspace_id": "44444444-4444-4444-8444-444444444444",
+                        "protocol_tty": "/dev/ttys042",
+                        "kernel_controlling_tty": "/dev/ttys042",
+                        "kernel_tty_raw_device": "0x1000002a",
+                        "tty_fds": [
+                            {"fd": "0u", "name": "/dev/ttys042", "raw_device": "0x1000002a"}
+                        ],
+                    },
                 ],
             }
         ),
@@ -211,6 +272,29 @@ def create_process_census_receipt(
         encoding="utf-8",
     )
     return receipt.name, acceptance.sha256_file(receipt)
+
+
+def proc1_bound_processes(
+    pids: list[int], timestamp: str = "2026-07-17T12:00:00Z"
+) -> dict[int, dict[str, object]]:
+    assert len(pids) == 4
+    roles: list[tuple[str, str | None]] = [
+        ("swift-host", "swift-host"),
+        ("terminal-backend", "terminal-backend"),
+        ("renderer-worker", "renderer-worker"),
+        ("terminal-shell", None),
+    ]
+    return {
+        pid: {
+            "role": role,
+            "build_role": build_role,
+            "pid": pid,
+            "started_at": timestamp,
+            "executable_path": f"/tmp/{role}",
+            "executable_sha256": str(index) * 64,
+        }
+        for index, (pid, (role, build_role)) in enumerate(zip(pids, roles, strict=True), start=1)
+    }
 
 
 class AcceptanceToolTests(unittest.TestCase):
@@ -376,7 +460,7 @@ class AcceptanceToolTests(unittest.TestCase):
                 criterion_id="PROC-1",
                 command=["collect-census"],
                 timestamp="2026-07-17T12:00:00Z",
-                pids=[1001, 1002, 1003],
+                pids=[1001, 1002, 1003, 1004],
             )
             receipt_path = root / relative
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -389,7 +473,7 @@ class AcceptanceToolTests(unittest.TestCase):
                     criterion_id="PROC-1",
                     artifact_kind="process-census",
                     source_commit="a" * 40,
-                    artifact_pids=[1001, 1002, 1003],
+                    artifact_pids=[1001, 1002, 1003, 1004],
                     commands=[["collect-census"]],
                     expected_pass=True,
                 )
@@ -402,7 +486,7 @@ class AcceptanceToolTests(unittest.TestCase):
                 criterion_id="PROC-1",
                 command=["collect-allocations"],
                 timestamp="2026-07-17T12:00:00Z",
-                pids=[1001, 1002, 1003],
+                pids=[1001, 1002, 1003, 1004],
             )
             receipt_path = root / relative
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -415,7 +499,7 @@ class AcceptanceToolTests(unittest.TestCase):
                     criterion_id="PROC-1",
                     artifact_kind="process-census",
                     source_commit="a" * 40,
-                    artifact_pids=[1001, 1002, 1003],
+                    artifact_pids=[1001, 1002, 1003, 1004],
                     commands=[["collect-allocations"]],
                     expected_pass=True,
                 )
@@ -428,7 +512,7 @@ class AcceptanceToolTests(unittest.TestCase):
                 criterion_id="PROC-1",
                 command=["collect-census"],
                 timestamp="2026-07-17T12:00:00Z",
-                pids=[1001, 1002, 1003],
+                pids=[1001, 1002, 1003, 1004],
             )
             acceptance.validate_evidence_receipt(
                 receipt_path=root / relative,
@@ -436,9 +520,11 @@ class AcceptanceToolTests(unittest.TestCase):
                 criterion_id="PROC-1",
                 artifact_kind="process-census",
                 source_commit="a" * 40,
-                artifact_pids=[1001, 1002, 1003],
+                artifact_pids=[1001, 1002, 1003, 1004],
                 commands=[["collect-census"]],
                 expected_pass=True,
+                bound_processes=proc1_bound_processes([1001, 1002, 1003, 1004]),
+                backend_socket="/tmp/test-cmux-backend.sock",
             )
 
     def test_proc1_census_requires_only_backend_to_own_pty_masters(self) -> None:
@@ -449,24 +535,30 @@ class AcceptanceToolTests(unittest.TestCase):
                 criterion_id="PROC-1",
                 command=["collect-census"],
                 timestamp="2026-07-17T12:00:00Z",
-                pids=[1001, 1002, 1003],
+                pids=[1001, 1002, 1003, 1004],
             )
             payload = root / "proc-1-process-census-raw.json"
             raw = json.loads(payload.read_text(encoding="utf-8"))
 
-            raw["records"][1]["pty_master_fds"] = []
+            raw["records"][1]["pty_masters"] = []
             payload.write_text(json.dumps(raw), encoding="utf-8")
             metrics = acceptance.derive_payload_metrics(
                 "PROC-1", "process-census", payload, "missing backend PTY ownership"
             )
             assert metrics is not None
-            with self.assertRaisesRegex(acceptance.AcceptanceError, "backend must own"):
+            with self.assertRaisesRegex(
+                acceptance.AcceptanceError, "unmatched_shell_tty_count must be zero"
+            ):
                 acceptance.validate_metric_invariants(
                     "PROC-1", "process-census", metrics, "missing backend PTY ownership"
                 )
 
-            raw["records"][1]["pty_master_fds"] = ["4:/dev/ptmx"]
-            raw["records"][2]["pty_master_fds"] = ["9:/dev/ptmx"]
+            raw["records"][1]["pty_masters"] = [
+                {"fd": "4u", "name": "/dev/ptmx", "raw_device": "0xf00002a"}
+            ]
+            raw["records"][2]["pty_masters"] = [
+                {"fd": "9u", "name": "/dev/ptmx", "raw_device": "0xf00002b"}
+            ]
             payload.write_text(json.dumps(raw), encoding="utf-8")
             metrics = acceptance.derive_payload_metrics(
                 "PROC-1", "process-census", payload, "renderer PTY ownership"
@@ -478,6 +570,262 @@ class AcceptanceToolTests(unittest.TestCase):
             ):
                 acceptance.validate_metric_invariants(
                     "PROC-1", "process-census", metrics, "renderer PTY ownership"
+                )
+
+    def test_proc1_census_rejects_forged_shell_parent_and_tty(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            create_process_census_receipt(
+                root,
+                criterion_id="PROC-1",
+                command=["collect-census"],
+                timestamp="2026-07-17T12:00:00Z",
+                pids=[1001, 1002, 1003, 1004],
+            )
+            payload = root / "proc-1-process-census-raw.json"
+            raw = json.loads(payload.read_text(encoding="utf-8"))
+            raw["records"][3]["parent_pid"] = 9999
+            raw["records"][3]["protocol_tty"] = "/dev/ttys099"
+            payload.write_text(json.dumps(raw), encoding="utf-8")
+            metrics = acceptance.derive_payload_metrics(
+                "PROC-1", "process-census", payload, "forged shell relationship"
+            )
+            assert metrics is not None
+            self.assertEqual(metrics["shell_parent_mismatch_count"], 1)
+            self.assertEqual(metrics["shell_controlling_tty_mismatch_count"], 1)
+            with self.assertRaisesRegex(
+                acceptance.AcceptanceError, "must be zero"
+            ):
+                acceptance.validate_metric_invariants(
+                    "PROC-1", "process-census", metrics, "forged shell relationship"
+                )
+
+    def test_proc1_census_rejects_duplicate_device_minors(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            create_process_census_receipt(
+                root,
+                criterion_id="PROC-1",
+                command=["collect-census"],
+                timestamp="2026-07-17T12:00:00Z",
+                pids=[1001, 1002, 1003, 1004],
+            )
+            payload = root / "proc-1-process-census-raw.json"
+            raw = json.loads(payload.read_text(encoding="utf-8"))
+            raw["records"][1]["pty_masters"].append(
+                {"fd": "5u", "name": "/dev/ptmx", "raw_device": "0xf00002a"}
+            )
+            payload.write_text(json.dumps(raw), encoding="utf-8")
+            metrics = acceptance.derive_payload_metrics(
+                "PROC-1", "process-census", payload, "duplicate master minor"
+            )
+            assert metrics is not None
+            self.assertEqual(metrics["duplicate_backend_pty_minor_count"], 1)
+            self.assertEqual(metrics["backend_pty_relation_count"], 0)
+            with self.assertRaisesRegex(
+                acceptance.AcceptanceError, "must be zero"
+            ):
+                acceptance.validate_metric_invariants(
+                    "PROC-1", "process-census", metrics, "duplicate master minor"
+                )
+
+    def test_proc1_census_requires_distinct_master_and_slave_majors(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            create_process_census_receipt(
+                root,
+                criterion_id="PROC-1",
+                command=["collect-census"],
+                timestamp="2026-07-17T12:00:00Z",
+                pids=[1001, 1002, 1003, 1004],
+            )
+            payload = root / "proc-1-process-census-raw.json"
+            raw = json.loads(payload.read_text(encoding="utf-8"))
+            raw["records"][1]["pty_masters"][0]["raw_device"] = "0x1000002a"
+            payload.write_text(json.dumps(raw), encoding="utf-8")
+            metrics = acceptance.derive_payload_metrics(
+                "PROC-1", "process-census", payload, "same master and slave major"
+            )
+            assert metrics is not None
+            self.assertEqual(metrics["backend_pty_relation_count"], 0)
+            with self.assertRaisesRegex(acceptance.AcceptanceError, "must be zero"):
+                acceptance.validate_metric_invariants(
+                    "PROC-1", "process-census", metrics, "same master and slave major"
+                )
+
+    def test_proc1_census_rejects_duplicate_shell_pid(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            create_process_census_receipt(
+                root,
+                criterion_id="PROC-1",
+                command=["collect-census"],
+                timestamp="2026-07-17T12:00:00Z",
+                pids=[1001, 1002, 1003, 1004],
+            )
+            payload = root / "proc-1-process-census-raw.json"
+            raw = json.loads(payload.read_text(encoding="utf-8"))
+            duplicate = dict(raw["records"][3])
+            duplicate["surface_handle"] = 42
+            duplicate["terminal_id"] = "55555555-5555-4555-8555-555555555555"
+            raw["records"].append(duplicate)
+            payload.write_text(json.dumps(raw), encoding="utf-8")
+            with self.assertRaisesRegex(acceptance.AcceptanceError, "repeats process PID 1004"):
+                acceptance.derive_payload_metrics(
+                    "PROC-1", "process-census", payload, "duplicate shell PID"
+                )
+
+    def test_proc1_census_rejects_duplicate_shell_tty(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            create_process_census_receipt(
+                root,
+                criterion_id="PROC-1",
+                command=["collect-census"],
+                timestamp="2026-07-17T12:00:00Z",
+                pids=[1001, 1002, 1003, 1004],
+            )
+            payload = root / "proc-1-process-census-raw.json"
+            raw = json.loads(payload.read_text(encoding="utf-8"))
+            terminal_id = "55555555-5555-4555-8555-555555555555"
+            raw["context"]["terminal_inventory"].append(
+                {
+                    "surface_handle": 42,
+                    "terminal_id": terminal_id,
+                    "workspace_id": "44444444-4444-4444-8444-444444444444",
+                    "dead": False,
+                    "runtime": "local",
+                }
+            )
+            duplicate = dict(raw["records"][3])
+            duplicate.update(pid=1005, surface_handle=42, terminal_id=terminal_id)
+            raw["records"].append(duplicate)
+            payload.write_text(json.dumps(raw), encoding="utf-8")
+            metrics = acceptance.derive_payload_metrics(
+                "PROC-1", "process-census", payload, "duplicate shell TTY"
+            )
+            assert metrics is not None
+            self.assertEqual(metrics["duplicate_shell_tty_minor_count"], 1)
+            with self.assertRaisesRegex(
+                acceptance.AcceptanceError, "must be zero"
+            ):
+                acceptance.validate_metric_invariants(
+                    "PROC-1", "process-census", metrics, "duplicate shell TTY"
+                )
+
+    def test_proc1_census_rejects_unproven_live_terminal(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            create_process_census_receipt(
+                root,
+                criterion_id="PROC-1",
+                command=["collect-census"],
+                timestamp="2026-07-17T12:00:00Z",
+                pids=[1001, 1002, 1003, 1004],
+            )
+            payload = root / "proc-1-process-census-raw.json"
+            raw = json.loads(payload.read_text(encoding="utf-8"))
+            raw["context"]["terminal_inventory"].append(
+                {
+                    "surface_handle": 42,
+                    "terminal_id": "55555555-5555-4555-8555-555555555555",
+                    "workspace_id": "44444444-4444-4444-8444-444444444444",
+                    "dead": False,
+                    "runtime": "local",
+                }
+            )
+            payload.write_text(json.dumps(raw), encoding="utf-8")
+            metrics = acceptance.derive_payload_metrics(
+                "PROC-1", "process-census", payload, "unproven live terminal"
+            )
+            assert metrics is not None
+            self.assertEqual(metrics["unproven_terminal_surface_count"], 1)
+            with self.assertRaisesRegex(
+                acceptance.AcceptanceError, "unproven_terminal_surface_count must be zero"
+            ):
+                acceptance.validate_metric_invariants(
+                    "PROC-1", "process-census", metrics, "unproven live terminal"
+                )
+
+    def test_proc1_census_rejects_noncanonical_ids_and_duplicate_surface_handles(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            create_process_census_receipt(
+                root,
+                criterion_id="PROC-1",
+                command=["collect-census"],
+                timestamp="2026-07-17T12:00:00Z",
+                pids=[1001, 1002, 1003, 1004],
+            )
+            payload = root / "proc-1-process-census-raw.json"
+            raw = json.loads(payload.read_text(encoding="utf-8"))
+            terminal = raw["context"]["terminal_inventory"][0]
+            terminal["terminal_id"] = "33333333-3333-4333-8333-33333333333A"
+            payload.write_text(json.dumps(raw), encoding="utf-8")
+            with self.assertRaisesRegex(acceptance.AcceptanceError, "canonical non-nil UUID"):
+                acceptance.derive_payload_metrics(
+                    "PROC-1", "process-census", payload, "noncanonical terminal ID"
+                )
+
+            terminal["terminal_id"] = "33333333-3333-4333-8333-333333333333"
+            raw["context"]["terminal_inventory"].append(
+                {
+                    "surface_handle": terminal["surface_handle"],
+                    "terminal_id": "55555555-5555-4555-8555-555555555555",
+                    "workspace_id": terminal["workspace_id"],
+                    "dead": False,
+                    "runtime": "local",
+                }
+            )
+            payload.write_text(json.dumps(raw), encoding="utf-8")
+            with self.assertRaisesRegex(acceptance.AcceptanceError, "repeats a terminal identity"):
+                acceptance.derive_payload_metrics(
+                    "PROC-1", "process-census", payload, "duplicate surface handle"
+                )
+
+    def test_proc1_census_binding_covers_shell_and_exact_socket(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            create_process_census_receipt(
+                root,
+                criterion_id="PROC-1",
+                command=["collect-census"],
+                timestamp="2026-07-17T12:00:00Z",
+                pids=[1001, 1002, 1003, 1004],
+            )
+            payload = root / "proc-1-process-census-raw.json"
+            metrics = acceptance.derive_payload_metrics(
+                "PROC-1", "process-census", payload, "bound process census"
+            )
+            assert metrics is not None
+            bound = proc1_bound_processes([1001, 1002, 1003, 1004])
+            with self.assertRaisesRegex(acceptance.AcceptanceError, "observed process set"):
+                acceptance.validate_proc1_process_census_binding(
+                    primary_payload=payload,
+                    metrics=metrics,
+                    artifact_pids=[1001, 1002, 1003],
+                    bound_processes=bound,
+                    expected_backend_socket="/tmp/test-cmux-backend.sock",
+                    label="omitted shell",
+                )
+            with self.assertRaisesRegex(acceptance.AcceptanceError, "socket differs"):
+                acceptance.validate_proc1_process_census_binding(
+                    primary_payload=payload,
+                    metrics=metrics,
+                    artifact_pids=[1001, 1002, 1003, 1004],
+                    bound_processes=bound,
+                    expected_backend_socket="/tmp/another.sock",
+                    label="wrong socket",
+                )
+            bound[1004]["executable_sha256"] = "f" * 64
+            with self.assertRaisesRegex(acceptance.AcceptanceError, "manifest binding"):
+                acceptance.validate_proc1_process_census_binding(
+                    primary_payload=payload,
+                    metrics=metrics,
+                    artifact_pids=[1001, 1002, 1003, 1004],
+                    bound_processes=bound,
+                    expected_backend_socket="/tmp/test-cmux-backend.sock",
+                    label="forged shell hash",
                 )
 
     def test_host_attestation_is_recomputed_for_the_manifest_app(self) -> None:
@@ -1510,6 +1858,211 @@ func consumeBrowserPTY() {
             ]
         )
         self.assertEqual(acceptance.parse_lsof_pty_masters(output), ["3:/dev/ptmx"])
+
+        detailed = "\n".join(
+            [
+                "p42",
+                "f3u",
+                "tCHR",
+                "r0xf00002a",
+                "n/dev/ptmx",
+                "f4u",
+                "tCHR",
+                "r0x1000002a",
+                "n/dev/ttys042",
+                "f5r",
+                "tREG",
+                "r0x0",
+                "n/tmp/file",
+            ]
+        )
+        devices = acceptance.parse_lsof_character_devices(detailed)
+        self.assertEqual(
+            devices,
+            [
+                {"fd": "3u", "name": "/dev/ptmx", "raw_device": "0xf00002a"},
+                {"fd": "4u", "name": "/dev/ttys042", "raw_device": "0x1000002a"},
+            ],
+        )
+        self.assertEqual(
+            acceptance._darwin_device_identity(int(devices[0]["raw_device"], 16))[1],
+            acceptance._darwin_device_identity(int(devices[1]["raw_device"], 16))[1],
+        )
+
+    def test_process_census_collector_uses_exact_socket_and_proves_live_relation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            app = root / "cmux.app"
+            host = app / "Contents/MacOS/cmux"
+            backend = app / "Contents/Resources/bin/cmux-terminal-backend"
+            renderer = app / "Contents/Resources/bin/cmux-terminal-renderer"
+            shell = root / "zsh"
+            for path, contents in (
+                (host, b"host"),
+                (backend, b"backend"),
+                (renderer, b"renderer"),
+                (shell, b"shell"),
+            ):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(contents)
+
+            timestamp = "2026-07-18T12:00:00Z"
+            manifest = self.base_manifest()
+            manifest["build"]["app_path"] = str(app)
+            manifest["build"]["executables"] = [
+                {
+                    "role": "swift-host",
+                    "path": "Contents/MacOS/cmux",
+                    "sha256": acceptance.sha256_file(host),
+                },
+                {
+                    "role": "terminal-backend",
+                    "path": "Contents/Resources/bin/cmux-terminal-backend",
+                    "sha256": acceptance.sha256_file(backend),
+                },
+                {
+                    "role": "renderer-worker",
+                    "path": "Contents/Resources/bin/cmux-terminal-renderer",
+                    "sha256": acceptance.sha256_file(renderer),
+                },
+            ]
+            process_paths = {1001: host, 1002: backend, 1003: renderer, 1004: shell}
+            manifest["processes"] = [
+                {
+                    "role": role,
+                    "build_role": build_role,
+                    "pid": pid,
+                    "started_at": timestamp,
+                    "executable_path": str(process_paths[pid]),
+                    "executable_sha256": acceptance.sha256_file(process_paths[pid]),
+                }
+                for role, build_role, pid in (
+                    ("swift-host", "swift-host", 1001),
+                    ("terminal-backend", "terminal-backend", 1002),
+                    ("renderer-worker", "renderer-worker", 1003),
+                    ("terminal-shell", None, 1004),
+                )
+            ]
+            manifest_path = root / "manifest.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            identity = {
+                "app": "cmux-tui",
+                "pid": 1002,
+                "protocol": 9,
+                "session_id": "11111111-1111-4111-8111-111111111111",
+                "daemon_instance_id": "22222222-2222-4222-8222-222222222222",
+                "topology_revision": 7,
+                "canonical_topology_revision": 5,
+            }
+            tree = {
+                "workspaces": [
+                    {
+                        "uuid": "44444444-4444-4444-8444-444444444444",
+                        "screens": [
+                            {
+                                "panes": [
+                                    {
+                                        "tabs": [
+                                            {
+                                                "kind": "pty",
+                                                "surface": 41,
+                                                "uuid": "33333333-3333-4333-8333-333333333333",
+                                                "dead": False,
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ],
+                    }
+                ]
+            }
+            calls: list[tuple[str, tuple[str, ...]]] = []
+
+            def backend_cli(
+                executable: pathlib.Path, socket_path: str, arguments: list[str]
+            ) -> dict[str, object]:
+                self.assertEqual(executable, backend.resolve())
+                self.assertEqual(socket_path, manifest["build"]["backend_socket"])
+                calls.append((socket_path, tuple(arguments)))
+                if arguments == ["identify"]:
+                    return identity
+                if arguments == ["list-workspaces"]:
+                    return tree
+                if arguments == ["process-info", "--surface", "41"]:
+                    return {"pid": 1004, "tty": "/dev/ttys042"}
+                self.fail(f"unexpected backend CLI call: {arguments}")
+
+            real_stat = os.stat
+
+            def stat(path: object, *args: object, **kwargs: object) -> os.stat_result | mock.Mock:
+                if str(path) == "/dev/ttys042":
+                    return mock.Mock(st_rdev=0x1000002A)
+                return real_stat(path, *args, **kwargs)
+
+            def devices(pid: int) -> list[dict[str, str]]:
+                if pid == 1002:
+                    return [{"fd": "4u", "name": "/dev/ptmx", "raw_device": "0xf00002a"}]
+                if pid == 1004:
+                    return [
+                        {"fd": "0u", "name": "/dev/ttys042", "raw_device": "0x1000002a"}
+                    ]
+                return []
+
+            with mock.patch.object(
+                acceptance.platform, "system", return_value="Darwin"
+            ), mock.patch.object(
+                acceptance,
+                "assert_clean_source",
+                return_value=("a" * 40, {"ghostty": "b" * 40}),
+            ), mock.patch.object(
+                acceptance, "process_started_at", return_value=timestamp
+            ), mock.patch.object(
+                acceptance,
+                "process_executable",
+                side_effect=lambda pid: process_paths[pid],
+            ), mock.patch.object(
+                acceptance, "lsof_character_devices", side_effect=devices
+            ), mock.patch.object(
+                acceptance, "process_parent_pid", return_value=1002
+            ), mock.patch.object(
+                acceptance, "process_controlling_tty", return_value="/dev/ttys042"
+            ), mock.patch.object(
+                acceptance, "_backend_cli_json", side_effect=backend_cli
+            ), mock.patch.object(
+                acceptance.os, "stat", side_effect=stat
+            ), mock.patch.object(
+                acceptance,
+                "utc_now",
+                side_effect=["2026-07-18T12:00:00Z", "2026-07-18T12:00:01Z"],
+            ):
+                output = acceptance.collect_process_census(
+                    argparse.Namespace(
+                        manifest=manifest_path,
+                        output="proc-1/process-census-raw.json",
+                        replace=False,
+                    )
+                )
+
+            self.assertEqual(
+                [arguments for _, arguments in calls],
+                [
+                    ("identify",),
+                    ("list-workspaces",),
+                    ("process-info", "--surface", "41"),
+                    ("identify",),
+                ],
+            )
+            metrics = acceptance.derive_payload_metrics(
+                "PROC-1", "process-census", output, "collected process census"
+            )
+            assert metrics is not None
+            acceptance.validate_metric_invariants(
+                "PROC-1", "process-census", metrics, "collected process census"
+            )
+            self.assertEqual(metrics["backend_pty_relation_count"], 1)
+            self.assertEqual(metrics["terminal_shell_count"], 1)
 
     def test_derive_receipt_writes_only_repository_derived_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

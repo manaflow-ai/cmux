@@ -19,6 +19,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import uuid
 import xml.etree.ElementTree as ET
 import zlib
 from typing import Any, Sequence
@@ -523,6 +524,26 @@ TERMINAL_RENDER_SYMBOL_FRAGMENTS = (
 )
 
 CRITERION_REQUIRED_METRICS: dict[tuple[str, str], set[str]] = {
+    ("PROC-1", "process-census"): {
+        "backend_daemon_instance_id",
+        "backend_pty_relation_count",
+        "backend_session_id",
+        "dead_terminal_surface_count",
+        "duplicate_backend_pty_minor_count",
+        "duplicate_shell_tty_minor_count",
+        "external_terminal_surface_count",
+        "local_terminal_surface_count",
+        "observed_pid_set_sha256",
+        "protocol_backend_pid_mismatch_count",
+        "protocol_snapshot_mismatch_count",
+        "protocol_sample_count",
+        "shell_controlling_tty_mismatch_count",
+        "shell_parent_mismatch_count",
+        "terminal_shell_count",
+        "unproven_terminal_surface_count",
+        "unmatched_backend_pty_master_count",
+        "unmatched_shell_tty_count",
+    },
     # The latency artifact contains only branch-run measurements. Baseline p95
     # and improvement are derived across both independently hashed artifacts.
     ("PERF-1", "latency-distribution"): set(),
@@ -568,6 +589,16 @@ ZERO_ON_PASS_METRICS = {
     "state_mutation_count",
     "swift_pty_master_count",
     "renderer_pty_master_count",
+    "duplicate_backend_pty_minor_count",
+    "duplicate_shell_tty_minor_count",
+    "dead_terminal_surface_count",
+    "protocol_backend_pid_mismatch_count",
+    "protocol_snapshot_mismatch_count",
+    "shell_controlling_tty_mismatch_count",
+    "shell_parent_mismatch_count",
+    "unmatched_backend_pty_master_count",
+    "unmatched_shell_tty_count",
+    "unproven_terminal_surface_count",
     "forbidden_host_link_count",
     "dynamic_load_escape_count",
     "blocked_parser_count",
@@ -618,6 +649,10 @@ POSITIVE_ON_PASS_METRICS = {
     "swift_pid",
     "backend_pid",
     "renderer_pid_count",
+    "backend_pty_relation_count",
+    "local_terminal_surface_count",
+    "protocol_sample_count",
+    "terminal_shell_count",
     "request_count",
     "response_count",
     "distinct_canonical_sizes",
@@ -1169,8 +1204,25 @@ def validate_metric_invariants(
         if numeric_metric(metrics, "phase_provenance_count", label) != 4:
             raise AcceptanceError(f"{label} lacks per-phase live collector provenance")
     elif criterion_id == "PROC-1" and artifact_kind == "process-census":
-        if numeric_metric(metrics, "backend_pty_master_count", label) < 1:
-            raise AcceptanceError(f"{label} backend must own at least one live PTY master")
+        shell_count = numeric_metric(metrics, "terminal_shell_count", label)
+        local_terminal_count = numeric_metric(metrics, "local_terminal_surface_count", label)
+        backend_master_count = numeric_metric(metrics, "backend_pty_master_count", label)
+        relation_count = numeric_metric(metrics, "backend_pty_relation_count", label)
+        if shell_count < 1:
+            raise AcceptanceError(f"{label} must sample at least one live terminal shell")
+        if not (
+            shell_count
+            == local_terminal_count
+            == backend_master_count
+            == relation_count
+        ):
+            raise AcceptanceError(
+                f"{label} must prove one backend PTY master per live terminal shell"
+            )
+        if numeric_metric(metrics, "protocol_sample_count", label) != 2:
+            raise AcceptanceError(f"{label} must bracket collection with two protocol samples")
+        for name in ("backend_session_id", "backend_daemon_instance_id"):
+            _raw_string(metrics.get(name), f"{label} metric {name}")
     elif criterion_id == "FLOW-1" and artifact_kind == "queue-metrics":
         if numeric_metric(metrics, "maximum_retained_bytes", label) > numeric_metric(
             metrics, "retained_byte_budget", label
@@ -2442,6 +2494,366 @@ def _raw_number(value: Any, label: str, *, minimum: float = 0) -> float:
     return converted
 
 
+PROC1_PROCESS_CENSUS_SCHEMA = "proc-1-process-census-v2"
+
+
+def _raw_uuid(value: Any, label: str) -> str:
+    raw = _raw_string(value, label)
+    try:
+        parsed = uuid.UUID(raw)
+    except ValueError as error:
+        raise AcceptanceError(f"{label} must be a UUID") from error
+    if parsed.int == 0 or str(parsed) != raw:
+        raise AcceptanceError(f"{label} must be a canonical non-nil UUID")
+    return raw
+
+
+def _raw_device_number(value: Any, label: str) -> int:
+    raw = _raw_string(value, label)
+    if re.fullmatch(r"0x[0-9a-f]+", raw) is None:
+        raise AcceptanceError(f"{label} must be a canonical lowercase hexadecimal dev_t")
+    return int(raw, 16)
+
+
+def _darwin_device_identity(raw_device: int) -> tuple[int, int]:
+    """Decode Darwin's stable 8-bit-major/24-bit-minor dev_t ABI."""
+    return ((raw_device >> 24) & 0xFF, raw_device & 0x00FF_FFFF)
+
+
+def _raw_fd_device(
+    value: Any,
+    label: str,
+    *,
+    require_master: bool,
+) -> tuple[str, str, int]:
+    record = _raw_dict(value, label)
+    if set(record) != {"fd", "name", "raw_device"}:
+        raise AcceptanceError(f"{label} keys differ from the FD-device schema")
+    descriptor = _raw_string(record.get("fd"), f"{label} fd")
+    if re.fullmatch(r"[0-9]+[A-Za-z]*", descriptor) is None:
+        raise AcceptanceError(f"{label} has an invalid file descriptor")
+    name = _raw_string(record.get("name"), f"{label} name")
+    if require_master:
+        basename = pathlib.PurePosixPath(name).name
+        if name != "/dev/ptmx" and re.fullmatch(
+            r"pty[p-sP-S][0-9a-vA-V]", basename
+        ) is None:
+            raise AcceptanceError(f"{label} is not a PTY master")
+    elif re.fullmatch(r"/dev/tty[A-Za-z0-9._-]+", name) is None:
+        raise AcceptanceError(f"{label} is not a PTY slave")
+    raw_device = _raw_device_number(record.get("raw_device"), f"{label} raw_device")
+    return descriptor, name, raw_device
+
+
+def _derive_proc1_process_census_metrics(
+    context: dict[str, Any],
+    records: list[Any],
+    label: str,
+) -> dict[str, Any]:
+    expected_context_keys = {
+        "semantic_schema",
+        "backend_socket",
+        "captured_at_before",
+        "captured_at_after",
+        "identity_before",
+        "identity_after",
+        "terminal_inventory",
+    }
+    if set(context) != expected_context_keys:
+        raise AcceptanceError(f"{label} PROC-1 context keys differ from schema")
+    if context.get("semantic_schema") != PROC1_PROCESS_CENSUS_SCHEMA:
+        raise AcceptanceError(f"{label} PROC-1 semantic schema is unsupported")
+    backend_socket = _raw_string(context.get("backend_socket"), f"{label} backend socket")
+    if not pathlib.PurePosixPath(backend_socket).is_absolute():
+        raise AcceptanceError(f"{label} backend socket must be absolute")
+    captured_before = parse_timestamp(
+        context.get("captured_at_before"), f"{label} captured_at_before"
+    )
+    captured_after = parse_timestamp(
+        context.get("captured_at_after"), f"{label} captured_at_after"
+    )
+    if captured_after <= captured_before:
+        raise AcceptanceError(f"{label} process census timestamps are not chronological")
+
+    identity_keys = {
+        "pid",
+        "protocol",
+        "session_id",
+        "daemon_instance_id",
+        "topology_revision",
+        "canonical_topology_revision",
+    }
+
+    def parse_backend_identity(value: Any, identity_label: str) -> dict[str, Any]:
+        identity = _raw_dict(value, identity_label)
+        if set(identity) != identity_keys:
+            raise AcceptanceError(f"{identity_label} keys differ from schema")
+        return {
+            "pid": _raw_int(identity.get("pid"), f"{identity_label} pid", minimum=1),
+            "protocol": _raw_int(
+                identity.get("protocol"), f"{identity_label} protocol", minimum=1
+            ),
+            "session_id": _raw_uuid(
+                identity.get("session_id"), f"{identity_label} session_id"
+            ),
+            "daemon_instance_id": _raw_uuid(
+                identity.get("daemon_instance_id"),
+                f"{identity_label} daemon_instance_id",
+            ),
+            "topology_revision": _raw_int(
+                identity.get("topology_revision"),
+                f"{identity_label} topology_revision",
+            ),
+            "canonical_topology_revision": _raw_int(
+                identity.get("canonical_topology_revision"),
+                f"{identity_label} canonical_topology_revision",
+            ),
+        }
+
+    identity_before = parse_backend_identity(
+        context.get("identity_before"), f"{label} identity_before"
+    )
+    identity_after = parse_backend_identity(
+        context.get("identity_after"), f"{label} identity_after"
+    )
+    snapshot_mismatches = sum(
+        identity_before[name] != identity_after[name] for name in identity_keys
+    )
+
+    inventory = context.get("terminal_inventory")
+    if not isinstance(inventory, list):
+        raise AcceptanceError(f"{label} terminal inventory must be an array")
+    parsed_inventory: dict[tuple[int, str, str], str] = {}
+    surface_handles: set[int] = set()
+    terminal_ids: set[str] = set()
+    dead_terminal_count = 0
+    for index, raw_item in enumerate(inventory):
+        item_label = f"{label} terminal inventory {index}"
+        item = _raw_dict(raw_item, item_label)
+        if set(item) != {
+            "surface_handle",
+            "terminal_id",
+            "workspace_id",
+            "dead",
+            "runtime",
+        }:
+            raise AcceptanceError(f"{item_label} keys differ from schema")
+        surface_handle = _raw_int(
+            item.get("surface_handle"), f"{item_label} surface_handle", minimum=1
+        )
+        terminal_id = _raw_uuid(item.get("terminal_id"), f"{item_label} terminal_id")
+        workspace_id = _raw_uuid(item.get("workspace_id"), f"{item_label} workspace_id")
+        dead = _raw_bool(item.get("dead"), f"{item_label} dead")
+        runtime = _raw_string(item.get("runtime"), f"{item_label} runtime")
+        if runtime not in {"local", "external"}:
+            raise AcceptanceError(f"{item_label} has an unknown terminal runtime")
+        identity = (surface_handle, terminal_id, workspace_id)
+        if (
+            identity in parsed_inventory
+            or surface_handle in surface_handles
+            or terminal_id in terminal_ids
+        ):
+            raise AcceptanceError(f"{label} repeats a terminal identity")
+        parsed_inventory[identity] = runtime
+        surface_handles.add(surface_handle)
+        terminal_ids.add(terminal_id)
+        dead_terminal_count += int(dead)
+
+    roles: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
+    process_by_pid: dict[int, dict[str, Any]] = {}
+    master_devices_by_role: dict[str, list[int]] = collections.defaultdict(list)
+    shell_tty_devices: list[int] = []
+    shell_terminal_identities: set[tuple[int, str, str]] = set()
+    shell_parent_mismatches = 0
+    shell_tty_mismatches = 0
+    for index, raw_record in enumerate(records):
+        record_label = f"{label} process {index}"
+        record = _raw_dict(raw_record, record_label)
+        role = _raw_string(record.get("role"), f"{record_label} role")
+        pid = _raw_int(record.get("pid"), f"{record_label} pid", minimum=1)
+        if pid in process_by_pid:
+            raise AcceptanceError(f"{label} repeats process PID {pid}")
+        started_at = _raw_string(record.get("started_at"), f"{record_label} started_at")
+        parse_timestamp(started_at, f"{record_label} started_at")
+        executable_sha256 = _raw_string(
+            record.get("executable_sha256"), f"{record_label} executable hash"
+        )
+        expect_sha256(executable_sha256, f"{record_label} executable hash")
+
+        if role == "terminal-shell":
+            expected_keys = {
+                "role",
+                "pid",
+                "started_at",
+                "executable_sha256",
+                "parent_pid",
+                "surface_handle",
+                "terminal_id",
+                "workspace_id",
+                "protocol_tty",
+                "kernel_controlling_tty",
+                "kernel_tty_raw_device",
+                "tty_fds",
+            }
+            if set(record) != expected_keys:
+                raise AcceptanceError(f"{record_label} shell identity keys differ from schema")
+            parent_pid = _raw_int(
+                record.get("parent_pid"), f"{record_label} parent_pid", minimum=1
+            )
+            surface_handle = _raw_int(
+                record.get("surface_handle"),
+                f"{record_label} surface_handle",
+                minimum=1,
+            )
+            terminal_id = _raw_uuid(
+                record.get("terminal_id"), f"{record_label} terminal_id"
+            )
+            workspace_id = _raw_uuid(
+                record.get("workspace_id"), f"{record_label} workspace_id"
+            )
+            terminal_identity = (surface_handle, terminal_id, workspace_id)
+            if terminal_identity in shell_terminal_identities:
+                raise AcceptanceError(f"{label} repeats a terminal shell binding")
+            shell_terminal_identities.add(terminal_identity)
+            protocol_tty = _raw_string(
+                record.get("protocol_tty"), f"{record_label} protocol_tty"
+            )
+            kernel_tty = _raw_string(
+                record.get("kernel_controlling_tty"),
+                f"{record_label} kernel_controlling_tty",
+            )
+            for tty_name, tty_label in (
+                (protocol_tty, "protocol_tty"),
+                (kernel_tty, "kernel_controlling_tty"),
+            ):
+                if re.fullmatch(r"/dev/tty[A-Za-z0-9._-]+", tty_name) is None:
+                    raise AcceptanceError(f"{record_label} {tty_label} is not a PTY slave")
+            raw_tty_device = _raw_device_number(
+                record.get("kernel_tty_raw_device"),
+                f"{record_label} kernel_tty_raw_device",
+            )
+            tty_fds = record.get("tty_fds")
+            if not isinstance(tty_fds, list):
+                raise AcceptanceError(f"{record_label} tty_fds must be an array")
+            parsed_tty_fds = [
+                _raw_fd_device(value, f"{record_label} tty fd {fd_index}", require_master=False)
+                for fd_index, value in enumerate(tty_fds)
+            ]
+            has_kernel_tty_fd = any(
+                name == kernel_tty and raw_device == raw_tty_device
+                for _, name, raw_device in parsed_tty_fds
+            )
+            shell_tty_mismatches += int(
+                protocol_tty != kernel_tty or not has_kernel_tty_fd
+            )
+            shell_parent_mismatches += int(parent_pid != identity_before["pid"])
+            shell_tty_devices.append(raw_tty_device)
+        else:
+            if role not in {"swift-host", "terminal-backend", "renderer-worker"}:
+                raise AcceptanceError(f"{record_label} has an unknown process role")
+            if set(record) != {
+                "role",
+                "pid",
+                "started_at",
+                "executable_sha256",
+                "pty_masters",
+            }:
+                raise AcceptanceError(f"{record_label} process identity keys differ from schema")
+            masters = record.get("pty_masters")
+            if not isinstance(masters, list):
+                raise AcceptanceError(f"{record_label} pty_masters must be an array")
+            parsed_masters = [
+                _raw_fd_device(
+                    value,
+                    f"{record_label} PTY master {master_index}",
+                    require_master=True,
+                )
+                for master_index, value in enumerate(masters)
+            ]
+            descriptors = [descriptor for descriptor, _, _ in parsed_masters]
+            if len(descriptors) != len(set(descriptors)):
+                raise AcceptanceError(f"{record_label} repeats a PTY master descriptor")
+            master_devices_by_role[role].extend(
+                raw_device for _, _, raw_device in parsed_masters
+            )
+        process_by_pid[pid] = record
+        roles[role].append(record)
+
+    if len(roles["swift-host"]) != 1 or len(roles["terminal-backend"]) != 1:
+        raise AcceptanceError(f"{label} needs exactly one Swift host and backend")
+    if not roles["renderer-worker"]:
+        raise AcceptanceError(f"{label} needs at least one renderer worker")
+
+    backend_pid = roles["terminal-backend"][0]["pid"]
+    protocol_backend_pid_mismatches = sum(
+        identity["pid"] != backend_pid for identity in (identity_before, identity_after)
+    )
+    local_inventory = {
+        identity for identity, runtime in parsed_inventory.items() if runtime == "local"
+    }
+    external_inventory = {
+        identity for identity, runtime in parsed_inventory.items() if runtime == "external"
+    }
+    unproven_terminals = len(local_inventory.symmetric_difference(shell_terminal_identities))
+
+    backend_master_devices = master_devices_by_role["terminal-backend"]
+    backend_minor_counts = collections.Counter(
+        _darwin_device_identity(raw_device)[1] for raw_device in backend_master_devices
+    )
+    shell_minor_counts = collections.Counter(
+        _darwin_device_identity(raw_device)[1] for raw_device in shell_tty_devices
+    )
+    backend_major_by_minor = {
+        _darwin_device_identity(raw_device)[1]: _darwin_device_identity(raw_device)[0]
+        for raw_device in backend_master_devices
+    }
+    shell_major_by_minor = {
+        _darwin_device_identity(raw_device)[1]: _darwin_device_identity(raw_device)[0]
+        for raw_device in shell_tty_devices
+    }
+    duplicate_backend_minors = sum(max(0, count - 1) for count in backend_minor_counts.values())
+    duplicate_shell_minors = sum(max(0, count - 1) for count in shell_minor_counts.values())
+    relation_minors = {
+        minor
+        for minor in set(backend_minor_counts) | set(shell_minor_counts)
+        if backend_minor_counts[minor] == 1 and shell_minor_counts[minor] == 1
+        and backend_major_by_minor[minor] != shell_major_by_minor[minor]
+    }
+    unmatched_backend_masters = sum(
+        count for minor, count in backend_minor_counts.items() if minor not in relation_minors
+    )
+    unmatched_shell_ttys = sum(
+        count for minor, count in shell_minor_counts.items() if minor not in relation_minors
+    )
+
+    return {
+        "swift_pid": roles["swift-host"][0]["pid"],
+        "backend_pid": backend_pid,
+        "renderer_pid_count": len(roles["renderer-worker"]),
+        "swift_pty_master_count": len(master_devices_by_role["swift-host"]),
+        "backend_pty_master_count": len(backend_master_devices),
+        "renderer_pty_master_count": len(master_devices_by_role["renderer-worker"]),
+        "backend_daemon_instance_id": identity_before["daemon_instance_id"],
+        "backend_pty_relation_count": len(relation_minors),
+        "backend_session_id": identity_before["session_id"],
+        "dead_terminal_surface_count": dead_terminal_count,
+        "duplicate_backend_pty_minor_count": duplicate_backend_minors,
+        "duplicate_shell_tty_minor_count": duplicate_shell_minors,
+        "external_terminal_surface_count": len(external_inventory),
+        "local_terminal_surface_count": len(local_inventory),
+        "observed_pid_set_sha256": sha256_json(sorted(process_by_pid)),
+        "protocol_backend_pid_mismatch_count": protocol_backend_pid_mismatches,
+        "protocol_snapshot_mismatch_count": snapshot_mismatches,
+        "protocol_sample_count": 2,
+        "shell_controlling_tty_mismatch_count": shell_tty_mismatches,
+        "shell_parent_mismatch_count": shell_parent_mismatches,
+        "terminal_shell_count": len(roles["terminal-shell"]),
+        "unmatched_backend_pty_master_count": unmatched_backend_masters,
+        "unmatched_shell_tty_count": unmatched_shell_ttys,
+        "unproven_terminal_surface_count": unproven_terminals,
+    }
+
+
 def _percentile(samples: list[float], percentile: float) -> float:
     if not samples:
         raise AcceptanceError("latency artifact contains no samples")
@@ -3021,6 +3433,8 @@ def derive_structured_metrics(
             ),
         }
     if kind == "process-census":
+        if criterion_id == "PROC-1":
+            return _derive_proc1_process_census_metrics(context, records, label)
         roles: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
         process_by_pid: dict[int, dict[str, Any]] = {}
         for index, raw_record in enumerate(records):
@@ -3773,6 +4187,59 @@ def validate_restart_transcript_binding(
             )
 
 
+def validate_proc1_process_census_binding(
+    *,
+    primary_payload: pathlib.Path,
+    metrics: dict[str, Any],
+    artifact_pids: list[int],
+    bound_processes: dict[int, dict[str, Any]] | None,
+    expected_backend_socket: str | None,
+    label: str,
+) -> None:
+    if metrics["observed_pid_set_sha256"] != sha256_json(artifact_pids):
+        raise AcceptanceError(f"{label} PIDs differ from the observed process set")
+    if bound_processes is None:
+        raise AcceptanceError(f"{label} process identities are not manifest-bound")
+    context, records = load_raw_artifact(
+        primary_payload,
+        "process-census",
+        f"{label} raw process census",
+    )
+    if expected_backend_socket is None or context.get("backend_socket") != expected_backend_socket:
+        raise AcceptanceError(f"{label} socket differs from the manifest backend socket")
+    record_pids: list[int] = []
+    expected_build_roles = {
+        "swift-host": "swift-host",
+        "terminal-backend": "terminal-backend",
+        "renderer-worker": "renderer-worker",
+        "terminal-shell": None,
+    }
+    for index, raw_record in enumerate(records):
+        record = _raw_dict(raw_record, f"{label} process {index}")
+        role = record.get("role")
+        if role not in expected_build_roles:
+            raise AcceptanceError(f"{label} process {index} has an unknown role")
+        pid = record.get("pid")
+        if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+            raise AcceptanceError(f"{label} process {index} has an invalid PID")
+        record_pids.append(pid)
+        bound = bound_processes.get(pid)
+        if bound is None or (
+            bound.get("started_at") != record.get("started_at")
+            or bound.get("executable_sha256") != record.get("executable_sha256")
+            or bound.get("build_role") != expected_build_roles[role]
+        ):
+            raise AcceptanceError(
+                f"{label} {role} PID {pid} differs from its manifest binding"
+            )
+        if role == "terminal-shell" and bound.get("role") != "terminal-shell":
+            raise AcceptanceError(
+                f"{label} shell PID {pid} is not manifest-bound as terminal-shell"
+            )
+    if sorted(record_pids) != artifact_pids or len(record_pids) != len(set(record_pids)):
+        raise AcceptanceError(f"{label} receipt PIDs do not cover every process record exactly")
+
+
 def parse_timestamp(value: Any, label: str) -> dt.datetime:
     if not isinstance(value, str) or not value:
         raise AcceptanceError(f"{label} must be a non-empty date-time string")
@@ -4156,6 +4623,7 @@ def validate_evidence_receipt(
     bound_processes: dict[int, dict[str, Any]] | None = None,
     environment: dict[str, Any] | None = None,
     app_bundle: pathlib.Path | None = None,
+    backend_socket: str | None = None,
 ) -> str:
     if receipt_path.suffix.lower() != ".json":
         raise AcceptanceError(
@@ -4404,6 +4872,15 @@ def validate_evidence_receipt(
                     raise AcceptanceError(
                         f"PERF-2 process PID {pid} differs from its manifest-bound identity"
                     )
+        if criterion_id == "PROC-1" and artifact_kind == "process-census":
+            validate_proc1_process_census_binding(
+                primary_payload=primary_payload,
+                metrics=metrics,
+                artifact_pids=artifact_pids,
+                bound_processes=bound_processes,
+                expected_backend_socket=backend_socket,
+                label="PROC-1 process census",
+            )
         if criterion_id == "LIFE-1" and artifact_kind == "restart-transcript":
             validate_restart_transcript_binding(
                 primary_payload=primary_payload,
@@ -4452,8 +4929,189 @@ def parse_lsof_pty_masters(output: str) -> list[str]:
     return sorted(set(result))
 
 
+def parse_lsof_character_devices(output: str) -> list[dict[str, str]]:
+    """Parse character-device FD/name/dev_t triples from `lsof -F ftnr`."""
+    result: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+
+    def finish() -> None:
+        nonlocal current
+        if current is None:
+            return
+        if current.get("type") == "CHR" and {"fd", "name", "raw_device"} <= set(current):
+            raw_device = current["raw_device"].lower()
+            if re.fullmatch(r"0x[0-9a-f]+", raw_device) is None:
+                raise AcceptanceError(
+                    f"lsof returned a non-hexadecimal raw device for FD {current['fd']}"
+                )
+            result.append(
+                {
+                    "fd": current["fd"],
+                    "name": current["name"],
+                    "raw_device": hex(int(raw_device, 16)),
+                }
+            )
+        current = None
+
+    for line in output.splitlines():
+        if not line:
+            continue
+        field, value = line[0], line[1:]
+        if field == "f":
+            finish()
+            current = {"fd": value}
+        elif current is not None:
+            if field == "t":
+                current["type"] = value
+            elif field == "r":
+                current["raw_device"] = value
+            elif field == "n":
+                current["name"] = value
+    finish()
+    descriptors = [record["fd"] for record in result]
+    if len(descriptors) != len(set(descriptors)):
+        raise AcceptanceError("lsof repeated a character-device descriptor")
+    return result
+
+
+def lsof_character_devices(pid: int) -> list[dict[str, str]]:
+    output = run(["lsof", "-n", "-P", "-a", "-p", str(pid), "-F", "ftnr"])
+    return parse_lsof_character_devices(output)
+
+
+def process_parent_pid(pid: int) -> int:
+    raw = run(["ps", "-p", str(pid), "-o", "ppid="])
+    try:
+        parent = int(raw.strip())
+    except ValueError as error:
+        raise AcceptanceError(f"could not parse parent PID for {pid}: {raw!r}") from error
+    if parent <= 0:
+        raise AcceptanceError(f"process {pid} has no positive parent PID")
+    return parent
+
+
+def process_controlling_tty(pid: int) -> str:
+    raw = run(["ps", "-p", str(pid), "-o", "tty="]).strip()
+    if not raw or raw in {"?", "??", "-"}:
+        raise AcceptanceError(f"process {pid} has no kernel-visible controlling TTY")
+    path = raw if raw.startswith("/dev/") else f"/dev/{raw}"
+    if re.fullmatch(r"/dev/tty[A-Za-z0-9._-]+", path) is None:
+        raise AcceptanceError(f"process {pid} has an invalid controlling TTY: {raw!r}")
+    return path
+
+
+def _packaged_executable(manifest: dict[str, Any], role: str) -> pathlib.Path:
+    app = pathlib.Path(manifest["build"]["app_path"]).resolve()
+    matches = [
+        item
+        for item in manifest["build"]["executables"]
+        if isinstance(item, dict) and item.get("role") == role
+    ]
+    if len(matches) != 1:
+        raise AcceptanceError(f"manifest needs exactly one packaged {role} executable")
+    executable = (app / matches[0]["path"]).resolve()
+    try:
+        executable.relative_to(app)
+    except ValueError as error:
+        raise AcceptanceError(f"packaged {role} executable escapes the app") from error
+    if not executable.is_file() or sha256_file(executable) != matches[0]["sha256"]:
+        raise AcceptanceError(f"packaged {role} executable changed")
+    return executable
+
+
+def _backend_cli_json(
+    executable: pathlib.Path,
+    socket_path: str,
+    arguments: Sequence[str],
+) -> dict[str, Any]:
+    raw = run([str(executable), "--socket", socket_path, "--json", *arguments])
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise AcceptanceError(
+            f"backend CLI returned invalid JSON for {list(arguments)!r}: {error}"
+        ) from error
+    if not isinstance(value, dict):
+        raise AcceptanceError(f"backend CLI returned a non-object for {list(arguments)!r}")
+    return value
+
+
+def _backend_identity_sample(value: dict[str, Any], label: str) -> dict[str, Any]:
+    result = {
+        "pid": _raw_int(value.get("pid"), f"{label} pid", minimum=1),
+        "protocol": _raw_int(value.get("protocol"), f"{label} protocol", minimum=1),
+        "session_id": _raw_uuid(value.get("session_id"), f"{label} session_id"),
+        "daemon_instance_id": _raw_uuid(
+            value.get("daemon_instance_id"), f"{label} daemon_instance_id"
+        ),
+        "topology_revision": _raw_int(
+            value.get("topology_revision"), f"{label} topology_revision"
+        ),
+        "canonical_topology_revision": _raw_int(
+            value.get("canonical_topology_revision"),
+            f"{label} canonical_topology_revision",
+        ),
+    }
+    if value.get("app") != "cmux-tui":
+        raise AcceptanceError(f"{label} did not come from cmux-tui")
+    return result
+
+
+def _terminal_inventory_from_tree(tree: dict[str, Any], label: str) -> list[dict[str, Any]]:
+    workspaces = tree.get("workspaces")
+    if not isinstance(workspaces, list):
+        raise AcceptanceError(f"{label} lacks a workspace array")
+    result: list[dict[str, Any]] = []
+    seen_handles: set[int] = set()
+    seen_terminal_ids: set[str] = set()
+    for workspace_index, raw_workspace in enumerate(workspaces):
+        workspace = _raw_dict(raw_workspace, f"{label} workspace {workspace_index}")
+        workspace_id = _raw_uuid(
+            workspace.get("uuid"), f"{label} workspace {workspace_index} UUID"
+        )
+        screens = workspace.get("screens")
+        if not isinstance(screens, list):
+            raise AcceptanceError(f"{label} workspace {workspace_id} lacks screens")
+        for screen_index, raw_screen in enumerate(screens):
+            screen = _raw_dict(raw_screen, f"{label} screen {screen_index}")
+            panes = screen.get("panes")
+            if not isinstance(panes, list):
+                raise AcceptanceError(f"{label} screen {screen_index} lacks panes")
+            for pane_index, raw_pane in enumerate(panes):
+                pane = _raw_dict(raw_pane, f"{label} pane {pane_index}")
+                tabs = pane.get("tabs")
+                if not isinstance(tabs, list):
+                    raise AcceptanceError(f"{label} pane {pane_index} lacks tabs")
+                for tab_index, raw_tab in enumerate(tabs):
+                    tab = _raw_dict(raw_tab, f"{label} tab {tab_index}")
+                    if tab.get("kind") != "pty":
+                        continue
+                    surface_handle = _raw_int(
+                        tab.get("surface"), f"{label} tab surface", minimum=1
+                    )
+                    terminal_id = _raw_uuid(
+                        tab.get("uuid"), f"{label} terminal UUID"
+                    )
+                    dead = _raw_bool(tab.get("dead"), f"{label} terminal dead")
+                    if surface_handle in seen_handles or terminal_id in seen_terminal_ids:
+                        raise AcceptanceError(f"{label} repeats a terminal identity")
+                    seen_handles.add(surface_handle)
+                    seen_terminal_ids.add(terminal_id)
+                    result.append(
+                        {
+                            "surface_handle": surface_handle,
+                            "terminal_id": terminal_id,
+                            "workspace_id": workspace_id,
+                            "dead": dead,
+                        }
+                    )
+    return result
+
+
 def collect_process_census(arguments: argparse.Namespace) -> pathlib.Path:
-    """Capture live process identities and kernel-visible PTY master FDs."""
+    """Capture exact-socket process, shell, and kernel PTY ownership evidence."""
+    if platform.system() != "Darwin":
+        raise AcceptanceError("process census requires Darwin dev_t semantics")
     manifest_path = arguments.manifest.expanduser().resolve()
     manifest = load_json(manifest_path)
     spec = load_spec()
@@ -4463,28 +5121,169 @@ def collect_process_census(arguments: argparse.Namespace) -> pathlib.Path:
         raise AcceptanceError("process census manifest is not for current clean HEAD")
     if manifest["source"]["submodules"] != expected_submodules:
         raise AcceptanceError("process census manifest submodules are stale")
+
+    manifest_processes = {process["pid"]: process for process in manifest["processes"]}
+
+    def live_identity(process: dict[str, Any], role: str) -> dict[str, Any]:
+        pid = process["pid"]
+        started_at = process_started_at(pid)
+        if started_at != process["started_at"]:
+            raise AcceptanceError(f"PID {pid} no longer matches its bound start identity")
+        executable = process_executable(pid)
+        executable_sha256 = sha256_file(executable)
+        if executable_sha256 != process["executable_sha256"]:
+            raise AcceptanceError(f"PID {pid} executable changed since it was bound")
+        character_devices = lsof_character_devices(pid)
+        pty_masters = [
+            device
+            for device in character_devices
+            if device["name"] == "/dev/ptmx"
+            or re.fullmatch(
+                r"pty[p-sP-S][0-9a-vA-V]",
+                pathlib.PurePosixPath(device["name"]).name,
+            )
+            is not None
+        ]
+        return {
+            "role": role,
+            "pid": pid,
+            "started_at": started_at,
+            "executable_sha256": executable_sha256,
+            "pty_masters": pty_masters,
+        }
+
     records: list[dict[str, Any]] = []
     for process in manifest["processes"]:
         role = process["build_role"]
         if role not in {"swift-host", "terminal-backend", "renderer-worker"}:
             continue
-        pid = process["pid"]
-        if process_started_at(pid) != process["started_at"]:
-            raise AcceptanceError(f"PID {pid} no longer matches its bound start identity")
-        executable = process_executable(pid)
-        if sha256_file(executable) != process["executable_sha256"]:
-            raise AcceptanceError(f"PID {pid} executable changed since it was bound")
-        lsof_output = run(["lsof", "-n", "-P", "-a", "-p", str(pid), "-F", "fn"])
-        records.append({
-            "role": role,
-            "pid": pid,
-            "pty_master_fds": parse_lsof_pty_masters(lsof_output),
-        })
+        records.append(live_identity(process, role))
     roles = collections.Counter(record["role"] for record in records)
     if roles["swift-host"] != 1 or roles["terminal-backend"] != 1:
         raise AcceptanceError("process census needs one bound Swift host and terminal backend")
     if roles["renderer-worker"] < 1:
         raise AcceptanceError("process census needs at least one bound renderer worker")
+
+    backend_record = next(record for record in records if record["role"] == "terminal-backend")
+    backend_pid = backend_record["pid"]
+    backend_cli = _packaged_executable(manifest, "terminal-backend")
+    socket_path = manifest["build"]["backend_socket"]
+    captured_at_before = utc_now()
+    identity_before = _backend_identity_sample(
+        _backend_cli_json(backend_cli, socket_path, ["identify"]),
+        "backend identity before census",
+    )
+    if identity_before["pid"] != backend_pid:
+        raise AcceptanceError(
+            "backend socket endpoint PID differs from the manifest-bound terminal backend"
+        )
+    tree = _backend_cli_json(backend_cli, socket_path, ["list-workspaces"])
+    terminal_inventory = _terminal_inventory_from_tree(tree, "backend workspace tree")
+    for terminal in terminal_inventory:
+        surface_handle = terminal["surface_handle"]
+        process_info = _backend_cli_json(
+            backend_cli,
+            socket_path,
+            ["process-info", "--surface", str(surface_handle)],
+        )
+        shell_pid = process_info.get("pid")
+        protocol_tty = process_info.get("tty")
+        if shell_pid is None and protocol_tty is None:
+            terminal["runtime"] = "external"
+            continue
+        if (
+            not isinstance(shell_pid, int)
+            or isinstance(shell_pid, bool)
+            or shell_pid <= 0
+            or not isinstance(protocol_tty, str)
+            or re.fullmatch(r"/dev/tty[A-Za-z0-9._-]+", protocol_tty) is None
+        ):
+            raise AcceptanceError(
+                f"terminal {terminal['terminal_id']} has an incomplete process-info identity"
+            )
+        terminal["runtime"] = "local"
+        bound_shell = manifest_processes.get(shell_pid)
+        if (
+            bound_shell is None
+            or bound_shell.get("role") != "terminal-shell"
+            or bound_shell.get("build_role") is not None
+        ):
+            raise AcceptanceError(
+                f"terminal shell PID {shell_pid} is not manifest-bound with role terminal-shell; "
+                "bind it before collecting the census"
+            )
+        shell_started_at = process_started_at(shell_pid)
+        shell_executable = process_executable(shell_pid)
+        shell_executable_sha256 = sha256_file(shell_executable)
+        if (
+            shell_started_at != bound_shell["started_at"]
+            or shell_executable_sha256 != bound_shell["executable_sha256"]
+        ):
+            raise AcceptanceError(
+                f"terminal shell PID {shell_pid} differs from its manifest-bound identity"
+            )
+        kernel_tty = process_controlling_tty(shell_pid)
+        try:
+            kernel_tty_raw_device = os.stat(kernel_tty).st_rdev
+        except OSError as error:
+            raise AcceptanceError(
+                f"could not stat controlling TTY {kernel_tty} for PID {shell_pid}: {error}"
+            ) from error
+        tty_fds = [
+            device
+            for device in lsof_character_devices(shell_pid)
+            if re.fullmatch(r"/dev/tty[A-Za-z0-9._-]+", device["name"])
+        ]
+        if not any(
+            device["name"] == kernel_tty
+            and int(device["raw_device"], 16) == kernel_tty_raw_device
+            for device in tty_fds
+        ):
+            raise AcceptanceError(
+                f"terminal shell PID {shell_pid} has no FD for controlling TTY {kernel_tty}"
+            )
+        records.append(
+            {
+                "role": "terminal-shell",
+                "pid": shell_pid,
+                "started_at": shell_started_at,
+                "executable_sha256": shell_executable_sha256,
+                "parent_pid": process_parent_pid(shell_pid),
+                "surface_handle": surface_handle,
+                "terminal_id": terminal["terminal_id"],
+                "workspace_id": terminal["workspace_id"],
+                "protocol_tty": protocol_tty,
+                "kernel_controlling_tty": kernel_tty,
+                "kernel_tty_raw_device": hex(kernel_tty_raw_device),
+                "tty_fds": tty_fds,
+            }
+        )
+
+    if not any(record["role"] == "terminal-shell" for record in records):
+        raise AcceptanceError("process census needs at least one live local terminal shell")
+    identity_after = _backend_identity_sample(
+        _backend_cli_json(backend_cli, socket_path, ["identify"]),
+        "backend identity after census",
+    )
+    captured_at_after = utc_now()
+    if identity_after != identity_before:
+        raise AcceptanceError(
+            "backend identity or topology changed while the process census was collected"
+        )
+    for record in records:
+        pid = record["pid"]
+        if process_started_at(pid) != record["started_at"]:
+            raise AcceptanceError(f"PID {pid} changed identity during process census")
+        if sha256_file(process_executable(pid)) != record["executable_sha256"]:
+            raise AcceptanceError(f"PID {pid} executable changed during process census")
+
+    role_order = {
+        "swift-host": 0,
+        "terminal-backend": 1,
+        "renderer-worker": 2,
+        "terminal-shell": 3,
+    }
+    records.sort(key=lambda record: (role_order[record["role"]], record["pid"]))
     run_root = manifest_path.parent
     output = (run_root / arguments.output).resolve()
     try:
@@ -4495,10 +5294,21 @@ def collect_process_census(arguments: argparse.Namespace) -> pathlib.Path:
         raise AcceptanceError("process census output must be JSON")
     if output.exists() and not arguments.replace:
         raise AcceptanceError(f"process census already exists: {output}; pass --replace")
+    after_commit, after_submodules = assert_clean_source()
+    if (after_commit, after_submodules) != (expected_commit, expected_submodules):
+        raise AcceptanceError("source changed while the process census was collected")
     atomic_write_json(output, {
         "schema_version": 1,
         "artifact_kind": "process-census",
-        "context": {},
+        "context": {
+            "semantic_schema": PROC1_PROCESS_CENSUS_SCHEMA,
+            "backend_socket": socket_path,
+            "captured_at_before": captured_at_before,
+            "captured_at_after": captured_at_after,
+            "identity_before": identity_before,
+            "identity_after": identity_after,
+            "terminal_inventory": terminal_inventory,
+        },
         "records": records,
     })
     return output
@@ -4712,6 +5522,15 @@ def derive_receipt(arguments: argparse.Namespace) -> pathlib.Path:
                 raise AcceptanceError(
                     f"PERF-2 process PID {process['pid']} differs from the manifest"
                 )
+    if arguments.id == "PROC-1" and arguments.kind == "process-census":
+        validate_proc1_process_census_binding(
+            primary_payload=primary,
+            metrics=metrics,
+            artifact_pids=pids,
+            bound_processes={process["pid"]: process for process in manifest["processes"]},
+            expected_backend_socket=manifest["build"]["backend_socket"],
+            label="PROC-1 process census",
+        )
     if arguments.id == "LIFE-1" and arguments.kind == "restart-transcript":
         validate_restart_transcript_binding(
             primary_payload=primary,
@@ -4842,6 +5661,7 @@ def record(arguments: argparse.Namespace) -> pathlib.Path:
             bound_processes=bound_processes,
             environment=manifest["environment"],
             app_bundle=pathlib.Path(manifest["build"]["app_path"]),
+            backend_socket=manifest["build"]["backend_socket"],
         )
         artifact_metrics[kind] = load_json(path)["metrics"]
         artifacts.append(
@@ -5248,6 +6068,7 @@ def verify(arguments: argparse.Namespace) -> None:
                 bound_processes=bound_processes,
                 environment=manifest["environment"],
                 app_bundle=app,
+                backend_socket=build["backend_socket"],
             )
             if receipt_captured_at != artifact["captured_at"]:
                 raise AcceptanceError(
@@ -5312,7 +6133,7 @@ def parser() -> argparse.ArgumentParser:
 
     census_parser = subparsers.add_parser(
         "collect-process-census",
-        help="capture bound process identities and PTY-master file descriptors",
+        help="capture exact-socket process, shell, and kernel PTY ownership",
     )
     census_parser.add_argument("--manifest", type=pathlib.Path, required=True)
     census_parser.add_argument("--output", required=True)

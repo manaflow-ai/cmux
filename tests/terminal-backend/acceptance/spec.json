@@ -5,7 +5,7 @@
       "id": "PROC-1",
       "priority": "P0",
       "observable": "Swift terminal ownership",
-      "pass_condition": "The production Swift app is built from the Ghostty-free CmuxTerminalFrontend product, its recursive Mach-O load closure contains no Ghostty, PTY-construction, legacy-terminal, or dynamic-load escape symbol, the Swift and renderer PIDs own no PTY master, and cmuxd owns at least one live PTY master.",
+      "pass_condition": "The production Swift app is built from the Ghostty-free CmuxTerminalFrontend product and its recursive Mach-O load closure contains no Ghostty, PTY-construction, legacy-terminal, or dynamic-load escape symbol. A manifest-bound exact-socket census brackets one stable cmuxd session/topology sample, binds every host/backend/renderer/shell PID to its start identity and executable hash, proves every live local terminal ID and workspace ID maps to one direct cmuxd child with the backend-reported kernel controlling TTY, proves that TTY slave and exactly one cmuxd PTY master share one Darwin device minor, rejects extra or duplicate relations, and proves the Swift host and every renderer own zero PTY masters.",
       "required_artifact_kinds": ["host-backend-only-attestation", "process-census"]
     },
     {
