@@ -11,6 +11,14 @@ struct TerminalScrollBoundary: Equatable, Sendable {
         total > len ? total - len : 0
     }
 
+    var distanceFromBottom: UInt64 {
+        maximumOffset - min(offset, maximumOffset)
+    }
+
+    func targetOffset(distanceFromBottom: UInt64) -> UInt64 {
+        maximumOffset - min(distanceFromBottom, maximumOffset)
+    }
+
     /// Whether a wheel delta points outward from a loaded history boundary.
     /// A screen without scrollback fails open so alternate-screen TUIs keep
     /// receiving their wheel input.
@@ -32,25 +40,19 @@ nonisolated struct GhosttySurfaceScrollPosition {
     func boundary() -> TerminalScrollBoundary? {
         var snapshot = ghostty_surface_scrollbar_s()
         guard ghostty_surface_scrollbar(surface, &snapshot) else { return nil }
-        return TerminalScrollBoundary(
-            total: snapshot.total,
-            offset: snapshot.offset,
-            len: snapshot.len
-        )
+        return Self.boundary(from: snapshot)
     }
 
     func distanceFromBottom() -> UInt64? {
-        var snapshot = ghostty_surface_scrollbar_s()
-        guard ghostty_surface_scrollbar(surface, &snapshot) else { return nil }
-        let maximumOffset = snapshot.total > snapshot.len ? snapshot.total - snapshot.len : 0
-        return maximumOffset - min(snapshot.offset, maximumOffset)
+        boundary()?.distanceFromBottom
     }
 
     func restore(_ distanceFromBottom: UInt64) -> Bool {
         var current = ghostty_surface_scrollbar_s()
         guard ghostty_surface_scrollbar(surface, &current) else { return false }
-        let maximumOffset = current.total > current.len ? current.total - current.len : 0
-        let target = maximumOffset - min(distanceFromBottom, maximumOffset)
+        let target = Self.boundary(from: current).targetOffset(
+            distanceFromBottom: distanceFromBottom
+        )
         var positioned = ghostty_surface_scrollbar_s()
         return ghostty_surface_scroll_to_row_if_revision(
             surface,
@@ -58,6 +60,16 @@ nonisolated struct GhosttySurfaceScrollPosition {
             current.row_space_revision,
             &positioned
         ) && positioned.offset == target
+    }
+
+    private static func boundary(
+        from snapshot: ghostty_surface_scrollbar_s
+    ) -> TerminalScrollBoundary {
+        TerminalScrollBoundary(
+            total: snapshot.total,
+            offset: snapshot.offset,
+            len: snapshot.len
+        )
     }
 }
 #endif

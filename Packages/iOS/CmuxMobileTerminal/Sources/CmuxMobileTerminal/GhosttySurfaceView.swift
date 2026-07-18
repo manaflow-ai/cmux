@@ -2129,11 +2129,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
             }
-            let scrollPositionPreserved = if preservingScrollbackOffset,
-                                             let distanceFromBottom {
-                GhosttySurfaceScrollPosition(surface: surface).restore(distanceFromBottom)
-            } else {
-                !preservingScrollbackOffset
+            if preservingScrollbackOffset, let distanceFromBottom {
+                // Output application and best-effort viewport restoration have
+                // separate contracts. A failed compare-and-swap must not report
+                // already-applied bytes as dropped and start replay recovery.
+                _ = GhosttySurfaceScrollPosition(surface: surface).restore(distanceFromBottom)
             }
             #if DEBUG
             // `ghostty_surface_read_text` takes the same internal surface lock as
@@ -2193,7 +2193,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 }
                 self.onOutputProcessedForTesting?()
                 #endif
-                completion?(scrollPositionPreserved)
+                completion?(true)
             }
         }
     }
