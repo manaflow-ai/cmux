@@ -137,7 +137,7 @@ public struct AgentTerminalProfileCatalog: Sendable {
         profile("omp", "OMP", authoritative: true, executables: ["omp"], arguments: ["oh-my-pi"], idle: ["context", "reasoning"], working: [["working..."], ["working…"]]),
         profile("copilot", "GitHub Copilot CLI", executables: ["copilot", "github-copilot-cli"], arguments: ["github copilot", "@github/copilot"], idle: ["what would you like"], working: [["esc to interrupt"]]),
         profile("devin", "Devin CLI", executables: ["devin", "devin-cli"], arguments: ["devin-cli"], idle: ["ask devin"], working: [["esc to interrupt"]]),
-        profile("kimi", "Kimi Code CLI", authoritative: true, executables: ["kimi", "kimi-cli", "kimi-code"], arguments: ["kimi-code"], idle: ["input"], working: [["esc to interrupt"]], blocked: [["[enter]", "upgrade now", "[q]", "not now"]]),
+        profile("kimi", "Kimi Code CLI", authoritative: true, executables: ["kimi", "kimi-cli", "kimi-code"], arguments: ["kimi-code", "kimi code"], idle: ["input"], working: [["esc to interrupt"]], blocked: [["[enter]", "upgrade now", "[q]", "not now"]]),
         profile("hermes-agent", "Hermes Agent", authoritative: true, executables: ["hermes", "hermes-agent"], arguments: ["hermes-agent"], idle: ["hermes"], working: [["executing tool"]]),
         profile("qoder", "Qoder CLI", executables: ["qoder", "qodercli"], arguments: ["qodercli"], idle: ["ask qoder"], working: [["esc to interrupt"]]),
         profile("droid", "Droid", statusKey: "factory", executables: ["droid"], arguments: ["factory.ai", "factory-cli"], idle: ["ask droid"], working: [["esc to interrupt"]]),

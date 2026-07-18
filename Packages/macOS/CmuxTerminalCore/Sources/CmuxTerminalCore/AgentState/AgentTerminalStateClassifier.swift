@@ -29,7 +29,7 @@ public struct AgentTerminalStateClassifier: Sendable {
            }) {
             return pathMatch
         }
-        guard let executable, Self.argumentWrapperBasenames.contains(executable) else { return nil }
+        guard let executable, Self.isArgumentWrapperBasename(executable) else { return nil }
         for key in ["CMUX_AGENT", "CMUX_AGENT_LAUNCH_KIND"] {
             if let hint = process.environment[key], let profile = catalog.profile(hint: hint) {
                 return profile
@@ -39,6 +39,15 @@ public struct AgentTerminalStateClassifier: Sendable {
         return catalog.profiles.first { profile in
             profile.argumentNeedles.contains { command.contains($0.lowercased()) }
         }
+    }
+
+    private static func isArgumentWrapperBasename(_ executable: String) -> Bool {
+        if argumentWrapperBasenames.contains(executable) { return true }
+        guard executable.hasPrefix("python") else { return false }
+        let version = executable.dropFirst("python".count)
+        guard !version.isEmpty else { return false }
+        return version.contains(where: \.isNumber)
+            && version.allSatisfy { $0.isNumber || $0 == "." }
     }
 
     /// Classifies bounded plain-text evidence for one recognized generation.
