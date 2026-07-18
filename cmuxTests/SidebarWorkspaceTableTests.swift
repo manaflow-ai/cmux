@@ -12,13 +12,20 @@ import Testing
 struct SidebarWorkspaceTableTests {
     @Test
     @MainActor
-    func appKitRowRenameEnterCommitsLiveFieldEditorText() {
+    func appKitRowRenameEnterCommitsSignalDraftInsteadOfStaleControlText() {
         let field = SidebarRowInlineRenameField()
-        field.stringValue = "Original"
         var committedTitle: String?
         field.onCommit = { committedTitle = $0 }
+        field.beginInlineRename(with: "Original")
+
+        field.stringValue = "Renamed"
+        field.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+
+        // AppKit can still expose the pre-edit control value while dispatching
+        // the Return command. Resolution must read the signal-owned draft.
+        field.stringValue = "Original"
         let editor = NSTextView()
-        editor.string = "Renamed"
+        editor.string = "Original"
 
         let handled = field.control(
             field,

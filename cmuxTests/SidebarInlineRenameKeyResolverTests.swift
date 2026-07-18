@@ -38,6 +38,7 @@ import Testing
             onCommit: { _ in commitCount += 1 },
             onCancel: { cancelCount += 1 }
         )
+        coordinator.begin(draft: "compose")
         let field = NSTextField(string: "compose")
         let editor = markedTextEditor()
 
@@ -60,6 +61,7 @@ import Testing
             onCommit: { _ in commitCount += 1 },
             onCancel: { cancelCount += 1 }
         )
+        coordinator.begin(draft: "compose")
         let field = NSTextField(string: "compose")
         let editor = markedTextEditor()
 
@@ -81,9 +83,11 @@ import Testing
             onCommit: { committed = $0 },
             onCancel: {}
         )
+        coordinator.begin(draft: "stale")
+        coordinator.updateDraft("live draft")
         let field = NSTextField(string: "stale")
         let editor = NSTextView()
-        editor.string = "live draft"
+        editor.string = "stale"
 
         let handled = coordinator.control(
             field,
@@ -93,6 +97,40 @@ import Testing
 
         #expect(handled)
         #expect(committed == "live draft")
+    }
+
+    @Test func coordinatorRearmsByStartingANewSignalSession() {
+        var commits: [String] = []
+        var cancelCount = 0
+        let coordinator = SidebarInlineRenameCoordinator(
+            onCommit: { commits.append($0) },
+            onCancel: { cancelCount += 1 }
+        )
+        let field = NSTextField(string: "first")
+        let editor = NSTextView()
+
+        coordinator.begin(draft: "first")
+        coordinator.updateDraft("first renamed")
+        _ = coordinator.control(
+            field,
+            textView: editor,
+            doCommandBy: #selector(NSResponder.insertNewline(_:))
+        )
+
+        coordinator.begin(draft: "second")
+        _ = coordinator.control(
+            field,
+            textView: editor,
+            doCommandBy: #selector(NSResponder.cancelOperation(_:))
+        )
+        _ = coordinator.control(
+            field,
+            textView: editor,
+            doCommandBy: #selector(NSResponder.cancelOperation(_:))
+        )
+
+        #expect(commits == ["first renamed"])
+        #expect(cancelCount == 1)
     }
 
     @Test func textFieldAppliesDrivenTextColor() {
