@@ -118,7 +118,8 @@ func startCodexHookMockSocketServerAccepting(
     listenerFD: Int32,
     commands: CodexHookCapturedSocketCommands,
     surfaceId: String,
-    connectionLimit: Int
+    connectionLimit: Int,
+    droppedResponseCount: Int = 0
 ) {
     DispatchQueue.global(qos: .userInitiated).async {
         var accepted = 0
@@ -136,7 +137,12 @@ func startCodexHookMockSocketServerAccepting(
             }
             accepted += 1
             DispatchQueue.global(qos: .userInitiated).async {
-                handleCodexHookMockSocketClient(fd: clientFD, commands: commands, surfaceId: surfaceId)
+                handleCodexHookMockSocketClient(
+                    fd: clientFD,
+                    commands: commands,
+                    surfaceId: surfaceId,
+                    droppedResponseCount: droppedResponseCount
+                )
             }
         }
     }
@@ -145,7 +151,8 @@ func startCodexHookMockSocketServerAccepting(
 func handleCodexHookMockSocketClient(
     fd clientFD: Int32,
     commands: CodexHookCapturedSocketCommands,
-    surfaceId: String
+    surfaceId: String,
+    droppedResponseCount: Int = 0
 ) {
     defer { Darwin.close(clientFD) }
     var pending = Data()
@@ -163,6 +170,9 @@ func handleCodexHookMockSocketClient(
             pending.removeSubrange(0...newlineRange.lowerBound)
             guard let line = String(data: lineData, encoding: .utf8) else { continue }
             commands.append(line)
+            if commands.snapshot().count <= droppedResponseCount {
+                return
+            }
             let response = codexHookMockSocketResponse(for: line, surfaceId: surfaceId) + "\n"
             _ = response.withCString { ptr in
                 Darwin.write(clientFD, ptr, strlen(ptr))
@@ -220,10 +230,26 @@ func runCodexHookProcess(
     standardInput: String? = nil,
     timeout: TimeInterval
 ) -> CodexHookProcessRunResult {
+    runCodexHookProcess(
+        executablePath: executablePath,
+        arguments: arguments,
+        environment: environment,
+        standardInputData: standardInput.map { Data($0.utf8) },
+        timeout: timeout
+    )
+}
+
+func runCodexHookProcess(
+    executablePath: String,
+    arguments: [String],
+    environment: [String: String],
+    standardInputData: Data?,
+    timeout: TimeInterval
+) -> CodexHookProcessRunResult {
     let process = Process()
     let stdoutPipe = Pipe()
     let stderrPipe = Pipe()
-    let stdinPipe = standardInput == nil ? nil : Pipe()
+    let stdinPipe = standardInputData == nil ? nil : Pipe()
     process.executableURL = URL(fileURLWithPath: executablePath)
     process.arguments = arguments
     process.environment = environment
@@ -236,8 +262,8 @@ func runCodexHookProcess(
     } catch {
         return CodexHookProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
     }
-    if let standardInput, let stdinPipe {
-        stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
+    if let standardInputData, let stdinPipe {
+        stdinPipe.fileHandleForWriting.write(standardInputData)
         try? stdinPipe.fileHandleForWriting.close()
     }
 
@@ -264,6 +290,19 @@ func runCodexHookProcess(
         stderr: String(data: stderrData, encoding: .utf8) ?? "",
         timedOut: timedOut
     )
+}
+
+func codexHookExecutableIsMachO(_ path: String) -> Bool {
+    guard let handle = FileHandle(forReadingAtPath: path) else { return false }
+    defer { try? handle.close() }
+    let magic = (try? handle.read(upToCount: 4)) ?? Data()
+    let supportedMagicValues: Set<Data> = [
+        Data([0xCF, 0xFA, 0xED, 0xFE]),
+        Data([0xFE, 0xED, 0xFA, 0xCF]),
+        Data([0xCA, 0xFE, 0xBA, 0xBE]),
+        Data([0xCA, 0xFE, 0xBA, 0xBF]),
+    ]
+    return supportedMagicValues.contains(magic)
 }
 
 func waitForFile(_ url: URL, containing expected: String, timeout: TimeInterval) -> Bool {
