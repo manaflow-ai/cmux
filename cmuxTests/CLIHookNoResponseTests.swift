@@ -675,6 +675,231 @@ struct CLIHookNoResponseTests {
         #expect(!FileManager.default.fileExists(atPath: descendantPIDFile.path))
     }
 
+    @Test func nativeCodexStaleOutboxAuthorityFallsBackAfterSecretRotation() async throws {
+        let cliPath = try Self.bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-native-outbox-rotation-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
+        let hooksDirectory = root.appendingPathComponent(".cmux/hooks", isDirectory: true)
+        let outboxDirectory = root.appendingPathComponent("hook-outbox", isDirectory: true)
+        let socketPath = Self.makeSocketPath("outbox-rotation")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 2)
+        let socketRequests = CodexHookCapturedSocketCommands()
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            Self.removeOutboxSharedMemory(at: outboxDirectory)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let inject = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-args"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(inject.status == 0, Comment(rawValue: inject.stderr))
+        let hookPath = try #require(
+            FileManager.default
+                .contentsOfDirectory(at: hooksDirectory, includingPropertiesForKeys: nil)
+                .first { $0.lastPathComponent.hasPrefix("cmux-codex-native-hook-session-start-") }
+        )
+
+        let audience = "com.cmuxterm.test.outbox-rotation"
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        let originalOutbox = try #require(AgentHookOutbox.prepare(
+            directoryURL: outboxDirectory,
+            audience: audience,
+            deliveryQueue: queue
+        ))
+        let socketCapability = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0x7a, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test.outbox-rotation.socket"
+        ).issueCapability()
+        let staleCapability = originalOutbox.issueCapability()
+        let staleGeneration = try Self.outboxGeneration(at: outboxDirectory)
+        await originalOutbox.stop()
+        try FileManager.default.removeItem(at: originalOutbox.capabilitySecretURL)
+        let rotatedOutbox = try #require(AgentHookOutbox.prepare(
+            directoryURL: outboxDirectory,
+            audience: audience,
+            deliveryQueue: queue
+        ))
+        let rotatedGeneration = try Self.outboxGeneration(at: outboxDirectory)
+        #expect(staleGeneration != rotatedGeneration)
+        #expect(staleCapability != rotatedOutbox.issueCapability())
+
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: socketRequests,
+            surfaceId: "22222222-2222-2222-2222-222222222222",
+            connectionLimit: 1
+        )
+        let result = runCodexHookProcess(
+            executablePath: hookPath.path,
+            arguments: [],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_SOCKET_CAPABILITY": socketCapability,
+                "CMUX_AGENT_HOOK_OUTBOX_CAPABILITY": staleCapability,
+                "CMUX_AGENT_HOOK_OUTBOX_GENERATION": staleGeneration,
+                "CMUX_AGENT_HOOK_ENQUEUE_V1": "1",
+                "CMUX_AGENT_HOOK_OUTBOX_DIR": outboxDirectory.path,
+                "CMUX_BUNDLED_CLI_PATH": "/usr/bin/false",
+                "CMUX_CODEX_PID": "4242",
+                "CMUX_AGENT_HOOK_DELIVERY_ID": "native-stale-authority",
+            ],
+            standardInput: #"{"session_id":"stale-authority","hook_event_name":"SessionStart"}"#,
+            timeout: 0.5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        #expect(waitForCondition(timeout: 1) {
+            socketRequests.snapshot().contains {
+                codexHookJSONObject($0)?["method"] as? String == "agent.hook.enqueue"
+            }
+        })
+        #expect(Self.outboxReadyMarkers(at: outboxDirectory).isEmpty)
+    }
+
+    @Test func nativeCodexRotationRevokesPublisherBetweenReservationAndReadyRename() async throws {
+        let cliPath = try Self.bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-native-outbox-reserve-race-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
+        let hooksDirectory = root.appendingPathComponent(".cmux/hooks", isDirectory: true)
+        let outboxDirectory = root.appendingPathComponent("hook-outbox", isDirectory: true)
+        let reservedSignal = root.appendingPathComponent("publisher-reserved", isDirectory: false)
+        let socketPath = Self.makeSocketPath("outbox-reserve-race")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 2)
+        let socketRequests = CodexHookCapturedSocketCommands()
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        var publisher: Process?
+        defer {
+            if let publisher, publisher.isRunning {
+                Darwin.kill(publisher.processIdentifier, SIGKILL)
+                Darwin.kill(publisher.processIdentifier, SIGCONT)
+                publisher.waitUntilExit()
+            }
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            Self.removeOutboxSharedMemory(at: outboxDirectory)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let inject = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-args"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(inject.status == 0, Comment(rawValue: inject.stderr))
+        let hookPath = try #require(
+            FileManager.default
+                .contentsOfDirectory(at: hooksDirectory, includingPropertiesForKeys: nil)
+                .first { $0.lastPathComponent.hasPrefix("cmux-codex-native-hook-session-start-") }
+        )
+
+        let audience = "com.cmuxterm.test.outbox-reserve-race"
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        let originalOutbox = try #require(AgentHookOutbox.prepare(
+            directoryURL: outboxDirectory,
+            audience: audience,
+            deliveryQueue: queue
+        ))
+        let socketCapability = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0x7b, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test.outbox-reserve-race.socket"
+        ).issueCapability()
+        let staleCapability = originalOutbox.issueCapability()
+        let staleGeneration = try Self.outboxGeneration(at: outboxDirectory)
+        await originalOutbox.stop()
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: socketRequests,
+            surfaceId: "22222222-2222-2222-2222-222222222222",
+            connectionLimit: 1
+        )
+
+        let process = Process()
+        let stdin = Pipe()
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.executableURL = hookPath
+        process.environment = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_SOCKET_CAPABILITY": socketCapability,
+            "CMUX_AGENT_HOOK_OUTBOX_CAPABILITY": staleCapability,
+            "CMUX_AGENT_HOOK_OUTBOX_GENERATION": staleGeneration,
+            "CMUX_AGENT_HOOK_ENQUEUE_V1": "1",
+            "CMUX_AGENT_HOOK_OUTBOX_DIR": outboxDirectory.path,
+            "CMUX_BUNDLED_CLI_PATH": "/usr/bin/false",
+            "CMUX_CODEX_PID": "4242",
+            "CMUX_AGENT_HOOK_DELIVERY_ID": "native-reserve-rotation-race",
+            "CMUX_TEST_HOOK_OUTBOX_STOP_AFTER_RESERVE_FILE": reservedSignal.path,
+        ]
+        process.standardInput = stdin
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        publisher = process
+        stdin.fileHandleForWriting.write(Data(
+            #"{"session_id":"reserve-race","hook_event_name":"SessionStart"}"#.utf8
+        ))
+        try stdin.fileHandleForWriting.close()
+        try #require(waitForFile(reservedSignal, containing: "reserved", timeout: 1))
+        let reservationSignal = try String(contentsOf: reservedSignal, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: " ")
+        let reservationToken = try #require(reservationSignal.last)
+        try #require(reservationToken.count == 16)
+
+        try FileManager.default.removeItem(at: originalOutbox.capabilitySecretURL)
+        let rotatedOutbox = try #require(AgentHookOutbox.prepare(
+            directoryURL: outboxDirectory,
+            audience: audience,
+            deliveryQueue: queue
+        ))
+        #expect(staleGeneration != (try Self.outboxGeneration(at: outboxDirectory)))
+        #expect(staleCapability != rotatedOutbox.issueCapability())
+        #expect(Darwin.kill(process.processIdentifier, SIGCONT) == 0)
+        try #require(waitForCondition(timeout: 2) { !process.isRunning })
+        process.waitUntilExit()
+        publisher = nil
+
+        let stdoutText = String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let stderrText = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        #expect(process.terminationStatus == 0, Comment(rawValue: stderrText))
+        #expect(stdoutText == "{}\n")
+        #expect(waitForCondition(timeout: 1) {
+            socketRequests.snapshot().contains {
+                codexHookJSONObject($0)?["method"] as? String == "agent.hook.enqueue"
+            }
+        })
+        #expect(Self.outboxReadyMarkers(at: outboxDirectory).isEmpty)
+        #expect(Self.outboxPendingMarkers(at: outboxDirectory).isEmpty)
+        #expect(Self.outboxSharedMemoryIsMissing(named: "/ch\(reservationToken)"))
+    }
+
     @Test func nativeCodexAdmissionUsesBoundedEmergencyFallbackWhenForkFails() throws {
         let cliPath = try Self.bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -1590,6 +1815,32 @@ struct CLIHookNoResponseTests {
             at: directory,
             includingPropertiesForKeys: nil
         ).filter { $0.lastPathComponent.hasPrefix("ready-") }) ?? []
+    }
+
+    private static func outboxPendingMarkers(at directory: URL) -> [URL] {
+        (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.hasPrefix("pending-") }) ?? []
+    }
+
+    private static func outboxGeneration(at directory: URL) throws -> String {
+        let data = try Data(contentsOf: directory.appendingPathComponent(".quota-v1"))
+        guard data.count >= 64 else {
+            throw NSError(domain: "cmux.tests", code: 88, userInfo: [
+                NSLocalizedDescriptionKey: "Hook outbox quota header is truncated",
+            ])
+        }
+        return data[40..<56].map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func outboxSharedMemoryIsMissing(named name: String) -> Bool {
+        let descriptor = name.withCString { cmuxTestShmOpen($0, O_RDONLY, 0) }
+        guard descriptor < 0 else {
+            Darwin.close(descriptor)
+            return false
+        }
+        return errno == ENOENT
     }
 
     private static func installOutboxBudgetFixture(
