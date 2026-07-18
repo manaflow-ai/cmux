@@ -253,6 +253,88 @@ extension MobileHostAuthorizationTests {
         #expect(tcpPayload["mac_device_id"] == nil)
     }
 
+    @Test func testLegacyIrohSupervisorClosesOnceWhenControlEnds() async throws {
+        try await assertLegacyIrohSupervisorCleanup(trigger: .controlEnds)
+    }
+
+    @Test func testLegacyIrohSupervisorClosesOnceWhenLaneTaskCompletes() async throws {
+        try await assertLegacyIrohSupervisorCleanup(trigger: .laneTaskEnds)
+    }
+
+    @Test func testLegacyIrohSupervisorClosesOnceWhenChildrenFinishTogether() async throws {
+        try await assertLegacyIrohSupervisorCleanup(trigger: .childrenFinishTogether)
+    }
+
+    @Test func testLegacyIrohSupervisorClosesOnceOnCallerCancellation() async throws {
+        try await assertLegacyIrohSupervisorCleanup(trigger: .callerCancellation)
+    }
+
+    private func assertLegacyIrohSupervisorCleanup(
+        trigger: LegacyIrohSupervisorTrigger
+    ) async throws {
+        let controlStarted = AsyncTestSignal()
+        let lanesStarted = AsyncTestSignal()
+        let (controlStream, controlContinuation) = AsyncStream<Void>.makeStream()
+        let (laneStream, laneContinuation) = AsyncStream<Void>.makeStream()
+        let cleanupRecorder = MobileHostConnectionCloseRecorder()
+        let childExitRecorder = MobileHostConnectionCloseRecorder()
+        let sessionCloseID = UUID()
+        let laneStopID = UUID()
+        let controlExitID = UUID()
+        let laneExitID = UUID()
+        let supervisorTask = Task {
+            await MobileHostIrohConnectionSupervisor.runLegacyCoupled(
+                runControl: {
+                    controlStarted.fulfill()
+                    for await _ in controlStream {}
+                    await childExitRecorder.record(controlExitID)
+                },
+                runLanes: {
+                    lanesStarted.fulfill()
+                    for await _ in laneStream {}
+                    await childExitRecorder.record(laneExitID)
+                },
+                closeSession: {
+                    await cleanupRecorder.record(sessionCloseID)
+                },
+                stopLanes: {
+                    await cleanupRecorder.record(laneStopID)
+                }
+            )
+        }
+        defer {
+            supervisorTask.cancel()
+            controlContinuation.finish()
+            laneContinuation.finish()
+        }
+
+        try await controlStarted.wait()
+        try await lanesStarted.wait()
+        switch trigger {
+        case .controlEnds:
+            controlContinuation.finish()
+        case .laneTaskEnds:
+            laneContinuation.finish()
+        case .childrenFinishTogether:
+            controlContinuation.finish()
+            laneContinuation.finish()
+        case .callerCancellation:
+            supervisorTask.cancel()
+        }
+        await supervisorTask.value
+
+        #expect(await cleanupRecorder.recordedIDs() == [sessionCloseID, laneStopID])
+        let childExits = await childExitRecorder.recordedIDs()
+        switch trigger {
+        case .controlEnds:
+            #expect(childExits.filter { $0 == laneExitID }.count == 1)
+        case .laneTaskEnds:
+            #expect(childExits.filter { $0 == controlExitID }.count == 1)
+        case .childrenFinishTogether, .callerCancellation:
+            #expect(childExits.count == 2)
+        }
+    }
+
     @Test func testIrohTerminalLaneInputFramingSurvivesQUICChunkBoundaries() throws {
         var buffer = Data([0, 0])
         #expect(try MobileHostIrohApplicationLaneRouter.decodeTerminalInputFrames(from: &buffer).isEmpty)
@@ -307,6 +389,13 @@ extension MobileHostAuthorizationTests {
         )
         return .irohAdmission(CmxIrohAdmittedPeer(peer: peer))
     }
+}
+
+private enum LegacyIrohSupervisorTrigger {
+    case controlEnds
+    case laneTaskEnds
+    case childrenFinishTogether
+    case callerCancellation
 }
 
 private actor MobileHostIrohPersistenceGate {

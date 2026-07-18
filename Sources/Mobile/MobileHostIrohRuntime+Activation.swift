@@ -189,27 +189,10 @@ extension MobileHostIrohRuntime {
             pendingRevocations: pendingRevocations,
             protocolConfiguration: protocolConfiguration,
             handleTransport: { session, isCurrent in
-                let eventWriter = MobileHostIrohServerEventWriter(
-                    session: session
+                await MobileHostIrohConnectionSupervisor.runLegacyCoupled(
+                    session: session,
+                    isCurrent: isCurrent
                 )
-                let laneRouter = MobileHostIrohApplicationLaneRouter(session: session)
-                await withTaskGroup(of: Void.self) { group in
-                    group.addTask {
-                        await MobileHostService.acceptTransport(
-                            session.controlTransport,
-                            authorization: .irohAdmission(session.peer),
-                            independentEventWriter: eventWriter,
-                            isCurrent: isCurrent
-                        )
-                    }
-                    group.addTask {
-                        await laneRouter.run(isCurrent: isCurrent)
-                    }
-                    _ = await group.next()
-                    group.cancelAll()
-                    await session.close()
-                    await laneRouter.stop()
-                }
             },
             handleBinding: { [weak self] registration, discovery, attestation in
                 let binding = registration.binding
