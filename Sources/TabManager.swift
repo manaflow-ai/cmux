@@ -4167,14 +4167,21 @@ class TabManager: ObservableObject {
     @discardableResult
     func restoreClosedWorkspace(_ entry: ClosedWorkspaceHistoryEntry) -> Bool {
         let preRestoreFocus = currentFocusHistoryEntry
+        var reconciledSnapshot = entry.snapshot
+        RestorableAgentSessionIndex.prepareAgentRegistryForSessionRestore(
+            &reconciledSnapshot
+        )
         let workspace = addWorkspace(
-            title: entry.snapshot.customTitle ?? entry.snapshot.processTitle,
-            workingDirectory: entry.snapshot.currentDirectory,
+            title: reconciledSnapshot.customTitle ?? reconciledSnapshot.processTitle,
+            workingDirectory: reconciledSnapshot.currentDirectory,
             select: false,
             autoWelcomeIfNeeded: false
         )
-        let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot, excludingStableIdentities: liveStableIdentitySet())
-        guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
+        let restoredPanelIds = workspace.restoreSessionSnapshot(
+            reconciledSnapshot,
+            excludingStableIdentities: liveStableIdentitySet()
+        )
+        guard !reconciledSnapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
             closeWorkspace(workspace, recordHistory: false)
             return false
         }

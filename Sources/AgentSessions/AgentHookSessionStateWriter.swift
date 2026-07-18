@@ -167,15 +167,10 @@ struct AgentHookSessionStateWriter: Sendable {
         let recordFingerprint: Data
         let canonicalWorkspaceId: String?
         let canonicalSurfaceId: String?
+        let lifecycle: String?
         let isDetached: Bool
         let hasResumeAttempt: Bool
-        let runtimeEvidence: RuntimeOwnershipEvidence
-    }
-    private enum RuntimeOwnershipEvidence: Sendable, Equatable {
-        case current
-        case provablyLiveForeign
-        case provablyDeadForeign
-        case unknownForeign
+        let runtimeEvidence: AgentRuntimeOwnershipProbe.Evidence
     }
     private enum LegacyReadLockMode: Sendable, Equatable {
         case immediate
@@ -1269,15 +1264,32 @@ struct AgentHookSessionStateWriter: Sendable {
                         outcomes[request.surfaceId] = .rejected
                         continue
                     }
+                    let pendingLifecycles: Set<String> = [
+                        AgentSessionLifecycleState.hibernated.rawValue,
+                        AgentSessionLifecycleState.restoring.rawValue,
+                    ]
+                    let isPendingOwner = ownerPreflight.lifecycle.map(
+                        pendingLifecycles.contains
+                    ) == true
                     switch ownerPreflight.runtimeEvidence {
                     case .provablyLiveForeign:
-                        outcomes[request.surfaceId] = .rejected
+                        outcomes[request.surfaceId] = isPendingOwner
+                            ? .unavailable
+                            : .rejected
                         continue
                     case .unknownForeign:
                         outcomes[request.surfaceId] = .unavailable
                         continue
+                    case .provablyDeadForeign
+                        where ownerPreflight.lifecycle
+                            == AgentSessionLifecycleState.restoring.rawValue
+                            && !ownerPreflight.hasResumeAttempt:
+                        outcomes[request.surfaceId] = .unavailable
+                        continue
                     case .current where !ownerPreflight.isDetached:
-                        outcomes[request.surfaceId] = .rejected
+                        outcomes[request.surfaceId] = isPendingOwner
+                            ? .unavailable
+                            : .rejected
                         continue
                     case .current, .provablyDeadForeign:
                         break
@@ -1642,13 +1654,11 @@ struct AgentHookSessionStateWriter: Sendable {
             return root["sessions"] as? [String: Any] ?? [:]
         }()
         var result: [String: RestoredHibernationOwnerPreflight] = [:]
-        var foreignSocketLiveness: [String: SocketPathProbeResult] = [:]
-        var foreignProcessIdentities: [pid_t: AgentPIDProcessIdentity] = [:]
-        var unavailableForeignProcessIdentities: Set<pid_t> = []
-        var currentSocketState: (
-            activePath: String,
-            pathOwnedByCurrentListener: Bool
-        )?
+        var runtimeOwnershipProbe = AgentRuntimeOwnershipProbe(
+            environment: environment,
+            currentSocketStateResolver: currentSocketStateResolver,
+            processIdentityResolver: processIdentityResolver
+        )
         result.reserveCapacity(sessionIds.count)
         for sessionId in sessionIds {
             let canonical = canonicalBySessionId[sessionId]
@@ -1671,16 +1681,11 @@ struct AgentHookSessionStateWriter: Sendable {
                 recordFingerprint: fingerprint,
                 canonicalWorkspaceId: normalized(record["workspaceId"] as? String),
                 canonicalSurfaceId: normalized(record["surfaceId"] as? String),
+                lifecycle: normalized(record["sessionState"] as? String),
                 isDetached: record["cmuxHibernationDetached"] as? Bool == true,
                 hasResumeAttempt:
                     normalized(record["cmuxHibernationResumeAttemptId"] as? String) != nil,
-                runtimeEvidence: recordRuntimeOwnershipEvidence(
-                    record,
-                    currentSocketState: &currentSocketState,
-                    foreignSocketLiveness: &foreignSocketLiveness,
-                    foreignProcessIdentities: &foreignProcessIdentities,
-                    unavailableForeignProcessIdentities: &unavailableForeignProcessIdentities
-                )
+                runtimeEvidence: runtimeOwnershipProbe.evidence(for: record)
             )
         }
         return result
@@ -1689,145 +1694,6 @@ struct AgentHookSessionStateWriter: Sendable {
     private func restoredHibernationRecordFingerprint(_ record: [String: Any]) -> Data? {
         guard JSONSerialization.isValidJSONObject(record) else { return nil }
         return try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
-    }
-
-    /// Stable workspace and surface UUIDs survive an app restart, so matching
-    /// identifiers alone cannot distinguish a dead owner from a second cmux
-    /// process. Reclaim requires positive death evidence. Missing/denied
-    /// process metadata and indeterminate socket probes remain inert instead
-    /// of speculatively launching a duplicate agent.
-    private func recordRuntimeOwnershipEvidence(
-        _ record: [String: Any],
-        currentSocketState: inout (
-            activePath: String,
-            pathOwnedByCurrentListener: Bool
-        )?,
-        foreignSocketLiveness: inout [String: SocketPathProbeResult],
-        foreignProcessIdentities: inout [pid_t: AgentPIDProcessIdentity],
-        unavailableForeignProcessIdentities: inout Set<pid_t>
-    ) -> RuntimeOwnershipEvidence {
-        let currentRuntimeId = normalized(environment["CMUX_RUNTIME_ID"])
-        var runtimes: [[String: Any]] = []
-        if let runtime = record["cmuxRuntime"] as? [String: Any] {
-            runtimes.append(runtime)
-        }
-        if let activeRunId = normalized(record["activeRunId"] as? String),
-           let runs = record["runs"] as? [[String: Any]],
-           let activeRun = runs.first(where: {
-               normalized($0["runId"] as? String) == activeRunId
-           }),
-           let runtime = activeRun["cmuxRuntime"] as? [String: Any] {
-            runtimes.append(runtime)
-        }
-
-        var sawCurrentRuntime = false
-        var sawForeignRuntime = false
-        var sawDeadForeignRuntime = false
-        var sawUnknownForeignRuntime = false
-        var probedSocketPaths: Set<String> = []
-        let socketTransport = SocketTransport()
-        for runtime in runtimes {
-            if let runtimeId = normalized(runtime["id"] as? String),
-               runtimeId == currentRuntimeId {
-                sawCurrentRuntime = true
-                continue
-            }
-            sawForeignRuntime = true
-            var runtimeHasDeadEvidence = false
-            var runtimeHasUnknownEvidence = false
-            if let expectedProcessIdentity = runtimeProcessIdentity(runtime) {
-                let pid = expectedProcessIdentity.pid
-                let currentProcessIdentity: AgentPIDProcessIdentity?
-                if let cached = foreignProcessIdentities[pid] {
-                    currentProcessIdentity = cached
-                } else if unavailableForeignProcessIdentities.contains(pid) {
-                    currentProcessIdentity = nil
-                } else if let resolved = processIdentityResolver(pid) {
-                    foreignProcessIdentities[pid] = resolved
-                    currentProcessIdentity = resolved
-                } else {
-                    unavailableForeignProcessIdentities.insert(pid)
-                    currentProcessIdentity = nil
-                }
-                if currentProcessIdentity == expectedProcessIdentity {
-                    return .provablyLiveForeign
-                }
-                if currentProcessIdentity != nil {
-                    runtimeHasDeadEvidence = true
-                } else {
-                    errno = 0
-                    if kill(pid, 0) == 0 {
-                        runtimeHasUnknownEvidence = true
-                    } else if errno == ESRCH {
-                        runtimeHasDeadEvidence = true
-                    } else {
-                        runtimeHasUnknownEvidence = true
-                    }
-                }
-            }
-            if let socketPath = normalized(runtime["socketPath"] as? String) {
-                if currentSocketState == nil {
-                    let preferredSocketPath = SocketControlSettings.socketPath(
-                        environment: environment,
-                        bundleIdentifier: normalized(environment["CMUX_BUNDLE_ID"])
-                    )
-                    currentSocketState = currentSocketStateResolver(preferredSocketPath)
-                }
-                if let currentSocketState,
-                   currentSocketState.pathOwnedByCurrentListener,
-                   SocketControlSettings.pathsMatch(socketPath, currentSocketState.activePath) {
-                    runtimeHasDeadEvidence = true
-                } else if probedSocketPaths.insert(socketPath).inserted {
-                    let probe = foreignSocketLiveness[socketPath]
-                        ?? socketTransport.pathProbeResult(at: socketPath)
-                    foreignSocketLiveness[socketPath] = probe
-                    switch probe {
-                    case .connected:
-                        return .provablyLiveForeign
-                    case .refused, .stale:
-                        runtimeHasDeadEvidence = true
-                    case .occupiedOrIndeterminate:
-                        runtimeHasUnknownEvidence = true
-                    }
-                } else if let probe = foreignSocketLiveness[socketPath] {
-                    switch probe {
-                    case .connected:
-                        return .provablyLiveForeign
-                    case .refused, .stale:
-                        runtimeHasDeadEvidence = true
-                    case .occupiedOrIndeterminate:
-                        runtimeHasUnknownEvidence = true
-                    }
-                }
-            }
-            if runtimeHasUnknownEvidence || !runtimeHasDeadEvidence {
-                sawUnknownForeignRuntime = true
-            } else {
-                sawDeadForeignRuntime = true
-            }
-        }
-        if sawUnknownForeignRuntime { return .unknownForeign }
-        if sawCurrentRuntime { return .current }
-        if sawForeignRuntime, sawDeadForeignRuntime { return .provablyDeadForeign }
-        return .unknownForeign
-    }
-
-    private func runtimeProcessIdentity(_ runtime: [String: Any]) -> AgentPIDProcessIdentity? {
-        guard let pidValue = (runtime["processId"] as? NSNumber)?.int64Value,
-              pidValue > 0,
-              pidValue <= Int64(Int32.max),
-              let startSeconds = (runtime["processStartSeconds"] as? NSNumber)?.int64Value,
-              startSeconds >= 0,
-              let startMicroseconds = (runtime["processStartMicroseconds"] as? NSNumber)?.int64Value,
-              startMicroseconds >= 0,
-              startMicroseconds < 1_000_000 else {
-            return nil
-        }
-        return AgentPIDProcessIdentity(
-            pid: pid_t(pidValue),
-            startSeconds: startSeconds,
-            startMicroseconds: startMicroseconds
-        )
     }
 
     private func assigningRuntime(

@@ -2,6 +2,34 @@ import CmuxFoundation
 import Foundation
 
 extension RestorableAgentSessionIndex {
+    private struct StartupRestoreCandidate {
+        var workspaceIndex: Int
+        var panelIndex: Int
+        var workspaceID: UUID?
+        var panelID: UUID
+        var agent: SessionRestorableAgentSnapshot
+        var wasHibernated: Bool
+
+        var kind: RestorableAgentKind { agent.kind }
+        var sessionID: String { agent.sessionId }
+    }
+
+    private struct DeadRestoringAttempt {
+        var agent: SessionRestorableAgentSnapshot
+        var provider: String
+        var sessionID: String
+        var workspaceID: UUID
+        var panelID: UUID
+        var attemptID: String
+        var fingerprint: Data
+        var updatedAt: TimeInterval
+    }
+
+    private struct StartupRegistryProjection {
+        var recordsBySessionID: [String: CmuxAgentSessionRegistry.Record]
+        var surfaceSlotsByID: [UUID: CmuxAgentSessionRegistry.ActiveSlot]
+    }
+
     struct AgentRegistryHibernationSnapshotResult {
         var snapshots: [String: CmuxAgentSessionRegistry.Snapshot]
         var failedProviders: Set<String>
@@ -12,10 +40,8 @@ extension RestorableAgentSessionIndex {
     static let maximumHibernationRegistryRecords = 12_288
     static let maximumHibernationRegistryBytes: Int64 = 64 * 1_024 * 1_024
 
-    /// Ensures the durable registry has seen the legacy providers referenced by
-    /// persisted hibernation placeholders before any panel can adopt one. This
-    /// only stats/parses those providers; it does not scan transcripts or the
-    /// process table and does not materialize registry history.
+    /// Reconciles all bounded workspace snapshots through one registry
+    /// projection before the restore path can construct any terminal panels.
     @discardableResult
     static func prepareAgentRegistryForSessionRestore(
         _ snapshot: inout AppSessionSnapshot,
@@ -23,40 +49,111 @@ extension RestorableAgentSessionIndex {
         fileManager: FileManager = .default,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Set<RestorableAgentKind> {
+        var workspaceLocations: [(windowIndex: Int, workspaceIndex: Int)] = []
+        var workspaces: [SessionWorkspaceSnapshot] = []
+        for windowIndex in snapshot.windows.indices
+            .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot) {
+            for workspaceIndex in snapshot.windows[windowIndex]
+                .tabManager.workspaces.indices
+                .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
+                workspaceLocations.append((windowIndex, workspaceIndex))
+                workspaces.append(
+                    snapshot.windows[windowIndex].tabManager.workspaces[workspaceIndex]
+                )
+            }
+        }
+        let failures = prepareAgentRegistryForSessionRestore(
+            &workspaces,
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            environment: environment
+        )
+        for (offset, location) in workspaceLocations.enumerated() {
+            snapshot.windows[location.windowIndex]
+                .tabManager.workspaces[location.workspaceIndex] = workspaces[offset]
+        }
+        return failures
+    }
+
+    /// Reconciles one closed-history workspace through the same bounded
+    /// projection used by full app-session restore.
+    @discardableResult
+    static func prepareAgentRegistryForSessionRestore(
+        _ snapshot: inout SessionWorkspaceSnapshot,
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Set<RestorableAgentKind> {
+        var workspaces = [snapshot]
+        let failures = prepareAgentRegistryForSessionRestore(
+            &workspaces,
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            environment: environment
+        )
+        if let reconciled = workspaces.first {
+            snapshot = reconciled
+        }
+        return failures
+    }
+
+    private static func prepareAgentRegistryForSessionRestore(
+        _ workspaces: inout [SessionWorkspaceSnapshot],
+        homeDirectory: String,
+        fileManager: FileManager,
+        environment: [String: String]
+    ) -> Set<RestorableAgentKind> {
+        var candidates: [StartupRestoreCandidate] = []
         var kinds = Set<RestorableAgentKind>()
         var restoreOwners = Set<CmuxAgentSessionRegistry.RestoreOwnerContext>()
-        for window in snapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot) {
-            for workspace in window.tabManager.workspaces.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
-                for panel in workspace.panels.prefix(SessionPersistencePolicy.maxPanelsPerWorkspace) {
-                    guard panel.terminal?.hibernation != nil,
-                          let agent = panel.terminal?.agent else { continue }
-                    let kind = agent.kind
-                    kinds.insert(kind)
-                    let sessionID = agent.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if let workspaceID = workspace.workspaceId, !sessionID.isEmpty {
-                        restoreOwners.insert(.init(
-                            provider: kind.rawValue,
-                            sessionID: sessionID,
-                            workspaceID: workspaceID.uuidString,
-                            surfaceID: panel.id.uuidString
-                        ))
-                    }
+        for workspaceIndex in workspaces.indices {
+            for panelIndex in workspaces[workspaceIndex].panels.indices
+                .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace) {
+                let panel = workspaces[workspaceIndex].panels[panelIndex]
+                guard let terminal = panel.terminal,
+                      let agent = terminal.agent else { continue }
+                let sessionID = agent.sessionId
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !sessionID.isEmpty else { continue }
+                kinds.insert(agent.kind)
+                var normalizedAgent = agent
+                normalizedAgent.sessionId = sessionID
+                let candidate = StartupRestoreCandidate(
+                    workspaceIndex: workspaceIndex,
+                    panelIndex: panelIndex,
+                    workspaceID: workspaces[workspaceIndex].workspaceId,
+                    panelID: panel.id,
+                    agent: normalizedAgent,
+                    wasHibernated: terminal.hibernation != nil
+                )
+                candidates.append(candidate)
+                if let workspaceID = candidate.workspaceID {
+                    restoreOwners.insert(.init(
+                        provider: candidate.kind.rawValue,
+                        sessionID: candidate.sessionID,
+                        workspaceID: workspaceID.uuidString,
+                        surfaceID: candidate.panelID.uuidString
+                    ))
                 }
             }
         }
-        guard !kinds.isEmpty else { return [] }
+        guard !candidates.isEmpty else { return [] }
+        guard candidates.count <= maximumHibernationPanelContexts,
+              kinds.count <= maximumHibernationRegistryProviders else {
+            suppressAutomaticStartup(for: candidates, in: &workspaces)
+            return kinds
+        }
 
-        let sources = kinds
-            .sorted { $0.rawValue < $1.rawValue }
-            .map {
-                CmuxAgentSessionRegistry.LegacySource(
-                    provider: $0.rawValue,
-                    url: $0.hookStoreFileURL(
-                        homeDirectory: homeDirectory,
-                        environment: environment
-                    )
+        let orderedKinds = kinds.sorted { $0.rawValue < $1.rawValue }
+        let sources = orderedKinds.map {
+            CmuxAgentSessionRegistry.LegacySource(
+                provider: $0.rawValue,
+                url: $0.hookStoreFileURL(
+                    homeDirectory: homeDirectory,
+                    environment: environment
                 )
-            }
+            )
+        }
         let registry = CmuxAgentSessionRegistry(
             url: CmuxAgentSessionRegistry.defaultURL(
                 homeDirectory: homeDirectory,
@@ -64,69 +161,326 @@ extension RestorableAgentSessionIndex {
             ),
             busyTimeoutMilliseconds: 25
         )
-        let failedProviders: Set<String>
+        var failedProviders: Set<String>
         let verifiedCanonicalRestoreOwners: Set<CmuxAgentSessionRegistry.RestoreOwnerContext>
+        let registryProjectionAvailable: Bool
         do {
-            let result = try registry.refreshLegacySources(
+            let refresh = try registry.refreshLegacySources(
                 sources,
                 preservingCanonicalRestoreOwners: restoreOwners,
                 fileManager: fileManager
             )
-            failedProviders = result.failedProviders
-            verifiedCanonicalRestoreOwners = result.verifiedCanonicalRestoreOwners
+            failedProviders = refresh.failedProviders
+            verifiedCanonicalRestoreOwners = refresh.verifiedCanonicalRestoreOwners
+            registryProjectionAvailable = true
         } catch {
             failedProviders = Set(kinds.map(\.rawValue))
             verifiedCanonicalRestoreOwners = []
+            registryProjectionAvailable = false
         }
-        guard !failedProviders.isEmpty else { return [] }
 
-        // Remove only the providers whose durable ownership could not be
-        // verified. This makes every affected panel a plain shell before
-        // construction, so one failed batch preflight cannot turn into one
-        // SQLite busy wait per restored panel.
-        for windowIndex in snapshot.windows.indices.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot) {
-            for workspaceIndex in snapshot.windows[windowIndex]
-                .tabManager.workspaces.indices.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
-                for panelIndex in snapshot.windows[windowIndex]
-                    .tabManager.workspaces[workspaceIndex]
-                    .panels.indices.prefix(SessionPersistencePolicy.maxPanelsPerWorkspace) {
-                    guard var terminal = snapshot.windows[windowIndex]
-                        .tabManager.workspaces[workspaceIndex]
-                        .panels[panelIndex]
-                        .terminal,
-                        terminal.hibernation != nil,
-                        let kind = terminal.agent?.kind,
-                        failedProviders.contains(kind.rawValue) else { continue }
-                    let sessionID = terminal.agent?.sessionId
-                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    let owner = snapshot.windows[windowIndex]
-                        .tabManager.workspaces[workspaceIndex]
-                        .workspaceId.map {
-                            CmuxAgentSessionRegistry.RestoreOwnerContext(
-                                provider: kind.rawValue,
-                                sessionID: sessionID,
-                                workspaceID: $0.uuidString,
-                                surfaceID: snapshot.windows[windowIndex]
-                                    .tabManager.workspaces[workspaceIndex]
-                                    .panels[panelIndex]
-                                    .id.uuidString
-                            )
-                        }
-                    if let owner, verifiedCanonicalRestoreOwners.contains(owner) {
-                        continue
-                    }
-                    terminal.agent = nil
-                    terminal.hibernation = nil
-                    terminal.resumeBinding = nil
-                    terminal.wasAgentRunning = false
-                    snapshot.windows[windowIndex]
-                        .tabManager.workspaces[workspaceIndex]
-                        .panels[panelIndex]
-                        .terminal = terminal
+        let candidatesByProvider = Dictionary(grouping: candidates) {
+            $0.kind.rawValue
+        }
+        var projections: [String: StartupRegistryProjection] = [:]
+        var remainingRecords = maximumHibernationRegistryRecords
+        var remainingBytes = maximumHibernationRegistryBytes
+        for kind in orderedKinds where registryProjectionAvailable {
+            let provider = kind.rawValue
+            let providerCandidates = candidatesByProvider[provider] ?? []
+            let panelContexts = Set(providerCandidates.compactMap { candidate in
+                candidate.workspaceID.map {
+                    CmuxAgentSessionRegistry.HookHibernationPanelContext(
+                        workspaceID: $0.uuidString,
+                        surfaceID: candidate.panelID.uuidString
+                    )
                 }
+            })
+            do {
+                let projection = try registry.hookHibernationSnapshot(
+                    provider: provider,
+                    panelContexts: panelContexts,
+                    exactSessionIDs: Set(providerCandidates.map { $0.sessionID }),
+                    maximumRecords: remainingRecords,
+                    maximumBytes: remainingBytes
+                )
+                let bytes = try projectedRegistryBytes(projection)
+                remainingRecords -= projection.records.count
+                remainingBytes -= bytes
+                projections[provider] = StartupRegistryProjection(
+                    recordsBySessionID: Dictionary(
+                        projection.records.map { ($0.sessionID, $0) },
+                        uniquingKeysWith: { current, replacement in
+                            current.updatedAt >= replacement.updatedAt
+                                ? current
+                                : replacement
+                        }
+                    ),
+                    surfaceSlotsByID: Dictionary(
+                        projection.activeSlots.compactMap { slot in
+                            guard slot.scope == .surface,
+                                  let surfaceID = normalizedRegistryUUID(slot.scopeID) else {
+                                return nil
+                            }
+                            return (surfaceID, slot)
+                        },
+                        uniquingKeysWith: { current, replacement in
+                            current.updatedAt >= replacement.updatedAt
+                                ? current
+                                : replacement
+                        }
+                    )
+                )
+            } catch {
+                failedProviders.insert(provider)
             }
         }
+
+        var runtimeOwnershipProbe = AgentRuntimeOwnershipProbe(
+            environment: environment,
+            currentSocketStateResolver: {
+                AgentHookRuntimeSocketState.resolve(preferredPath: $0)
+            },
+            processIdentityResolver: { AgentPIDProcessIdentity(pid: $0) }
+        )
+        var deadRestoringAttempts: [DeadRestoringAttempt] = []
+        var reconciledCanonicalOwners = Set<
+            CmuxAgentSessionRegistry.RestoreOwnerContext
+        >()
+        for candidate in candidates {
+            guard let workspaceID = candidate.workspaceID,
+                  let projection = projections[candidate.kind.rawValue],
+                  let record = projection.recordsBySessionID[candidate.sessionID],
+                  let recordObject = try? JSONSerialization.jsonObject(
+                      with: record.json
+                  ) as? [String: Any],
+                  startupRecord(
+                      recordObject,
+                      matches: candidate,
+                      workspaceID: workspaceID
+                  ),
+                  startupRecordHasCanonicalSurfaceAuthority(
+                      recordObject,
+                      projection: projection,
+                      candidate: candidate
+                  ),
+                  let lifecycle = recordObject["sessionState"] as? String,
+                  lifecycle == AgentSessionLifecycleState.hibernated.rawValue
+                    || lifecycle == AgentSessionLifecycleState.restoring.rawValue else {
+                  continue
+            }
+            reconciledCanonicalOwners.insert(.init(
+                provider: candidate.kind.rawValue,
+                sessionID: candidate.sessionID,
+                workspaceID: workspaceID.uuidString,
+                surfaceID: candidate.panelID.uuidString
+            ))
+
+            if lifecycle == AgentSessionLifecycleState.restoring.rawValue,
+               runtimeOwnershipProbe.evidence(for: recordObject) == .provablyDeadForeign,
+               let attemptID = normalizedRegistryValue(
+                   recordObject["cmuxHibernationResumeAttemptId"] as? String
+               ),
+               let fingerprint = startupRecordFingerprint(recordObject) {
+                deadRestoringAttempts.append(DeadRestoringAttempt(
+                    agent: candidate.agent,
+                    provider: candidate.kind.rawValue,
+                    sessionID: candidate.sessionID,
+                    workspaceID: workspaceID,
+                    panelID: candidate.panelID,
+                    attemptID: attemptID,
+                    fingerprint: fingerprint,
+                    updatedAt: record.updatedAt
+                ))
+            }
+
+            var terminal = workspaces[candidate.workspaceIndex]
+                .panels[candidate.panelIndex].terminal
+            let hibernatedAt = registryTimeInterval(
+                recordObject["cmuxHibernatedAt"]
+            ) ?? record.updatedAt
+            terminal?.hibernation = SessionAgentHibernationSnapshot(
+                hibernatedAt: hibernatedAt,
+                lastActivityAt: terminal?.hibernation?.lastActivityAt ?? hibernatedAt
+            )
+            terminal?.agent = candidate.agent
+            terminal?.wasAgentRunning = false
+            workspaces[candidate.workspaceIndex]
+                .panels[candidate.panelIndex].terminal = terminal
+        }
+
+        normalizeProvablyDeadRestoringAttempts(
+            deadRestoringAttempts,
+            registry: registry
+        )
+
+        for candidate in candidates where failedProviders.contains(candidate.kind.rawValue) {
+            guard var terminal = workspaces[candidate.workspaceIndex]
+                .panels[candidate.panelIndex].terminal else { continue }
+            if candidate.wasHibernated {
+                let owner = candidate.workspaceID.map {
+                    CmuxAgentSessionRegistry.RestoreOwnerContext(
+                        provider: candidate.kind.rawValue,
+                        sessionID: candidate.sessionID,
+                        workspaceID: $0.uuidString,
+                        surfaceID: candidate.panelID.uuidString
+                    )
+                }
+                guard owner.map({
+                    verifiedCanonicalRestoreOwners.contains($0)
+                        || reconciledCanonicalOwners.contains($0)
+                }) != true else {
+                    continue
+                }
+                terminal.agent = nil
+                terminal.hibernation = nil
+                terminal.resumeBinding = nil
+            }
+            terminal.wasAgentRunning = false
+            workspaces[candidate.workspaceIndex]
+                .panels[candidate.panelIndex].terminal = terminal
+        }
         return Set(failedProviders.compactMap(RestorableAgentKind.init(rawValue:)))
+    }
+
+    private static func suppressAutomaticStartup(
+        for candidates: [StartupRestoreCandidate],
+        in workspaces: inout [SessionWorkspaceSnapshot]
+    ) {
+        for candidate in candidates {
+            workspaces[candidate.workspaceIndex]
+                .panels[candidate.panelIndex].terminal?.wasAgentRunning = false
+        }
+    }
+
+    private static func projectedRegistryBytes(
+        _ snapshot: CmuxAgentSessionRegistry.Snapshot
+    ) throws -> Int64 {
+        var bytes: Int64 = 0
+        for count in snapshot.records.map({ $0.json.count })
+            + snapshot.activeSlots.map({ $0.json.count }) {
+            let next = bytes.addingReportingOverflow(Int64(count))
+            guard !next.overflow else { throw CocoaError(.fileReadTooLarge) }
+            bytes = next.partialValue
+        }
+        return bytes
+    }
+
+    private static func startupRecord(
+        _ record: [String: Any],
+        matches candidate: StartupRestoreCandidate,
+        workspaceID: UUID
+    ) -> Bool {
+        guard record["sessionId"] as? String == candidate.sessionID,
+              record["restoreAuthority"] as? Bool != false,
+              record["updatedAt"] is NSNumber,
+              normalizedRegistryUUID(record["workspaceId"] as? String) == workspaceID,
+              normalizedRegistryUUID(record["surfaceId"] as? String) == candidate.panelID else {
+            return false
+        }
+        guard let completedAt = record["completedAt"] else { return true }
+        return completedAt is NSNull
+    }
+
+    private static func startupRecordHasCanonicalSurfaceAuthority(
+        _ record: [String: Any],
+        projection: StartupRegistryProjection,
+        candidate: StartupRestoreCandidate
+    ) -> Bool {
+        if record["cmuxHibernationDetached"] as? Bool == true,
+           record["sessionState"] as? String
+            == AgentSessionLifecycleState.hibernated.rawValue {
+            return true
+        }
+        guard let slot = projection.surfaceSlotsByID[candidate.panelID],
+        slot.sessionID == candidate.sessionID,
+        let slotObject = try? JSONSerialization.jsonObject(
+            with: slot.json
+        ) as? [String: Any] else {
+            return false
+        }
+        return slotObject["sessionId"] as? String == candidate.sessionID
+            && slotObject["updatedAt"] is NSNumber
+    }
+
+    private static func normalizeProvablyDeadRestoringAttempts(
+        _ attempts: [DeadRestoringAttempt],
+        registry: CmuxAgentSessionRegistry
+    ) {
+        for (provider, providerAttempts) in Dictionary(
+            grouping: attempts,
+            by: { $0.provider }
+        ).sorted(by: { $0.key < $1.key }) {
+            var normalizedAgent: SessionRestorableAgentSnapshot?
+            do {
+                try registry.withRecordRebindBatch { batch in
+                    for attempt in providerAttempts {
+                        let result = try batch.patchRecordRebindingActiveSlots(
+                            provider: provider,
+                            sessionID: attempt.sessionID,
+                            updatedAt: attempt.updatedAt,
+                            previousSlots: [],
+                            activeSlots: [.init(
+                                scope: .surface,
+                                scopeID: attempt.panelID.uuidString
+                            )],
+                            requireExistingActiveSlots: true,
+                            monotonicUpdatedAt: true,
+                            shouldMutate: { record in
+                                startupRecordFingerprint(record) == attempt.fingerprint
+                                    && normalizedRegistryValue(
+                                        record["cmuxHibernationResumeAttemptId"] as? String
+                                    ) == attempt.attemptID
+                                    && record["sessionState"] as? String
+                                        == AgentSessionLifecycleState.restoring.rawValue
+                                    && normalizedRegistryUUID(
+                                        record["workspaceId"] as? String
+                                    ) == attempt.workspaceID
+                                    && normalizedRegistryUUID(
+                                        record["surfaceId"] as? String
+                                    ) == attempt.panelID
+                            }
+                        ) { record in
+                            record["sessionState"] = AgentSessionLifecycleState.hibernated.rawValue
+                            record.removeValue(forKey: "cmuxHibernationResumeAttemptId")
+                            record.removeValue(forKey: "cmuxHibernationResumeStartedAt")
+                            record.removeValue(forKey: "cmuxHibernationResumeFromAttemptId")
+                        }
+                        if result == .patched, normalizedAgent == nil {
+                            normalizedAgent = attempt.agent
+                        }
+                    }
+                }
+            } catch {
+                continue
+            }
+            if let agent = normalizedAgent {
+                AgentHookSessionStateWriter.projectCanonicalLegacy(agent: agent)
+            }
+        }
+    }
+
+    private static func startupRecordFingerprint(
+        _ record: [String: Any]
+    ) -> Data? {
+        guard JSONSerialization.isValidJSONObject(record) else { return nil }
+        return try? JSONSerialization.data(
+            withJSONObject: record,
+            options: [.sortedKeys]
+        )
+    }
+
+    private static func normalizedRegistryValue(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private static func normalizedRegistryUUID(_ value: String?) -> UUID? {
+        normalizedRegistryValue(value).flatMap(UUID.init(uuidString:))
+    }
+
+    private static func registryTimeInterval(_ value: Any?) -> TimeInterval? {
+        (value as? NSNumber)?.doubleValue
     }
 
     static func agentRegistrySnapshots(

@@ -612,6 +612,9 @@ extension CMUXCLIErrorOutputRegressionTests {
                         "surfaceId": surfaceID.uuidString,
                         "sessionState": "hibernated",
                         "restoreAuthority": true,
+                        "cmuxRuntime": provablyDeadRuntime(
+                            id: "same-workspace-retired-runtime"
+                        ),
                         "startedAt": 1.0,
                         "updatedAt": 10.0,
                     ]
@@ -738,6 +741,9 @@ extension CMUXCLIErrorOutputRegressionTests {
                 "surfaceId": surfaceID.uuidString,
                 "sessionState": state,
                 "restoreAuthority": true,
+                "cmuxRuntime": provablyDeadRuntime(
+                    id: "collision-retired-\(sessionID)"
+                ),
                 "startedAt": 1.0,
                 "updatedAt": updatedAt,
             ]
