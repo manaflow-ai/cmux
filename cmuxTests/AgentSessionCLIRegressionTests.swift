@@ -10,6 +10,82 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func legacyDefaultListAndTreeUseRunRestoreAuthority() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-run-authority-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        func session(
+            id: String,
+            recordAuthority: Bool,
+            runAuthority: Bool,
+            updatedAt: TimeInterval
+        ) -> [String: Any] {
+            [
+                "sessionId": id,
+                "workspaceId": "workspace-\(id)",
+                "surfaceId": "surface-\(id)",
+                "isRestorable": true,
+                "runId": "run-\(id)",
+                "activeRunId": "run-\(id)",
+                "restoreAuthority": recordAuthority,
+                "sessionState": "active",
+                "startedAt": updatedAt - 1,
+                "updatedAt": updatedAt,
+                "runs": [[
+                    "runId": "run-\(id)",
+                    "restoreAuthority": runAuthority,
+                    "startedAt": updatedAt - 1,
+                    "updatedAt": updatedAt,
+                ]],
+            ]
+        }
+        let store: [String: Any] = [
+            "version": 2,
+            "sessions": [
+                "record-only-owner": session(
+                    id: "record-only-owner",
+                    recordAuthority: true,
+                    runAuthority: false,
+                    updatedAt: 100
+                ),
+                "run-owner": session(
+                    id: "run-owner",
+                    recordAuthority: false,
+                    runAuthority: true,
+                    updatedAt: 200
+                ),
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
+            .write(to: root.appendingPathComponent("opencode-hook-sessions.json"), options: .atomic)
+        var environment = isolatedAgentTreeEnvironment(home: root)
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+
+        for arguments in [
+            ["agents", "list", "--agent", "opencode", "--json"],
+            ["agents", "tree", "--agent", "opencode", "--json"],
+        ] {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: arguments,
+                environment: environment,
+                timeout: 5
+            )
+            #expect(!result.timedOut)
+            #expect(result.status == 0, Comment(rawValue: result.stdout))
+            let payload = try #require(
+                JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+            )
+            let rows = (payload["sessions"] as? [[String: Any]])
+                ?? (payload["nodes"] as? [[String: Any]])
+                ?? []
+            #expect(rows.map { $0["session_id"] as? String } == ["run-owner"])
+        }
+    }
+
     @Test func agentsListTextRendersLifecycleAndIdentityState() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agents-list-text-\(UUID().uuidString)", isDirectory: true)

@@ -12,6 +12,98 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func canonicalRunConflictsCannotAuthorizeResumeOrStopMutations() throws {
+        let attemptID = UUID()
+        let authoritative = AgentSessionRunRecord(
+            runId: "shared-run", pid: 42, processStartedAt: 100,
+            parentRunId: nil, parentSessionId: nil, relationship: nil,
+            restoreAuthority: true,
+            cmuxHibernationResumeAttemptId: attemptID.uuidString,
+            startedAt: 100, updatedAt: 200, endedAt: nil
+        )
+        var conflictingProof = authoritative
+        conflictingProof.cmuxHibernationResumeAttemptId = UUID().uuidString
+        var conflictingIdentity = authoritative
+        conflictingIdentity.pid = 84
+        conflictingIdentity.processStartedAt = 101
+        let resumeLineage = AgentHookSessionLineage(
+            runId: authoritative.runId,
+            pid: authoritative.pid,
+            processStartedAt: authoritative.processStartedAt,
+            processDescribesAgent: true,
+            processLaunchMode: .unknown,
+            hibernationResumeAttemptId: attemptID,
+            parentRunId: nil,
+            parentSessionId: nil,
+            relationship: nil,
+            restoreAuthority: true
+        )
+
+        for conflict in [conflictingProof, conflictingIdentity] {
+            for rawRuns in [[authoritative, conflict], [conflict, authoritative]] {
+                var record = ClaudeHookSessionRecord(
+                    sessionId: "resume-session",
+                    workspaceId: "workspace",
+                    surfaceId: "surface",
+                    pid: authoritative.pid,
+                    startedAt: 100,
+                    updatedAt: 200,
+                    sessionState: .active,
+                    runs: rawRuns,
+                    activeRunId: authoritative.runId,
+                    runId: authoritative.runId,
+                    restoreAuthority: true
+                )
+                record.runs = AgentSessionRunCanonicalizer().runs(
+                    record: record,
+                    provider: "local-agent"
+                )
+
+                #expect(
+                    AgentHookSessionActivationPolicy().decision(
+                        record: record,
+                        lineage: resumeLineage,
+                        hasIncomingPID: true
+                    ) == .reject
+                )
+            }
+        }
+
+        var ended = authoritative
+        ended.restoreAuthority = false
+        ended.cmuxHibernationResumeAttemptId = nil
+        ended.endedAt = 250
+        for rawRuns in [[authoritative, ended], [ended, authoritative]] {
+            var record = ClaudeHookSessionRecord(
+                sessionId: "stop-session",
+                workspaceId: "workspace",
+                surfaceId: "surface",
+                pid: authoritative.pid,
+                startedAt: 100,
+                updatedAt: 200,
+                sessionState: .active,
+                runs: rawRuns,
+                activeRunId: authoritative.runId,
+                runId: authoritative.runId,
+                restoreAuthority: true
+            )
+            record.runs = AgentSessionRunCanonicalizer().runs(
+                record: record,
+                provider: "local-agent"
+            )
+            var stopLineage = resumeLineage
+            stopLineage.hibernationResumeAttemptId = nil
+
+            #expect(
+                AgentPromptStopLineagePolicy().decision(
+                    record: record,
+                    lineage: stopLineage,
+                    incomingPID: authoritative.pid
+                ) == .rejectStaleGeneration
+            )
+        }
+    }
+
     @MainActor
     @Test func supersededPreviousSurfaceRejectsRestoredHibernationAdoption() throws {
         let root = FileManager.default.temporaryDirectory
