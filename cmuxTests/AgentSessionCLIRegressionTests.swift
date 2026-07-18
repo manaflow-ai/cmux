@@ -1048,6 +1048,78 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(result.stdout.contains("--agent requires a value"))
     }
 
+    @Test func agentsValueOptionsRejectFollowingFlagAsMissingValue() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-missing-option-value-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let cases: [(subcommand: String, option: String)] = [
+            ("list", "--agent"),
+            ("list", "--session"),
+            ("list", "--workspace"),
+            ("list", "--surface"),
+            ("list", "--cwd"),
+            ("list", "--state-dir"),
+            ("list", "--codex-home"),
+            ("list", "--limit"),
+            ("list", "--state"),
+            ("list", "--activity"),
+            ("list", "--work-kind"),
+            ("tree", "--agent"),
+            ("tree", "--session"),
+            ("tree", "--workspace"),
+            ("tree", "--surface"),
+            ("tree", "--state-dir"),
+            ("tree", "--relation"),
+            ("tree", "--state"),
+            ("tree", "--activity"),
+            ("tree", "--work-kind"),
+            ("tree", "--depth"),
+        ]
+
+        for testCase in cases {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["agents", testCase.subcommand, testCase.option, "--json"],
+                environment: isolatedAgentTreeEnvironment(home: root),
+                timeout: 5
+            )
+            let context = "agents \(testCase.subcommand) \(testCase.option): \(result.stdout)"
+
+            #expect(!result.timedOut, Comment(rawValue: context))
+            #expect(result.status != 0, Comment(rawValue: context))
+            #expect(
+                result.stdout.contains("\(testCase.option) requires a value"),
+                Comment(rawValue: context)
+            )
+        }
+    }
+
+    @Test func agentsEqualsOptionsPreserveDashLeadingValues() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-dash-value-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        for subcommand in ["list", "tree"] {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["agents", subcommand, "--agent=-definitely-not-an-agent", "--json"],
+                environment: isolatedAgentTreeEnvironment(home: root),
+                timeout: 5
+            )
+            let context = "agents \(subcommand): \(result.stdout)"
+
+            #expect(!result.timedOut, Comment(rawValue: context))
+            #expect(result.status != 0, Comment(rawValue: context))
+            #expect(result.stdout.contains("unknown agent '-definitely-not-an-agent'"), Comment(rawValue: context))
+            #expect(!result.stdout.contains("--agent requires a value"), Comment(rawValue: context))
+        }
+    }
+
 }
 
 private func writeAgentTreeStore(parentIndices: [Int?], to url: URL) throws {
