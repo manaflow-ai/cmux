@@ -17,6 +17,7 @@ final class WorkspaceShareExporter {
     private let sendFrame: SendFrame
     private let cursorOverlay: WorkspaceShareCursorOverlayController
     private var layoutRevision: UInt64 = 0
+    private var terminalGenerationBySurfaceID: [UUID: UInt64] = [:]
     private var terminalSequenceBySurfaceID: [UUID: UInt64] = [:]
     private var terminalEmissionStateBySurfaceID: [UUID: MobileTerminalRenderGridEmissionState] = [:]
     private var documentsByPanelID: [UUID: WorkspaceShareTextDocument] = [:]
@@ -115,9 +116,9 @@ final class WorkspaceShareExporter {
         guard let emission = await snapshotPayload(),
               let value = try? WorkspaceShareJSONValue.encode(SnapshotPayload(scene: emission.scene)) else { return }
         await sendFrame("workspace.snapshot", value)
-        for frame in emission.terminalFrames {
+        for frame in emission.terminalVTFrames {
             guard let encoded = try? WorkspaceShareJSONValue.encode(frame) else { continue }
-            await sendFrame("terminal.grid", .object(["frame": encoded]))
+            await sendFrame("terminal.vt", encoded)
         }
         for document in emission.textDocuments {
             guard let encoded = try? WorkspaceShareJSONValue.encode(
@@ -514,7 +515,7 @@ final class WorkspaceShareExporter {
             guard let panel = workspace.terminalPanel(for: panelID),
                   let frame = renderFrame(panel: panel, reset: false),
                   let encodedFrame = try? WorkspaceShareJSONValue.encode(frame) else { continue }
-            await sendFrame("terminal.grid", .object(["frame": encodedFrame]))
+            await sendFrame("terminal.vt", encodedFrame)
         }
     }
 
@@ -545,10 +546,16 @@ final class WorkspaceShareExporter {
         )
         refreshCursorCoordinateSpace(topology: topology)
         let selectedTerminalIDs = selectedTerminalPanelIDs(topology: topology)
+        terminalGenerationBySurfaceID = terminalGenerationBySurfaceID.filter {
+            selectedTerminalIDs.contains($0.key)
+        }
+        terminalSequenceBySurfaceID = terminalSequenceBySurfaceID.filter {
+            selectedTerminalIDs.contains($0.key)
+        }
         terminalEmissionStateBySurfaceID = terminalEmissionStateBySurfaceID.filter {
             selectedTerminalIDs.contains($0.key)
         }
-        let terminalFrames = selectedTerminalIDs.compactMap { panelID in
+        let terminalVTFrames = selectedTerminalIDs.compactMap { panelID in
             workspace.terminalPanel(for: panelID).flatMap { renderFrame(panel: $0, reset: true) }
         }
         let textDocuments = topology.panes.compactMap { pane -> WorkspaceShareTextSnapshot? in
@@ -562,7 +569,7 @@ final class WorkspaceShareExporter {
         }
         return SnapshotEmission(
             scene: scene,
-            terminalFrames: terminalFrames,
+            terminalVTFrames: terminalVTFrames,
             textDocuments: textDocuments,
             browserImages: browserImages
         )
@@ -652,19 +659,49 @@ final class WorkspaceShareExporter {
     private func renderFrame(
         panel: TerminalPanel,
         reset: Bool
-    ) -> MobileTerminalRenderGridFrame? {
-        let sequence = (terminalSequenceBySurfaceID[panel.id] ?? 0) &+ 1
-        terminalSequenceBySurfaceID[panel.id] = sequence
+    ) -> WorkspaceShareTerminalVTFrame? {
+        let previousSequence = terminalSequenceBySurfaceID[panel.id] ?? 0
+        let sequenceOverflowed = previousSequence >= WorkspaceShareTerminalVTFrame.maximumSafeSequence
+        let sequence = sequenceOverflowed ? 1 : previousSequence + 1
+        let startsNewStream = reset || sequenceOverflowed || terminalGenerationBySurfaceID[panel.id] == nil
+        let previousEmissionState = startsNewStream ? nil : terminalEmissionStateBySurfaceID[panel.id]
         guard let fullFrame = panel.surface.mobileRenderGridFrame(
             stateSeq: sequence,
             full: true,
-            includeTheme: reset || terminalEmissionStateBySurfaceID[panel.id] == nil
+            includeTheme: startsNewStream || previousEmissionState == nil
         )?.frame,
         let emission = try? fullFrame.renderGridEmission(
-            comparedTo: reset ? nil : terminalEmissionStateBySurfaceID[panel.id]
+            comparedTo: previousEmissionState
         ) else { return nil }
+
+        let kind: WorkspaceShareTerminalVTFrame.Kind = emission.frame.full ? .snapshot : .patch
+        let previousGeneration = terminalGenerationBySurfaceID[panel.id] ?? 0
+        let generation: UInt64
+        if kind == .snapshot {
+            generation = previousGeneration >= WorkspaceShareTerminalVTFrame.maximumSafeSequence
+                ? 1
+                : previousGeneration + 1
+        } else {
+            guard previousGeneration > 0 else { return nil }
+            generation = previousGeneration
+        }
+        let bytes = kind == .snapshot
+            ? emission.frame.vtReplacementBytes()
+            : emission.frame.vtPatchBytes()
+        guard let payload = try? WorkspaceShareTerminalVTFrame(
+            surfaceId: panel.id.uuidString,
+            generation: generation,
+            stateSeq: sequence,
+            columns: emission.frame.columns,
+            rows: emission.frame.rows,
+            kind: kind,
+            data: bytes
+        ) else { return nil }
+
+        terminalGenerationBySurfaceID[panel.id] = generation
+        terminalSequenceBySurfaceID[panel.id] = sequence
         terminalEmissionStateBySurfaceID[panel.id] = emission.state
-        return emission.frame
+        return payload
     }
 
     private func selectedTerminalPanelIDs(
@@ -892,7 +929,7 @@ private struct SnapshotPayload: Encodable, Sendable {
 
 private struct SnapshotEmission: Sendable {
     let scene: WorkspaceShareScene
-    let terminalFrames: [MobileTerminalRenderGridFrame]
+    let terminalVTFrames: [WorkspaceShareTerminalVTFrame]
     let textDocuments: [WorkspaceShareTextSnapshot]
     let browserImages: [UUID: String]
 }

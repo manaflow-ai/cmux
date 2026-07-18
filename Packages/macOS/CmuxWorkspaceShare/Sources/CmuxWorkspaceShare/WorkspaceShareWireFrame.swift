@@ -4,7 +4,7 @@ import Foundation
 public struct WorkspaceShareWireFrame: Codable, Equatable, Sendable {
     /// Protocol version. Version one is the only accepted value.
     public let v: Int
-    /// Stable frame type such as `access.requested` or `terminal.grid`.
+    /// Stable frame type such as `access.requested` or `terminal.vt`.
     public let type: String
     /// Monotonic sequence for this sender.
     public let seq: UInt64

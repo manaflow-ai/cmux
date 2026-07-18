@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { allowedClientType, parseClientEnvelope } from "../src/protocol";
+import { allowedClientType, isOrderedHostStreamType, parseClientEnvelope } from "../src/protocol";
 import { normalizedChat, parseMessage, validPointerPayload } from "../src/validate";
 
 describe("share protocol", () => {
@@ -19,8 +19,15 @@ describe("share protocol", () => {
     expect(allowedClientType("viewer", true, "workspace.snapshot")).toBe(false);
     expect(allowedClientType("viewer", true, "textbox.operation")).toBe(true);
     expect(allowedClientType("host", true, "workspace.snapshot")).toBe(true);
+    expect(allowedClientType("host", true, "terminal.vt")).toBe(true);
+    expect(allowedClientType("host", true, "terminal.grid")).toBe(false);
     expect(allowedClientType("host", true, "share.end")).toBe(true);
     expect(allowedClientType("viewer", true, "share.end")).toBe(false);
+  });
+
+  test("marks dependent terminal patches as reconnect-required when relay delivery is interrupted", () => {
+    expect(isOrderedHostStreamType("terminal.vt")).toBe(true);
+    expect(isOrderedHostStreamType("panel.frame")).toBe(false);
   });
 
   test("rejects malformed and oversized envelopes before dispatch", () => {

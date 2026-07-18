@@ -24,7 +24,7 @@ const HOST_TYPES = new Set([
   "share.end",
   "workspace.snapshot",
   "workspace.layout",
-  "terminal.grid",
+  "terminal.vt",
   "panel.frame",
   "presence.pointer",
   "chat.message",
@@ -47,6 +47,10 @@ export function allowedClientType(role: "host" | "viewer", approved: boolean, ty
   if (role === "host") return HOST_TYPES.has(type);
   if (!approved) return type === "pong";
   return VIEWER_TYPES.has(type);
+}
+
+export function isOrderedHostStreamType(type: string): boolean {
+  return type === "terminal.vt";
 }
 
 export function parseClientEnvelope(value: unknown): ClientEnvelope | null {

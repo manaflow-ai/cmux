@@ -9,6 +9,7 @@ import {
 import {
   SHARE_WEBSOCKET_PROTOCOL,
   allowedClientType,
+  isOrderedHostStreamType,
   serverEnvelope,
   type Participant,
 } from "./protocol";
@@ -35,6 +36,7 @@ import {
   validResyncPayload,
   validTextOperationPayload,
   validTextSelectionPayload,
+  validTerminalVTPayload,
 } from "./validate";
 
 const META_KEY = "room:metadata";
@@ -54,7 +56,7 @@ const HOST_BROADCAST_EVENTS_PER_SECOND = 120;
 const HOST_BUDGETED_BROADCAST_TYPES = new Set([
   "workspace.snapshot",
   "workspace.layout",
-  "terminal.grid",
+  "terminal.vt",
   "panel.frame",
   "textbox.document",
 ]);
@@ -217,6 +219,11 @@ export class ShareRoom extends DurableObject<ShareRoomEnv> {
     }
     if (attachment.role === "host" && envelope.type === "access.decision" &&
         !validAccessDecisionPayload(envelope.payload)) return;
+    if (attachment.role === "host" && envelope.type === "terminal.vt" &&
+        !validTerminalVTPayload(envelope.payload)) {
+      closeSocket(ws, 4002, "invalid_terminal_stream");
+      return;
+    }
     if (attachment.role === "host" && envelope.type === "share.end") {
       if (Object.keys(envelope.payload).length !== 0) return;
       await this.endRoom("host_ended");
@@ -269,7 +276,12 @@ export class ShareRoom extends DurableObject<ShareRoomEnv> {
       return;
     }
     if (attachment.role === "host") {
-      if (HOST_BUDGETED_BROADCAST_TYPES.has(envelope.type) && !this.consumeHostBroadcast(now)) return;
+      if (HOST_BUDGETED_BROADCAST_TYPES.has(envelope.type) && !this.consumeHostBroadcast(now)) {
+        if (isOrderedHostStreamType(envelope.type)) {
+          closeSocket(ws, 4008, "terminal_resync_required");
+        }
+        return;
+      }
       this.broadcastViewers(envelope.type, envelope.payload);
     }
   }

@@ -7,6 +7,9 @@ export const MAX_CHAT_CHARACTERS = 500;
 export const MAX_WORKSPACE_TITLE_CHARACTERS = 160;
 export const MAX_TEXT_OPERATION_ATOMS = 256;
 export const MAX_TEXT_IDENTIFIER_CLOCK = 999_999_999;
+export const MAX_TERMINAL_DIMENSION = 1_000;
+export const MAX_TERMINAL_VT_BYTES = 1_500_000;
+const MAX_TERMINAL_VT_BASE64_CHARACTERS = Math.ceil(MAX_TERMINAL_VT_BYTES / 3) * 4;
 
 export async function readBoundedJson(
   request: Request,
@@ -119,6 +122,26 @@ export function validAccessDecisionPayload(payload: Record<string, unknown>): bo
     (payload.decision === "allow" || payload.decision === "deny");
 }
 
+export function validTerminalVTPayload(payload: Record<string, unknown>): boolean {
+  return exactKeys(payload, [
+    "surfaceId",
+    "generation",
+    "stateSeq",
+    "columns",
+    "rows",
+    "kind",
+    "dataB64",
+  ]) &&
+    typeof payload.surfaceId === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(payload.surfaceId) &&
+    boundedPositiveInteger(payload.generation, Number.MAX_SAFE_INTEGER) &&
+    boundedPositiveInteger(payload.stateSeq, Number.MAX_SAFE_INTEGER) &&
+    boundedPositiveInteger(payload.columns, MAX_TERMINAL_DIMENSION) &&
+    boundedPositiveInteger(payload.rows, MAX_TERMINAL_DIMENSION) &&
+    (payload.kind === "snapshot" || payload.kind === "patch") &&
+    validBoundedBase64(payload.dataB64);
+}
+
 function normalizedString(value: unknown, maxCharacters: number): string | null {
   if (typeof value !== "string") return null;
   const result = value.trim();
@@ -135,6 +158,21 @@ function finiteRatio(value: unknown): boolean {
 
 function boundedInteger(value: unknown, maximum: number): boolean {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= maximum;
+}
+
+function boundedPositiveInteger(value: unknown, maximum: number): boolean {
+  return typeof value === "number" && boundedInteger(value, maximum) && value > 0;
+}
+
+function validBoundedBase64(value: unknown): boolean {
+  if (typeof value !== "string" || value.length < 4 ||
+      value.length > MAX_TERMINAL_VT_BASE64_CHARACTERS || value.length % 4 !== 0 ||
+      !/^[A-Za-z0-9+/]*={0,2}$/u.test(value)) return false;
+  const firstPadding = value.indexOf("=");
+  if (firstPadding >= 0 && firstPadding < value.length - 2) return false;
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  const decodedBytes = value.length / 4 * 3 - padding;
+  return decodedBytes > 0 && decodedBytes <= MAX_TERMINAL_VT_BYTES;
 }
 
 function identifier(value: unknown): value is string {
@@ -165,6 +203,6 @@ function exactKeys(
 }
 
 function isBulkType(type: string): boolean {
-  return type === "workspace.snapshot" || type === "terminal.grid" ||
+  return type === "workspace.snapshot" || type === "terminal.vt" ||
     type === "panel.frame" || type === "textbox.document";
 }
