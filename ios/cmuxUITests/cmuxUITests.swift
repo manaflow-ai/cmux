@@ -741,7 +741,10 @@ final class cmuxUITests: XCTestCase {
     /// the connected host and select the exact workspace returned by that RPC.
     @MainActor
     func testTaskComposerCreatesAndSelectsConnectedWorkspace() async throws {
-        let server = try MobileSyncMockHostServer(usesSyntheticManualHostIdentity: true)
+        let server = try MobileSyncMockHostServer(
+            supportsManualAttachTicket: true,
+            workspaceCreateSelectsCreatedWorkspace: false
+        )
         let port = try await server.start()
         defer { server.stop() }
 
@@ -765,6 +768,19 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(prompt.waitForExistence(timeout: 4))
         tap(app.buttons["Claude"], in: app)
         try replaceText(promptText, in: prompt, app: app)
+
+        tap(app.buttons["MobileTaskComposerDirectory"], in: app)
+        let directorySearch = app.searchFields["Search folders"]
+        XCTAssertTrue(directorySearch.waitForExistence(timeout: 4))
+        try typeText("cmux", into: directorySearch, in: app)
+        let projectDirectory = app.buttons.matching(
+            NSPredicate(format: "label == %@ AND value CONTAINS %@", "cmux", "~/cmux")
+        ).firstMatch
+        XCTAssertTrue(projectDirectory.waitForExistence(timeout: 4))
+        tap(projectDirectory, in: app)
+        let selectedDirectory = app.buttons["MobileTaskComposerDirectory"]
+        XCTAssertTrue(selectedDirectory.waitForExistence(timeout: 4))
+        XCTAssertEqual(selectedDirectory.value as? String, "~/cmux")
 
         let create = app.buttons["MobileTaskComposerCreateButton"]
         let ready = XCTNSPredicateExpectation(
@@ -801,10 +817,18 @@ final class cmuxUITests: XCTestCase {
         )
         let title = workspaceTitleElement(in: app)
         let selectedTitle = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "label == %@", promptText),
+            predicate: NSPredicate(
+                format: "label == %@ OR label BEGINSWITH %@",
+                promptText,
+                "\(promptText),"
+            ),
             object: title
         )
-        XCTAssertEqual(XCTWaiter.wait(for: [selectedTitle], timeout: 8), .completed)
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [selectedTitle], timeout: 8),
+            .completed,
+            "The selected workspace must show the exact title returned by workspace.create"
+        )
         XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
 
         let terminalDropdown = app.buttons["MobileTerminalDropdown"]
@@ -4912,7 +4936,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let listener: NWListener
     private let queue = DispatchQueue(label: "dev.cmux.ios-ui-tests.mobile-sync-server")
     private let createdWorkspaceTerminalDelay: TimeInterval?
-    private let usesSyntheticManualHostIdentity: Bool
+    private let supportsManualAttachTicket: Bool
+    private let workspaceCreateSelectsCreatedWorkspace: Bool
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
     private var connections: [NWConnection] = []
     private var selectedWorkspaceID = "workspace-main"
@@ -4973,11 +4998,13 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         defaultTerminalLines: [String]? = nil,
         additionalMainTerminalCount: Int = 0,
         createdWorkspaceTerminalDelay: TimeInterval? = nil,
-        usesSyntheticManualHostIdentity: Bool = false
+        supportsManualAttachTicket: Bool = false,
+        workspaceCreateSelectsCreatedWorkspace: Bool = true
     ) throws {
         listener = try NWListener(using: .tcp, on: .any)
         self.createdWorkspaceTerminalDelay = createdWorkspaceTerminalDelay
-        self.usesSyntheticManualHostIdentity = usesSyntheticManualHostIdentity
+        self.supportsManualAttachTicket = supportsManualAttachTicket
+        self.workspaceCreateSelectsCreatedWorkspace = workspaceCreateSelectsCreatedWorkspace
         appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
         // color-band render test so the bands stream on attach without a flaky
@@ -5207,7 +5234,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
 
         let id = request["id"] as? String ?? ""
         let params = request["params"] as? [String: Any] ?? [:]
-        if method == "mobile.attach_ticket.create" {
+        if method == "mobile.attach_ticket.create", !supportsManualAttachTicket {
             let envelope: [String: Any] = [
                 "id": id,
                 "ok": false,
@@ -5222,6 +5249,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         let result: [String: Any]
 
         switch method {
+        case "mobile.attach_ticket.create":
+            result = try manualAttachTicketResult()
         case "mobile.workspace.list", "workspace.list":
             result = workspaceListResult()
         case "workspace.create":
@@ -5273,12 +5302,36 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 "workspace.groups.v1",
             ],
         ]
-        if usesSyntheticManualHostIdentity, let port = listener.port?.rawValue {
-            result["mac_device_id"] = "manual-127.0.0.1:\(port)"
+        if supportsManualAttachTicket {
+            result["mac_device_id"] = "ui-test-mac"
             result["mac_display_name"] = "UI Test Mac"
             result["mac_instance_tag"] = "dev"
         }
         return result
+    }
+
+    private func manualAttachTicketResult() throws -> [String: Any] {
+        guard let port = listener.port?.rawValue else {
+            throw serverError("Listener has no port.")
+        }
+        let route = try CmxAttachRoute(
+            id: "debug_loopback",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: Int(port))
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "ui-test-mac",
+            macDisplayName: "UI Test Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            routes: [route],
+            expiresAt: Date(timeIntervalSinceNow: 60 * 60),
+            authToken: "ui-test-ticket"
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return ["ticket": try JSONSerialization.jsonObject(with: encoder.encode(ticket))]
     }
 
     private func createWorkspaceResult(params: [String: Any]) -> [String: Any] {
@@ -5312,10 +5365,13 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             terminals: createdWorkspaceTerminalDelay == nil ? [terminal] : []
         )
         workspaces.append(workspace)
-        selectedWorkspaceID = workspaceID
-        if createdWorkspaceTerminalDelay == nil {
-            selectedTerminalID = terminalID
-        } else {
+        if workspaceCreateSelectsCreatedWorkspace {
+            selectedWorkspaceID = workspaceID
+            if createdWorkspaceTerminalDelay == nil {
+                selectedTerminalID = terminalID
+            }
+        }
+        if createdWorkspaceTerminalDelay != nil {
             scheduleCreatedWorkspaceTerminal(terminal, workspaceID: workspaceID)
         }
 

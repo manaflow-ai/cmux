@@ -139,6 +139,15 @@ public struct CMUXMobileRootScene: View {
 
     private static func openPairedMacStore() -> (any MobilePairedMacStoring)? {
         do {
+            #if DEBUG
+            if UITestConfig.mockDataEnabled {
+                let databaseURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(
+                        "cmux-uitest-paired-macs-\(UUID().uuidString).sqlite3"
+                    )
+                return try MobilePairedMacStore(databaseURL: databaseURL)
+            }
+            #endif
             return try MobilePairedMacStore()
         } catch {
             mobileRootSceneLog.error(
