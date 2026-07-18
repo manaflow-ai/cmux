@@ -1010,13 +1010,22 @@ actor AgentHookDeliveryQueue {
             throw sqliteFailure(status, operation: "begin delivery credential scrub")
         }
         do {
-            var rows: [(sequence: Int64, environment: Data)] = []
+            var rows: [(
+                sequence: Int64,
+                agent: String,
+                subcommand: String,
+                payload: Data,
+                environment: Data,
+                isPending: Bool,
+                contentDigest: Data
+            )] = []
             do {
                 var statement: OpaquePointer?
                 status = sqlite3_prepare_v2(
                     database,
                     """
-                    SELECT sequence, environment_json
+                    SELECT sequence, agent, subcommand, payload, environment_json,
+                           delivered_at IS NULL, content_digest
                     FROM agent_hook_deliveries
                     WHERE environment_json != X'7B7D'
                     ORDER BY sequence ASC;
@@ -1033,25 +1042,46 @@ actor AgentHookDeliveryQueue {
                     status = sqlite3_step(statement)
                     if status == SQLITE_DONE { break }
                     guard status == SQLITE_ROW,
-                          let environmentData = columnData(statement, at: 1) else {
+                          let agent = columnText(statement, at: 1),
+                          let subcommand = columnText(statement, at: 2),
+                          let payload = columnData(statement, at: 3),
+                          let environmentData = columnData(statement, at: 4),
+                          let contentDigest = columnData(statement, at: 6) else {
                         throw sqliteFailure(status, operation: "read delivery credential scrub")
                     }
                     rows.append((
                         sequence: sqlite3_column_int64(statement, 0),
-                        environment: environmentData
+                        agent: agent,
+                        subcommand: subcommand,
+                        payload: payload,
+                        environment: environmentData,
+                        isPending: sqlite3_column_int(statement, 5) != 0,
+                        contentDigest: contentDigest
                     ))
                 }
             }
 
             let policy = AgentHookTransportEnvironmentPolicy()
-            var scrubbedRows: [(sequence: Int64, environment: Data)] = []
+            var scrubbedRows: [(sequence: Int64, environment: Data, contentDigest: Data)] = []
             scrubbedRows.reserveCapacity(rows.count)
             for row in rows {
                 let decoded = (try? JSONSerialization.jsonObject(with: row.environment)) as? [String: String]
                 let scrubbed = policy.durableEnvironmentForPersistence(from: decoded ?? [:])
                 let scrubbedData = try JSONSerialization.data(withJSONObject: scrubbed, options: [.sortedKeys])
-                if scrubbedData != row.environment {
-                    scrubbedRows.append((sequence: row.sequence, environment: scrubbedData))
+                let scrubbedDigest = row.isPending
+                    ? AgentHookDeliveryEvent.contentDigest(
+                        agent: row.agent,
+                        subcommand: row.subcommand,
+                        payload: row.payload,
+                        environment: scrubbed
+                    )
+                    : row.contentDigest
+                if scrubbedData != row.environment || scrubbedDigest != row.contentDigest {
+                    scrubbedRows.append((
+                        sequence: row.sequence,
+                        environment: scrubbedData,
+                        contentDigest: scrubbedDigest
+                    ))
                 }
             }
 
@@ -1059,7 +1089,11 @@ actor AgentHookDeliveryQueue {
                 var update: OpaquePointer?
                 status = sqlite3_prepare_v2(
                     database,
-                    "UPDATE agent_hook_deliveries SET environment_json = ? WHERE sequence = ?;",
+                    """
+                    UPDATE agent_hook_deliveries
+                    SET environment_json = ?, content_digest = ?
+                    WHERE sequence = ?;
+                    """,
                     -1,
                     &update,
                     nil
@@ -1075,7 +1109,11 @@ actor AgentHookDeliveryQueue {
                     guard status == SQLITE_OK else {
                         throw sqliteFailure(status, operation: "bind scrubbed delivery environment")
                     }
-                    status = sqlite3_bind_int64(update, 2, row.sequence)
+                    status = bind(row.contentDigest, to: update, at: 2)
+                    guard status == SQLITE_OK else {
+                        throw sqliteFailure(status, operation: "bind scrubbed delivery digest")
+                    }
+                    status = sqlite3_bind_int64(update, 3, row.sequence)
                     guard status == SQLITE_OK else {
                         throw sqliteFailure(status, operation: "bind scrubbed delivery sequence")
                     }

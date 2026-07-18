@@ -69,13 +69,27 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
     /// A stable digest used to reject accidental reuse of one delivery ID for
     /// different contents while treating retry submissions as duplicates.
     var contentDigest: Data {
+        Self.contentDigest(
+            agent: agent,
+            subcommand: subcommand,
+            payload: payload,
+            environment: durableEnvironment
+        )
+    }
+
+    static func contentDigest(
+        agent: String,
+        subcommand: String,
+        payload: Data,
+        environment: [String: String]
+    ) -> Data {
         var hasher = SHA256()
         Self.hash(Data(agent.utf8), into: &hasher)
         Self.hash(Data(subcommand.utf8), into: &hasher)
         Self.hash(payload, into: &hasher)
-        for key in durableEnvironment.keys.sorted() {
+        for key in environment.keys.sorted() {
             Self.hash(Data(key.utf8), into: &hasher)
-            Self.hash(Data((durableEnvironment[key] ?? "").utf8), into: &hasher)
+            Self.hash(Data((environment[key] ?? "").utf8), into: &hasher)
         }
         return Data(hasher.finalize())
     }
