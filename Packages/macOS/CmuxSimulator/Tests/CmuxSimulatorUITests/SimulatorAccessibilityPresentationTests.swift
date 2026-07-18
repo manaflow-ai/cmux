@@ -82,6 +82,7 @@ struct SimulatorAccessibilityPresentationTests {
             webInspectorSleeper: sleeper
         )
 
+        coordinator.setAccessibilityOverlayVisibility(true)
         coordinator.setAccessibilityOverlayEnabled(true)
         await Self.eventually {
             let readCount = await Self.accessibilityReadCount(client: client)
