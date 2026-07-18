@@ -1076,6 +1076,53 @@ struct BackendCanonicalSessionTests {
         await session.close()
     }
 
+    @Test("legacy session overflow fails closed instead of losing renderer invalidations")
+    func legacySessionOverflowFailsClosed() async throws {
+        let transport = ScriptedBackendTransport()
+        let authority = BackendAuthority(
+            daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
+            sessionID: SessionID(rawValue: UUID())
+        )
+        let session = BackendCanonicalSession(
+            transport: transport,
+            expectation: BackendCanonicalSessionExpectation(
+                session: "app-session",
+                authority: authority,
+                processID: 4321
+            ),
+            registrationIdentity: testRegistrationIdentity()
+        )
+        let events = await session.events()
+        var iterator = events.makeAsyncIterator()
+
+        let connectTask = Task { try await session.connect() }
+        try await completeHandshake(
+            transport: transport,
+            authority: authority,
+            session: "app-session",
+            processID: 4321
+        )
+        _ = try await connectTask.value
+        guard case .snapshot? = await iterator.next() else {
+            Issue.record("expected initial snapshot")
+            return
+        }
+
+        await transport.enqueue(try encodedJSON([
+            "event": "overflow",
+            "error": "subscriber fell behind; resubscribe to continue receiving events",
+        ]))
+
+        guard case .disconnected(.topologyStreamFailed(let message))? = await iterator.next()
+        else {
+            Issue.record("expected fail-closed session overflow")
+            return
+        }
+        #expect(message == "session event stream overflow")
+        #expect(await session.currentSnapshot() == nil)
+        await transport.waitUntilClosed()
+    }
+
     @Test("missing batch capability falls back to ordered singular terminal ensures")
     func ensureTerminalsFallsBackWithoutBatchCapability() async throws {
         let transport = ScriptedBackendTransport()
