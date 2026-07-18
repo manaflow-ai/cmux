@@ -20,6 +20,11 @@ actor BrowserDesignModeScreenshotStore {
         return url
     }
 
+    /// Deletes a capture that never became part of authoritative prompt context.
+    func remove(_ url: URL) {
+        try? fileManager.removeItem(at: url)
+    }
+
     private func pruneKeepingNewest(limit: Int) {
         guard let urls = try? fileManager.contentsOfDirectory(
             at: directory,

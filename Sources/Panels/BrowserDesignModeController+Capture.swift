@@ -6,7 +6,13 @@ import WebKit
 extension BrowserDesignModeController {
     /// Starts the synchronous ink lifecycle before any capture work exists.
     func beginAnnotationDrawing(id: String) {
-        guard phase.isEnabled, !id.isEmpty else { return }
+        guard phase.isEnabled, interactionMode == .draw, !id.isEmpty else { return }
+        switch phase.annotation {
+        case .idle, .captured:
+            break
+        case .drawing, .inkOnly, .capturing, nil:
+            return
+        }
         phase = .active(annotation: .drawing(id: id))
         errorMessage = nil
     }
@@ -36,6 +42,17 @@ extension BrowserDesignModeController {
                   BrowserDesignModeAnnotationCaptureRequest.self,
                   from: data
               ), !request.id.isEmpty else { return }
+        guard interactionMode == .draw,
+              case .drawing(let activeID)? = phase.annotation,
+              activeID == request.id else {
+            if let webView {
+                Task { @MainActor [weak self, weak webView] in
+                    guard let self, let webView else { return }
+                    await self.cancelAnnotationCapture(id: request.id, in: webView, reportError: false)
+                }
+            }
+            return
+        }
         phase = .active(annotation: .inkOnly(request))
         annotationCaptureTask?.cancel()
         let taskID = UUID()
@@ -75,6 +92,7 @@ extension BrowserDesignModeController {
         guard phase.annotation == .inkOnly(request), let webView else { return }
         phase = .active(annotation: .capturing(request))
         let operation = operationRevision
+        var unregisteredScreenshotURL: URL?
         do {
             let capture = try await captureStableAnnotation(id: request.id, in: webView)
             guard operation == operationRevision else { return }
@@ -89,7 +107,11 @@ extension BrowserDesignModeController {
             )
             let pngData = try BrowserScreenshotPasteboardWriter.pngData(for: crop)
             let screenshotURL = try await screenshotStore.save(pngData, surfaceID: surfaceID)
-            guard operation == operationRevision else { return }
+            unregisteredScreenshotURL = screenshotURL
+            guard operation == operationRevision else {
+                await screenshotStore.remove(screenshotURL)
+                return
+            }
             let value = try await evaluate(
                 """
                 return globalThis.__cmuxDesignMode?.completeAnnotationCapture(
@@ -111,17 +133,27 @@ extension BrowserDesignModeController {
                 ],
                 in: webView
             )
-            guard operation == operationRevision else { return }
+            guard operation == operationRevision else {
+                await screenshotStore.remove(screenshotURL)
+                return
+            }
             let next = try BrowserDesignModeSupport.decodeSnapshot(value)
             let selector = "@annotation(\(request.id))"
             annotationScreenshotPaths[selector] = screenshotURL.path
+            unregisteredScreenshotURL = nil
             apply(next)
             phase = .active(annotation: .captured(id: request.id, selector: selector))
             errorMessage = nil
             isComposerPresented = true
         } catch is CancellationError {
+            if let unregisteredScreenshotURL {
+                await screenshotStore.remove(unregisteredScreenshotURL)
+            }
             await cancelAnnotationCapture(id: request.id, in: webView, reportError: false)
         } catch {
+            if let unregisteredScreenshotURL {
+                await screenshotStore.remove(unregisteredScreenshotURL)
+            }
             BrowserDesignModeSupport.record(error, operation: "annotationCapture")
             await cancelAnnotationCapture(id: request.id, in: webView, reportError: true)
         }

@@ -133,6 +133,9 @@ final class BrowserDesignModeController {
                 self.didCopy = false
                 self.errorMessage = nil
             },
+            onInteractionModeChanged: { [weak self] mode in
+                self?.adoptInteractionModeFromRuntime(mode)
+            },
             onAnnotationDrawing: { [weak self] id in
                 self?.beginAnnotationDrawing(id: id)
             },
@@ -303,7 +306,10 @@ final class BrowserDesignModeController {
     /// Design Mode.
     func handleEscape() async {
         guard phase.isEnabled else { return }
-        let hasContent = snapshot?.selections.isEmpty == false || !requestedChange.isEmpty
+        let hasInFlightAnnotation = phase.annotation?.permitsHandoff == false
+        let hasContent = snapshot?.selections.isEmpty == false
+            || !requestedChange.isEmpty
+            || hasInFlightAnnotation
         if hasContent {
             requestedChange = ""
             promptRuns = []
@@ -380,6 +386,25 @@ final class BrowserDesignModeController {
         )
     }
 
+    /// Keeps page emphasis aligned with the token currently under the pointer.
+    func setSelectionHover(identity: String?) async {
+        guard phase.isEnabled, let webView else { return }
+        if let identity,
+           snapshot?.selections.contains(where: { $0.selector == identity }) != true { return }
+        _ = try? await evaluate(
+            "return globalThis.__cmuxDesignMode?.setSelectionHover(identity);",
+            arguments: ["identity": identity ?? NSNull()],
+            in: webView
+        )
+    }
+
+    /// Mirrors an automatic page-side mode transition before its drawing event arrives.
+    func adoptInteractionModeFromRuntime(_ rawValue: String) {
+        guard phase.isEnabled,
+              let mode = BrowserDesignModeInteractionMode(rawValue: rawValue) else { return }
+        interactionMode = mode
+    }
+
     func setInteractionMode(_ mode: BrowserDesignModeInteractionMode) async {
         guard phase.isEnabled, mode != interactionMode, let webView else { return }
         interactionMode = mode
@@ -404,20 +429,24 @@ final class BrowserDesignModeController {
         }
     }
 
-    func removeSelection(at index: Int) async {
+    @discardableResult
+    func removeSelection(at index: Int) async -> Bool {
         guard phase.isEnabled,
-              snapshot?.selections.indices.contains(index) == true,
-              let webView else { return }
+              let selections = snapshot?.selections,
+              selections.indices.contains(index),
+              let webView else { return false }
+        let identity = selections[index].selector
         do {
             let value = try await evaluate(
-                "return globalThis.__cmuxDesignMode?.removeSelection(index);",
-                arguments: ["index": index],
+                "return globalThis.__cmuxDesignMode?.removeSelection(identity);",
+                arguments: ["identity": identity],
                 in: webView
             )
             let next = try BrowserDesignModeSupport.decodeSnapshot(value)
             apply(next)
             didCopy = false
             errorMessage = nil
+            return true
         } catch {
             BrowserDesignModeSupport.record(error, operation: "removeSelection")
             errorMessage = BrowserDesignModeSupport.productMessage(
@@ -428,6 +457,7 @@ final class BrowserDesignModeController {
                 )
             )
             isComposerPresented = true
+            return false
         }
     }
 

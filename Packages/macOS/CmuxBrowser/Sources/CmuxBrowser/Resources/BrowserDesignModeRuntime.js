@@ -45,6 +45,7 @@
   let selectedIdentity = null;
   let activeReference = null;
   let hoveredElement = null;
+  let hoveredSelectionIndex = null;
   let overlayHost = null;
   let overlay = null;
   let observer = null;
@@ -1077,7 +1078,7 @@
       position: "fixed",
       pointerEvents: "none",
       boxSizing: "border-box",
-      border: "2px solid rgba(72, 72, 74, 0.82)",
+      border: "1.5px dashed rgb(10, 132, 255)",
       borderRadius: "14px",
       backgroundColor: "white",
       backgroundPosition: "center",
@@ -1105,7 +1106,11 @@
         continue;
       }
       // The selection's lifetime color, matching its composer pill.
-      outline.style.borderColor = selectionColor(reference.colorIndex || 0);
+      const tint = selectionColor(reference.colorIndex || 0);
+      outline.style.borderColor = tint;
+      const isHovered = hoveredSelectionIndex === index;
+      outline.style.background = isHovered ? colorWithAlpha(tint, 0.13) : "transparent";
+      outline.style.boxShadow = isHovered ? `0 0 0 4px ${colorWithAlpha(tint, 0.55)}` : "none";
       place(outline, element.getBoundingClientRect());
     }
     refreshRegionOutlines();
@@ -1125,6 +1130,12 @@
         outline.style.display = "none";
         continue;
       }
+      const tint = selectionColor(region.colorIndex || 0);
+      const isHovered = hoveredSelectionIndex === selectedReferences.length + index;
+      outline.style.borderColor = tint;
+      outline.style.boxShadow = isHovered
+        ? `0 0 0 4px ${colorWithAlpha(tint, 0.55)}, 0 8px 24px rgba(0, 0, 0, 0.18)`
+        : "0 8px 24px rgba(0, 0, 0, 0.18)";
       outline.style.backgroundImage = `url("${region.imageURL}")`;
       place(outline, {
         x: region.pageX - (globalThis.scrollX || 0),
@@ -1421,6 +1432,7 @@
     // instead of restarting at blue.
     setActiveReference(null);
     hoveredElement = null;
+    hoveredSelectionIndex = null;
     selectionIdentityNeedsRefresh = false;
     selectionRecoveryAttemptsRemaining = 0;
     captureSelectionValid = true;
@@ -1436,6 +1448,7 @@
     if (Number.isInteger(index) && index >= selectedReferences.length
         && index < selectedReferences.length + regionReferences.length) {
       regionReferences.splice(index - selectedReferences.length, 1);
+      hoveredSelectionIndex = null;
       revision += 1;
       scheduleOverlayRefresh();
       return emit();
@@ -1446,6 +1459,7 @@
     const reference = selectedReferences[index];
     if (reference === activeReference && edits.size) restoreAll();
     selectedReferences.splice(index, 1);
+    hoveredSelectionIndex = null;
     if (reference === activeReference) {
       setActiveReference(selectedReferences[selectedReferences.length - 1]);
       selectionIdentityNeedsRefresh = false;
@@ -1455,6 +1469,18 @@
     revision += 1;
     scheduleOverlayRefresh();
     return emit();
+  };
+
+  const selectionIndex = (selection) => {
+    if (typeof selection !== "string") return Number(selection);
+    const elementIndex = selectedReferences.findIndex(
+      (reference) => reference.baseline?.selector === selection,
+    );
+    if (elementIndex >= 0) return elementIndex;
+    const regionIndex = regionReferences.findIndex(
+      (region) => regionSnapshotFor(region).selector === selection,
+    );
+    return regionIndex >= 0 ? selectedReferences.length + regionIndex : -1;
   };
 
   const selectElement = (element, stack = false) => {
@@ -1525,11 +1551,22 @@
       }
       return;
     }
-    if (pendingPointer && interactionMode === "draw") {
+    if (pendingPointer) {
       const dx = event.clientX - pendingPointer.x;
       const dy = event.clientY - pendingPointer.y;
       if (marqueeActive || Math.hypot(dx, dy) > marqueeThresholdPixels) {
-        if (!marqueeActive) marqueePoints = [{ x: pendingPointer.x, y: pendingPointer.y }];
+        if (!marqueeActive) {
+          if (!pendingPointer.annotationID) {
+            interactionMode = "draw";
+            pendingPointer.annotationID = String(++annotationSequence);
+            annotationPhase = "drawing";
+            try { handler?.postMessage({ type: "interaction_mode_changed", mode: "draw" }); } catch (_) {}
+            try {
+              handler?.postMessage({ type: "annotation_drawing", id: pendingPointer.annotationID });
+            } catch (_) {}
+          }
+          marqueePoints = [{ x: pendingPointer.x, y: pendingPointer.y }];
+        }
         marqueeActive = true;
         hoveredElement = null;
         marqueePoints.push({ x: event.clientX, y: event.clientY });
@@ -1829,6 +1866,7 @@
       selectionRecoveryAttemptsRemaining = 0;
       cancelSelectionRecovery();
       hoveredElement = null;
+      hoveredSelectionIndex = null;
       overlayHost?.remove();
       overlayHost = null;
       overlay = null;
@@ -1902,6 +1940,17 @@
       return snapshot();
     },
 
+    setSelectionHover(selection) {
+      const position = selection == null ? null : selectionIndex(selection);
+      const selectionCount = selectedReferences.length + regionReferences.length;
+      hoveredSelectionIndex = Number.isInteger(position) && position >= 0 && position < selectionCount
+        ? position
+        : null;
+      hoveredElement = null;
+      refreshOverlay();
+      return snapshot();
+    },
+
     setMode(value) {
       const mode = value === "draw" ? "draw" : "select";
       if (mode !== interactionMode) {
@@ -1911,6 +1960,7 @@
         marqueeActive = false;
         marqueePoints = [];
         hoveredElement = null;
+        hoveredSelectionIndex = null;
         if (overlay) {
           overlay.marqueeBox.style.display = "none";
           overlay.strokeSvg.style.display = "none";
@@ -1929,8 +1979,8 @@
 
     composerState,
 
-    removeSelection(index) {
-      return removeSelectionAt(Number(index));
+    removeSelection(selection) {
+      return removeSelectionAt(selectionIndex(selection));
     },
 
     applyStyle(property, value) {

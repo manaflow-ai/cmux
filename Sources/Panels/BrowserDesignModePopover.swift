@@ -176,6 +176,9 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let textView = BrowserDesignModeTokenTextView()
         textView.delegate = context.coordinator
+        textView.onHoveredTokenIdentityChanged = { [weak coordinator = context.coordinator] identity in
+            coordinator?.hoverToken(identity)
+        }
         textView.drawsBackground = false
         textView.isRichText = false
         textView.allowsUndo = true
@@ -246,6 +249,13 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
         context.coordinator.sync(selections: selections, requestedChange: controller.requestedChange)
     }
 
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        if let textView = scrollView.documentView as? BrowserDesignModeTokenTextView {
+            textView.onHoveredTokenIdentityChanged = nil
+        }
+        coordinator.hoverToken(nil)
+    }
+
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         private let controller: BrowserDesignModeController
@@ -253,11 +263,8 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
         weak var textView: BrowserDesignModeTokenTextView?
         private var syncing = false
         var frameObserver: (any NSObjectProtocol)?
-        /// Identities the user deleted locally whose page-side removal has
-        /// not been confirmed by a snapshot yet. sync() must treat these as
-        /// gone, or it would re-append every just-deleted pill and rapid
-        /// backspaces would cascade into mass deletions.
-        private var pendingRemovals: Set<String> = []
+        /// Debounces repeated delete actions while the runtime owns the mutation.
+        private var removalRequests: Set<String> = []
         private var lastResetGeneration: UInt = 0
 
         deinit {
@@ -285,7 +292,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             storage.setAttributedString(NSAttributedString(string: "", attributes: typingAttributes))
             syncing = false
             lastIdentities = []
-            pendingRemovals.removeAll()
+            removalRequests.removeAll()
             controller.requestedChange = ""
             controller.promptRuns = []
             // Runs inside updateNSView; a synchronous @State write would be
@@ -302,11 +309,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
         /// lands after a newly appended token to continue typing.
         func sync(selections: [BrowserDesignModeSelection], requestedChange: String) {
             guard let textView, let storage = textView.textStorage else { return }
-            // Snapshots confirm removals by dropping the identity; anything
-            // still pending stays masked out of the reconciliation.
-            pendingRemovals.formIntersection(selections.map(\.selector))
-            let effective = selections.filter { !pendingRemovals.contains($0.selector) }
-            let identities = effective.map(\.selector)
+            let identities = selections.map(\.selector)
             let current = attachmentIdentities(in: storage)
             guard identities.sorted() != current.sorted()
                 || plainText(of: storage) != requestedChange else {
@@ -342,7 +345,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             // pills always deletes a pill, never an invisible space.
             let present = Set(attachmentIdentities(in: storage))
             var appended = false
-            for selection in effective where !present.contains(selection.selector) {
+            for selection in selections where !present.contains(selection.selector) {
                 storage.append(attributedToken(for: selection))
                 appended = true
             }
@@ -392,17 +395,11 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             guard replacementString?.isEmpty == true,
                   affectedRange.length > 0,
                   let storage = textView.textStorage else { return true }
-            let content = storage.string as NSString
-            guard content.substring(with: affectedRange).contains("\u{FFFC}") else { return true }
-            var expanded = affectedRange
-            if expanded.upperBound < content.length,
-               content.character(at: expanded.upperBound) == 0x20 {
-                expanded.length += 1
+            let identities = attachmentIdentities(in: storage, range: affectedRange)
+            guard !identities.isEmpty else { return true }
+            for identity in identities {
+                requestTokenRemoval(identity: identity)
             }
-            guard expanded != affectedRange else { return true }
-            storage.deleteCharacters(in: expanded)
-            textView.setSelectedRange(NSRange(location: expanded.location, length: 0))
-            textView.didChangeText()
             return false
         }
 
@@ -412,31 +409,14 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             controller.requestedChange = plainText(of: textView.textStorage)
             archivePrompt()
             if identities != lastIdentities {
-                // Tokens were deleted through editing. Storage order can
-                // diverge from the runtime's click order (tokens may be
-                // moved around in the text), so map each removed identity to
-                // its index in the controller's selections, highest first.
-                var remaining = identities
-                var removedIdentities: [String] = []
-                for identity in lastIdentities {
-                    if let position = remaining.firstIndex(of: identity) {
-                        remaining.remove(at: position)
-                    } else {
-                        removedIdentities.append(identity)
-                    }
-                }
-                lastIdentities = identities
-                pendingRemovals.formUnion(removedIdentities)
-                let toRemove = removedIdentities
-                Task { @MainActor [controller] in
-                    // Resolve each index at removal time: every removal
-                    // shifts the indices of the remaining selections.
-                    for identity in toRemove {
-                        guard let index = controller.snapshot?.selections
-                            .firstIndex(where: { $0.selector == identity }) else { continue }
-                        await controller.removeSelection(at: index)
-                    }
-                }
+                // Every supported removal is intercepted before AppKit edits
+                // storage. If another mutation path removes a pill, restore
+                // it from the authoritative runtime snapshot.
+                sync(
+                    selections: controller.snapshot?.selections ?? [],
+                    requestedChange: controller.requestedChange
+                )
+                return
             }
             reportHeight()
         }
@@ -516,10 +496,14 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             onHeightChange(height)
         }
 
-        private func attachmentIdentities(in storage: NSTextStorage?) -> [String] {
+        private func attachmentIdentities(
+            in storage: NSTextStorage?,
+            range: NSRange? = nil
+        ) -> [String] {
             guard let storage else { return [] }
             var identities: [String] = []
-            storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
+            let enumerationRange = range ?? NSRange(location: 0, length: storage.length)
+            storage.enumerateAttribute(.attachment, in: enumerationRange) { value, _, _ in
                 if let attachment = value as? BrowserDesignModeTokenAttachment {
                     identities.append(attachment.identity)
                 }
@@ -580,27 +564,25 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
 
         private func attributedToken(for selection: BrowserDesignModeSelection) -> NSAttributedString {
             BrowserDesignModeTokenAttachment.attributedToken(for: selection) { [weak self] identity in
-                self?.removeToken(identity: identity)
+                self?.requestTokenRemoval(identity: identity)
             }
         }
 
-        private func removeToken(identity: String) {
-            guard let textView, let storage = textView.textStorage else { return }
-            var tokenRange: NSRange?
-            storage.enumerateAttribute(
-                .attachment,
-                in: NSRange(location: 0, length: storage.length)
-            ) { value, range, stop in
-                guard let attachment = value as? BrowserDesignModeTokenAttachment,
-                      attachment.identity == identity else { return }
-                tokenRange = range
-                stop.pointee = true
+        private func requestTokenRemoval(identity: String) {
+            guard removalRequests.insert(identity).inserted else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer { removalRequests.remove(identity) }
+                guard let index = controller.snapshot?.selections
+                    .firstIndex(where: { $0.selector == identity }) else { return }
+                _ = await controller.removeSelection(at: index)
             }
-            guard let tokenRange,
-                  textView.shouldChangeText(in: tokenRange, replacementString: "") else { return }
-            storage.deleteCharacters(in: tokenRange)
-            textView.setSelectedRange(NSRange(location: tokenRange.location, length: 0))
-            textView.didChangeText()
+        }
+
+        func hoverToken(_ identity: String?) {
+            Task { @MainActor [controller] in
+                await controller.setSelectionHover(identity: identity)
+            }
         }
     }
 }
@@ -609,11 +591,13 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
 /// change text has been typed yet.
 final class BrowserDesignModeTokenTextView: NSTextView {
     private var tokenTrackingArea: NSTrackingArea?
+    var onHoveredTokenIdentityChanged: ((String?) -> Void)?
     private(set) var hoveredTokenIdentity: String? {
         didSet {
             guard oldValue != hoveredTokenIdentity else { return }
             needsDisplay = true
             window?.invalidateCursorRects(for: self)
+            onHoveredTokenIdentityChanged?(hoveredTokenIdentity)
         }
     }
 
