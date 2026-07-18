@@ -66,6 +66,24 @@ struct AgentTerminalStateClassifierTests {
     }
 
     @Test
+    func unrecognizedProcessGenerationRemainsEligibleForRecognition() {
+        let identity = AgentTerminalProcessIdentity(
+            pid: 42,
+            startSeconds: 100,
+            startMicroseconds: 200,
+            runtimeGeneration: 3
+        )
+        var cache = AgentTerminalRecognitionCache()
+
+        cache.store(identity: identity, familyID: nil)
+        #expect(cache.requiresSnapshot(for: identity))
+
+        cache.store(identity: identity, familyID: "kimi")
+        #expect(!cache.requiresSnapshot(for: identity))
+        #expect(cache.familyID(for: identity) == "kimi")
+    }
+
+    @Test
     func scopedHintRecognizesOpaqueWrapper() throws {
         let wrapped = AgentTerminalProcessSnapshot(
             identity: identity,
