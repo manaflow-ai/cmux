@@ -1,5 +1,3 @@
-use std::sync::OnceLock;
-
 use cmux_tui_core::{Rect, SurfaceRenderFrame};
 use ghostty_vt::{Cell as VtCell, ColorSpec, Rgb};
 use ratatui::Frame;
@@ -8,49 +6,7 @@ use ratatui::style::{Color, Modifier, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::config::{ChromeTheme, Theme};
-
-#[derive(Debug, PartialEq, Eq)]
-struct ForeignViewportCopy {
-    sized_by_another_client: &'static str,
-    type_to_take_over: &'static str,
-    separator: &'static str,
-}
-
-impl ForeignViewportCopy {
-    fn hint(&self, cols: u16, rows: u16) -> String {
-        format!(
-            "{} ({cols}x{rows}){}{}",
-            self.sized_by_another_client, self.separator, self.type_to_take_over
-        )
-    }
-}
-
-fn foreign_viewport_copy() -> &'static ForeignViewportCopy {
-    static COPY: OnceLock<ForeignViewportCopy> = OnceLock::new();
-    COPY.get_or_init(|| {
-        let locale = std::env::var("LC_ALL")
-            .or_else(|_| std::env::var("LC_MESSAGES"))
-            .or_else(|_| std::env::var("LANG"))
-            .unwrap_or_default();
-        foreign_viewport_copy_for_locale(&locale)
-    })
-}
-
-fn foreign_viewport_copy_for_locale(locale: &str) -> ForeignViewportCopy {
-    if locale.to_ascii_lowercase().starts_with("ja") {
-        ForeignViewportCopy {
-            sized_by_another_client: "別のクライアントがサイズを決定中",
-            type_to_take_over: "入力すると引き継ぎます",
-            separator: "。",
-        }
-    } else {
-        ForeignViewportCopy {
-            sized_by_another_client: "sized by another client",
-            type_to_take_over: "type to take over",
-            separator: ", ",
-        }
-    }
-}
+use crate::localization::{Catalog, catalog};
 
 pub fn draw_render_frame(
     frame: &mut Frame,
@@ -58,6 +14,18 @@ pub fn draw_render_frame(
     render: &SurfaceRenderFrame,
     theme: &Theme,
     chrome: &ChromeTheme,
+    selected: impl Fn(u16, u16) -> bool,
+) -> Option<(u16, u16)> {
+    draw_render_frame_with_catalog(frame, rect, render, theme, chrome, catalog(), selected)
+}
+
+fn draw_render_frame_with_catalog(
+    frame: &mut Frame,
+    rect: Rect,
+    render: &SurfaceRenderFrame,
+    theme: &Theme,
+    chrome: &ChromeTheme,
+    catalog: &Catalog,
     selected: impl Fn(u16, u16) -> bool,
 ) -> Option<(u16, u16)> {
     if rect.width == 0 || rect.height == 0 {
@@ -71,17 +39,6 @@ pub fn draw_render_frame(
     let live_rows = usize::from(snap_rows).min(max_rows);
     let colors = PaletteResolver::from_frame(render);
     let buf = frame.buffer_mut();
-
-    for row in 0..live_rows {
-        for col in live_cols..max_cols {
-            buf[(rect.x + col as u16, rect.y + row as u16)].reset();
-        }
-    }
-    for row in live_rows..max_rows {
-        for col in 0..max_cols {
-            buf[(rect.x + col as u16, rect.y + row as u16)].reset();
-        }
-    }
 
     for (row, cells) in render.frame.styled_rows().iter().enumerate() {
         if row >= live_rows {
@@ -105,6 +62,7 @@ pub fn draw_render_frame(
     if live_cols < max_cols || live_rows < max_rows {
         draw_foreign_viewport(
             buf, rect, max_cols, max_rows, live_cols, live_rows, snap_cols, snap_rows, chrome,
+            catalog,
         );
     }
 
@@ -126,15 +84,23 @@ fn draw_foreign_viewport(
     snap_cols: u16,
     snap_rows: u16,
     chrome: &ChromeTheme,
+    catalog: &Catalog,
 ) {
     let dead_style = Style::default().bg(chrome.foreign_viewport_bg).add_modifier(Modifier::DIM);
-    for row in 0..max_rows {
+    for row in 0..live_rows {
+        for col in live_cols..max_cols {
+            buf[(rect.x + col as u16, rect.y + row as u16)]
+                .reset()
+                .set_symbol(" ")
+                .set_style(dead_style);
+        }
+    }
+    for row in live_rows..max_rows {
         for col in 0..max_cols {
-            if col >= live_cols || row >= live_rows {
-                buf[(rect.x + col as u16, rect.y + row as u16)]
-                    .set_symbol(" ")
-                    .set_style(dead_style);
-            }
+            buf[(rect.x + col as u16, rect.y + row as u16)]
+                .reset()
+                .set_symbol(" ")
+                .set_style(dead_style);
         }
     }
 
@@ -159,7 +125,7 @@ fn draw_foreign_viewport(
             .set_style(boundary_style);
     }
 
-    let hint = foreign_viewport_copy().hint(snap_cols, snap_rows);
+    let hint = catalog.foreign_viewport.hint(snap_cols, snap_rows);
     draw_foreign_size_hint(
         buf,
         rect,
@@ -344,14 +310,22 @@ mod tests {
         render: &SurfaceRenderFrame,
         rect: Rect,
         chrome: ChromeTheme,
+        locale: &str,
     ) -> Terminal<TestBackend> {
-        assert_eq!(foreign_viewport_copy(), &english_foreign_viewport_copy());
         let width = rect.x + rect.width;
         let height = rect.y + rect.height;
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         terminal
             .draw(|frame| {
-                draw_render_frame(frame, rect, render, &Theme::default(), &chrome, |_, _| false);
+                draw_render_frame_with_catalog(
+                    frame,
+                    rect,
+                    render,
+                    &Theme::default(),
+                    &chrome,
+                    crate::localization::catalog_for_locale(locale),
+                    |_, _| false,
+                );
             })
             .unwrap();
         terminal
@@ -361,8 +335,8 @@ mod tests {
         (x..x + width).map(|cell_x| buffer[(cell_x, y)].symbol()).collect()
     }
 
-    fn english_foreign_viewport_copy() -> ForeignViewportCopy {
-        foreign_viewport_copy_for_locale("en_US.UTF-8")
+    fn english_foreign_viewport_hint(cols: u16, rows: u16) -> String {
+        crate::localization::catalog_for_locale("en_US.UTF-8").foreign_viewport.hint(cols, rows)
     }
 
     #[test]
@@ -411,23 +385,11 @@ mod tests {
     }
 
     #[test]
-    fn foreign_viewport_copy_matches_locale() {
-        assert_eq!(
-            english_foreign_viewport_copy().hint(12, 5),
-            "sized by another client (12x5), type to take over"
-        );
-        assert_eq!(
-            foreign_viewport_copy_for_locale("ja_JP.UTF-8").hint(12, 5),
-            "別のクライアントがサイズを決定中 (12x5)。入力すると引き継ぎます"
-        );
-    }
-
-    #[test]
     fn foreign_viewport_dims_bands_draws_boundaries_and_places_hint_at_corner() {
         let render = render_frame(12, 5);
         let rect = Rect { x: 2, y: 1, width: 70, height: 10 };
         let chrome = ChromeTheme::dark();
-        let terminal = draw_grid(&render, rect, chrome);
+        let terminal = draw_grid(&render, rect, chrome, "en_US.UTF-8");
         let buffer = terminal.backend().buffer();
         let boundary_x = rect.x + 12;
         let boundary_y = rect.y + 5;
@@ -442,11 +404,61 @@ mod tests {
         assert_eq!(buffer[(boundary_x, rect.y + 2)].symbol(), "│");
         assert_eq!(buffer[(rect.x + 3, boundary_y)].symbol(), "─");
         assert_eq!(buffer[(boundary_x, boundary_y)].symbol(), "┘");
-        let expected_hint = english_foreign_viewport_copy().hint(12, 5);
+        let expected_hint = english_foreign_viewport_hint(12, 5);
         assert!(
             row_text(buffer, rect.y + 1, boundary_x + 1, rect.width - 13)
                 .starts_with(&expected_hint)
         );
+    }
+
+    #[test]
+    fn foreign_viewport_draws_injected_catalog_locale() {
+        let render = render_frame(12, 5);
+        let rect = Rect { x: 0, y: 0, width: 70, height: 10 };
+        let terminal = draw_grid(&render, rect, ChromeTheme::dark(), "ja_JP.UTF-8");
+        let buffer = terminal.backend().buffer();
+        let expected =
+            crate::localization::catalog_for_locale("ja_JP.UTF-8").foreign_viewport.hint(12, 5);
+
+        assert!(row_text(buffer, 1, 13, rect.width - 13).starts_with(&expected));
+    }
+
+    #[test]
+    fn foreign_viewport_replaces_stale_dead_cells_without_touching_live_cells() {
+        let rect = Rect { x: 0, y: 0, width: 5, height: 4 };
+        let mut buffer = Buffer::empty(ratatui::layout::Rect::new(0, 0, 5, 4));
+        for y in 0..4 {
+            for x in 0..5 {
+                buffer[(x, y)]
+                    .set_symbol("x")
+                    .set_style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD));
+            }
+        }
+        let chrome = ChromeTheme::dark();
+
+        draw_foreign_viewport(
+            &mut buffer,
+            rect,
+            5,
+            4,
+            3,
+            2,
+            3,
+            2,
+            &chrome,
+            crate::localization::catalog_for_locale("en_US.UTF-8"),
+        );
+
+        assert_eq!(buffer[(1, 1)].symbol(), "x");
+        assert_eq!(buffer[(1, 1)].fg, Color::Red);
+        assert!(buffer[(1, 1)].modifier.contains(Modifier::BOLD));
+        for (x, y) in [(4, 0), (4, 2)] {
+            let dead = &buffer[(x, y)];
+            assert_eq!(dead.symbol(), " ");
+            assert_eq!(dead.bg, chrome.foreign_viewport_bg);
+            assert_eq!(dead.fg, Color::Reset);
+            assert!(!dead.modifier.contains(Modifier::BOLD));
+        }
     }
 
     #[test]
@@ -455,8 +467,8 @@ mod tests {
         let rect = Rect { x: 0, y: 0, width: 8, height: 4 };
         let dark = ChromeTheme::dark();
         let light = ChromeTheme::light();
-        let dark_terminal = draw_grid(&render, rect, dark);
-        let light_terminal = draw_grid(&render, rect, light);
+        let dark_terminal = draw_grid(&render, rect, dark, "en_US.UTF-8");
+        let light_terminal = draw_grid(&render, rect, light, "en_US.UTF-8");
 
         assert_eq!(dark_terminal.backend().buffer()[(6, 1)].bg, dark.foreign_viewport_bg);
         assert_eq!(light_terminal.backend().buffer()[(6, 1)].bg, light.foreign_viewport_bg);
@@ -468,7 +480,7 @@ mod tests {
         let render = render_frame(12, 5);
         let rect = Rect { x: 0, y: 0, width: 12, height: 5 };
         let chrome = ChromeTheme::dark();
-        let terminal = draw_grid(&render, rect, chrome);
+        let terminal = draw_grid(&render, rect, chrome, "en_US.UTF-8");
         let buffer = terminal.backend().buffer();
 
         for y in 0..rect.height {
@@ -480,8 +492,11 @@ mod tests {
             }
         }
         assert!(
-            !row_text(buffer, 0, 0, rect.width)
-                .contains(english_foreign_viewport_copy().sized_by_another_client)
+            !row_text(buffer, 0, 0, rect.width).contains(
+                crate::localization::catalog_for_locale("en_US.UTF-8")
+                    .foreign_viewport
+                    .sized_by_another_client
+            )
         );
     }
 }
