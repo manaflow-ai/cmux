@@ -1,0 +1,3 @@
+internal import CmuxTerminalRenderCompositor
+
+extension TerminalRenderCompositorIngress: TerminalFrontendFrameIngress {}
