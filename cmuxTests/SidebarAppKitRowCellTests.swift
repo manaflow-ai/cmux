@@ -7,7 +7,10 @@ import Testing
 @Suite
 @MainActor
 struct SidebarAppKitRowCellTests {
-    private static func makeSettings(hidesAllDetails: Bool = false) -> SidebarTabItemSettingsSnapshot {
+    private static func makeSettings(
+        hidesAllDetails: Bool = false,
+        stacksBranchAndDirectory: Bool? = nil
+    ) -> SidebarTabItemSettingsSnapshot {
         let defaults = UserDefaults(suiteName: UUID().uuidString)!
         defaults.set(hidesAllDetails, forKey: "sidebarHideAllDetails")
         defaults.set(true, forKey: "sidebarShowNotificationMessage")
@@ -16,7 +19,9 @@ struct SidebarAppKitRowCellTests {
         defaults.set(true, forKey: "sidebarShowGitBranchIcon")
         defaults.set(true, forKey: "sidebarShowPullRequest")
         defaults.set(true, forKey: "sidebarBranchVerticalLayout")
-        defaults.set(false, forKey: "sidebarBranchDirectoryStacked")
+        if let stacksBranchAndDirectory {
+            defaults.set(stacksBranchAndDirectory, forKey: "sidebarBranchDirectoryStacked")
+        }
         return SidebarTabItemSettingsSnapshot(defaults: defaults)
     }
 
@@ -221,13 +226,36 @@ struct SidebarAppKitRowCellTests {
         let branchRow = try #require(content.branchDirectoryRows.first)
         let pullRequest = try #require(content.pullRequestRows.first)
 
+        #expect(settings.stacksBranchAndDirectory)
         #expect(branchRow.branch == "issue-7230-trusted-manual-host")
         #expect(branchRow.directoryCandidates.first == "~/manaflow/term/cmux104")
+        #expect(branchRow.stacksBranchAndDirectory)
         #expect(content.showsBranchIcon)
         #expect(pullRequest.title == "PR #7238")
         #expect(pullRequest.statusLabel == "open")
         #expect(pullRequest.url == pullRequestURL)
         #expect(pullRequest.isClickable)
+    }
+
+    @Test
+    func explicitInlineBranchDirectoryPreferenceIsPreserved() throws {
+        let settings = Self.makeSettings(stacksBranchAndDirectory: false)
+        let content = SidebarWorkspaceRowContentModel(
+            workspace: Self.makeSnapshot(
+                branchDirectoryLines: [
+                    .init(
+                        branch: "issue-7230-trusted-manual-host",
+                        directoryCandidates: ["~/manaflow/term/cmux104"]
+                    ),
+                ]
+            ),
+            settings: settings,
+            latestNotificationText: nil
+        )
+        let branchRow = try #require(content.branchDirectoryRows.first)
+
+        #expect(!settings.stacksBranchAndDirectory)
+        #expect(!branchRow.stacksBranchAndDirectory)
     }
 
     @Test
