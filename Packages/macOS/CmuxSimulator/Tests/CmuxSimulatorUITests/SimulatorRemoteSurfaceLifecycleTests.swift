@@ -7,6 +7,38 @@ import Testing
 @Suite("Simulator frame surface lifecycle")
 @MainActor
 struct SimulatorRemoteSurfaceLifecycleTests {
+    @Test("A static visible pane presents its first completed frame")
+    func staticVisiblePanePresentsFirstCompletedFrame() async throws {
+        let source = EmptySimulatorFrameSurfaceSource(snapshot: simulatorFrameSnapshot(
+            pixel: 0xFF_12_34_56,
+            sequence: 1
+        ))
+        let view = SimulatorRemoteSurfaceView(frameSourceFactory: { _ in source })
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 900))
+        let window = NSWindow(
+            contentRect: root.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = root
+        view.frame = root.bounds
+        root.addSubview(view)
+
+        view.update(
+            frameTransport: simulatorFrameTransportDescriptor(49),
+            display: simulatorTestDisplay,
+            chrome: nil
+        )
+
+        try await waitUntil {
+            simulatorFrameImageFirstPixel(view.frameLayer?.contents) == 0xFF_12_34_56
+        }
+        #expect(simulatorFrameImageFirstPixel(
+            view.frameLayer?.contents
+        ) == 0xFF_12_34_56)
+    }
+
     @Test("The frame layer never presents worker-shared IOSurfaces")
     func frameLayerPresentsOnlyHostOwnedImages() async throws {
         let input = try #require(IOSurfaceCreate([
