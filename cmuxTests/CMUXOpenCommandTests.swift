@@ -1097,7 +1097,11 @@ final class CMUXOpenCommandTests: XCTestCase {
                 return session
             }
             .first
-        XCTAssertEqual(branchSession?["allowedRepoRoots"] as? [String], [rootURL.path])
+        XCTAssertEqual(branchSession?["allowedRepoRoots"] as? [String], [])
+        XCTAssertEqual(
+            branchSession?["allowedAgentTurns"] as? [[String: String]],
+            [["provider": "claude", "sessionId": "claude-session-123"]]
+        )
     }
 
     func testDiffCommandMapsOpenCodeCLINameToProtocolSpelling() throws {

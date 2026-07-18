@@ -615,7 +615,11 @@ fn prepare_agent_rpc_fixture(root: &Path) -> std::path::PathBuf {
         serde_json::to_vec(&serde_json::json!({
             "token": token,
             "groupID": "agent-test",
-            "allowedRepoRoots": [repo]
+            "allowedRepoRoots": [],
+            "allowedAgentTurns": [{
+                "provider": "claude",
+                "sessionId": "claude-session"
+            }]
         }))
         .expect("encode authorization"),
     )
