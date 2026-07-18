@@ -10,10 +10,26 @@ enum SubrouterIntegrationSettings {
     static let commandPathKey = "subrouterCommandPath"
     static let showAccountSwitcherKey = "sidebarShowAccountSwitcher"
 
-    static let defaultEnabled = false
+    static let defaultEnabled = true
     static let defaultShowAccountSwitcher = true
 
+    /// The effective gate: the subrouter feature flag
+    /// (`CmuxFeatureFlags.isSubrouterUIEnabled`) controls rollout; the
+    /// `subrouter.enabled` setting (default on) is the user's opt-out
+    /// inside the flag.
+    ///
+    /// Reads the flag via `assumeIsolated`: every caller (mode availability,
+    /// panel/footer views, the app runtime) is main-actor, and the socket
+    /// lane reads the store's captured configuration instead of calling this.
     nonisolated static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        let flagEnabled = MainActor.assumeIsolated {
+            CmuxFeatureFlags.shared.isSubrouterUIEnabled
+        }
+        return flagEnabled && userOptIn(defaults: defaults)
+    }
+
+    /// The raw `subrouter.enabled` setting, without the feature flag.
+    nonisolated static func userOptIn(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: enabledKey) != nil else { return defaultEnabled }
         return defaults.bool(forKey: enabledKey)
     }

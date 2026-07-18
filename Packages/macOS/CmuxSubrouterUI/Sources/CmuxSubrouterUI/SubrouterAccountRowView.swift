@@ -27,6 +27,10 @@ public struct SubrouterAccountRowView: View {
         self.onSwitch = onSwitch
     }
 
+    private var isAuthExpired: Bool {
+        account.authChecked && !account.authValid
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 5) {
@@ -60,6 +64,9 @@ public struct SubrouterAccountRowView: View {
             }
         }
         .padding(.vertical, 4)
+        // Expired accounts stay listed (they are still switch targets after
+        // a re-login) but recede so healthy accounts carry the panel.
+        .opacity(isAuthExpired ? 0.6 : 1)
     }
 
     @ViewBuilder
@@ -92,13 +99,24 @@ public struct SubrouterAccountRowView: View {
     private var statusLine: some View {
         let assessment = account.quotaAssessment
         HStack(spacing: 5) {
-            if account.authChecked && !account.authValid {
+            // Raw daemon/refresh error text stays out of the row; the short
+            // localized label carries the state and the tooltip the detail.
+            if isAuthExpired {
                 Label(
                     String(localized: "subrouter.account.authInvalid", defaultValue: "Sign-in expired"),
                     systemImage: "exclamationmark.triangle.fill"
                 )
                 .font(.system(size: 9))
                 .foregroundStyle(.orange)
+                .help(account.errorDescription ?? "")
+            } else if let errorDescription = account.errorDescription, !errorDescription.isEmpty {
+                Label(
+                    String(localized: "subrouter.account.usageUnavailable", defaultValue: "Usage unavailable"),
+                    systemImage: "exclamationmark.triangle"
+                )
+                .font(.system(size: 9))
+                .foregroundStyle(.orange)
+                .help(errorDescription)
             }
             if let chip = assessment.chipText {
                 Text(chip)
@@ -119,13 +137,6 @@ public struct SubrouterAccountRowView: View {
             Text(detail)
                 .font(.system(size: 9))
                 .foregroundStyle(.tertiary)
-                .padding(.leading, 11)
-        }
-        if let errorDescription = account.errorDescription, !errorDescription.isEmpty {
-            Text(errorDescription)
-                .font(.system(size: 9))
-                .foregroundStyle(.orange)
-                .lineLimit(2)
                 .padding(.leading, 11)
         }
     }

@@ -37,7 +37,7 @@ public struct SubrouterProviderSectionView: View {
                     .font(.system(size: 9))
                     .foregroundStyle(.tertiary)
             }
-            ForEach(accounts) { account in
+            ForEach(displayAccounts) { account in
                 SubrouterAccountRowView(
                     account: account,
                     isSwitchPending: pendingSwitchAccountID == account.id,
@@ -53,6 +53,17 @@ public struct SubrouterProviderSectionView: View {
                 .foregroundStyle(.tertiary)
             }
         }
+    }
+
+    /// Display order: the active account first, then switchable healthy
+    /// accounts, with sign-in-expired accounts last — each group keeping the
+    /// daemon's order. Keeps the useful rows above the fold when many stale
+    /// accounts linger.
+    private var displayAccounts: [SubrouterAccountUsageStatus] {
+        let active = accounts.filter(\.isActive)
+        let healthy = accounts.filter { !$0.isActive && !($0.authChecked && !$0.authValid) }
+        let expired = accounts.filter { !$0.isActive && $0.authChecked && !$0.authValid }
+        return active + healthy + expired
     }
 
     private func switchAction(for account: SubrouterAccountUsageStatus) -> (() -> Void)? {

@@ -160,7 +160,9 @@ struct RightSidebarPanelView: View {
         RightSidebarMode.availableModes(
             feedEnabled: feedEnabled,
             dockEnabled: dockEnabled,
-            agentsEnabled: subrouterEnabled
+            // Observable read: the mode bar updates live when the feature
+            // flag flips (Internal Flags window or a PostHog payload).
+            agentsEnabled: CmuxFeatureFlags.shared.isSubrouterUIEnabled && subrouterEnabled
         )
     }
 

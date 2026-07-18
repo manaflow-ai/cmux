@@ -1355,8 +1355,8 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "default": false,
-          "description": "Master gate for the subrouter integration. When false, cmux never contacts the daemon or runs the sr CLI."
+          "default": true,
+          "description": "User opt-out for the subrouter integration (availability itself is controlled by the subrouter-ui-enabled-release feature flag). When false, cmux never contacts the daemon or runs the sr CLI."
         },
         "endpoint": {
           "type": "string",

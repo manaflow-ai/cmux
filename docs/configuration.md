@@ -269,7 +269,7 @@ Opt-in integration with the local [subrouter](https://github.com/manaflow-ai/sub
 }
 ```
 
-- `subrouter.enabled`: master gate, default `false`. While off, cmux never contacts the daemon or runs the `sr` CLI, and the Agents mode plus footer switcher are hidden. Enable from **Settings > Agent Accounts**.
+- Availability is controlled by the `subrouter-ui-enabled-release` feature flag (on in DEBUG builds; remotely controlled in release). `subrouter.enabled` is the user opt-out inside the flag, default `true`. While either is off, cmux never contacts the daemon or runs the `sr` CLI, and the Agents mode plus footer switcher are hidden. Toggle from **Settings > Agent Accounts**.
 - `subrouter.endpoint`: daemon address (`host:port` or full `http(s)` URL). Empty means the daemon's standard loopback bind, `http://127.0.0.1:31415`.
 - `subrouter.commandPath`: explicit path to the `sr`/`subrouter` CLI used for account switches. Empty resolves from `PATH`, then `~/bin` and the Homebrew locations.
 - `sidebar.showAccountSwitcher`: shows the compact account switcher in the left-sidebar footer, default `true` (only visible while `subrouter.enabled` is on).

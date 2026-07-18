@@ -121,7 +121,7 @@ Local subrouter daemon integration (AI-agent account switching and usage) from S
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `subrouter.enabled` | boolean | `false` | Master gate for the subrouter integration. When false, cmux never contacts the daemon or runs the sr CLI. |
+| `subrouter.enabled` | boolean | `true` | User opt-out for the subrouter integration (availability is controlled by the `subrouter-ui-enabled-release` feature flag). When false, cmux never contacts the daemon or runs the sr CLI. |
 | `subrouter.endpoint` | string | `""` | Daemon address as host:port or a full http(s) URL. Empty means http://127.0.0.1:31415. |
 | `subrouter.commandPath` | string | `""` | Explicit path to the sr/subrouter CLI used for account switches. Empty resolves from PATH and ~/bin. |
 

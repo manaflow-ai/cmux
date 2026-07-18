@@ -13206,7 +13206,7 @@ struct SidebarFooterButtons: View {
         HStack(spacing: 4) {
             SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
             SidebarProBadge()
-            if subrouterEnabled && showAccountSwitcher {
+            if CmuxFeatureFlags.shared.isSubrouterUIEnabled && subrouterEnabled && showAccountSwitcher {
                 SidebarAccountSwitcherButton()
             }
             // The puzzle button opens the extensions browser; it only shows

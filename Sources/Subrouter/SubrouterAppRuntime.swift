@@ -60,6 +60,12 @@ final class SubrouterAppRuntime {
             }
         })
         observationTasks.append(Task { @MainActor [weak self] in
+            for await _ in center.notifications(named: .cmuxFeatureFlagsDidChange).map({ _ in () }) {
+                guard let self else { return }
+                self.store.updateConfiguration(SubrouterIntegrationSettings.currentConfiguration())
+            }
+        })
+        observationTasks.append(Task { @MainActor [weak self] in
             for await _ in center.notifications(named: NSApplication.didBecomeActiveNotification).map({ _ in () }) {
                 guard let self else { return }
                 self.appIsActive = true
