@@ -1,22 +1,43 @@
-//! Versioned, fail-closed persistence for daemon session identity.
+//! Crash-consistent persistence for canonical daemon sessions.
 //!
-//! This first store format intentionally contains no topology, PTY, terminal,
-//! or presentation state. It gives later persistence work a crash-safe format
-//! boundary without implying that shells survive a daemon process crash yet.
+//! A versioned atomic checkpoint contains the latest compacted canonical
+//! topology. Every later acknowledged mutation is first appended to a
+//! checksummed journal and synced to stable storage. Terminal output and live
+//! process identifiers are deliberately absent from this format.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{SessionId, platform};
+use crate::{PaneUuid, ScreenUuid, SessionId, SurfaceUuid, WorkspaceUuid, platform};
 
-pub const STATE_STORE_VERSION: u32 = 1;
+pub const STATE_STORE_VERSION: u32 = 2;
+
+pub(crate) const MAX_PERSISTED_TOMBSTONES: usize = 1_024;
+pub(crate) const MAX_PERSISTED_IDEMPOTENCY_RESULTS: usize = 1_024;
 
 const SESSION_PATH_NAMESPACE: Uuid = Uuid::from_u128(0x9f87_2e39_dcd4_4d89_a43f_2977_1b35_754a);
+const CHECKPOINT_FORMAT: &str = "cmux-canonical-session";
+const JOURNAL_FORMAT: &str = "cmux-canonical-mutation";
+const DEFAULT_MAX_CHECKPOINT_BYTES: usize = 16 * 1024 * 1024;
+const DEFAULT_MAX_JOURNAL_BYTES: usize = 16 * 1024 * 1024;
+const DEFAULT_MAX_JOURNAL_RECORD_BYTES: usize = 4 * 1024 * 1024;
+const DEFAULT_MAX_JOURNAL_RECORDS: usize = 64;
+const MAX_PERSISTED_WORKSPACES: usize = 4_096;
+const MAX_PERSISTED_SCREENS: usize = 16_384;
+const MAX_PERSISTED_PANES: usize = 16_384;
+const MAX_PERSISTED_SURFACES: usize = 65_536;
+const MAX_NAME_BYTES: usize = 16 * 1024;
+const MAX_ARGV_ITEMS: usize = 4_096;
+const MAX_ARGV_BYTES: usize = 256 * 1024;
+const MAX_CWD_BYTES: usize = 16 * 1024;
+const MAX_ENV_ITEMS: usize = 128;
+const MAX_ENV_BYTES: usize = 256 * 1024;
 
 #[derive(Debug)]
 pub enum StateStoreError {
@@ -28,6 +49,10 @@ pub enum StateStoreError {
 impl StateStoreError {
     fn io(path: impl Into<PathBuf>, source: std::io::Error) -> Self {
         Self::Io { path: path.into(), source }
+    }
+
+    fn corrupt(path: impl Into<PathBuf>, reason: impl Into<String>) -> Self {
+        Self::Corrupt { path: path.into(), reason: reason.into() }
     }
 }
 
@@ -60,12 +85,32 @@ pub struct StateRecovery {
     pub archived_corrupt_state: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct StateStoreLimits {
+    max_checkpoint_bytes: usize,
+    max_journal_bytes: usize,
+    max_journal_record_bytes: usize,
+    max_journal_records: usize,
+}
+
+impl Default for StateStoreLimits {
+    fn default() -> Self {
+        Self {
+            max_checkpoint_bytes: DEFAULT_MAX_CHECKPOINT_BYTES,
+            max_journal_bytes: DEFAULT_MAX_JOURNAL_BYTES,
+            max_journal_record_bytes: DEFAULT_MAX_JOURNAL_RECORD_BYTES,
+            max_journal_records: DEFAULT_MAX_JOURNAL_RECORDS,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct StateStore {
     root: PathBuf,
+    limits: StateStoreLimits,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StoredSessionV1 {
     version: u32,
@@ -73,12 +118,246 @@ struct StoredSessionV1 {
     session_id: SessionId,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PersistedSessionState {
+    pub session_id: SessionId,
+    pub topology_revision: u64,
+    pub active_workspace: Option<WorkspaceUuid>,
+    pub workspaces: Vec<PersistedWorkspace>,
+    pub panes: Vec<PersistedPane>,
+    pub surfaces: Vec<PersistedSurface>,
+    pub tombstones: Vec<PersistedTombstone>,
+    pub idempotency_results: Vec<PersistedIdempotencyResult>,
+}
+
+impl PersistedSessionState {
+    pub(crate) fn empty(session_id: SessionId) -> Self {
+        Self {
+            session_id,
+            topology_revision: 0,
+            active_workspace: None,
+            workspaces: Vec::new(),
+            panes: Vec::new(),
+            surfaces: Vec::new(),
+            tombstones: Vec::new(),
+            idempotency_results: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PersistedWorkspace {
+    pub uuid: WorkspaceUuid,
+    pub name: String,
+    pub screens: Vec<PersistedScreen>,
+    pub active_screen: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PersistedScreen {
+    pub uuid: ScreenUuid,
+    pub name: Option<String>,
+    pub root: PersistedNode,
+    pub active_pane: PaneUuid,
+    pub zoomed_pane: Option<PaneUuid>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "node", rename_all = "kebab-case", deny_unknown_fields)]
+pub(crate) enum PersistedNode {
+    Leaf {
+        pane_uuid: PaneUuid,
+    },
+    Split {
+        direction: PersistedSplitDirection,
+        ratio: f32,
+        first: Box<PersistedNode>,
+        second: Box<PersistedNode>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum PersistedSplitDirection {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PersistedPane {
+    pub uuid: PaneUuid,
+    pub name: Option<String>,
+    pub tabs: Vec<SurfaceUuid>,
+    pub active_tab: usize,
+    pub active_at: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PersistedSurface {
+    pub uuid: SurfaceUuid,
+    pub name: Option<String>,
+    pub kind: PersistedSurfaceKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub(crate) enum PersistedSurfaceKind {
+    Terminal {
+        launch: PersistedLaunchRecipe,
+    },
+    /// Browser placement is durable, but its URL and engine state are not.
+    /// URLs may contain bearer credentials, query secrets, and private data.
+    Browser,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PersistedLaunchRecipe {
+    pub argv: Vec<String>,
+    pub cwd: Option<String>,
+    pub environment: Vec<PersistedEnvironmentVariable>,
+    pub cols: u16,
+    pub rows: u16,
+    pub scrollback: usize,
+    pub wait_after_command: bool,
+}
+
+impl PersistedLaunchRecipe {
+    pub(crate) fn sanitized(
+        argv: Vec<String>,
+        cwd: Option<String>,
+        environment: Vec<(String, String)>,
+        cols: u16,
+        rows: u16,
+        scrollback: usize,
+        wait_after_command: bool,
+    ) -> Self {
+        let environment = environment
+            .into_iter()
+            .filter(|(name, value)| {
+                persisted_environment_name_allowed(name)
+                    && !name.contains(['=', '\0'])
+                    && !value.contains('\0')
+            })
+            .collect::<BTreeMap<_, _>>()
+            .into_iter()
+            .map(|(name, value)| PersistedEnvironmentVariable { name, value })
+            .collect();
+        let cwd = cwd.map(|cwd| {
+            let path = PathBuf::from(&cwd);
+            if path.is_absolute() {
+                cwd
+            } else {
+                std::env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from("/"))
+                    .join(path)
+                    .to_string_lossy()
+                    .into_owned()
+            }
+        });
+        Self {
+            argv,
+            cwd,
+            environment,
+            cols: cols.max(1),
+            rows: rows.max(1),
+            scrollback,
+            wait_after_command,
+        }
+    }
+
+    pub(crate) fn environment_pairs(&self) -> Vec<(String, String)> {
+        self.environment
+            .iter()
+            .map(|variable| (variable.name.clone(), variable.value.clone()))
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PersistedEnvironmentVariable {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum PersistedEntityKind {
+    Workspace,
+    Screen,
+    Pane,
+    Surface,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PersistedTombstone {
+    pub kind: PersistedEntityKind,
+    pub uuid: Uuid,
+    pub removed_at_topology_revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PersistedIdempotencyResult {
+    pub key: String,
+    pub committed_topology_revision: u64,
+    pub workspaces: Vec<WorkspaceUuid>,
+    pub screens: Vec<ScreenUuid>,
+    pub panes: Vec<PaneUuid>,
+    pub surfaces: Vec<SurfaceUuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CheckpointBody {
+    version: u32,
+    format: String,
+    session: String,
+    epoch: u64,
+    sequence: u64,
+    state: PersistedSessionState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CheckpointEnvelope {
+    body: CheckpointBody,
+    checksum: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct JournalBody {
+    version: u32,
+    format: String,
+    session_id: SessionId,
+    epoch: u64,
+    sequence: u64,
+    idempotency_key: String,
+    result: Option<PersistedIdempotencyResult>,
+    state: PersistedSessionState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct JournalEnvelope {
+    body: JournalBody,
+    checksum: String,
+}
+
 struct TempStateFile {
     path: PathBuf,
     armed: bool,
 }
 
-struct SessionLock(File);
+pub(crate) struct SessionLock(File);
 
 impl TempStateFile {
     fn disarm(&mut self) {
@@ -100,12 +379,129 @@ impl Drop for SessionLock {
     }
 }
 
+pub(crate) struct OpenedSession {
+    pub snapshot: PersistedSessionState,
+    pub durable: DurableSession,
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub quarantined_tail: Option<PathBuf>,
+}
+
+/// The daemon-lifetime journal writer and exclusive session lock.
+pub(crate) struct DurableSession {
+    checkpoint_path: PathBuf,
+    journal_path: PathBuf,
+    session: String,
+    session_id: SessionId,
+    epoch: u64,
+    sequence: u64,
+    journal_records: usize,
+    journal_bytes: usize,
+    latest: PersistedSessionState,
+    limits: StateStoreLimits,
+    _lock: SessionLock,
+}
+
+impl DurableSession {
+    pub(crate) fn append(
+        &mut self,
+        state: PersistedSessionState,
+        idempotency_key: String,
+        result: Option<PersistedIdempotencyResult>,
+    ) -> Result<(), StateStoreError> {
+        validate_snapshot(&self.checkpoint_path, &state)?;
+        if state.session_id != self.session_id {
+            return Err(StateStoreError::corrupt(
+                &self.checkpoint_path,
+                "mutation changed the durable session identity",
+            ));
+        }
+        validate_idempotency_key(&self.journal_path, &idempotency_key)?;
+
+        let mut body = JournalBody {
+            version: STATE_STORE_VERSION,
+            format: JOURNAL_FORMAT.to_string(),
+            session_id: self.session_id,
+            epoch: self.epoch,
+            sequence: self.sequence.checked_add(1).ok_or_else(|| {
+                StateStoreError::corrupt(&self.journal_path, "journal sequence exhausted")
+            })?,
+            idempotency_key,
+            result,
+            state,
+        };
+        let mut bytes = encode_journal(&self.journal_path, &body)?;
+        if bytes.len() > self.limits.max_journal_record_bytes {
+            return Err(StateStoreError::corrupt(
+                &self.journal_path,
+                format!(
+                    "journal record is {} bytes; limit is {}",
+                    bytes.len(),
+                    self.limits.max_journal_record_bytes
+                ),
+            ));
+        }
+
+        if self.journal_records >= self.limits.max_journal_records
+            || self.journal_bytes.saturating_add(bytes.len()) > self.limits.max_journal_bytes
+        {
+            self.compact_latest()?;
+            body.epoch = self.epoch;
+            body.sequence = 1;
+            bytes = encode_journal(&self.journal_path, &body)?;
+            if bytes.len() > self.limits.max_journal_record_bytes
+                || bytes.len() > self.limits.max_journal_bytes
+            {
+                return Err(StateStoreError::corrupt(
+                    &self.journal_path,
+                    "one mutation cannot fit within the bounded journal",
+                ));
+            }
+        }
+
+        append_synced(&self.journal_path, &bytes)?;
+        self.sequence = body.sequence;
+        self.journal_records += 1;
+        self.journal_bytes += bytes.len();
+        self.latest = body.state;
+        Ok(())
+    }
+
+    fn compact_latest(&mut self) -> Result<(), StateStoreError> {
+        let next_epoch = self.epoch.checked_add(1).ok_or_else(|| {
+            StateStoreError::corrupt(&self.checkpoint_path, "checkpoint epoch exhausted")
+        })?;
+        write_checkpoint_atomic(
+            &self.checkpoint_path,
+            &self.session,
+            next_epoch,
+            0,
+            &self.latest,
+            self.limits,
+        )?;
+        replace_file_atomically(&self.journal_path, &[])?;
+        self.epoch = next_epoch;
+        self.sequence = 0;
+        self.journal_records = 0;
+        self.journal_bytes = 0;
+        Ok(())
+    }
+}
+
 impl StateStore {
-    /// Create a store rooted at an explicit directory. Callers can use
-    /// [`platform::state_dir`] for the platform default or inject an isolated
-    /// directory for tests and alternate daemon installations.
+    /// Create a store rooted at an explicit directory.
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into() }
+        Self { root: root.into(), limits: StateStoreLimits::default() }
+    }
+
+    #[cfg(test)]
+    fn with_limits(root: impl Into<PathBuf>, max_records: usize, max_bytes: usize) -> Self {
+        let limits = StateStoreLimits {
+            max_journal_records: max_records,
+            max_journal_bytes: max_bytes,
+            max_journal_record_bytes: max_bytes,
+            ..StateStoreLimits::default()
+        };
+        Self { root: root.into(), limits }
     }
 
     pub fn platform_default() -> Result<Self, StateStoreError> {
@@ -124,51 +520,77 @@ impl StateStore {
         self.root.join("sessions").join(format!("{key}.json"))
     }
 
-    /// Load an existing session identity or atomically create one. Malformed,
-    /// mismatched, and unknown-version files are never overwritten here.
-    pub fn load_or_create_session(&self, session: &str) -> Result<SessionId, StateStoreError> {
-        if let Some(session_id) = self.load_session(session)? {
-            return Ok(session_id);
-        }
-        let _lock = self.lock_session(session)?;
-        if let Some(session_id) = self.load_session(session)? {
-            return Ok(session_id);
-        }
-        self.create_session_if_absent(session, SessionId::new())
+    pub fn journal_path(&self, session: &str) -> PathBuf {
+        let key = session_key(session);
+        self.root.join("sessions").join(format!("{key}.journal"))
     }
 
-    /// Replace a session record using a fully synced same-directory temporary
-    /// file followed by one rename. This is the migration/recovery write seam.
+    /// Open a session while holding its exclusive lock for the returned
+    /// daemon lifetime. Recovery validates the checkpoint before replaying
+    /// strictly ordered, checksummed journal entries.
+    pub(crate) fn open_session(&self, session: &str) -> Result<OpenedSession, StateStoreError> {
+        let lock = self.lock_session(session)?;
+        let checkpoint_path = self.session_path(session);
+        let journal_path = self.journal_path(session);
+        let (checkpoint, migrated) = self.load_or_create_checkpoint(session, &checkpoint_path)?;
+        if migrated {
+            replace_file_atomically(&journal_path, &[])?;
+        }
+        let replay = replay_journal(
+            &journal_path,
+            checkpoint.body.epoch,
+            checkpoint.body.sequence,
+            checkpoint.body.state,
+            self.limits,
+        )?;
+        Ok(OpenedSession {
+            snapshot: replay.state.clone(),
+            durable: DurableSession {
+                checkpoint_path,
+                journal_path,
+                session: session.to_string(),
+                session_id: replay.state.session_id,
+                epoch: replay.epoch,
+                sequence: replay.sequence,
+                journal_records: replay.record_count,
+                journal_bytes: replay.valid_bytes,
+                latest: replay.state,
+                limits: self.limits,
+                _lock: lock,
+            },
+            quarantined_tail: replay.quarantined_tail,
+        })
+    }
+
+    /// Load an existing session identity or atomically create an empty
+    /// version-2 session. This compatibility API releases the startup lock
+    /// immediately; daemon code must use [`StateStore::open_session`].
+    pub fn load_or_create_session(&self, session: &str) -> Result<SessionId, StateStoreError> {
+        let opened = self.open_session(session)?;
+        Ok(opened.snapshot.session_id)
+    }
+
+    /// Replace the complete durable session with a fresh empty checkpoint.
     pub fn replace_session(
         &self,
         session: &str,
         session_id: SessionId,
     ) -> Result<(), StateStoreError> {
         let _lock = self.lock_session(session)?;
-        let destination = self.session_path(session);
-        let mut temp = self.write_temp(session, session_id)?;
-        fs::rename(&temp.path, &destination)
-            .map_err(|error| StateStoreError::io(&destination, error))?;
-        temp.disarm();
-        sync_directory(destination.parent().expect("session state has a parent"))?;
-        Ok(())
+        let state = PersistedSessionState::empty(session_id);
+        write_checkpoint_atomic(&self.session_path(session), session, 1, 0, &state, self.limits)?;
+        replace_file_atomically(&self.journal_path(session), &[])
     }
 
-    /// Explicitly recover a corrupt record. Valid state is returned unchanged.
-    /// Corrupt bytes are atomically renamed to a unique archive before a new
-    /// identity is created, so recovery remains inspectable and reversible.
+    /// Explicitly archive corrupt checkpoint/journal bytes and create a new
+    /// empty session. Valid durable state is returned unchanged.
     pub fn recover_session(&self, session: &str) -> Result<StateRecovery, StateStoreError> {
-        // Serialize the load, archive, and replacement as one cross-process
-        // transaction. Without this lock, a second recovery could parse the
-        // old corrupt bytes, then archive the first recovery's valid result.
-        let _lock = self.lock_session(session)?;
-        match self.load_session(session) {
-            Ok(Some(session_id)) => {
-                return Ok(StateRecovery { session_id, archived_corrupt_state: None });
-            }
-            Ok(None) => {
-                let session_id = self.create_session_if_absent(session, SessionId::new())?;
-                return Ok(StateRecovery { session_id, archived_corrupt_state: None });
+        match self.open_session(session) {
+            Ok(opened) => {
+                return Ok(StateRecovery {
+                    session_id: opened.snapshot.session_id,
+                    archived_corrupt_state: None,
+                });
             }
             Err(StateStoreError::Io { path, source }) => {
                 return Err(StateStoreError::Io { path, source });
@@ -177,24 +599,70 @@ impl StateStore {
             Err(StateStoreError::Corrupt { .. }) => {}
         }
 
-        let path = self.session_path(session);
-        let archive = path.with_extension(format!("corrupt-{}.json", Uuid::new_v4()));
-        let archived_corrupt_state = match fs::rename(&path, &archive) {
-            Ok(()) => {
-                platform::restrict_file(&archive)
-                    .map_err(|error| StateStoreError::io(&archive, error))?;
-                sync_directory(path.parent().expect("session state has a parent"))?;
-                Some(archive)
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                // A concurrent recovery already archived the record. Its new
-                // valid identity wins through create_session_if_absent.
-                None
-            }
-            Err(error) => return Err(StateStoreError::io(&path, error)),
-        };
-        let session_id = self.create_session_if_absent(session, SessionId::new())?;
+        let _lock = self.lock_session(session)?;
+        let checkpoint = self.session_path(session);
+        let journal = self.journal_path(session);
+        let archive = checkpoint.with_extension(format!("corrupt-{}.json", Uuid::new_v4()));
+        let archived_corrupt_state = archive_if_present(&checkpoint, &archive)?;
+        let journal_archive = journal.with_extension(format!("corrupt-{}.journal", Uuid::new_v4()));
+        let _ = archive_if_present(&journal, &journal_archive)?;
+        let session_id = SessionId::new();
+        let state = PersistedSessionState::empty(session_id);
+        write_checkpoint_atomic(&checkpoint, session, 1, 0, &state, self.limits)?;
+        replace_file_atomically(&journal, &[])?;
         Ok(StateRecovery { session_id, archived_corrupt_state })
+    }
+
+    fn load_or_create_checkpoint(
+        &self,
+        session: &str,
+        path: &Path,
+    ) -> Result<(CheckpointEnvelope, bool), StateStoreError> {
+        let bytes = match read_bounded(path, self.limits.max_checkpoint_bytes)? {
+            Some(bytes) => bytes,
+            None => {
+                let state = PersistedSessionState::empty(SessionId::new());
+                write_checkpoint_atomic(path, session, 1, 0, &state, self.limits)?;
+                return Ok((checkpoint_envelope(session, 1, 0, &state)?, false));
+            }
+        };
+        let value = serde_json::from_slice::<serde_json::Value>(&bytes).map_err(|error| {
+            StateStoreError::corrupt(path, format!("invalid checkpoint JSON: {error}"))
+        })?;
+        let version = value
+            .get("body")
+            .and_then(|body| body.get("version"))
+            .or_else(|| value.get("version"))
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| StateStoreError::corrupt(path, "missing integer checkpoint version"))?;
+        if version == 1 {
+            let stored = serde_json::from_value::<StoredSessionV1>(value).map_err(|error| {
+                StateStoreError::corrupt(path, format!("invalid version-1 session: {error}"))
+            })?;
+            if stored.session != session {
+                return Err(StateStoreError::corrupt(
+                    path,
+                    format!(
+                        "session key collision: expected {session:?}, found {:?}",
+                        stored.session
+                    ),
+                ));
+            }
+            let state = PersistedSessionState::empty(stored.session_id);
+            write_checkpoint_atomic(path, session, 1, 0, &state, self.limits)?;
+            return Ok((checkpoint_envelope(session, 1, 0, &state)?, true));
+        }
+        if version != u64::from(STATE_STORE_VERSION) {
+            return Err(StateStoreError::corrupt(
+                path,
+                format!("unsupported version {version}; expected {STATE_STORE_VERSION}"),
+            ));
+        }
+        let envelope = serde_json::from_value::<CheckpointEnvelope>(value).map_err(|error| {
+            StateStoreError::corrupt(path, format!("invalid checkpoint envelope: {error}"))
+        })?;
+        validate_checkpoint(path, session, &envelope)?;
+        Ok((envelope, false))
     }
 
     fn lock_session(&self, session: &str) -> Result<SessionLock, StateStoreError> {
@@ -216,114 +684,649 @@ impl StateStore {
         fs2::FileExt::lock_exclusive(&file).map_err(|error| StateStoreError::io(&path, error))?;
         Ok(SessionLock(file))
     }
+}
 
-    fn load_session(&self, session: &str) -> Result<Option<SessionId>, StateStoreError> {
-        let path = self.session_path(session);
-        let bytes = match fs::read(&path) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(StateStoreError::io(&path, error)),
+struct JournalReplay {
+    state: PersistedSessionState,
+    epoch: u64,
+    sequence: u64,
+    record_count: usize,
+    valid_bytes: usize,
+    quarantined_tail: Option<PathBuf>,
+}
+
+fn replay_journal(
+    path: &Path,
+    checkpoint_epoch: u64,
+    checkpoint_sequence: u64,
+    mut state: PersistedSessionState,
+    limits: StateStoreLimits,
+) -> Result<JournalReplay, StateStoreError> {
+    let Some(bytes) = read_bounded(
+        path,
+        limits.max_journal_bytes.saturating_add(limits.max_journal_record_bytes),
+    )?
+    else {
+        replace_file_atomically(path, &[])?;
+        return Ok(JournalReplay {
+            state,
+            epoch: checkpoint_epoch,
+            sequence: checkpoint_sequence,
+            record_count: 0,
+            valid_bytes: 0,
+            quarantined_tail: None,
+        });
+    };
+    let mut epoch = checkpoint_epoch;
+    let mut sequence = checkpoint_sequence;
+    let mut record_count = 0usize;
+    let mut valid_bytes = 0usize;
+    let mut seen = state
+        .idempotency_results
+        .iter()
+        .map(|result| (result.key.clone(), result.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let mut cursor = 0usize;
+    let mut invalid_tail = None;
+
+    while cursor < bytes.len() {
+        let line_end = bytes[cursor..]
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map(|offset| cursor + offset + 1);
+        let Some(line_end) = line_end else {
+            invalid_tail = Some(cursor);
+            break;
         };
-        let value = serde_json::from_slice::<serde_json::Value>(&bytes).map_err(|error| {
-            StateStoreError::Corrupt {
-                path: path.clone(),
-                reason: format!("invalid JSON: {error}"),
+        let line = &bytes[cursor..line_end - 1];
+        if line.is_empty() {
+            if bytes[line_end..].iter().all(u8::is_ascii_whitespace) {
+                invalid_tail = Some(cursor);
+                break;
             }
-        })?;
-        let version =
-            value.get("version").and_then(serde_json::Value::as_u64).ok_or_else(|| {
-                StateStoreError::Corrupt {
-                    path: path.clone(),
-                    reason: "missing integer version".to_string(),
-                }
-            })?;
-        if version != u64::from(STATE_STORE_VERSION) {
-            return Err(StateStoreError::Corrupt {
-                path,
-                reason: format!("unsupported version {version}; expected {STATE_STORE_VERSION}"),
-            });
+            return Err(StateStoreError::corrupt(path, "empty interior journal record"));
         }
-        let stored = serde_json::from_value::<StoredSessionV1>(value).map_err(|error| {
-            StateStoreError::Corrupt {
-                path: path.clone(),
-                reason: format!("invalid version-{STATE_STORE_VERSION} record: {error}"),
+        if line.len().saturating_add(1) > limits.max_journal_record_bytes {
+            if line_end == bytes.len() {
+                invalid_tail = Some(cursor);
+                break;
             }
-        })?;
-        if stored.session != session {
-            return Err(StateStoreError::Corrupt {
+            return Err(StateStoreError::corrupt(path, "oversized interior journal record"));
+        }
+        let envelope = match decode_journal(path, line) {
+            Ok(envelope) => envelope,
+            Err(error) if line_end == bytes.len() => {
+                let _ = error;
+                invalid_tail = Some(cursor);
+                break;
+            }
+            Err(error) => return Err(error),
+        };
+        let body = envelope.body;
+        if body.session_id != state.session_id {
+            return Err(StateStoreError::corrupt(path, "journal session identity mismatch"));
+        }
+        if body.epoch < checkpoint_epoch
+            || (body.epoch == checkpoint_epoch && body.sequence <= checkpoint_sequence)
+        {
+            // A crash after checkpoint rename but before atomic journal reset
+            // can leave old compacted records behind.
+            cursor = line_end;
+            valid_bytes = line_end;
+            continue;
+        }
+        if body.epoch != epoch || body.sequence != sequence.saturating_add(1) {
+            return Err(StateStoreError::corrupt(
                 path,
-                reason: format!(
-                    "session key collision: expected {session:?}, found {:?}",
-                    stored.session
+                format!(
+                    "journal sequence gap: expected {epoch}/{}, found {}/{}",
+                    sequence.saturating_add(1),
+                    body.epoch,
+                    body.sequence
                 ),
-            });
+            ));
         }
-        Ok(Some(stored.session_id))
+        if record_count >= limits.max_journal_records {
+            return Err(StateStoreError::corrupt(
+                path,
+                "journal record count exceeds the compaction bound",
+            ));
+        }
+        validate_snapshot(path, &body.state)?;
+        if body.state.session_id != state.session_id {
+            return Err(StateStoreError::corrupt(path, "journal state changed session identity"));
+        }
+        if body.state.topology_revision < state.topology_revision {
+            return Err(StateStoreError::corrupt(path, "journal topology revision moved backward"));
+        }
+        if let Some(existing) = seen.get(&body.idempotency_key) {
+            if body.result.as_ref() != Some(existing) || body.state != state {
+                return Err(StateStoreError::corrupt(
+                    path,
+                    "duplicate idempotency key changed its result or state",
+                ));
+            }
+        } else {
+            if let Some(result) = body.result.as_ref() {
+                if result.key != body.idempotency_key {
+                    return Err(StateStoreError::corrupt(
+                        path,
+                        "journal idempotency result key mismatch",
+                    ));
+                }
+                seen.insert(result.key.clone(), result.clone());
+            }
+            state = body.state;
+        }
+        epoch = body.epoch;
+        sequence = body.sequence;
+        record_count += 1;
+        cursor = line_end;
+        valid_bytes = line_end;
     }
 
-    fn create_session_if_absent(
-        &self,
-        session: &str,
-        candidate: SessionId,
-    ) -> Result<SessionId, StateStoreError> {
-        let destination = self.session_path(session);
-        let mut temp = self.write_temp(session, candidate)?;
-        match fs::hard_link(&temp.path, &destination) {
-            Ok(()) => {
-                fs::remove_file(&temp.path)
-                    .map_err(|error| StateStoreError::io(&temp.path, error))?;
-                temp.disarm();
-                sync_directory(destination.parent().expect("session state has a parent"))?;
-                Ok(candidate)
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                drop(temp);
-                self.load_session(session)?.ok_or_else(|| StateStoreError::Corrupt {
-                    path: destination,
-                    reason: "state disappeared during concurrent creation".to_string(),
-                })
-            }
-            Err(error) => Err(StateStoreError::io(&destination, error)),
-        }
+    let quarantined_tail = if let Some(start) = invalid_tail {
+        Some(quarantine_tail(path, &bytes, start)?)
+    } else {
+        None
+    };
+    Ok(JournalReplay { state, epoch, sequence, record_count, valid_bytes, quarantined_tail })
+}
+
+fn validate_checkpoint(
+    path: &Path,
+    session: &str,
+    envelope: &CheckpointEnvelope,
+) -> Result<(), StateStoreError> {
+    if envelope.body.version != STATE_STORE_VERSION || envelope.body.format != CHECKPOINT_FORMAT {
+        return Err(StateStoreError::corrupt(path, "checkpoint format/version mismatch"));
+    }
+    if envelope.body.session != session {
+        return Err(StateStoreError::corrupt(
+            path,
+            format!(
+                "session key collision: expected {session:?}, found {:?}",
+                envelope.body.session
+            ),
+        ));
+    }
+    verify_checksum(path, &envelope.body, &envelope.checksum, "checkpoint")?;
+    validate_snapshot(path, &envelope.body.state)
+}
+
+fn validate_snapshot(path: &Path, state: &PersistedSessionState) -> Result<(), StateStoreError> {
+    if state.session_id.as_uuid().is_nil() {
+        return Err(StateStoreError::corrupt(path, "nil session identity"));
+    }
+    if state.workspaces.len() > MAX_PERSISTED_WORKSPACES
+        || state.panes.len() > MAX_PERSISTED_PANES
+        || state.surfaces.len() > MAX_PERSISTED_SURFACES
+    {
+        return Err(StateStoreError::corrupt(path, "persisted topology exceeds entity limits"));
+    }
+    if state.tombstones.len() > MAX_PERSISTED_TOMBSTONES
+        || state.idempotency_results.len() > MAX_PERSISTED_IDEMPOTENCY_RESULTS
+    {
+        return Err(StateStoreError::corrupt(path, "bounded recovery metadata exceeds limits"));
     }
 
-    fn write_temp(
-        &self,
-        session: &str,
-        session_id: SessionId,
-    ) -> Result<TempStateFile, StateStoreError> {
-        let destination = self.session_path(session);
-        let directory = destination.parent().expect("session state has a parent");
-        fs::create_dir_all(directory).map_err(|error| StateStoreError::io(directory, error))?;
-        platform::restrict_directory(&self.root)
-            .map_err(|error| StateStoreError::io(&self.root, error))?;
-        platform::restrict_directory(directory)
-            .map_err(|error| StateStoreError::io(directory, error))?;
+    let mut workspace_ids = BTreeSet::new();
+    let mut screen_ids = BTreeSet::new();
+    let mut pane_ids = BTreeSet::new();
+    let mut surface_ids = BTreeSet::new();
+    let mut referenced_panes = BTreeSet::new();
+    let mut referenced_surfaces = BTreeSet::new();
+    let mut screen_count = 0usize;
 
-        let record = StoredSessionV1 {
-            version: STATE_STORE_VERSION,
-            session: session.to_string(),
-            session_id,
-        };
-        let mut bytes =
-            serde_json::to_vec_pretty(&record).map_err(|error| StateStoreError::Corrupt {
-                path: destination.clone(),
-                reason: format!("could not encode state: {error}"),
-            })?;
-        bytes.push(b'\n');
-        let temp_path = directory.join(format!(".state-{}.tmp", Uuid::new_v4()));
-        let mut file = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&temp_path)
-            .map_err(|error| StateStoreError::io(&temp_path, error))?;
-        let temp = TempStateFile { path: temp_path.clone(), armed: true };
-        platform::restrict_file(&temp_path)
-            .map_err(|error| StateStoreError::io(&temp_path, error))?;
-        file.write_all(&bytes)
-            .and_then(|()| file.sync_all())
-            .map_err(|error| StateStoreError::io(&temp_path, error))?;
-        Ok(temp)
+    for workspace in &state.workspaces {
+        validate_uuid(path, workspace.uuid.as_uuid(), "workspace")?;
+        validate_name(path, &workspace.name, "workspace name")?;
+        if !workspace_ids.insert(workspace.uuid) {
+            return Err(StateStoreError::corrupt(path, "duplicate workspace UUID"));
+        }
+        if workspace.screens.is_empty() || workspace.active_screen >= workspace.screens.len() {
+            return Err(StateStoreError::corrupt(path, "invalid workspace active screen"));
+        }
+        screen_count = screen_count.saturating_add(workspace.screens.len());
+        for screen in &workspace.screens {
+            validate_uuid(path, screen.uuid.as_uuid(), "screen")?;
+            if let Some(name) = &screen.name {
+                validate_name(path, name, "screen name")?;
+            }
+            if !screen_ids.insert(screen.uuid) {
+                return Err(StateStoreError::corrupt(path, "duplicate screen UUID"));
+            }
+            let mut screen_panes = BTreeSet::new();
+            collect_node_panes(path, &screen.root, &mut screen_panes)?;
+            if !screen_panes.contains(&screen.active_pane)
+                || screen.zoomed_pane.is_some_and(|pane| !screen_panes.contains(&pane))
+            {
+                return Err(StateStoreError::corrupt(
+                    path,
+                    "screen focus references a pane outside its split tree",
+                ));
+            }
+            for pane in screen_panes {
+                if !referenced_panes.insert(pane) {
+                    return Err(StateStoreError::corrupt(
+                        path,
+                        "pane appears in multiple screen split trees",
+                    ));
+                }
+            }
+        }
+    }
+    if screen_count > MAX_PERSISTED_SCREENS {
+        return Err(StateStoreError::corrupt(path, "persisted screen count exceeds limit"));
+    }
+    match state.active_workspace {
+        Some(active) if !workspace_ids.contains(&active) => {
+            return Err(StateStoreError::corrupt(path, "active workspace UUID is missing"));
+        }
+        None if !state.workspaces.is_empty() => {
+            return Err(StateStoreError::corrupt(
+                path,
+                "nonempty topology has no active workspace",
+            ));
+        }
+        Some(_) if state.workspaces.is_empty() => {
+            return Err(StateStoreError::corrupt(path, "empty topology has an active workspace"));
+        }
+        _ => {}
+    }
+
+    for pane in &state.panes {
+        validate_uuid(path, pane.uuid.as_uuid(), "pane")?;
+        if !pane_ids.insert(pane.uuid) {
+            return Err(StateStoreError::corrupt(path, "duplicate pane UUID"));
+        }
+        if let Some(name) = &pane.name {
+            validate_name(path, name, "pane name")?;
+        }
+        if pane.tabs.is_empty() || pane.active_tab >= pane.tabs.len() {
+            return Err(StateStoreError::corrupt(path, "invalid pane active tab"));
+        }
+        for surface in &pane.tabs {
+            if !referenced_surfaces.insert(*surface) {
+                return Err(StateStoreError::corrupt(
+                    path,
+                    "surface appears in multiple tab slots",
+                ));
+            }
+        }
+    }
+    if pane_ids != referenced_panes {
+        return Err(StateStoreError::corrupt(
+            path,
+            "pane records and split-tree references differ",
+        ));
+    }
+
+    for surface in &state.surfaces {
+        validate_uuid(path, surface.uuid.as_uuid(), "surface")?;
+        if !surface_ids.insert(surface.uuid) {
+            return Err(StateStoreError::corrupt(path, "duplicate surface UUID"));
+        }
+        if let Some(name) = &surface.name {
+            validate_name(path, name, "surface name")?;
+        }
+        if let PersistedSurfaceKind::Terminal { launch } = &surface.kind {
+            validate_launch_recipe(path, launch)?;
+        }
+    }
+    if surface_ids != referenced_surfaces {
+        return Err(StateStoreError::corrupt(
+            path,
+            "surface records and ordered tab references differ",
+        ));
+    }
+
+    let mut tombstone_keys = BTreeSet::new();
+    for tombstone in &state.tombstones {
+        validate_uuid(path, tombstone.uuid, "tombstone")?;
+        if tombstone.removed_at_topology_revision > state.topology_revision
+            || !tombstone_keys.insert((persisted_entity_kind_tag(tombstone.kind), tombstone.uuid))
+        {
+            return Err(StateStoreError::corrupt(path, "invalid or duplicate tombstone"));
+        }
+    }
+    let mut idempotency_keys = BTreeSet::new();
+    for result in &state.idempotency_results {
+        validate_idempotency_key(path, &result.key)?;
+        if result.committed_topology_revision > state.topology_revision
+            || !idempotency_keys.insert(result.key.as_str())
+        {
+            return Err(StateStoreError::corrupt(path, "duplicate retained idempotency key"));
+        }
+        for uuid in result
+            .workspaces
+            .iter()
+            .map(|uuid| uuid.as_uuid())
+            .chain(result.screens.iter().map(|uuid| uuid.as_uuid()))
+            .chain(result.panes.iter().map(|uuid| uuid.as_uuid()))
+            .chain(result.surfaces.iter().map(|uuid| uuid.as_uuid()))
+        {
+            validate_uuid(path, uuid, "idempotency target")?;
+        }
+    }
+    Ok(())
+}
+
+fn persisted_entity_kind_tag(kind: PersistedEntityKind) -> u8 {
+    match kind {
+        PersistedEntityKind::Workspace => 0,
+        PersistedEntityKind::Screen => 1,
+        PersistedEntityKind::Pane => 2,
+        PersistedEntityKind::Surface => 3,
+    }
+}
+
+fn validate_launch_recipe(
+    path: &Path,
+    launch: &PersistedLaunchRecipe,
+) -> Result<(), StateStoreError> {
+    if launch.argv.is_empty()
+        || launch.argv.len() > MAX_ARGV_ITEMS
+        || launch.argv.iter().any(|arg| arg.contains('\0'))
+        || launch.argv.iter().map(String::len).sum::<usize>() > MAX_ARGV_BYTES
+    {
+        return Err(StateStoreError::corrupt(path, "invalid persisted argv"));
+    }
+    if launch.cwd.as_ref().is_some_and(|cwd| {
+        cwd.len() > MAX_CWD_BYTES || cwd.contains('\0') || !Path::new(cwd).is_absolute()
+    }) || launch.cols == 0
+        || launch.rows == 0
+        || launch.scrollback > 10_000_000
+    {
+        return Err(StateStoreError::corrupt(path, "invalid persisted terminal launch recipe"));
+    }
+    if launch.environment.len() > MAX_ENV_ITEMS
+        || launch
+            .environment
+            .iter()
+            .map(|variable| variable.name.len().saturating_add(variable.value.len()))
+            .sum::<usize>()
+            > MAX_ENV_BYTES
+    {
+        return Err(StateStoreError::corrupt(path, "persisted environment exceeds limits"));
+    }
+    let mut names = BTreeSet::new();
+    for variable in &launch.environment {
+        if !persisted_environment_name_allowed(&variable.name)
+            || variable.name.contains(['=', '\0'])
+            || variable.value.contains('\0')
+            || !names.insert(variable.name.as_str())
+        {
+            return Err(StateStoreError::corrupt(
+                path,
+                "persisted environment is not strictly allowlisted",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn persisted_environment_name_allowed(name: &str) -> bool {
+    matches!(
+        name,
+        "TERM"
+            | "COLORTERM"
+            | "LANG"
+            | "LC_ALL"
+            | "LC_ADDRESS"
+            | "LC_COLLATE"
+            | "LC_CTYPE"
+            | "LC_IDENTIFICATION"
+            | "LC_MEASUREMENT"
+            | "LC_MESSAGES"
+            | "LC_MONETARY"
+            | "LC_NAME"
+            | "LC_NUMERIC"
+            | "LC_PAPER"
+            | "LC_TELEPHONE"
+            | "LC_TIME"
+            | "TZ"
+    )
+}
+
+fn collect_node_panes(
+    path: &Path,
+    node: &PersistedNode,
+    panes: &mut BTreeSet<PaneUuid>,
+) -> Result<(), StateStoreError> {
+    match node {
+        PersistedNode::Leaf { pane_uuid } => {
+            validate_uuid(path, pane_uuid.as_uuid(), "pane")?;
+            if !panes.insert(*pane_uuid) {
+                return Err(StateStoreError::corrupt(path, "pane appears twice in split trees"));
+            }
+        }
+        PersistedNode::Split { ratio, first, second, .. } => {
+            if !ratio.is_finite() || !(0.01..=0.99).contains(ratio) {
+                return Err(StateStoreError::corrupt(path, "invalid persisted split ratio"));
+            }
+            collect_node_panes(path, first, panes)?;
+            collect_node_panes(path, second, panes)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_uuid(path: &Path, uuid: Uuid, kind: &str) -> Result<(), StateStoreError> {
+    if uuid.is_nil() {
+        Err(StateStoreError::corrupt(path, format!("nil {kind} UUID")))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_name(path: &Path, name: &str, kind: &str) -> Result<(), StateStoreError> {
+    if name.len() > MAX_NAME_BYTES || name.contains('\0') {
+        Err(StateStoreError::corrupt(path, format!("invalid {kind}")))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_idempotency_key(path: &Path, key: &str) -> Result<(), StateStoreError> {
+    if key.is_empty() || key.len() > 256 || key.contains('\0') {
+        Err(StateStoreError::corrupt(path, "invalid idempotency key"))
+    } else {
+        Ok(())
+    }
+}
+
+fn checkpoint_envelope(
+    session: &str,
+    epoch: u64,
+    sequence: u64,
+    state: &PersistedSessionState,
+) -> Result<CheckpointEnvelope, StateStoreError> {
+    let body = CheckpointBody {
+        version: STATE_STORE_VERSION,
+        format: CHECKPOINT_FORMAT.to_string(),
+        session: session.to_string(),
+        epoch,
+        sequence,
+        state: state.clone(),
+    };
+    let checksum = checksum_json(&body).map_err(|error| {
+        StateStoreError::corrupt("checkpoint", format!("could not checksum checkpoint: {error}"))
+    })?;
+    Ok(CheckpointEnvelope { body, checksum })
+}
+
+fn write_checkpoint_atomic(
+    path: &Path,
+    session: &str,
+    epoch: u64,
+    sequence: u64,
+    state: &PersistedSessionState,
+    limits: StateStoreLimits,
+) -> Result<(), StateStoreError> {
+    validate_snapshot(path, state)?;
+    let envelope = checkpoint_envelope(session, epoch, sequence, state)?;
+    let mut bytes = serde_json::to_vec_pretty(&envelope).map_err(|error| {
+        StateStoreError::corrupt(path, format!("could not encode checkpoint: {error}"))
+    })?;
+    bytes.push(b'\n');
+    if bytes.len() > limits.max_checkpoint_bytes {
+        return Err(StateStoreError::corrupt(
+            path,
+            format!(
+                "checkpoint is {} bytes; limit is {}",
+                bytes.len(),
+                limits.max_checkpoint_bytes
+            ),
+        ));
+    }
+    replace_file_atomically(path, &bytes)
+}
+
+fn encode_journal(path: &Path, body: &JournalBody) -> Result<Vec<u8>, StateStoreError> {
+    let checksum = checksum_json(body).map_err(|error| {
+        StateStoreError::corrupt(path, format!("could not checksum journal record: {error}"))
+    })?;
+    let envelope = JournalEnvelope { body: body.clone(), checksum };
+    let mut bytes = serde_json::to_vec(&envelope).map_err(|error| {
+        StateStoreError::corrupt(path, format!("could not encode journal record: {error}"))
+    })?;
+    bytes.push(b'\n');
+    Ok(bytes)
+}
+
+fn decode_journal(path: &Path, line: &[u8]) -> Result<JournalEnvelope, StateStoreError> {
+    let envelope = serde_json::from_slice::<JournalEnvelope>(line).map_err(|error| {
+        StateStoreError::corrupt(path, format!("invalid journal JSON: {error}"))
+    })?;
+    if envelope.body.version != STATE_STORE_VERSION || envelope.body.format != JOURNAL_FORMAT {
+        return Err(StateStoreError::corrupt(path, "journal format/version mismatch"));
+    }
+    validate_idempotency_key(path, &envelope.body.idempotency_key)?;
+    verify_checksum(path, &envelope.body, &envelope.checksum, "journal")?;
+    Ok(envelope)
+}
+
+fn checksum_json(value: &impl Serialize) -> Result<String, serde_json::Error> {
+    let bytes = serde_json::to_vec(value)?;
+    Ok(format!("{:08x}", crc32(&bytes)))
+}
+
+fn verify_checksum(
+    path: &Path,
+    body: &impl Serialize,
+    actual: &str,
+    kind: &str,
+) -> Result<(), StateStoreError> {
+    let expected = checksum_json(body).map_err(|error| {
+        StateStoreError::corrupt(path, format!("could not verify {kind} checksum: {error}"))
+    })?;
+    if expected != actual {
+        Err(StateStoreError::corrupt(
+            path,
+            format!("{kind} checksum mismatch: expected {expected}, found {actual}"),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn crc32(bytes: &[u8]) -> u32 {
+    let mut crc = !0u32;
+    for byte in bytes {
+        crc ^= u32::from(*byte);
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0xedb8_8320 & mask);
+        }
+    }
+    !crc
+}
+
+fn append_synced(path: &Path, bytes: &[u8]) -> Result<(), StateStoreError> {
+    ensure_private_parent(path)?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|error| StateStoreError::io(path, error))?;
+    platform::restrict_file(path).map_err(|error| StateStoreError::io(path, error))?;
+    file.write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .map_err(|error| StateStoreError::io(path, error))
+}
+
+fn replace_file_atomically(path: &Path, bytes: &[u8]) -> Result<(), StateStoreError> {
+    ensure_private_parent(path)?;
+    let directory = path.parent().expect("state file has a parent");
+    let temp_path = directory.join(format!(".state-{}.tmp", Uuid::new_v4()));
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&temp_path)
+        .map_err(|error| StateStoreError::io(&temp_path, error))?;
+    let mut temp = TempStateFile { path: temp_path.clone(), armed: true };
+    platform::restrict_file(&temp_path).map_err(|error| StateStoreError::io(&temp_path, error))?;
+    file.write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .map_err(|error| StateStoreError::io(&temp_path, error))?;
+    fs::rename(&temp_path, path).map_err(|error| StateStoreError::io(path, error))?;
+    temp.disarm();
+    sync_directory(directory)
+}
+
+fn ensure_private_parent(path: &Path) -> Result<(), StateStoreError> {
+    let directory = path.parent().expect("state file has a parent");
+    fs::create_dir_all(directory).map_err(|error| StateStoreError::io(directory, error))?;
+    if let Some(root) = directory.parent() {
+        platform::restrict_directory(root).map_err(|error| StateStoreError::io(root, error))?;
+    }
+    platform::restrict_directory(directory).map_err(|error| StateStoreError::io(directory, error))
+}
+
+fn read_bounded(path: &Path, limit: usize) -> Result<Option<Vec<u8>>, StateStoreError> {
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(StateStoreError::io(path, error)),
+    };
+    let length = file.metadata().map_err(|error| StateStoreError::io(path, error))?.len();
+    if length > limit as u64 {
+        return Err(StateStoreError::corrupt(
+            path,
+            format!("state file is {length} bytes; limit is {limit}"),
+        ));
+    }
+    let mut bytes = Vec::with_capacity(length as usize);
+    file.read_to_end(&mut bytes).map_err(|error| StateStoreError::io(path, error))?;
+    Ok(Some(bytes))
+}
+
+fn quarantine_tail(path: &Path, bytes: &[u8], start: usize) -> Result<PathBuf, StateStoreError> {
+    let archive = path.with_extension(format!("invalid-tail-{}.journal", Uuid::new_v4()));
+    replace_file_atomically(&archive, &bytes[start..])?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .open(path)
+        .map_err(|error| StateStoreError::io(path, error))?;
+    file.seek(SeekFrom::Start(start as u64))
+        .and_then(|_| file.set_len(start as u64))
+        .and_then(|()| file.sync_all())
+        .map_err(|error| StateStoreError::io(path, error))?;
+    sync_directory(path.parent().expect("journal has a parent"))?;
+    Ok(archive)
+}
+
+fn archive_if_present(path: &Path, archive: &Path) -> Result<Option<PathBuf>, StateStoreError> {
+    match fs::rename(path, archive) {
+        Ok(()) => {
+            platform::restrict_file(archive)
+                .map_err(|error| StateStoreError::io(archive, error))?;
+            sync_directory(path.parent().expect("state file has a parent"))?;
+            Ok(Some(archive.to_path_buf()))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(StateStoreError::io(path, error)),
     }
 }
 
@@ -365,37 +1368,245 @@ mod tests {
         }
     }
 
+    fn result(key: &str, revision: u64) -> PersistedIdempotencyResult {
+        PersistedIdempotencyResult {
+            key: key.to_string(),
+            committed_topology_revision: revision,
+            workspaces: Vec::new(),
+            screens: Vec::new(),
+            panes: Vec::new(),
+            surfaces: Vec::new(),
+        }
+    }
+
+    fn append_revision(
+        durable: &mut DurableSession,
+        mut state: PersistedSessionState,
+        key: &str,
+        revision: u64,
+    ) -> PersistedSessionState {
+        state.topology_revision = revision;
+        let outcome = result(key, revision);
+        state.idempotency_results.push(outcome.clone());
+        durable.append(state.clone(), key.to_string(), Some(outcome)).unwrap();
+        state
+    }
+
     #[test]
     fn session_identity_survives_restart_but_daemon_identity_does_not() {
         let directory = TestDirectory::new("restart");
         let store = StateStore::new(&directory.0);
-        let first = crate::Mux::new_with_session_id(
-            "main",
-            crate::SurfaceOptions::default(),
-            store.load_or_create_session("main").unwrap(),
-        );
-        let first_session = first.session_id;
-        let first_daemon = first.daemon_instance_id;
-        drop(first);
-
-        let reopened = StateStore::new(&directory.0);
-        let second = crate::Mux::new_with_session_id(
-            "main",
-            crate::SurfaceOptions::default(),
-            reopened.load_or_create_session("main").unwrap(),
-        );
-        let second_session = second.session_id;
-        let second_daemon = second.daemon_instance_id;
+        let first_session = store.load_or_create_session("main").unwrap();
+        let first_daemon = crate::DaemonInstanceId::new();
+        let second_session = store.load_or_create_session("main").unwrap();
+        let second_daemon = crate::DaemonInstanceId::new();
 
         assert_eq!(first_session, second_session);
         assert_ne!(first_daemon, second_daemon);
         let value: serde_json::Value =
             serde_json::from_slice(&fs::read(store.session_path("main")).unwrap()).unwrap();
-        assert_eq!(value["version"], STATE_STORE_VERSION);
-        assert_eq!(value["session"], "main");
-        assert_eq!(value["session_id"], first_session.to_string());
-        assert_eq!(value.as_object().unwrap().len(), 3);
-        assert!(value.get("presentations").is_none());
+        assert_eq!(value["body"]["version"], STATE_STORE_VERSION);
+        assert_eq!(value["body"]["session"], "main");
+        assert_eq!(value["body"]["state"]["session_id"], first_session.to_string());
+        assert!(value["body"]["state"].get("pid").is_none());
+        assert!(value["body"]["state"].get("terminal_output").is_none());
+    }
+
+    #[test]
+    fn journal_recovers_synced_mutation_without_checkpoint() {
+        let directory = TestDirectory::new("append-before-checkpoint");
+        let store = StateStore::new(&directory.0);
+        let mut opened = store.open_session("main").unwrap();
+        let expected = append_revision(&mut opened.durable, opened.snapshot, "one", 1);
+        drop(opened.durable);
+
+        let reopened = store.open_session("main").unwrap();
+        assert_eq!(reopened.snapshot, expected);
+        assert!(fs::metadata(store.journal_path("main")).unwrap().len() > 0);
+    }
+
+    #[test]
+    fn torn_tail_is_quarantined_and_only_valid_prefix_is_replayed() {
+        let directory = TestDirectory::new("torn-tail");
+        let store = StateStore::new(&directory.0);
+        let mut opened = store.open_session("main").unwrap();
+        let expected = append_revision(&mut opened.durable, opened.snapshot, "one", 1);
+        drop(opened.durable);
+        append_synced(&store.journal_path("main"), b"{\"body\":").unwrap();
+
+        let reopened = store.open_session("main").unwrap();
+        assert_eq!(reopened.snapshot, expected);
+        let archive = reopened.quarantined_tail.unwrap();
+        assert_eq!(fs::read(archive).unwrap(), b"{\"body\":");
+        assert!(fs::read(store.journal_path("main")).unwrap().ends_with(b"\n"));
+    }
+
+    #[test]
+    fn final_checksum_mismatch_is_quarantined() {
+        let directory = TestDirectory::new("tail-checksum");
+        let store = StateStore::new(&directory.0);
+        let mut opened = store.open_session("main").unwrap();
+        append_revision(&mut opened.durable, opened.snapshot.clone(), "one", 1);
+        drop(opened.durable);
+        let path = store.journal_path("main");
+        let mut value: serde_json::Value =
+            serde_json::from_slice(fs::read_to_string(&path).unwrap().trim().as_bytes()).unwrap();
+        value["checksum"] = serde_json::Value::String("00000000".to_string());
+        fs::write(&path, format!("{}\n", serde_json::to_string(&value).unwrap())).unwrap();
+
+        let reopened = store.open_session("main").unwrap();
+        assert_eq!(reopened.snapshot.topology_revision, 0);
+        assert!(reopened.quarantined_tail.is_some());
+    }
+
+    #[test]
+    fn interior_corruption_fails_closed_without_truncation() {
+        let directory = TestDirectory::new("interior-corruption");
+        let store = StateStore::new(&directory.0);
+        let mut opened = store.open_session("main").unwrap();
+        let state = append_revision(&mut opened.durable, opened.snapshot, "one", 1);
+        append_revision(&mut opened.durable, state, "two", 2);
+        drop(opened.durable);
+        let path = store.journal_path("main");
+        let mut bytes = fs::read(&path).unwrap();
+        bytes[0] = b'!';
+        fs::write(&path, &bytes).unwrap();
+
+        let error = match store.open_session("main") {
+            Ok(_) => panic!("interior corruption unexpectedly recovered"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, StateStoreError::Corrupt { .. }));
+        assert_eq!(fs::read(path).unwrap(), bytes);
+    }
+
+    #[test]
+    fn duplicate_idempotency_replay_keeps_original_result() {
+        let directory = TestDirectory::new("duplicate-idempotency");
+        let store = StateStore::new(&directory.0);
+        let mut opened = store.open_session("main").unwrap();
+        let state = append_revision(&mut opened.durable, opened.snapshot, "same", 1);
+        let epoch = opened.durable.epoch;
+        let sequence = opened.durable.sequence + 1;
+        drop(opened.durable);
+        let body = JournalBody {
+            version: STATE_STORE_VERSION,
+            format: JOURNAL_FORMAT.to_string(),
+            session_id: state.session_id,
+            epoch,
+            sequence,
+            idempotency_key: "same".to_string(),
+            result: Some(result("same", 1)),
+            state: state.clone(),
+        };
+        append_synced(
+            &store.journal_path("main"),
+            &encode_journal(&store.journal_path("main"), &body).unwrap(),
+        )
+        .unwrap();
+
+        let reopened = store.open_session("main").unwrap();
+        assert_eq!(reopened.snapshot, state);
+        assert_eq!(reopened.durable.sequence, sequence);
+    }
+
+    #[test]
+    fn compaction_advances_epoch_and_atomically_bounds_journal() {
+        let directory = TestDirectory::new("compaction");
+        let store = StateStore::with_limits(&directory.0, 2, 1024 * 1024);
+        let mut opened = store.open_session("main").unwrap();
+        let state = append_revision(&mut opened.durable, opened.snapshot, "one", 1);
+        let state = append_revision(&mut opened.durable, state, "two", 2);
+        let expected = append_revision(&mut opened.durable, state, "three", 3);
+        assert_eq!(opened.durable.epoch, 2);
+        assert_eq!(opened.durable.sequence, 1);
+        assert_eq!(opened.durable.journal_records, 1);
+        drop(opened.durable);
+
+        let reopened = store.open_session("main").unwrap();
+        assert_eq!(reopened.snapshot, expected);
+        assert_eq!(reopened.durable.epoch, 2);
+    }
+
+    #[test]
+    fn launch_environment_is_allowlisted_and_secrets_never_reach_disk() {
+        let directory = TestDirectory::new("secret-redaction");
+        let store = StateStore::new(&directory.0);
+        let mut opened = store.open_session("main").unwrap();
+        let recipe = PersistedLaunchRecipe::sanitized(
+            vec!["/bin/sh".to_string()],
+            Some("/tmp".to_string()),
+            vec![
+                ("LANG".to_string(), "en_US.UTF-8".to_string()),
+                ("API_TOKEN".to_string(), "do-not-persist".to_string()),
+                ("LC_TOKEN".to_string(), "locale-shaped-secret".to_string()),
+                ("CMUX_SOCKET_PASSWORD".to_string(), "also-secret".to_string()),
+            ],
+            80,
+            24,
+            10_000,
+            false,
+        );
+        assert_eq!(recipe.environment.len(), 1);
+        let mut state = opened.snapshot;
+        let surface_uuid = SurfaceUuid::new();
+        let pane_uuid = PaneUuid::new();
+        let screen_uuid = ScreenUuid::new();
+        let workspace_uuid = WorkspaceUuid::new();
+        state.active_workspace = Some(workspace_uuid);
+        state.workspaces.push(PersistedWorkspace {
+            uuid: workspace_uuid,
+            name: "1".to_string(),
+            screens: vec![PersistedScreen {
+                uuid: screen_uuid,
+                name: None,
+                root: PersistedNode::Leaf { pane_uuid },
+                active_pane: pane_uuid,
+                zoomed_pane: None,
+            }],
+            active_screen: 0,
+        });
+        state.panes.push(PersistedPane {
+            uuid: pane_uuid,
+            name: None,
+            tabs: vec![surface_uuid],
+            active_tab: 0,
+            active_at: 1,
+        });
+        state.surfaces.push(PersistedSurface {
+            uuid: surface_uuid,
+            name: None,
+            kind: PersistedSurfaceKind::Terminal { launch: recipe },
+        });
+        state = append_revision(&mut opened.durable, state, "launch", 1);
+        drop(opened.durable);
+        let bytes = fs::read(store.journal_path("main")).unwrap();
+        assert!(!bytes.windows(b"do-not-persist".len()).any(|window| window == b"do-not-persist"));
+        assert!(!bytes.windows(b"also-secret".len()).any(|window| window == b"also-secret"));
+        assert!(
+            !bytes
+                .windows(b"locale-shaped-secret".len())
+                .any(|window| { window == b"locale-shaped-secret" })
+        );
+        assert_eq!(store.open_session("main").unwrap().snapshot, state);
+    }
+
+    #[test]
+    fn recovery_metadata_is_strictly_bounded() {
+        let directory = TestDirectory::new("bounded-metadata");
+        let store = StateStore::new(&directory.0);
+        let opened = store.open_session("main").unwrap();
+        let mut state = opened.snapshot;
+        drop(opened.durable);
+        state.tombstones = (0..=MAX_PERSISTED_TOMBSTONES)
+            .map(|index| PersistedTombstone {
+                kind: PersistedEntityKind::Surface,
+                uuid: Uuid::from_u128(index as u128 + 1),
+                removed_at_topology_revision: index as u64,
+            })
+            .collect();
+        let error = validate_snapshot(&store.session_path("main"), &state).unwrap_err();
+        assert!(error.to_string().contains("bounded recovery metadata"));
     }
 
     #[test]
@@ -418,41 +1629,26 @@ mod tests {
     }
 
     #[test]
-    fn concurrent_recovery_converges_without_archiving_valid_state() {
-        use std::sync::Barrier;
-
-        let directory = TestDirectory::new("concurrent-recovery");
+    fn version_one_identity_migrates_without_changing_session_id() {
+        let directory = TestDirectory::new("v1-migration");
         let store = StateStore::new(&directory.0);
         let path = store.session_path("main");
         fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let corrupt = b"{ concurrently-corrupt";
-        fs::write(&path, corrupt).unwrap();
-
-        let start = std::sync::Arc::new(Barrier::new(16));
-        let workers = (0..16)
-            .map(|_| {
-                let store = store.clone();
-                let start = start.clone();
-                std::thread::spawn(move || {
-                    start.wait();
-                    store.recover_session("main").unwrap()
-                })
+        let session_id = SessionId::new();
+        fs::write(
+            &path,
+            serde_json::to_vec(&StoredSessionV1 {
+                version: 1,
+                session: "main".to_string(),
+                session_id,
             })
-            .collect::<Vec<_>>();
-        let recoveries =
-            workers.into_iter().map(|worker| worker.join().unwrap()).collect::<Vec<_>>();
+            .unwrap(),
+        )
+        .unwrap();
 
-        let session_id = recoveries[0].session_id;
-        assert!(recoveries.iter().all(|recovery| recovery.session_id == session_id));
-        let archives = recoveries
-            .iter()
-            .filter_map(|recovery| recovery.archived_corrupt_state.as_ref())
-            .collect::<Vec<_>>();
-        assert_eq!(archives.len(), 1);
-        assert_eq!(fs::read(archives[0]).unwrap(), corrupt);
         assert_eq!(store.load_or_create_session("main").unwrap(), session_id);
-        assert_eq!(store.recover_session("main").unwrap().archived_corrupt_state, None);
-        assert_eq!(store.load_or_create_session("main").unwrap(), session_id);
+        let value: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        assert_eq!(value["body"]["version"], STATE_STORE_VERSION);
     }
 
     #[test]
@@ -461,92 +1657,44 @@ mod tests {
         let store = StateStore::new(&directory.0);
         let path = store.session_path("main");
         fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(
-            &path,
-            format!(
-                "{{\"version\":{},\"session\":\"main\",\"session_id\":\"{}\"}}",
-                STATE_STORE_VERSION + 1,
-                SessionId::new()
-            ),
-        )
-        .unwrap();
+        fs::write(&path, b"{\"version\":999}").unwrap();
 
         let error = store.load_or_create_session("main").unwrap_err();
         assert!(error.to_string().contains("unsupported version"));
     }
 
     #[test]
-    fn replacement_writes_one_complete_versioned_record() {
-        let directory = TestDirectory::new("replace");
-        let store = StateStore::new(&directory.0);
-        let first = store.load_or_create_session("main").unwrap();
-        let replacement = SessionId::new();
-        assert_ne!(first, replacement);
-
-        store.replace_session("main", replacement).unwrap();
-
-        assert_eq!(store.load_or_create_session("main").unwrap(), replacement);
-        let sessions = fs::read_dir(store.root().join("sessions"))
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name())
-            .collect::<Vec<_>>();
-        assert_eq!(sessions.len(), 1);
-    }
-
-    #[test]
-    fn concurrent_first_open_converges_on_one_session_identity() {
-        use std::sync::Barrier;
-
-        let directory = TestDirectory::new("concurrent-create");
-        let store = StateStore::new(&directory.0);
-        let start = std::sync::Arc::new(Barrier::new(8));
-        let workers = (0..8)
-            .map(|_| {
-                let store = store.clone();
-                let start = start.clone();
-                std::thread::spawn(move || {
-                    start.wait();
-                    store.load_or_create_session("main").unwrap()
-                })
-            })
-            .collect::<Vec<_>>();
-        let identities =
-            workers.into_iter().map(|worker| worker.join().unwrap()).collect::<Vec<_>>();
-
-        assert!(identities.iter().all(|identity| *identity == identities[0]));
-    }
-
-    #[test]
-    fn concurrent_readers_never_observe_a_partial_replacement() {
-        use std::sync::Barrier;
-        use std::sync::atomic::{AtomicBool, Ordering};
-
-        let directory = TestDirectory::new("concurrent-replace");
+    fn checkpoint_checksum_mismatch_fails_closed_without_replacement() {
+        let directory = TestDirectory::new("checkpoint-checksum");
         let store = StateStore::new(&directory.0);
         store.load_or_create_session("main").unwrap();
-        let start = std::sync::Arc::new(Barrier::new(2));
-        let finished = std::sync::Arc::new(AtomicBool::new(false));
-        let writer_store = store.clone();
-        let writer_start = start.clone();
-        let writer_finished = finished.clone();
-        let writer = std::thread::spawn(move || {
-            writer_start.wait();
-            for _ in 0..64 {
-                writer_store.replace_session("main", SessionId::new()).unwrap();
-                std::thread::yield_now();
-            }
-            writer_finished.store(true, Ordering::Release);
-        });
+        let path = store.session_path("main");
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        value["checksum"] = serde_json::Value::String("00000000".to_string());
+        let corrupt = serde_json::to_vec_pretty(&value).unwrap();
+        fs::write(&path, &corrupt).unwrap();
 
-        start.wait();
-        let mut reads = 0;
-        while !finished.load(Ordering::Acquire) {
-            assert!(store.load_session("main").unwrap().is_some());
-            reads += 1;
-            std::thread::yield_now();
-        }
-        writer.join().unwrap();
-        assert!(store.load_session("main").unwrap().is_some());
-        assert!(reads > 0);
+        let error = store.load_or_create_session("main").unwrap_err();
+        assert!(error.to_string().contains("checkpoint checksum mismatch"));
+        assert_eq!(fs::read(path).unwrap(), corrupt);
+    }
+
+    #[test]
+    fn opened_session_holds_exclusive_startup_lock_for_its_lifetime() {
+        let directory = TestDirectory::new("daemon-lock");
+        let store = StateStore::new(&directory.0);
+        let opened = store.open_session("main").unwrap();
+        let lock_path = store.root().join("locks").join(format!("{}.lock", session_key("main")));
+        let contender = OpenOptions::new().read(true).write(true).open(&lock_path).unwrap();
+        assert!(fs2::FileExt::try_lock_exclusive(&contender).is_err());
+        drop(opened.durable);
+        fs2::FileExt::try_lock_exclusive(&contender).unwrap();
+        fs2::FileExt::unlock(&contender).unwrap();
+    }
+
+    #[test]
+    fn crc32_matches_standard_test_vector() {
+        assert_eq!(crc32(b"123456789"), 0xcbf4_3926);
     }
 }

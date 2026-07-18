@@ -31,6 +31,12 @@ use crate::semantic_scene::{
     SemanticSceneEvent, SemanticSceneFrame, SemanticScenePresentationIdentity,
     SemanticSceneReceiver,
 };
+use crate::state_store::{
+    DurableSession, MAX_PERSISTED_IDEMPOTENCY_RESULTS, MAX_PERSISTED_TOMBSTONES,
+    PersistedEntityKind, PersistedIdempotencyResult, PersistedLaunchRecipe, PersistedNode,
+    PersistedPane, PersistedScreen, PersistedSessionState, PersistedSplitDirection,
+    PersistedSurface, PersistedSurfaceKind, PersistedTombstone, PersistedWorkspace, StateStore,
+};
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
 use crate::topology::{TopologyJournal, topology_json};
 use crate::{
@@ -427,6 +433,10 @@ struct CanonicalState {
     /// including global focus, selection, and zoom state.
     legacy_topology_revision: u64,
     topology: TopologyJournal,
+    launch_recipes: HashMap<SurfaceUuid, PersistedLaunchRecipe>,
+    tombstones: VecDeque<PersistedTombstone>,
+    idempotency_results: VecDeque<PersistedIdempotencyResult>,
+    durable: Option<DurableSession>,
 }
 
 impl CanonicalState {
@@ -435,11 +445,25 @@ impl CanonicalState {
         daemon_instance_id: DaemonInstanceId,
         session_id: SessionId,
         limits: TopologyLimits,
+        topology_revision: u64,
     ) -> Self {
         Self {
             value,
             legacy_topology_revision: 0,
-            topology: TopologyJournal::new(daemon_instance_id, session_id, limits),
+            topology: if topology_revision == 0 {
+                TopologyJournal::new(daemon_instance_id, session_id, limits)
+            } else {
+                TopologyJournal::new_at_revision(
+                    daemon_instance_id,
+                    session_id,
+                    limits,
+                    topology_revision,
+                )
+            },
+            launch_recipes: HashMap::new(),
+            tombstones: VecDeque::new(),
+            idempotency_results: VecDeque::new(),
+            durable: None,
         }
     }
 
@@ -448,6 +472,7 @@ impl CanonicalState {
             .legacy_topology_revision
             .checked_add(1)
             .expect("legacy topology revision exhausted");
+        self.persist(self.topology.revision(), format!("legacy:{}", uuid::Uuid::new_v4()), None);
         self.legacy_topology_revision
     }
 
@@ -458,9 +483,323 @@ impl CanonicalState {
         operation: TopologyOperation,
         targets: TopologyTargets,
     ) -> Arc<crate::TopologyDelta> {
-        self.commit_legacy_topology();
+        self.commit_topology_with_idempotency(
+            operation,
+            targets,
+            format!("topology:{}", uuid::Uuid::new_v4()),
+        )
+    }
+
+    /// Shared durable seam for a future protocol transaction carrying a
+    /// caller-supplied idempotency key. Existing command handlers still call
+    /// `commit_topology`, which mints a unique internal key.
+    fn commit_topology_with_idempotency(
+        &mut self,
+        operation: TopologyOperation,
+        targets: TopologyTargets,
+        key: String,
+    ) -> Arc<crate::TopologyDelta> {
+        let live_terminals = self
+            .value
+            .surfaces
+            .values()
+            .filter(|surface| surface.kind() == crate::SurfaceKind::Pty)
+            .map(|surface| surface.uuid)
+            .collect::<std::collections::BTreeSet<_>>();
+        self.launch_recipes.retain(|uuid, _| live_terminals.contains(uuid));
+        self.legacy_topology_revision = self
+            .legacy_topology_revision
+            .checked_add(1)
+            .expect("legacy topology revision exhausted");
+        let revision =
+            self.topology.revision().checked_add(1).expect("canonical topology revision exhausted");
+        self.retain_deleted_targets(operation, &targets, revision);
+        let result = PersistedIdempotencyResult {
+            key: key.clone(),
+            committed_topology_revision: revision,
+            workspaces: targets.workspaces.clone(),
+            screens: targets.screens.clone(),
+            panes: targets.panes.clone(),
+            surfaces: targets.surfaces.clone(),
+        };
+        self.idempotency_results.push_back(result.clone());
+        while self.idempotency_results.len() > MAX_PERSISTED_IDEMPOTENCY_RESULTS {
+            self.idempotency_results.pop_front();
+        }
+        self.persist(revision, key, Some(result));
         let replacement = topology_json(&self.value);
         self.topology.commit(replacement, operation, targets)
+    }
+
+    fn persist(
+        &mut self,
+        topology_revision: u64,
+        idempotency_key: String,
+        result: Option<PersistedIdempotencyResult>,
+    ) {
+        if self.durable.is_none() {
+            return;
+        }
+        let snapshot = self
+            .persisted_snapshot(topology_revision)
+            .expect("canonical state must remain persistable after a committed mutation");
+        self.durable
+            .as_mut()
+            .expect("durable session checked above")
+            .append(snapshot, idempotency_key, result)
+            .unwrap_or_else(|error| {
+                // This panic occurs while the canonical mutex is held. It
+                // poisons the state so no control handler can acknowledge or
+                // build on an in-memory mutation that was not fsynced.
+                panic!("canonical persistence failed before acknowledgement: {error}")
+            });
+    }
+
+    fn retain_deleted_targets(
+        &mut self,
+        operation: TopologyOperation,
+        targets: &TopologyTargets,
+        revision: u64,
+    ) {
+        if !matches!(
+            operation,
+            TopologyOperation::SurfaceClosed
+                | TopologyOperation::PaneClosed
+                | TopologyOperation::ScreenClosed
+                | TopologyOperation::WorkspaceClosed
+        ) {
+            return;
+        }
+        let mut deleted = Vec::new();
+        for uuid in &targets.workspaces {
+            if self.value.workspace_id_by_uuid(*uuid).is_none() {
+                deleted.push((PersistedEntityKind::Workspace, uuid.as_uuid()));
+            }
+        }
+        for uuid in &targets.screens {
+            if self.value.screen_id_by_uuid(*uuid).is_none() {
+                deleted.push((PersistedEntityKind::Screen, uuid.as_uuid()));
+            }
+        }
+        for uuid in &targets.panes {
+            if self.value.pane_id_by_uuid(*uuid).is_none() {
+                deleted.push((PersistedEntityKind::Pane, uuid.as_uuid()));
+            }
+        }
+        for uuid in &targets.surfaces {
+            if self.value.surface_id_by_uuid(*uuid).is_none() {
+                deleted.push((PersistedEntityKind::Surface, uuid.as_uuid()));
+            }
+        }
+        for (kind, uuid) in deleted {
+            self.tombstones.retain(|existing| existing.kind != kind || existing.uuid != uuid);
+            self.tombstones.push_back(PersistedTombstone {
+                kind,
+                uuid,
+                removed_at_topology_revision: revision,
+            });
+        }
+        while self.tombstones.len() > MAX_PERSISTED_TOMBSTONES {
+            self.tombstones.pop_front();
+        }
+    }
+
+    fn persisted_snapshot(&self, topology_revision: u64) -> anyhow::Result<PersistedSessionState> {
+        persisted_snapshot(self, topology_revision)
+    }
+
+    fn discard_surface_runtime(&mut self, id: SurfaceId) -> Option<Arc<Surface>> {
+        let removed = self.value.surfaces.remove(&id);
+        if let Some(surface) = &removed {
+            self.launch_recipes.remove(&surface.uuid);
+        }
+        removed
+    }
+}
+
+fn persisted_snapshot(
+    canonical: &CanonicalState,
+    topology_revision: u64,
+) -> anyhow::Result<PersistedSessionState> {
+    let state = &canonical.value;
+    let active_workspace = if state.workspaces.is_empty() {
+        None
+    } else {
+        Some(
+            state
+                .workspaces
+                .get(state.active_workspace)
+                .ok_or_else(|| anyhow::anyhow!("active workspace index is outside topology"))?
+                .uuid,
+        )
+    };
+    let mut pane_order = Vec::new();
+    let mut seen_panes = std::collections::BTreeSet::new();
+    let mut workspaces = Vec::with_capacity(state.workspaces.len());
+    for workspace in &state.workspaces {
+        if workspace.screens.is_empty() || workspace.active_screen >= workspace.screens.len() {
+            anyhow::bail!("workspace {} has an invalid active screen", workspace.uuid);
+        }
+        let mut screens = Vec::with_capacity(workspace.screens.len());
+        for screen in &workspace.screens {
+            collect_persisted_pane_order(&screen.root, state, &mut pane_order, &mut seen_panes)?;
+            let active_pane = state
+                .panes
+                .get(&screen.active_pane)
+                .ok_or_else(|| anyhow::anyhow!("screen {} has a missing active pane", screen.uuid))?
+                .uuid;
+            let zoomed_pane = screen
+                .zoomed_pane
+                .map(|pane| {
+                    state.panes.get(&pane).map(|pane| pane.uuid).ok_or_else(|| {
+                        anyhow::anyhow!("screen {} has a missing zoom pane", screen.uuid)
+                    })
+                })
+                .transpose()?;
+            screens.push(PersistedScreen {
+                uuid: screen.uuid,
+                name: screen.name.clone(),
+                root: persisted_node(&screen.root, state)?,
+                active_pane,
+                zoomed_pane,
+            });
+        }
+        workspaces.push(PersistedWorkspace {
+            uuid: workspace.uuid,
+            name: workspace.name.clone(),
+            screens,
+            active_screen: workspace.active_screen,
+        });
+    }
+
+    let mut panes = Vec::with_capacity(pane_order.len());
+    let mut surface_order = Vec::new();
+    let mut seen_surfaces = std::collections::BTreeSet::new();
+    for pane_id in pane_order {
+        let pane = state
+            .panes
+            .get(&pane_id)
+            .ok_or_else(|| anyhow::anyhow!("split tree references missing pane {pane_id}"))?;
+        if pane.tabs.is_empty() || pane.active_tab >= pane.tabs.len() {
+            anyhow::bail!("pane {} has an invalid active tab", pane.uuid);
+        }
+        let tabs = pane
+            .tabs
+            .iter()
+            .map(|surface_id| {
+                let surface = state.surfaces.get(surface_id).ok_or_else(|| {
+                    anyhow::anyhow!("pane {} references missing surface", pane.uuid)
+                })?;
+                if !seen_surfaces.insert(surface.uuid) {
+                    anyhow::bail!("surface {} appears in more than one tab slot", surface.uuid);
+                }
+                surface_order.push(*surface_id);
+                Ok(surface.uuid)
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        panes.push(PersistedPane {
+            uuid: pane.uuid,
+            name: pane.name.clone(),
+            tabs,
+            active_tab: pane.active_tab,
+            active_at: pane.active_at,
+        });
+    }
+
+    let mut surfaces = Vec::with_capacity(surface_order.len());
+    for surface_id in surface_order {
+        let surface = state
+            .surfaces
+            .get(&surface_id)
+            .ok_or_else(|| anyhow::anyhow!("ordered surface disappeared during snapshot"))?;
+        let kind = match surface.kind() {
+            crate::SurfaceKind::Pty => PersistedSurfaceKind::Terminal {
+                launch: canonical.launch_recipes.get(&surface.uuid).cloned().ok_or_else(|| {
+                    anyhow::anyhow!("terminal {} has no durable launch recipe", surface.uuid)
+                })?,
+            },
+            crate::SurfaceKind::Browser => PersistedSurfaceKind::Browser,
+        };
+        surfaces.push(PersistedSurface { uuid: surface.uuid, name: surface.name(), kind });
+    }
+
+    Ok(PersistedSessionState {
+        session_id: canonical.topology.session_id(),
+        topology_revision,
+        active_workspace,
+        workspaces,
+        panes,
+        surfaces,
+        tombstones: canonical.tombstones.iter().cloned().collect(),
+        idempotency_results: canonical.idempotency_results.iter().cloned().collect(),
+    })
+}
+
+fn collect_persisted_pane_order(
+    node: &Node,
+    state: &State,
+    order: &mut Vec<PaneId>,
+    seen: &mut std::collections::BTreeSet<PaneUuid>,
+) -> anyhow::Result<()> {
+    match node {
+        Node::Leaf(pane_id) => {
+            let pane = state
+                .panes
+                .get(pane_id)
+                .ok_or_else(|| anyhow::anyhow!("split tree references missing pane {pane_id}"))?;
+            if !seen.insert(pane.uuid) {
+                anyhow::bail!("pane {} appears more than once in split trees", pane.uuid);
+            }
+            order.push(*pane_id);
+        }
+        Node::Split { a, b, .. } => {
+            collect_persisted_pane_order(a, state, order, seen)?;
+            collect_persisted_pane_order(b, state, order, seen)?;
+        }
+    }
+    Ok(())
+}
+
+fn persisted_node(node: &Node, state: &State) -> anyhow::Result<PersistedNode> {
+    match node {
+        Node::Leaf(pane_id) => Ok(PersistedNode::Leaf {
+            pane_uuid: state
+                .panes
+                .get(pane_id)
+                .ok_or_else(|| anyhow::anyhow!("split tree references missing pane {pane_id}"))?
+                .uuid,
+        }),
+        Node::Split { dir, ratio, a, b } => Ok(PersistedNode::Split {
+            direction: match dir {
+                SplitDir::Right => PersistedSplitDirection::Horizontal,
+                SplitDir::Down => PersistedSplitDirection::Vertical,
+            },
+            ratio: *ratio,
+            first: Box::new(persisted_node(a, state)?),
+            second: Box::new(persisted_node(b, state)?),
+        }),
+    }
+}
+
+fn restored_node(
+    node: &PersistedNode,
+    pane_ids: &BTreeMap<PaneUuid, PaneId>,
+) -> anyhow::Result<Node> {
+    match node {
+        PersistedNode::Leaf { pane_uuid } => {
+            Ok(Node::Leaf(pane_ids.get(pane_uuid).copied().ok_or_else(|| {
+                anyhow::anyhow!("split tree references unknown pane {pane_uuid}")
+            })?))
+        }
+        PersistedNode::Split { direction, ratio, first, second } => Ok(Node::Split {
+            dir: match direction {
+                PersistedSplitDirection::Horizontal => SplitDir::Right,
+                PersistedSplitDirection::Vertical => SplitDir::Down,
+            },
+            ratio: *ratio,
+            a: Box::new(restored_node(first, pane_ids)?),
+            b: Box::new(restored_node(second, pane_ids)?),
+        }),
     }
 }
 
@@ -692,6 +1031,49 @@ impl Mux {
         Self::new_with_test_surface_runtime(session, surface_options, session_id, false)
     }
 
+    /// Recover one canonical session under a daemon-lifetime state-store lock.
+    /// Persisted terminals are respawned from redacted launch recipes with
+    /// their stable UUIDs, fresh operating-system PIDs, and fresh runtime
+    /// epochs. No old PID is serialized or reported as live.
+    pub fn recover_from_state_store(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        store: &StateStore,
+    ) -> anyhow::Result<Arc<Self>> {
+        Self::recover_from_state_store_with_runtime(session, surface_options, store, false)
+    }
+
+    fn recover_from_state_store_with_runtime(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        store: &StateStore,
+        #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
+    ) -> anyhow::Result<Arc<Self>> {
+        let session = session.into();
+        let opened = store.open_session(&session)?;
+        let snapshot = opened.snapshot;
+        let mux = Self::new_with_test_surface_runtime_limits_and_revision(
+            session,
+            surface_options,
+            snapshot.session_id,
+            test_surface_runtime,
+            TopologyLimits::default(),
+            snapshot.topology_revision,
+        );
+        mux.restore_persisted_state(snapshot)?;
+        mux.state.lock().unwrap().durable = Some(opened.durable);
+        Ok(mux)
+    }
+
+    #[cfg(test)]
+    fn recover_from_state_store_for_test(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        store: &StateStore,
+    ) -> anyhow::Result<Arc<Self>> {
+        Self::recover_from_state_store_with_runtime(session, surface_options, store, true)
+    }
+
     fn new_with_test_surface_runtime(
         session: impl Into<String>,
         surface_options: SurfaceOptions,
@@ -714,6 +1096,24 @@ impl Mux {
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
         topology_limits: TopologyLimits,
     ) -> Arc<Self> {
+        Self::new_with_test_surface_runtime_limits_and_revision(
+            session,
+            surface_options,
+            session_id,
+            test_surface_runtime,
+            topology_limits,
+            0,
+        )
+    }
+
+    fn new_with_test_surface_runtime_limits_and_revision(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        session_id: SessionId,
+        #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
+        topology_limits: TopologyLimits,
+        topology_revision: u64,
+    ) -> Arc<Self> {
         let session = session.into();
         let mut surface_options = surface_options;
         surface_options.browser_session_name = session.clone();
@@ -729,6 +1129,7 @@ impl Mux {
                 daemon_instance_id,
                 session_id,
                 topology_limits,
+                topology_revision,
             )),
             subscribers: MuxEventBroadcaster::default(),
             entity_ids: EntityIdentityAllocator::new(),
@@ -761,6 +1162,163 @@ impl Mux {
             daemon_instance_id,
             session_id,
         })
+    }
+
+    fn restore_persisted_state(
+        self: &Arc<Self>,
+        snapshot: PersistedSessionState,
+    ) -> anyhow::Result<()> {
+        if snapshot.session_id != self.session_id {
+            anyhow::bail!("persisted session identity changed during recovery");
+        }
+
+        let mut surface_ids = BTreeMap::new();
+        let mut spawned = Vec::with_capacity(snapshot.surfaces.len());
+        for persisted in &snapshot.surfaces {
+            let (id, _) = self.entity_ids.surface();
+            let surface = match &persisted.kind {
+                PersistedSurfaceKind::Terminal { launch } => self
+                    .spawn_surface_with_allocated_identity(
+                        id,
+                        persisted.uuid,
+                        launch.cwd.clone(),
+                        Some(launch.argv.clone()),
+                        launch.environment_pairs(),
+                        Some(launch.wait_after_command),
+                        Some((launch.cols, launch.rows)),
+                        Some(launch.scrollback),
+                    )?,
+                PersistedSurfaceKind::Browser => {
+                    let opts = self.surface_options.lock().unwrap().clone();
+                    let cell_pixels = *self.cell_pixels.lock().unwrap();
+                    let surface = browser::new_surface_with_uuid(
+                        id,
+                        persisted.uuid,
+                        "about:blank".to_string(),
+                        (opts.cols.max(1), opts.rows.max(1)),
+                        cell_pixels,
+                        &opts,
+                        Arc::downgrade(self),
+                    );
+                    self.state.lock().unwrap().surfaces.insert(id, surface.clone());
+                    surface
+                }
+            };
+            surface.set_name(persisted.name.clone());
+            if surface_ids.insert(persisted.uuid, id).is_some() {
+                anyhow::bail!("duplicate persisted surface UUID {}", persisted.uuid);
+            }
+            spawned.push(surface);
+        }
+
+        let mut panes = HashMap::with_capacity(snapshot.panes.len());
+        let mut pane_ids = BTreeMap::new();
+        let mut next_active_at = 1u64;
+        for persisted in &snapshot.panes {
+            let (id, _) = self.entity_ids.pane();
+            let tabs = persisted
+                .tabs
+                .iter()
+                .map(|uuid| {
+                    surface_ids
+                        .get(uuid)
+                        .copied()
+                        .ok_or_else(|| anyhow::anyhow!("pane references unknown surface {uuid}"))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            if tabs.is_empty() || persisted.active_tab >= tabs.len() {
+                anyhow::bail!("persisted pane {} has an invalid active tab", persisted.uuid);
+            }
+            next_active_at = next_active_at.max(persisted.active_at.saturating_add(1));
+            panes.insert(
+                id,
+                Pane {
+                    id,
+                    uuid: persisted.uuid,
+                    name: persisted.name.clone(),
+                    tabs,
+                    active_tab: persisted.active_tab,
+                    active_at: persisted.active_at,
+                },
+            );
+            if pane_ids.insert(persisted.uuid, id).is_some() {
+                anyhow::bail!("duplicate persisted pane UUID {}", persisted.uuid);
+            }
+        }
+
+        let mut workspaces = Vec::with_capacity(snapshot.workspaces.len());
+        for persisted_workspace in &snapshot.workspaces {
+            let (workspace_id, _) = self.entity_ids.workspace();
+            let mut screens = Vec::with_capacity(persisted_workspace.screens.len());
+            for persisted_screen in &persisted_workspace.screens {
+                let (screen_id, _) = self.entity_ids.screen();
+                let active_pane =
+                    pane_ids.get(&persisted_screen.active_pane).copied().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "screen {} references unknown active pane {}",
+                            persisted_screen.uuid,
+                            persisted_screen.active_pane
+                        )
+                    })?;
+                let zoomed_pane = persisted_screen
+                    .zoomed_pane
+                    .map(|uuid| {
+                        pane_ids.get(&uuid).copied().ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "screen {} references unknown zoom pane {uuid}",
+                                persisted_screen.uuid
+                            )
+                        })
+                    })
+                    .transpose()?;
+                screens.push(Screen {
+                    id: screen_id,
+                    uuid: persisted_screen.uuid,
+                    name: persisted_screen.name.clone(),
+                    root: restored_node(&persisted_screen.root, &pane_ids)?,
+                    active_pane,
+                    zoomed_pane,
+                });
+            }
+            if screens.is_empty() || persisted_workspace.active_screen >= screens.len() {
+                anyhow::bail!(
+                    "persisted workspace {} has an invalid active screen",
+                    persisted_workspace.uuid
+                );
+            }
+            workspaces.push(Workspace {
+                id: workspace_id,
+                uuid: persisted_workspace.uuid,
+                name: persisted_workspace.name.clone(),
+                screens,
+                active_screen: persisted_workspace.active_screen,
+            });
+        }
+        let active_workspace = match snapshot.active_workspace {
+            Some(uuid) => workspaces
+                .iter()
+                .position(|workspace| workspace.uuid == uuid)
+                .ok_or_else(|| anyhow::anyhow!("active workspace {uuid} is missing"))?,
+            None if workspaces.is_empty() => 0,
+            None => anyhow::bail!("nonempty persisted topology has no active workspace"),
+        };
+
+        let restored_surfaces = {
+            let mut state = self.state.lock().unwrap();
+            let restored_surfaces = std::mem::take(&mut state.value.surfaces);
+            state.value =
+                State { workspaces, active_workspace, panes, surfaces: restored_surfaces.clone() };
+            state.tombstones = snapshot.tombstones.into();
+            state.idempotency_results = snapshot.idempotency_results.into();
+            restored_surfaces
+        };
+        self.next_active_at.store(next_active_at, Ordering::Relaxed);
+        for surface in spawned {
+            if restored_surfaces.contains_key(&surface.id) {
+                self.reap_if_dead(&surface);
+            }
+        }
+        Ok(())
     }
 
     #[cfg(test)]
@@ -853,7 +1411,16 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
         let (id, uuid) = self.entity_ids.surface();
-        self.spawn_surface_with_allocated_identity(id, uuid, cwd, command, Vec::new(), None, size)
+        self.spawn_surface_with_allocated_identity(
+            id,
+            uuid,
+            cwd,
+            command,
+            Vec::new(),
+            None,
+            size,
+            None,
+        )
     }
 
     fn spawn_surface_with_allocated_identity(
@@ -865,6 +1432,7 @@ impl Mux {
         extra_env: Vec<(String, String)>,
         wait_after_command: Option<bool>,
         size: Option<(u16, u16)>,
+        scrollback: Option<usize>,
     ) -> anyhow::Result<Arc<Surface>> {
         let mut opts = self.surface_options.lock().unwrap().clone();
         if cwd.is_some() {
@@ -873,10 +1441,16 @@ impl Mux {
         if command.is_some() {
             opts.command = command;
         }
+        let mut persisted_environment = extra_env.clone();
         opts.extra_env.extend(extra_env);
         if let Some(wait_after_command) = wait_after_command {
             opts.wait_after_command = wait_after_command;
         }
+        if let Some(scrollback) = scrollback {
+            opts.scrollback = scrollback;
+        }
+        let persisted_term = opts.term.clone();
+        let persisted_scrollback = opts.scrollback;
         // Spawn at the latest client-owned size: starting at the default
         // 80x24 and resizing a frame later makes shells emit artifacts
         // (e.g. zsh's reverse-video %% partial-line marker).
@@ -891,7 +1465,24 @@ impl Mux {
         };
         #[cfg(not(test))]
         let surface = Surface::spawn_with_uuid(id, uuid, opts, Arc::downgrade(self))?;
-        self.state.lock().unwrap().surfaces.insert(id, surface.clone());
+        let launch = PersistedLaunchRecipe::sanitized(
+            surface.spawn_argv().ok_or_else(|| anyhow::anyhow!("spawned terminal has no argv"))?,
+            surface.spawn_cwd(),
+            {
+                if !persisted_environment.iter().any(|(name, _)| name == "TERM") {
+                    persisted_environment.push(("TERM".to_string(), persisted_term));
+                }
+                persisted_environment
+            },
+            surface.size().0,
+            surface.size().1,
+            persisted_scrollback,
+            surface.wait_after_command(),
+        );
+        let mut state = self.state.lock().unwrap();
+        state.launch_recipes.insert(uuid, launch);
+        state.surfaces.insert(id, surface.clone());
+        drop(state);
         #[cfg(test)]
         if let Some((registered, resume)) =
             self.test_surface_registered_barriers.lock().unwrap().take()
@@ -1166,6 +1757,22 @@ impl Mux {
     /// Protocol-v8 structural revision used by topology snapshots and resume.
     pub fn canonical_topology_revision(&self) -> u64 {
         self.state.lock().unwrap().topology.revision()
+    }
+
+    /// Look up the stable result of a retained caller idempotency key. The
+    /// server transaction lane can use this before invoking a mutation; key
+    /// plumbing into protocol commands remains intentionally separate.
+    pub(crate) fn durable_idempotency_result(
+        &self,
+        key: &str,
+    ) -> Option<PersistedIdempotencyResult> {
+        self.state
+            .lock()
+            .unwrap()
+            .idempotency_results
+            .iter()
+            .find(|result| result.key == key)
+            .cloned()
     }
 
     /// Capture both public revisions atomically for identity and liveness
@@ -2218,6 +2825,21 @@ impl Mux {
         }
 
         let _creation = self.ensure_terminal_lock.lock().unwrap();
+        {
+            let state = self.state.lock().unwrap();
+            if state.tombstones.iter().any(|tombstone| {
+                (tombstone.kind == PersistedEntityKind::Surface
+                    && tombstone.uuid == request.surface_uuid.as_uuid())
+                    || (tombstone.kind == PersistedEntityKind::Workspace
+                        && tombstone.uuid == request.workspace_uuid.as_uuid())
+            }) {
+                anyhow::bail!(
+                    "ensure-terminal identity is tombstoned and cannot be recreated: workspace {}, surface {}",
+                    request.workspace_uuid,
+                    request.surface_uuid
+                );
+            }
+        }
         if let Some(existing) = self.with_state(|state| {
             ensure_terminal_placement_for_surface(
                 state,
@@ -2238,6 +2860,7 @@ impl Mux {
             request.env,
             Some(request.wait_after_command),
             Some((request.cols, request.rows)),
+            None,
         )?;
         let notifications = self.surface_notifications();
         let (placement, delta) = {
@@ -2245,7 +2868,7 @@ impl Mux {
             if state.surfaces.values().any(|candidate| {
                 candidate.uuid == request.surface_uuid && candidate.id != surface.id
             }) {
-                state.surfaces.remove(&surface.id);
+                state.discard_surface_runtime(surface.id);
                 surface.kill();
                 anyhow::bail!("ensure-terminal surface UUID was created concurrently");
             }
@@ -2685,12 +3308,12 @@ impl Mux {
         let (placement, delta) = {
             let mut state = self.state.lock().unwrap();
             let Some((wi, si)) = state.screen_of(target) else {
-                state.surfaces.remove(&surface.id);
+                state.discard_surface_runtime(surface.id);
                 surface.kill();
                 anyhow::bail!("pane disappeared while creating tab");
             };
             let Some(pane) = state.panes.get_mut(&target) else {
-                state.surfaces.remove(&surface.id);
+                state.discard_surface_runtime(surface.id);
                 surface.kill();
                 anyhow::bail!("pane disappeared while creating tab");
             };
@@ -2807,7 +3430,7 @@ impl Mux {
                     })
                 }
                 None => {
-                    state.surfaces.remove(&surface.id);
+                    state.discard_surface_runtime(surface.id);
                     None
                 }
             }
@@ -2889,7 +3512,7 @@ impl Mux {
                 }
                 None => {
                     // Pane disappeared between validation and attach.
-                    state.surfaces.remove(&surface.id);
+                    state.discard_surface_runtime(surface.id);
                     None
                 }
             }
@@ -3020,7 +3643,7 @@ impl Mux {
                     })
                 }
                 None => {
-                    state.surfaces.remove(&surface.id);
+                    state.discard_surface_runtime(surface.id);
                     None
                 }
             }
@@ -3211,7 +3834,7 @@ impl Mux {
                     entity,
                 });
             } else {
-                state.surfaces.remove(&surface.id);
+                state.discard_surface_runtime(surface.id);
             }
         }
         if !done {
@@ -3588,7 +4211,11 @@ impl Mux {
         runtime.last_error = Some("sidebar plugin exited".to_string());
         runtime.retry_at = Some(Instant::now() + delay);
         drop(runtime);
-        self.state.lock().unwrap().surfaces.remove(&id);
+        let mut state = self.state.lock().unwrap();
+        if let Some(uuid) = state.surfaces.get(&id).map(|surface| surface.uuid) {
+            state.launch_recipes.remove(&uuid);
+        }
+        state.surfaces.remove(&id);
         true
     }
 
@@ -3792,7 +4419,7 @@ impl Mux {
                 // spawning. Remove those surfaces under this same state lock
                 // before exposing any pane or screen from the new layout.
                 for surface in &spawned {
-                    state.surfaces.remove(&surface.id);
+                    state.discard_surface_runtime(surface.id);
                 }
                 drop(state);
                 for surface in spawned {
@@ -3948,7 +4575,7 @@ impl Mux {
         {
             let mut state = self.state.lock().unwrap();
             for id in &ids {
-                state.surfaces.remove(id);
+                state.discard_surface_runtime(*id);
             }
         }
         for surface in spawned {
@@ -6048,6 +6675,172 @@ mod tests {
             cols: 90,
             rows: 30,
         }
+    }
+
+    struct PersistenceTestDirectory(std::path::PathBuf);
+
+    impl PersistenceTestDirectory {
+        fn new(name: &str) -> Self {
+            Self(std::env::temp_dir().join(format!(
+                "cmux-mux-persistence-{name}-{}-{}",
+                std::process::id(),
+                uuid::Uuid::new_v4()
+            )))
+        }
+    }
+
+    impl Drop for PersistenceTestDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn daemon_restart_restores_exact_uuid_topology_with_new_terminal_runtime() {
+        let directory = PersistenceTestDirectory::new("daemon-restart");
+        let store = StateStore::new(&directory.0);
+        let workspace_uuid = WorkspaceUuid::new();
+        let first_uuid = SurfaceUuid::new();
+        let second_uuid = SurfaceUuid::new();
+        let first_mux =
+            Mux::recover_from_state_store("main", SurfaceOptions::default(), &store).unwrap();
+        let first_daemon = first_mux.daemon_instance_id;
+        let session_id = first_mux.session_id;
+        let mut first_request = ensure_request(workspace_uuid, first_uuid, "");
+        first_request.argv = Some(vec!["/bin/cat".to_string()]);
+        first_request.env.push(("API_TOKEN".to_string(), "must-not-persist".to_string()));
+        let first = first_mux.ensure_terminal(first_request).unwrap();
+        let mut second_request = ensure_request(workspace_uuid, second_uuid, "");
+        second_request.argv = Some(vec!["/bin/cat".to_string()]);
+        let second = first_mux.ensure_terminal(second_request).unwrap();
+        assert!(first_mux.rename_workspace(first.workspace, "persisted-workspace".to_string()));
+        assert!(first_mux.rename_pane(first.pane, "persisted-pane".to_string()));
+        assert!(first_mux.rename_surface(first.surface, "first".to_string()));
+        assert!(first_mux.rename_surface(second.surface, "second".to_string()));
+        assert!(first_mux.move_tab(first.surface, first.pane, usize::MAX));
+
+        let first_surface = first_mux.surface(first.surface).unwrap();
+        let old_pid = first_surface.process_id().expect("real PTY child has a PID");
+        let old_tty = first_surface.tty_name().expect("real PTY has a tty name");
+        let old_epoch = first_surface
+            .semantic_scene_terminal_identity()
+            .expect("terminal has semantic identity")
+            .runtime_epoch;
+        let before = {
+            let canonical = first_mux.state.lock().unwrap();
+            canonical.persisted_snapshot(canonical.topology.revision()).unwrap()
+        };
+        drop(first_surface);
+        drop(first_mux);
+
+        let second_mux =
+            Mux::recover_from_state_store("main", SurfaceOptions::default(), &store).unwrap();
+        assert_eq!(second_mux.session_id, session_id);
+        assert_ne!(second_mux.daemon_instance_id, first_daemon);
+        let recovered_id = second_mux
+            .with_state(|state| state.surface_id_by_uuid(first_uuid))
+            .expect("stable surface UUID restored");
+        let recovered = second_mux.surface(recovered_id).unwrap();
+        assert_eq!(recovered.uuid, first_uuid);
+        assert_eq!(recovered.spawn_argv(), Some(vec!["/bin/cat".to_string()]));
+        assert_ne!(recovered.process_id(), Some(old_pid));
+        assert_ne!(
+            recovered
+                .semantic_scene_terminal_identity()
+                .expect("restored terminal has semantic identity")
+                .runtime_epoch,
+            old_epoch
+        );
+        assert!(second_mux.with_state(|state| {
+            state.surfaces.values().all(|surface| surface.process_id() != Some(old_pid))
+        }));
+        let after = {
+            let canonical = second_mux.state.lock().unwrap();
+            canonical.persisted_snapshot(canonical.topology.revision()).unwrap()
+        };
+        assert_eq!(after, before);
+        let journal = std::fs::read(store.journal_path("main")).unwrap();
+        assert!(
+            !journal
+                .windows("must-not-persist".len())
+                .any(|window| { window == "must-not-persist".as_bytes() })
+        );
+        let old_tty = old_tty.to_string_lossy();
+        assert!(!journal.windows(old_tty.len()).any(|window| window == old_tty.as_bytes()));
+    }
+
+    #[test]
+    fn closed_terminal_tombstone_survives_restart_without_respawning_it() {
+        let directory = PersistenceTestDirectory::new("tombstone-restart");
+        let store = StateStore::new(&directory.0);
+        let workspace_uuid = WorkspaceUuid::new();
+        let retained_uuid = SurfaceUuid::new();
+        let closed_uuid = SurfaceUuid::new();
+        let mux = Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
+            .unwrap();
+        mux.ensure_terminal(ensure_request(workspace_uuid, retained_uuid, "")).unwrap();
+        let closed = mux.ensure_terminal(ensure_request(workspace_uuid, closed_uuid, "")).unwrap();
+        mux.close_surface(closed.surface);
+        drop(mux);
+
+        let restored =
+            Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
+                .unwrap();
+        restored.with_state(|state| {
+            assert!(state.surface_id_by_uuid(retained_uuid).is_some());
+            assert!(state.surface_id_by_uuid(closed_uuid).is_none());
+        });
+        let canonical = restored.state.lock().unwrap();
+        assert!(canonical.tombstones.iter().any(|tombstone| {
+            tombstone.kind == PersistedEntityKind::Surface
+                && tombstone.uuid == closed_uuid.as_uuid()
+        }));
+        drop(canonical);
+        let retry = restored
+            .ensure_terminal(ensure_request(workspace_uuid, closed_uuid, "must-not-run"))
+            .unwrap_err();
+        assert!(retry.to_string().contains("tombstoned"));
+        restored.with_state(|state| assert_eq!(state.surfaces.len(), 1));
+    }
+
+    #[test]
+    fn tombstones_and_idempotency_results_evict_oldest_entries_at_their_bounds() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(Some("bounded".to_string()), None).unwrap();
+        let workspace = mux.with_state(|state| state.workspaces[0].id);
+        {
+            let mut canonical = mux.state.lock().unwrap();
+            canonical.tombstones = (0..MAX_PERSISTED_TOMBSTONES)
+                .map(|index| PersistedTombstone {
+                    kind: PersistedEntityKind::Surface,
+                    uuid: uuid::Uuid::from_u128(index as u128 + 1),
+                    removed_at_topology_revision: index as u64,
+                })
+                .collect();
+            canonical.idempotency_results = (0..MAX_PERSISTED_IDEMPOTENCY_RESULTS)
+                .map(|index| PersistedIdempotencyResult {
+                    key: format!("seed-{index}"),
+                    committed_topology_revision: index as u64,
+                    workspaces: Vec::new(),
+                    screens: Vec::new(),
+                    panes: Vec::new(),
+                    surfaces: Vec::new(),
+                })
+                .collect();
+        }
+
+        assert!(mux.rename_workspace(workspace, "bounded-renamed".to_string()));
+        assert_eq!(
+            mux.state.lock().unwrap().idempotency_results.len(),
+            MAX_PERSISTED_IDEMPOTENCY_RESULTS
+        );
+        assert!(mux.durable_idempotency_result("seed-0").is_none());
+        assert!(mux.durable_idempotency_result("seed-1").is_some());
+        mux.close_surface(surface.id);
+        let canonical = mux.state.lock().unwrap();
+        assert_eq!(canonical.tombstones.len(), MAX_PERSISTED_TOMBSTONES);
+        assert!(!canonical.tombstones.iter().any(|entry| entry.uuid == uuid::Uuid::from_u128(1)));
+        assert!(canonical.tombstones.iter().any(|entry| entry.uuid == surface.uuid.as_uuid()));
     }
 
     #[test]

@@ -384,10 +384,23 @@ impl TopologyJournal {
         session_id: SessionId,
         limits: TopologyLimits,
     ) -> Self {
+        Self::new_at_revision(daemon_instance_id, session_id, limits, 0)
+    }
+
+    /// Restore the authoritative revision from a validated durable snapshot.
+    /// A restarted daemon intentionally starts with empty in-memory delta
+    /// history, so clients behind this revision receive `HistoryGap` and
+    /// resnapshot under the new daemon-instance fence.
+    pub(crate) fn new_at_revision(
+        daemon_instance_id: DaemonInstanceId,
+        session_id: SessionId,
+        limits: TopologyLimits,
+        revision: u64,
+    ) -> Self {
         Self {
             daemon_instance_id,
             session_id,
-            revision: 0,
+            revision,
             history: VecDeque::new(),
             history_bytes: 0,
             subscribers: Vec::new(),
@@ -399,6 +412,10 @@ impl TopologyJournal {
 
     pub(crate) fn revision(&self) -> u64 {
         self.revision
+    }
+
+    pub(crate) fn session_id(&self) -> SessionId {
+        self.session_id
     }
 
     pub(crate) fn snapshot(&self, state: &State) -> TopologySnapshot {

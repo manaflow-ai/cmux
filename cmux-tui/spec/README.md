@@ -44,6 +44,7 @@ The generator must preserve the wire command names, parameter names, result shap
 | `cli.md` | Generated `cmux-tui <verb>` conventions, exit codes, stdin rules, verb table, and examples |
 | `bindings.md` | Language binding style sheets and conformance suite contract |
 | `plugins.md` | Sidebar plugin PTY, manifest, lifecycle, focus, and config contract |
+| `persistence.md` | Canonical checkpoint, journal, redacted launch recipe, replay, compaction, and daemon-restart contract |
 
 ## Implemented Inventory
 

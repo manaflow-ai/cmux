@@ -22,7 +22,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use cmux_tui_core::{Mux, StateStore, SurfaceOptions};
+use cmux_tui_core::{Mux, RendererSupervisorConfig, StateStore, SurfaceOptions};
 use session::{RemoteSession, Session};
 
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
@@ -63,6 +63,8 @@ OPTIONS:
   --session <name>   Session name (default: main). Determines the socket path.
   --socket <path>    Explicit control socket path.
   --state-dir <path> Persistent daemon state directory (platform default).
+  --app-service-layout
+                     Use cmux's environment-independent macOS service paths.
   --recover-state    Archive corrupt session metadata and issue a new identity.
   --headless         Run only the control socket, no TUI.
   --ws <addr>        Also listen for WebSocket clients (default: off).
@@ -121,6 +123,7 @@ struct Args {
     session: String,
     socket: Option<PathBuf>,
     state_dir: Option<PathBuf>,
+    app_service_layout: bool,
     recover_state: bool,
     headless: bool,
     ws: Option<String>,
@@ -135,6 +138,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
         session: "main".to_string(),
         socket: None,
         state_dir: None,
+        app_service_layout: false,
         recover_state: false,
         headless: false,
         ws: None,
@@ -162,6 +166,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
                     args.next().unwrap_or_else(|| usage_exit("--state-dir needs a value")).into(),
                 );
             }
+            "--app-service-layout" => out.app_service_layout = true,
             "--recover-state" => out.recover_state = true,
             "--headless" => out.headless = true,
             "--ws" => {
@@ -188,6 +193,9 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
     }
     if out.attach && out.recover_state {
         usage_exit("--recover-state is only valid when starting a daemon session");
+    }
+    if out.app_service_layout && (out.socket.is_some() || out.state_dir.is_some()) {
+        usage_exit("--app-service-layout cannot be combined with --socket or --state-dir");
     }
     out
 }
@@ -220,41 +228,58 @@ fn main() {
 }
 
 fn run_attach(args: Args) -> anyhow::Result<()> {
-    let socket_path =
-        args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    let socket_path = resolved_socket_path(&args);
     let remote = RemoteSession::connect(&socket_path)?;
     run_tui(Session::Remote(remote), args.session)
+}
+
+fn resolved_socket_path(args: &Args) -> PathBuf {
+    args.socket.clone().unwrap_or_else(|| {
+        if args.app_service_layout {
+            cmux_tui_core::platform::app_service_runtime_dir()
+                .join(format!("{}.sock", args.session))
+        } else {
+            cmux_tui_core::server::default_socket_path(&args.session)
+        }
+    })
 }
 
 fn run_server(args: Args) -> anyhow::Result<()> {
     let mut surface_options = SurfaceOptions::default();
     let config = config::load();
+    // Resolve before moving optional argument fields below.
+    let socket_path = resolved_socket_path(&args);
     let ws_addr = args.ws.or(config.server.ws.clone());
     let ws_token = args.ws_token.or(config.server.ws_token.clone());
     config::apply_browser_to_surface_options(&config, &mut surface_options);
     if let Some(term) = args.term {
         surface_options.term = term;
     }
-    // Compute the socket path up front so surface children inherit it.
-    let socket_path =
-        args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    // Surface children inherit the exact service/client socket.
     surface_options.extra_env.push(("CMUX_TUI_SOCKET".into(), socket_path.display().to_string()));
     surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
 
-    let state_store = match args.state_dir {
-        Some(directory) => StateStore::new(directory),
-        None => StateStore::platform_default()?,
+    let state_store = match (args.state_dir, args.app_service_layout) {
+        (Some(directory), false) => StateStore::new(directory),
+        (None, true) => StateStore::new(
+            cmux_tui_core::platform::app_service_state_dir()
+                .ok_or_else(|| anyhow::anyhow!("native app-service state directory unavailable"))?,
+        ),
+        (None, false) => StateStore::platform_default()?,
+        (Some(_), true) => unreachable!("app-service path conflicts are rejected while parsing"),
     };
-    let session_id = if args.recover_state {
+    if args.recover_state {
         let recovery = state_store.recover_session(&args.session)?;
         if let Some(path) = recovery.archived_corrupt_state {
             eprintln!("cmux-tui: archived corrupt session metadata at {}", path.display());
         }
-        recovery.session_id
-    } else {
-        state_store.load_or_create_session(&args.session)?
-    };
-    let mux = Mux::new_with_session_id(args.session.clone(), surface_options, session_id);
+    }
+    let mux = Mux::recover_from_state_store(args.session.clone(), surface_options, &state_store)?;
+    if args.app_service_layout {
+        mux.install_renderer_supervisor(RendererSupervisorConfig::bundled(
+            mux.daemon_instance_id,
+        )?)?;
+    }
     // Headless sessions have no host terminal to query, so seed the mux from
     // Ghostty's config before any protocol client can create a surface.
     mux.set_default_colors(config.terminal_defaults);
@@ -331,4 +356,44 @@ fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result
 fn usage_exit(msg: &str) -> ! {
     eprintln!("cmux-tui: {msg}\n\n{USAGE}");
     std::process::exit(2);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(session: &str) -> Args {
+        Args {
+            attach: false,
+            session: session.to_string(),
+            socket: None,
+            state_dir: None,
+            app_service_layout: false,
+            recover_state: false,
+            headless: true,
+            ws: None,
+            ws_token: None,
+            ws_insecure_bind: false,
+            term: None,
+        }
+    }
+
+    #[test]
+    fn app_service_socket_ignores_environment_runtime_roots() {
+        let mut args = args("cmux-service-test");
+        args.app_service_layout = true;
+
+        assert_eq!(
+            resolved_socket_path(&args),
+            cmux_tui_core::platform::app_service_runtime_dir().join("cmux-service-test.sock")
+        );
+    }
+
+    #[test]
+    fn explicit_socket_remains_authoritative_outside_service_mode() {
+        let mut args = args("ignored");
+        args.socket = Some(PathBuf::from("/tmp/explicit.sock"));
+
+        assert_eq!(resolved_socket_path(&args), PathBuf::from("/tmp/explicit.sock"));
+    }
 }
