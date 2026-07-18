@@ -30,7 +30,10 @@ public struct AgentTerminalStateClassifier: Sendable {
             return pathMatch
         }
         guard let executable, Self.isArgumentWrapperBasename(executable) else { return nil }
-        if let profile = wrappedExecutableProfile(arguments: process.arguments) {
+        if let profile = wrappedExecutableProfile(
+            wrapperExecutable: executable,
+            arguments: process.arguments
+        ) {
             return profile
         }
         for key in ["CMUX_AGENT", "CMUX_AGENT_LAUNCH_KIND"] {
@@ -38,33 +41,46 @@ public struct AgentTerminalStateClassifier: Sendable {
                 return profile
             }
         }
-        let command = process.arguments.joined(separator: " ").lowercased()
-        return catalog.profiles.first { profile in
-            profile.argumentNeedles.contains { command.contains($0.lowercased()) }
-        }
+        return nil
     }
 
     /// Generic runtimes often remain the foreground process while their launch
     /// target names the real agent executable. Inspect that one path only.
     /// Later arguments may be subcommands, file paths, or user prompt text.
-    private func wrappedExecutableProfile(arguments: [String]) -> AgentTerminalFamilyProfile? {
-        let launcherArguments = arguments.dropFirst()
-        guard let first = launcherArguments.first else { return nil }
+    private func wrappedExecutableProfile(
+        wrapperExecutable: String,
+        arguments: [String]
+    ) -> AgentTerminalFamilyProfile? {
+        guard let argvZero = arguments.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !argvZero.isEmpty else { return nil }
+
+        // Some Python agents replace argv[0] with a process title such as
+        // "Kimi Code". That title is the launch identity, not a prompt.
         let rawTarget: String
-        if first == "--" {
-            guard launcherArguments.count > 1 else { return nil }
-            rawTarget = launcherArguments[launcherArguments.index(after: launcherArguments.startIndex)]
+        if URL(fileURLWithPath: argvZero).lastPathComponent.lowercased() != wrapperExecutable {
+            rawTarget = argvZero
         } else {
-            guard !first.hasPrefix("-") else { return nil }
-            rawTarget = first
+            let launcherArguments = arguments.dropFirst()
+            guard let first = launcherArguments.first else { return nil }
+            if first == "--" {
+                guard launcherArguments.count > 1 else { return nil }
+                rawTarget = launcherArguments[launcherArguments.index(after: launcherArguments.startIndex)]
+            } else {
+                guard !first.hasPrefix("-") else { return nil }
+                rawTarget = first
+            }
         }
         let target = rawTarget.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard target.hasPrefix("/") || target.hasPrefix("./") || target.hasPrefix("../") else {
-            return nil
-        }
-        return catalog.profile(
+        guard !target.isEmpty else { return nil }
+        if let exact = catalog.profile(
             executableBasename: URL(fileURLWithPath: target).lastPathComponent.lowercased()
-        )
+        ) {
+            return exact
+        }
+        let normalizedTarget = target.lowercased()
+        return catalog.profiles.first { profile in
+            profile.argumentNeedles.contains { normalizedTarget.contains($0.lowercased()) }
+        }
     }
 
     private static func isArgumentWrapperBasename(_ executable: String) -> Bool {
