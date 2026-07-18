@@ -8,13 +8,18 @@ private final class BackendOnlyTerminalViewportHostView: NSView {
     private let interactionView: TerminalFrontendInteractionView
     private var presentationLease: (any TerminalExternalPresentationLease)?
     private var lastViewport: TerminalExternalViewport?
-    private weak var observedWindow: NSWindow?
-    private var priorAcceptsMouseMovedEvents: Bool?
+    private var mouseMovedEventsLease: BackendOnlyWindowMouseMovedEventsLease?
 
     init(runtime: BackendOnlyTerminalRuntime) {
         self.runtime = runtime
-        interactionView = TerminalFrontendInteractionView(runtime: runtime)
+        interactionView = TerminalFrontendInteractionView(
+            runtime: runtime,
+            responderFocusOwnership: .externalHost
+        )
         super.init(frame: .zero)
+        interactionView.responderFocusDidChange = { [weak self] responderFocused in
+            self?.publishPresentationState(responderFocused: responderFocused)
+        }
         interactionView.frame = bounds
         interactionView.autoresizingMask = [.width, .height]
         addSubview(interactionView)
@@ -47,9 +52,7 @@ private final class BackendOnlyTerminalViewportHostView: NSView {
         super.viewDidMoveToWindow()
         stopObservingWindow()
         if let window {
-            observedWindow = window
-            priorAcceptsMouseMovedEvents = window.acceptsMouseMovedEvents
-            window.acceptsMouseMovedEvents = true
+            mouseMovedEventsLease = BackendOnlyWindowMouseMovedEventsLease(window: window)
             observe(window)
             publishViewportIfChanged()
             window.makeFirstResponder(interactionView)
@@ -158,11 +161,8 @@ private final class BackendOnlyTerminalViewportHostView: NSView {
 
     private func stopObservingWindow() {
         NotificationCenter.default.removeObserver(self)
-        if let observedWindow, let priorAcceptsMouseMovedEvents {
-            observedWindow.acceptsMouseMovedEvents = priorAcceptsMouseMovedEvents
-        }
-        observedWindow = nil
-        priorAcceptsMouseMovedEvents = nil
+        mouseMovedEventsLease?.invalidate()
+        mouseMovedEventsLease = nil
     }
 
     @objc private func windowPresentationStateChanged() {
@@ -173,7 +173,7 @@ private final class BackendOnlyTerminalViewportHostView: NSView {
         publishPresentationState()
     }
 
-    private func publishPresentationState() {
+    private func publishPresentationState(responderFocused: Bool? = nil) {
         guard let window else {
             runtime.setHostFocus(false)
             runtime.setHostVisibility(false)
@@ -186,7 +186,7 @@ private final class BackendOnlyTerminalViewportHostView: NSView {
         let focused = visible
             && NSApp.isActive
             && window.isKeyWindow
-            && window.firstResponder === interactionView
+            && (responderFocused ?? (window.firstResponder === interactionView))
         runtime.setHostVisibility(visible)
         runtime.setHostFocus(focused)
     }

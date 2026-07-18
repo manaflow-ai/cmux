@@ -1,6 +1,15 @@
 public import AppKit
 public import CmuxTerminalDomain
 
+/// Selects the single component responsible for terminal focus mutations.
+public enum TerminalFrontendResponderFocusOwnership: Sendable, Equatable {
+    /// The interaction view enqueues focus beside keyboard and pointer input.
+    case interactionView
+
+    /// An enclosing host derives focus from application and window state.
+    case externalHost
+}
+
 /// Ghostty-free AppKit interaction host for one external terminal runtime.
 ///
 /// The view owns responder focus, physical keyboard translation, and AppKit's
@@ -40,6 +49,12 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
     /// adapter may use this bounded value to surface unavailable-input state.
     public private(set) var lastIngressResult: TerminalExternalIngressResult?
 
+    /// Called after AppKit accepts a responder-focus transition.
+    ///
+    /// External focus owners use this signal to recompute effective focus from
+    /// application, window, visibility, and first-responder state.
+    public var responderFocusDidChange: ((Bool) -> Void)?
+
     /// Latest coherent state used by future pointer, selection, copy-mode,
     /// search, and accessibility adapters.
     public var interactionSnapshot: TerminalExternalRuntimeSnapshot {
@@ -47,6 +62,7 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
     }
 
     private let runtime: any TerminalExternalRuntime
+    private let responderFocusOwnership: TerminalFrontendResponderFocusOwnership
     private let translator: TerminalFrontendInputTranslator
     private let interactionAdapter: TerminalFrontendInteractionAdapter
     private let keyEventInterpreter:
@@ -71,12 +87,14 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
     ///   - runtime: Class-bound canonical runtime. It owns PTY and terminal state.
     public convenience init(
         frame frameRect: NSRect = .zero,
-        runtime: any TerminalExternalRuntime
+        runtime: any TerminalExternalRuntime,
+        responderFocusOwnership: TerminalFrontendResponderFocusOwnership = .interactionView
     ) {
         self.init(
             frame: frameRect,
             runtime: runtime,
             surfaceView: TerminalFrontendSurfaceView(frame: frameRect),
+            responderFocusOwnership: responderFocusOwnership,
             translator: TerminalFrontendInputTranslator(),
             keyEventInterpreter: nil
         )
@@ -91,12 +109,14 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
     public convenience init(
         frame frameRect: NSRect = .zero,
         runtime: any TerminalExternalRuntime,
-        surfaceView: TerminalFrontendSurfaceView
+        surfaceView: TerminalFrontendSurfaceView,
+        responderFocusOwnership: TerminalFrontendResponderFocusOwnership = .interactionView
     ) {
         self.init(
             frame: frameRect,
             runtime: runtime,
             surfaceView: surfaceView,
+            responderFocusOwnership: responderFocusOwnership,
             translator: TerminalFrontendInputTranslator(),
             keyEventInterpreter: nil
         )
@@ -106,6 +126,7 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
         frame frameRect: NSRect,
         runtime: any TerminalExternalRuntime,
         surfaceView: TerminalFrontendSurfaceView,
+        responderFocusOwnership: TerminalFrontendResponderFocusOwnership = .interactionView,
         translator: TerminalFrontendInputTranslator = TerminalFrontendInputTranslator(),
         clipboardWriter: any TerminalFrontendClipboardWriting =
             TerminalFrontendSystemClipboardWriter(),
@@ -116,6 +137,7 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
             (@MainActor (TerminalFrontendInteractionView, [NSEvent]) -> Void)?
     ) {
         self.runtime = runtime
+        self.responderFocusOwnership = responderFocusOwnership
         self.surfaceView = surfaceView
         self.translator = translator
         self.interactionAdapter = TerminalFrontendInteractionAdapter(
@@ -173,7 +195,7 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
     public override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
         if accepted {
-            enqueueInteraction(.focus(true))
+            publishResponderFocus(true)
         }
         return accepted
     }
@@ -182,9 +204,16 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
         let accepted = super.resignFirstResponder()
         if accepted {
             interactionAdapter.cancelPointerInteractions()
-            enqueueInteraction(.focus(false))
+            publishResponderFocus(false)
         }
         return accepted
+    }
+
+    private func publishResponderFocus(_ focused: Bool) {
+        if responderFocusOwnership == .interactionView {
+            enqueueInteraction(.focus(focused))
+        }
+        responderFocusDidChange?(focused)
     }
 
     public override func viewDidMoveToWindow() {
