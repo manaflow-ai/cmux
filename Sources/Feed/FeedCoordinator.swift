@@ -676,27 +676,34 @@ enum FeedJumpResolver {
         return (provider, sessionId)
     }
 
-    static func lookup(agent: String, sessionId: String) -> Target? {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let file = home
-            .appendingPathComponent(".cmuxterm", isDirectory: true)
-            .appendingPathComponent("\(agent)-hook-sessions.json", isDirectory: false)
-        guard let data = try? Data(contentsOf: file),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return nil }
-        // Stores have a consistent shape: top-level `sessions` dict keyed
-        // by sessionId. Tolerate older flat layouts too.
-        let sessions: [String: Any]
-        if let nested = root["sessions"] as? [String: Any] {
-            sessions = nested
-        } else {
-            sessions = root
-        }
-        guard let entry = sessions[sessionId] as? [String: Any],
+    static func lookup(
+        agent: String,
+        sessionId: String,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileManager: FileManager = .default
+    ) -> Target? {
+        guard let file = AgentHookSessionRegistryReader.legacyURL(
+            provider: agent,
+            homeDirectory: homeDirectory,
+            environment: environment
+        ),
+              let data = AgentHookSessionRegistryReader.recordData(
+                  provider: agent,
+                  sessionID: sessionId,
+                  legacyURL: file,
+                  environment: environment,
+                  fileManager: fileManager
+              ),
+              let entry = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let workspaceId = entry["workspaceId"] as? String,
               let surfaceId = entry["surfaceId"] as? String,
               !workspaceId.isEmpty, !surfaceId.isEmpty
         else { return nil }
+        if let embeddedSessionID = entry["sessionId"] as? String,
+           embeddedSessionID != sessionId {
+            return nil
+        }
         return Target(workspaceId: workspaceId, surfaceId: surfaceId)
     }
 

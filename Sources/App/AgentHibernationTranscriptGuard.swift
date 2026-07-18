@@ -255,16 +255,38 @@ enum AgentHibernationTranscriptGuard {
         homeDirectory: String,
         fileManager: FileManager
     ) -> (path: String?, isAmbiguous: Bool) {
-        let storeURL = RestorableAgentKind.claude.hookStoreFileURL(homeDirectory: homeDirectory)
-        guard let data = fileManager.contents(atPath: storeURL.path),
-              let store = try? JSONDecoder().decode(AgentHibernationTranscriptHookStoreFileMirror.self, from: data),
-              let sessions = store.sessions else {
+        let environment = ProcessInfo.processInfo.environment
+        let storeURL = RestorableAgentKind.claude.hookStoreFileURL(
+            homeDirectory: homeDirectory,
+            environment: environment
+        )
+        let recordData: [Data]
+        if let exact = AgentHookSessionRegistryReader.recordData(
+            provider: RestorableAgentKind.claude.rawValue,
+            sessionID: agent.sessionId,
+            legacyURL: storeURL,
+            environment: environment,
+            fileManager: fileManager
+        ) {
+            recordData = [exact]
+        } else if let records = AgentHookSessionRegistryReader.records(
+            provider: RestorableAgentKind.claude.rawValue,
+            legacyURL: storeURL,
+            environment: environment,
+            fileManager: fileManager
+        ) {
+            recordData = Array(records.values)
+        } else {
             return (nil, false)
         }
 
         var paths: [String] = []
         var seenPaths: Set<String> = []
-        for record in sessions.values {
+        for data in recordData {
+            guard let record = try? JSONDecoder().decode(
+                AgentHibernationTranscriptHookStoreRecord.self,
+                from: data
+            ) else { continue }
             guard normalized(record.sessionId) == agent.sessionId,
                   panelKey.map({ record.matches(panelKey: $0) }) ?? true,
                   let transcriptPath = normalized(record.transcriptPath) else {
