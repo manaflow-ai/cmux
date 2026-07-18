@@ -1,4 +1,5 @@
 import CmuxTerminal
+import CmuxTerminalBackend
 import CmuxTerminalRenderCompositor
 import CmuxTerminalRenderProtocol
 import CmuxTerminalRenderTransport
@@ -61,35 +62,55 @@ private struct TerminalBackendReceiverRetirement: Sendable {
 /// advances. Subscribing before the first attempt closes the disconnect race:
 /// a reconnect that overlaps a failed RPC is buffered and wakes the retry.
 func retryRendererOperationOnLifecycleChange(
-    client: any TerminalBackendClient,
+    eventRouter: TerminalBackendFrontendEventRouter,
+    lifecycleKey: TerminalBackendRendererLifecycleKey,
     operation: @escaping @Sendable () async throws -> Void
 ) async -> Bool {
     while !Task.isCancelled {
-        let events = await client.rendererEvents()
-        var iterator = events.makeAsyncIterator()
+        guard let checkpoint = await eventRouter.lifecycleCheckpoint() else {
+            return false
+        }
         do {
             try await operation()
             return true
         } catch {
-            var lifecycleAdvanced = false
-            while !lifecycleAdvanced {
-                guard let event = await iterator.next() else {
-                    // Stream replacement is itself a connection-boundary
-                    // signal. Re-subscribe before retrying so an overflowed
-                    // observer cannot silently abandon an exact receipt.
-                    lifecycleAdvanced = true
-                    continue
-                }
-                switch event {
-                case .connectionLost, .reconnected, .workerChanged:
-                    lifecycleAdvanced = true
-                case .presentationReady:
-                    continue
-                }
-            }
+            guard isTransientRendererOperationFailure(error) else { return false }
+            guard await eventRouter.waitForLifecycleChange(
+                after: checkpoint,
+                key: lifecycleKey
+            ) else { return false }
         }
     }
     return false
+}
+
+private func isTransientRendererOperationFailure(_ error: any Error) -> Bool {
+    if error is CancellationError { return false }
+    guard let protocolError = error as? BackendProtocolError else { return false }
+    switch protocolError {
+    case .notConnected, .connectionClosed:
+        return true
+    case .alreadyConnected, .requestIDExhausted, .malformedMessage, .oversizedMessage,
+         .writeQueueOverflow, .peerIdentityMismatch, .server, .eventBufferOverflow,
+         .invalidTopology, .incompatibleProtocol, .missingCapabilities,
+         .unexpectedApplication, .mutationUnavailableInReadOnlyMode:
+        return false
+    @unknown default:
+        return false
+    }
+}
+
+private func rendererEventRouter(
+    for client: any TerminalBackendClient,
+    preferred: TerminalBackendFrontendEventRouter?
+) async -> TerminalBackendFrontendEventRouter {
+    if let preferred { return preferred }
+    return await MainActor.run {
+        TerminalBackendFrontendEventRouterRegistry.shared.router(
+            for: client,
+            configSource: nil
+        )
+    }
 }
 
 /// Retries the canonical detach until cmuxd proves worker quiescence. The
@@ -98,9 +119,20 @@ func retryRendererOperationOnLifecycleChange(
 func awaitRendererPresentationQuiescence(
     client: any TerminalBackendClient,
     presentationID: UUID,
-    binding: TerminalBackendTerminalBinding?
+    binding: TerminalBackendTerminalBinding?,
+    eventRouter preferredEventRouter: TerminalBackendFrontendEventRouter? = nil
 ) async -> Bool {
-    await retryRendererOperationOnLifecycleChange(client: client) {
+    let eventRouter = await rendererEventRouter(
+        for: client,
+        preferred: preferredEventRouter
+    )
+    let lifecycleKey = binding.map {
+        TerminalBackendRendererLifecycleKey.workspace($0.appWorkspaceID)
+    } ?? .any
+    return await retryRendererOperationOnLifecycleChange(
+        eventRouter: eventRouter,
+        lifecycleKey: lifecycleKey
+    ) {
         try await client.detachPresentation(
             presentationID: presentationID,
             from: binding
@@ -114,9 +146,17 @@ func awaitRendererPresentationQuiescence(
 @discardableResult
 func returnRendererFrameLease(
     client: any TerminalBackendClient,
-    release: TerminalRenderFrameRelease
+    release: TerminalRenderFrameRelease,
+    eventRouter preferredEventRouter: TerminalBackendFrontendEventRouter? = nil
 ) async -> Bool {
-    await retryRendererOperationOnLifecycleChange(client: client) {
+    let eventRouter = await rendererEventRouter(
+        for: client,
+        preferred: preferredEventRouter
+    )
+    return await retryRendererOperationOnLifecycleChange(
+        eventRouter: eventRouter,
+        lifecycleKey: .rendererEpoch(release.metadata.rendererEpoch)
+    ) {
         try await client.releaseFrame(release)
     }
 }
@@ -195,6 +235,18 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         case unavailable
     }
 
+    private struct RendererStateFence: Equatable {
+        let operationGeneration: UInt64
+        let placementGeneration: UInt64
+        let presentationID: UUID
+        let receiverIdentity: ObjectIdentifier?
+    }
+
+    private struct RendererStateOperationWaiter {
+        let identifier: UUID
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
     private let client: any TerminalBackendClient
     private let launchRequest: TerminalSurfaceLaunchRequest
     private let resolveLaunch: @MainActor (
@@ -265,6 +317,9 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
     private var preedit: TerminalExternalPreedit?
     private var backendPresentationOpen = false
     private var rendererReconfigureNeeded = false
+    private var rendererStateOperationGeneration: UInt64 = 1
+    private var rendererStateOperationLocked = false
+    private var rendererStateOperationWaiters: [RendererStateOperationWaiter] = []
     private var detached = false
     private var canonicalCloseRequested = false
     private var detachAfterCanonicalClose = false
@@ -338,6 +393,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         _ presentation: TerminalExternalPresentation
     ) -> any TerminalExternalPresentationLease {
         precondition(attachedPresentation == nil || attachedPresentation == presentation)
+        invalidateRendererStateOperations()
         attachedPresentation = presentation
         currentWorkspaceID = presentation.workspaceID
         diagnosticsWorkspaceContext.update(presentation.workspaceID)
@@ -370,7 +426,9 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                 || binding.map({ $0.appWorkspaceID != workspaceID }) == true else { return }
 
         placementGeneration &+= 1
+        invalidateRendererStateOperations()
         let generation = placementGeneration
+        let operationGeneration = rendererStateOperationGeneration
         // Presentation identity is a placement epoch. Late renderer events from
         // the prior workspace cannot attach to the replacement receiver.
         deactivateFrontendEventRoute()
@@ -409,7 +467,8 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                 let quiesced = await awaitRendererPresentationQuiescence(
                     client: client,
                     presentationID: previousPresentationID,
-                    binding: previousBinding
+                    binding: previousBinding,
+                    eventRouter: self.frontendEventRouter
                 )
                 if !quiesced {
                     // Cancellation leaves the retired ingress active. It still
@@ -417,19 +476,30 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                     if let receiverRetirement {
                         self.retainUnresolvedReceiverRetirement(receiverRetirement)
                     }
-                    self.placementAdoptionTask = nil
-                    self.markUnavailable()
+                    if self.placementGeneration == generation {
+                        self.placementAdoptionTask = nil
+                        if self.rendererStateOperationGeneration == operationGeneration,
+                           !self.detached {
+                            self.markUnavailable()
+                        }
+                    }
                     return
                 }
             }
             guard await self.finishReceiverRetirement(receiverRetirement) else {
-                self.placementAdoptionTask = nil
-                self.markUnavailable()
+                if self.placementGeneration == generation {
+                    self.placementAdoptionTask = nil
+                    if self.rendererStateOperationGeneration == operationGeneration,
+                       !self.detached {
+                        self.markUnavailable()
+                    }
+                }
                 return
             }
-            guard !self.detached else { return }
-            guard self.placementGeneration == generation, !self.detached else { return }
+            guard self.placementGeneration == generation else { return }
             self.placementAdoptionTask = nil
+            guard self.rendererStateOperationGeneration == operationGeneration,
+                  !self.detached else { return }
             self.refreshFrontendEventRoute()
             self.scheduleDrain()
         }
@@ -566,6 +636,90 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         }
     }
 
+    private func invalidateRendererStateOperations() {
+        rendererStateOperationGeneration &+= 1
+        if rendererStateOperationGeneration == 0 {
+            rendererStateOperationGeneration = 1
+        }
+    }
+
+    private func rendererStateFence() -> RendererStateFence {
+        RendererStateFence(
+            operationGeneration: rendererStateOperationGeneration,
+            placementGeneration: placementGeneration,
+            presentationID: presentationID,
+            receiverIdentity: receiver.map(ObjectIdentifier.init)
+        )
+    }
+
+    private func rendererStateIsCurrent(
+        _ fence: RendererStateFence,
+        requireAttached: Bool = true
+    ) -> Bool {
+        rendererStateGenerationIsCurrent(fence, requireAttached: requireAttached)
+            && fence.receiverIdentity == receiver.map(ObjectIdentifier.init)
+    }
+
+    private func rendererStateGenerationIsCurrent(
+        _ fence: RendererStateFence,
+        requireAttached: Bool = true
+    ) -> Bool {
+        fence.operationGeneration == rendererStateOperationGeneration
+            && fence.placementGeneration == placementGeneration
+            && fence.presentationID == presentationID
+            && (!requireAttached || (!detached && attachedPresentation != nil))
+    }
+
+    private func acquireRendererStateOperation() async -> Bool {
+        if !rendererStateOperationLocked {
+            guard !Task.isCancelled else { return false }
+            rendererStateOperationLocked = true
+            return true
+        }
+        let identifier = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume(returning: false)
+                } else {
+                    rendererStateOperationWaiters.append(RendererStateOperationWaiter(
+                        identifier: identifier,
+                        continuation: continuation
+                    ))
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancelRendererStateOperationWaiter(identifier)
+            }
+        }
+    }
+
+    private func cancelRendererStateOperationWaiter(_ identifier: UUID) {
+        guard let index = rendererStateOperationWaiters.firstIndex(where: {
+            $0.identifier == identifier
+        }) else { return }
+        rendererStateOperationWaiters.remove(at: index).continuation.resume(returning: false)
+    }
+
+    private func releaseRendererStateOperation() {
+        if !rendererStateOperationWaiters.isEmpty {
+            let waiter = rendererStateOperationWaiters.removeFirst()
+            waiter.continuation.resume(returning: true)
+        } else {
+            rendererStateOperationLocked = false
+        }
+    }
+
+    private func withRendererStateOperation<Result>(
+        _ operation: @MainActor () async throws -> Result
+    ) async throws -> Result {
+        guard await acquireRendererStateOperation() else { throw CancellationError() }
+        defer { releaseRendererStateOperation() }
+        try Task.checkCancellation()
+        return try await operation()
+    }
+
     private func scheduleDrain() {
         guard !detached, drainTask == nil else { return }
         drainTask = Task { @MainActor [weak self] in
@@ -574,6 +728,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
     }
 
     private func drain() async {
+        let startingPlacementGeneration = placementGeneration
         defer {
             drainTask = nil
             let canRetryQueuedMutation: Bool
@@ -606,6 +761,9 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         } catch is CancellationError {
             return
         } catch {
+            guard !Task.isCancelled,
+                  !detached,
+                  placementGeneration == startingPlacementGeneration else { return }
             markUnavailable()
             if detachAfterCanonicalClose {
                 canonicalCloseRequested = false
@@ -813,6 +971,14 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
     }
 
     private func apply(_ queued: TerminalBackendQueuedMutation) async throws {
+        try await withRendererStateOperation {
+            try await self.applyRendererStateSerialized(queued)
+        }
+    }
+
+    private func applyRendererStateSerialized(
+        _ queued: TerminalBackendQueuedMutation
+    ) async throws {
         guard let binding else { throw TerminalBackendClientError.unavailable }
         let mutation = queued.mutation
         updatePresentationState(for: mutation)
@@ -825,31 +991,56 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         }
 
         let descriptor = try presentationDescriptor(for: mutation, binding: binding)
+        let operationFence = rendererStateFence()
         let outcome: TerminalBackendMutationOutcome
-        if let externalMutationRouter {
-            outcome = try await externalMutationRouter.apply(
-                mutation,
-                requestID: queued.requestID,
-                client: client,
-                binding: binding,
-                presentation: descriptor
-            )
-        } else {
-            outcome = try await client.apply(
-                mutation,
-                requestID: queued.requestID,
-                to: binding,
-                presentation: descriptor
-            )
+        do {
+            if let externalMutationRouter {
+                outcome = try await externalMutationRouter.apply(
+                    mutation,
+                    requestID: queued.requestID,
+                    client: client,
+                    binding: binding,
+                    presentation: descriptor
+                )
+            } else {
+                outcome = try await client.apply(
+                    mutation,
+                    requestID: queued.requestID,
+                    to: binding,
+                    presentation: descriptor
+                )
+            }
+        } catch {
+            guard rendererStateIsCurrent(operationFence) else {
+                throw CancellationError()
+            }
+            throw error
         }
+        guard rendererStateIsCurrent(operationFence) else { throw CancellationError() }
         if let updatedBinding = outcome.binding {
             self.binding = updatedBinding
+            let priorWorkspaceID = currentWorkspaceID
             currentWorkspaceID = updatedBinding.appWorkspaceID
             diagnosticsWorkspaceContext.update(updatedBinding.appWorkspaceID)
             resolvedRequest = resolvedRequest?.reparented(
                 to: updatedBinding.appWorkspaceID
             )
+            attachedPresentation = attachedPresentation.map {
+                TerminalExternalPresentation(
+                    surfaceID: $0.surfaceID,
+                    workspaceID: updatedBinding.appWorkspaceID
+                )
+            }
+            if priorWorkspaceID != updatedBinding.appWorkspaceID {
+                await reindexFrontendEventRoute(
+                    workspaceID: updatedBinding.appWorkspaceID
+                )
+                guard rendererStateIsCurrent(operationFence) else {
+                    throw CancellationError()
+                }
+            }
         }
+        guard rendererStateIsCurrent(operationFence) else { throw CancellationError() }
         replaceSnapshot(
             lifecycle: outcome.lifecycle,
             visibleText: outcome.visibleText,
@@ -869,12 +1060,20 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             clipboardWriter(clipboardText)
         }
 
-        if let activation = outcome.rendererActivation {
-            try await installRendererActivation(activation)
+        do {
+            if let activation = outcome.rendererActivation {
+                try await installRendererActivation(activation)
+            }
+            if let attachment = outcome.rendererAttachment {
+                try await installRendererAttachment(attachment)
+            }
+        } catch {
+            guard rendererStateIsCurrent(operationFence) else {
+                throw CancellationError()
+            }
+            throw error
         }
-        if let attachment = outcome.rendererAttachment {
-            try await installRendererAttachment(attachment)
-        }
+        guard rendererStateIsCurrent(operationFence) else { throw CancellationError() }
         requestAccessibilityRefresh()
         switch mutation {
         case .visibility(true), .resize, .reparent:
@@ -900,6 +1099,9 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         case .focus(let focused):
             self.focused = focused
         case .visibility(let visible):
+            if self.visible != visible {
+                invalidateRendererStateOperations()
+            }
             self.visible = visible
             refreshFrontendEventRoute()
         case .resize(let viewport):
@@ -909,8 +1111,9 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             }
         case .preedit(let preedit):
             self.preedit = preedit
-        case .input, .mouse, .bindingAction, .selection, .copyMode, .search, .scroll,
-             .reparent, .closeCanonicalTerminal:
+        case .reparent, .closeCanonicalTerminal:
+            invalidateRendererStateOperations()
+        case .input, .mouse, .bindingAction, .selection, .copyMode, .search, .scroll:
             break
         }
     }
@@ -996,6 +1199,12 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
     }
 
     private func reconcileRenderer() async throws {
+        try await withRendererStateOperation {
+            try await self.reconcileRendererStateSerialized()
+        }
+    }
+
+    private func reconcileRendererStateSerialized() async throws {
         guard canPresent else { return }
         refreshFrontendEventRoute()
         await frontendEventRegistrationTask?.value
@@ -1019,12 +1228,24 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             resolvedConfigRevision: resolvedConfigRevision,
             resolvedConfig: resolvedConfig
         )
-        let outcome = try await client.apply(
-            .visibility(true),
-            requestID: UUID(),
-            to: binding,
-            presentation: descriptor
-        )
+        let operationFence = rendererStateFence()
+        let outcome: TerminalBackendMutationOutcome
+        do {
+            outcome = try await client.apply(
+                .visibility(true),
+                requestID: UUID(),
+                to: binding,
+                presentation: descriptor
+            )
+        } catch {
+            guard rendererStateIsCurrent(operationFence) else {
+                throw CancellationError()
+            }
+            throw error
+        }
+        guard rendererStateIsCurrent(operationFence), canPresent else {
+            throw CancellationError()
+        }
         backendPresentationOpen = true
         state = .live
         replaceSnapshot(
@@ -1033,11 +1254,21 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             processMetadata: outcome.processMetadata,
             needsCloseConfirmation: outcome.needsCloseConfirmation
         )
-        if let activation = outcome.rendererActivation {
-            try await installRendererActivation(activation)
+        do {
+            if let activation = outcome.rendererActivation {
+                try await installRendererActivation(activation)
+            }
+            if let attachment = outcome.rendererAttachment {
+                try await installRendererAttachment(attachment)
+            }
+        } catch {
+            guard rendererStateIsCurrent(operationFence) else {
+                throw CancellationError()
+            }
+            throw error
         }
-        if let attachment = outcome.rendererAttachment {
-            try await installRendererAttachment(attachment)
+        guard rendererStateIsCurrent(operationFence), canPresent else {
+            throw CancellationError()
         }
         requestAccessibilityRefresh()
     }
@@ -1045,9 +1276,26 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
     private func installRendererAttachment(
         _ attachment: TerminalBackendRendererAttachment
     ) async throws {
-        guard visible, let receiver else { return }
-        try await receiver.authorize(worker: attachment.worker)
+        guard !detached,
+              visible,
+              attachment.fence.presentationID == presentationID,
+              let receiver else { return }
+        let operationFence = rendererStateFence()
+        do {
+            try await receiver.authorize(worker: attachment.worker)
+        } catch {
+            guard rendererStateIsCurrent(operationFence), self.receiver === receiver else {
+                throw CancellationError()
+            }
+            throw error
+        }
+        guard rendererStateIsCurrent(operationFence), self.receiver === receiver else {
+            throw CancellationError()
+        }
         await receiver.updateFence(attachment.fence)
+        guard rendererStateIsCurrent(operationFence), self.receiver === receiver else {
+            throw CancellationError()
+        }
 
         let compositor: TerminalRenderCompositorView
         if let existing = self.compositor {
@@ -1057,6 +1305,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             compositor = existing
         } else {
             let client = client
+            let frontendEventRouter = frontendEventRouter
             let diagnostics = TerminalBackendRenderDiagnostics.shared
             let diagnosticsWorkspaceContext = diagnosticsWorkspaceContext
             let accessibilityFrameDemand = accessibilityFrameDemand
@@ -1066,7 +1315,11 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                 fence: attachment.fence,
                 frameReleaseHandler: { release in
                     Task {
-                        await returnRendererFrameLease(client: client, release: release)
+                        await returnRendererFrameLease(
+                            client: client,
+                            release: release,
+                            eventRouter: frontendEventRouter
+                        )
                     }
                 },
                 frameDispositionHandler: { frame, result in
@@ -1099,6 +1352,9 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         replaceSnapshot(cellMetrics: attachment.cellMetrics)
         startReceivingFrames(receiver: receiver, ingress: compositor.frameIngress)
         coalesceViewportUsingExactMetrics(attachment.cellMetrics)
+        guard rendererStateIsCurrent(operationFence), self.receiver === receiver else {
+            throw CancellationError()
+        }
     }
 
     private func coalesceViewportUsingExactMetrics(
@@ -1148,6 +1404,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         let control = TerminalBackendFrameReceiveLoopControl()
         receiveLoopControl = control
         let client = client
+        let frontendEventRouter = frontendEventRouter
         let failureHandler: @Sendable () -> Void = { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, !self.detached, self.visible else { return }
@@ -1155,7 +1412,8 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                 self.scheduleDrain()
             }
         }
-        receiveTask = Task.detached { [receiver, ingress, control, client, failureHandler] in
+        receiveTask = Task.detached {
+            [receiver, ingress, control, client, frontendEventRouter, failureHandler] in
             do {
                 while !Task.isCancelled, !control.shouldStop {
                     switch try await receiver.receive(
@@ -1166,14 +1424,19 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                         if control.shouldStop {
                             await returnRendererFrameLease(
                                 client: client,
-                                release: TerminalRenderFrameRelease(frame: frame)
+                                release: TerminalRenderFrameRelease(frame: frame),
+                                eventRouter: frontendEventRouter
                             )
                         } else {
                             _ = await ingress.enqueue(frame)
                         }
                     case .dropped(_, let release):
                         if let release {
-                            await returnRendererFrameLease(client: client, release: release)
+                            await returnRendererFrameLease(
+                                client: client,
+                                release: release,
+                                eventRouter: frontendEventRouter
+                            )
                         }
                     case .timedOut:
                         continue
@@ -1208,29 +1471,37 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                     guard let self,
                           self.acceptsFrontendEventRoute(
                             generation: generation,
-                            presentationID: presentationID,
-                            workspaceID: workspaceID
+                            presentationID: presentationID
                           ) else { return }
-                    await self.handleRendererEvent(event)
+                    await self.handleRendererEvent(
+                        event,
+                        routeGeneration: generation,
+                        routePresentationID: presentationID
+                    )
                 },
                 rendererStreamEndedHandler: { [weak self] in
                     guard let self,
                           self.acceptsFrontendEventRoute(
                             generation: generation,
-                            presentationID: presentationID,
-                            workspaceID: workspaceID
+                            presentationID: presentationID
                           ) else { return }
-                    await self.handleRendererEventStreamEnded()
+                    await self.handleRendererEventStreamEnded(
+                        routeGeneration: generation,
+                        routePresentationID: presentationID
+                    )
                 },
                 configHandler: { [weak self] update in
                     guard let self,
                           self.acceptsFrontendEventRoute(
                             generation: generation,
-                            presentationID: presentationID,
-                            workspaceID: workspaceID
+                            presentationID: presentationID
                           ),
                           update.revision != self.baseRenderConfigRevision else { return }
-                    await self.installBaseRenderConfig(update)
+                    await self.installBaseRenderConfig(
+                        update,
+                        routeGeneration: generation,
+                        routePresentationID: presentationID
+                    )
                 }
             )
 
@@ -1238,8 +1509,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                   !Task.isCancelled,
                   self.acceptsFrontendEventRoute(
                     generation: generation,
-                    presentationID: presentationID,
-                    workspaceID: workspaceID
+                    presentationID: presentationID
                   ) else {
                 await router.unregister(route)
                 return
@@ -1251,13 +1521,27 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
 
     private func acceptsFrontendEventRoute(
         generation: UUID,
-        presentationID: UUID,
-        workspaceID: UUID
+        presentationID: UUID
     ) -> Bool {
         frontendEventRegistrationGeneration == generation
             && self.presentationID == presentationID
-            && currentWorkspaceID == workspaceID
             && needsFrontendEventRoute
+    }
+
+    private func reindexFrontendEventRoute(workspaceID: UUID) async {
+        if let route = frontendEventRoute {
+            await frontendEventRouter.reindex(
+                route,
+                presentationID: presentationID,
+                workspaceID: workspaceID
+            )
+            return
+        }
+        if frontendEventRegistrationTask != nil {
+            deactivateFrontendEventRoute()
+        }
+        refreshFrontendEventRoute()
+        await frontendEventRegistrationTask?.value
     }
 
     /// A hidden presentation remains routed only while its exact renderer
@@ -1281,7 +1565,28 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         Task { await router.unregister(route) }
     }
 
-    private func handleRendererEventStreamEnded() async {
+    private func handleRendererEventStreamEnded(
+        routeGeneration: UUID? = nil,
+        routePresentationID: UUID? = nil
+    ) async {
+        do {
+            try await withRendererStateOperation {
+                if let routeGeneration, let routePresentationID {
+                    guard self.acceptsFrontendEventRoute(
+                        generation: routeGeneration,
+                        presentationID: routePresentationID
+                    ) else { return }
+                }
+                try await self.handleRendererEventStreamEndedSerialized()
+            }
+        } catch {
+            return
+        }
+    }
+
+    private func handleRendererEventStreamEndedSerialized() async throws {
+        invalidateRendererStateOperations()
+        let operationFence = rendererStateFence()
         let presentationID = presentationID
         let binding = binding
         cancelBindingTask()
@@ -1292,18 +1597,45 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             presentationID: presentationID,
             binding: binding
         ) {
+            guard rendererStateGenerationIsCurrent(operationFence) else {
+                throw CancellationError()
+            }
             backendPresentationOpen = false
             refreshFrontendEventRoute()
             rendererReconfigureNeeded = true
             scheduleDrain()
         } else {
+            guard rendererStateGenerationIsCurrent(operationFence) else {
+                throw CancellationError()
+            }
             markUnavailable()
         }
     }
 
     private func installBaseRenderConfig(
-        _ update: TerminalBackendRenderConfigSnapshot
+        _ update: TerminalBackendRenderConfigSnapshot,
+        routeGeneration: UUID? = nil,
+        routePresentationID: UUID? = nil
     ) async {
+        do {
+            try await withRendererStateOperation {
+                if let routeGeneration, let routePresentationID {
+                    guard self.acceptsFrontendEventRoute(
+                        generation: routeGeneration,
+                        presentationID: routePresentationID
+                    ) else { return }
+                }
+                try await self.installBaseRenderConfigSerialized(update)
+            }
+        } catch {
+            return
+        }
+    }
+
+    private func installBaseRenderConfigSerialized(
+        _ update: TerminalBackendRenderConfigSnapshot
+    ) async throws {
+        invalidateRendererStateOperations()
         baseRenderConfigRevision = update.revision
         baseRenderConfig = update.data
         resolvedConfigRevision &+= 1
@@ -1331,6 +1663,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                 resolvedConfigRevision: resolvedConfigRevision,
                 resolvedConfig: resolvedConfig
             )
+            let operationFence = rendererStateFence()
             do {
                 _ = try await client.apply(
                     .visibility(false),
@@ -1343,9 +1676,16 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                 // the worker's quiescence acknowledgement would strand leases.
                 return
             }
+            guard rendererStateIsCurrent(operationFence) else {
+                throw CancellationError()
+            }
         }
         backendPresentationOpen = false
-        await rotateReceiverAfterQuiescenceProof()
+        let retirementFence = rendererStateFence()
+        await rotateReceiverAfterQuiescenceProof(expectedFence: retirementFence)
+        guard rendererStateGenerationIsCurrent(retirementFence) else {
+            throw CancellationError()
+        }
         refreshFrontendEventRoute()
         rendererReconfigureNeeded = true
         scheduleDrain()
@@ -1354,15 +1694,62 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
     private func installRendererActivation(
         _ activation: TerminalBackendRendererActivation
     ) async throws {
-        guard visible,
+        guard !detached,
+              visible,
               activation.presentationID == presentationID,
               let receiver else { return }
-        try await receiver.authorize(worker: activation.worker)
+        let operationFence = rendererStateFence()
+        do {
+            try await receiver.authorize(worker: activation.worker)
+        } catch {
+            guard rendererStateIsCurrent(operationFence), self.receiver === receiver else {
+                throw CancellationError()
+            }
+            throw error
+        }
+        guard rendererStateIsCurrent(operationFence), self.receiver === receiver else {
+            throw CancellationError()
+        }
         await receiver.updateFence(activation.fence)
-        try await client.activateRenderer(activation)
+        guard rendererStateIsCurrent(operationFence), self.receiver === receiver else {
+            throw CancellationError()
+        }
+        do {
+            try await client.activateRenderer(activation)
+        } catch {
+            guard rendererStateIsCurrent(operationFence), self.receiver === receiver else {
+                throw CancellationError()
+            }
+            throw error
+        }
+        guard rendererStateIsCurrent(operationFence), self.receiver === receiver else {
+            throw CancellationError()
+        }
     }
 
-    private func handleRendererEvent(_ event: TerminalBackendRendererEvent) async {
+    private func handleRendererEvent(
+        _ event: TerminalBackendRendererEvent,
+        routeGeneration: UUID? = nil,
+        routePresentationID: UUID? = nil
+    ) async {
+        do {
+            try await withRendererStateOperation {
+                if let routeGeneration, let routePresentationID {
+                    guard self.acceptsFrontendEventRoute(
+                        generation: routeGeneration,
+                        presentationID: routePresentationID
+                    ) else { return }
+                }
+                try await self.handleRendererEventSerialized(event)
+            }
+        } catch {
+            return
+        }
+    }
+
+    private func handleRendererEventSerialized(
+        _ event: TerminalBackendRendererEvent
+    ) async throws {
         switch event {
         case .workerChanged(let changed):
             guard changed.workspaceID.rawValue == currentWorkspaceID else { return }
@@ -1370,7 +1757,12 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             let oldWorkerDied = presentedEpoch == changed.priorRendererEpoch
                 && (changed.rendererEpoch != presentedEpoch || changed.state != .ready)
             if oldWorkerDied {
-                await rotateReceiverAfterQuiescenceProof()
+                invalidateRendererStateOperations()
+                let operationFence = rendererStateFence()
+                await rotateReceiverAfterQuiescenceProof(expectedFence: operationFence)
+                guard rendererStateGenerationIsCurrent(operationFence) else {
+                    throw CancellationError()
+                }
                 backendPresentationOpen = false
                 refreshFrontendEventRoute()
             }
@@ -1383,21 +1775,33 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                   attachment.fence.presentationID == presentationID else { return }
             do {
                 try await installRendererAttachment(attachment)
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
+                invalidateRendererStateOperations()
+                let operationFence = rendererStateFence()
                 if await rotateReceiverAfterDaemonQuiescence(
                     presentationID: presentationID,
                     binding: binding
                 ) {
+                    guard rendererStateGenerationIsCurrent(operationFence) else {
+                        throw CancellationError()
+                    }
                     backendPresentationOpen = false
                     refreshFrontendEventRoute()
                     rendererReconfigureNeeded = true
                     scheduleDrain()
                 } else {
+                    guard rendererStateGenerationIsCurrent(operationFence) else {
+                        throw CancellationError()
+                    }
                     markUnavailable()
                 }
             }
         case .connectionLost(let authority):
             guard let lostBinding = binding, lostBinding.authority == authority else { return }
+            invalidateRendererStateOperations()
+            let operationFence = rendererStateFence()
             cancelBindingTask()
             binding = nil
             bindingReconcileRequested = true
@@ -1412,10 +1816,16 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                 presentationID: presentationID,
                 binding: lostBinding
             ) {
+                guard rendererStateGenerationIsCurrent(operationFence) else {
+                    throw CancellationError()
+                }
                 backendPresentationOpen = false
                 refreshFrontendEventRoute()
                 scheduleDrain()
             } else {
+                guard rendererStateGenerationIsCurrent(operationFence) else {
+                    throw CancellationError()
+                }
                 markUnavailable()
             }
         case .reconnected:
@@ -1454,6 +1864,14 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         frontendEventRegistrationTask != nil
     }
 
+    func debugBackendPresentationOpenForTesting() -> Bool {
+        backendPresentationOpen
+    }
+
+    func debugFrontendLifecycleWaiterCountForTesting() async -> Int {
+        (await frontendEventRouter.snapshot()).lifecycleWaiterCount
+    }
+
     func debugFrontendEventRouterSnapshotForTesting() async
         -> TerminalBackendFrontendEventRouterSnapshot
     {
@@ -1490,9 +1908,15 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
     /// Retires an endpoint only when the caller already has synchronous proof
     /// that its worker stopped publishing, such as an exact remove receipt or
     /// an exact worker-lifetime death event.
-    private func rotateReceiverAfterQuiescenceProof() async {
+    private func rotateReceiverAfterQuiescenceProof(
+        expectedFence: RendererStateFence? = nil
+    ) async {
         if let receiverRetirementTask {
             guard await receiverRetirementTask.value else { return }
+        }
+        if let expectedFence,
+           !rendererStateGenerationIsCurrent(expectedFence) {
+            return
         }
         let retirement = beginReceiverRotation()
         _ = await finishReceiverRetirement(retirement)
@@ -1526,7 +1950,8 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             let quiesced = await awaitRendererPresentationQuiescence(
                 client: client,
                 presentationID: presentationID,
-                binding: binding
+                binding: binding,
+                eventRouter: self.frontendEventRouter
             )
             let retired: Bool
             if quiesced {
@@ -1580,7 +2005,11 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         do {
             let releases = try await retirement.receiver.drainQuiescedFrames()
             for release in releases {
-                guard await returnRendererFrameLease(client: client, release: release) else {
+                guard await returnRendererFrameLease(
+                    client: client,
+                    release: release,
+                    eventRouter: frontendEventRouter
+                ) else {
                     retainUnresolvedReceiverRetirement(retirement)
                     return false
                 }
@@ -1604,7 +2033,9 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
 
     private func stopRendererPresentation() async {
         backendPresentationOpen = false
-        await rotateReceiverAfterQuiescenceProof()
+        let operationFence = rendererStateFence()
+        await rotateReceiverAfterQuiescenceProof(expectedFence: operationFence)
+        guard rendererStateGenerationIsCurrent(operationFence) else { return }
         refreshFrontendEventRoute()
     }
 
@@ -1619,6 +2050,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                 return
             }
         }
+        invalidateRendererStateOperations()
         detached = true
         bindingReconcileRequested = false
         drainTask?.cancel()
@@ -1654,7 +2086,8 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             let quiesced = await awaitRendererPresentationQuiescence(
                 client: client,
                 presentationID: presentationID,
-                binding: binding
+                binding: binding,
+                eventRouter: self.frontendEventRouter
             )
             let retired: Bool
             if quiesced {
