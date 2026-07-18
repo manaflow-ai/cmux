@@ -68,4 +68,39 @@ struct TabManagerBackgroundWorkspaceMountBoundTests {
             "The background-mount set must remain bounded after slot reuse (#7136)."
         )
     }
+
+    // A `cmux ssh --no-focus` burst can add many pending terminal startups while
+    // the first background prime is running. The SwiftUI task identity must stay
+    // stable until the entire pending set drains; changing it for every inserted
+    // or completed workspace cancels the active prime and strands later SSH workspaces.
+    @Test func backgroundPrimeTaskIdentityStaysStableWhileBurstDrains() {
+        let manager = TabManager()
+        let coordinator = BackgroundWorkspacePrimeCoordinator()
+        let workspaceIds = (0..<22).map { _ in UUID() }
+
+        manager.requestBackgroundWorkspaceLoad(for: workspaceIds[0])
+        let activeTaskIdentity = coordinator.taskKey(for: manager)
+
+        for workspaceId in workspaceIds.dropFirst() {
+            manager.requestBackgroundWorkspaceLoad(for: workspaceId)
+        }
+        #expect(
+            coordinator.taskKey(for: manager) == activeTaskIdentity,
+            "Adding pending SSH workspaces must not cancel the active background-prime drain."
+        )
+
+        for workspaceId in workspaceIds.dropLast() {
+            manager.completeBackgroundWorkspaceLoad(for: workspaceId)
+        }
+        #expect(
+            coordinator.taskKey(for: manager) == activeTaskIdentity,
+            "Completing part of a burst must keep the background-prime task alive for the remaining workspace."
+        )
+
+        manager.completeBackgroundWorkspaceLoad(for: workspaceIds[workspaceIds.count - 1])
+        #expect(
+            coordinator.taskKey(for: manager) != activeTaskIdentity,
+            "The background-prime task identity should change only after all pending work drains."
+        )
+    }
 }
