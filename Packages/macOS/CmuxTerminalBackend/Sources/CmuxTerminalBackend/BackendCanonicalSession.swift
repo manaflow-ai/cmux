@@ -2093,7 +2093,7 @@ public actor BackendCanonicalSession {
 
     private func receive(_ event: BackendServerEvent) async {
         guard connected else { return }
-        if event.name == "overflow" {
+        if event.name == "renderer-lifecycle-overflow" {
             await finish(.topologyStreamFailed("renderer lifecycle stream overflow"))
             return
         }
