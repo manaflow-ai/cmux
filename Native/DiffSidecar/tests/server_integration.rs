@@ -84,6 +84,53 @@ fn rpc_keeps_one_process_alive_for_multiple_requests() {
 }
 
 #[test]
+fn rpc_process_exits_when_its_response_pipe_closes() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-diff-sidecar-closed-output-test-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&root).expect("create root");
+    #[cfg(unix)]
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
+        .expect("secure root permissions");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-diff-sidecar"))
+        .arg("rpc")
+        .arg("--root")
+        .arg(&root)
+        .arg("--cmux")
+        .arg(env!("CARGO_BIN_EXE_diff-sidecar-test-host"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("start sidecar");
+    drop(child.stdout.take());
+    let mut stdin = child.stdin.take().expect("sidecar stdin");
+    stdin
+        .write_all(b"{\"id\":\"probe\",\"version\":1,\"method\":\"protocolHandshake\"}\n")
+        .expect("write request");
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("poll sidecar") {
+            break Some(status);
+        }
+        if std::time::Instant::now() >= deadline {
+            break None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+    if status.is_none() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    assert!(status.is_some(), "closed response pipe must terminate the RPC process");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn rpc_returns_typed_failure_for_malformed_request() {
     let output = run_stdio_rpc(br#"{"id": "unclosed"#);
     assert!(output.status.success());

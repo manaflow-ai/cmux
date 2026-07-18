@@ -61,6 +61,25 @@ import Testing
         ))
     }
 
+    @Test func browserNavigationOwnershipCanBeValidatedBeforeSessionRegistration() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: DiffViewerLoadingPage.url,
+            renderInitialNavigation: false
+        )
+        defer { panel.close() }
+        let operationID = panel.beginDiffViewerLoadingOperation()
+
+        #expect(panel.canAcceptCLINavigation(
+            expectedURL: DiffViewerLoadingPage.url.absoluteString,
+            expectedOperationID: operationID
+        ))
+        #expect(!panel.canAcceptCLINavigation(
+            expectedURL: DiffViewerLoadingPage.url.absoluteString,
+            expectedOperationID: UUID()
+        ))
+    }
+
     @Test func commandPaletteFingerprintChangesWithKeyboardShortcutRevision() {
         let first = ContentView.commandPaletteCommandsFingerprint(
             snapshotFingerprint: 11,
