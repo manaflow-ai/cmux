@@ -609,14 +609,7 @@ impl Mux {
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
     ) -> anyhow::Result<Arc<Self>> {
         let snapshot = registry.snapshot()?;
-        let next_id = snapshot
-            .workspaces
-            .iter()
-            .map(|workspace| workspace.id)
-            .max()
-            .unwrap_or(0)
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("workspace id space exhausted"))?;
+        let next_id = snapshot.next_numeric_id;
         let workspaces = snapshot
             .workspaces
             .into_iter()
@@ -2140,7 +2133,7 @@ impl Mux {
                     "op": "new-workspace",
                     "workspace": ws_id,
                     "key": workspace_key.clone(),
-                    "name": name.clone(),
+                    "name": name,
                 }),
                 None,
                 None,
@@ -2157,7 +2150,7 @@ impl Mux {
                 Err(error) => {
                     drop(state);
                     drop(registry);
-                    self.discard_spawned(vec![surface.clone()]);
+                    self.discard_spawned(vec![surface]);
                     return Err(error);
                 }
             };
@@ -2283,7 +2276,7 @@ impl Mux {
             });
             let result = serde_json::json!({
                 "workspace": ws_id,
-                "key": key.clone(),
+                "key": key,
                 "index": index,
             });
             let commit = registry.commit(
@@ -2391,7 +2384,7 @@ impl Mux {
                         "op": "run-new-workspace",
                         "workspace": ws_id,
                         "key": workspace_key.clone(),
-                        "name": workspace_name.clone(),
+                        "name": workspace_name,
                     }),
                     None,
                     None,
@@ -2408,7 +2401,7 @@ impl Mux {
                     Err(error) => {
                         drop(state);
                         drop(registry);
-                        self.discard_spawned(vec![surface.clone()]);
+                        self.discard_spawned(vec![surface]);
                         return Err(error);
                     }
                 };
@@ -2973,7 +2966,7 @@ impl Mux {
                         "op": "new-browser-workspace",
                         "workspace": ws_id,
                         "key": workspace_key.clone(),
-                        "name": name.clone(),
+                        "name": name,
                     }),
                     None,
                     None,
@@ -2990,7 +2983,7 @@ impl Mux {
                     Err(error) => {
                         drop(state);
                         drop(registry);
-                        self.discard_spawned(vec![surface.clone()]);
+                        self.discard_spawned(vec![surface]);
                         return Err(error);
                     }
                 };
@@ -3801,7 +3794,7 @@ impl Mux {
             "op": "rename-workspace",
             "workspace": target,
             "key": requested_key,
-            "name": name.clone(),
+            "name": name,
         });
         let notifications = self.surface_notifications();
         let mut registry = self.workspace_registry.lock().unwrap();
@@ -7299,6 +7292,40 @@ mod tests {
             assert!(state.workspaces.iter().all(|workspace| workspace.screens.is_empty()));
         });
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn concurrent_workspace_commits_publish_in_exact_revision_order() {
+        let mux = test_mux();
+        let events = mux.subscribe();
+        let mut workers = Vec::new();
+        for index in 0..16 {
+            let mux = mux.clone();
+            workers.push(std::thread::spawn(move || {
+                mux.create_empty_workspace(
+                    Some(format!("workspace-{index}")),
+                    Some(format!("stable-{index}")),
+                    None,
+                )
+                .unwrap()
+            }));
+        }
+        let mut committed =
+            workers.into_iter().map(|worker| worker.join().unwrap().revision).collect::<Vec<_>>();
+        committed.sort_unstable();
+        assert_eq!(committed, (1..=16).collect::<Vec<_>>());
+
+        let published = (1..=16)
+            .map(|_| match events.recv().unwrap() {
+                MuxEvent::TreeDelta(delta) => delta.workspace_revision.unwrap(),
+                event => panic!("unexpected event: {event:?}"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(published, (1..=16).collect::<Vec<_>>());
+        mux.with_state(|state| {
+            assert_eq!(state.workspace_revision, 16);
+            assert_eq!(state.workspaces.len(), 16);
+        });
     }
 
     #[test]

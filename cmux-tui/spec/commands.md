@@ -138,6 +138,30 @@ Frontends report their grid after a surface becomes visible and whenever that vi
 
 ## Implemented Commands
 
+### Durable workspace mutation envelope
+
+`create-workspace`, `rename-workspace`, `move-workspace`, and
+`close-workspace` accept the following additive fields:
+
+| Name | JSON type | Required/default | Meaning |
+| --- | --- | --- | --- |
+| `origin` | `string` | paired with `mutation_id` | Stable frontend/profile identity |
+| `mutation_id` | `string` | paired with `origin` | Stable UUID/id reused for every retry of one logical mutation |
+| `expected_generation` | `string` | optional | Compare-and-swap guard for the daemon boot UUID |
+| `expected_revision` | `uint64` | optional | Compare-and-swap guard for the ordered workspace registry |
+
+The server durably records `(origin, mutation_id)`, the logical request
+fingerprint, original result, and committed revision. Duplicate lookup occurs
+before generation/revision guards and before resolving a live workspace. A
+lost-response retry therefore returns the original result with
+`replayed:true`, including after a successful close has tombstoned the key or
+after the daemon has restarted. Reusing the same mutation identity for a
+different logical payload is an error. Guards are not part of the fingerprint.
+
+Workspace mutation results add `registry_id`, `generation`,
+`workspace_revision`, `replayed`, stable `key`, and the compatibility numeric
+`workspace` id. Canonical frontend state must use `key`, not the numeric id.
+
 ### identify
 
 | Field | Value |
@@ -153,7 +177,7 @@ Params: none.
 Result:
 
 ```text
-object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32}
+object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,registry_id:string,generation:string,workspace_revision:uint64}
 ```
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
@@ -443,7 +467,11 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Returns the full workspace, screen, pane, tab, and split-tree snapshot. The snapshot includes the ordered workspace registry revision, each workspace's stable key, active flags, active pane ids, active tab indexes, tab titles, tab names, surface kinds, browser source, size, and dead flags.
+Returns the full workspace, screen, pane, tab, and split-tree snapshot. The
+snapshot includes `registry_id`, the current boot `generation`, the durable
+`workspace_revision`, and every empty canonical workspace. It also includes
+active flags, active pane ids, active tab indexes, tab titles, tab names,
+surface kinds, browser source, size, and dead flags.
 
 Params: none.
 
@@ -475,6 +503,36 @@ Example:
 {"id":2,"cmd":"list-workspaces"}
 {"id":2,"ok":true,"data":{"workspace_revision":1,"workspaces":[{"id":4,"key":"6ba7b810-9dad-41d1-80b4-00c04fd430c8","name":"1","active":true,"screens":[{"id":3,"name":null,"active":true,"active_pane":2,"layout":{"type":"leaf","pane":2},"panes":[{"id":2,"name":null,"active_tab":0,"focused_at":1,"tabs":[{"surface":1,"kind":"pty","browser_source":null,"name":null,"title":"","size":{"cols":80,"rows":24},"dead":false}]}]}]}]}}
 ```
+
+### get-frontend-projection / put-frontend-projection
+
+| Field | Value |
+| --- | --- |
+| names | `get-frontend-projection`, `put-frontend-projection` |
+| status | implemented |
+| since | protocol 7 |
+
+Stores one opaque, schema-versioned frontend layout document per
+`(frontend, scope, subject_key)`. The browser convention is
+`frontend:"cmux-browser"`, `scope:"window-group"`, with a stable
+profile/window-group identity in `subject_key`.
+
+`put-frontend-projection` additionally requires `schema_version`, a JSON
+`projection`, optional `expected_projection_revision`, and `origin` plus
+`mutation_id`. It uses its own exactly-once ledger and projection CAS; it does
+not advance `workspace_revision`. A projection may contain browser columns,
+splits, web tabs, focus, and terminal placement keyed by canonical workspace
+UUID. It must not duplicate workspace existence, name, order, or group
+membership.
+
+Result:
+
+```text
+object{frontend:string,scope:string,subject_key:string,schema_version:uint32,projection_revision:uint64,projection:any,replayed?:bool}
+```
+
+Missing projections return revision/schema `0` and `projection:null`.
+Documents larger than 1 MiB are rejected.
 
 ### export-layout
 
@@ -883,20 +941,23 @@ Requires the `workspace-registry-v1` capability. Clients must not send this comm
 | status | implemented |
 | since | protocol 7 |
 
-Adds an empty workspace to the ordered registry and makes it active. The caller may provide a stable key or let the mux generate one. `expected_revision` provides compare-and-swap protection against concurrent registry mutations.
+Creates a canonical ordered workspace without implicitly spawning a terminal,
+pane, or screen. This is the preferred GUI workflow: commit the shared
+workspace first, then create browser-only layout or a terminal inside its
+stable `key`.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `name` | `string` | default null | Defaults to the next 1-based workspace count |
-| `key` | `string` | default generated UUID | Must be non-empty and unique |
-| `expected_revision` | `uint64` | default null | Must equal the current registry revision when supplied |
+| `key` | `string` | default generated UUID | Must be non-empty and never previously used |
+| mutation fields | see [common envelope](#durable-workspace-mutation-envelope) | optional | Exactly-once retry and CAS |
 
 Result:
 
 ```text
-object{workspace:Id,key:string,index:uint64,workspace_revision:uint64}
+object{workspace:Id,key:string,index:usize,workspace_revision:uint64,replayed:bool,registry_id:string,generation:string}
 ```
 
 Errors include `workspace key cannot be empty`, `workspace key already exists: <key>`, `workspace revision conflict: expected <n>, current <n>`, and malformed request errors.
@@ -908,6 +969,10 @@ Example:
 {"id":9,"ok":true,"data":{"workspace":12,"key":"ops-stable","index":1,"workspace_revision":2}}
 ```
 
+The server retains tombstones indefinitely; a closed `key` cannot be reused.
+The last terminal exiting never closes this workspace. Only
+`close-workspace` removes it from the live registry.
+
 ### create-terminal
 
 Requires the `workspace-registry-v1` capability. Clients must not send this command to a server that omits the capability.
@@ -918,7 +983,10 @@ Requires the `workspace-registry-v1` capability. Clients must not send this comm
 | status | implemented |
 | since | protocol 7 |
 
-Creates a PTY terminal in an existing workspace selected by stable `key` or numeric `workspace` id. An empty workspace receives its first screen and pane; a populated workspace receives a new active tab in its active pane. `argv` executes directly, while `command` executes through the default shell.
+Creates a PTY tab in the workspace selected by stable `key` or compatibility
+numeric `workspace`. An empty workspace is materialized in place with its
+first screen and pane; no workspace revision is advanced. `argv` executes
+directly, while `command` executes through the default shell.
 
 Params:
 
@@ -1491,20 +1559,24 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Closes a workspace and every screen, pane, and tab in it. The workspace may be selected by stable key or numeric id. The active workspace selection is adjusted to keep a remaining workspace active when possible. `expected_revision` provides compare-and-swap protection against concurrent registry mutations. Stable-key selection, revision CAS, and the mutation result require `workspace-registry-v1`; the legacy numeric-id form remains available without it.
+Explicitly tombstones a workspace and closes every screen, pane, and tab in
+it. Terminal/pane exit alone never invokes this operation. The active
+workspace selection is adjusted to keep a remaining workspace active when
+possible. The workspace may be selected by stable key or numeric id, and the
+common mutation envelope provides revision CAS and exactly-once retries.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `workspace` | `Id` | required unless `key` is supplied | Must identify a live workspace |
-| `key` | `string` | required unless `workspace` is supplied | Must match `workspace` when both are supplied |
-| `expected_revision` | `uint64` | default null | Must equal the current registry revision when supplied |
+| `workspace` | `Id` | one of id/key | Must identify a live workspace |
+| `key` | `string` | one of id/key | Stable workspace identity |
+| mutation fields | see common envelope | optional | Exactly-once retry and CAS |
 
 Result:
 
 ```text
-object{workspace:Id,key:string,workspace_revision:uint64}
+object{workspace:Id,key:string,index:usize,workspace_revision:uint64,changed:bool,replayed:bool,registry_id:string,generation:string}
 ```
 
 Errors:
@@ -1689,15 +1761,15 @@ Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `workspace` | `Id` | required unless `key` is supplied | Must identify a live workspace |
-| `key` | `string` | required unless `workspace` is supplied | Must match `workspace` when both are supplied |
+| `workspace` | `Id` | one of id/key | Must identify a live workspace |
+| `key` | `string` | one of id/key | Stable workspace identity |
 | `name` | `string` | required | Empty string is stored |
-| `expected_revision` | `uint64` | default null | Must equal the current registry revision when supplied |
+| mutation fields | see common envelope | optional | Exactly-once retry and CAS |
 
 Result:
 
 ```text
-object{workspace:Id,key:string,workspace_revision:uint64}
+object{workspace:Id,key:string,index:usize,workspace_revision:uint64,changed:bool,replayed:bool,registry_id:string,generation:string}
 ```
 
 Errors:
@@ -2052,21 +2124,26 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Moves an existing workspace to zero-based insertion `index`. The workspace may be selected by stable key or numeric id. The destination is clamped to the last workspace after removing the source, so moving right produces a final index one less than the requested insertion index. Moving a workspace to its current position is an `ok:true` no-op that preserves the current revision. `expected_revision` provides compare-and-swap protection against concurrent registry mutations. Stable-key selection, revision CAS, and the mutation result require `workspace-registry-v1`; the legacy numeric-id form remains available without it.
+Moves an existing workspace to zero-based insertion `index`. The destination
+is clamped to the last workspace after removing the source, so moving right
+produces a final index one less than the requested insertion index. A
+same-position request is
+serialized as a valid mutation with `changed:false`, giving retries one stable
+result and revision.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `workspace` | `Id` | required unless `key` is supplied | Workspace to move |
-| `key` | `string` | required unless `workspace` is supplied | Must match `workspace` when both are supplied |
-| `index` | `usize` | required | Zero-based insertion index |
-| `expected_revision` | `uint64` | default null | Must equal the current registry revision when supplied |
+| `workspace` | `Id` | one of id/key | Workspace to move |
+| `key` | `string` | one of id/key | Stable workspace identity |
+| `index` | `usize` | required | Zero-based destination index |
+| mutation fields | see common envelope | optional | Exactly-once retry and CAS |
 
 Result:
 
 ```text
-object{workspace:Id,key:string,workspace_revision:uint64}
+object{workspace:Id,key:string,index:usize,workspace_revision:uint64,changed:bool,replayed:bool,registry_id:string,generation:string}
 ```
 
 Errors:

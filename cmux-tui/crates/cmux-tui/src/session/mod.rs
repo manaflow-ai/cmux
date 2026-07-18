@@ -767,7 +767,7 @@ impl Session {
     pub fn close_workspace(&self, workspace: WorkspaceId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.close_workspace(workspace);
+                mux.close_workspace_at_revision(workspace, None)?;
                 Ok(())
             }
             Session::Remote(remote) => remote
@@ -791,7 +791,7 @@ impl Session {
     pub fn rename_workspace(&self, workspace: WorkspaceId, name: String) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.rename_workspace(workspace, name);
+                mux.rename_workspace_at_revision(workspace, name, None)?;
                 Ok(())
             }
             Session::Remote(remote) => remote
@@ -882,7 +882,7 @@ impl Session {
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.move_workspace(workspace, index);
+                mux.move_workspace_at_revision(workspace, index, None)?;
                 Ok(())
             }
             Session::Remote(remote) => remote
