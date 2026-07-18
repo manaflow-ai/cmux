@@ -41,6 +41,7 @@ public final class WorkstreamStore {
     private let clock: @Sendable () -> Date
     private let titleProvider: (WorkstreamEvent) -> String?
     private var oldestLoadedPersistenceOffset: UInt64?
+    private var telemetryItemIdByRequestIdentity: [StableRequestIdentity: UUID] = [:]
 
     /// Last known conversational context for each workstream. Tool hooks
     /// usually arrive without the surrounding user prompt, so the store
@@ -82,6 +83,7 @@ public final class WorkstreamStore {
                 hasMorePersistedItems = page.hasMoreBefore
                 oldestLoadedPersistenceOffset = page.startOffset
                 rebuildContextIndex()
+                rebuildRequestIdentityIndex()
             }
         }
         do {
@@ -123,6 +125,7 @@ public final class WorkstreamStore {
         self.oldestLoadedPersistenceOffset = page.startOffset ?? oldestLoadedPersistenceOffset
         hasMorePersistedItems = page.hasMoreBefore
         rebuildContextIndex()
+        rebuildRequestIdentityIndex()
     }
 
     // MARK: - Ingest
@@ -130,8 +133,13 @@ public final class WorkstreamStore {
     /// Applies an inbound wire frame. Creates or updates a
     /// `WorkstreamItem`, enforces the ring-buffer cap, and appends to
     /// the JSONL log.
-    public func ingest(_ event: WorkstreamEvent) {
+    @discardableResult
+    public func ingest(_ event: WorkstreamEvent) -> UUID {
         let item = makeItem(from: event)
+        if let identity = stableRequestIdentity(for: item),
+           let existingId = telemetryItemIdByRequestIdentity[identity] {
+            return existingId
+        }
         insert(item)
         updateContextIndex(with: item)
         if let persistence {
@@ -139,6 +147,7 @@ public final class WorkstreamStore {
                 try? await persistence.append(item)
             }
         }
+        return item.id
     }
 
     // MARK: - Actions
@@ -187,9 +196,45 @@ public final class WorkstreamStore {
 
     private func insert(_ item: WorkstreamItem) {
         items.append(item)
+        if let identity = stableRequestIdentity(for: item) {
+            telemetryItemIdByRequestIdentity[identity] = item.id
+        }
         if items.count > ringCapacity {
             let overflow = items.count - ringCapacity
+            let evicted = items.prefix(overflow)
             items.removeFirst(overflow)
+            for item in evicted {
+                guard let identity = stableRequestIdentity(for: item),
+                      telemetryItemIdByRequestIdentity[identity] == item.id
+                else { continue }
+                telemetryItemIdByRequestIdentity.removeValue(forKey: identity)
+            }
+        }
+    }
+
+    /// Replayed telemetry is safe to collapse because it has no waiter or
+    /// user decision attached. Actionable events intentionally remain
+    /// one-item-per-delivery so their blocking reply lifecycle is unchanged.
+    private func stableRequestIdentity(for item: WorkstreamItem) -> StableRequestIdentity? {
+        guard !item.kind.isActionable,
+              let requestId = item.requestId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !requestId.isEmpty
+        else { return nil }
+        return StableRequestIdentity(
+            source: item.source.rawValue,
+            workstreamId: item.workstreamId,
+            kind: item.kind.rawValue,
+            requestId: requestId
+        )
+    }
+
+    private func rebuildRequestIdentityIndex() {
+        telemetryItemIdByRequestIdentity.removeAll(keepingCapacity: true)
+        for item in items {
+            guard let identity = stableRequestIdentity(for: item),
+                  telemetryItemIdByRequestIdentity[identity] == nil
+            else { continue }
+            telemetryItemIdByRequestIdentity[identity] = item.id
         }
     }
 
@@ -215,6 +260,7 @@ public final class WorkstreamStore {
             workstreamId: event.sessionId,
             source: source,
             kind: kind,
+            requestId: event.requestId,
             createdAt: event.receivedAt,
             updatedAt: event.receivedAt,
             cwd: event.cwd,
@@ -224,6 +270,13 @@ public final class WorkstreamStore {
             context: context(for: event, payload: payload),
             ppid: event.ppid
         )
+    }
+
+    private struct StableRequestIdentity: Hashable {
+        let source: String
+        let workstreamId: String
+        let kind: String
+        let requestId: String
     }
 
     /// Marks every pending item with `ppid` as `.expired`. Meant to

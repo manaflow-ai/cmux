@@ -12,7 +12,29 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
     let subcommand: String
     let payload: Data
     let socketPath: String
-    let environment: [String: String]
+    let durableEnvironment: [String: String]
+    let ephemeralEnvironment: [String: String]
+
+    var environment: [String: String] {
+        durableEnvironment.merging(
+            ephemeralEnvironment,
+            uniquingKeysWith: { _, ephemeralValue in ephemeralValue }
+        )
+    }
+
+    private static let lifecycleSubcommands: Set<String> = [
+        "session-start", "prompt-submit", "stop",
+        "pre-tool-use", "post-tool-use", "notification",
+    ]
+
+    private static let feedEvents: Set<String> = [
+        "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact",
+        "PostCompact", "SubagentStart", "SubagentStop",
+    ]
+
+    static var supportedSubcommands: Set<String> {
+        lifecycleSubcommands.union(feedEvents.map { "feed:\($0)" })
+    }
 
     /// Events for one terminal surface must retain lifecycle order. Independent
     /// surfaces may drain concurrently without changing observable semantics.
@@ -20,7 +42,7 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
         Self.orderingKey(
             deliveryID: deliveryID,
             socketPath: socketPath,
-            environment: environment
+            environment: durableEnvironment
         )
     }
 
@@ -51,9 +73,9 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
         Self.hash(Data(agent.utf8), into: &hasher)
         Self.hash(Data(subcommand.utf8), into: &hasher)
         Self.hash(payload, into: &hasher)
-        for key in environment.keys.sorted() {
+        for key in durableEnvironment.keys.sorted() {
             Self.hash(Data(key.utf8), into: &hasher)
-            Self.hash(Data((environment[key] ?? "").utf8), into: &hasher)
+            Self.hash(Data((durableEnvironment[key] ?? "").utf8), into: &hasher)
         }
         return Data(hasher.finalize())
     }
@@ -66,14 +88,11 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
               let agent = params["agent"] as? String,
               agent == "codex",
               let subcommand = params["subcommand"] as? String,
-              [
-                  "session-start", "prompt-submit", "stop",
-                  "pre-tool-use", "post-tool-use", "notification",
-              ].contains(subcommand),
+              Self.supportedSubcommands.contains(subcommand),
               let payload = Self.decodePayload(params),
               payload.count <= Self.maximumPayloadBytes,
-              let environment = Self.decodeEnvironment(params),
-              let socketPath = environment["CMUX_SOCKET_PATH"],
+              let partitionedEnvironment = Self.decodeEnvironment(params),
+              let socketPath = partitionedEnvironment.durable["CMUX_SOCKET_PATH"],
               !socketPath.isEmpty,
               socketPath.utf8.count <= 4_096 else {
             return nil
@@ -84,7 +103,8 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
         self.subcommand = subcommand
         self.payload = payload
         self.socketPath = socketPath
-        self.environment = environment
+        self.durableEnvironment = partitionedEnvironment.durable
+        self.ephemeralEnvironment = partitionedEnvironment.ephemeral
     }
 
     private static func decodePayload(_ params: [String: Any]) -> Data? {
@@ -107,7 +127,9 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
         return nil
     }
 
-    private static func decodeEnvironment(_ params: [String: Any]) -> [String: String]? {
+    private static func decodeEnvironment(
+        _ params: [String: Any]
+    ) -> AgentHookTransportEnvironment? {
         let environment: [String: String]
         if let encoded = params["environment_b64"] as? String {
             guard encoded.utf8.count <= ((maximumEnvironmentBytes + 2) / 3) * 4 + 4,
@@ -135,8 +157,7 @@ nonisolated struct AgentHookDeliveryEvent: Sendable {
         // Unknown variables are ignored rather than rejecting the whole hook:
         // the native sender deliberately forwards its ambient environment so
         // this shared policy remains the sole admission source of truth.
-        return AgentHookTransportEnvironmentPolicy().selectedEnvironment(from: environment)
-            .filter { !$0.value.isEmpty }
+        return AgentHookTransportEnvironmentPolicy().partitionedEnvironment(from: environment)
     }
 
     private static func decodeNULTuples(_ data: Data) -> [String: String]? {

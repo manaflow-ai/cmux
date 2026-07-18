@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CryptoKit
 import Foundation
 
 extension CMUXCLI {
@@ -16,6 +17,22 @@ extension CMUXCLI {
         ("PostToolUse", "post-tool-use", 10000),
         ("PermissionRequest", "notification", 120000),
     ]
+
+    static let codexFeedTelemetryEvents = [
+        "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact",
+        "PostCompact", "SubagentStart", "SubagentStop",
+    ]
+
+    static func codexFeedDeliverySubcommand(agentEvent: String) -> String {
+        "feed:\(agentEvent)"
+    }
+
+    static func codexHookCanUseQueuedAdmission(_ subcommand: String) -> Bool {
+        codexWrapperInjectionEvents.contains(where: { $0.cmuxSubcommand == subcommand })
+            || codexFeedTelemetryEvents.contains(where: {
+                codexFeedDeliverySubcommand(agentEvent: $0) == subcommand
+            })
+    }
 
     /// Emit, NUL-separated to stdout, the exact codex arg list the wrapper must
     /// splice ahead of the user's args to enable + inject cmux's fire-and-forget
@@ -105,23 +122,30 @@ extension CMUXCLI {
     /// runtimes that exec the configured command path directly. Returning nil
     /// preserves the portable shell implementation as the compatibility path.
     static func writeCodexHookClient(subcommand: String, in dir: URL) -> String? {
-        guard codexWrapperInjectionEvents.contains(where: { $0.cmuxSubcommand == subcommand }),
+        guard codexHookCanUseQueuedAdmission(subcommand),
               let source = codexHookClientSourceURL() else {
             return nil
         }
         let safeName = subcommand.replacingOccurrences(
             of: "[^A-Za-z0-9_-]", with: "-", options: .regularExpression
         )
-        // This native-only namespace cannot be overwritten by an older cmux
-        // that still generates shell wrappers at cmux-codex-hook-*.sh.
-        let target = dir.appendingPathComponent("cmux-codex-native-hook-\(safeName)", isDirectory: false)
         let fileManager = FileManager.default
+        guard let executable = try? Data(contentsOf: source, options: [.mappedIfSafe]) else {
+            return nil
+        }
+        let digest = codexHookContentDigest(executable)
+        // Immutable, content-addressed paths let tagged, nightly, and stable
+        // builds coexist without changing a helper already referenced by a
+        // running Codex process.
+        let target = dir.appendingPathComponent(
+            "cmux-codex-native-hook-\(safeName)-\(digest)",
+            isDirectory: false
+        )
         if fileManager.contentsEqual(atPath: source.path, andPath: target.path) {
             try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: target.path)
             return target.path
         }
         do {
-            let executable = try Data(contentsOf: source, options: [.mappedIfSafe])
             try executable.write(to: target, options: [.atomic])
             try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: target.path)
             return target.path
@@ -177,8 +201,13 @@ extension CMUXCLI {
         let safeName = subcommand.replacingOccurrences(
             of: "[^A-Za-z0-9_-]", with: "-", options: .regularExpression
         )
-        let url = dir.appendingPathComponent("cmux-codex-portable-hook-\(safeName).sh", isDirectory: false)
         let contents = "#!/bin/sh\n\(body)\n"
+        guard let contentsData = contents.data(using: .utf8) else { return nil }
+        let digest = codexHookContentDigest(contentsData)
+        let url = dir.appendingPathComponent(
+            "cmux-codex-portable-hook-\(safeName)-\(digest).sh",
+            isDirectory: false
+        )
         let fileManager = FileManager.default
         if let existing = try? String(contentsOf: url, encoding: .utf8), existing == contents {
             // Ensure it stays executable, then reuse.
@@ -186,12 +215,16 @@ extension CMUXCLI {
             return url.path
         }
         do {
-            try contents.data(using: .utf8)?.write(to: url, options: .atomic)
+            try contentsData.write(to: url, options: .atomic)
             try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
             return url.path
         } catch {
             return nil
         }
+    }
+
+    private static func codexHookContentDigest(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     static func codexQueuedAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
@@ -205,13 +238,21 @@ extension CMUXCLI {
             "agent_pid=\"${CMUX_CODEX_PID:-${PPID:-}}\"",
             "export CMUX_CODEX_PID=\"$agent_pid\"",
             "delivery_id=\"${CMUX_AGENT_HOOK_DELIVERY_ID:-codex-${agent_pid:-unknown}-\(subcommand)-$$-${RANDOM:-0}-${RANDOM:-0}}\"",
-            "if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then payload=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-codex-portable.XXXXXX\" 2>/dev/null || mktemp -t cmux-codex-portable 2>/dev/null)\" || payload=''; if [ -n \"$payload\" ]; then /bin/cat >\"$payload\" || true; ( if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then CMUX_CODEX_PID=\"$agent_pid\" CMUX_AGENT_HOOK_DELIVERY_ID=\"$delivery_id\" CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP=1 \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(fallbackArguments) <\"$payload\" >/dev/null 2>&1 & else CMUX_CODEX_PID=\"$agent_pid\" CMUX_AGENT_HOOK_DELIVERY_ID=\"$delivery_id\" CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP=1 \"$cmux_cli\" \(fallbackArguments) <\"$payload\" >/dev/null 2>&1 & fi; child=$!; ( /bin/sleep 2; /bin/kill -TERM -- \"-$child\" 2>/dev/null || true; /bin/kill -TERM \"$child\" 2>/dev/null || true; /bin/sleep 0.05; /bin/kill -KILL -- \"-$child\" 2>/dev/null || true; /bin/kill -KILL \"$child\" 2>/dev/null || true ) & watchdog=$!; wait \"$child\" 2>/dev/null || true; /bin/kill \"$watchdog\" 2>/dev/null || true; wait \"$watchdog\" 2>/dev/null || true; /bin/rm -f \"$payload\" ) </dev/null >/dev/null 2>&1 & echo '{}'; else /bin/cat >/dev/null 2>&1 || true; echo '{}'; fi; else /bin/cat >/dev/null 2>&1 || true; echo '{}'; fi",
+            "if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then payload=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-codex-portable.XXXXXX\" 2>/dev/null || mktemp -t cmux-codex-portable 2>/dev/null)\" || payload=''; if [ -n \"$payload\" ]; then /bin/cat >\"$payload\" || true; ( if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then CMUX_CODEX_PID=\"$agent_pid\" CMUX_AGENT_HOOK_DELIVERY_ID=\"$delivery_id\" CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP=1 \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(fallbackArguments) <\"$payload\" >/dev/null 2>&1 & else CMUX_CODEX_PID=\"$agent_pid\" CMUX_AGENT_HOOK_DELIVERY_ID=\"$delivery_id\" CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP=1 \"$cmux_cli\" \(fallbackArguments) <\"$payload\" >/dev/null 2>&1 & fi; child=$!; attempts=0; while /bin/kill -0 \"$child\" 2>/dev/null && [ \"$attempts\" -lt 40 ]; do /bin/sleep 0.05; attempts=$((attempts + 1)); done; if /bin/kill -0 \"$child\" 2>/dev/null; then /bin/kill -TERM -- \"-$child\" 2>/dev/null || true; /bin/kill -TERM \"$child\" 2>/dev/null || true; /bin/sleep 0.05; /bin/kill -KILL -- \"-$child\" 2>/dev/null || true; /bin/kill -KILL \"$child\" 2>/dev/null || true; fi; wait \"$child\" 2>/dev/null || true; /bin/rm -f \"$payload\" ) </dev/null >/dev/null 2>&1 & echo '{}'; else /bin/cat >/dev/null 2>&1 || true; echo '{}'; fi; else /bin/cat >/dev/null 2>&1 || true; echo '{}'; fi",
         ].joined(separator: "; ")
     }
 
     func enqueueCodexWrapperHook(commandArgs: [String], client: SocketClient) throws {
-        guard let subcommand = commandArgs.first?.lowercased(),
-              Set(Self.codexWrapperInjectionEvents.map { $0.cmuxSubcommand }).contains(subcommand) else {
+        guard let requestedSubcommand = commandArgs.first else {
+            throw CLIError(message: String(
+                localized: "cli.hooks.codex.enqueue.usage",
+                defaultValue: "Usage: cmux hooks codex enqueue <session-start|prompt-submit|stop|pre-tool-use|post-tool-use|notification>"
+            ))
+        }
+        let subcommand = requestedSubcommand.hasPrefix("feed:")
+            ? requestedSubcommand
+            : requestedSubcommand.lowercased()
+        guard Self.codexHookCanUseQueuedAdmission(subcommand) else {
             throw CLIError(message: String(
                 localized: "cli.hooks.codex.enqueue.usage",
                 defaultValue: "Usage: cmux hooks codex enqueue <session-start|prompt-submit|stop|pre-tool-use|post-tool-use|notification>"

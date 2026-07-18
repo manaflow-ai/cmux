@@ -8,6 +8,33 @@ nonisolated private let agentHookDeliveryLogger = Logger(
     category: "AgentHookDelivery"
 )
 
+private final class AgentHookEphemeralEnvironmentStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var environments: [String: [String: String]] = [:]
+
+    func replace(_ environment: [String: String], for deliveryID: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        if environment.isEmpty {
+            environments.removeValue(forKey: deliveryID)
+        } else {
+            environments[deliveryID] = environment
+        }
+    }
+
+    func environment(for deliveryID: String) -> [String: String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return environments[deliveryID] ?? [:]
+    }
+
+    func remove(deliveryID: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        environments.removeValue(forKey: deliveryID)
+    }
+}
+
 /// Commits wrapper hooks to a local WAL before acknowledgement, then delivers
 /// them through bounded per-surface lanes. The WAL survives app-process
 /// crashes; SQLite keeps it consistent across a machine crash.
@@ -44,6 +71,7 @@ actor AgentHookDeliveryQueue {
     // synchronous so the socket cannot acknowledge before the committed insert.
     nonisolated(unsafe) private let database: OpaquePointer?
     nonisolated private let databaseInitializationError: String?
+    nonisolated private let ephemeralEnvironmentStore = AgentHookEphemeralEnvironmentStore()
     private let executableURLProvider: @Sendable () -> URL?
     private let processTimeout: TimeInterval
     private let terminationGrace: TimeInterval
@@ -116,7 +144,7 @@ actor AgentHookDeliveryQueue {
             )
         }
         let environmentData = try JSONSerialization.data(
-            withJSONObject: event.environment,
+            withJSONObject: event.durableEnvironment,
             options: [.sortedKeys]
         )
         let now = Date().timeIntervalSince1970
@@ -164,6 +192,15 @@ actor AgentHookDeliveryQueue {
                 "Delivery ID \(event.deliveryID) was reused for different hook contents.",
                 code: 2
             )
+        }
+
+        if try Self.storedDeliveryIsPending(for: event.deliveryID, database: database) {
+            ephemeralEnvironmentStore.replace(
+                event.ephemeralEnvironment,
+                for: event.deliveryID
+            )
+        } else {
+            ephemeralEnvironmentStore.remove(deliveryID: event.deliveryID)
         }
 
         agentHookDeliveryLogger.debug("Accepted hook \(event.deliveryID, privacy: .public)")
@@ -340,6 +377,7 @@ actor AgentHookDeliveryQueue {
         let delivery = completion.delivery
         if completion.succeeded {
             try markDelivered(sequence: delivery.sequence, database: database)
+            ephemeralEnvironmentStore.remove(deliveryID: delivery.deliveryID)
             deliveredSinceReceiptCleanup += 1
             if deliveredSinceReceiptCleanup >= 128 {
                 try deleteExpiredReceipts(database: database)
@@ -614,10 +652,19 @@ actor AgentHookDeliveryQueue {
 
         let process = Process()
         process.executableURL = executableURL
-        process.arguments = [
-            "--socket", socketPath,
-            "hooks", agent, subcommand,
-        ]
+        if let feedEvent = Self.codexFeedEvent(from: subcommand) {
+            process.arguments = [
+                "--socket", socketPath,
+                "hooks", "feed", "--source", agent, "--event", feedEvent,
+            ]
+        } else if Self.isCodexLifecycleSubcommand(subcommand) {
+            process.arguments = [
+                "--socket", socketPath,
+                "hooks", agent, subcommand,
+            ]
+        } else {
+            return (false, "Stored hook delivery target is unsupported.")
+        }
         let ambientEnvironment = ProcessInfo.processInfo.environment
         var environment: [String: String] = [:]
         for key in ["HOME", "LANG", "LC_ALL", "LC_CTYPE", "LOGNAME", "PATH", "SHELL", "TMPDIR", "USER"] {
@@ -626,6 +673,10 @@ actor AgentHookDeliveryQueue {
             }
         }
         environment.merge(eventEnvironment, uniquingKeysWith: { _, eventValue in eventValue })
+        environment.merge(
+            ephemeralEnvironmentStore.environment(for: deliveryID),
+            uniquingKeysWith: { _, ephemeralValue in ephemeralValue }
+        )
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLED_CLI_PATH"] = executableURL.path
         environment["CMUX_AGENT_HOOK_DELIVERY_ID"] = deliveryID
@@ -666,6 +717,19 @@ actor AgentHookDeliveryQueue {
             return (false, "Bundled cmux CLI exited with status \(outcome.status).\(stderr)")
         }
         return (true, nil)
+    }
+
+    private nonisolated static func codexFeedEvent(from subcommand: String) -> String? {
+        guard subcommand.hasPrefix("feed:"), supportedSubcommand(subcommand) else { return nil }
+        return String(subcommand.dropFirst("feed:".count))
+    }
+
+    private nonisolated static func isCodexLifecycleSubcommand(_ subcommand: String) -> Bool {
+        !subcommand.hasPrefix("feed:") && supportedSubcommand(subcommand)
+    }
+
+    private nonisolated static func supportedSubcommand(_ subcommand: String) -> Bool {
+        AgentHookDeliveryEvent.supportedSubcommands.contains(subcommand)
     }
 
     private func waitForExitOrTimeout(
@@ -1004,6 +1068,33 @@ actor AgentHookDeliveryQueue {
         if status == SQLITE_DONE { return nil }
         guard status == SQLITE_ROW else { throw sqliteFailure(status, operation: "read duplicate check") }
         return columnData(statement, at: 0)
+    }
+
+    private nonisolated static func storedDeliveryIsPending(
+        for deliveryID: String,
+        database: OpaquePointer
+    ) throws -> Bool {
+        var statement: OpaquePointer?
+        var status = sqlite3_prepare_v2(
+            database,
+            "SELECT delivered_at IS NULL FROM agent_hook_deliveries WHERE delivery_id = ? LIMIT 1;",
+            -1,
+            &statement,
+            nil
+        )
+        guard status == SQLITE_OK else {
+            throw sqliteFailure(status, operation: "prepare pending delivery check")
+        }
+        defer { sqlite3_finalize(statement) }
+        status = bind(deliveryID, to: statement, at: 1)
+        guard status == SQLITE_OK else {
+            throw sqliteFailure(status, operation: "bind pending delivery check")
+        }
+        status = sqlite3_step(statement)
+        guard status == SQLITE_ROW else {
+            throw sqliteFailure(status, operation: "read pending delivery check")
+        }
+        return sqlite3_column_int(statement, 0) != 0
     }
 
     private nonisolated static func anonymousFile(containing data: Data, near databaseURL: URL) throws -> FileHandle {

@@ -337,21 +337,61 @@ fi
 if [[ -n "$cmux_codex_resume_sid" ]]; then
     cmux_codex_resume_payload="{\"session_id\":\"$cmux_codex_resume_sid\"}"
     cmux_codex_resume_delivery_id="codex-resume-${CMUX_CODEX_PID:-unknown}-$$-${RANDOM:-0}-${RANDOM:-0}"
-    cmux_codex_resume_hook="${HOME:-$PWD}/.cmux/hooks/cmux-codex-native-hook-session-start"
-    if [[ -x "$cmux_codex_resume_hook" ]]; then
+    # Reuse the exact SessionStart command emitted for this invocation. Helper
+    # paths are content-addressed, so reconstructing a stable filename here
+    # would let another tagged/stable cmux version redirect this resume event.
+    cmux_codex_resume_hook=""
+    cmux_codex_command_marker="command='''"
+    cmux_codex_command_end="'''"
+    for cmux_codex_arg in "${cmux_codex_injected_args[@]}"; do
+        case "$cmux_codex_arg" in
+            hooks.SessionStart=*)
+                cmux_codex_candidate="${cmux_codex_arg#*"$cmux_codex_command_marker"}"
+                if [[ "$cmux_codex_candidate" != "$cmux_codex_arg" ]]; then
+                    cmux_codex_resume_hook="${cmux_codex_candidate%%"$cmux_codex_command_end"*}"
+                fi
+                ;;
+        esac
+    done
+    if [[ -n "$cmux_codex_resume_hook" && -x "$cmux_codex_resume_hook" ]]; then
         printf '%s' "$cmux_codex_resume_payload" \
             | CMUX_AGENT_HOOK_DELIVERY_ID="$cmux_codex_resume_delivery_id" \
                 "$cmux_codex_resume_hook" >/dev/null 2>&1 || true
+    elif [[ -n "$cmux_codex_resume_hook" ]]; then
+        printf '%s' "$cmux_codex_resume_payload" \
+            | CMUX_AGENT_HOOK_DELIVERY_ID="$cmux_codex_resume_delivery_id" \
+                /bin/sh -c "$cmux_codex_resume_hook" >/dev/null 2>&1 || true
     elif [[ -n "$CMUX_CODEX_HOOK_CMUX_BIN" && -x "$CMUX_CODEX_HOOK_CMUX_BIN" ]]; then
-        if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
-            ( printf '%s' "$cmux_codex_resume_payload" \
-                | CMUX_AGENT_HOOK_DELIVERY_ID="$cmux_codex_resume_delivery_id" \
-                    "$CMUX_CODEX_HOOK_CMUX_BIN" --socket "$CMUX_SOCKET_PATH" hooks codex enqueue session-start >/dev/null 2>&1 ) &
-        else
-            ( printf '%s' "$cmux_codex_resume_payload" \
-                | CMUX_AGENT_HOOK_DELIVERY_ID="$cmux_codex_resume_delivery_id" \
-                    "$CMUX_CODEX_HOOK_CMUX_BIN" hooks codex enqueue session-start >/dev/null 2>&1 ) &
-        fi
+        # Rolling-upgrade fallback for an older CLI that did not expose its
+        # generated command. The CLI consumes the process-group marker before
+        # dispatch, so the deadline reaps the whole fallback tree.
+        ( if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
+              printf '%s' "$cmux_codex_resume_payload" \
+                  | CMUX_AGENT_HOOK_DELIVERY_ID="$cmux_codex_resume_delivery_id" \
+                    CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP=1 \
+                    "$CMUX_CODEX_HOOK_CMUX_BIN" --socket "$CMUX_SOCKET_PATH" hooks codex enqueue session-start >/dev/null 2>&1 &
+          else
+              printf '%s' "$cmux_codex_resume_payload" \
+                  | CMUX_AGENT_HOOK_DELIVERY_ID="$cmux_codex_resume_delivery_id" \
+                    CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP=1 \
+                    "$CMUX_CODEX_HOOK_CMUX_BIN" hooks codex enqueue session-start >/dev/null 2>&1 &
+          fi
+          cmux_codex_resume_child=$!
+          cmux_codex_resume_attempts=0
+          while /bin/kill -0 "$cmux_codex_resume_child" 2>/dev/null \
+              && (( cmux_codex_resume_attempts < 40 )); do
+              /bin/sleep 0.05
+              (( cmux_codex_resume_attempts += 1 ))
+          done
+          if /bin/kill -0 "$cmux_codex_resume_child" 2>/dev/null; then
+              /bin/kill -TERM -- "-$cmux_codex_resume_child" 2>/dev/null || true
+              /bin/kill -TERM "$cmux_codex_resume_child" 2>/dev/null || true
+              /bin/sleep 0.05
+              /bin/kill -KILL -- "-$cmux_codex_resume_child" 2>/dev/null || true
+              /bin/kill -KILL "$cmux_codex_resume_child" 2>/dev/null || true
+          fi
+          wait "$cmux_codex_resume_child" 2>/dev/null || true
+        ) </dev/null >/dev/null 2>&1 &
         disown 2>/dev/null || true
     fi
 fi

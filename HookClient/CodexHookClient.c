@@ -203,6 +203,25 @@ static char *cmux_base64_encode(const unsigned char *input, size_t count) {
     return output;
 }
 
+static bool cmux_hook_filename_suffix_is_valid(const char *suffix) {
+    if (suffix[0] == '\0' || strcmp(suffix, ".sh") == 0) {
+        return true;
+    }
+    if (suffix[0] != '-') {
+        return false;
+    }
+
+    suffix += 1;
+    size_t hash_count = 0;
+    while (isxdigit((unsigned char)suffix[hash_count])) {
+        hash_count += 1;
+    }
+    if (hash_count < 8) {
+        return false;
+    }
+    return suffix[hash_count] == '\0' || strcmp(suffix + hash_count, ".sh") == 0;
+}
+
 static const char *cmux_hook_subcommand(const char *executable_path) {
     const char *name = strrchr(executable_path, '/');
     name = name == NULL ? executable_path : name + 1;
@@ -216,20 +235,30 @@ static const char *cmux_hook_subcommand(const char *executable_path) {
         return NULL;
     }
 
-    static const char *const subcommands[] = {
-        "session-start",
-        "prompt-submit",
-        "stop",
-        "pre-tool-use",
-        "post-tool-use",
-        "notification",
-        NULL,
+    static const struct {
+        const char *filename_tag;
+        const char *subcommand;
+    } hooks[] = {
+        {"session-start", "session-start"},
+        {"prompt-submit", "prompt-submit"},
+        {"stop", "stop"},
+        {"pre-tool-use", "pre-tool-use"},
+        {"post-tool-use", "post-tool-use"},
+        {"notification", "notification"},
+        {"feed-PreToolUse", "feed:PreToolUse"},
+        {"feed-PermissionRequest", "feed:PermissionRequest"},
+        {"feed-PostToolUse", "feed:PostToolUse"},
+        {"feed-PreCompact", "feed:PreCompact"},
+        {"feed-PostCompact", "feed:PostCompact"},
+        {"feed-SubagentStart", "feed:SubagentStart"},
+        {"feed-SubagentStop", "feed:SubagentStop"},
+        {NULL, NULL},
     };
-    for (size_t index = 0; subcommands[index] != NULL; index += 1) {
-        const size_t length = strlen(subcommands[index]);
-        if (strncmp(name, subcommands[index], length) == 0
-            && (name[length] == '\0' || strcmp(name + length, ".sh") == 0)) {
-            return subcommands[index];
+    for (size_t index = 0; hooks[index].filename_tag != NULL; index += 1) {
+        const size_t length = strlen(hooks[index].filename_tag);
+        if (strncmp(name, hooks[index].filename_tag, length) == 0
+            && cmux_hook_filename_suffix_is_valid(name + length)) {
+            return hooks[index].subcommand;
         }
     }
     return NULL;
@@ -415,6 +444,13 @@ static bool cmux_wait_for_socket(int socket_fd, short events, int64_t deadline) 
     }
 }
 
+static bool cmux_socket_peer_matches_uid(int socket_fd, uid_t expected_uid) {
+    uid_t peer_uid = 0;
+    gid_t peer_gid = 0;
+    return getpeereid(socket_fd, &peer_uid, &peer_gid) == 0
+        && peer_uid == expected_uid;
+}
+
 static int cmux_connect_unix_socket(const char *path, int64_t deadline) {
     if (path == NULL || path[0] != '/') {
         return -1;
@@ -458,6 +494,10 @@ static int cmux_connect_unix_socket(const char *path, int64_t deadline) {
             close(socket_fd);
             return -1;
         }
+    }
+    if (!cmux_socket_peer_matches_uid(socket_fd, geteuid())) {
+        close(socket_fd);
+        return -1;
     }
     return socket_fd;
 }

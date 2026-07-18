@@ -36,6 +36,10 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
     public let workstreamId: String
     public let source: WorkstreamSource
     public let kind: WorkstreamKind
+    /// Stable identity supplied by the emitting hook. Telemetry replays use
+    /// this value to reuse the original item instead of appending a duplicate.
+    /// Older persisted rows decode this optional field as `nil`.
+    public let requestId: String?
     public let createdAt: Date
     public var updatedAt: Date
     public var cwd: String?
@@ -55,6 +59,7 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
         workstreamId: String,
         source: WorkstreamSource,
         kind: WorkstreamKind,
+        requestId: String? = nil,
         createdAt: Date = Date(),
         updatedAt: Date? = nil,
         cwd: String? = nil,
@@ -68,6 +73,7 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
         self.workstreamId = workstreamId
         self.source = source
         self.kind = kind
+        self.requestId = requestId
         self.createdAt = createdAt
         self.updatedAt = updatedAt ?? createdAt
         self.cwd = cwd

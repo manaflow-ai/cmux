@@ -31852,7 +31852,10 @@ export default CMUXSessionRestore;
             hookEventName: hookEventName,
             promptText: promptText
         )
-        event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
+        let deliveryId = ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_DELIVERY_ID"]
+            .flatMap { $0.isEmpty ? nil : $0 }
+        event["_opencode_request_id"] = deliveryId
+            ?? "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
 
         let frame: [String: Any] = [
             "method": "feed.push",
@@ -33897,9 +33900,17 @@ export default CMUXSessionRestore;
             hookEventName: hookEventName,
             promptText: promptText
         )
-        let requestId = stdinObj["_opencode_request_id"] as? String
+        let payloadRequestId = stdinObj["_opencode_request_id"] as? String
             ?? firstString(in: stdinObj, keys: ["request_id", "tool_use_id", "toolUseID"])
-            ?? "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date().timeIntervalSince1970 * 1000))"
+        let generatedRequestId = "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date().timeIntervalSince1970 * 1000))"
+        let requestId: String
+        if isActionable {
+            requestId = payloadRequestId ?? generatedRequestId
+        } else {
+            let deliveryId = env["CMUX_AGENT_HOOK_DELIVERY_ID"]
+                .flatMap { $0.isEmpty ? nil : $0 }
+            requestId = deliveryId ?? payloadRequestId ?? generatedRequestId
+        }
         eventDict["_opencode_request_id"] = requestId
 
         // Sync. For actionable events we block up to 120s waiting

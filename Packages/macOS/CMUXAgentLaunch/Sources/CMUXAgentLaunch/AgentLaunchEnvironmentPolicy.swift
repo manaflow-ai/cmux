@@ -256,8 +256,25 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
     }
 }
 
-/// Selects the routing and auto-naming inputs that may cross the durable agent
-/// hook queue. This is the shared admission policy for the native sender, the
+/// Environment captured with one hook admission. Durable values are safe to
+/// persist for crash recovery; credential-bearing values exist only in memory
+/// for retries in the current app process.
+public struct AgentHookTransportEnvironment: Sendable, Equatable {
+    public let durable: [String: String]
+    public let ephemeral: [String: String]
+
+    public init(durable: [String: String], ephemeral: [String: String]) {
+        self.durable = durable
+        self.ephemeral = ephemeral
+    }
+
+    public var merged: [String: String] {
+        durable.merging(ephemeral, uniquingKeysWith: { _, ephemeralValue in ephemeralValue })
+    }
+}
+
+/// Selects the routing and auto-naming inputs that may cross the agent-hook
+/// boundary. This is the shared admission policy for the native sender, the
 /// portable CLI fallback, and the app-side decoder.
 public struct AgentHookTransportEnvironmentPolicy: Sendable {
     public init() {}
@@ -266,7 +283,6 @@ public struct AgentHookTransportEnvironmentPolicy: Sendable {
         "HOME", "PATH", "PWD", "TMPDIR", "TMP", "TEMP",
         "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "LC_CTYPE",
         "CODEX_HOME",
-        "CMUX_AGENT_HOOK_DELIVERY_ID",
         "CMUX_AGENT_HOOK_STATE_DIR",
         "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
         "CMUX_AGENT_LAUNCH_ARGV_B64",
@@ -291,31 +307,73 @@ public struct AgentHookTransportEnvironmentPolicy: Sendable {
         "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
     ]
 
+    private static let durableCredentialLocatorKeys: Set<String> = [
+        "AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+    ]
+
     /// Provider families intentionally accepted here are narrowed again by the
     /// selected summarizer's existing environment policy before execution.
     private static let autoNamingPrefixes = [
-        "ANTHROPIC_", "AWS_", "CLOUD_ML_", "GCLOUD_", "GOOGLE_", "OPENAI_",
+        "ANTHROPIC_", "AWS_", "CLOUD_ML_", "GCLOUD_", "GEMINI_", "GOOGLE_",
+        "OPENAI_", "OPENROUTER_", "XAI_",
     ]
 
-    public func selectedEnvironment(from environment: [String: String]) -> [String: String] {
+    /// Generic provider adapters use these conventional names even when cmux
+    /// does not know the provider prefix ahead of time.
+    private static let autoNamingSuffixes = [
+        "_ACCESS_TOKEN", "_API_KEY", "_AUTH_TOKEN", "_CLIENT_SECRET",
+        "_API_URL", "_BASE_URL", "_MODEL",
+    ]
+
+    private static let credentialFragments = [
+        "ACCESS_KEY", "ACCESS_TOKEN", "API_KEY", "AUTH_TOKEN", "CLIENT_SECRET", "PASSWORD",
+        "PRIVATE_KEY", "SECRET", "SESSION_TOKEN",
+    ]
+
+    public func partitionedEnvironment(
+        from environment: [String: String]
+    ) -> AgentHookTransportEnvironment {
         let launchPolicy = AgentLaunchEnvironmentPolicy()
         let replaySafeKeys = AgentLaunchEnvironmentPolicy.replaySafeEnvironmentKeys
-        var selected: [String: String] = [:]
-        selected.reserveCapacity(environment.count)
+        var durable: [String: String] = [:]
+        var ephemeral: [String: String] = [:]
+        durable.reserveCapacity(environment.count)
+        ephemeral.reserveCapacity(8)
         for (key, value) in environment {
+            let selectedValue: String
             if replaySafeKeys.contains(key) {
-                if let sanitized = launchPolicy.sanitizedValue(key: key, value: value) {
-                    selected[key] = sanitized
+                guard let sanitized = launchPolicy.sanitizedValue(key: key, value: value) else {
+                    continue
                 }
-                continue
+                selectedValue = sanitized
+            } else {
+                guard Self.coreKeys.contains(key)
+                    || Self.autoNamingExactKeys.contains(key)
+                    || Self.autoNamingPrefixes.contains(where: key.hasPrefix)
+                    || Self.autoNamingSuffixes.contains(where: key.hasSuffix)
+                else {
+                    continue
+                }
+                selectedValue = value
             }
-            if Self.coreKeys.contains(key)
-                || Self.autoNamingExactKeys.contains(key)
-                || Self.autoNamingPrefixes.contains(where: key.hasPrefix)
-            {
-                selected[key] = value
+            guard !selectedValue.isEmpty else { continue }
+            if Self.isCredentialBearing(key) {
+                ephemeral[key] = selectedValue
+            } else {
+                durable[key] = selectedValue
             }
         }
-        return selected
+        return AgentHookTransportEnvironment(durable: durable, ephemeral: ephemeral)
+    }
+
+    public func selectedEnvironment(from environment: [String: String]) -> [String: String] {
+        partitionedEnvironment(from: environment).merged
+    }
+
+    private static func isCredentialBearing(_ key: String) -> Bool {
+        if durableCredentialLocatorKeys.contains(key) { return false }
+        let normalized = key.uppercased()
+        return credentialFragments.contains(where: normalized.contains)
     }
 }

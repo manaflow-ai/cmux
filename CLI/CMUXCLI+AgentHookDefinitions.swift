@@ -192,6 +192,14 @@ extension CMUXCLI {
     }
 
     static func feedHookCommandString(for def: AgentHookDef, agentEvent: String) -> String {
+        if def.name == "codex", codexFeedTelemetryEvents.contains(agentEvent) {
+            let deliverySubcommand = codexFeedDeliverySubcommand(agentEvent: agentEvent)
+            let queued = codexQueuedAgentHookShellCommand(
+                "cmux hooks codex \(deliverySubcommand)",
+                for: def
+            )
+            return codexPersistentHookScriptCommand(queued, eventTag: deliverySubcommand)
+        }
         let inline: String
         let noOpCommand = feedHookNoOpShellCommand(for: def, agentEvent: agentEvent)
         switch def.format {
@@ -207,9 +215,6 @@ extension CMUXCLI {
                 for: def,
                 noOpCommand: noOpCommand
             )
-        }
-        if def.name == "codex" {
-            return codexPersistentHookScriptCommand(inline, eventTag: "feed-\(agentEvent)")
         }
         return inline
     }
@@ -448,6 +453,7 @@ extension CMUXCLI {
         let subcommands = codexWrapperInjectionEvents.map { $0.cmuxSubcommand }
         let generatedTags = subcommands
             + subcommands.map { "persistent-\($0)" }
+            + def.feedHookEvents.map { "feed-\($0)" }
             + def.feedHookEvents.map { "persistent-feed-\($0)" }
         for tag in generatedTags {
             if name == "cmux-codex-native-hook-\(tag)"
@@ -457,10 +463,15 @@ extension CMUXCLI {
                 return true
             }
             for prefix in [
+                "cmux-codex-native-hook-\(tag)-",
                 "cmux-codex-portable-hook-\(tag)-",
                 "cmux-codex-hook-\(tag)-",
-            ] where name.hasPrefix(prefix) && name.hasSuffix(".sh") {
-                let hash = name.dropFirst(prefix.count).dropLast(".sh".count)
+            ] where name.hasPrefix(prefix) {
+                let hasShellExtension = name.hasSuffix(".sh")
+                if prefix.contains("native") == hasShellExtension { continue }
+                let hash = name
+                    .dropFirst(prefix.count)
+                    .dropLast(hasShellExtension ? ".sh".count : 0)
                 if hash.count >= 8, hash.allSatisfy(\.isHexDigit) {
                     return true
                 }
