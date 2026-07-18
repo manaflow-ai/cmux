@@ -263,19 +263,22 @@ import Testing
         let runtime = FakeTerminalExternalRuntime()
         runtime.snapshot = makeRuntimeSnapshot(accessibility: snapshot)
         weak var weakBridge: TerminalFrontendAccessibilityBridge?
-        let retainedChild: NSAccessibilityElement
-
-        do {
-            let view = TerminalFrontendInteractionView(runtime: runtime)
-            weakBridge = view.accessibilityBridge
-            let window = mount(view)
-            retainedChild = try #require(
-                view.accessibilityChildren()?.first as? NSAccessibilityElement
-            )
-            window.contentView = nil
+        var view: TerminalFrontendInteractionView? = TerminalFrontendInteractionView(
+            runtime: runtime
+        )
+        var window: NSWindow?
+        var retainedChild: NSAccessibilityElement?
+        if let mountedView = view {
+            weakBridge = mountedView.accessibilityBridge
+            window = mount(mountedView)
+            retainedChild = mountedView.accessibilityChildren()?.first as? NSAccessibilityElement
         }
+        window?.contentView = nil
+        view = nil
+        window = nil
 
         #expect(weakBridge == nil)
+        let retainedChild = try #require(retainedChild)
         #expect(retainedChild.accessibilityParent() == nil)
         #expect(!retainedChild.accessibilityPerformPress())
         #expect(runtime.accessibilityLinkActivations.isEmpty)
