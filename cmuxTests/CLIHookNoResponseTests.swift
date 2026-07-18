@@ -749,6 +749,78 @@ struct CLIHookNoResponseTests {
         }
     }
 
+    @Test func nativeCodexAdmissionDoesNotCreateMissingOutboxAuthority() throws {
+        let cliPath = try Self.bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-native-missing-outbox-authority-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
+        let hooksDirectory = root.appendingPathComponent(".cmux/hooks", isDirectory: true)
+        let outboxDirectory = root.appendingPathComponent("hook-outbox", isDirectory: true)
+        let fallbackCLI = root.appendingPathComponent("cmux-missing-authority-fallback", isDirectory: false)
+        let fallbackPayload = root.appendingPathComponent("fallback-payload.json", isDirectory: false)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outboxDirectory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: outboxDirectory.path)
+        try makeCodexHookExecutableShellFile(at: fallbackCLI, lines: [
+            "#!/bin/sh",
+            "/bin/cat > \"$CMUX_TEST_MISSING_AUTHORITY_PAYLOAD\"",
+        ])
+        let capability = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0x63, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test.missing-outbox-authority"
+        ).issueCapability()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let inject = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-args"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(inject.status == 0, Comment(rawValue: inject.stderr))
+        let hookPath = try #require(
+            FileManager.default
+                .contentsOfDirectory(at: hooksDirectory, includingPropertiesForKeys: nil)
+                .first { $0.lastPathComponent.hasPrefix("cmux-codex-native-hook-session-start-") }
+        )
+
+        let payload = #"{"session_id":"missing-authority","hook_event_name":"SessionStart"}"#
+        let started = ContinuousClock().now
+        let result = runCodexHookProcess(
+            executablePath: hookPath.path,
+            arguments: [],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SURFACE_ID": "missing-outbox-authority",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-native-missing-authority.sock",
+                "CMUX_SOCKET_CAPABILITY": capability,
+                "CMUX_AGENT_HOOK_OUTBOX_CAPABILITY": capability,
+                "CMUX_AGENT_HOOK_ENQUEUE_V1": "1",
+                "CMUX_AGENT_HOOK_OUTBOX_DIR": outboxDirectory.path,
+                "CMUX_BUNDLED_CLI_PATH": fallbackCLI.path,
+                "CMUX_CODEX_PID": "4343",
+                "CMUX_AGENT_HOOK_DELIVERY_ID": "native-missing-outbox-authority",
+                "CMUX_TEST_MISSING_AUTHORITY_PAYLOAD": fallbackPayload.path,
+            ],
+            standardInput: payload,
+            timeout: 0.5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        #expect(started.duration(to: .now) < .seconds(0.15))
+        #expect(waitForCondition(timeout: 2) {
+            FileManager.default.fileExists(atPath: fallbackPayload.path)
+        })
+        #expect(try String(contentsOf: fallbackPayload, encoding: .utf8) == payload)
+        #expect(Self.outboxReadyMarkers(at: outboxDirectory).isEmpty)
+        #expect(!FileManager.default.fileExists(
+            atPath: outboxDirectory.appendingPathComponent(".quota-v1").path
+        ))
+    }
+
     @Test func nativeCodexAdmissionStaysInstantAcrossSixtyFourUnacknowledgedHooks() throws {
         let cliPath = try Self.bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
