@@ -1211,8 +1211,6 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
-        case "feed.jump":
-            return v2Result(id: request.id, v2FeedJumpOffMain(params: request.params))
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.navigate", "browser.back", "browser.forward", "browser.reload",
@@ -5646,20 +5644,6 @@ class TerminalController {
             result: FeedCoordinator.shared.socketEncoder.payload(for: result)
         )
         return .ok(FeedCoordinator.shared.socketEncoder.payload(for: result))
-    }
-
-    private nonisolated func v2FeedJumpOffMain(params: [String: Any]) -> V2CallResult {
-        guard let workstreamID = params["workstream_id"] as? String else {
-            return .err(
-                code: "invalid_params",
-                message: "feed.jump requires workstream_id",
-                data: nil
-            )
-        }
-        return .ok([
-            "workstream_id": workstreamID,
-            "matched": FeedCoordinator.shared.resolvePossibleSurface(for: workstreamID),
-        ])
     }
 
     private nonisolated func v2ApplyIMessageModeSideEffects(for event: WorkstreamEvent) {

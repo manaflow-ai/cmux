@@ -19,7 +19,7 @@ public protocol ControlFeedContext: AnyObject {
     ///
     /// - Parameter workstreamID: The caller-supplied `workstream_id`, untrimmed,
     ///   exactly as the legacy body forwarded it.
-    /// - Returns: Whether the id matched a possible surface and focus was queued.
+    /// - Returns: Whether the id matched a surface and navigation completed.
     func controlFeedJump(workstreamID: String) -> Bool
 
     /// Snapshots the workstream feed items for `feed.list`, already shaped as the

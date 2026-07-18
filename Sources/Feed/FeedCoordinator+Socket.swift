@@ -19,24 +19,17 @@ extension FeedCoordinator {
         return (try? await store.removeItem(id: id)) == true
     }
 
-    /// Synchronous socket-only availability probe. Socket handlers execute on
-    /// their worker queue, so this path never performs file I/O on MainActor.
-    ///
-    func resolvePossibleSurface(for workstreamId: String) -> Bool {
-        jumpResolver.resolve(workstreamId) != nil
-    }
-
-    /// Queues the same off-main resolution and main-actor navigation used by
-    /// Feed rows. The synchronous return only reports whether a session target
-    /// exists; the focus itself completes on the task so socket handling never
-    /// blocks on AppKit.
+    /// Runs the same terminal navigation used by Feed rows and returns only
+    /// after the UI route has accepted or rejected the target. `feed.jump` is
+    /// a user-triggered main-actor command, so its response stays ordered after
+    /// the visible focus change instead of acknowledging a queued task.
+    @MainActor
     func requestFocusIfPossible(workstreamId: String) -> Bool {
-        guard resolvePossibleSurface(for: workstreamId) else { return false }
-        Task { [weak self] in
-            guard let self else { return }
-            _ = await focusIfPossible(workstreamId: workstreamId)
-        }
-        return true
+        guard let target = jumpResolver.resolve(workstreamId) else { return false }
+        return AppDelegate.shared?.routeFeedFocus(
+            workspaceId: target.workspaceId,
+            surfaceId: target.surfaceId
+        ) ?? false
     }
 
     /// Fires a best-effort focus for the given `workstreamId`. Returns
