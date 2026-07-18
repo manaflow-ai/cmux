@@ -311,6 +311,52 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(run.status == 0, Comment(rawValue: run.stderr))
     }
 
+    @Test func codexNativeWorkerClosesArbitraryInheritedDescriptors() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-high-fd-\(UUID().uuidString)", isDirectory: true)
+        let harness = root.appendingPathComponent("high-fd-harness.c", isDirectory: false)
+        let executable = root.appendingPathComponent("high-fd-harness", isDirectory: false)
+        let clientSource = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("HookClient/CodexHookClient.c", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = """
+        #define main cmux_hook_client_main
+        #include "\(clientSource.path)"
+        #undef main
+
+        int main(void) {
+            const int base = open("/dev/null", O_RDONLY);
+            if (base < 0) return 10;
+            const int high = fcntl(base, F_DUPFD, 5000);
+            close(base);
+            if (high < 5000) return 11;
+            cmux_close_inherited_worker_descriptors();
+            errno = 0;
+            if (fcntl(high, F_GETFD) != -1 || errno != EBADF) return 12;
+            return 0;
+        }
+        """
+        try Data(source.utf8).write(to: harness, options: .atomic)
+
+        let compile = runCodexHookProcess(
+            executablePath: "/usr/bin/clang",
+            arguments: ["-std=c11", "-Wall", "-Wextra", "-Werror", harness.path, "-o", executable.path],
+            environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+            timeout: 10
+        )
+        #expect(compile.status == 0, Comment(rawValue: compile.stderr))
+        let run = runCodexHookProcess(
+            executablePath: executable.path,
+            arguments: [],
+            environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+            timeout: 2
+        )
+        #expect(run.status == 0, Comment(rawValue: run.stderr))
+    }
+
     @Test func codexNativeClientTerminatesHungFallbackWithinDeadline() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory

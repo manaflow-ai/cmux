@@ -322,7 +322,7 @@ struct CLIHookNoResponseTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
-        #expect(elapsed < .seconds(0.25), "Hook admission took \(elapsed)")
+        #expect(elapsed < .seconds(0.15), "Hook admission took \(elapsed)")
         #expect(waitForCondition(timeout: 1) {
             FileManager.default.fileExists(atPath: fallbackArgs.path)
                 && FileManager.default.fileExists(atPath: leaderPIDFile.path)
@@ -340,6 +340,67 @@ struct CLIHookNoResponseTests {
                 return Darwin.kill(pid, 0) == -1 && errno == ESRCH
             })
         }
+    }
+
+    @Test func nativeCodexAdmissionUsesBoundedEmergencyFallbackWhenForkFails() throws {
+        let cliPath = try Self.bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-native-fork-failure-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
+        let hooksDirectory = root.appendingPathComponent(".cmux/hooks", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux-emergency-fallback", isDirectory: false)
+        let capturedArgs = root.appendingPathComponent("emergency-args.txt", isDirectory: false)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let inject = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-args"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(inject.status == 0, Comment(rawValue: inject.stderr))
+        let hookPath = try #require(
+            FileManager.default
+                .contentsOfDirectory(at: hooksDirectory, includingPropertiesForKeys: nil)
+                .first { $0.lastPathComponent.hasPrefix("cmux-codex-native-hook-session-start-") }
+        )
+        try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "/bin/sleep 0.02",
+            "printf '%s' \"$*\" > \"$CMUX_TEST_EMERGENCY_ARGS\"",
+        ])
+
+        let started = ContinuousClock().now
+        let result = runCodexHookProcess(
+            executablePath: hookPath.path,
+            arguments: [],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-native-forced-fork-failure.sock",
+                "CMUX_SOCKET_CAPABILITY": "test-capability",
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_CODEX_PID": "4242",
+                "CMUX_AGENT_HOOK_DELIVERY_ID": "native-forced-fork-failure",
+                "CMUX_TEST_FORCE_HOOK_FORK_FAILURE": "1",
+                "CMUX_TEST_EMERGENCY_ARGS": capturedArgs.path,
+            ],
+            standardInput: #"{"session_id":"fork-failure","hook_event_name":"SessionStart"}"#,
+            timeout: 0.25
+        )
+        let elapsed = started.duration(to: .now)
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        #expect(elapsed < .seconds(0.15), "Emergency fallback took \(elapsed)")
+        #expect(FileManager.default.fileExists(atPath: capturedArgs.path))
+        #expect(
+            try String(contentsOf: capturedArgs, encoding: .utf8)
+                == "--socket /tmp/cmux-native-forced-fork-failure.sock hooks codex enqueue session-start"
+        )
     }
 
     @Test func nativeCodexAdmissionFallsBackToLegacyCommandForOlderApp() throws {
@@ -451,7 +512,7 @@ struct CLIHookNoResponseTests {
             #expect(!result.timedOut, "\(testCase.tag): \(result.stderr)")
             #expect(result.status == 0, "\(testCase.tag): \(result.stderr)")
             #expect(result.stdout == "{}\n")
-            #expect(elapsed < .seconds(0.25), "\(testCase.tag) took \(elapsed)")
+            #expect(elapsed < .seconds(0.15), "\(testCase.tag) took \(elapsed)")
             #expect(waitForCondition(timeout: 1) {
                 FileManager.default.fileExists(atPath: fallbackArgs.path)
                     && FileManager.default.fileExists(atPath: fallbackInput.path)
