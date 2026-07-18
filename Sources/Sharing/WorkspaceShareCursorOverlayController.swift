@@ -7,27 +7,17 @@ final class WorkspaceShareCursorOverlayController {
     private weak var window: NSWindow?
     private let containerView = PassthroughWindowOverlayContainerView(frame: .zero)
     private let hostingView: NSHostingView<WorkspaceShareCursorOverlayView>
-    private let onSendChat: @MainActor (String) -> Void
-    private lazy var chatHostingView = NSHostingView(rootView: WorkspaceShareChatOverlayView(
-        messages: [],
-        onSend: onSendChat
-    ))
     private let chromeComposition = AppWindowChromeComposition()
     private var installConstraints: [NSLayoutConstraint] = []
-    private var chatInstallConstraints: [NSLayoutConstraint] = []
     private weak var installedReferenceView: NSView?
-    private weak var chatInstalledReferenceView: NSView?
     private var pointersByConnectionID: [String: WorkspaceShareRemotePointer] = [:]
     private var messagesByUserID: [String: String] = [:]
-    private var chatMessages: [WorkspaceShareChatMessage] = []
     private var containerFrame: CGRect = .zero
     private weak var canvasRootView: CanvasRootView?
     private var canvasBounds: CGRect?
-    private var sharingActive = false
 
-    init(window: NSWindow?, onSendChat: @escaping @MainActor (String) -> Void) {
+    init(window: NSWindow?) {
         self.window = window
-        self.onSendChat = onSendChat
         hostingView = NSHostingView(rootView: WorkspaceShareCursorOverlayView(
             pointers: [],
             messagesByUserID: [:],
@@ -57,24 +47,14 @@ final class WorkspaceShareCursorOverlayController {
 
     func update(message: WorkspaceShareChatMessage) {
         messagesByUserID[message.userId] = message.text
-        if !chatMessages.contains(where: { $0.id == message.id }) {
-            chatMessages.append(message)
-            chatMessages = Array(chatMessages.suffix(50))
-        }
         render()
     }
 
     func replaceChat(messages: [WorkspaceShareChatMessage]) {
-        chatMessages = Array(messages.suffix(50))
         messagesByUserID = Dictionary(
-            chatMessages.map { ($0.userId, $0.text) },
+            messages.suffix(50).map { ($0.userId, $0.text) },
             uniquingKeysWith: { _, latest in latest }
         )
-        render()
-    }
-
-    func setSharingActive(_ active: Bool) {
-        sharingActive = active
         render()
     }
 
@@ -99,11 +79,9 @@ final class WorkspaceShareCursorOverlayController {
     func clear() {
         pointersByConnectionID.removeAll()
         messagesByUserID.removeAll()
-        chatMessages.removeAll()
         canvasRootView = nil
         canvasBounds = nil
         containerFrame = .zero
-        sharingActive = false
         render()
     }
 
@@ -112,11 +90,7 @@ final class WorkspaceShareCursorOverlayController {
         NSLayoutConstraint.deactivate(installConstraints)
         installConstraints.removeAll()
         containerView.removeFromSuperview()
-        NSLayoutConstraint.deactivate(chatInstallConstraints)
-        chatInstallConstraints.removeAll()
-        chatHostingView.removeFromSuperview()
         installedReferenceView = nil
-        chatInstalledReferenceView = nil
     }
 
     private func render() {
@@ -127,11 +101,6 @@ final class WorkspaceShareCursorOverlayController {
             containerFrame: resolvedContainerFrame()
         )
         containerView.isHidden = pointersByConnectionID.isEmpty
-        chatHostingView.rootView = WorkspaceShareChatOverlayView(
-            messages: chatMessages,
-            onSend: onSendChat
-        )
-        chatHostingView.isHidden = !sharingActive
     }
 
     @discardableResult
@@ -153,22 +122,6 @@ final class WorkspaceShareCursorOverlayController {
             ]
             NSLayoutConstraint.activate(installConstraints)
             installedReferenceView = target.reference
-        }
-        if sharingActive,
-           chatHostingView.superview !== target.container || chatInstalledReferenceView !== target.reference {
-            NSLayoutConstraint.deactivate(chatInstallConstraints)
-            chatInstallConstraints.removeAll()
-            chatHostingView.removeFromSuperview()
-            chatHostingView.translatesAutoresizingMaskIntoConstraints = false
-            target.container.addSubview(chatHostingView, positioned: .above, relativeTo: target.reference)
-            chatInstallConstraints = [
-                chatHostingView.trailingAnchor.constraint(equalTo: target.reference.trailingAnchor, constant: -14),
-                chatHostingView.bottomAnchor.constraint(equalTo: target.reference.bottomAnchor, constant: -14),
-                chatHostingView.widthAnchor.constraint(equalToConstant: 292),
-                chatHostingView.heightAnchor.constraint(equalToConstant: 230),
-            ]
-            NSLayoutConstraint.activate(chatInstallConstraints)
-            chatInstalledReferenceView = target.reference
         }
         return true
     }

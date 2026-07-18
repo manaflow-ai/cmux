@@ -1,5 +1,6 @@
 import AppKit
 import CmuxWorkspaceShare
+import CmuxWorkspaces
 import Combine
 import Foundation
 
@@ -11,20 +12,32 @@ final class WorkspaceShareHostSession {
     private weak var workspace: Workspace?
     private weak var tabManager: TabManager?
     private let client: WorkspaceShareClient
-    private let promptCoordinator: WorkspaceShareAccessPromptCoordinator
-    private lazy var cursorOverlay = WorkspaceShareCursorOverlayController(
-        window: tabManager?.window,
+    private lazy var cursorOverlay = WorkspaceShareCursorOverlayController(window: tabManager?.window)
+    private lazy var chatModel = WorkspaceShareChatModel(
+        shareURL: session.shareUrl,
+        decisionSender: { [weak self] userID, decision in
+            guard let self else { throw WorkspaceShareError.unavailable }
+            try await self.sendAccessDecision(userID: userID, decision: decision)
+        },
         onSendChat: { [weak self] text in
             guard let self,
                   let payload = try? WorkspaceShareJSONValue.encode(ChatSendPayload(text: text)) else { return }
             Task { @MainActor in await self.send(type: "chat.message", payload: payload) }
+        },
+        onStopSharing: { [weak self] in
+            self?.requestClose()
         }
     )
+    private lazy var chatPanel = WorkspaceShareChatPanel(model: chatModel)
     private let accessTokenProvider: @MainActor @Sendable () async throws -> String
     private let onWorkspaceClosed: @MainActor () -> Void
     private var exporter: WorkspaceShareExporter?
     private var eventTask: Task<Void, Never>?
     private var tabsCancellable: AnyCancellable?
+    private var windowCloseObserver: NSObjectProtocol?
+    private var chatDockID: UUID?
+    private var chatSurfaceStarted = false
+    private var closeRequested = false
     private var stopping = false
 
     init(
@@ -40,7 +53,6 @@ final class WorkspaceShareHostSession {
         self.workspace = workspace
         self.tabManager = tabManager
         self.client = client
-        promptCoordinator = WorkspaceShareAccessPromptCoordinator(window: tabManager.window)
         self.accessTokenProvider = accessTokenProvider
         self.onWorkspaceClosed = onWorkspaceClosed
     }
@@ -49,6 +61,8 @@ final class WorkspaceShareHostSession {
         stopping = false
         let iterator = try await connect(accessToken: accessToken)
         guard let workspace, let tabManager else { throw WorkspaceShareError.unavailable }
+        guard ensureChatDock(focus: true) else { throw WorkspaceShareError.unavailable }
+        chatSurfaceStarted = true
         let exporter = WorkspaceShareExporter(
             workspace: workspace,
             tabManager: tabManager,
@@ -57,30 +71,53 @@ final class WorkspaceShareHostSession {
             await self?.send(type: type, payload: payload)
         }
         self.exporter = exporter
-        cursorOverlay.setSharingActive(true)
         eventTask = Task { @MainActor [weak self] in
             await self?.runEventLoop(initialIterator: iterator)
         }
         tabsCancellable = tabManager.tabsPublisher.sink { [weak self] tabs in
             guard let self, !tabs.contains(where: { $0.id == self.workspaceID }) else { return }
-            self.onWorkspaceClosed()
+            self.requestClose()
+        }
+        if let window = tabManager.window {
+            windowCloseObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.requestClose() }
+            }
         }
         await exporter.start()
+        guard !stopping else { throw WorkspaceShareError.unavailable }
     }
 
     func stop() async {
+        guard !stopping else { return }
         stopping = true
-        // The authenticated host socket revokes the room even when the Stack
-        // account has just changed and a fresh owner bearer is unavailable.
-        try? await client.send(type: "share.end", payload: .object([:]))
         eventTask?.cancel()
         eventTask = nil
         tabsCancellable = nil
+        if let windowCloseObserver {
+            NotificationCenter.default.removeObserver(windowCloseObserver)
+            self.windowCloseObserver = nil
+        }
+        let unresolvedRequests = chatSurfaceStarted ? chatModel.freezeAndDrainPending() : []
+        for request in unresolvedRequests {
+            try? await sendAccessDecision(userID: request.userId, decision: .deny, allowsStopping: true)
+        }
+        // The authenticated host socket revokes the room even when the Stack
+        // account has just changed and a fresh owner bearer is unavailable.
+        try? await client.send(type: "share.end", payload: .object([:]))
         exporter?.stop()
         exporter = nil
-        promptCoordinator.cancelAll()
         cursorOverlay.uninstall()
+        removeChatDock()
         await client.disconnect(reason: "host_closed")
+    }
+
+    func showChat() {
+        guard !stopping else { return }
+        _ = ensureChatDock(focus: true)
     }
 
     private func connect(
@@ -114,7 +151,7 @@ final class WorkspaceShareHostSession {
             }
             guard !Task.isCancelled, !stopping,
                   let reconnected = await reconnectWithinGrace() else {
-                if !Task.isCancelled, !stopping { onWorkspaceClosed() }
+                if !Task.isCancelled, !stopping { requestClose() }
                 return
             }
             iterator = reconnected
@@ -142,14 +179,16 @@ final class WorkspaceShareHostSession {
         switch frame.type {
         case "access.requested":
             guard let request = try? frame.payload.decode(WorkspaceShareAccessRequest.self) else { return }
-            promptCoordinator.enqueue(request) { [weak self] allowed in
-                guard let self else { return }
-                let decision = AccessDecisionPayload(
-                    userId: request.userId,
-                    decision: allowed ? "allow" : "deny"
-                )
-                guard let payload = try? WorkspaceShareJSONValue.encode(decision) else { return }
-                Task { @MainActor in await self.send(type: "access.decision", payload: payload) }
+            switch chatModel.receive(request) {
+            case .queued, .duplicate:
+                chatSurfaceStarted = true
+                showChat()
+            case .deniedOverflow:
+                Task { @MainActor [weak self] in
+                    try? await self?.sendAccessDecision(userID: request.userId, decision: .deny)
+                }
+            case .ignoredAfterStop:
+                break
             }
         case "workspace.snapshot.request":
             await exporter?.sendSnapshot()
@@ -191,12 +230,14 @@ final class WorkspaceShareHostSession {
             exporter?.removeRemotePointer(connectionID: payload.participant.connectionId)
         case "chat.message":
             guard let message = try? frame.payload.decode(WorkspaceShareChatMessage.self) else { return }
+            chatModel.append(message)
             exporter?.updateRemoteChat(message)
         case "chat.snapshot":
             guard let snapshot = try? frame.payload.decode(ChatSnapshotPayload.self) else { return }
+            chatModel.replaceMessages(snapshot.messages)
             cursorOverlay.replaceChat(messages: snapshot.messages)
         case "share.ended":
-            onWorkspaceClosed()
+            requestClose()
         default:
             break
         }
@@ -204,6 +245,76 @@ final class WorkspaceShareHostSession {
 
     private func send(type: String, payload: WorkspaceShareJSONValue) async {
         try? await client.send(type: type, payload: payload)
+    }
+
+    private func sendAccessDecision(
+        userID: String,
+        decision: WorkspaceShareAccessDecision,
+        allowsStopping: Bool = false
+    ) async throws {
+        guard !stopping || allowsStopping else { throw WorkspaceShareError.unavailable }
+        let decision = AccessDecisionPayload(userId: userID, decision: decision.rawValue)
+        let payload = try WorkspaceShareJSONValue.encode(decision)
+        try await client.send(type: "access.decision", payload: payload)
+    }
+
+    @discardableResult
+    private func ensureChatDock(focus: Bool) -> Bool {
+        guard let workspace, let tabManager else { return false }
+        if focus, tabManager.selectedTabId != workspaceID {
+            tabManager.selectTab(workspace)
+        }
+        if let chatDockID,
+           let dock = workspace.floatingDock(id: chatDockID),
+           dock.store.containsPanel(chatPanel.id) {
+            dock.isPresented = true
+            AppDelegate.shared?.refreshWorkspaceFloatingDocks(
+                for: tabManager,
+                focusDockId: focus ? dock.id : nil
+            )
+            return true
+        }
+        if let chatDockID {
+            _ = workspace.closeFloatingDock(id: chatDockID)
+            self.chatDockID = nil
+        }
+        guard let dock = workspace.createFloatingDock(
+            title: String(localized: "workspaceShare.chat.title", defaultValue: "Workspace chat"),
+            isPresented: true,
+            persistence: .transient,
+            closeBehavior: .hide,
+            contentPolicy: .fixed,
+            seedsDefaultNote: false
+        ), dock.store.installRuntimePanel(
+            chatPanel,
+            surfaceKind: SurfaceKind.workspaceShareChat.rawValue,
+            focus: false
+        ) != nil else { return false }
+        chatDockID = dock.id
+        AppDelegate.shared?.refreshWorkspaceFloatingDocks(
+            for: tabManager,
+            focusDockId: focus ? dock.id : nil
+        )
+        return true
+    }
+
+    private func removeChatDock() {
+        guard let workspace, let chatDockID else { return }
+        _ = workspace.closeFloatingDock(id: chatDockID)
+        self.chatDockID = nil
+        if let tabManager {
+            AppDelegate.shared?.refreshWorkspaceFloatingDocks(for: tabManager)
+        }
+    }
+
+    private func requestClose() {
+        guard !closeRequested else { return }
+        closeRequested = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.stop()
+            self.onWorkspaceClosed()
+        }
     }
 }
 

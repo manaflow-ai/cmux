@@ -9,7 +9,7 @@ struct WorkspaceShareCursorOverlayView: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             ForEach(pointers) { pointer in
-                let color = Self.color(index: pointer.participant.color)
+                let color = WorkspaceShareParticipantColor.color(index: pointer.participant.color)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .top, spacing: 0) {
                         WorkspaceShareCursorGlyph(color: color)
@@ -48,23 +48,6 @@ struct WorkspaceShareCursorOverlayView: View {
         .allowsHitTesting(false)
     }
 
-    private static func color(index: Int) -> Color {
-        let palette: [Color] = [
-            Color(red: 1, green: 0.36, blue: 0.48),
-            Color(red: 0.31, green: 0.89, blue: 0.76),
-            Color(red: 0.49, green: 0.55, blue: 1),
-            Color(red: 1, green: 0.74, blue: 0.29),
-            Color(red: 0.83, green: 0.47, blue: 1),
-            Color(red: 0.33, green: 0.72, blue: 1),
-            Color(red: 1, green: 0.5, blue: 0.31),
-            Color(red: 0.41, green: 0.83, blue: 0.43),
-            Color(red: 0.97, green: 0.42, blue: 0.83),
-            Color(red: 0.19, green: 0.84, blue: 0.93),
-            Color(red: 0.84, green: 0.85, blue: 0.3),
-            Color(red: 0.67, green: 0.57, blue: 1),
-        ]
-        return palette[abs(index) % palette.count]
-    }
 }
 
 private struct WorkspaceShareCursorGlyph: View {
@@ -109,100 +92,5 @@ private struct WorkspaceShareCursorGlyph: View {
             }
         }
         return path
-    }
-}
-
-struct WorkspaceShareChatOverlayView: View {
-    let messages: [WorkspaceShareChatMessage]
-    let onSend: @MainActor (String) -> Void
-
-    @State private var draft = ""
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Image(systemName: "bubble.left.and.bubble.right.fill")
-                    .foregroundStyle(.secondary)
-                Text(String(localized: "workspaceShare.chat.title", defaultValue: "Workspace chat"))
-                    .font(.system(size: 11, weight: .semibold))
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 11)
-            .frame(height: 34)
-
-            Divider()
-
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 9) {
-                    ForEach(messages, id: \.id) { message in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(message.displayName)
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(Self.color(index: message.color))
-                            Text(message.text)
-                                .font(.system(size: 11))
-                                .foregroundStyle(.primary)
-                                .textSelection(.enabled)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-                .padding(10)
-            }
-
-            Divider()
-
-            HStack(spacing: 6) {
-                TextField(
-                    String(localized: "workspaceShare.chat.placeholder", defaultValue: "Message everyone"),
-                    text: $draft
-                )
-                .textFieldStyle(.plain)
-                .font(.system(size: 11))
-                .onSubmit(send)
-
-                Button(action: send) {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 10, weight: .bold))
-                        .frame(width: 20, height: 20)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .help(String(localized: "workspaceShare.chat.send", defaultValue: "Send"))
-            }
-            .padding(8)
-        }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.white.opacity(0.14), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
-    }
-
-    private func send() {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        onSend(String(text.prefix(500)))
-        draft = ""
-    }
-
-    private static func color(index: Int) -> Color {
-        let palette: [Color] = [
-            Color(red: 1, green: 0.36, blue: 0.48),
-            Color(red: 0.31, green: 0.89, blue: 0.76),
-            Color(red: 0.49, green: 0.55, blue: 1),
-            Color(red: 1, green: 0.74, blue: 0.29),
-            Color(red: 0.83, green: 0.47, blue: 1),
-            Color(red: 0.33, green: 0.72, blue: 1),
-            Color(red: 1, green: 0.5, blue: 0.31),
-            Color(red: 0.41, green: 0.83, blue: 0.43),
-            Color(red: 0.97, green: 0.42, blue: 0.83),
-            Color(red: 0.19, green: 0.84, blue: 0.93),
-            Color(red: 0.84, green: 0.85, blue: 0.3),
-            Color(red: 0.67, green: 0.57, blue: 1),
-        ]
-        return palette[Int(index.magnitude % UInt(palette.count))]
     }
 }

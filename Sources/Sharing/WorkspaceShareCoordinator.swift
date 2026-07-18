@@ -43,7 +43,7 @@ final class WorkspaceShareCoordinator {
 
     func share(workspaceID: UUID, tabManager: TabManager) {
         if let activeSession, activeSession.workspaceID == workspaceID {
-            showShareReady(activeSession, in: tabManager.window)
+            activeSession.showChat()
             return
         }
         startTask?.cancel()
@@ -119,7 +119,6 @@ final class WorkspaceShareCoordinator {
             }
             activeSession = hostSession
             activeOwnerUserID = ownerUserID
-            showShareReady(hostSession, in: tabManager.window)
         } catch {
             guard !Task.isCancelled else { return }
             showError(in: tabManager.window)
@@ -140,51 +139,6 @@ final class WorkspaceShareCoordinator {
         guard revokeRoom,
               let accessToken = try? await auth.accessToken() else { return }
         try? await apiClient.end(session.session, accessToken: accessToken)
-    }
-
-    private func showShareReady(_ hostSession: WorkspaceShareHostSession, in window: NSWindow?) {
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = String(
-            localized: "workspaceShare.ready.title",
-            defaultValue: "Workspace sharing is live"
-        )
-        let format = String(
-            localized: "workspaceShare.ready.message",
-            defaultValue: "Share this authenticated link. cmux will ask before allowing each person.\n\n%@"
-        )
-        alert.informativeText = String(format: format, hostSession.session.shareUrl.absoluteString)
-        alert.addButton(withTitle: String(
-            localized: "workspaceShare.ready.copy",
-            defaultValue: "Copy Link"
-        ))
-        alert.addButton(withTitle: String(
-            localized: "workspaceShare.ready.stop",
-            defaultValue: "Stop Sharing"
-        ))
-        alert.addButton(withTitle: String(
-            localized: "workspaceShare.ready.done",
-            defaultValue: "Done"
-        ))
-        let finish: (NSApplication.ModalResponse) -> Void = { [weak self] response in
-            switch response {
-            case .alertFirstButtonReturn:
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(
-                    hostSession.session.shareUrl.absoluteString,
-                    forType: .string
-                )
-            case .alertSecondButtonReturn:
-                self?.stop()
-            default:
-                break
-            }
-        }
-        if let window, window.isVisible {
-            alert.beginSheetModal(for: window, completionHandler: finish)
-        } else {
-            finish(alert.runModal())
-        }
     }
 
     private func showError(in window: NSWindow?) {
