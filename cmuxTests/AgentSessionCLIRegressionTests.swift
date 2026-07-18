@@ -1083,6 +1083,49 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
     }
 
+    @Test func graphSnapshotOrderingIsTotalForSharedProcessGenerations() {
+        let nodes = [
+            makeAgentSessionGraphTestNode(
+                provider: "codex", sessionID: "session-c", runID: "shared-run", updatedAt: 200
+            ),
+            makeAgentSessionGraphTestNode(
+                provider: "claude", sessionID: "session-a", runID: "shared-run", updatedAt: 200
+            ),
+            makeAgentSessionGraphTestNode(
+                provider: "codex", sessionID: "session-b", runID: "shared-run", updatedAt: 200
+            ),
+        ]
+        let expectedNodeIDs = nodes.map(\.nodeId).sorted()
+        for permutation in [nodes, [nodes[1], nodes[2], nodes[0]], Array(nodes.reversed())] {
+            #expect(
+                Array(permutation).sorted(by: AgentSessionGraphOrdering.nodePrecedes).map(\.nodeId)
+                    == expectedNodeIDs
+            )
+        }
+
+        let edges = [
+            AgentSessionGraphEdge(
+                fromRunId: "parent-b", fromSessionId: nil,
+                toNodeId: nodes[0].nodeId, toRunId: "shared-run", relationship: .spawned
+            ),
+            AgentSessionGraphEdge(
+                fromRunId: nil, fromSessionId: "parent-session",
+                toNodeId: nodes[0].nodeId, toRunId: "shared-run", relationship: .spawned
+            ),
+            AgentSessionGraphEdge(
+                fromRunId: "parent-a", fromSessionId: "parent-session",
+                toNodeId: nodes[0].nodeId, toRunId: "shared-run", relationship: .spawned
+            ),
+        ]
+        let expectedParentRuns: [String?] = [nil, "parent-a", "parent-b"]
+        for permutation in [edges, [edges[1], edges[2], edges[0]], Array(edges.reversed())] {
+            #expect(
+                Array(permutation).sorted(by: AgentSessionGraphOrdering.edgePrecedes).map(\.fromRunId)
+                    == expectedParentRuns
+            )
+        }
+    }
+
     @Test func repeatedRunGraphResolutionStaysLinearAtTenThousandEdges() {
         let count = 10_000
         var parents: [AgentSessionGraphNode] = []
