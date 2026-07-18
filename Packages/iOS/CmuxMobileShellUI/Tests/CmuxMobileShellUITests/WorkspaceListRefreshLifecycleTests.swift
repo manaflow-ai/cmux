@@ -12,6 +12,7 @@ struct WorkspaceListRefreshLifecycleTests {
         let startedRefreshID = lifecycle.begin(currentGeneration: 10)
         let refreshID = try #require(startedRefreshID)
         #expect(lifecycle.suppressesSnapshotAnimations)
+        #expect(!lifecycle.shouldEndRejectedRefreshControl)
         let applyDuringRefresh = lifecycle.snapshotApplyStarted(
             refreshCompletionGeneration: 10
         )
@@ -30,14 +31,21 @@ struct WorkspaceListRefreshLifecycleTests {
         let startedCollapseID = lifecycle.snapshotApplyCompleted(applyID)
         let collapseID = try #require(startedCollapseID)
         #expect(lifecycle.suppressesSnapshotAnimations)
+        #expect(!lifecycle.shouldEndRejectedRefreshControl)
+        let refreshDuringScheduledCollapse = lifecycle.begin(currentGeneration: 11)
+        #expect(refreshDuringScheduledCollapse == nil)
 
         let collapseStarted = lifecycle.collapseStarted(collapseID)
         #expect(collapseStarted)
         #expect(lifecycle.suppressesSnapshotAnimations)
+        #expect(lifecycle.shouldEndRejectedRefreshControl)
+        let refreshDuringVisibleCollapse = lifecycle.begin(currentGeneration: 11)
+        #expect(refreshDuringVisibleCollapse == nil)
 
         let collapseCompleted = lifecycle.collapseCompleted(collapseID)
         #expect(collapseCompleted)
         #expect(!lifecycle.suppressesSnapshotAnimations)
+        #expect(!lifecycle.shouldEndRejectedRefreshControl)
     }
 
     @Test("requires the matching collapse token at start and completion")
@@ -67,6 +75,8 @@ struct WorkspaceListRefreshLifecycleTests {
         let secondCollapseID = try #require(startedSecondCollapseID)
         #expect(secondCollapseID != firstCollapseID)
 
+        let staleCollapseCancelled = lifecycle.cancelCollapse(firstCollapseID)
+        #expect(!staleCollapseCancelled)
         let staleCollapseStarted = lifecycle.collapseStarted(firstCollapseID)
         #expect(!staleCollapseStarted)
         #expect(lifecycle.suppressesSnapshotAnimations)
@@ -74,6 +84,46 @@ struct WorkspaceListRefreshLifecycleTests {
         #expect(secondCollapseStarted)
         let staleCollapseCompleted = lifecycle.collapseCompleted(firstCollapseID)
         #expect(!staleCollapseCompleted)
+        #expect(lifecycle.suppressesSnapshotAnimations)
+        let secondCollapseCompleted = lifecycle.collapseCompleted(secondCollapseID)
+        #expect(secondCollapseCompleted)
+        #expect(!lifecycle.suppressesSnapshotAnimations)
+    }
+
+    @Test("cancels only the matching scheduled collapse")
+    func cancelsOnlyMatchingScheduledCollapse() throws {
+        var lifecycle = WorkspaceListRefreshLifecycle()
+        let startedFirstRefreshID = lifecycle.begin(currentGeneration: 0)
+        let firstRefreshID = try #require(startedFirstRefreshID)
+        let firstRefreshCompleted = lifecycle.refreshActionCompleted(firstRefreshID)
+        #expect(firstRefreshCompleted)
+        let startedFirstApplyID = lifecycle.snapshotApplyStarted(
+            refreshCompletionGeneration: 1
+        )
+        let firstApplyID = try #require(startedFirstApplyID)
+        let startedFirstCollapseID = lifecycle.snapshotApplyCompleted(firstApplyID)
+        let firstCollapseID = try #require(startedFirstCollapseID)
+        let firstCollapseCancelled = lifecycle.cancelCollapse(firstCollapseID)
+        #expect(firstCollapseCancelled)
+        #expect(!lifecycle.suppressesSnapshotAnimations)
+
+        let startedSecondRefreshID = lifecycle.begin(currentGeneration: 1)
+        let secondRefreshID = try #require(startedSecondRefreshID)
+        let secondRefreshCompleted = lifecycle.refreshActionCompleted(secondRefreshID)
+        #expect(secondRefreshCompleted)
+        let startedSecondApplyID = lifecycle.snapshotApplyStarted(
+            refreshCompletionGeneration: 2
+        )
+        let secondApplyID = try #require(startedSecondApplyID)
+        let startedSecondCollapseID = lifecycle.snapshotApplyCompleted(secondApplyID)
+        let secondCollapseID = try #require(startedSecondCollapseID)
+
+        let staleCollapseCancelled = lifecycle.cancelCollapse(firstCollapseID)
+        #expect(!staleCollapseCancelled)
+        let secondCollapseStarted = lifecycle.collapseStarted(secondCollapseID)
+        #expect(secondCollapseStarted)
+        let inProgressCollapseCancelled = lifecycle.cancelCollapse(secondCollapseID)
+        #expect(!inProgressCollapseCancelled)
         #expect(lifecycle.suppressesSnapshotAnimations)
         let secondCollapseCompleted = lifecycle.collapseCompleted(secondCollapseID)
         #expect(secondCollapseCompleted)

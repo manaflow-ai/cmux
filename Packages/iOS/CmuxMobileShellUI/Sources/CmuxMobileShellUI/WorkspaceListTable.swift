@@ -77,5 +77,12 @@ struct WorkspaceListTable: UIViewRepresentable {
     func updateUIView(_ uiView: WorkspaceListUITableView, context: Context) {
         context.coordinator.update(configuration: self, in: uiView)
     }
+
+    static func dismantleUIView(
+        _ uiView: WorkspaceListUITableView,
+        coordinator: WorkspaceListTableCoordinator
+    ) {
+        coordinator.detach(from: uiView)
+    }
 }
 #endif

@@ -36,6 +36,11 @@ struct WorkspaceListRefreshLifecycle {
         phase != .idle
     }
 
+    var shouldEndRejectedRefreshControl: Bool {
+        if case .collapsing = phase { return true }
+        return false
+    }
+
     mutating func begin(currentGeneration: UInt64) -> RefreshID? {
         guard phase == .idle else { return nil }
         nextRefreshRawValue &+= 1
@@ -102,6 +107,15 @@ struct WorkspaceListRefreshLifecycle {
 
     mutating func collapseCompleted(_ id: CollapseID) -> Bool {
         guard case .collapsing(let activeID) = phase,
+              activeID == id else {
+            return false
+        }
+        phase = .idle
+        return true
+    }
+
+    mutating func cancelCollapse(_ id: CollapseID) -> Bool {
+        guard case .collapseScheduled(let activeID) = phase,
               activeID == id else {
             return false
         }

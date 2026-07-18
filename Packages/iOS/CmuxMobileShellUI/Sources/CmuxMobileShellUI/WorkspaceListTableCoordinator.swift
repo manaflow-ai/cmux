@@ -10,12 +10,15 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     UITableViewDragDelegate, UITableViewDropDelegate
 {
     typealias RefreshCollapseAction = @MainActor () -> Void
-    typealias RefreshCollapseScheduler = (@escaping RefreshCollapseAction) -> Void
+    typealias RefreshCollapseScheduler = @MainActor (
+        @escaping RefreshCollapseAction
+    ) -> Void
     typealias RefreshCollapseAnimation = (
         UIRefreshControl,
         WorkspaceListUITableView,
         @escaping RefreshCollapseAction
     ) -> Void
+    typealias RefreshTaskCompletion = @MainActor () -> Void
 
     private enum HeightKind: Hashable {
         case workspaceUniform
@@ -45,18 +48,17 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private var heightCache: [HeightCacheKey: CGFloat] = [:]
     private var dropJustCompleted = false
     private var refreshLifecycle = WorkspaceListRefreshLifecycle()
+    private var refreshTask: Task<Void, Never>?
+    private var refreshTaskID: WorkspaceListRefreshLifecycle.RefreshID?
     private weak var activeRefreshControl: UIRefreshControl?
     private weak var tableView: WorkspaceListUITableView?
     private let scheduleRefreshCollapse: RefreshCollapseScheduler
     private let animateRefreshCollapse: RefreshCollapseAnimation
+    private let refreshTaskDidFinish: RefreshTaskCompletion
 
     init(configuration: WorkspaceListTable) {
         self.configuration = configuration
-        scheduleRefreshCollapse = { action in
-            DispatchQueue.main.async { @MainActor in
-                action()
-            }
-        }
+        scheduleRefreshCollapse = { action in action() }
         animateRefreshCollapse = { refreshControl, tableView, completion in
             Self.animateRefreshCollapse(
                 refreshControl: refreshControl,
@@ -64,17 +66,24 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 completion: completion
             )
         }
+        refreshTaskDidFinish = {}
         super.init()
+    }
+
+    deinit {
+        refreshTask?.cancel()
     }
 
     init(
         configuration: WorkspaceListTable,
         scheduleRefreshCollapse: @escaping RefreshCollapseScheduler,
-        animateRefreshCollapse: @escaping RefreshCollapseAnimation
+        animateRefreshCollapse: @escaping RefreshCollapseAnimation,
+        refreshTaskDidFinish: @escaping RefreshTaskCompletion = {}
     ) {
         self.configuration = configuration
         self.scheduleRefreshCollapse = scheduleRefreshCollapse
         self.animateRefreshCollapse = animateRefreshCollapse
+        self.refreshTaskDidFinish = refreshTaskDidFinish
         super.init()
     }
 
@@ -104,6 +113,26 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             self.heightCache.removeAll(keepingCapacity: true)
             tableView.reloadData()
         }
+    }
+
+    func detach(from tableView: WorkspaceListUITableView) {
+        guard self.tableView === tableView else { return }
+        cancelRefreshTask()
+        activeRefreshControl?.endRefreshing()
+        activeRefreshControl = nil
+        refreshLifecycle.reset()
+        tableView.refreshControl?.removeTarget(
+            self,
+            action: #selector(refreshRequested(_:)),
+            for: .valueChanged
+        )
+        tableView.refreshControl = nil
+        tableView.layoutMetricsDidChange = nil
+        tableView.delegate = nil
+        tableView.dragDelegate = nil
+        tableView.dropDelegate = nil
+        dataSource = nil
+        self.tableView = nil
     }
 
     func update(configuration next: WorkspaceListTable, in tableView: UITableView) {
@@ -355,16 +384,26 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
         guard let refreshID = refreshLifecycle.begin(
             currentGeneration: configuration.refreshCompletionGeneration
-        ) else { return }
+        ) else {
+            if refreshLifecycle.shouldEndRejectedRefreshControl {
+                refreshControl.endRefreshing()
+            }
+            return
+        }
         activeRefreshControl = refreshControl
         let refreshDidComplete = configuration.refreshDidComplete
-        Task { @MainActor [weak self, weak refreshControl] in
+        refreshTaskID = refreshID
+        refreshTask = Task { @MainActor [weak self, weak refreshControl] in
             await refresh()
             guard let self else { return }
+            defer { self.refreshTaskDidFinish() }
+            self.clearRefreshTask(refreshID)
+            guard !Task.isCancelled else {
+                self.cancelRefresh(refreshID, refreshControl: refreshControl)
+                return
+            }
             guard let refreshControl, refreshControl === self.activeRefreshControl else {
-                if self.refreshLifecycle.cancelRefresh(refreshID) {
-                    self.activeRefreshControl = nil
-                }
+                self.cancelRefresh(refreshID, refreshControl: refreshControl)
                 return
             }
             guard self.refreshLifecycle.refreshActionCompleted(refreshID) else {
@@ -385,10 +424,34 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             )
             tableView.refreshControl = refreshControl
         } else {
+            cancelRefreshTask()
             activeRefreshControl?.endRefreshing()
             activeRefreshControl = nil
             refreshLifecycle.reset()
             tableView.refreshControl = nil
+        }
+    }
+
+    private func clearRefreshTask(_ refreshID: WorkspaceListRefreshLifecycle.RefreshID) {
+        guard refreshTaskID == refreshID else { return }
+        refreshTask = nil
+        refreshTaskID = nil
+    }
+
+    private func cancelRefreshTask() {
+        refreshTask?.cancel()
+        refreshTask = nil
+        refreshTaskID = nil
+    }
+
+    private func cancelRefresh(
+        _ refreshID: WorkspaceListRefreshLifecycle.RefreshID,
+        refreshControl: UIRefreshControl?
+    ) {
+        guard refreshLifecycle.cancelRefresh(refreshID) else { return }
+        refreshControl?.endRefreshing()
+        if refreshControl === activeRefreshControl {
+            activeRefreshControl = nil
         }
     }
 
@@ -401,14 +464,21 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             return
         }
         scheduleRefreshCollapse { [weak self, weak activeRefreshControl] in
-            guard let self,
-                  let activeRefreshControl,
-                  activeRefreshControl === self.activeRefreshControl,
-                  let tableView = self.tableView,
-                  tableView.refreshControl === activeRefreshControl,
-                  self.refreshLifecycle.collapseStarted(collapseID) else {
+            guard let self else {
+                activeRefreshControl?.endRefreshing()
                 return
             }
+            guard let activeRefreshControl,
+                  activeRefreshControl === self.activeRefreshControl,
+                  let tableView = self.tableView,
+                  tableView.refreshControl === activeRefreshControl else {
+                self.cancelRefreshCollapse(
+                    collapseID,
+                    refreshControl: activeRefreshControl
+                )
+                return
+            }
+            guard self.refreshLifecycle.collapseStarted(collapseID) else { return }
             self.animateRefreshCollapse(
                 activeRefreshControl,
                 tableView
@@ -421,6 +491,17 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     self.activeRefreshControl = nil
                 }
             }
+        }
+    }
+
+    private func cancelRefreshCollapse(
+        _ collapseID: WorkspaceListRefreshLifecycle.CollapseID,
+        refreshControl: UIRefreshControl?
+    ) {
+        guard refreshLifecycle.cancelCollapse(collapseID) else { return }
+        refreshControl?.endRefreshing()
+        if refreshControl === activeRefreshControl {
+            activeRefreshControl = nil
         }
     }
 
