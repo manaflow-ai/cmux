@@ -594,7 +594,17 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
               let index = workspaceIds.firstIndex(of: tabId) else {
             return workspaceIds.count
         }
-        return indicator.edge == .bottom ? index + 1 : index
+        guard let groupId = rows.first(where: { $0.workspaceId == tabId })?.groupId,
+              let header = rows.first(where: {
+                  $0.appKitGroupHeaderModel?.groupId == groupId
+              })?.appKitGroupHeaderModel,
+              let anchorIndex = workspaceIds.firstIndex(of: header.anchorWorkspaceId) else {
+            return indicator.edge == .bottom ? index + 1 : index
+        }
+        if indicator.edge == .bottom {
+            return min(workspaceIds.count, anchorIndex + header.memberCount)
+        }
+        return anchorIndex
     }
 
     private func isInlineEditing(row: Int, tableView: NSTableView) -> Bool {
