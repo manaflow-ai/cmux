@@ -4,6 +4,7 @@ extension SessionRestorableAgentSnapshot {
     private enum SnapshotCodingKeys: String, CodingKey {
         case kind
         case sessionId
+        case transcriptPath
         case workingDirectory
         case launchCommand
         case registration
@@ -31,6 +32,7 @@ extension SessionRestorableAgentSnapshot {
         self.init(
             kind: kind,
             sessionId: try container.decode(String.self, forKey: .sessionId),
+            transcriptPath: try container.decodeIfPresent(String.self, forKey: .transcriptPath),
             workingDirectory: try container.decodeIfPresent(String.self, forKey: .workingDirectory),
             launchCommand: try container.decodeIfPresent(
                 AgentLaunchCommandSnapshot.self,
@@ -53,6 +55,7 @@ extension SessionRestorableAgentSnapshot {
         return AgentResumeCommandBuilder.resumeShellCommand(
             kind: kind,
             sessionId: sessionId,
+            transcriptPath: transcriptPath,
             launchCommand: launchCommand,
             workingDirectory: workingDirectory,
             registrationOverride: registration,

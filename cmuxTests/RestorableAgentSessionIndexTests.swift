@@ -638,6 +638,8 @@ struct RestorableAgentSessionIndexTests {
         let driftedCwd = root.appendingPathComponent("worktree", isDirectory: true)
         try fm.createDirectory(at: launchCwd, withIntermediateDirectories: true)
         try fm.createDirectory(at: driftedCwd, withIntermediateDirectories: true)
+        let transcriptPath = launchCwd.appendingPathComponent("gemini-session.jsonl").path
+        try "{}\n".write(toFile: transcriptPath, atomically: true, encoding: .utf8)
 
         let sessionId = "dddddddd-dddd-dddd-dddd-dddddddddddd"
         let workspaceId = UUID()
@@ -653,6 +655,7 @@ struct RestorableAgentSessionIndexTests {
                     panelId: panelId,
                     recordedCwd: driftedCwd.path,
                     launchCwd: launchCwd.path,
+                    transcriptPath: transcriptPath,
                     updatedAt: 10
                 ),
             ]
@@ -672,6 +675,41 @@ struct RestorableAgentSessionIndexTests {
             resumeCommand.contains(driftedCwd.path),
             "resume must not cd into the drifted cwd; got: \(resumeCommand)"
         )
+    }
+
+    @Test
+    func testGeminiWithoutNonEmptySessionFileDoesNotRestore() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-gemini-missing-transcript-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let sessionId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+        let emptyTranscriptPath = root.appendingPathComponent("empty.jsonl").path
+        try Data().write(to: URL(fileURLWithPath: emptyTranscriptPath))
+        try writeHookStore(
+            root: root,
+            storeFilename: "gemini-hook-sessions.json",
+            sessions: [
+                sessionId: driftedAgentHookRecord(
+                    launcher: "gemini",
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    recordedCwd: cwd.path,
+                    launchCwd: cwd.path,
+                    transcriptPath: emptyTranscriptPath,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        XCTAssertNil(index.snapshot(workspaceId: workspaceId, panelId: panelId))
     }
 
     @Test
@@ -1347,13 +1385,20 @@ struct RestorableAgentSessionIndexTests {
             let ws = UUID()
             let panel = UUID()
             let sid = "66666666-6666-6666-6666-666666666666"
+            let transcriptPath = launcher == "gemini"
+                ? dir.appendingPathComponent("gemini-nofork.jsonl").path
+                : nil
+            if let transcriptPath {
+                try "{}\n".write(toFile: transcriptPath, atomically: true, encoding: .utf8)
+            }
             try writeHookStore(
                 root: root,
                 storeFilename: "\(launcher)-hook-sessions.json",
                 sessions: [
                     sid: driftedAgentHookRecord(
                         launcher: launcher, sessionId: sid, workspaceId: ws, panelId: panel,
-                        recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
+                        recordedCwd: dir.path, launchCwd: dir.path,
+                        transcriptPath: transcriptPath, updatedAt: 10
                     ),
                 ]
             )
@@ -1383,17 +1428,23 @@ struct RestorableAgentSessionIndexTests {
         let panel = UUID()
         let oldId = "11111111-1111-1111-1111-111111111111"
         let newId = "22222222-2222-2222-2222-222222222222"
+        let oldTranscriptPath = dir.appendingPathComponent("gemini-old.jsonl").path
+        let newTranscriptPath = dir.appendingPathComponent("gemini-new.jsonl").path
+        try "{}\n".write(toFile: oldTranscriptPath, atomically: true, encoding: .utf8)
+        try "{}\n".write(toFile: newTranscriptPath, atomically: true, encoding: .utf8)
         try writeHookStore(
             root: root,
             storeFilename: "gemini-hook-sessions.json",
             sessions: [
                 oldId: driftedAgentHookRecord(
                     launcher: "gemini", sessionId: oldId, workspaceId: ws, panelId: panel,
-                    recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
+                    recordedCwd: dir.path, launchCwd: dir.path,
+                    transcriptPath: oldTranscriptPath, updatedAt: 10
                 ),
                 newId: driftedAgentHookRecord(
                     launcher: "gemini", sessionId: newId, workspaceId: ws, panelId: panel,
-                    recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 20
+                    recordedCwd: dir.path, launchCwd: dir.path,
+                    transcriptPath: newTranscriptPath, updatedAt: 20
                 ),
             ]
         )
@@ -1419,13 +1470,16 @@ struct RestorableAgentSessionIndexTests {
         let ws = UUID()
         let panel = UUID()
         let sid = "33333333-3333-3333-3333-333333333333"
+        let transcriptPath = dir.appendingPathComponent("gemini-idempotent.jsonl").path
+        try "{}\n".write(toFile: transcriptPath, atomically: true, encoding: .utf8)
         try writeHookStore(
             root: root,
             storeFilename: "gemini-hook-sessions.json",
             sessions: [
                 sid: driftedAgentHookRecord(
                     launcher: "gemini", sessionId: sid, workspaceId: ws, panelId: panel,
-                    recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
+                    recordedCwd: dir.path, launchCwd: dir.path,
+                    transcriptPath: transcriptPath, updatedAt: 10
                 ),
             ]
         )
@@ -1523,10 +1577,11 @@ struct RestorableAgentSessionIndexTests {
         panelId: UUID,
         recordedCwd: String,
         launchCwd: String,
+        transcriptPath: String? = nil,
         updatedAt: TimeInterval,
         pid: Int? = nil
     ) -> [String: Any] {
-        [
+        var record: [String: Any] = [
             "sessionId": sessionId,
             "workspaceId": workspaceId.uuidString,
             "surfaceId": panelId.uuidString,
@@ -1543,6 +1598,10 @@ struct RestorableAgentSessionIndexTests {
                 "source": "test",
             ],
         ]
+        if let transcriptPath {
+            record["transcriptPath"] = transcriptPath
+        }
+        return record
     }
 
     private func hookRecord(

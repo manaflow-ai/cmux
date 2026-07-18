@@ -335,7 +335,8 @@ extension CMUXCLI {
                 payload["transcript_backed"] = transcriptBacked
                 let launchBacked = record.launchCommand != nil && agentHookSessionHasDurableResumeEvidence(
                     kind: spec.name,
-                    launchCommand: record.launchCommand
+                    launchCommand: record.launchCommand,
+                    transcriptPath: record.transcriptPath
                 )
                 payload["launch_backed"] = launchBacked
 

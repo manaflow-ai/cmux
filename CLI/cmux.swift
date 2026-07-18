@@ -27638,11 +27638,16 @@ struct CMUXCLI {
         kind: String,
         displayName: String,
         sessionId: String,
+        transcriptPath: String? = nil,
         cwd: String?,
         launchCommand: AgentHookLaunchCommandRecord?,
         observedPermissionMode: String? = nil
     ) {
-        guard agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) else {
+        guard agentHookSessionHasDurableResumeEvidence(
+            kind: kind,
+            launchCommand: launchCommand,
+            transcriptPath: transcriptPath
+        ) else {
             // A visible top-level hook now owns this surface, but its launch is
             // not safely resumable. Remove any binding left by the previous
             // session so snapshots cannot restore the wrong conversation.
@@ -27664,6 +27669,7 @@ struct CMUXCLI {
         guard let command = agentSurfaceResumeCommand(
             kind: kind,
             sessionId: sessionId,
+            transcriptPath: transcriptPath,
             launchCommand: launchCommand,
             workingDirectory: resumeWorkingDirectory,
             environment: resumeEnvironment,
@@ -27716,6 +27722,7 @@ struct CMUXCLI {
     private func agentSurfaceResumeCommand(
         kind: String,
         sessionId: String,
+        transcriptPath: String?,
         launchCommand: AgentHookLaunchCommandRecord?,
         workingDirectory: String?,
         environment: [String: String]?,
@@ -27742,7 +27749,8 @@ struct CMUXCLI {
                 sessionId: normalizedSessionId,
                 executablePath: launchCommand?.executablePath,
                 arguments: launchCommand?.arguments ?? [],
-                observedPermissionMode: observedPermissionMode
+                observedPermissionMode: observedPermissionMode,
+                transcriptPath: transcriptPath
             )
         }
 
@@ -30610,6 +30618,7 @@ export default CMUXSessionRestore;
                         kind: def.name,
                         displayName: def.displayName,
                         sessionId: sessionId,
+                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                         launchCommand: resumeLaunchCommand
                     )
@@ -30678,6 +30687,7 @@ export default CMUXSessionRestore;
                     kind: def.name,
                     displayName: def.displayName,
                     sessionId: sessionId,
+                    transcriptPath: latest.transcriptPath,
                     cwd: latest.cwd,
                     launchCommand: latest.launchCommand
                 )
@@ -30878,6 +30888,7 @@ export default CMUXSessionRestore;
                     kind: def.name,
                     displayName: def.displayName,
                     sessionId: sessionId,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                     launchCommand: resumeLaunchCommand
                 )
@@ -31206,6 +31217,7 @@ export default CMUXSessionRestore;
                     kind: def.name,
                     displayName: def.displayName,
                     sessionId: sessionId,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     cwd: cwd,
                     launchCommand: resumeLaunchCommand
                 )
@@ -31415,6 +31427,7 @@ export default CMUXSessionRestore;
                         kind: def.name,
                         displayName: def.displayName,
                         sessionId: sessionId,
+                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                         launchCommand: resumeLaunchCommand
                     )

@@ -347,6 +347,7 @@ extension AgentLaunchSanitizer {
             "--include-directories",
             "--resume",
             "-r",
+            "--session-file",
             "--session-id",
             "--worktree",
             "-w",
@@ -382,12 +383,14 @@ extension AgentLaunchSanitizer {
         droppedOptions: [
             "--resume",
             "-r",
+            "--session-file",
             "--session-id",
             "--worktree",
             "-w"
         ],
         droppedOptionPrefixes: [
             "--resume=",
+            "--session-file=",
             "--session-id=",
             "--worktree="
         ],

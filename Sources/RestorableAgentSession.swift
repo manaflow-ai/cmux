@@ -313,6 +313,7 @@ enum AgentResumeCommandBuilder {
     static func resumeShellCommand(
         kind: RestorableAgentKind,
         sessionId: String,
+        transcriptPath: String? = nil,
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
         registrationOverride: CmuxVaultAgentRegistration? = nil,
@@ -324,6 +325,7 @@ enum AgentResumeCommandBuilder {
               let argv = resumeArguments(
                   kind: kind,
                   sessionId: sessionId,
+                  transcriptPath: transcriptPath,
                   launchCommand: launchCommand,
                   workingDirectory: workingDirectory,
                   customRegistration: customRegistration,
@@ -496,6 +498,7 @@ enum AgentResumeCommandBuilder {
     private static func resumeArguments(
         kind: RestorableAgentKind,
         sessionId: String,
+        transcriptPath: String?,
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
         customRegistration: CmuxVaultAgentRegistration?,
@@ -538,7 +541,8 @@ enum AgentResumeCommandBuilder {
             sessionId: sessionId,
             executablePath: launchCommand?.executablePath,
             arguments: launchCommand?.arguments ?? [],
-            observedPermissionMode: observedPermissionMode
+            observedPermissionMode: observedPermissionMode,
+            transcriptPath: transcriptPath
         )
     }
 
@@ -761,6 +765,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
 
     var kind: RestorableAgentKind
     var sessionId: String
+    var transcriptPath: String? = nil
     var workingDirectory: String?
     var launchCommand: AgentLaunchCommandSnapshot?
     var registration: CmuxVaultAgentRegistration? = nil
@@ -1145,6 +1150,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 let snapshot = SessionRestorableAgentSnapshot(
                     kind: kind,
                     sessionId: normalizedSessionId,
+                    transcriptPath: effectiveRecord.transcriptPath,
                     workingDirectory: restorableWorkingDirectory(
                         for: effectiveRecord,
                         kind: kind,
@@ -1378,6 +1384,16 @@ struct RestorableAgentSessionIndex: Sendable {
                 return true
             }
             guard let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) else { return false }
+            return regularNonEmptyFileExists(
+                atPath: (transcriptPath as NSString).expandingTildeInPath,
+                fileManager: fileManager
+            )
+        }
+        if kind == .gemini {
+            guard record.isRestorable != false,
+                  let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) else {
+                return false
+            }
             return regularNonEmptyFileExists(
                 atPath: (transcriptPath as NSString).expandingTildeInPath,
                 fileManager: fileManager

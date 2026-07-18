@@ -281,6 +281,15 @@ extension CMUXCLI {
         record: ClaudeHookSessionRecord,
         claudeTranscriptLookup: SessionsListClaudeTranscriptLookupCache
     ) -> Bool {
+        if agent == "gemini" {
+            guard record.isRestorable != false,
+                  let transcriptPath = sessionsListNormalized(record.transcriptPath) else {
+                return false
+            }
+            return sessionsListRegularNonEmptyFileExists(
+                atPath: (transcriptPath as NSString).expandingTildeInPath
+            )
+        }
         guard agent == "claude" else {
             return record.isRestorable != false
         }

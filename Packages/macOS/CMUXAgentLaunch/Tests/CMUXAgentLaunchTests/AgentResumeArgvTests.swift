@@ -32,10 +32,15 @@ struct AgentResumeArgvTests {
                 kind: "gemini",
                 sessionId: "5839bed1-0a60-4c05-b6d1-2410d7a3741e",
                 executablePath: nil,
-                arguments: ["gemini"],
+                arguments: [
+                    "gemini",
+                    "--session-file", "/tmp/previous.jsonl",
+                    "--model", "gemini-2.5-pro",
+                ],
                 transcriptPath: "/tmp/session-2026-07-18T04-52-5839bed1.jsonl"
             ) == [
                 "gemini", "--session-file", "/tmp/session-2026-07-18T04-52-5839bed1.jsonl",
+                "--model", "gemini-2.5-pro",
             ]
         )
         #expect(

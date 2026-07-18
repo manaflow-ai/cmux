@@ -306,12 +306,14 @@ public struct AgentResumeArgv: Sendable, Equatable {
     ///   - observedPermissionMode: the hook-observed Claude permission mode the session last ran
     ///     in, re-applied via ``claudeArgvApplyingObservedPermissionMode(_:observedPermissionMode:)``
     ///     for user-owned claude restore; ignored for every other kind.
+    ///   - transcriptPath: the recorded session file used by agents whose CLI restores from a file.
     public func builtInKind(
         kind: String,
         sessionId: String,
         executablePath: String?,
         arguments: [String],
-        observedPermissionMode: String? = nil
+        observedPermissionMode: String? = nil,
+        transcriptPath: String? = nil
     ) -> [String]? {
         switch kind {
         case "claude":
@@ -352,7 +354,16 @@ public struct AgentResumeArgv: Sendable, Equatable {
         case "cursor":
             return withOption("cursor", executable: "cursor-agent", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "gemini":
-            return withOption("gemini", executable: "gemini", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+            guard let transcriptPath = transcriptPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !transcriptPath.isEmpty else { return nil }
+            return withOption(
+                "gemini",
+                executable: "gemini",
+                option: "--session-file",
+                sessionId: transcriptPath,
+                executablePath: executablePath,
+                arguments: arguments
+            )
         case "kiro":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "kiro-cli")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "kiro", args: parts.tail) else { return nil }

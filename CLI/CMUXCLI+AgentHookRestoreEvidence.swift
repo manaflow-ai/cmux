@@ -52,9 +52,14 @@ extension CMUXCLI {
     }
     func agentHookSessionHasDurableResumeEvidence(
         kind: String,
-        launchCommand: AgentHookLaunchCommandRecord?
+        launchCommand: AgentHookLaunchCommandRecord?,
+        transcriptPath: String? = nil
     ) -> Bool {
         guard normalizedHookValue(launchCommand?.source)?.lowercased() != "rejected" else { return false }
+        if kind == "gemini" {
+            guard let transcriptPath = normalizedHookValue(transcriptPath) else { return false }
+            return regularNonEmptyAgentTranscriptExists(atPath: transcriptPath)
+        }
         guard kind == "codex" else { return true }
         guard let launchCommand else { return true }
         if normalizedHookValue(launchCommand.environment?["CODEX_HOME"]) != nil {
@@ -95,11 +100,19 @@ extension CMUXCLI {
             let currentSource = normalizedHookValue(current?.source)?.lowercased()
             if let current,
                currentSource != "default",
-               agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: current) {
+               agentHookSessionHasDurableResumeEvidence(
+                   kind: kind,
+                   launchCommand: current,
+                   transcriptPath: transcriptPath
+               ) {
                 return current
             }
             if let mappedLaunchCommand = mapped?.launchCommand,
-               agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: mappedLaunchCommand) {
+               agentHookSessionHasDurableResumeEvidence(
+                   kind: kind,
+                   launchCommand: mappedLaunchCommand,
+                   transcriptPath: transcriptPath ?? mapped?.transcriptPath
+               ) {
                 return mappedLaunchCommand
             }
             if let current = replaySafeCodexLaunchCommand(kind: kind, launchCommand: current) {
@@ -111,7 +124,11 @@ extension CMUXCLI {
             }
             if let current,
                currentSource == "default",
-               agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: current) {
+               agentHookSessionHasDurableResumeEvidence(
+                   kind: kind,
+                   launchCommand: current,
+                   transcriptPath: transcriptPath
+               ) {
                 return current
             }
             if agentHookMappedSessionHasDurableTargetEvidence(kind: kind, mapped: mapped) {
@@ -155,6 +172,10 @@ extension CMUXCLI {
     ) -> Bool {
         guard let mapped else { return false }
         guard normalizedHookValue(mapped.launchCommand?.source)?.lowercased() != "rejected" else { return false }
+        if kind == "gemini" {
+            guard let transcriptPath = normalizedHookValue(mapped.transcriptPath) else { return false }
+            return regularNonEmptyAgentTranscriptExists(atPath: transcriptPath)
+        }
         guard kind == "codex" else { return true }
         if mapped.isRestorable == true { return true }
         if let transcriptPath = normalizedHookValue(mapped.transcriptPath),
@@ -181,6 +202,18 @@ extension CMUXCLI {
         normalizedHookValue(environment?["CODEX_HOME"]) == nil
             && (normalizedHookValue(environment?["ANTHROPIC_BASE_URL"]) != nil
                 || normalizedHookValue(environment?["CLAUDE_CONFIG_DIR"]) != nil)
+    }
+
+    private func regularNonEmptyAgentTranscriptExists(atPath path: String) -> Bool {
+        let expandedPath = (path as NSString).expandingTildeInPath
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: expandedPath, isDirectory: &isDirectory),
+              !isDirectory.boolValue,
+              let attributes = try? FileManager.default.attributesOfItem(atPath: expandedPath),
+              let size = attributes[.size] as? NSNumber else {
+            return false
+        }
+        return size.intValue > 0
     }
 
     /// A same-kind launch capture can inherit Claude account-selection environment from the
