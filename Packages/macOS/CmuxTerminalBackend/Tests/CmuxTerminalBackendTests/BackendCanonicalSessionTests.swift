@@ -1034,6 +1034,34 @@ struct BackendCanonicalSessionTests {
         #expect(ready.cellWidth == 18)
         #expect(ready.padding.left == 20)
 
+        let rendererConfigDigest = String(repeating: "a", count: 64)
+        await transport.enqueue(try encodedJSON([
+            "event": "renderer-config-invalidated",
+            "revision": 3,
+            "digest": rendererConfigDigest,
+            "reason": "default-colors-changed",
+            "default_colors": [
+                "fg": "#d8d9da",
+                "bg": "#131415",
+                "cursor": NSNull(),
+                "selection_bg": NSNull(),
+                "selection_fg": NSNull(),
+                "palette": ["4": "#778899"],
+                "cursor_style": NSNull(),
+                "cursor_blink": false,
+            ],
+        ]))
+        guard case .rendererConfigInvalidated(let invalidation)? = await iterator.next() else {
+            Issue.record("expected renderer config invalidation")
+            return
+        }
+        #expect(invalidation.revision == 3)
+        #expect(invalidation.digest.description == rendererConfigDigest)
+        #expect(invalidation.reason == "default-colors-changed")
+        #expect(invalidation.defaultColors["palette"] == .object([
+            "4": .string("#778899"),
+        ]))
+
         let surfaceID = SurfaceID(rawValue: UUID())
         let delta = try topologyDelta(authority: authority, surfaceID: surfaceID)
         await transport.enqueue(try topologyEvent(delta))
@@ -1437,6 +1465,10 @@ struct BackendCanonicalSessionTests {
                 "receipts": [],
             ]
         ))
+
+        let sessionEvents = try requestObject(await transport.nextSent())
+        #expect(sessionEvents["cmd"] as? String == "subscribe")
+        await transport.enqueue(try response(to: sessionEvents, data: [:]))
     }
 
     private func activitySnapshot(
@@ -1576,6 +1608,10 @@ struct BackendCanonicalSessionTests {
                 "replayed": 0,
             ]
         ))
+
+        let sessionEvents = try requestObject(await transport.nextSent())
+        #expect(sessionEvents["cmd"] as? String == "subscribe")
+        await transport.enqueue(try response(to: sessionEvents, data: [:]))
     }
 
     private func identifyResponse(

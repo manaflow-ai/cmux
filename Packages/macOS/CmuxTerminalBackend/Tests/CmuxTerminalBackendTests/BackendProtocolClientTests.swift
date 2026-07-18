@@ -135,6 +135,28 @@ struct BackendProtocolClientTests {
         await client.close()
     }
 
+    @Test("session event subscription registers the legacy renderer stream")
+    func sessionEventSubscriptionRequest() async throws {
+        let transport = ScriptedBackendTransport()
+        let client = BackendProtocolClient(transport: transport)
+        try await client.connect()
+
+        let task = Task { try await client.subscribe() }
+        let request = await transport.nextSent()
+        let object = try #require(
+            try JSONSerialization.jsonObject(with: request) as? [String: Any]
+        )
+        #expect(object["cmd"] as? String == "subscribe")
+        await transport.enqueue(try encodedJSON([
+            "id": try #require(object["id"] as? NSNumber).uint64Value,
+            "ok": true,
+            "data": [:],
+        ]))
+
+        try await task.value
+        await client.close()
+    }
+
     @Test("presentation commands use UUID-only connection-local state")
     func presentationCommands() async throws {
         let transport = ScriptedBackendTransport()
