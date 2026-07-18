@@ -96,7 +96,32 @@ final class FeedCoordinator: @unchecked Sendable {
         event: WorkstreamEvent,
         waitTimeout: TimeInterval
     ) -> IngestBlockingResult {
+        ingestBlocking(
+            event: event,
+            waitTimeout: waitTimeout,
+            requiresAcknowledgement: event.requestId != nil
+        )
+    }
+
+    func ingestBlocking(
+        event: WorkstreamEvent,
+        waitTimeout: TimeInterval,
+        requiresAcknowledgement: Bool
+    ) -> IngestBlockingResult {
         guard let requestId = event.requestId, waitTimeout > 0 else {
+            guard requiresAcknowledgement else {
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        guard let store = FeedCoordinator.shared.store else { return }
+                        store.ingest(event)
+                        if let ppid = event.ppid, ppid > 0 {
+                            FeedCoordinator.shared.armPidWatcher(ppid: ppid)
+                        }
+                    }
+                }
+                return .acknowledged(itemId: nil)
+            }
+
             let itemIdSlot = UnsafeItemIdSlot()
             let ingest = {
                 MainActor.assumeIsolated {
