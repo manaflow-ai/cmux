@@ -520,6 +520,113 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
     }
 
+    @MainActor
+    @Test func staleResumeRollbackCannotRevokeNewerAttempt() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-stale-resume-rollback-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let runtimeID = "stale-resume-rollback-runtime"
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": root
+                .appendingPathComponent(CmuxAgentSessionRegistry.filename).path,
+            "CMUX_RUNTIME_ID": runtimeID,
+        ]
+        let previousEnvironment = overrides.keys.map {
+            ($0, ProcessInfo.processInfo.environment[$0])
+        }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let staleAttemptID = UUID()
+        let currentAttemptID = UUID()
+        let fixture = try installProtectedLifecycleAuthority(
+            root: root,
+            runtimeID: runtimeID,
+            sessionID: "stale-resume-rollback-session",
+            lifecycle: .restoring,
+            hibernationAttemptID: UUID(),
+            resumeAttemptID: currentAttemptID
+        )
+
+        AgentHookSessionStateWriter.releaseFailedHibernatedResumeAuthority(
+            .init(
+                agent: fixture.agent,
+                workspaceId: fixture.workspaceID,
+                surfaceId: fixture.surfaceID,
+                attemptId: staleAttemptID
+            ),
+            now: 40
+        )
+
+        let snapshot = try fixture.registry.snapshot(provider: "codex")
+        let record = try #require(snapshot.records.first)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: record.json) as? [String: Any]
+        )
+        #expect(object["sessionState"] as? String == "restoring")
+        #expect(object["cmuxHibernationResumeAttemptId"] as? String == currentAttemptID.uuidString)
+        #expect(object["cmuxHibernationResumeStartedAt"] as? TimeInterval == 30)
+        #expect(snapshot.activeSlots.count == 2)
+    }
+
+    @MainActor
+    @Test func stalePortalCloseCompensationCannotDetachNewerHibernationAttempt() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-stale-portal-compensation-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let runtimeID = "stale-portal-compensation-runtime"
+        let overrides = [
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_SESSION_REGISTRY_PATH": root
+                .appendingPathComponent(CmuxAgentSessionRegistry.filename).path,
+            "CMUX_RUNTIME_ID": runtimeID,
+        ]
+        let previousEnvironment = overrides.keys.map {
+            ($0, ProcessInfo.processInfo.environment[$0])
+        }
+        for (key, value) in overrides { setenv(key, value, 1) }
+        defer {
+            for (key, value) in previousEnvironment {
+                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            }
+        }
+
+        let staleAttemptID = UUID()
+        let currentAttemptID = UUID()
+        let fixture = try installProtectedLifecycleAuthority(
+            root: root,
+            runtimeID: runtimeID,
+            sessionID: "stale-portal-compensation-session",
+            lifecycle: .hibernated,
+            hibernationAttemptID: currentAttemptID
+        )
+
+        await AgentHookSessionStateWriter.releaseFailedHibernationAuthority(
+            agent: fixture.agent,
+            workspaceId: fixture.workspaceID,
+            surfaceId: fixture.surfaceID,
+            attemptId: staleAttemptID,
+            now: 40
+        )
+
+        let snapshot = try fixture.registry.snapshot(provider: "codex")
+        let record = try #require(snapshot.records.first)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: record.json) as? [String: Any]
+        )
+        #expect(object["sessionState"] as? String == "hibernated")
+        #expect(object["cmuxHibernationAttemptId"] as? String == currentAttemptID.uuidString)
+        #expect(object["cmuxHibernationDetached"] == nil)
+        #expect(snapshot.activeSlots.count == 2)
+    }
+
     @Test func queuedLifecycleCannotOverwriteNewerRecordGeneration() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-lifecycle-fence-\(UUID().uuidString)", isDirectory: true)
@@ -773,5 +880,89 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(lineage.restoreAuthority)
         #expect(lineage.relationship == nil)
         #expect(lineage.parentRunId == nil)
+    }
+
+    private func installProtectedLifecycleAuthority(
+        root: URL,
+        runtimeID: String,
+        sessionID: String,
+        lifecycle: AgentSessionLifecycleState,
+        hibernationAttemptID: UUID,
+        resumeAttemptID: UUID? = nil
+    ) throws -> (
+        agent: SessionRestorableAgentSnapshot,
+        workspaceID: UUID,
+        surfaceID: UUID,
+        registry: CmuxAgentSessionRegistry
+    ) {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        var record: [String: Any] = [
+            "sessionId": sessionID,
+            "workspaceId": workspaceID.uuidString,
+            "surfaceId": surfaceID.uuidString,
+            "sessionState": lifecycle.rawValue,
+            "restoreAuthority": true,
+            "cmuxHibernationAttemptId": hibernationAttemptID.uuidString,
+            "cmuxRuntime": ["id": runtimeID],
+            "startedAt": 10.0,
+            "updatedAt": 30.0,
+        ]
+        if let resumeAttemptID {
+            record["cmuxHibernationResumeAttemptId"] = resumeAttemptID.uuidString
+            record["cmuxHibernationResumeStartedAt"] = 30.0
+            record["cmuxHibernationResumeFromAttemptId"] = hibernationAttemptID.uuidString
+        }
+        let slot: [String: Any] = ["sessionId": sessionID, "updatedAt": 30.0]
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [sessionID: record],
+            "activeSessionsByWorkspace": [workspaceID.uuidString: slot],
+            "activeSessionsBySurface": [surfaceID.uuidString: slot],
+        ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
+
+        let recordJSON = try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+        let slotJSON = try JSONSerialization.data(withJSONObject: slot, options: [.sortedKeys])
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        try registry.apply(
+            provider: "codex",
+            records: [.init(
+                provider: "codex",
+                sessionID: sessionID,
+                updatedAt: 30,
+                json: recordJSON
+            )],
+            activeSlots: [
+                .init(
+                    provider: "codex",
+                    scope: .workspace,
+                    scopeID: workspaceID.uuidString,
+                    sessionID: sessionID,
+                    updatedAt: 30,
+                    json: slotJSON
+                ),
+                .init(
+                    provider: "codex",
+                    scope: .surface,
+                    scopeID: surfaceID.uuidString,
+                    sessionID: sessionID,
+                    updatedAt: 30,
+                    json: slotJSON
+                ),
+            ]
+        )
+        return (
+            SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: sessionID,
+                workingDirectory: root.path,
+                launchCommand: nil
+            ),
+            workspaceID,
+            surfaceID,
+            registry
+        )
     }
 }
