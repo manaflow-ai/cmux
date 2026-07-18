@@ -17,6 +17,8 @@ import WebKit
 @available(macOS 15.4, *)
 @MainActor
 final class BrowserWebExtensionsManager: NSObject {
+    static let actionPopupPreferredEdge: NSRectEdge = .minY
+
     /// System WebKit advertises the `notifications` manifest permission but
     /// omits the JavaScript namespace outside its private test mode. Extensions
     /// such as 1Password register notification listeners during startup without
@@ -1222,7 +1224,11 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
                 throw BrowserWebExtensionActionError.missingPopupAnchor
             }
             popover.behavior = .transient
-            popover.show(relativeTo: anchor.rect, of: anchor.view, preferredEdge: .maxY)
+            popover.show(
+                relativeTo: anchor.rect,
+                of: anchor.view,
+                preferredEdge: Self.actionPopupPreferredEdge
+            )
         }
         if let webView = action.popupWebView {
             popupWebViews[extensionContext.uniqueIdentifier] = WeakPopupWebView(webView)
