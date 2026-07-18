@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import SQLite3
 import Testing
@@ -273,6 +274,129 @@ struct WorkstreamPersistenceTests {
         #expect(try fixture.historyItems().filter { $0.id == originalID }.count == 1)
     }
 
+    @Test("Receipt-pruned retry cannot hide changed secrets behind history redaction")
+    func prunedReceiptRetryRejectsChangedRawSecretContent() async throws {
+        let clock = ReceiptTestClock(now: Date(timeIntervalSince1970: 12_000))
+        let fixture = try ReceiptFixture()
+        defer { fixture.remove() }
+        let requestID = "delivery-with-secret-bearing-content"
+        let original = fixture.event(
+            requestID: requestID,
+            toolInputJSON: #"{"env":{"API_TOKEN":"alpha"},"path":"README.md"}"#,
+            receivedAt: clock.now
+        )
+        let persistence = fixture.persistence(
+            receiptRetention: 100,
+            maximumReceiptCount: 1,
+            clock: { clock.now }
+        )
+        let originalID = try await persistence.appendAcknowledged(
+            fixture.item(for: original),
+            for: original
+        )
+
+        clock.advance(101)
+        let replacement = fixture.event(
+            requestID: "replacement-that-prunes-secret-receipt",
+            receivedAt: clock.now
+        )
+        _ = try await persistence.appendAcknowledged(
+            fixture.item(for: replacement),
+            for: replacement
+        )
+        clock.advance(101)
+        let changed = fixture.event(
+            requestID: requestID,
+            toolInputJSON: #"{"env":{"API_TOKEN":"beta"},"path":"README.md"}"#,
+            receivedAt: clock.now
+        )
+
+        await #expect(throws: WorkstreamPersistenceError.requestIdentityContentMismatch) {
+            try await persistence.appendAcknowledged(fixture.item(for: changed), for: changed)
+        }
+        #expect(
+            try await persistence.appendAcknowledged(fixture.item(for: original), for: original)
+                == originalID
+        )
+        #expect(try fixture.historyItems().filter { $0.id == originalID }.count == 1)
+        let historyBytes = try Data(contentsOf: fixture.historyURL)
+        let history = try #require(String(data: historyBytes, encoding: .utf8))
+        #expect(!history.contains("alpha"))
+        #expect(!history.contains("beta"))
+    }
+
+    @Test("Legacy history gains a durable digest binding across receipt pruning")
+    func legacyHistoryBindingSurvivesReceiptPruning() async throws {
+        let clock = ReceiptTestClock(now: Date(timeIntervalSince1970: 30_000))
+        let fixture = try ReceiptFixture()
+        defer { fixture.remove() }
+        let event = fixture.event(requestID: "legacy-receipt")
+        let legacyItemID = fixture.stableItemID(for: event)
+        try fixture.installLegacyReceipt(
+            itemID: legacyItemID,
+            event: event,
+            item: fixture.item(for: event)
+        )
+        let persistence = fixture.persistence(
+            receiptRetention: 100,
+            maximumReceiptCount: 1,
+            clock: { clock.now }
+        )
+
+        let retryID = try await persistence.appendAcknowledged(fixture.item(for: event), for: event)
+
+        #expect(retryID == legacyItemID)
+        #expect(try fixture.historyItems().map(\.id) == [legacyItemID])
+        #expect(try fixture.historyContentBindingCount() == 1)
+        #expect(try fixture.receiptContentDigest(itemID: legacyItemID)?.count == 32)
+        #expect(try await persistence.loadRecent(limit: 1).map(\.id) == [legacyItemID])
+
+        clock.advance(101)
+        let replacement = fixture.event(
+            requestID: "replacement-that-prunes-legacy-receipt",
+            receivedAt: clock.now
+        )
+        _ = try await persistence.appendAcknowledged(
+            fixture.item(for: replacement),
+            for: replacement
+        )
+        clock.advance(101)
+        let recovered = fixture.persistence(
+            receiptRetention: 100,
+            maximumReceiptCount: 1,
+            clock: { clock.now }
+        )
+
+        #expect(
+            try await recovered.appendAcknowledged(fixture.item(for: event), for: event)
+                == legacyItemID
+        )
+        #expect(try fixture.historyItems().filter { $0.id == legacyItemID }.count == 1)
+        #expect(try fixture.historyContentBindingCount() == 1)
+
+        clock.advance(101)
+        let secondReplacement = fixture.event(
+            requestID: "replacement-that-prunes-recovered-legacy-receipt",
+            receivedAt: clock.now
+        )
+        _ = try await recovered.appendAcknowledged(
+            fixture.item(for: secondReplacement),
+            for: secondReplacement
+        )
+        clock.advance(101)
+        let changed = fixture.event(
+            requestID: event.requestId ?? "legacy-receipt",
+            toolInputJSON: #"{"path":"DIFFERENT.md"}"#,
+            receivedAt: clock.now
+        )
+
+        await #expect(throws: WorkstreamPersistenceError.requestIdentityContentMismatch) {
+            try await recovered.appendAcknowledged(fixture.item(for: changed), for: changed)
+        }
+        #expect(try fixture.historyItems().filter { $0.id == legacyItemID }.count == 1)
+        #expect(try fixture.historyContentBindingCount() == 1)
+    }
+
     @Test("Receipt retention slides on retry and count pressure never evicts it")
     func retrySlidesRetentionUnderCountPressure() async throws {
         let clock = ReceiptTestClock(now: Date(timeIntervalSince1970: 20_000))
@@ -433,6 +557,7 @@ private struct ReceiptFixture {
         eventName: WorkstreamEvent.HookEventName = .preToolUse,
         source: String = "codex",
         requestID: String,
+        toolInputJSON: String = #"{"path":"README.md"}"#,
         receivedAt: Date = Date()
     ) -> WorkstreamEvent {
         WorkstreamEvent(
@@ -440,7 +565,7 @@ private struct ReceiptFixture {
             hookEventName: eventName,
             source: source,
             toolName: "Read",
-            toolInputJSON: #"{"path":"README.md"}"#,
+            toolInputJSON: toolInputJSON,
             requestId: requestID,
             receivedAt: receivedAt
         )
@@ -455,6 +580,30 @@ private struct ReceiptFixture {
             createdAt: event.receivedAt,
             payload: .toolUse(toolName: event.toolName ?? "Read", toolInputJSON: event.toolInputJSON ?? "{}")
         )
+    }
+
+    func stableItemID(for event: WorkstreamEvent) -> UUID {
+        var identity = Data("cmux.feed.receipt.v1".utf8)
+        for component in [
+            event.source,
+            event.sessionId,
+            event.hookEventName.rawValue,
+            event.requestId ?? "",
+        ] {
+            let bytes = Data(component.utf8)
+            var length = UInt64(bytes.count).bigEndian
+            withUnsafeBytes(of: &length) { identity.append(contentsOf: $0) }
+            identity.append(bytes)
+        }
+        var bytes = Array(SHA256.hash(data: identity).prefix(16))
+        bytes[6] = (bytes[6] & 0x0F) | 0x80
+        bytes[8] = (bytes[8] & 0x3F) | 0x80
+        return UUID(uuid: (
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11],
+            bytes[12], bytes[13], bytes[14], bytes[15]
+        ))
     }
 
     func executeReceiptSQL(_ sql: String) throws {
@@ -504,12 +653,104 @@ private struct ReceiptFixture {
         return sqlite3_column_int(statement, 0) != 0
     }
 
+    func receiptContentDigest(itemID: UUID) throws -> Data? {
+        var database: OpaquePointer?
+        let openStatus = sqlite3_open_v2(
+            receiptDatabaseURL.path,
+            &database,
+            SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX,
+            nil
+        )
+        guard openStatus == SQLITE_OK, let database else {
+            if let database { sqlite3_close_v2(database) }
+            throw NSError(domain: "ReceiptFixture", code: Int(openStatus))
+        }
+        defer { sqlite3_close_v2(database) }
+        var statement: OpaquePointer?
+        let sql = "SELECT content_digest FROM feed_receipts WHERE item_id = ?;"
+        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK,
+              let statement
+        else { throw NSError(domain: "ReceiptFixture", code: 3) }
+        defer { sqlite3_finalize(statement) }
+        let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        sqlite3_bind_text(statement, 1, itemID.uuidString, -1, transient)
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw NSError(domain: "ReceiptFixture", code: 4)
+        }
+        guard sqlite3_column_type(statement, 0) != SQLITE_NULL else { return nil }
+        let count = Int(sqlite3_column_bytes(statement, 0))
+        guard let bytes = sqlite3_column_blob(statement, 0) else { return Data() }
+        return Data(bytes: bytes, count: count)
+    }
+
+    func installLegacyReceipt(
+        itemID: UUID,
+        event: WorkstreamEvent,
+        item: WorkstreamItem
+    ) throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var history = try encoder.encode(item.replacingID(itemID))
+        history.append(0x0A)
+        try history.write(to: historyURL)
+
+        var database: OpaquePointer?
+        let openStatus = sqlite3_open_v2(
+            receiptDatabaseURL.path,
+            &database,
+            SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
+            nil
+        )
+        guard openStatus == SQLITE_OK, let database else {
+            if let database { sqlite3_close_v2(database) }
+            throw NSError(domain: "ReceiptFixture", code: Int(openStatus))
+        }
+        defer { sqlite3_close_v2(database) }
+        let sql =
+            """
+            CREATE TABLE feed_receipts (
+                source TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                event_name TEXT NOT NULL,
+                request_id TEXT NOT NULL,
+                item_id TEXT NOT NULL UNIQUE,
+                appended INTEGER NOT NULL DEFAULT 0 CHECK (appended IN (0, 1)),
+                created_at REAL NOT NULL,
+                last_seen_at REAL NOT NULL,
+                PRIMARY KEY (source, session_id, event_name, request_id)
+            ) WITHOUT ROWID;
+            INSERT INTO feed_receipts (
+                source, session_id, event_name, request_id,
+                item_id, appended, created_at, last_seen_at
+            ) VALUES (
+                '\(event.source)', '\(event.sessionId)', '\(event.hookEventName.rawValue)',
+                '\(event.requestId ?? "")', '\(itemID.uuidString)', 1, 1, 1
+            );
+            """
+        let status = sqlite3_exec(database, sql, nil, nil, nil)
+        guard status == SQLITE_OK else {
+            throw NSError(domain: "ReceiptFixture", code: Int(status))
+        }
+    }
+
     func historyItems() throws -> [WorkstreamItem] {
         let data = try Data(contentsOf: historyURL)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try data.split(separator: 0x0A).map { line in
-            try decoder.decode(WorkstreamItem.self, from: Data(line))
+        return data.split(separator: 0x0A).compactMap { line in
+            try? decoder.decode(WorkstreamItem.self, from: Data(line))
+        }
+    }
+
+    func historyContentBindingCount() throws -> Int {
+        let data = try Data(contentsOf: historyURL)
+        return try data.split(separator: 0x0A).reduce(into: 0) { count, line in
+            guard let object = try JSONSerialization.jsonObject(with: Data(line))
+                    as? [String: Any]
+            else { return }
+            if object["_cmux_semantic_binding"] != nil {
+                count += 1
+            }
         }
     }
 

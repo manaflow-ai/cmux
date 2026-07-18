@@ -366,7 +366,7 @@ struct WorkstreamStoreTests {
         store.markResolved(itemID, decision: .permission(.once))
         let itemBeforeReuse = try #require(store.items.first)
 
-        await #expect(throws: (any Error).self) {
+        await #expect(throws: WorkstreamPersistenceError.requestIdentityContentMismatch) {
             try await store.ingestAcknowledged(changed)
         }
 

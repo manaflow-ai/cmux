@@ -8,6 +8,8 @@ import SQLite3
 /// the persistence actor, which keeps receipt reservation, JSONL append, and
 /// completion marking in one non-reentrant critical path.
 final class WorkstreamReceiptDatabase {
+    private static let contentDigestBytes = 32
+
     private let url: URL
     private let retention: TimeInterval
     private let maximumCount: Int
@@ -37,8 +39,17 @@ final class WorkstreamReceiptDatabase {
         sessionID: String,
         eventName: String,
         requestID: String,
+        contentDigest: Data,
         now: TimeInterval
-    ) throws -> (itemID: UUID, appended: Bool, existedBeforeReservation: Bool) {
+    ) throws -> (
+        itemID: UUID,
+        appended: Bool,
+        contentDigest: Data?,
+        existedBeforeReservation: Bool
+    ) {
+        guard contentDigest.count == Self.contentDigestBytes else {
+            throw WorkstreamPersistenceError.requestIdentityContentMismatch
+        }
         let database = try databaseHandle()
         try execute("BEGIN IMMEDIATE;", in: database)
         var transactionOpen = true
@@ -53,6 +64,10 @@ final class WorkstreamReceiptDatabase {
                 requestID: requestID,
                 database: database
             ) {
+                if let existingDigest = existing.contentDigest,
+                   existingDigest != contentDigest {
+                    throw WorkstreamPersistenceError.requestIdentityContentMismatch
+                }
                 try touchReceipt(
                     source: source,
                     sessionID: sessionID,
@@ -64,7 +79,12 @@ final class WorkstreamReceiptDatabase {
                 try execute("COMMIT;", in: database)
                 transactionOpen = false
                 try checkpoint(database)
-                return (existing.itemID, existing.appended, true)
+                return (
+                    existing.itemID,
+                    existing.appended,
+                    existing.contentDigest,
+                    true
+                )
             }
 
             var count = try receiptCount(in: database)
@@ -124,7 +144,7 @@ final class WorkstreamReceiptDatabase {
             try execute("COMMIT;", in: database)
             transactionOpen = false
             try checkpoint(database)
-            return (itemID, false, false)
+            return (itemID, false, nil, false)
         } catch {
             if transactionOpen {
                 sqlite3_exec(database, "ROLLBACK;", nil, nil, nil)
@@ -139,8 +159,12 @@ final class WorkstreamReceiptDatabase {
         eventName: String,
         requestID: String,
         itemID: UUID,
+        contentDigest: Data,
         now: TimeInterval
     ) throws {
+        guard contentDigest.count == Self.contentDigestBytes else {
+            throw WorkstreamPersistenceError.requestIdentityContentMismatch
+        }
         let database = try databaseHandle()
         try execute("BEGIN IMMEDIATE;", in: database)
         var transactionOpen = true
@@ -148,21 +172,35 @@ final class WorkstreamReceiptDatabase {
             try withStatement(
                 """
                 UPDATE feed_receipts
-                SET appended = 1, last_seen_at = ?
+                SET appended = 1,
+                    content_digest = COALESCE(content_digest, ?),
+                    last_seen_at = ?
                 WHERE source = ? AND session_id = ? AND event_name = ?
-                  AND request_id = ? AND item_id = ?;
+                  AND request_id = ? AND item_id = ?
+                  AND (content_digest IS NULL OR content_digest = ?);
                 """,
                 in: database
             ) { statement in
-                try bind(now, at: 1, in: statement, database: database)
-                try bind(source, at: 2, in: statement, database: database)
-                try bind(sessionID, at: 3, in: statement, database: database)
-                try bind(eventName, at: 4, in: statement, database: database)
-                try bind(requestID, at: 5, in: statement, database: database)
-                try bind(itemID.uuidString, at: 6, in: statement, database: database)
+                try bind(contentDigest, at: 1, in: statement, database: database)
+                try bind(now, at: 2, in: statement, database: database)
+                try bind(source, at: 3, in: statement, database: database)
+                try bind(sessionID, at: 4, in: statement, database: database)
+                try bind(eventName, at: 5, in: statement, database: database)
+                try bind(requestID, at: 6, in: statement, database: database)
+                try bind(itemID.uuidString, at: 7, in: statement, database: database)
+                try bind(contentDigest, at: 8, in: statement, database: database)
                 try stepDone(statement, database: database)
             }
             guard sqlite3_changes(database) == 1 else {
+                if let existing = try receipt(
+                    source: source,
+                    sessionID: sessionID,
+                    eventName: eventName,
+                    requestID: requestID,
+                    database: database
+                ), existing.contentDigest != nil, existing.contentDigest != contentDigest {
+                    throw WorkstreamPersistenceError.requestIdentityContentMismatch
+                }
                 throw sqliteError(
                     code: SQLITE_NOTFOUND,
                     operation: "mark acknowledged Feed receipt appended",
@@ -195,10 +233,10 @@ final class WorkstreamReceiptDatabase {
         eventName: String,
         requestID: String,
         database: OpaquePointer
-    ) throws -> (itemID: UUID, appended: Bool)? {
+    ) throws -> (itemID: UUID, appended: Bool, contentDigest: Data?)? {
         try withStatement(
             """
-            SELECT item_id, appended
+            SELECT item_id, appended, content_digest
             FROM feed_receipts
             WHERE source = ? AND session_id = ? AND event_name = ? AND request_id = ?;
             """,
@@ -226,7 +264,26 @@ final class WorkstreamReceiptDatabase {
                     database: database
                 )
             }
-            return (itemID, sqlite3_column_int(statement, 1) != 0)
+            let contentDigest: Data?
+            if sqlite3_column_type(statement, 2) == SQLITE_NULL {
+                contentDigest = nil
+            } else {
+                let byteCount = Int(sqlite3_column_bytes(statement, 2))
+                guard byteCount == Self.contentDigestBytes,
+                      let bytes = sqlite3_column_blob(statement, 2) else {
+                    throw sqliteError(
+                        code: SQLITE_CORRUPT,
+                        operation: "decode acknowledged Feed receipt content digest",
+                        database: database
+                    )
+                }
+                contentDigest = Data(bytes: bytes, count: byteCount)
+            }
+            return (
+                itemID,
+                sqlite3_column_int(statement, 1) != 0,
+                contentDigest
+            )
         }
     }
 
@@ -328,6 +385,8 @@ final class WorkstreamReceiptDatabase {
                 event_name TEXT NOT NULL,
                 request_id TEXT NOT NULL,
                 item_id TEXT NOT NULL UNIQUE,
+                content_digest BLOB
+                    CHECK (content_digest IS NULL OR length(content_digest) = 32),
                 appended INTEGER NOT NULL DEFAULT 0 CHECK (appended IN (0, 1)),
                 created_at REAL NOT NULL,
                 last_seen_at REAL NOT NULL,
@@ -338,7 +397,40 @@ final class WorkstreamReceiptDatabase {
             """,
             in: database
         )
+        if try !tableHasColumn("content_digest", table: "feed_receipts", database: database) {
+            try execute(
+                """
+                ALTER TABLE feed_receipts ADD COLUMN content_digest BLOB
+                    CHECK (content_digest IS NULL OR length(content_digest) = 32);
+                """,
+                in: database
+            )
+        }
         try checkpoint(database)
+    }
+
+    private func tableHasColumn(
+        _ column: String,
+        table: String,
+        database: OpaquePointer
+    ) throws -> Bool {
+        try withStatement("PRAGMA table_info(\(table));", in: database) { statement in
+            while true {
+                let status = sqlite3_step(statement)
+                if status == SQLITE_DONE { return false }
+                guard status == SQLITE_ROW else {
+                    throw sqliteError(
+                        code: status,
+                        operation: "inspect acknowledged Feed receipt schema",
+                        database: database
+                    )
+                }
+                if let text = sqlite3_column_text(statement, 1),
+                   String(cString: text) == column {
+                    return true
+                }
+            }
+        }
     }
 
     private func checkpoint(_ database: OpaquePointer) throws {
@@ -485,6 +577,33 @@ final class WorkstreamReceiptDatabase {
         let status = sqlite3_bind_double(statement, index, value)
         guard status == SQLITE_OK else {
             throw sqliteError(code: status, operation: "bind SQLite number", database: database)
+        }
+    }
+
+    private func bind(
+        _ value: Data,
+        at index: Int32,
+        in statement: OpaquePointer,
+        database: OpaquePointer
+    ) throws {
+        guard value.count <= Int(Int32.max) else {
+            throw sqliteError(
+                code: SQLITE_TOOBIG,
+                operation: "bind SQLite data",
+                database: database
+            )
+        }
+        let status = value.withUnsafeBytes { bytes in
+            sqlite3_bind_blob(
+                statement,
+                index,
+                bytes.baseAddress,
+                Int32(value.count),
+                unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+            )
+        }
+        guard status == SQLITE_OK else {
+            throw sqliteError(code: status, operation: "bind SQLite data", database: database)
         }
     }
 

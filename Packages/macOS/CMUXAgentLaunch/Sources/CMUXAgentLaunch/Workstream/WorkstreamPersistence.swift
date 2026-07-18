@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Append-only JSONL persistence for `WorkstreamItem`. One item per line,
@@ -26,12 +27,22 @@ public actor WorkstreamPersistence {
     }
 
     private let fileURL: URL
-    private let receiptRetention: TimeInterval
     private let receiptDatabase: WorkstreamReceiptDatabase
     private let clock: @Sendable () -> Date
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private var handle: FileHandle?
+
+    private static let historyContentDigestKey = "_cmux_semantic_digest"
+    private static let historyContentBindingKey = "_cmux_semantic_binding"
+    private static let historyContentBindingItemIDKey = "item_id"
+    private static let historyContentBindingDigestKey = "digest"
+    private static let semanticDigestVersion = Data("cmux.feed.semantic-content.v1".utf8)
+    private static let normalizedDate = Date(timeIntervalSince1970: 0)
+    private static let normalizedID = UUID(uuid: (
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0
+    ))
 
     /// Creates JSONL history persistence with a bounded durable receipt sidecar.
     ///
@@ -64,7 +75,6 @@ public actor WorkstreamPersistence {
         self.fileURL = fileURL
         let resolvedReceiptDatabaseURL = receiptDatabaseURL
             ?? fileURL.appendingPathExtension("receipts.sqlite3")
-        self.receiptRetention = receiptRetention
         self.receiptDatabase = WorkstreamReceiptDatabase(
             url: resolvedReceiptDatabaseURL,
             retention: receiptRetention,
@@ -74,6 +84,7 @@ public actor WorkstreamPersistence {
         self.clock = clock
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
+        enc.outputFormatting = [.sortedKeys]
         self.encoder = enc
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .iso8601
@@ -98,11 +109,12 @@ public actor WorkstreamPersistence {
     ///
     /// Identity is the collision-free tuple of event source, session identifier,
     /// hook event name, and request identifier. The method first commits a stable
-    /// item UUID to the SQLite receipt sidecar, then synchronizes the JSONL append,
-    /// and finally marks the receipt appended. A retry returns the same UUID. If a
-    /// process stopped after the JSONL append but before the final mark, recovery
-    /// finds that UUID anywhere in JSONL and completes the receipt without appending
-    /// a second row.
+    /// item UUID to the SQLite receipt sidecar, then synchronizes a redacted JSONL
+    /// append carrying the raw semantic content's digest, and finally binds that
+    /// digest to the receipt. A retry returns the same UUID only when its canonical
+    /// semantic content matches. If a receipt was pruned or a process stopped after
+    /// the JSONL append, recovery verifies the digest stored with that stable UUID
+    /// before completing the receipt without appending a second row.
     ///
     /// - Parameters:
     ///   - item: Candidate history item. Its UUID is replaced by the stable receipt UUID.
@@ -120,41 +132,58 @@ public actor WorkstreamPersistence {
             throw WorkstreamPersistenceError.missingRequestIdentity
         }
 
+        let contentDigest = try semanticContentDigest(for: item, redacting: false)
+        let legacyRedactedDigest = try semanticContentDigest(for: item, redacting: true)
         let now = clock().timeIntervalSince1970
         let receipt = try receiptDatabase.reserve(
             source: event.source,
             sessionID: event.sessionId,
             eventName: event.hookEventName.rawValue,
             requestID: requestID,
+            contentDigest: contentDigest,
             now: now
         )
-        if receipt.appended {
+        if receipt.appended, receipt.contentDigest != nil {
             return receipt.itemID
         }
 
         let persistedItem = item.replacingID(receipt.itemID)
-        let delayedBeyondReceiptRetention = now - event.receivedAt.timeIntervalSince1970
-            >= receiptRetention
-        if (receipt.existedBeforeReservation || delayedBeyondReceiptRetention),
-           try historyContainsItem(withID: receipt.itemID) {
+        if try historyContainsMatchingContent(
+            withID: receipt.itemID,
+            contentDigest: contentDigest,
+            legacyRedactedDigest: legacyRedactedDigest
+        ) {
             try receiptDatabase.markAppended(
                 source: event.source,
                 sessionID: event.sessionId,
                 eventName: event.hookEventName.rawValue,
                 requestID: requestID,
                 itemID: receipt.itemID,
+                contentDigest: contentDigest,
                 now: now
             )
             return receipt.itemID
         }
 
-        try appendHistoryLine(persistedItem, synchronize: true)
+        // A legacy receipt marked appended but lacking a digest cannot safely be
+        // rebound when its claimed history row is absent. Appending the retry here
+        // would let changed content take ownership of an existing request identity.
+        if receipt.appended {
+            throw WorkstreamPersistenceError.requestIdentityContentMismatch
+        }
+
+        try appendHistoryLine(
+            persistedItem,
+            synchronize: true,
+            contentDigest: contentDigest
+        )
         try receiptDatabase.markAppended(
             source: event.source,
             sessionID: event.sessionId,
             eventName: event.hookEventName.rawValue,
             requestID: requestID,
             itemID: receipt.itemID,
+            contentDigest: contentDigest,
             now: now
         )
         return receipt.itemID
@@ -162,9 +191,14 @@ public actor WorkstreamPersistence {
 
     private func appendHistoryLine(
         _ item: WorkstreamItem,
-        synchronize: Bool
+        synchronize: Bool,
+        contentDigest: Data? = nil
     ) throws {
-        let data = try encoder.encode(item.redactedForPersistence())
+        let line = try encodedHistoryLine(item, contentDigest: contentDigest)
+        try appendHistoryData(line, synchronize: synchronize)
+    }
+
+    private func appendHistoryData(_ data: Data, synchronize: Bool) throws {
         var line = data
         line.append(0x0A) // "\n"
         let fh = try handleForWriting()
@@ -224,7 +258,13 @@ public actor WorkstreamPersistence {
             }
             tail.insert(contentsOf: chunk, at: 0)
             lineRanges = Self.lineRanges(in: tail, baseOffset: offset)
-            if lineRanges.count > limit {
+            let itemCount = lineRanges.reduce(into: 0) { count, lineRange in
+                let line = tail.subdata(in: lineRange.range)
+                if (try? decoder.decode(WorkstreamItem.self, from: line)) != nil {
+                    count += 1
+                }
+            }
+            if itemCount > limit {
                 break
             }
         }
@@ -232,20 +272,20 @@ public actor WorkstreamPersistence {
         if lineRanges.isEmpty {
             lineRanges = Self.lineRanges(in: tail, baseOffset: offset)
         }
-        let selectedRanges = lineRanges.suffix(limit)
-        var decoded: [WorkstreamItem] = []
-        decoded.reserveCapacity(selectedRanges.count)
-        for lineRange in selectedRanges {
+        let decodedLines: [(item: WorkstreamItem, startOffset: UInt64)] = lineRanges.compactMap { lineRange in
             let slice = tail.subdata(in: lineRange.range)
-            if let item = try? decoder.decode(WorkstreamItem.self, from: slice) {
-                decoded.append(item)
+            // Metadata bindings and malformed lines are dropped silently; the
+            // audit log must remain loadable after a partial final write.
+            guard let item = try? decoder.decode(WorkstreamItem.self, from: slice) else {
+                return nil
             }
-            // Malformed lines are dropped silently; the audit log is
-            // append-only and we don't want a corrupt row to block startup.
+            return (item, lineRange.startOffset)
         }
+        let selectedLines = decodedLines.suffix(limit)
+        let decoded = selectedLines.map(\.item)
         var seenIDs = Set<UUID>()
         let out = decoded.reversed().filter { seenIDs.insert($0.id).inserted }.reversed()
-        let startOffset = selectedRanges.first?.startOffset
+        let startOffset = selectedLines.first?.startOffset
         return Page(
             items: Array(out),
             hasMoreBefore: (startOffset ?? 0) > 0,
@@ -272,25 +312,199 @@ public actor WorkstreamPersistence {
         try receiptDatabase.clearIfPresent()
     }
 
-    private func historyContainsItem(withID itemID: UUID) throws -> Bool {
+    private func historyContainsMatchingContent(
+        withID itemID: UUID,
+        contentDigest: Data,
+        legacyRedactedDigest: Data
+    ) throws -> Bool {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return false }
         let readHandle = try FileHandle(forReadingFrom: fileURL)
         defer { try? readHandle.close() }
 
+        var match = HistoryContentMatch()
         var pending = Data()
         while let chunk = try readHandle.read(upToCount: 64 * 1_024), !chunk.isEmpty {
             pending.append(chunk)
             while let newline = pending.firstIndex(of: 0x0A) {
                 let line = pending.subdata(in: pending.startIndex..<newline)
-                if historyLine(line, hasID: itemID) { return true }
+                try inspectHistoryLine(
+                    line,
+                    withID: itemID,
+                    matches: contentDigest,
+                    match: &match
+                )
                 pending.removeSubrange(pending.startIndex...newline)
             }
         }
-        return !pending.isEmpty && historyLine(pending, hasID: itemID)
+        if !pending.isEmpty {
+            try inspectHistoryLine(
+               pending,
+               withID: itemID,
+               matches: contentDigest,
+               match: &match
+            )
+        }
+
+        guard match.foundItem else { return false }
+        if match.hasCanonicalBinding { return true }
+        guard !match.legacyRedactedDigests.isEmpty,
+              match.legacyRedactedDigests.allSatisfy({ $0 == legacyRedactedDigest })
+        else {
+            throw WorkstreamPersistenceError.requestIdentityContentMismatch
+        }
+
+        // Trust a matching legacy redacted row once, then durably upgrade it.
+        // The append-only binding survives receipt pruning without rewriting the
+        // audit row and contains only the one-way digest of the raw semantics.
+        try appendHistoryContentBinding(itemID: itemID, contentDigest: contentDigest)
+        return true
     }
 
-    private func historyLine(_ line: Data, hasID itemID: UUID) -> Bool {
-        (try? decoder.decode(WorkstreamItem.self, from: line).id) == itemID
+    private struct HistoryContentMatch {
+        var foundItem = false
+        var hasCanonicalBinding = false
+        var legacyRedactedDigests: [Data] = []
+    }
+
+    private func inspectHistoryLine(
+        _ line: Data,
+        withID itemID: UUID,
+        matches contentDigest: Data,
+        match: inout HistoryContentMatch
+    ) throws {
+        switch historyContentBinding(in: line) {
+        case .valid(let bindingItemID, let bindingDigest):
+            guard bindingItemID == itemID else { return }
+            guard bindingDigest == contentDigest else {
+                throw WorkstreamPersistenceError.requestIdentityContentMismatch
+            }
+            match.hasCanonicalBinding = true
+            return
+        case .invalid(let bindingItemID):
+            guard bindingItemID == itemID else { return }
+            throw WorkstreamPersistenceError.requestIdentityContentMismatch
+        case .absent:
+            break
+        }
+
+        guard let item = try? decoder.decode(WorkstreamItem.self, from: line),
+              item.id == itemID
+        else { return }
+        match.foundItem = true
+
+        switch historyContentDigest(in: line) {
+        case .absent:
+            match.legacyRedactedDigests.append(
+                try semanticContentDigest(for: item, redacting: true)
+            )
+        case .valid(let historyDigest):
+            guard historyDigest == contentDigest else {
+                throw WorkstreamPersistenceError.requestIdentityContentMismatch
+            }
+            match.hasCanonicalBinding = true
+        case .invalid:
+            throw WorkstreamPersistenceError.requestIdentityContentMismatch
+        }
+    }
+
+    private enum HistoryContentDigest {
+        case absent
+        case valid(Data)
+        case invalid
+    }
+
+    private enum HistoryContentBinding {
+        case absent
+        case valid(itemID: UUID, digest: Data)
+        case invalid(itemID: UUID?)
+    }
+
+    private func historyContentBinding(in line: Data) -> HistoryContentBinding {
+        guard let object = try? JSONSerialization.jsonObject(with: line),
+              let dictionary = object as? [String: Any],
+              let rawBinding = dictionary[Self.historyContentBindingKey]
+        else { return .absent }
+        guard let binding = rawBinding as? [String: Any],
+              let itemIDString = binding[Self.historyContentBindingItemIDKey] as? String,
+              let itemID = UUID(uuidString: itemIDString)
+        else { return .invalid(itemID: nil) }
+        guard let encoded = binding[Self.historyContentBindingDigestKey] as? String,
+              let digest = Data(base64Encoded: encoded),
+              digest.count == SHA256.byteCount
+        else { return .invalid(itemID: itemID) }
+        return .valid(itemID: itemID, digest: digest)
+    }
+
+    private func historyContentDigest(in line: Data) -> HistoryContentDigest {
+        guard let object = try? JSONSerialization.jsonObject(with: line),
+              let dictionary = object as? [String: Any]
+        else { return .invalid }
+        guard let encoded = dictionary[Self.historyContentDigestKey] else {
+            return .absent
+        }
+        guard let encoded = encoded as? String,
+              let digest = Data(base64Encoded: encoded),
+              digest.count == SHA256.byteCount
+        else { return .invalid }
+        return .valid(digest)
+    }
+
+    private func encodedHistoryLine(
+        _ item: WorkstreamItem,
+        contentDigest: Data?
+    ) throws -> Data {
+        let redacted = try encoder.encode(item.redactedForPersistence())
+        guard let contentDigest else { return redacted }
+        guard var dictionary = try JSONSerialization.jsonObject(with: redacted) as? [String: Any]
+        else {
+            throw WorkstreamPersistenceError.requestIdentityContentMismatch
+        }
+        dictionary[Self.historyContentDigestKey] = contentDigest.base64EncodedString()
+        return try JSONSerialization.data(withJSONObject: dictionary, options: [.sortedKeys])
+    }
+
+    private func appendHistoryContentBinding(
+        itemID: UUID,
+        contentDigest: Data
+    ) throws {
+        let record: [String: Any] = [
+            Self.historyContentBindingKey: [
+                Self.historyContentBindingItemIDKey: itemID.uuidString,
+                Self.historyContentBindingDigestKey: contentDigest.base64EncodedString(),
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+        try appendHistoryData(data, synchronize: true)
+    }
+
+    private func semanticContentDigest(
+        for item: WorkstreamItem,
+        redacting: Bool
+    ) throws -> Data {
+        let contentItem = redacting
+            ? item.redactedForPersistence()
+            : item.canonicalizedForIdentity()
+        let normalized = WorkstreamItem(
+            id: Self.normalizedID,
+            workstreamId: contentItem.workstreamId,
+            source: contentItem.source,
+            kind: contentItem.kind,
+            requestId: contentItem.requestId,
+            createdAt: Self.normalizedDate,
+            updatedAt: Self.normalizedDate,
+            cwd: contentItem.cwd,
+            title: nil,
+            status: contentItem.kind.isActionable ? .pending : .telemetry,
+            payload: contentItem.payload,
+            context: contentItem.context,
+            ppid: nil
+        )
+        var framed = Self.semanticDigestVersion
+        let data = try encoder.encode(normalized)
+        var length = UInt64(data.count).bigEndian
+        withUnsafeBytes(of: &length) { framed.append(contentsOf: $0) }
+        framed.append(data)
+        return Data(SHA256.hash(data: framed))
     }
 
     private func handleForWriting() throws -> FileHandle {
@@ -347,6 +561,12 @@ private extension WorkstreamItem {
         copy.payload = payload.redactedForPersistence()
         return copy
     }
+
+    func canonicalizedForIdentity() -> WorkstreamItem {
+        var copy = self
+        copy.payload = payload.canonicalizedForIdentity()
+        return copy
+    }
 }
 
 private extension WorkstreamPayload {
@@ -368,6 +588,33 @@ private extension WorkstreamPayload {
             return .toolResult(
                 toolName: toolName,
                 resultJSON: WorkstreamPersistenceRedactor.redactToolInputJSON(resultJSON),
+                isError: isError
+            )
+        default:
+            return self
+        }
+    }
+}
+
+private extension WorkstreamPayload {
+    func canonicalizedForIdentity() -> WorkstreamPayload {
+        switch self {
+        case .permissionRequest(let requestId, let toolName, let toolInputJSON, let pattern):
+            return .permissionRequest(
+                requestId: requestId,
+                toolName: toolName,
+                toolInputJSON: WorkstreamPersistenceRedactor.canonicalizeJSON(toolInputJSON),
+                pattern: pattern
+            )
+        case .toolUse(let toolName, let toolInputJSON):
+            return .toolUse(
+                toolName: toolName,
+                toolInputJSON: WorkstreamPersistenceRedactor.canonicalizeJSON(toolInputJSON)
+            )
+        case .toolResult(let toolName, let resultJSON, let isError):
+            return .toolResult(
+                toolName: toolName,
+                resultJSON: WorkstreamPersistenceRedactor.canonicalizeJSON(resultJSON),
                 isError: isError
             )
         default:
@@ -411,6 +658,21 @@ private enum WorkstreamPersistenceRedactor {
         ),
               let string = String(data: out, encoding: .utf8)
         else { return redactString(input) }
+        return string
+    }
+
+    static func canonicalizeJSON(_ input: String) -> String {
+        guard let data = input.data(using: .utf8),
+              let value = try? JSONSerialization.jsonObject(
+                  with: data,
+                  options: [.fragmentsAllowed]
+              ),
+              let output = try? JSONSerialization.data(
+                  withJSONObject: value,
+                  options: [.fragmentsAllowed, .sortedKeys]
+              ),
+              let string = String(data: output, encoding: .utf8)
+        else { return input }
         return string
     }
 

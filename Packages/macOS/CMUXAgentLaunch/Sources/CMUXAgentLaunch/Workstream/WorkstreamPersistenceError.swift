@@ -9,6 +9,14 @@ public enum WorkstreamPersistenceError: Error, Sendable, Equatable {
     /// The acknowledged event did not contain a non-empty request identifier.
     case missingRequestIdentity
 
+    /// One durable request identity was reused for different persisted Feed content.
+    ///
+    /// Retries may carry a new transport timestamp, but the source, session, event,
+    /// request identifier, and persisted semantic payload must still describe the
+    /// same item. Reusing that identity for different content is rejected before
+    /// the in-memory Feed item can be replaced.
+    case requestIdentityContentMismatch
+
     /// The live receipt count reached its configured bound.
     ///
     /// Existing identities remain retryable at this bound. New identities must
