@@ -308,6 +308,7 @@ extension CMUXCLIErrorOutputRegressionTests {
     @Test func liveOneShotStopCompletesEverySupportedLaunchGeneration() throws {
         let launches: [(agent: String, executable: String, arguments: [String])] = [
             ("codex", "codex", ["exec", "fix this"]),
+            ("codex", "codex", ["exec", "--future-output", "fix this"]),
             ("codex", "codex", ["review"]),
             ("claude", "claude", ["-p", "fix this"]),
             ("claude", "claude", ["--print", "fix this"]),
@@ -597,9 +598,11 @@ extension CMUXCLIErrorOutputRegressionTests {
             ("cursor", "cursor-agent", []),
             ("factory", "droid", []),
             ("factory", "droid", ["exec", "--input-format", "stream-jsonrpc", "--output-format", "stream-jsonrpc"]),
+            ("factory", "droid", ["exec", "--future-protocol", "fix this"]),
             ("opencode", "opencode", []),
             ("opencode", "opencode", ["pr", "123"]),
             ("opencode", "opencode", ["run", "--interactive", "fix this"]),
+            ("opencode", "opencode", ["run", "--future-protocol", "fix this"]),
             ("opencode", "opencode", ["acp"]),
             ("opencode", "opencode", ["serve"]),
             ("opencode", "opencode", ["web"]),

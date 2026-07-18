@@ -530,4 +530,67 @@ struct AgentLaunchCaptureTrustTests {
             )
         }
     }
+
+    @Test func commandContractsFailClosedAroundUnknownOptionsAndPromptBoundaries() {
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "codex",
+                arguments: ["codex", "exec", "--future-output", "fix this"],
+                kind: "codex"
+            ) == .oneShot
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "opencode",
+                arguments: ["opencode", "run", "--future-protocol", "fix this"],
+                kind: "opencode"
+            ) == .unknown
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "droid",
+                arguments: ["droid", "exec", "--future-protocol", "fix this"],
+                kind: "factory"
+            ) == .unknown
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "claude",
+                arguments: ["claude", "--", "--print"],
+                kind: "claude"
+            ) == .interactive
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "kiro-cli",
+                arguments: ["kiro-cli", "chat", "--", "--no-interactive"],
+                kind: "kiro"
+            ) == .interactive
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "claude",
+                arguments: ["claude", "--print", "--input-format=stream-json"],
+                kind: "claude"
+            ) == .interactive
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "pi",
+                arguments: ["pi", "--print", "--mode=rpc"],
+                kind: "pi"
+            ) == .interactive
+        )
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "droid",
+                arguments: [
+                    "droid", "exec",
+                    "--input-format=stream-jsonrpc",
+                    "--output-format=stream-jsonrpc",
+                ],
+                kind: "factory"
+            ) == .interactive
+        )
+    }
 }
