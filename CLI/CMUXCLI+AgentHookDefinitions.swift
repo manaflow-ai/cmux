@@ -173,10 +173,15 @@ extension CMUXCLI {
     /// "No such file or directory (os error 2)". Falls back to the inline command
     /// on any write failure, so the persistent install can never regress.
     private static func codexPersistentHookScriptCommand(_ inlineCommand: String, eventTag: String) -> String {
-        guard let dir = codexHookScriptsDirectory(),
-              let path = writeCodexHookScript(
-                  subcommand: "persistent-\(eventTag)", body: inlineCommand, in: dir
-              ) else {
+        guard let dir = codexHookScriptsDirectory() else {
+            return inlineCommand
+        }
+        if let nativePath = writeCodexHookClient(subcommand: eventTag, in: dir) {
+            return nativePath
+        }
+        guard let path = writeCodexHookScript(
+            subcommand: "persistent-\(eventTag)", body: inlineCommand, in: dir
+        ) else {
             return inlineCommand
         }
         return path

@@ -41,16 +41,12 @@ extension CMUXCLI {
         guard let codexDef = Self.agentDef(named: "codex") else {
             throw CLIError(message: "Codex hook integration is unavailable.")
         }
-        // Prefer a #!/bin/sh SCRIPT FILE as the hook command over an inline shell
-        // snippet. Some codex-compatible runtimes (subrouters, proxies) exec the
-        // `command` string directly as a program instead of via a shell, so an
-        // inline snippet fails with "No such file or directory (os error 2)". A
-        // bare executable file path runs correctly whether the runtime execs it
-        // directly or through a shell, and normal codex (which runs it via shell)
-        // is unaffected. The scripts are env-driven and identical across
-        // invocations, so they are written once into a cmux-owned dir (~/.cmux/
-        // hooks), not the user's ~/.codex. Any write failure falls back to the
-        // inline snippet so the working path can never regress.
+        // Prefer the native hook client at a stable executable path. Some
+        // codex-compatible runtimes exec `command` directly instead of through a
+        // shell, so an inline snippet fails with "No such file or directory (os
+        // error 2)". The native client removes the shell/base64/nc process tree.
+        // A generated shell script remains the portable fallback when the native
+        // client is unavailable (for example, a remote non-macOS installation).
         let hooksDir = Self.codexHookScriptsDirectory()
         var args: [String] = ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
         for event in Self.codexWrapperInjectionEvents {
@@ -58,7 +54,11 @@ extension CMUXCLI {
                 "cmux hooks codex \(event.cmuxSubcommand)", for: codexDef
             )
             let command: String
-            if let scriptPath = hooksDir.flatMap({
+            if let nativePath = hooksDir.flatMap({
+                Self.writeCodexHookClient(subcommand: event.cmuxSubcommand, in: $0)
+            }) {
+                command = nativePath
+            } else if let scriptPath = hooksDir.flatMap({
                 Self.writeCodexHookScript(subcommand: event.cmuxSubcommand, body: ff, in: $0)
             }), !scriptPath.contains("'''") {
                 command = scriptPath
@@ -93,16 +93,87 @@ extension CMUXCLI {
     /// `~/.cmux/hooks` (NOT the user's `~/.codex`), created on demand. Returns
     /// nil if it cannot be created, so the caller falls back to inline commands.
     static func codexHookScriptsDirectory() -> URL? {
-        let home = FileManager.default.homeDirectoryForCurrentUser
+        let home = ProcessInfo.processInfo.environment["HOME"]
+            .flatMap { raw -> URL? in
+                let path = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                return path.isEmpty ? nil : URL(fileURLWithPath: path, isDirectory: true)
+            }
+            ?? FileManager.default.homeDirectoryForCurrentUser
         let dir = home
             .appendingPathComponent(".cmux", isDirectory: true)
             .appendingPathComponent("hooks", isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir.path)
             return dir
         } catch {
             return nil
         }
+    }
+
+    /// Installs the bundled process-light hook sender at the stable event path.
+    /// A copied executable works for both shell-driven Codex and compatible
+    /// runtimes that exec the configured command path directly. Returning nil
+    /// preserves the portable shell implementation as the compatibility path.
+    static func writeCodexHookClient(subcommand: String, in dir: URL) -> String? {
+        guard codexWrapperInjectionEvents.contains(where: { $0.cmuxSubcommand == subcommand }),
+              let source = codexHookClientSourceURL() else {
+            return nil
+        }
+        let safeName = subcommand.replacingOccurrences(
+            of: "[^A-Za-z0-9_-]", with: "-", options: .regularExpression
+        )
+        let target = dir.appendingPathComponent("cmux-codex-hook-\(safeName).sh", isDirectory: false)
+        let fileManager = FileManager.default
+        if fileManager.contentsEqual(atPath: source.path, andPath: target.path) {
+            try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: target.path)
+            return target.path
+        }
+        do {
+            let executable = try Data(contentsOf: source, options: [.mappedIfSafe])
+            try executable.write(to: target, options: [.atomic])
+            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: target.path)
+            return target.path
+        } catch {
+            return nil
+        }
+    }
+
+    private static func codexHookClientSourceURL() -> URL? {
+        let environment = ProcessInfo.processInfo.environment
+        let fileManager = FileManager.default
+        if let override = environment["CMUX_CODEX_HOOK_CLIENT_PATH"] {
+            let path = override.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !path.isEmpty else { return nil }
+            let url = URL(fileURLWithPath: path, isDirectory: false).standardizedFileURL
+            return fileManager.isExecutableFile(atPath: url.path) ? url : nil
+        }
+
+        var candidates: [URL] = []
+        if let executable = CommandLine.arguments.first, !executable.isEmpty {
+            candidates.append(
+                URL(fileURLWithPath: executable, isDirectory: false)
+                    .resolvingSymlinksInPath()
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("cmux-codex-hook-client", isDirectory: false)
+            )
+        }
+        if let bundledCLI = environment["CMUX_BUNDLED_CLI_PATH"], !bundledCLI.isEmpty {
+            candidates.append(
+                URL(fileURLWithPath: bundledCLI, isDirectory: false)
+                    .resolvingSymlinksInPath()
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("cmux-codex-hook-client", isDirectory: false)
+            )
+        }
+        if let resources = Bundle.main.resourceURL {
+            candidates.append(
+                resources
+                    .appendingPathComponent("bin", isDirectory: true)
+                    .appendingPathComponent("cmux-codex-hook-client", isDirectory: false)
+            )
+        }
+        return candidates.first { fileManager.isExecutableFile(atPath: $0.path) }
     }
 
     /// Writes (idempotently) a `#!/bin/sh` hook script for one event into `dir`
