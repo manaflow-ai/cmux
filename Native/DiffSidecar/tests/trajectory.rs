@@ -117,7 +117,7 @@ fn codex_resolver_uses_patch_events_from_the_latest_turn_id() {
 }
 
 #[test]
-fn codex_resolver_uses_successful_structured_apply_patch_when_event_changes_lack_hunks() {
+fn codex_resolver_rejects_incomplete_structured_apply_patch_from_canonical_fixture() {
     let fixture = FixtureRoot::new("codex-structured-apply-patch");
     prepare_common_directories(&fixture);
     let transcript = fixture.home().join("codex-structured-apply-patch.jsonl");
@@ -153,31 +153,65 @@ fn codex_resolver_uses_successful_structured_apply_patch_when_event_changes_lack
         Some(&transcript),
     );
 
+    let error = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::Codex, "session"),
+        &TrajectoryRoots::for_home(fixture.home()),
+    )
+    .expect_err("incomplete raw updates and deletions must not become a misleading patch");
+
+    assert_eq!(error.to_string(), "agent turn has no recorded patches");
+}
+
+#[test]
+fn codex_resolver_prefers_authoritative_event_after_incomplete_structured_input() {
+    let fixture = FixtureRoot::new("codex-authoritative-after-structured");
+    prepare_common_directories(&fixture);
+    let transcript = fixture
+        .home()
+        .join("codex-authoritative-after-structured.jsonl");
+    let repo = fixture.repo();
+    let path = repo.join("updated.txt");
+    let input = format!(
+        "*** Begin Patch\n*** Update File: {}\n@@\n-old\n+new\n*** End Patch",
+        path.display()
+    );
+    write_lines(
+        &transcript,
+        &[
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"turn"}}),
+            serde_json::json!({"type":"response_item","payload":{
+                "type":"custom_tool_call","name":"apply_patch","call_id":"patch","input":input
+            }}),
+            serde_json::json!({"type":"response_item","payload":{
+                "type":"custom_tool_call_output","call_id":"patch","output":"Success"
+            }}),
+            serde_json::json!({"type":"event_msg","payload":{
+                "type":"patch_apply_end","turn_id":"turn","call_id":"patch","success":true,
+                "changes":{
+                    path.to_string_lossy(): {
+                        "type":"update",
+                        "unified_diff":"@@ -37 +37 @@\n-old\n+new\n"
+                    }
+                }
+            }}),
+        ],
+    );
+    write_hook_store(
+        &fixture.home(),
+        "codex",
+        "session",
+        &repo,
+        Some(&transcript),
+    );
+
     let resolved = resolve_last_turn_patch(
         &AgentTurnIdentity::new(AgentProvider::Codex, "session"),
         &TrajectoryRoots::for_home(fixture.home()),
     )
-    .expect("resolve the structured apply_patch input");
+    .expect("use the authoritative patch event");
 
-    assert!(
-        resolved
-            .patch
-            .contains("diff --git a/A3-add.txt b/A3-add.txt")
-    );
-    assert!(resolved.patch.contains("+new"));
-    assert!(
-        resolved
-            .patch
-            .contains("diff --git a/A3-update.txt b/A3-update.txt")
-    );
-    assert!(resolved.patch.contains("-old\n+new"));
-    assert!(
-        resolved
-            .patch
-            .contains("diff --git a/A4-deleted.txt b/A4-deleted.txt")
-    );
-    assert!(resolved.patch.contains("deleted file mode 100644"));
-    assert!(!resolved.patch.contains("A1-update.txt"));
+    assert!(resolved.patch.contains("@@ -37 +37 @@"));
+    assert_eq!(resolved.patch.matches("diff --git").count(), 1);
 }
 
 #[test]
