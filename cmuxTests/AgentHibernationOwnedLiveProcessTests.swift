@@ -262,6 +262,181 @@ struct AgentHibernationOwnedLiveProcessTests {
         ))
     }
 
+    @Test
+    func loaderMarksOnlyScopedLiveHookPIDAsAuthoritative() throws {
+        let fixture = try hookFixture(sessionId: "pure-hook", pid: pid)
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        let identity = processIdentity(startSeconds: 100)
+
+        let index = loadIndex(
+            fixture: fixture,
+            processArgumentsProvider: { requestedPID in
+                requestedPID == self.pid ? self.scopedOpenCodeProcess(fixture: fixture) : nil
+            },
+            processIdentityProvider: { requestedPID in
+                requestedPID == self.pid ? identity : nil
+            }
+        )
+        let entry = try #require(index.entry(
+            workspaceId: fixture.key.workspaceId,
+            panelId: fixture.key.panelId
+        ))
+
+        #expect(entry.hasHookRestoreAuthority)
+        #expect(entry.processIDs == [pid])
+        #expect(entry.processIdentities == [pid: identity])
+        #expect(
+            AgentHibernationLiveProcessEvidence.resolve(
+                observation: entry,
+                agent: entry.snapshot
+            ).ownership == .ownedIdleRestorableSession
+        )
+    }
+
+    @Test
+    func loaderPropagatesAuthorityForExactExplicitDetection() throws {
+        let fixture = try hookFixture(sessionId: "explicit-exact")
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        let childPID = pid + 1
+        let root = processIdentity(startSeconds: 100)
+        let child = processIdentity(pid: childPID, startSeconds: 100)
+
+        let index = loadIndex(
+            fixture: fixture,
+            detected: detected(
+                fixture: fixture,
+                sessionId: fixture.sessionId,
+                processIDs: [pid, childPID],
+                source: .explicit
+            ),
+            processIdentityProvider: { requestedPID in
+                requestedPID == self.pid ? root : (requestedPID == childPID ? child : nil)
+            }
+        )
+        let entry = try #require(index.entry(
+            workspaceId: fixture.key.workspaceId,
+            panelId: fixture.key.panelId
+        ))
+
+        #expect(entry.hasHookRestoreAuthority)
+        #expect(entry.processIdentities == [pid: root, childPID: child])
+        #expect(
+            AgentHibernationLiveProcessEvidence.resolve(
+                observation: entry,
+                agent: entry.snapshot
+            ).ownership == .ownedIdleRestorableSession
+        )
+    }
+
+    @Test
+    func loaderFailsClosedForBorrowedOrUnmatchedDetectedIdentity() throws {
+        for source in [
+            RestorableAgentSessionIndex.ProcessDetectedSessionIDSource.inferredLatestSessionFile,
+            .forkParentFallback,
+        ] {
+            let fixture = try hookFixture(sessionId: "hook-\(source)", updatedAt: 200)
+            defer { try? FileManager.default.removeItem(at: fixture.home) }
+            let identity = processIdentity(startSeconds: 100)
+            let index = loadIndex(
+                fixture: fixture,
+                detected: detected(
+                    fixture: fixture,
+                    sessionId: "detected-mismatch",
+                    processIDs: [pid],
+                    source: source
+                ),
+                processIdentityProvider: { requestedPID in
+                    requestedPID == self.pid ? identity : nil
+                }
+            )
+            let entry = try #require(index.entry(
+                workspaceId: fixture.key.workspaceId,
+                panelId: fixture.key.panelId
+            ))
+
+            #expect(!entry.hasHookRestoreAuthority)
+            #expect(
+                AgentHibernationLiveProcessEvidence.resolve(
+                    observation: entry,
+                    agent: entry.snapshot
+                ).ownership == .unverified
+            )
+        }
+
+        let unmatched = try hookFixture(sessionId: "unused-hook")
+        try FileManager.default.removeItem(
+            at: RestorableAgentKind.opencode.hookStoreFileURL(homeDirectory: unmatched.home.path)
+        )
+        defer { try? FileManager.default.removeItem(at: unmatched.home) }
+        let unmatchedIndex = loadIndex(
+            fixture: unmatched,
+            detected: detected(
+                fixture: unmatched,
+                sessionId: "unmatched-detected",
+                processIDs: [pid],
+                source: .explicit
+            ),
+            processIdentityProvider: { requestedPID in
+                requestedPID == self.pid ? self.processIdentity(startSeconds: 100) : nil
+            }
+        )
+        let unmatchedEntry = try #require(unmatchedIndex.entry(
+            workspaceId: unmatched.key.workspaceId,
+            panelId: unmatched.key.panelId
+        ))
+        #expect(!unmatchedEntry.hasHookRestoreAuthority)
+    }
+
+    @Test
+    func incompleteFullProcessIdentityCoverageFailsClosed() throws {
+        let fixture = try hookFixture(sessionId: "incomplete-identities")
+        defer { try? FileManager.default.removeItem(at: fixture.home) }
+        let childPID = pid + 1
+        let root = processIdentity(startSeconds: 100)
+        let index = loadIndex(
+            fixture: fixture,
+            detected: detected(
+                fixture: fixture,
+                sessionId: fixture.sessionId,
+                processIDs: [pid, childPID],
+                source: .explicit
+            ),
+            processIdentityProvider: { requestedPID in
+                requestedPID == self.pid ? root : nil
+            }
+        )
+        let entry = try #require(index.entry(
+            workspaceId: fixture.key.workspaceId,
+            panelId: fixture.key.panelId
+        ))
+        let evidence = AgentHibernationLiveProcessEvidence.resolve(
+            observation: entry,
+            agent: entry.snapshot
+        )
+
+        #expect(entry.hasHookRestoreAuthority)
+        #expect(Set(entry.processIdentities.keys) != entry.processIDs)
+        #expect(evidence.ownership == .unverified)
+        #expect(!evidence.allowsHibernation)
+    }
+
+    @Test
+    func terminationSignalsOnlyValidatedProcessIDs() {
+        let childPID = pid_t(pid + 1)
+        var signaled: [(pid_t, Int32)] = []
+
+        AgentHibernationController.signalValidatedProcessIDsForHibernation(
+            [pid_t(pid), childPID],
+            signal: { target, signal in
+                signaled.append((target, signal))
+                return 0
+            }
+        )
+
+        #expect(signaled.map(\.0) == [pid_t(pid), childPID])
+        #expect(signaled.allSatisfy { $0.0 > 0 && $0.1 == SIGTERM })
+    }
+
     private func snapshot(sessionId: String) -> SessionRestorableAgentSnapshot {
         SessionRestorableAgentSnapshot(
             kind: .codex,
@@ -276,6 +451,105 @@ struct AgentHibernationOwnedLiveProcessTests {
             pid: pid_t(pid ?? self.pid),
             startSeconds: startSeconds,
             startMicroseconds: 500
+        )
+    }
+
+    private struct HookFixture {
+        let home: URL
+        let key: RestorableAgentSessionIndex.PanelKey
+        let sessionId: String
+    }
+
+    private func hookFixture(
+        sessionId: String,
+        pid: Int? = nil,
+        updatedAt: TimeInterval = 100
+    ) throws -> HookFixture {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-owned-live-authority-\(UUID().uuidString)", isDirectory: true)
+        let storeURL = RestorableAgentKind.opencode.hookStoreFileURL(homeDirectory: home.path)
+        try FileManager.default.createDirectory(
+            at: storeURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let key = RestorableAgentSessionIndex.PanelKey(workspaceId: UUID(), panelId: UUID())
+        var record: [String: Any] = [
+            "sessionId": sessionId,
+            "workspaceId": key.workspaceId.uuidString,
+            "surfaceId": key.panelId.uuidString,
+            "cwd": "/tmp/cmux-owned-live",
+            "agentLifecycle": "idle",
+            "updatedAt": updatedAt,
+            "launchCommand": [
+                "launcher": "opencode",
+                "executablePath": "/usr/local/bin/opencode",
+                "arguments": ["/usr/local/bin/opencode"],
+                "workingDirectory": "/tmp/cmux-owned-live",
+            ],
+        ]
+        if let pid { record["pid"] = pid }
+        let data = try JSONSerialization.data(
+            withJSONObject: ["version": 1, "sessions": [sessionId: record]],
+            options: [.prettyPrinted]
+        )
+        try data.write(to: storeURL, options: .atomic)
+        return HookFixture(home: home, key: key, sessionId: sessionId)
+    }
+
+    private func detected(
+        fixture: HookFixture,
+        sessionId: String,
+        processIDs: Set<Int>,
+        source: RestorableAgentSessionIndex.ProcessDetectedSessionIDSource
+    ) -> [RestorableAgentSessionIndex.PanelKey: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry] {
+        [
+            fixture.key: (
+                snapshot: SessionRestorableAgentSnapshot(
+                    kind: .opencode,
+                    sessionId: sessionId,
+                    workingDirectory: "/tmp/cmux-owned-live",
+                    launchCommand: AgentLaunchCommandSnapshot(
+                        launcher: "opencode",
+                        executablePath: "/usr/local/bin/opencode",
+                        arguments: ["/usr/local/bin/opencode", "--session", sessionId],
+                        workingDirectory: "/tmp/cmux-owned-live",
+                        environment: nil,
+                        capturedAt: nil,
+                        source: nil
+                    )
+                ),
+                updatedAt: 999,
+                processIDs: processIDs,
+                agentProcessIDs: [pid],
+                sessionIDSource: source
+            ),
+        ]
+    }
+
+    private func loadIndex(
+        fixture: HookFixture,
+        detected: [RestorableAgentSessionIndex.PanelKey: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry] = [:],
+        processArgumentsProvider: @escaping (Int) -> CmuxTopProcessArguments? = { _ in nil },
+        processIdentityProvider: @escaping (Int) -> AgentPIDProcessIdentity?
+    ) -> RestorableAgentSessionIndex {
+        RestorableAgentSessionIndex.load(
+            homeDirectory: fixture.home.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: detected,
+            processArgumentsProvider: processArgumentsProvider,
+            processIdentityProvider: processIdentityProvider
+        )
+    }
+
+    private func scopedOpenCodeProcess(fixture: HookFixture) -> CmuxTopProcessArguments {
+        CmuxTopProcessArguments(
+            arguments: ["/usr/local/bin/opencode"],
+            environment: [
+                "CMUX_WORKSPACE_ID": fixture.key.workspaceId.uuidString,
+                "CMUX_SURFACE_ID": fixture.key.panelId.uuidString,
+                "CMUX_AGENT_LAUNCH_KIND": RestorableAgentKind.opencode.rawValue,
+            ]
         )
     }
 
