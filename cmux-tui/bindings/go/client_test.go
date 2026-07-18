@@ -57,6 +57,14 @@ func TestWorkspaceRegistryTypesDecode(t *testing.T) {
 	}
 }
 
+func TestCreateTerminalPreservesExplicitlyEmptyArgv(t *testing.T) {
+	params := commandMap(CreateTerminalOptions{Argv: []string{}})
+	argv, ok := params["argv"].([]any)
+	if !ok || len(argv) != 0 {
+		t.Fatalf("argv = %#v, want explicitly supplied empty array", params["argv"])
+	}
+}
+
 func TestStreamYieldsBufferedOverflowOnceThenStops(t *testing.T) {
 	client, server := net.Pipe()
 	defer server.Close()
