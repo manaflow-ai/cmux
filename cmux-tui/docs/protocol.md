@@ -184,6 +184,16 @@ Then it sends ordered stream frames:
 
 The `resized` attach frame carries the new cell size and a fresh VT replay captured at that size. It is delivered in the same attach stream as output frames, so a client can reset its local terminal, apply the replay, and continue consuming later output in order.
 
+Registered protocol-v9 clients may request the explicit noncanonical compatibility stream:
+
+```json
+{"id":31,"cmd":"attach-surface","surface":4,"mode":"compatibility"}
+{"event":"vt-state","surface":4,"surface_uuid":"<uuid>","runtime_epoch":17,"generation":1,"sequence":240,"fidelity":"noncanonical-byte-stream","cols":120,"rows":40,"data":"<base64-vt-replay>"}
+{"event":"output","surface":4,"surface_uuid":"<uuid>","runtime_epoch":17,"generation":1,"start_sequence":240,"next_sequence":243,"data":"YWJj"}
+```
+
+The client accepts output only when the UUID and epoch match, the generation is current, and `start_sequence` equals its previous cursor. `resized` increments the generation and carries a complete replay plus the new cursor boundary. Overflow, a cursor gap, an unexpected generation, or a new runtime epoch requires reattach and full replay. The client-side parser is a presentation replica and cannot claim canonical state parity.
+
 For browser surfaces, the server first sends `browser-state` with URL, title, size, status, stalled-frame state, and the latest PNG frame if one exists. Later updates send `browser-state` and `frame` events. Frame payloads are base64 PNG data and slow clients skip older frames rather than buffering unboundedly. Canonical browser endpoints advertise `frontend_projection:"frontend-optional"`, so a frontend without this PNG consumer can omit only the browser presentation while retaining sibling terminal convergence. The daemon identity remains reserved and cannot be reused by a local browser overlay.
 
 When the stream ends, it sends:

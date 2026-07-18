@@ -780,6 +780,8 @@ object{
 
 Meaning: Initial VT replay for an attached PTY surface. Replaying `data` into a fresh Ghostty VT terminal with the supplied cell size reproduces current state. `colors` reports effective special colors and a sparse `palette` object containing only PTY-authored OSC 4 overrides. Missing palette indexes remain owned by the frontend's presentation theme. OSC 104 reset removes the corresponding key. The additive protocol-v6 `cursor_style` and `cursor_blink` fields report the surface's current DECSCUSR-derived cursor state when available, then fall back to the session's Ghostty `cursor-style` and `cursor-style-blink` defaults. A field is `null` when the server cannot determine it. Ghostty's VT replay formatter does not emit DECSCUSR, so attach clients must apply the cursor metadata instead of inferring shape or blink from `data`.
 
+Protocol-v9 `mode:"compatibility"` adds `surface_uuid`, `runtime_epoch`, `generation`, `sequence`, and `fidelity:"noncanonical-byte-stream"`. The replay is complete at that byte cursor boundary. This is presentation input for a client-side parser, not a second canonical terminal.
+
 Example:
 
 ```json
@@ -802,6 +804,8 @@ object{event:"output",surface:Id,data:Base64}
 
 Meaning: Live PTY bytes applied after the `vt-state` snapshot. Chunks preserve byte order for the attached surface. Chunk boundaries are implementation details.
 
+Compatibility mode adds `surface_uuid`, `runtime_epoch`, `generation`, `start_sequence`, and `next_sequence`. The decoded byte count equals `next_sequence - start_sequence`, and contiguous output starts at the previous cursor. Any mismatch requires reattach and full replay.
+
 Example:
 
 ```json
@@ -819,15 +823,17 @@ Example:
 Payload:
 
 ```text
-object{event:"resized",surface:Id,cols:uint16,rows:uint16,data:Base64}
+object{event:"resized",surface:Id,cols:uint16,rows:uint16,replay:Base64}
 ```
 
-Meaning: Protocol v6 attach-only event indicating that the authoritative surface size changed and the existing mirror must be replaced from the supplied replay. Clients must create a fresh terminal mirror at `cols` by `rows`, replay the `data` field, then continue applying later `output` chunks. (Verified against `server.rs`: the replay is carried in `data`, matching `vt-state`; an earlier draft note called it `replay`.)
+Meaning: Protocol v6 attach-only event indicating that the authoritative surface size changed and the existing mirror must be replaced from the supplied replay. Clients must create a fresh terminal mirror at `cols` by `rows`, replay the `replay` field, then continue applying later `output` chunks.
+
+Compatibility mode adds `surface_uuid`, `runtime_epoch`, `generation`, and `sequence`. The generation is exactly one newer than the preceding replay generation and the payload is a complete replay at `sequence`. External-producer reset uses the same event and contract even when the cell size does not change.
 
 Example:
 
 ```json
-{"event":"resized","surface":1,"cols":100,"rows":30,"data":"G1s/bA=="}
+{"event":"resized","surface":1,"cols":100,"rows":30,"replay":"G1s/bA=="}
 ```
 
 ### colors-changed
@@ -857,6 +863,8 @@ object{
 ```
 
 Meaning: The session defaults changed through `set-default-colors`. Each live PTY byte-attach stream receives the effective colors, sparse PTY-authored OSC 4 palette overrides, and cursor state for its surface after applying the merged defaults. Session palette defaults never populate `palette`. Active per-surface OSC 10/11/12, OSC 4, and DECSCUSR overrides remain authoritative. Protocol v7 requires the explicit `surface` subject id so multiple attach streams on one connection can be routed without implicit stream state.
+
+Compatibility mode also carries `surface_uuid`, `runtime_epoch`, `generation`, and the current `sequence`; it does not advance the byte cursor or reset generation.
 
 Example:
 

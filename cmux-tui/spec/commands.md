@@ -2618,16 +2618,20 @@ CLI mapping: verb `subscribe-topology`; flags `--daemon-instance-id <uuid> --ses
 
 Attaches the connection to a PTY surface stream. In protocol v5, the server first sends a `vt-state` event for the current surface state, then sends live `output` events for subsequent PTY bytes, and finally sends `detached` when the stream ends. The command response is sent after the initial `vt-state` event in v5.
 
-Protocol v6 changes the attach stream ordering to `vt-state -> (resized | output | colors-changed)* -> detached`. A v6 `resized` attach event carries a fresh replay and requires clients to discard the old mirror and replace it from that replay. The additive `vt-state.colors` field contains effective colors plus `cursor_style` and `cursor_blink` captured with the snapshot, and `colors-changed` reports later `set-default-colors` updates without changing the replay/output ordering contract. The Ghostty VT replay does not emit DECSCUSR, so clients must apply these cursor fields after replaying `data`; current per-surface DECSCUSR state takes precedence over Ghostty configuration defaults. Clients that support only protocol 5 or older must refuse protocol v6 attach streams rather than treating `resized` as a normal resize. The v6 field name `replay` could not be verified against this branch's code.
+Protocol v6 changes the attach stream ordering to `vt-state -> (resized | output | colors-changed)* -> detached`. A v6 `resized` attach event carries a fresh replay in `replay` and requires clients to discard the old mirror and replace it from that replay. The additive `vt-state.colors` field contains effective colors plus `cursor_style` and `cursor_blink` captured with the snapshot, and `colors-changed` reports later `set-default-colors` updates without changing the replay/output ordering contract. The Ghostty VT replay does not emit DECSCUSR, so clients must apply these cursor fields after replaying `data`; current per-surface DECSCUSR state takes precedence over Ghostty configuration defaults. Clients that support only protocol 5 or older must refuse protocol v6 attach streams rather than treating `resized` as a normal resize.
 
 Protocol v7 adds `mode`. `mode:"bytes"`, including the default when the field is absent, is the exact protocol-v6 attach behavior above. `mode:"render"` selects the authoritative styled-cell stream specified in [`render.md`](render.md): `render-state -> (render-delta | scroll-changed)* -> detached`. A client must require `identify.protocol >= 7` before selecting render mode.
+
+Protocol v9 adds `mode:"compatibility"` behind `terminal-byte-stream-compat-v1`. The connection must first complete `register-client` with negotiated protocol 9. This stream is a recovery-safe transport for a client that intentionally runs its own presentation parser; it does not claim canonical terminal parity. Its initial `vt-state` adds `surface_uuid`, `runtime_epoch`, `generation`, `sequence`, and `fidelity:"noncanonical-byte-stream"`. Every `output` adds the same stable identity plus `generation`, `start_sequence`, and `next_sequence`. Every complete-replay `resized` event adds the identity, its new `generation`, and the replay boundary `sequence`. `colors-changed` carries the current identity, generation, and sequence.
+
+Within one `runtime_epoch`, `next_sequence - start_sequence` equals the decoded output byte count and each accepted output starts at the previous cursor. A resize or external producer reset increments `generation` and supplies a complete replay at its declared cursor. A different terminal runtime for the same `surface_uuid` uses a different `runtime_epoch`. Slow-consumer overflow closes the attach stream; clients must discard the mirror, reattach, and rebuild from the new initial replay. A generation jump without a complete replay, a runtime-epoch mismatch, or a noncontiguous output cursor is a gap and requires the same recovery.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `surface` | `Id` | required | Must identify a live PTY surface |
-| `mode` | `string` | default `"bytes"` | Protocol 7: `"bytes"` or `"render"` |
+| `mode` | `string` | default `"bytes"` | `"bytes"`, `"render"`, or protocol-v9 capability-gated `"compatibility"` |
 
 Result:
 
@@ -2641,8 +2645,9 @@ Errors:
 | --- | --- |
 | `unknown surface <id>` | Surface id does not exist |
 | `browser panes are not supported over attach yet` | Surface is a browser |
-| `bad attach mode <mode>` | `mode` is not `"bytes"` or `"render"` |
+| `bad attach mode <mode>` | `mode` is not `"bytes"`, `"render"`, or `"compatibility"` |
 | `render attach requires protocol 7` | Server does not implement render mode |
+| `command requires negotiated protocol v9` | Compatibility mode was requested before protocol-v9 registration |
 | terminal error string | VT replay generation fails |
 | thread spawn error string | Server cannot create the attach writer thread |
 | `bad request: ...` | Missing `surface` or wrong JSON type |

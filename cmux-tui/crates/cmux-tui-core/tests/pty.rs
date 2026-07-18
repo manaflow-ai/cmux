@@ -951,20 +951,20 @@ fn attach_stream_replays_then_streams_without_duplication() {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         match attach.stream.recv_timeout(Duration::from_millis(200)) {
-            Ok(AttachFrame::Output(chunk)) => {
-                mirror.vt_write(&chunk);
+            Ok(AttachFrame::Output { data, .. }) => {
+                mirror.vt_write(&data);
                 if mirror.plain_text().unwrap().contains("after-attach") {
                     break;
                 }
             }
-            Ok(AttachFrame::Resized { cols, rows, replay }) => {
+            Ok(AttachFrame::Resized { cols, rows, replay, .. }) => {
                 assert!(!replay.is_empty());
                 mirror =
                     ghostty_vt::Terminal::new(cols, rows, 1000, ghostty_vt::Callbacks::default())
                         .unwrap();
                 mirror.vt_write(&replay);
             }
-            Ok(AttachFrame::ColorsChanged(_)) => {}
+            Ok(AttachFrame::ColorsChanged { .. }) => {}
             Err(_) => assert!(Instant::now() < deadline, "stream never delivered output"),
         }
     }
@@ -984,8 +984,8 @@ fn attach_stream_orders_resize_between_output_frames() {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         match attach.stream.recv_timeout(Duration::from_millis(200)) {
-            Ok(AttachFrame::Output(bytes))
-                if bytes.windows(b"before-resize".len()).any(|w| w == b"before-resize") =>
+            Ok(AttachFrame::Output { data, .. })
+                if data.windows(b"before-resize".len()).any(|w| w == b"before-resize") =>
             {
                 break;
             }
@@ -997,7 +997,7 @@ fn attach_stream_orders_resize_between_output_frames() {
     mux.resize_surface(surface.id, 100, 40).unwrap();
     let resized = wait_for(
         || match attach.stream.recv_timeout(Duration::from_millis(200)) {
-            Ok(AttachFrame::Resized { cols, rows, replay }) => {
+            Ok(AttachFrame::Resized { cols, rows, replay, .. }) => {
                 assert!(!replay.is_empty());
                 Some((cols, rows))
             }
@@ -1012,13 +1012,13 @@ fn attach_stream_orders_resize_between_output_frames() {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         match attach.stream.recv_timeout(Duration::from_millis(200)) {
-            Ok(AttachFrame::Output(bytes))
-                if bytes.windows(b"after-resize".len()).any(|w| w == b"after-resize") =>
+            Ok(AttachFrame::Output { data, .. })
+                if data.windows(b"after-resize".len()).any(|w| w == b"after-resize") =>
             {
                 break;
             }
             Ok(AttachFrame::Resized { .. }) => panic!("unexpected second resize marker"),
-            Ok(AttachFrame::ColorsChanged(_)) => {}
+            Ok(AttachFrame::ColorsChanged { .. }) => {}
             Ok(_) => {}
             Err(_) => assert!(Instant::now() < deadline, "after output never arrived"),
         }

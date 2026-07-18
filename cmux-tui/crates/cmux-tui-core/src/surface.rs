@@ -202,6 +202,15 @@ impl TerminalColors {
 /// size, a VT replay of the current state, and a live stream of every pty
 /// byte applied after the replay snapshot.
 pub struct AttachStream {
+    /// Stable canonical identity. A replacement runtime for this surface keeps
+    /// this UUID but receives a different `runtime_epoch`.
+    pub surface_uuid: crate::SurfaceUuid,
+    /// Canonical terminal runtime identity shared with semantic scene streams.
+    pub runtime_epoch: u64,
+    /// Reset generation for this byte-stream compatibility lifetime.
+    pub generation: u64,
+    /// Monotonic byte cursor at the replay snapshot boundary.
+    pub sequence: u64,
     pub cols: u16,
     pub rows: u16,
     pub replay: Vec<u8>,
@@ -212,9 +221,30 @@ pub struct AttachStream {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttachFrame {
-    Output(Vec<u8>),
-    Resized { cols: u16, rows: u16, replay: Vec<u8> },
-    ColorsChanged(TerminalColors),
+    Output {
+        surface_uuid: crate::SurfaceUuid,
+        runtime_epoch: u64,
+        generation: u64,
+        start_sequence: u64,
+        next_sequence: u64,
+        data: Vec<u8>,
+    },
+    Resized {
+        surface_uuid: crate::SurfaceUuid,
+        runtime_epoch: u64,
+        generation: u64,
+        sequence: u64,
+        cols: u16,
+        rows: u16,
+        replay: Vec<u8>,
+    },
+    ColorsChanged {
+        surface_uuid: crate::SurfaceUuid,
+        runtime_epoch: u64,
+        generation: u64,
+        sequence: u64,
+        colors: TerminalColors,
+    },
 }
 
 const ATTACH_STREAM_CAPACITY: usize = 256;
@@ -254,9 +284,9 @@ impl AttachFrame {
     fn retained_bytes(&self) -> usize {
         size_of::<Self>()
             + match self {
-                Self::Output(bytes) => bytes.capacity(),
+                Self::Output { data, .. } => data.capacity(),
                 Self::Resized { replay, .. } => replay.capacity(),
-                Self::ColorsChanged(_) => 0,
+                Self::ColorsChanged { .. } => 0,
             }
     }
 }
@@ -691,6 +721,12 @@ pub struct PtySurface {
     semantic_scenes: Mutex<SemanticSceneHub>,
     semantic_attachment_count: AtomicUsize,
     semantic_identity: SemanticSceneTerminalIdentity,
+    /// Byte-stream reset generation. Mutated only while `term` is held so a
+    /// replay snapshot and its declared boundary cannot observe torn state.
+    attach_generation: AtomicU64,
+    /// Total canonical output bytes applied during this runtime. This cursor
+    /// never resets across compatibility replay generations.
+    attach_sequence: AtomicU64,
     render_generation: AtomicU64,
     accessibility_content_revision: AtomicU64,
     accessibility_viewport_revision: AtomicU64,
@@ -1106,6 +1142,8 @@ impl Surface {
             semantic_scenes: Mutex::new(SemanticSceneHub::default()),
             semantic_attachment_count: AtomicUsize::new(0),
             semantic_identity,
+            attach_generation: AtomicU64::new(1),
+            attach_sequence: AtomicU64::new(0),
             render_generation: AtomicU64::new(1),
             accessibility_content_revision: AtomicU64::new(1),
             accessibility_viewport_revision: AtomicU64::new(1),
@@ -1274,6 +1312,8 @@ impl Surface {
             semantic_scenes: Mutex::new(SemanticSceneHub::default()),
             semantic_attachment_count: AtomicUsize::new(0),
             semantic_identity,
+            attach_generation: AtomicU64::new(1),
+            attach_sequence: AtomicU64::new(0),
             render_generation: AtomicU64::new(1),
             accessibility_content_revision: AtomicU64::new(1),
             accessibility_viewport_revision: AtomicU64::new(1),
@@ -1379,6 +1419,8 @@ impl Surface {
             semantic_scenes: Mutex::new(SemanticSceneHub::default()),
             semantic_attachment_count: AtomicUsize::new(0),
             semantic_identity,
+            attach_generation: AtomicU64::new(1),
+            attach_sequence: AtomicU64::new(0),
             render_generation: AtomicU64::new(1),
             accessibility_content_revision: AtomicU64::new(1),
             accessibility_viewport_revision: AtomicU64::new(1),
@@ -1553,6 +1595,7 @@ impl Surface {
             }
             if !seed.is_empty() {
                 term.vt_write(seed);
+                let _ = pty.advance_attach_sequence_locked(seed.len());
             }
             pty.refresh_active_search_locked(&mut term)?;
             pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
@@ -1563,8 +1606,15 @@ impl Surface {
                 pixel_width: 0,
                 pixel_height: 0,
             });
-            let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES).unwrap_or_default();
-            pty.broadcast_attach_frame(AttachFrame::Resized { cols, rows, replay });
+            let replay = match term.vt_replay_bounded(VT_REPLAY_MAX_BYTES) {
+                Ok(replay) => replay,
+                Err(error) => {
+                    let _ = pty.advance_attach_generation_locked();
+                    pty.cancel_attach_taps_for_resnapshot();
+                    return Err(error.into());
+                }
+            };
+            pty.broadcast_attach_replay_locked(cols, rows, replay);
             let title = term.title().unwrap_or_default();
             *pty.title.lock().unwrap() = title;
             *pty.pwd.lock().unwrap() = term.pwd();
@@ -2636,7 +2686,14 @@ impl Surface {
             let colors = TerminalColors::from_terminal(&mut term, colors);
             let mut taps = pty.taps.lock().unwrap();
             if !taps.is_empty() {
-                taps.retain(|tap| tap.try_send(AttachFrame::ColorsChanged(colors)));
+                let frame = AttachFrame::ColorsChanged {
+                    surface_uuid: pty.meta.uuid,
+                    runtime_epoch: pty.semantic_identity.runtime_epoch,
+                    generation: pty.attach_generation.load(Ordering::Acquire),
+                    sequence: pty.attach_sequence.load(Ordering::Acquire),
+                    colors,
+                };
+                taps.retain(|tap| tap.try_send(frame.clone()));
             }
             drop(taps);
             let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
@@ -2819,6 +2876,8 @@ impl Surface {
         // the reader thread cannot apply bytes between the two.
         let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES)?;
         let (cols, rows) = (term.cols(), term.rows());
+        let generation = pty.attach_generation.load(Ordering::Acquire);
+        let sequence = pty.attach_sequence.load(Ordering::Acquire);
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let colors = TerminalColors::from_terminal(&mut term, defaults);
         pty.taps.lock().unwrap().push(AttachTap {
@@ -2828,6 +2887,10 @@ impl Surface {
             max_queued_bytes: ATTACH_STREAM_MAX_BYTES,
         });
         Ok(AttachStream {
+            surface_uuid: pty.meta.uuid,
+            runtime_epoch: pty.semantic_identity.runtime_epoch,
+            generation,
+            sequence,
             cols,
             rows,
             replay,
@@ -3251,17 +3314,100 @@ impl PtySurface {
         Ok(())
     }
 
+    fn cancel_attach_taps_for_resnapshot(&self) {
+        let mut taps = self.taps.lock().unwrap();
+        for tap in taps.iter() {
+            tap.lifecycle.mark_overflow();
+        }
+        taps.clear();
+    }
+
+    /// Advance the compatibility byte cursor while `term` is held. Every
+    /// canonical output path calls this even when there are no subscribers,
+    /// so a later replay declares the exact boundary after all earlier bytes.
+    fn advance_attach_sequence_locked(&self, byte_count: usize) -> Option<(u64, u64)> {
+        if byte_count == 0 {
+            let sequence = self.attach_sequence.load(Ordering::Acquire);
+            return Some((sequence, sequence));
+        }
+        let byte_count = match u64::try_from(byte_count) {
+            Ok(byte_count) => byte_count,
+            Err(_) => {
+                self.cancel_attach_taps_for_resnapshot();
+                return None;
+            }
+        };
+        match self.attach_sequence.fetch_update(Ordering::AcqRel, Ordering::Acquire, |sequence| {
+            sequence.checked_add(byte_count)
+        }) {
+            Ok(start_sequence) => Some((start_sequence, start_sequence + byte_count)),
+            Err(_) => {
+                self.cancel_attach_taps_for_resnapshot();
+                None
+            }
+        }
+    }
+
+    /// Start a new replay generation while `term` is held. A generation is
+    /// published only together with the complete replay captured at its byte
+    /// cursor boundary.
+    fn advance_attach_generation_locked(&self) -> Option<(u64, u64)> {
+        let generation = match self.attach_generation.fetch_update(
+            Ordering::AcqRel,
+            Ordering::Acquire,
+            |generation| generation.checked_add(1),
+        ) {
+            Ok(previous) => previous + 1,
+            Err(_) => {
+                self.cancel_attach_taps_for_resnapshot();
+                return None;
+            }
+        };
+        let sequence = self.attach_sequence.load(Ordering::Acquire);
+        Some((generation, sequence))
+    }
+
     fn broadcast_attach_output(&self, bytes: &[u8]) {
+        if bytes.is_empty() {
+            return;
+        }
+        let Some((start_sequence, next_sequence)) =
+            self.advance_attach_sequence_locked(bytes.len())
+        else {
+            return;
+        };
         let mut taps = self.taps.lock().unwrap();
         if taps.is_empty() {
             return;
         }
-        let frame = AttachFrame::Output(bytes.to_vec());
+        let frame = AttachFrame::Output {
+            surface_uuid: self.meta.uuid,
+            runtime_epoch: self.semantic_identity.runtime_epoch,
+            generation: self.attach_generation.load(Ordering::Acquire),
+            start_sequence,
+            next_sequence,
+            data: bytes.to_vec(),
+        };
         taps.retain(|tap| tap.try_send(frame.clone()));
     }
 
     fn broadcast_attach_frame(&self, frame: AttachFrame) {
         self.taps.lock().unwrap().retain(|tap| tap.try_send(frame.clone()));
+    }
+
+    fn broadcast_attach_replay_locked(&self, cols: u16, rows: u16, replay: Vec<u8>) {
+        let Some((generation, sequence)) = self.advance_attach_generation_locked() else {
+            return;
+        };
+        self.broadcast_attach_frame(AttachFrame::Resized {
+            surface_uuid: self.meta.uuid,
+            runtime_epoch: self.semantic_identity.runtime_epoch,
+            generation,
+            sequence,
+            cols,
+            rows,
+            replay,
+        });
     }
 
     fn request_frame(&self, generation: u64) {
@@ -3380,8 +3526,13 @@ impl PtySurface {
             let _ = term.set_mode(7, false, true);
         }
         let _ = self.refresh_active_search_locked(&mut term);
-        let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES).unwrap_or_default();
-        self.broadcast_attach_frame(AttachFrame::Resized { cols, rows, replay });
+        match term.vt_replay_bounded(VT_REPLAY_MAX_BYTES) {
+            Ok(replay) => self.broadcast_attach_replay_locked(cols, rows, replay),
+            Err(_) => {
+                let _ = self.advance_attach_generation_locked();
+                self.cancel_attach_taps_for_resnapshot();
+            }
+        }
         self.accessibility_viewport_revision.fetch_add(1, Ordering::AcqRel);
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let _ = self.build_frame_locked(&mut term, generation, false);
@@ -3544,6 +3695,257 @@ mod tests {
             process_instance_uuid: uuid::Uuid::from_u128(12),
             connection_id,
         }
+    }
+
+    fn attach_output_frame(data: Vec<u8>, start_sequence: u64) -> AttachFrame {
+        let next_sequence = start_sequence + u64::try_from(data.len()).unwrap();
+        AttachFrame::Output {
+            surface_uuid: crate::SurfaceUuid::new(),
+            runtime_epoch: 1,
+            generation: 1,
+            start_sequence,
+            next_sequence,
+            data,
+        }
+    }
+
+    fn replay_text(attach: &AttachStream) -> String {
+        let mut mirror =
+            Terminal::new(attach.cols, attach.rows, 100, Callbacks::default()).unwrap();
+        mirror.vt_write(&attach.replay);
+        mirror.plain_text().unwrap()
+    }
+
+    #[test]
+    fn compatibility_attach_snapshot_boundary_and_live_cursors_are_gapless() {
+        let mux = Mux::new_for_test("attach-cursor", SurfaceOptions::default());
+        let surface_uuid = crate::SurfaceUuid::new();
+        let surface = Surface::spawn_for_test_with_uuid(
+            1,
+            surface_uuid,
+            SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+        )
+        .unwrap();
+        surface.inject_terminal_output(b"before").unwrap();
+
+        let attach = surface.attach_stream().unwrap();
+        assert_eq!(attach.surface_uuid, surface_uuid);
+        assert_eq!(
+            attach.runtime_epoch,
+            surface.semantic_scene_terminal_identity().unwrap().runtime_epoch
+        );
+        assert_eq!(attach.generation, 1);
+        assert_eq!(attach.sequence, 6);
+        assert!(replay_text(&attach).contains("before"));
+
+        surface.inject_terminal_output(b"A").unwrap();
+        surface.inject_terminal_output(b"BC").unwrap();
+        let first = attach.stream.recv_timeout(Duration::from_secs(1)).unwrap();
+        let second = attach.stream.recv_timeout(Duration::from_secs(1)).unwrap();
+        let assert_output =
+            |frame: AttachFrame, expected_start: u64, expected_next: u64, expected_data: &[u8]| {
+                let AttachFrame::Output {
+                    surface_uuid: frame_uuid,
+                    runtime_epoch,
+                    generation,
+                    start_sequence,
+                    next_sequence,
+                    data,
+                } = frame
+                else {
+                    panic!("expected output frame");
+                };
+                assert_eq!(frame_uuid, surface_uuid);
+                assert_eq!(runtime_epoch, attach.runtime_epoch);
+                assert_eq!(generation, attach.generation);
+                assert_eq!(start_sequence, expected_start);
+                assert_eq!(next_sequence, expected_next);
+                assert_eq!(data, expected_data);
+            };
+        assert_output(first, attach.sequence, attach.sequence + 1, b"A");
+        assert_output(second, attach.sequence + 1, attach.sequence + 3, b"BC");
+    }
+
+    #[test]
+    fn compatibility_resize_starts_new_generation_at_complete_replay_boundary() {
+        let mux = Mux::new_for_test("attach-resize-generation", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let attach = surface.attach_stream().unwrap();
+
+        surface.inject_terminal_output(b"x").unwrap();
+        let output = attach.stream.recv_timeout(Duration::from_secs(1)).unwrap();
+        let AttachFrame::Output { next_sequence, generation, .. } = output else {
+            panic!("expected output before resize");
+        };
+        assert_eq!(generation, attach.generation);
+        assert_eq!(next_sequence, attach.sequence + 1);
+
+        assert!(surface.resize(100, 30).unwrap());
+        let resized = attach.stream.recv_timeout(Duration::from_secs(1)).unwrap();
+        let AttachFrame::Resized {
+            surface_uuid,
+            runtime_epoch,
+            generation,
+            sequence,
+            cols,
+            rows,
+            replay,
+        } = resized
+        else {
+            panic!("expected resize replay");
+        };
+        assert_eq!(surface_uuid, attach.surface_uuid);
+        assert_eq!(runtime_epoch, attach.runtime_epoch);
+        assert_eq!(generation, attach.generation + 1);
+        assert_eq!(sequence, next_sequence);
+        assert_eq!((cols, rows), (100, 30));
+        assert!(!replay.is_empty());
+
+        surface.inject_terminal_output(b"y").unwrap();
+        let output = attach.stream.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            output,
+            AttachFrame::Output {
+                generation: output_generation,
+                start_sequence,
+                next_sequence: output_next,
+                data,
+                ..
+            } if output_generation == generation
+                && start_sequence == sequence
+                && output_next == sequence + 1
+                && data == b"y"
+        ));
+    }
+
+    #[test]
+    fn compatibility_external_reset_advances_seed_cursor_and_generation() {
+        let surface = Surface::spawn_external_with_uuid(
+            1,
+            crate::SurfaceUuid::new(),
+            SurfaceOptions::default(),
+            true,
+            Weak::new(),
+        )
+        .unwrap();
+        let owner = external_owner(41);
+        let claim = surface.claim_external_terminal(owner, uuid::Uuid::new_v4()).unwrap();
+        let attach = surface.attach_stream().unwrap();
+        let seed = b"remote-seed";
+
+        surface
+            .reset_external_terminal(
+                owner,
+                claim.owner_generation,
+                uuid::Uuid::new_v4(),
+                claim.required_output_generation,
+                90,
+                25,
+                true,
+                seed,
+            )
+            .unwrap();
+        let frame = attach.stream.recv_timeout(Duration::from_secs(1)).unwrap();
+        let AttachFrame::Resized {
+            surface_uuid,
+            runtime_epoch,
+            generation,
+            sequence,
+            cols,
+            rows,
+            replay,
+        } = frame
+        else {
+            panic!("expected external reset replay");
+        };
+        assert_eq!(surface_uuid, attach.surface_uuid);
+        assert_eq!(runtime_epoch, attach.runtime_epoch);
+        assert_eq!(generation, attach.generation + 1);
+        assert_eq!(sequence, attach.sequence + seed.len() as u64);
+        assert_eq!((cols, rows), (90, 25));
+        let mut mirror = Terminal::new(cols, rows, 100, Callbacks::default()).unwrap();
+        mirror.vt_write(&replay);
+        assert!(mirror.plain_text().unwrap().contains("remote-seed"));
+    }
+
+    #[test]
+    fn compatibility_respawn_keeps_surface_uuid_and_changes_runtime_epoch() {
+        let mux = Mux::new_for_test("attach-respawn-epoch", SurfaceOptions::default());
+        let surface_uuid = crate::SurfaceUuid::new();
+        let first = Surface::spawn_for_test_with_uuid(
+            1,
+            surface_uuid,
+            SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+        )
+        .unwrap();
+        let replacement = Surface::spawn_for_test_with_uuid(
+            1,
+            surface_uuid,
+            SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+        )
+        .unwrap();
+        let before = first.attach_stream().unwrap();
+        let after = replacement.attach_stream().unwrap();
+
+        assert_eq!(before.surface_uuid, surface_uuid);
+        assert_eq!(after.surface_uuid, surface_uuid);
+        assert_ne!(before.runtime_epoch, after.runtime_epoch);
+        assert_eq!((before.generation, before.sequence), (1, 0));
+        assert_eq!((after.generation, after.sequence), (1, 0));
+
+        first.inject_terminal_output(b"late-old-runtime").unwrap();
+        let stale = before.stream.recv_timeout(Duration::from_secs(1)).unwrap();
+        let AttachFrame::Output { surface_uuid: stale_uuid, runtime_epoch: stale_epoch, .. } =
+            stale
+        else {
+            panic!("expected stale-runtime output");
+        };
+        assert_eq!(stale_uuid, after.surface_uuid);
+        assert_ne!(
+            stale_epoch, after.runtime_epoch,
+            "the replacement client must reject a late frame from the old runtime"
+        );
+    }
+
+    #[test]
+    fn compatibility_overflow_ends_at_accepted_prefix_and_reattach_resnapshots_gap() {
+        let mux = Mux::new_for_test("attach-overflow-gap", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let pty = surface.as_pty().unwrap();
+        let lifecycle = AttachLifecycle::default();
+        let (sender, receiver) = sync_channel(4);
+        let queued_bytes = Arc::new(AtomicUsize::new(0));
+        let one_frame_bytes = attach_output_frame(vec![b'a'], 0).retained_bytes();
+        pty.taps.lock().unwrap().push(AttachTap {
+            sender,
+            lifecycle: lifecycle.clone(),
+            queued_bytes,
+            max_queued_bytes: one_frame_bytes,
+        });
+
+        surface.inject_terminal_output(b"a").unwrap();
+        surface.inject_terminal_output(b"b").unwrap();
+        let accepted = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        let AttachFrame::Output { start_sequence, next_sequence, data, .. } = accepted else {
+            panic!("expected accepted output prefix");
+        };
+        assert_eq!((start_sequence, next_sequence, data), (0, 1, vec![b'a']));
+        assert!(matches!(
+            receiver.recv_timeout(Duration::from_secs(1)),
+            Err(RecvTimeoutError::Disconnected)
+        ));
+        assert!(lifecycle.is_canceled());
+        assert!(lifecycle.overflowed());
+
+        let replacement = surface.attach_stream().unwrap();
+        assert_eq!(replacement.sequence, 2);
+        assert!(replacement.sequence > next_sequence, "lost suffix must be detectable");
+        assert!(replay_text(&replacement).contains("ab"));
     }
 
     #[test]
@@ -3914,8 +4316,8 @@ mod tests {
             max_queued_bytes: usize::MAX,
         };
 
-        assert!(tap.try_send(AttachFrame::Output(vec![1])));
-        assert!(!tap.try_send(AttachFrame::Output(vec![2])));
+        assert!(tap.try_send(attach_output_frame(vec![1], 0)));
+        assert!(!tap.try_send(attach_output_frame(vec![2], 1)));
         assert!(lifecycle.is_canceled());
         assert!(lifecycle.overflowed());
         assert!(lifecycle.claim_overflow_report());
@@ -3926,7 +4328,7 @@ mod tests {
     fn attach_tap_overflow_is_bounded_by_retained_bytes() {
         let lifecycle = AttachLifecycle::default();
         let (sender, _receiver) = sync_channel(4);
-        let frame_bytes = AttachFrame::Output(vec![1]).retained_bytes();
+        let frame_bytes = attach_output_frame(vec![1], 0).retained_bytes();
         let tap = AttachTap {
             sender,
             lifecycle: lifecycle.clone(),
@@ -3934,8 +4336,8 @@ mod tests {
             max_queued_bytes: frame_bytes,
         };
 
-        assert!(tap.try_send(AttachFrame::Output(vec![1])));
-        assert!(!tap.try_send(AttachFrame::Output(vec![2])));
+        assert!(tap.try_send(attach_output_frame(vec![1], 0)));
+        assert!(!tap.try_send(attach_output_frame(vec![2], 1)));
         assert!(lifecycle.overflowed());
     }
 

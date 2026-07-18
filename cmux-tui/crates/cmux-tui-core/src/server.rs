@@ -111,6 +111,7 @@ pub const PROTOCOL_CAPABILITIES: &[&str] = &[
     "terminal-interaction-v1",
     "terminal-accessibility-v1",
     "terminal-activity-v1",
+    "terminal-byte-stream-compat-v1",
     "terminal-control-lease-v1",
     "terminal-split-leases-v1",
     "terminal-lease-transfer-v1",
@@ -7941,13 +7942,21 @@ fn handle_command(
         }
         Command::AttachSurface { surface: surface_id, mode } => {
             let surface = get_surface(mux, surface_id)?;
-            let lifecycle = AttachLifecycle::default();
-            let outbound_stream = writer.start_stream(&attach_overflow_json(surface_id))?;
-            let render_mode = match mode.as_deref().unwrap_or("bytes") {
-                "bytes" => false,
-                "render" => true,
+            let (render_mode, compatibility_mode) = match mode.as_deref().unwrap_or("bytes") {
+                "bytes" => (false, false),
+                "render" => (true, false),
+                "compatibility" => (false, true),
                 other => anyhow::bail!("bad attach mode {other}"),
             };
+            if compatibility_mode {
+                // The noncanonical byte stream is an explicit v9 capability.
+                // Registration binds it to an authenticated Unix peer or
+                // paired read-only WebSocket connection.
+                let _ = mux.control_clients.protocol_identity(client, 9)?;
+                require_pty(&surface)?;
+            }
+            let lifecycle = AttachLifecycle::default();
+            let outbound_stream = writer.start_stream(&attach_overflow_json(surface_id))?;
             if render_mode {
                 require_pty(&surface)?;
                 let attach = surface.attach_render_stream()?;
@@ -8083,28 +8092,35 @@ fn handle_command(
                     return Err(error.into());
                 }
             };
-            if let Err(error) = writer.send_initial(
-                &json!({
-                    "event": "vt-state",
-                    "surface": surface_id,
-                    "cols": attach.cols,
-                    "rows": attach.rows,
-                    "data": base64::engine::general_purpose::STANDARD.encode(attach.replay),
-                    "colors": terminal_colors_json(attach.colors),
-                }),
-                &outbound_stream,
-            ) {
+            let mut initial = json!({
+                "event": "vt-state",
+                "surface": surface_id,
+                "cols": attach.cols,
+                "rows": attach.rows,
+                "data": base64::engine::general_purpose::STANDARD.encode(&attach.replay),
+                "colors": terminal_colors_json(attach.colors),
+            });
+            if compatibility_mode {
+                initial["surface_uuid"] = json!(attach.surface_uuid);
+                initial["runtime_epoch"] = json!(attach.runtime_epoch);
+                initial["generation"] = json!(attach.generation);
+                initial["sequence"] = json!(attach.sequence);
+                initial["fidelity"] = json!("noncanonical-byte-stream");
+            }
+            if let Err(error) = writer.send_initial(&initial, &outbound_stream) {
                 handle_attach_send_error(&lifecycle, &error);
                 return Err(error.into());
             }
             mark_client_attached(mux, client, surface_id, outbound_stream.clone())?;
-            spawn_attach_notification_stream(
-                mux.clone(),
-                surface_id,
-                writer.clone(),
-                lifecycle,
-                outbound_stream.clone(),
-            )?;
+            if !compatibility_mode {
+                spawn_attach_notification_stream(
+                    mux.clone(),
+                    surface_id,
+                    writer.clone(),
+                    lifecycle,
+                    outbound_stream.clone(),
+                )?;
+            }
             let writer = writer.clone();
             let mux = mux.clone();
             std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
@@ -8127,22 +8143,68 @@ fn handle_command(
                         }
                     };
                     let value = match frame {
-                        AttachFrame::Output(chunk) => json!({
-                            "event": "output",
-                            "surface": surface_id,
-                            "data": base64::engine::general_purpose::STANDARD.encode(chunk),
-                        }),
-                        AttachFrame::Resized { cols, rows, replay } => json!({
-                            "event": "resized",
-                            "surface": surface_id,
-                            "cols": cols,
-                            "rows": rows,
-                            "replay": base64::engine::general_purpose::STANDARD.encode(replay),
-                        }),
-                        AttachFrame::ColorsChanged(colors) => {
+                        AttachFrame::Output {
+                            surface_uuid,
+                            runtime_epoch,
+                            generation,
+                            start_sequence,
+                            next_sequence,
+                            data,
+                        } => {
+                            let mut value = json!({
+                                "event": "output",
+                                "surface": surface_id,
+                                "data": base64::engine::general_purpose::STANDARD.encode(data),
+                            });
+                            if compatibility_mode {
+                                value["surface_uuid"] = json!(surface_uuid);
+                                value["runtime_epoch"] = json!(runtime_epoch);
+                                value["generation"] = json!(generation);
+                                value["start_sequence"] = json!(start_sequence);
+                                value["next_sequence"] = json!(next_sequence);
+                            }
+                            value
+                        }
+                        AttachFrame::Resized {
+                            surface_uuid,
+                            runtime_epoch,
+                            generation,
+                            sequence,
+                            cols,
+                            rows,
+                            replay,
+                        } => {
+                            let mut value = json!({
+                                "event": "resized",
+                                "surface": surface_id,
+                                "cols": cols,
+                                "rows": rows,
+                                "replay": base64::engine::general_purpose::STANDARD.encode(replay),
+                            });
+                            if compatibility_mode {
+                                value["surface_uuid"] = json!(surface_uuid);
+                                value["runtime_epoch"] = json!(runtime_epoch);
+                                value["generation"] = json!(generation);
+                                value["sequence"] = json!(sequence);
+                            }
+                            value
+                        }
+                        AttachFrame::ColorsChanged {
+                            surface_uuid,
+                            runtime_epoch,
+                            generation,
+                            sequence,
+                            colors,
+                        } => {
                             let mut value = terminal_colors_json(colors);
                             value["event"] = json!("colors-changed");
                             value["surface"] = json!(surface_id);
+                            if compatibility_mode {
+                                value["surface_uuid"] = json!(surface_uuid);
+                                value["runtime_epoch"] = json!(runtime_epoch);
+                                value["generation"] = json!(generation);
+                                value["sequence"] = json!(sequence);
+                            }
                             value
                         }
                     };
@@ -9853,6 +9915,7 @@ mod tests {
             "stable-entity-uuid-v1",
             "topology-resume-v1",
             "terminal-accessibility-v1",
+            "terminal-byte-stream-compat-v1",
         ] {
             assert!(PROTOCOL_CAPABILITIES.contains(&capability));
         }
@@ -9884,6 +9947,222 @@ mod tests {
                 ref link_id,
             } if decoded_presentation == presentation_id && link_id == "9:3:feedface"
         ));
+    }
+
+    #[test]
+    fn compatibility_attach_is_registered_v9_only_and_carries_cursor_metadata() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+
+        let unregistered_writer = test_writer();
+        let unregistered =
+            mux.control_clients.register(ClientTransport::Unix, unregistered_writer.clone());
+        let error = handle_command(
+            &mux,
+            unregistered,
+            Command::AttachSurface { surface: surface.id, mode: Some("compatibility".to_string()) },
+            &unregistered_writer,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("register-client"));
+
+        let v8_writer = test_writer();
+        let v8 = mux.control_clients.register(ClientTransport::Unix, v8_writer.clone());
+        handle_command(
+            &mux,
+            v8,
+            Command::RegisterClient {
+                protocol_min: 8,
+                protocol_max: 8,
+                client_uuid: uuid::Uuid::new_v4(),
+                process_instance_uuid: uuid::Uuid::new_v4(),
+                client_kind: Some("tui".to_string()),
+            },
+            &v8_writer,
+        )
+        .unwrap();
+        let error = handle_command(
+            &mux,
+            v8,
+            Command::AttachSurface { surface: surface.id, mode: Some("compatibility".to_string()) },
+            &v8_writer,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("protocol v9"));
+
+        let (writer, outbound) = test_writer_and_outbound();
+        let (client, _) = register_v9_client(&mux, &writer);
+        handle_command(
+            &mux,
+            client,
+            Command::AttachSurface { surface: surface.id, mode: Some("compatibility".to_string()) },
+            &writer,
+        )
+        .unwrap();
+        let initial: Value = serde_json::from_str(&outbound.recv().unwrap()).unwrap();
+        assert_eq!(initial["event"], "vt-state");
+        assert_eq!(initial["surface_uuid"], json!(surface.uuid));
+        assert_eq!(initial["fidelity"], "noncanonical-byte-stream");
+        assert_eq!(initial["generation"], 1);
+        assert_eq!(initial["sequence"], 0);
+        let runtime_epoch = initial["runtime_epoch"].as_u64().unwrap();
+        assert_ne!(runtime_epoch, 0);
+
+        surface.inject_terminal_output(b"xy").unwrap();
+        let output: Value = serde_json::from_str(&outbound.recv().unwrap()).unwrap();
+        assert_eq!(output["event"], "output");
+        assert_eq!(output["surface_uuid"], initial["surface_uuid"]);
+        assert_eq!(output["runtime_epoch"], runtime_epoch);
+        assert_eq!(output["generation"], 1);
+        assert_eq!(output["start_sequence"], 0);
+        assert_eq!(output["next_sequence"], 2);
+
+        assert!(surface.resize(81, 25).unwrap());
+        let resized: Value = serde_json::from_str(&outbound.recv().unwrap()).unwrap();
+        assert_eq!(resized["event"], "resized");
+        assert_eq!(resized["surface_uuid"], initial["surface_uuid"]);
+        assert_eq!(resized["runtime_epoch"], runtime_epoch);
+        assert_eq!(resized["generation"], 2);
+        assert_eq!(resized["sequence"], 2);
+        assert_eq!((resized["cols"].as_u64(), resized["rows"].as_u64()), (Some(81), Some(25)));
+        assert!(resized["replay"].as_str().is_some_and(|replay| !replay.is_empty()));
+
+        surface.set_default_colors(DefaultColors::default());
+        let colors: Value = serde_json::from_str(&outbound.recv().unwrap()).unwrap();
+        assert_eq!(colors["event"], "colors-changed");
+        assert_eq!(colors["surface_uuid"], initial["surface_uuid"]);
+        assert_eq!(colors["runtime_epoch"], runtime_epoch);
+        assert_eq!(colors["generation"], 2);
+        assert_eq!(colors["sequence"], 2);
+
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn compatibility_attach_is_admitted_for_registered_remote_read_only_role() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let (writer, outbound) = test_writer_and_outbound();
+        let (client, _, registration) =
+            register_v9_client_kind(&mux, &writer, ClientTransport::WebSocket, "web");
+        assert_eq!(registration["role"], "remote-read-only");
+
+        assert!(handle_message(
+            &mux,
+            client,
+            &json!({
+                "id": 44,
+                "cmd": "attach-surface",
+                "surface": surface.id,
+                "mode": "compatibility",
+            })
+            .to_string(),
+            &writer,
+        ));
+        let initial: Value = serde_json::from_str(&outbound.recv().unwrap()).unwrap();
+        assert_eq!(initial["event"], "vt-state");
+        assert_eq!(initial["fidelity"], "noncanonical-byte-stream");
+        let response: Value = serde_json::from_str(&outbound.recv().unwrap()).unwrap();
+        assert_eq!(response["id"], 44);
+        assert_eq!(response["ok"], true);
+
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn legacy_byte_and_render_attach_wire_omit_compatibility_metadata() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+
+        let (byte_writer, byte_outbound) = test_writer_and_outbound();
+        let byte_client = mux.control_clients.register(ClientTransport::Unix, byte_writer.clone());
+        handle_command(
+            &mux,
+            byte_client,
+            Command::AttachSurface { surface: surface.id, mode: Some("bytes".to_string()) },
+            &byte_writer,
+        )
+        .unwrap();
+        let initial: Value = serde_json::from_str(&byte_outbound.recv().unwrap()).unwrap();
+        let expected_initial = json!({
+            "event": "vt-state",
+            "surface": surface.id,
+            "cols": initial["cols"].clone(),
+            "rows": initial["rows"].clone(),
+            "data": initial["data"].clone(),
+            "colors": initial["colors"].clone(),
+        });
+        assert_eq!(
+            serde_json::to_vec(&initial).unwrap(),
+            serde_json::to_vec(&expected_initial).unwrap()
+        );
+
+        surface.inject_terminal_output(b"legacy").unwrap();
+        let output: Value = serde_json::from_str(&byte_outbound.recv().unwrap()).unwrap();
+        let expected_output = json!({
+            "event": "output",
+            "surface": surface.id,
+            "data": base64::engine::general_purpose::STANDARD.encode(b"legacy"),
+        });
+        assert_eq!(
+            serde_json::to_vec(&output).unwrap(),
+            serde_json::to_vec(&expected_output).unwrap()
+        );
+
+        let (render_writer, render_outbound) = test_writer_and_outbound();
+        let render_client =
+            mux.control_clients.register(ClientTransport::Unix, render_writer.clone());
+        handle_command(
+            &mux,
+            render_client,
+            Command::AttachSurface { surface: surface.id, mode: Some("render".to_string()) },
+            &render_writer,
+        )
+        .unwrap();
+        let render: Value = serde_json::from_str(&render_outbound.recv().unwrap()).unwrap();
+        assert_eq!(render["event"], "render-state");
+        for field in ["surface_uuid", "runtime_epoch", "generation", "sequence", "fidelity"] {
+            assert!(render.get(field).is_none(), "legacy render added {field}");
+        }
+
+        assert!(disconnect_client(&mux, byte_client, false));
+        assert!(disconnect_client(&mux, render_client, false));
+    }
+
+    #[test]
+    fn compatibility_overflow_terminates_only_its_attach_stream() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let compatibility = writer.start_stream(&attach_overflow_json(7)).unwrap();
+        let unrelated = writer.start_stream(&attach_overflow_json(8)).unwrap();
+        writer
+            .send_initial(
+                &json!({"event": "vt-state", "surface": 7, "fidelity": "noncanonical-byte-stream"}),
+                &compatibility,
+            )
+            .unwrap();
+        writer.send_initial(&json!({"event": "vt-state", "surface": 8}), &unrelated).unwrap();
+
+        let lifecycle = AttachLifecycle::default();
+        lifecycle.mark_overflow();
+        report_attach_overflow(&writer, 7, &lifecycle, &compatibility);
+
+        assert!(!compatibility.is_open());
+        assert!(unrelated.is_open());
+        assert!(writer.is_open());
+        assert_eq!(
+            writer.send_stream(&json!({"event": "late"}), &compatibility).unwrap_err().kind(),
+            std::io::ErrorKind::BrokenPipe
+        );
+        writer.send_stream(&json!({"event": "still-live"}), &unrelated).unwrap();
+
+        let unrelated_initial: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(unrelated_initial["surface"], 8);
+        let overflow: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(overflow["event"], "overflow");
+        assert_eq!(overflow["surface"], 7);
+        let unrelated_live: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(unrelated_live["event"], "still-live");
     }
 
     #[test]
