@@ -521,6 +521,40 @@ extension CMUXCLIErrorOutputRegressionTests {
         ])
     }
 
+    @Test func limitedAgentListTieSelectionIsIndependentOfInsertionOrder() {
+        let payloads: [[String: Any]] = [
+            [
+                "session_id": NSNull(), "agent": "codex", "run_id": "run-b",
+                "workspace_id": "workspace-b", "surface_id": "surface-b", "pid": 3,
+                "process_started_at": 30.0,
+            ],
+            [
+                "session_id": NSNull(), "agent": "claude", "run_id": "run-z",
+                "workspace_id": "workspace-z", "surface_id": "surface-z", "pid": 2,
+                "process_started_at": 20.0,
+            ],
+            [
+                "session_id": NSNull(), "agent": "codex", "run_id": "run-a",
+                "workspace_id": "workspace-a", "surface_id": "surface-a", "pid": 1,
+                "process_started_at": 10.0,
+            ],
+        ]
+        let insertionOrders = [
+            [0, 1, 2], [0, 2, 1], [1, 0, 2],
+            [1, 2, 0], [2, 0, 1], [2, 1, 0],
+        ]
+
+        for order in insertionOrders {
+            var entries = SessionListEntryAccumulator(limit: 2)
+            for index in order {
+                entries.insert(updatedAt: 100, payload: payloads[index])
+            }
+            #expect(entries.sortedPayloads.compactMap { $0["run_id"] as? String } == [
+                "run-z", "run-a",
+            ])
+        }
+    }
+
     @Test func limitedAgentListTextAndJSONPreserveCountLimitAndOrdering() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
