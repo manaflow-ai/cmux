@@ -22,6 +22,14 @@ enum BrowserWebExtensionCatalog {
     /// change fail closed instead of silently changing installed code.
     static let verifiedEntries: [BrowserWebExtensionCatalogEntry] = [
         BrowserWebExtensionCatalogEntry(
+            id: "1password",
+            version: "8.12.28.25",
+            packageURL: URL(
+                string: "https://addons.mozilla.org/firefox/downloads/file/4899098/1password_x_password_manager-8.12.28.25.xpi"
+            )!,
+            packageSHA256: "fc369b5ee7958a57c519aa37e7ba540ebe08d58b4bc976fab1ba2e91bc01bc25"
+        ),
+        BrowserWebExtensionCatalogEntry(
             id: "video-speed-controller",
             version: "0.10.2",
             packageURL: URL(

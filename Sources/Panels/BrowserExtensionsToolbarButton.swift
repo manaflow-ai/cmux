@@ -316,19 +316,6 @@ struct BrowserExtensionsManagerPage: View {
                     installedIdentifierPrefix: "cmux-browser-extension-com.bitwarden.desktop.safari"
                 )
             },
-            installedApplication(named: "1Password for Safari.app").map { sourceURL in
-                BrowserExtensionLocalAppItem(
-                    id: "1password-safari-app",
-                    name: "1Password",
-                    detail: String(
-                        localized: "browser.extensions.localApp.onePassword.detail",
-                        defaultValue: "Use the extension from the 1Password for Safari app"
-                    ),
-                    icon: "key.fill",
-                    sourceURL: sourceURL,
-                    installedIdentifierPrefix: "cmux-browser-extension-com.1password.safari.extension"
-                )
-            },
             installedApplication(named: "uBlock Origin Lite.app").map { sourceURL in
                 BrowserExtensionLocalAppItem(
                     id: "ublock-origin-lite-safari-app",
@@ -347,19 +334,36 @@ struct BrowserExtensionsManagerPage: View {
 
     private var commonExtensions: [BrowserExtensionCatalogItem] {
         BrowserWebExtensionCatalog.verifiedEntries.compactMap { entry in
-            guard entry.id == "video-speed-controller" else { return nil }
-            return BrowserExtensionCatalogItem(
-                entry: entry,
-                name: String(
-                    localized: "browser.extensions.catalog.videoSpeedController.name",
-                    defaultValue: "Video Speed Controller"
-                ),
-                detail: String(
-                    localized: "browser.extensions.catalog.videoSpeedController.detail",
-                    defaultValue: "Control HTML5 video speed with shortcuts"
-                ),
-                icon: "gauge.with.dots.needle.67percent"
-            )
+            switch entry.id {
+            case "1password":
+                return BrowserExtensionCatalogItem(
+                    entry: entry,
+                    name: String(
+                        localized: "browser.extensions.catalog.onePassword.name",
+                        defaultValue: "1Password"
+                    ),
+                    detail: String(
+                        localized: "browser.extensions.catalog.onePassword.detail",
+                        defaultValue: "Fill and save passwords with 1Password"
+                    ),
+                    icon: "key.fill"
+                )
+            case "video-speed-controller":
+                return BrowserExtensionCatalogItem(
+                    entry: entry,
+                    name: String(
+                        localized: "browser.extensions.catalog.videoSpeedController.name",
+                        defaultValue: "Video Speed Controller"
+                    ),
+                    detail: String(
+                        localized: "browser.extensions.catalog.videoSpeedController.detail",
+                        defaultValue: "Control HTML5 video speed with shortcuts"
+                    ),
+                    icon: "gauge.with.dots.needle.67percent"
+                )
+            default:
+                return nil
+            }
         }
     }
 
