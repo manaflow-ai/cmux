@@ -189,6 +189,48 @@ struct AgentHibernationPlannerSwiftTests {
     }
 
     @Test
+    func idleRestorableSessionOwnerWithLiveProcessCanHibernate() {
+        let workspaceId = UUID()
+        let now: TimeInterval = 1_000
+        let ownedIdleAgent = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let protectedAgent = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let settings = AgentHibernationSettings.Values(
+            enabled: true,
+            idleSeconds: 60,
+            maxLiveTerminals: 1,
+            confirmationSeconds: 5
+        )
+
+        let selected = AgentHibernationPlanner.selectedPanelKeys(
+            inputs: [
+                .init(
+                    key: ownedIdleAgent,
+                    hasRestorableAgent: true,
+                    isLive: true,
+                    hasLiveProcess: true,
+                    isProtected: false,
+                    lifecycle: .idle,
+                    hasUnconfirmedTerminalInput: false,
+                    lastActivityAt: now - 300
+                ),
+                .init(
+                    key: protectedAgent,
+                    hasRestorableAgent: true,
+                    isLive: true,
+                    isProtected: true,
+                    lifecycle: .idle,
+                    hasUnconfirmedTerminalInput: false,
+                    lastActivityAt: now - 200
+                ),
+            ],
+            settings: settings,
+            now: now
+        )
+
+        #expect(selected == Set([ownedIdleAgent]))
+    }
+
+    @Test
     func unableToProtectPaneCreatesPressureButIsNotSelected() {
         let workspaceId = UUID()
         let now: TimeInterval = 1_000
