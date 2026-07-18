@@ -133,6 +133,8 @@ class TerminalController {
     nonisolated let socketClientCapabilityAuthority: SocketClientCapabilityAuthority
     private nonisolated let socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter
     private nonisolated let agentHookDeliveryQueue: AgentHookDeliveryQueue
+    nonisolated let agentHookOutbox: AgentHookOutbox?
+    private var agentHookOutboxStartupTask: Task<Void, Never>?
     /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all
     /// windows), constructed at this app-hub composition point and injected into each
     /// `WorkspaceRemoteSessionController`; ownership moves to the composition root with the
@@ -368,9 +370,13 @@ class TerminalController {
             FileWatcher(path: $0.path)
         }
         self.socketPasswordFileWatcher = socketPasswordFileWatcher
-        self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
+        let socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
+        self.socketClientCapabilityAuthority = socketClientCapabilityAuthority
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
         self.agentHookDeliveryQueue = agentHookDeliveryQueue
+        self.agentHookOutbox = AgentHookOutbox.prepare(
+            deliveryQueue: agentHookDeliveryQueue
+        )
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
@@ -405,6 +411,11 @@ class TerminalController {
             }
         }
         serverEventTarget.controller = self
+        if let agentHookOutbox {
+            agentHookOutboxStartupTask = Task {
+                await agentHookOutbox.start()
+            }
+        }
         controlCommandCoordinator.context = self
         browserDownloadObserver = NotificationCenter.default.addObserver(
             forName: .browserDownloadEventDidArrive,

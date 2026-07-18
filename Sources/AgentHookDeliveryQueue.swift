@@ -1,5 +1,7 @@
 import Darwin
 import CMUXAgentLaunch
+import CmuxControlSocket
+import Dispatch
 import Foundation
 import OSLog
 import SQLite3
@@ -33,6 +35,837 @@ private final class AgentHookEphemeralEnvironmentStore: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         environments.removeValue(forKey: deliveryID)
+    }
+}
+
+/// Imports capability-authenticated native hook records from a private,
+/// per-bundle shared-memory outbox. Directory notifications are hints only:
+/// startup and periodic reconciliation make process-crash recovery complete.
+actor AgentHookOutbox {
+    static let environmentKey = "CMUX_AGENT_HOOK_OUTBOX_DIR"
+    static let capabilityEnvironmentKey = "CMUX_AGENT_HOOK_OUTBOX_CAPABILITY"
+
+    private static let maximumMarkerBytes = 512
+    private static let maximumMessageBytes = 12 * 1024 * 1024
+    private static let readyMarkerPrefix = "ready-"
+    private static let pendingMarkerPrefix = "pending-"
+    private static let capabilitySecretName = ".capability-secret-v1"
+
+    private struct Marker: Sendable {
+        let sharedMemoryName: String
+        let nonce: String
+        let code: Data
+        let byteCount: Int
+    }
+
+    private enum MarkerReadResult: Sendable {
+        case valid(Marker)
+        case malformed(sharedMemoryName: String?)
+        case missing
+        case retryable
+    }
+
+    private enum FileReadResult: Sendable {
+        case data(Data)
+        case malformed
+        case retryable
+    }
+
+    private enum SharedMemoryReadResult: Sendable {
+        case data(Data)
+        case invalid
+        case retryable
+    }
+
+    private enum ImportRecordResult: Sendable, Equatable {
+        case advanced
+        case blocked
+    }
+
+    private enum PendingMarkerState: Sendable {
+        case stale
+        case fresh(remainingGrace: TimeInterval)
+        case missing
+        case retryable
+    }
+
+    private struct MarkerCandidate: Sendable {
+        let name: String
+        let publicationKey: String
+        let isPending: Bool
+    }
+
+    private struct MarkerScan: Sendable {
+        var candidates: [MarkerCandidate] = []
+        var freshPendingBarrier: String?
+        var nextPendingDelay: TimeInterval?
+    }
+
+    nonisolated let directoryURL: URL
+    nonisolated let capabilitySecretURL: URL
+    private let directoryDescriptor: Int32
+    private nonisolated let capabilityAuthority: SocketClientCapabilityAuthority
+    private let deliveryQueue: AgentHookDeliveryQueue
+    private let reconciliationInterval: TimeInterval
+    private let pendingRecoveryGrace: TimeInterval
+    private let sharedMemoryReadErrorForTesting: (@Sendable () -> Int32?)?
+
+    private var watcher: DispatchSourceFileSystemObject?
+    private var reconciliationTask: Task<Void, Never>?
+    private var pendingRecoveryTask: Task<Void, Never>?
+    private var started = false
+
+    private init(
+        directoryURL: URL,
+        capabilitySecretURL: URL,
+        directoryDescriptor: Int32,
+        capabilityAuthority: SocketClientCapabilityAuthority,
+        deliveryQueue: AgentHookDeliveryQueue,
+        reconciliationInterval: TimeInterval,
+        pendingRecoveryGrace: TimeInterval,
+        sharedMemoryReadErrorForTesting: (@Sendable () -> Int32?)?
+    ) {
+        self.directoryURL = directoryURL
+        self.capabilitySecretURL = capabilitySecretURL
+        self.directoryDescriptor = directoryDescriptor
+        self.capabilityAuthority = capabilityAuthority
+        self.deliveryQueue = deliveryQueue
+        self.reconciliationInterval = max(0.05, reconciliationInterval)
+        self.pendingRecoveryGrace = max(0, pendingRecoveryGrace)
+        self.sharedMemoryReadErrorForTesting = sharedMemoryReadErrorForTesting
+    }
+
+    deinit {
+        reconciliationTask?.cancel()
+        pendingRecoveryTask?.cancel()
+        watcher?.cancel()
+        Darwin.close(directoryDescriptor)
+    }
+
+    nonisolated static func defaultDirectoryURL(
+        fileManager: FileManager = .default,
+        bundleIdentifier: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
+    ) -> URL {
+        let appSupport = fileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+        return appSupport
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent(bundleIdentifier, isDirectory: true)
+            .appendingPathComponent("agent-hook-outbox", isDirectory: true)
+    }
+
+    /// Creates and validates the directory before its path is exported to any
+    /// terminal. A failed preparation leaves the socket admission path active.
+    nonisolated static func prepare(
+        directoryURL: URL = defaultDirectoryURL(),
+        audience: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+        deliveryQueue: AgentHookDeliveryQueue,
+        reconciliationInterval: TimeInterval = 30,
+        pendingRecoveryGrace: TimeInterval = 2,
+        sharedMemoryReadErrorForTesting: (@Sendable () -> Int32?)? = nil
+    ) -> AgentHookOutbox? {
+        let fileManager = FileManager.default
+        do {
+            try fileManager.createDirectory(
+                at: directoryURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        } catch {
+            agentHookDeliveryLogger.error(
+                "Could not prepare hook outbox parent: \(error.localizedDescription, privacy: .private)"
+            )
+            return nil
+        }
+
+        if Darwin.mkdir(directoryURL.path, 0o700) != 0, errno != EEXIST {
+            agentHookDeliveryLogger.error("Could not create hook outbox directory: errno=\(errno)")
+            return nil
+        }
+        var pathStatus = stat()
+        guard Darwin.lstat(directoryURL.path, &pathStatus) == 0,
+              (pathStatus.st_mode & S_IFMT) == S_IFDIR,
+              pathStatus.st_uid == geteuid(),
+              Darwin.chmod(directoryURL.path, 0o700) == 0 else {
+            agentHookDeliveryLogger.error("Hook outbox directory failed ownership validation")
+            return nil
+        }
+
+        let descriptor = Darwin.open(
+            directoryURL.path,
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard descriptor >= 0 else {
+            agentHookDeliveryLogger.error("Could not open hook outbox directory: errno=\(errno)")
+            return nil
+        }
+        var descriptorStatus = stat()
+        guard fstat(descriptor, &descriptorStatus) == 0,
+              (descriptorStatus.st_mode & S_IFMT) == S_IFDIR,
+              descriptorStatus.st_uid == geteuid(),
+              (descriptorStatus.st_mode & 0o777) == 0o700 else {
+            Darwin.close(descriptor)
+            agentHookDeliveryLogger.error("Opened hook outbox directory is not private")
+            return nil
+        }
+
+        guard let secret = loadOrCreateCapabilitySecret(
+            directoryDescriptor: descriptor
+        ) else {
+            Darwin.close(descriptor)
+            agentHookDeliveryLogger.error("Could not load private hook outbox credential")
+            return nil
+        }
+        sweepStaleCapabilityTemporaryFiles(directoryDescriptor: descriptor)
+        let normalizedAudience = audience.trimmingCharacters(in: .whitespacesAndNewlines)
+        let capabilityAuthority = SocketClientCapabilityAuthority(
+            secret: secret,
+            audience: normalizedAudience.isEmpty ? "com.cmuxterm.app" : normalizedAudience
+        )
+
+        return AgentHookOutbox(
+            directoryURL: directoryURL,
+            capabilitySecretURL: directoryURL.appendingPathComponent(
+                capabilitySecretName,
+                isDirectory: false
+            ),
+            directoryDescriptor: descriptor,
+            capabilityAuthority: capabilityAuthority,
+            deliveryQueue: deliveryQueue,
+            reconciliationInterval: reconciliationInterval,
+            pendingRecoveryGrace: pendingRecoveryGrace,
+            sharedMemoryReadErrorForTesting: sharedMemoryReadErrorForTesting
+        )
+    }
+
+    /// Each terminal gets a distinct bearer token. Only its public nonce and
+    /// a message-specific authenticator are written to the marker.
+    nonisolated func issueCapability() -> String {
+        capabilityAuthority.issueCapability()
+    }
+
+    /// Installs the master secret with a no-replace hard link. Concurrent app
+    /// processes either install one complete file or read the winner; the
+    /// canonical path is never visible with partial contents.
+    private nonisolated static func loadOrCreateCapabilitySecret(
+        directoryDescriptor: Int32
+    ) -> Data? {
+        var status = stat()
+        if fstatat(
+            directoryDescriptor,
+            capabilitySecretName,
+            &status,
+            AT_SYMLINK_NOFOLLOW
+        ) == 0 {
+            return readCapabilitySecret(directoryDescriptor: directoryDescriptor)
+        }
+        guard errno == ENOENT else { return nil }
+
+        var generator = SystemRandomNumberGenerator()
+        let secret = Data((0..<SocketClientCapabilityAuthority.secureByteCount).map { _ in
+            UInt8.random(in: .min ... .max, using: &generator)
+        })
+        let random = UInt64.random(in: .min ... .max, using: &generator)
+        let temporaryName = String(
+            format: ".capability-secret-v1.tmp-%d-%016llx",
+            getpid(),
+            random
+        )
+        let temporaryDescriptor = openat(
+            directoryDescriptor,
+            temporaryName,
+            O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+            0o600
+        )
+        guard temporaryDescriptor >= 0 else { return nil }
+        var keepTemporaryFile = true
+        defer {
+            Darwin.close(temporaryDescriptor)
+            if keepTemporaryFile {
+                _ = unlinkat(directoryDescriptor, temporaryName, 0)
+            }
+        }
+
+        var temporaryStatus = stat()
+        guard fchmod(temporaryDescriptor, 0o600) == 0,
+              fstat(temporaryDescriptor, &temporaryStatus) == 0,
+              (temporaryStatus.st_mode & S_IFMT) == S_IFREG,
+              temporaryStatus.st_uid == geteuid(),
+              (temporaryStatus.st_mode & 0o777) == 0o600,
+              writeRegularFile(descriptor: temporaryDescriptor, data: secret),
+              fsync(temporaryDescriptor) == 0 else {
+            return nil
+        }
+
+        let linkStatus = linkat(
+            directoryDescriptor,
+            temporaryName,
+            directoryDescriptor,
+            capabilitySecretName,
+            0
+        )
+        let linkError = errno
+        _ = unlinkat(directoryDescriptor, temporaryName, 0)
+        keepTemporaryFile = false
+        guard linkStatus == 0 || linkError == EEXIST else { return nil }
+        if linkStatus == 0, fsync(directoryDescriptor) != 0 {
+            return nil
+        }
+        return readCapabilitySecret(directoryDescriptor: directoryDescriptor)
+    }
+
+    private nonisolated static func readCapabilitySecret(
+        directoryDescriptor: Int32
+    ) -> Data? {
+        let descriptor = openat(
+            directoryDescriptor,
+            capabilitySecretName,
+            O_RDONLY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard descriptor >= 0 else { return nil }
+        defer { Darwin.close(descriptor) }
+        var status = stat()
+        guard fstat(descriptor, &status) == 0,
+              (status.st_mode & S_IFMT) == S_IFREG,
+              status.st_uid == geteuid(),
+              (status.st_mode & 0o777) == 0o600,
+              status.st_size == off_t(SocketClientCapabilityAuthority.secureByteCount) else {
+            return nil
+        }
+        guard case .data(let secret) = readRegularFile(
+            descriptor: descriptor,
+            count: SocketClientCapabilityAuthority.secureByteCount
+        ) else { return nil }
+        return secret
+    }
+
+    private nonisolated static func sweepStaleCapabilityTemporaryFiles(
+        directoryDescriptor: Int32
+    ) {
+        let scanDescriptor = openat(
+            directoryDescriptor,
+            ".",
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard scanDescriptor >= 0, let directory = fdopendir(scanDescriptor) else {
+            if scanDescriptor >= 0 { Darwin.close(scanDescriptor) }
+            return
+        }
+        defer { closedir(directory) }
+
+        let prefix = ".capability-secret-v1.tmp-"
+        let now = Date().timeIntervalSince1970
+        while let entry = readdir(directory) {
+            let name = withUnsafePointer(to: entry.pointee.d_name) { pointer in
+                pointer.withMemoryRebound(to: CChar.self, capacity: Int(MAXNAMLEN)) {
+                    String(cString: $0)
+                }
+            }
+            guard name.hasPrefix(prefix) else { continue }
+            let components = name.dropFirst(prefix.count).split(
+                separator: "-",
+                omittingEmptySubsequences: false
+            )
+            guard components.count == 2,
+                  !components[0].isEmpty,
+                  components[0].count <= 10,
+                  components[0].allSatisfy(\.isNumber),
+                  components[1].count == 16,
+                  components[1].allSatisfy({ $0.isHexDigit && !$0.isUppercase }) else {
+                continue
+            }
+            var status = stat()
+            guard fstatat(
+                directoryDescriptor,
+                name,
+                &status,
+                AT_SYMLINK_NOFOLLOW
+            ) == 0,
+                  (status.st_mode & S_IFMT) == S_IFREG,
+                  status.st_uid == geteuid(),
+                  (status.st_mode & 0o777) == 0o600,
+                  status.st_size == off_t(SocketClientCapabilityAuthority.secureByteCount) else {
+                continue
+            }
+            let modifiedAt = TimeInterval(status.st_mtimespec.tv_sec)
+                + TimeInterval(status.st_mtimespec.tv_nsec) / 1_000_000_000
+            guard now - modifiedAt >= 60 else { continue }
+            _ = unlinkat(directoryDescriptor, name, 0)
+        }
+    }
+
+    private nonisolated static func isRetryableIOError(_ code: Int32) -> Bool {
+        code == EINTR
+            || code == EAGAIN
+            || code == EBUSY
+            || code == EIO
+            || code == EMFILE
+            || code == ENFILE
+            || code == ENOMEM
+            || code == ENOBUFS
+            || code == ETIMEDOUT
+            || code == ESTALE
+    }
+
+    private nonisolated static func writeRegularFile(
+        descriptor: Int32,
+        data: Data
+    ) -> Bool {
+        data.withUnsafeBytes { bytes in
+            guard let baseAddress = bytes.baseAddress else { return data.isEmpty }
+            var offset = 0
+            while offset < data.count {
+                let amount = Darwin.write(
+                    descriptor,
+                    baseAddress.advanced(by: offset),
+                    data.count - offset
+                )
+                if amount > 0 {
+                    offset += amount
+                } else if amount < 0, errno == EINTR {
+                    continue
+                } else {
+                    return false
+                }
+            }
+            return true
+        }
+    }
+
+    /// Scans before and after arming the vnode source, closing the publication
+    /// race without treating coalesced vnode events as a per-record stream.
+    func start() {
+        guard !started else { return }
+        started = true
+        reconcile()
+        installWatcher()
+        reconcile()
+        reconciliationTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let interval = self?.reconciliationInterval else { return }
+                do {
+                    try await ContinuousClock().sleep(
+                        for: .milliseconds(Int64(interval * 1_000))
+                    )
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                await self?.reconcile()
+            }
+        }
+    }
+
+    func stop() {
+        started = false
+        reconciliationTask?.cancel()
+        reconciliationTask = nil
+        pendingRecoveryTask?.cancel()
+        pendingRecoveryTask = nil
+        watcher?.cancel()
+        watcher = nil
+    }
+
+#if DEBUG
+    func reconcileForTesting() {
+        reconcile()
+    }
+#endif
+
+    private func installWatcher() {
+        let descriptor = Darwin.open(
+            directoryURL.path,
+            O_EVTONLY | O_CLOEXEC | O_NOFOLLOW
+        )
+        guard descriptor >= 0 else {
+            agentHookDeliveryLogger.error("Could not watch hook outbox: errno=\(errno)")
+            return
+        }
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: descriptor,
+            eventMask: [.write, .rename, .delete],
+            queue: DispatchQueue(label: "com.cmuxterm.agent-hook-outbox-watch")
+        )
+        source.setEventHandler { [weak self] in
+            guard let self else { return }
+            Task { await self.reconcileFromWatcher() }
+        }
+        source.setCancelHandler {
+            Darwin.close(descriptor)
+        }
+        watcher = source
+        source.resume()
+    }
+
+    private func reconcileFromWatcher() {
+        reconcile()
+    }
+
+    private func reconcile() {
+        let scan = markerCandidates()
+        schedulePendingRecovery(after: scan.nextPendingDelay)
+        for candidate in scan.candidates {
+            if let barrier = scan.freshPendingBarrier,
+               candidate.publicationKey > barrier {
+                // Do not let a later ready marker overtake a marker whose
+                // writer may still be filling it.
+                continue
+            }
+            if importRecord(markerName: candidate.name) == .blocked {
+                schedulePendingRecovery(after: min(scan.nextPendingDelay ?? 0.25, 0.25))
+                break
+            }
+        }
+    }
+
+    private func schedulePendingRecovery(after delay: TimeInterval?) {
+        pendingRecoveryTask?.cancel()
+        pendingRecoveryTask = nil
+        guard let delay else { return }
+        pendingRecoveryTask = Task { [weak self] in
+            do {
+                try await ContinuousClock().sleep(
+                    for: .milliseconds(max(1, Int64(delay * 1_000)))
+                )
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            await self.reconcileAfterPendingGrace()
+        }
+    }
+
+    private func reconcileAfterPendingGrace() {
+        pendingRecoveryTask = nil
+        reconcile()
+    }
+
+    private func markerCandidates() -> MarkerScan {
+        // dup(2) shares the directory offset, so a prior EOF would make every
+        // later reconciliation empty. Open a fresh file description instead.
+        let scanDescriptor = openat(
+            directoryDescriptor,
+            ".",
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard scanDescriptor >= 0, let directory = fdopendir(scanDescriptor) else {
+            if scanDescriptor >= 0 { Darwin.close(scanDescriptor) }
+            return MarkerScan()
+        }
+        defer { closedir(directory) }
+
+        let now = Date().timeIntervalSince1970
+        var scan = MarkerScan()
+        while let entry = readdir(directory) {
+            let name = withUnsafePointer(to: entry.pointee.d_name) { pointer in
+                pointer.withMemoryRebound(to: CChar.self, capacity: Int(MAXNAMLEN)) {
+                    String(cString: $0)
+                }
+            }
+            if let publicationKey = Self.publicationKey(
+                markerName: name,
+                prefix: Self.readyMarkerPrefix
+            ) {
+                scan.candidates.append(MarkerCandidate(
+                    name: name,
+                    publicationKey: publicationKey,
+                    isPending: false
+                ))
+            } else if let publicationKey = Self.publicationKey(
+                markerName: name,
+                prefix: Self.pendingMarkerPrefix
+            ) {
+                switch pendingMarkerState(name: name, now: now) {
+                case .stale:
+                    scan.candidates.append(MarkerCandidate(
+                        name: name,
+                        publicationKey: publicationKey,
+                        isPending: true
+                    ))
+                case .fresh(let remainingGrace):
+                    scan.freshPendingBarrier = min(
+                        scan.freshPendingBarrier ?? publicationKey,
+                        publicationKey
+                    )
+                    scan.nextPendingDelay = min(
+                        scan.nextPendingDelay ?? remainingGrace,
+                        remainingGrace
+                    )
+                case .retryable:
+                    scan.freshPendingBarrier = min(
+                        scan.freshPendingBarrier ?? publicationKey,
+                        publicationKey
+                    )
+                    scan.nextPendingDelay = min(scan.nextPendingDelay ?? 0.05, 0.05)
+                case .missing:
+                    break
+                }
+            }
+        }
+        scan.candidates.sort { left, right in
+            if left.publicationKey != right.publicationKey {
+                return left.publicationKey < right.publicationKey
+            }
+            // If a crash or filesystem anomaly leaves both names behind, the
+            // committed ready name is authoritative.
+            return !left.isPending && right.isPending
+        }
+        return scan
+    }
+
+    private static func publicationKey(markerName name: String, prefix: String) -> String? {
+        guard name.utf8.count == prefix.utf8.count + 16 + 1 + 16,
+              name.hasPrefix(prefix) else {
+            return nil
+        }
+        let suffix = name.dropFirst(prefix.count)
+        guard suffix[suffix.index(suffix.startIndex, offsetBy: 16)] == "-" else {
+            return nil
+        }
+        guard suffix.enumerated().allSatisfy({ index, character in
+            index == 16 ? character == "-" : character.isHexDigit && !character.isUppercase
+        }) else { return nil }
+        return String(suffix)
+    }
+
+    private func pendingMarkerState(
+        name: String,
+        now: TimeInterval
+    ) -> PendingMarkerState {
+        var status = stat()
+        guard fstatat(
+            directoryDescriptor,
+            name,
+            &status,
+            AT_SYMLINK_NOFOLLOW
+        ) == 0 else {
+            let code = errno
+            if code == ENOENT { return .missing }
+            return Self.isRetryableIOError(code) ? .retryable : .stale
+        }
+        guard (status.st_mode & S_IFMT) == S_IFREG,
+              status.st_uid == geteuid() else {
+            return .stale
+        }
+        let modifiedAt = TimeInterval(status.st_mtimespec.tv_sec)
+            + TimeInterval(status.st_mtimespec.tv_nsec) / 1_000_000_000
+        let age = max(0, now - modifiedAt)
+        let remainingGrace = max(0, pendingRecoveryGrace - age)
+        return remainingGrace == 0 ? .stale : .fresh(remainingGrace: remainingGrace)
+    }
+
+    private func importRecord(markerName: String) -> ImportRecordResult {
+        let marker: Marker
+        switch readMarker(named: markerName) {
+        case .valid(let validMarker):
+            marker = validMarker
+        case .malformed(let sharedMemoryName):
+            cleanup(markerName: markerName, sharedMemoryName: sharedMemoryName)
+            return .advanced
+        case .missing, .retryable:
+            return .blocked
+        }
+        let message: Data
+        switch readSharedMemory(marker) {
+        case .data(let data):
+            message = data
+        case .invalid:
+            cleanup(markerName: markerName, sharedMemoryName: marker.sharedMemoryName)
+            return .advanced
+        case .retryable:
+            return .blocked
+        }
+        guard capabilityAuthority.verifiesOutboxMessage(
+            nonce: marker.nonce,
+            code: marker.code,
+            message: message
+        ), let event = Self.event(from: message) else {
+            agentHookDeliveryLogger.error("Rejected unauthenticated or malformed hook outbox record")
+            cleanup(markerName: markerName, sharedMemoryName: marker.sharedMemoryName)
+            return .advanced
+        }
+
+        do {
+            try deliveryQueue.enqueue(event)
+        } catch {
+            // SQLite availability errors are retryable. Keep both names until
+            // the next vnode or periodic reconciliation pass.
+            agentHookDeliveryLogger.error(
+                "Could not import hook outbox record: \(error.localizedDescription, privacy: .private)"
+            )
+            return .blocked
+        }
+        cleanup(markerName: markerName, sharedMemoryName: marker.sharedMemoryName)
+        return .advanced
+    }
+
+    private func readMarker(named name: String) -> MarkerReadResult {
+        let descriptor = openat(
+            directoryDescriptor,
+            name,
+            O_RDONLY | O_NOFOLLOW | O_CLOEXEC
+        )
+        guard descriptor >= 0 else {
+            let code = errno
+            if code == ENOENT { return .missing }
+            return Self.isRetryableIOError(code)
+                ? .retryable
+                : .malformed(sharedMemoryName: nil)
+        }
+        defer { Darwin.close(descriptor) }
+        var status = stat()
+        guard fstat(descriptor, &status) == 0 else {
+            return Self.isRetryableIOError(errno)
+                ? .retryable
+                : .malformed(sharedMemoryName: nil)
+        }
+        guard
+              (status.st_mode & S_IFMT) == S_IFREG,
+              status.st_uid == geteuid(),
+              (status.st_mode & 0o777) == 0o600,
+              status.st_size > 0,
+              status.st_size <= off_t(Self.maximumMarkerBytes) else {
+            return .malformed(sharedMemoryName: nil)
+        }
+        let data: Data
+        switch Self.readRegularFile(descriptor: descriptor, count: Int(status.st_size)) {
+        case .data(let value):
+            data = value
+        case .malformed:
+            return .malformed(sharedMemoryName: nil)
+        case .retryable:
+            return .retryable
+        }
+        guard let text = String(data: data, encoding: .utf8) else {
+            return .malformed(sharedMemoryName: nil)
+        }
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let sharedMemoryName = lines.first.map(String.init).flatMap {
+            Self.isSharedMemoryName($0) ? $0 : nil
+        }
+        guard lines.count == 5,
+              lines[4].isEmpty,
+              let sharedMemoryName,
+              !lines[1].isEmpty,
+              lines[1].utf8.count < 65,
+              let code = Data(base64Encoded: String(lines[2])),
+              code.count == 32,
+              let byteCount = Int(lines[3]),
+              byteCount > 0,
+              byteCount <= Self.maximumMessageBytes else {
+            return .malformed(sharedMemoryName: sharedMemoryName)
+        }
+        return .valid(Marker(
+            sharedMemoryName: sharedMemoryName,
+            nonce: String(lines[1]),
+            code: code,
+            byteCount: byteCount
+        ))
+    }
+
+    private static func isSharedMemoryName(_ name: String) -> Bool {
+        guard name.utf8.count == 19, name.hasPrefix("/ch") else { return false }
+        return name.dropFirst(3).allSatisfy { $0.isHexDigit && !$0.isUppercase }
+    }
+
+    private func readSharedMemory(_ marker: Marker) -> SharedMemoryReadResult {
+        if let injectedError = sharedMemoryReadErrorForTesting?() {
+            return Self.isRetryableIOError(injectedError) ? .retryable : .invalid
+        }
+        let descriptor = marker.sharedMemoryName.withCString {
+            cmux_agent_hook_shm_open_readonly($0)
+        }
+        guard descriptor >= 0 else {
+            return Self.isRetryableIOError(errno) ? .retryable : .invalid
+        }
+        defer { Darwin.close(descriptor) }
+        _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC)
+        var status = stat()
+        guard fstat(descriptor, &status) == 0 else {
+            return Self.isRetryableIOError(errno) ? .retryable : .invalid
+        }
+        let pageSize = Int(getpagesize())
+        guard pageSize > 0,
+              marker.byteCount <= Int(off_t.max),
+              marker.byteCount <= Int.max - (pageSize - 1) else {
+            return .invalid
+        }
+        let expectedSize = off_t(
+            ((marker.byteCount + pageSize - 1) / pageSize) * pageSize
+        )
+        guard
+              status.st_uid == geteuid(),
+              (status.st_mode & 0o777) == 0o600,
+              status.st_size == expectedSize else {
+            return .invalid
+        }
+        let mapping = mmap(
+            nil,
+            marker.byteCount,
+            PROT_READ,
+            MAP_SHARED,
+            descriptor,
+            0
+        )
+        guard mapping != MAP_FAILED else {
+            return Self.isRetryableIOError(errno) ? .retryable : .invalid
+        }
+        defer { munmap(mapping, marker.byteCount) }
+        return .data(Data(bytes: mapping!, count: marker.byteCount))
+    }
+
+    private static func readRegularFile(descriptor: Int32, count: Int) -> FileReadResult {
+        var data = Data(count: count)
+        let result = data.withUnsafeMutableBytes { bytes -> FileReadResult in
+            guard let baseAddress = bytes.baseAddress else {
+                return count == 0 ? .data(Data()) : .malformed
+            }
+            var offset = 0
+            while offset < count {
+                let amount = Darwin.read(
+                    descriptor,
+                    baseAddress.advanced(by: offset),
+                    count - offset
+                )
+                if amount > 0 {
+                    offset += amount
+                } else if amount < 0, errno == EINTR {
+                    continue
+                } else if amount < 0, Self.isRetryableIOError(errno) {
+                    return .retryable
+                } else {
+                    return .malformed
+                }
+            }
+            return .data(Data())
+        }
+        switch result {
+        case .data:
+            return .data(data)
+        case .malformed:
+            return .malformed
+        case .retryable:
+            return .retryable
+        }
+    }
+
+    private static func event(from message: Data) -> AgentHookDeliveryEvent? {
+        guard let request = try? JSONSerialization.jsonObject(with: message) as? [String: Any],
+              request["method"] as? String == "agent.hook.enqueue",
+              let params = request["params"] as? [String: Any] else {
+            return nil
+        }
+        return AgentHookDeliveryEvent(params: params)
+    }
+
+    private func cleanup(markerName: String, sharedMemoryName: String?) {
+        if let sharedMemoryName, Self.isSharedMemoryName(sharedMemoryName) {
+            _ = shm_unlink(sharedMemoryName)
+        }
+        _ = unlinkat(directoryDescriptor, markerName, 0)
     }
 }
 

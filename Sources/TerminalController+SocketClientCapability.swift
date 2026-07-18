@@ -27,10 +27,18 @@ extension TerminalController {
     }
 
     nonisolated func socketClientCapabilityEnvironment() -> [String: String] {
-        [
+        var environment = [
             SocketClientCapabilityEnvelope.environmentKey:
                 socketClientCapabilityAuthority.issueCapability()
         ]
+        // The native helper switches to the zero-worker outbox only after the
+        // app has securely created and opened its private consumer directory.
+        if let agentHookOutbox {
+            environment[AgentHookOutbox.environmentKey] = agentHookOutbox.directoryURL.path
+            environment[AgentHookOutbox.capabilityEnvironmentKey] =
+                agentHookOutbox.issueCapability()
+        }
+        return environment
     }
 
     nonisolated func socketClientInitialReadLimits(

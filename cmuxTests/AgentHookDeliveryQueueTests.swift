@@ -11,6 +11,22 @@ import Testing
 @testable import cmux
 #endif
 
+private final class AgentHookOneShotErrno: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Int32?
+
+    init(_ value: Int32) {
+        self.value = value
+    }
+
+    func take() -> Int32? {
+        lock.lock()
+        defer { lock.unlock() }
+        defer { value = nil }
+        return value
+    }
+}
+
 @Suite("Agent hook durable delivery", .serialized)
 struct AgentHookDeliveryQueueTests {
     private struct OutboxTestRecord {
@@ -18,28 +34,25 @@ struct AgentHookDeliveryQueueTests {
         let sharedMemoryName: String
     }
 
-    @Test func authenticatedOutboxRecoveryPersistsEventAndScrubsSecrets() async throws {
+    @Test func authenticatedOutboxRecoverySurvivesAuthorityRecreationAndScrubsSecrets() async throws {
         let root = try temporaryDirectory(named: "outbox-recovery")
         defer { try? FileManager.default.removeItem(at: root) }
         let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
         let outboxURL = root.appendingPathComponent("outbox", isDirectory: true)
-        let authority = SocketClientCapabilityAuthority(
-            secret: Data(repeating: 0x31, count: SocketClientCapabilityAuthority.secureByteCount),
-            audience: "com.cmuxterm.test.outbox-recovery"
-        )
+        let audience = "com.cmuxterm.test.outbox-recovery"
         let queue = AgentHookDeliveryQueue(
             databaseURL: databaseURL,
             executableURLProvider: { nil },
             retryBaseDelay: 60,
             retryMaximumDelay: 60
         )
-        let outbox = try #require(AgentHookOutbox.prepare(
+        let publisherOutbox = try #require(AgentHookOutbox.prepare(
             directoryURL: outboxURL,
-            capabilityAuthority: authority,
+            audience: audience,
             deliveryQueue: queue,
             reconciliationInterval: 60
         ))
-        let capability = authority.issueCapability()
+        let capability = publisherOutbox.issueCapability()
         let message = try outboxMessage(
             deliveryID: "outbox-recovery",
             payload: Data([0x00, 0xff, 0x0a]),
@@ -55,7 +68,30 @@ struct AgentHookDeliveryQueueTests {
         )
         defer { shm_unlink(record.sharedMemoryName) }
 
-        await outbox.start()
+        let markerBytes = try Data(contentsOf: record.markerURL)
+        let persistedMasterSecret = try Data(contentsOf: publisherOutbox.capabilitySecretURL)
+        #expect(persistedMasterSecret.count == SocketClientCapabilityAuthority.secureByteCount)
+        #expect(markerBytes.range(of: Data(capability.utf8)) == nil)
+        #expect(markerBytes.range(of: persistedMasterSecret) == nil)
+        #expect(markerBytes.range(of: Data("outbox-memory-only-secret".utf8)) == nil)
+        let secretAttributes = try FileManager.default.attributesOfItem(
+            atPath: publisherOutbox.capabilitySecretURL.path
+        )
+        #expect((secretAttributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+        #expect((secretAttributes[.ownerAccountID] as? NSNumber)?.uint32Value == geteuid())
+
+        // Recreate the authority from disk before importing, matching an app
+        // restart after the helper has already published the record.
+        await publisherOutbox.stop()
+        let recoveringOutbox = try #require(AgentHookOutbox.prepare(
+            directoryURL: outboxURL,
+            audience: audience,
+            deliveryQueue: queue,
+            reconciliationInterval: 60
+        ))
+        #expect(try Data(contentsOf: recoveringOutbox.capabilitySecretURL) == persistedMasterSecret)
+
+        await recoveringOutbox.start()
         #expect(try await queue.diagnosticStatus(for: "outbox-recovery")?["state"] == "pending")
         #expect(!FileManager.default.fileExists(atPath: record.markerURL.path))
         #expect(sharedMemoryIsMissing(record.sharedMemoryName))
@@ -69,17 +105,13 @@ struct AgentHookDeliveryQueueTests {
             let bytes = (try? Data(contentsOf: file)) ?? Data()
             #expect(bytes.range(of: Data("outbox-memory-only-secret".utf8)) == nil)
         }
-        await outbox.stop()
+        await recoveringOutbox.stop()
     }
 
     @Test func outboxRejectsWrongAudienceAndTamperedMessage() async throws {
         let root = try temporaryDirectory(named: "outbox-auth-rejection")
         defer { try? FileManager.default.removeItem(at: root) }
         let outboxURL = root.appendingPathComponent("outbox", isDirectory: true)
-        let authority = SocketClientCapabilityAuthority(
-            secret: Data(repeating: 0x41, count: SocketClientCapabilityAuthority.secureByteCount),
-            audience: "com.cmuxterm.test.outbox-expected"
-        )
         let otherAuthority = SocketClientCapabilityAuthority(
             secret: Data(repeating: 0x41, count: SocketClientCapabilityAuthority.secureByteCount),
             audience: "com.cmuxterm.test.outbox-other"
@@ -92,7 +124,7 @@ struct AgentHookDeliveryQueueTests {
         )
         let outbox = try #require(AgentHookOutbox.prepare(
             directoryURL: outboxURL,
-            capabilityAuthority: authority,
+            audience: "com.cmuxterm.test.outbox-expected",
             deliveryQueue: queue,
             reconciliationInterval: 60
         ))
@@ -114,20 +146,33 @@ struct AgentHookDeliveryQueueTests {
         let tamperedRecord = try publishOutboxRecord(
             message: Data(original.dropLast()) + Data(" \n".utf8),
             authenticating: original,
-            capability: authority.issueCapability(),
+            capability: outbox.issueCapability(),
             directoryURL: outboxURL,
             order: 2
+        )
+        let wrongMethodRecord = try publishOutboxRecord(
+            message: try outboxMessage(
+                deliveryID: "outbox-wrong-method",
+                payload: Data("wrong-method".utf8),
+                environment: testEnvironment(root: root),
+                method: "system.exec"
+            ),
+            capability: outbox.issueCapability(),
+            directoryURL: outboxURL,
+            order: 3
         )
         defer {
             shm_unlink(wrongAudienceRecord.sharedMemoryName)
             shm_unlink(tamperedRecord.sharedMemoryName)
+            shm_unlink(wrongMethodRecord.sharedMemoryName)
         }
 
         await outbox.reconcileForTesting()
 
         #expect(try await queue.diagnosticStatus(for: "outbox-wrong-audience") == nil)
         #expect(try await queue.diagnosticStatus(for: "outbox-tampered") == nil)
-        for record in [wrongAudienceRecord, tamperedRecord] {
+        #expect(try await queue.diagnosticStatus(for: "outbox-wrong-method") == nil)
+        for record in [wrongAudienceRecord, tamperedRecord, wrongMethodRecord] {
             #expect(!FileManager.default.fileExists(atPath: record.markerURL.path))
             #expect(sharedMemoryIsMissing(record.sharedMemoryName))
         }
@@ -138,10 +183,6 @@ struct AgentHookDeliveryQueueTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
         let outboxURL = root.appendingPathComponent("outbox", isDirectory: true)
-        let authority = SocketClientCapabilityAuthority(
-            secret: Data(repeating: 0x51, count: SocketClientCapabilityAuthority.secureByteCount),
-            audience: "com.cmuxterm.test.outbox-replay"
-        )
         let queue = AgentHookDeliveryQueue(
             databaseURL: databaseURL,
             executableURLProvider: { nil },
@@ -150,7 +191,7 @@ struct AgentHookDeliveryQueueTests {
         )
         let outbox = try #require(AgentHookOutbox.prepare(
             directoryURL: outboxURL,
-            capabilityAuthority: authority,
+            audience: "com.cmuxterm.test.outbox-replay",
             deliveryQueue: queue,
             reconciliationInterval: 60
         ))
@@ -163,7 +204,7 @@ struct AgentHookDeliveryQueueTests {
         try queue.enqueue(event)
         let record = try publishOutboxRecord(
             message: message,
-            capability: authority.issueCapability(),
+            capability: outbox.issueCapability(),
             directoryURL: outboxURL,
             order: 1
         )
@@ -181,10 +222,6 @@ struct AgentHookDeliveryQueueTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
         let outboxURL = root.appendingPathComponent("outbox", isDirectory: true)
-        let authority = SocketClientCapabilityAuthority(
-            secret: Data(repeating: 0x61, count: SocketClientCapabilityAuthority.secureByteCount),
-            audience: "com.cmuxterm.test.outbox-order"
-        )
         let queue = AgentHookDeliveryQueue(
             databaseURL: databaseURL,
             executableURLProvider: { nil },
@@ -193,11 +230,11 @@ struct AgentHookDeliveryQueueTests {
         )
         let outbox = try #require(AgentHookOutbox.prepare(
             directoryURL: outboxURL,
-            capabilityAuthority: authority,
+            audience: "com.cmuxterm.test.outbox-order",
             deliveryQueue: queue,
             reconciliationInterval: 60
         ))
-        let capability = authority.issueCapability()
+        let capability = outbox.issueCapability()
         let second = try publishOutboxRecord(
             message: try outboxMessage(
                 deliveryID: "outbox-second",
@@ -228,6 +265,281 @@ struct AgentHookDeliveryQueueTests {
         #expect(try storedDeliveryIDs(databaseURL: databaseURL) == [
             "outbox-first", "outbox-second",
         ])
+    }
+
+    @Test func outboxRescansAfterAnEmptyDirectoryIteration() async throws {
+        let root = try temporaryDirectory(named: "outbox-rescan")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
+        let outboxURL = root.appendingPathComponent("outbox", isDirectory: true)
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: databaseURL,
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        let outbox = try #require(AgentHookOutbox.prepare(
+            directoryURL: outboxURL,
+            audience: "com.cmuxterm.test.outbox-rescan",
+            deliveryQueue: queue,
+            reconciliationInterval: 60
+        ))
+
+        await outbox.reconcileForTesting()
+        await outbox.reconcileForTesting()
+        let record = try publishOutboxRecord(
+            message: try outboxMessage(
+                deliveryID: "outbox-after-empty-scans",
+                payload: Data("after-empty".utf8),
+                environment: testEnvironment(root: root)
+            ),
+            capability: outbox.issueCapability(),
+            directoryURL: outboxURL,
+            order: 1
+        )
+        defer { shm_unlink(record.sharedMemoryName) }
+
+        await outbox.reconcileForTesting()
+
+        #expect(try storedDeliveryIDs(databaseURL: databaseURL) == ["outbox-after-empty-scans"])
+        #expect(!FileManager.default.fileExists(atPath: record.markerURL.path))
+        #expect(sharedMemoryIsMissing(record.sharedMemoryName))
+    }
+
+    @Test func outboxRecoversStalePendingInOrderAndCleansPartialRecords() async throws {
+        let root = try temporaryDirectory(named: "outbox-pending-recovery")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
+        let outboxURL = root.appendingPathComponent("outbox", isDirectory: true)
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: databaseURL,
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        let outbox = try #require(AgentHookOutbox.prepare(
+            directoryURL: outboxURL,
+            audience: "com.cmuxterm.test.outbox-pending",
+            deliveryQueue: queue,
+            reconciliationInterval: 60,
+            pendingRecoveryGrace: 60
+        ))
+        let capability = outbox.issueCapability()
+        let olderPending = try publishOutboxRecord(
+            message: try outboxMessage(
+                deliveryID: "outbox-older-pending",
+                payload: Data("older".utf8),
+                environment: testEnvironment(root: root)
+            ),
+            capability: capability,
+            directoryURL: outboxURL,
+            order: 1,
+            markerPrefix: "pending"
+        )
+        let newerReady = try publishOutboxRecord(
+            message: try outboxMessage(
+                deliveryID: "outbox-newer-ready",
+                payload: Data("newer".utf8),
+                environment: testEnvironment(root: root)
+            ),
+            capability: capability,
+            directoryURL: outboxURL,
+            order: 2
+        )
+        let partialPending = try publishOutboxRecord(
+            message: try outboxMessage(
+                deliveryID: "outbox-partial-pending",
+                payload: Data("partial".utf8),
+                environment: testEnvironment(root: root)
+            ),
+            capability: capability,
+            directoryURL: outboxURL,
+            order: 3,
+            markerPrefix: "pending"
+        )
+        let missingSharedMemoryPending = try publishOutboxRecord(
+            message: try outboxMessage(
+                deliveryID: "outbox-missing-shm-pending",
+                payload: Data("missing".utf8),
+                environment: testEnvironment(root: root)
+            ),
+            capability: capability,
+            directoryURL: outboxURL,
+            order: 4,
+            markerPrefix: "pending"
+        )
+        shm_unlink(missingSharedMemoryPending.sharedMemoryName)
+        defer {
+            shm_unlink(olderPending.sharedMemoryName)
+            shm_unlink(newerReady.sharedMemoryName)
+            shm_unlink(partialPending.sharedMemoryName)
+            shm_unlink(missingSharedMemoryPending.sharedMemoryName)
+        }
+        try Data("\(partialPending.sharedMemoryName)\npartial".utf8).write(
+            to: partialPending.markerURL
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: partialPending.markerURL.path
+        )
+
+        await outbox.reconcileForTesting()
+        #expect(try storedDeliveryIDs(databaseURL: databaseURL).isEmpty)
+        #expect(FileManager.default.fileExists(atPath: olderPending.markerURL.path))
+        #expect(FileManager.default.fileExists(atPath: newerReady.markerURL.path))
+        #expect(FileManager.default.fileExists(atPath: partialPending.markerURL.path))
+        #expect(FileManager.default.fileExists(atPath: missingSharedMemoryPending.markerURL.path))
+
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: -120)],
+            ofItemAtPath: olderPending.markerURL.path
+        )
+        await outbox.reconcileForTesting()
+        #expect(try storedDeliveryIDs(databaseURL: databaseURL) == [
+            "outbox-older-pending", "outbox-newer-ready",
+        ])
+        #expect(FileManager.default.fileExists(atPath: partialPending.markerURL.path))
+
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: -120)],
+            ofItemAtPath: partialPending.markerURL.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: -120)],
+            ofItemAtPath: missingSharedMemoryPending.markerURL.path
+        )
+        await outbox.reconcileForTesting()
+        #expect(!FileManager.default.fileExists(atPath: partialPending.markerURL.path))
+        #expect(sharedMemoryIsMissing(partialPending.sharedMemoryName))
+        #expect(!FileManager.default.fileExists(atPath: missingSharedMemoryPending.markerURL.path))
+    }
+
+    @Test func outboxPendingGraceTimerRecoversWithoutPeriodicDelay() async throws {
+        let root = try temporaryDirectory(named: "outbox-pending-timer")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
+        let outboxURL = root.appendingPathComponent("outbox", isDirectory: true)
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: databaseURL,
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        let outbox = try #require(AgentHookOutbox.prepare(
+            directoryURL: outboxURL,
+            audience: "com.cmuxterm.test.outbox-pending-timer",
+            deliveryQueue: queue,
+            reconciliationInterval: 60,
+            pendingRecoveryGrace: 0.05
+        ))
+        let record = try publishOutboxRecord(
+            message: try outboxMessage(
+                deliveryID: "outbox-pending-timer",
+                payload: Data("timer".utf8),
+                environment: testEnvironment(root: root)
+            ),
+            capability: outbox.issueCapability(),
+            directoryURL: outboxURL,
+            order: 1,
+            markerPrefix: "pending"
+        )
+        defer { shm_unlink(record.sharedMemoryName) }
+
+        await outbox.start()
+        let recovered = await waitUntil(timeout: .seconds(1)) {
+            (try? await queue.diagnosticStatus(for: "outbox-pending-timer")) != nil
+        }
+        #expect(recovered)
+        #expect(!FileManager.default.fileExists(atPath: record.markerURL.path))
+        #expect(sharedMemoryIsMissing(record.sharedMemoryName))
+        await outbox.stop()
+    }
+
+    @Test func transientSharedMemoryFailurePreservesRecordForRetry() async throws {
+        let root = try temporaryDirectory(named: "outbox-transient-retry")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
+        let outboxURL = root.appendingPathComponent("outbox", isDirectory: true)
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: databaseURL,
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        let injectedError = AgentHookOneShotErrno(EIO)
+        let outbox = try #require(AgentHookOutbox.prepare(
+            directoryURL: outboxURL,
+            audience: "com.cmuxterm.test.outbox-transient",
+            deliveryQueue: queue,
+            reconciliationInterval: 60,
+            sharedMemoryReadErrorForTesting: { injectedError.take() }
+        ))
+        let record = try publishOutboxRecord(
+            message: try outboxMessage(
+                deliveryID: "outbox-transient-retry",
+                payload: Data("retry".utf8),
+                environment: testEnvironment(root: root)
+            ),
+            capability: outbox.issueCapability(),
+            directoryURL: outboxURL,
+            order: 1
+        )
+        let laterRecord = try publishOutboxRecord(
+            message: try outboxMessage(
+                deliveryID: "outbox-transient-later",
+                payload: Data("later".utf8),
+                environment: testEnvironment(root: root)
+            ),
+            capability: outbox.issueCapability(),
+            directoryURL: outboxURL,
+            order: 2
+        )
+        defer {
+            shm_unlink(record.sharedMemoryName)
+            shm_unlink(laterRecord.sharedMemoryName)
+        }
+
+        await outbox.reconcileForTesting()
+        #expect(try await queue.diagnosticStatus(for: "outbox-transient-retry") == nil)
+        #expect(try await queue.diagnosticStatus(for: "outbox-transient-later") == nil)
+        #expect(FileManager.default.fileExists(atPath: record.markerURL.path))
+        #expect(!sharedMemoryIsMissing(record.sharedMemoryName))
+        #expect(FileManager.default.fileExists(atPath: laterRecord.markerURL.path))
+
+        await outbox.reconcileForTesting()
+        #expect(try storedDeliveryIDs(databaseURL: databaseURL) == [
+            "outbox-transient-retry", "outbox-transient-later",
+        ])
+        #expect(!FileManager.default.fileExists(atPath: record.markerURL.path))
+        #expect(sharedMemoryIsMissing(record.sharedMemoryName))
+    }
+
+    @Test func invalidPersistentOutboxSecretDisablesPreparation() async throws {
+        let root = try temporaryDirectory(named: "outbox-invalid-secret")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let outboxURL = root.appendingPathComponent("outbox", isDirectory: true)
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
+            executableURLProvider: { nil },
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        let prepared = try #require(AgentHookOutbox.prepare(
+            directoryURL: outboxURL,
+            audience: "com.cmuxterm.test.outbox-invalid-secret",
+            deliveryQueue: queue
+        ))
+        await prepared.stop()
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o644],
+            ofItemAtPath: prepared.capabilitySecretURL.path
+        )
+
+        #expect(AgentHookOutbox.prepare(
+            directoryURL: outboxURL,
+            audience: "com.cmuxterm.test.outbox-invalid-secret",
+            deliveryQueue: queue
+        ) == nil)
     }
 
     @Test func encodedEventPreservesExactPayloadAndValidatedEnvironment() throws {
@@ -1071,7 +1383,8 @@ struct AgentHookDeliveryQueueTests {
         deliveryID: String,
         payload: Data,
         environment: [String: String],
-        subcommand: String = "session-start"
+        subcommand: String = "session-start",
+        method: String = "agent.hook.enqueue"
     ) throws -> Data {
         var environmentData = Data()
         for key in environment.keys.sorted() {
@@ -1082,7 +1395,7 @@ struct AgentHookDeliveryQueueTests {
         }
         let request: [String: Any] = [
             "id": "hook-\(deliveryID)",
-            "method": "agent.hook.enqueue",
+            "method": method,
             "params": [
                 "delivery_id": deliveryID,
                 "agent": "codex",
@@ -1110,7 +1423,8 @@ struct AgentHookDeliveryQueueTests {
         authenticating authenticatedMessage: Data? = nil,
         capability: String,
         directoryURL: URL,
-        order: UInt64
+        order: UInt64,
+        markerPrefix: String = "ready"
     ) throws -> OutboxTestRecord {
         let authenticatedMessage = authenticatedMessage ?? message
         let authentication = try #require(
@@ -1121,14 +1435,13 @@ struct AgentHookDeliveryQueueTests {
         )
         let random = UInt64.random(in: .min ... .max)
         let sharedMemoryName = String(format: "/ch%016llx", random)
-        let descriptor = shm_open(
-            sharedMemoryName,
-            O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC,
-            0o600
-        )
+        let descriptor = sharedMemoryName.withCString {
+            cmux_agent_hook_shm_create_for_testing($0)
+        }
         guard descriptor >= 0 else {
             throw NSError(domain: "AgentHookDeliveryQueueTests", code: Int(errno))
         }
+        _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC)
         var keepSharedMemory = false
         defer {
             Darwin.close(descriptor)
@@ -1161,7 +1474,7 @@ struct AgentHookDeliveryQueueTests {
 
         """
         let markerURL = directoryURL.appendingPathComponent(
-            String(format: "ready-%016llx-%016llx", order, random),
+            String(format: "\(markerPrefix)-%016llx-%016llx", order, random),
             isDirectory: false
         )
         try Data(marker.utf8).write(to: markerURL, options: .atomic)
@@ -1177,7 +1490,9 @@ struct AgentHookDeliveryQueueTests {
     }
 
     private func sharedMemoryIsMissing(_ name: String) -> Bool {
-        let descriptor = shm_open(name, O_RDONLY | O_CLOEXEC, 0)
+        let descriptor = name.withCString {
+            cmux_agent_hook_shm_open_readonly($0)
+        }
         guard descriptor < 0 else {
             Darwin.close(descriptor)
             return false
