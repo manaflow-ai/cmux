@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import SQLite3
 import Testing
@@ -312,6 +313,59 @@ struct AgentHookDeliveryQueueTests {
                 #expect(bytes.range(of: Data(secret.utf8)) == nil)
             }
         }
+    }
+
+    @Test func migratedCredentialRowAcceptsRetryAndRepublishesOverlay() async throws {
+        let root = try temporaryDirectory(named: "credential-migration-retry")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let databaseURL = root.appendingPathComponent("deliveries.sqlite3")
+        let scriptURL = root.appendingPathComponent("deliver.sh")
+        try writeExecutable(
+            at: scriptURL,
+            contents: """
+            #!/bin/sh
+            printf '%s' "$OPENAI_API_KEY" > "$TMPDIR/captured-migrated-secret"
+            """
+        )
+        var environment = testEnvironment(root: root)
+        environment["OPENAI_API_KEY"] = "migrated-retry-secret"
+        let event = try #require(makeEvent(
+            deliveryID: "legacy-credential-retry",
+            payload: Data("legacy-retry".utf8),
+            environment: environment
+        ))
+        let legacyDigest = contentDigest(
+            agent: event.agent,
+            subcommand: event.subcommand,
+            payload: event.payload,
+            environment: event.environment
+        )
+        #expect(legacyDigest != event.contentDigest)
+        try createLegacyDeliveryDatabase(
+            at: databaseURL,
+            event: event,
+            contentDigest: legacyDigest,
+            nextAttemptAt: Date().addingTimeInterval(3_600).timeIntervalSince1970
+        )
+
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: databaseURL,
+            executableURLProvider: { scriptURL },
+            processTimeout: 2,
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        try queue.enqueue(event)
+        try await queue.retryPendingDeliveries()
+        await queue.waitUntilCurrentDrainFinishes()
+
+        #expect(
+            try String(
+                contentsOf: root.appendingPathComponent("captured-migrated-secret"),
+                encoding: .utf8
+            ) == "migrated-retry-secret"
+        )
+        #expect(try await queue.diagnosticStatus(for: event.deliveryID)?["state"] == "delivered")
     }
 
     @Test func feedTelemetryTargetsUseTheBoundedDeliveryQueue() async throws {
@@ -858,6 +912,7 @@ struct AgentHookDeliveryQueueTests {
     private func createLegacyDeliveryDatabase(
         at url: URL,
         event: AgentHookDeliveryEvent,
+        contentDigest: Data? = nil,
         nextAttemptAt: TimeInterval = 0
     ) throws {
         var database: OpaquePointer?
@@ -867,6 +922,7 @@ struct AgentHookDeliveryQueueTests {
         }
         defer { sqlite3_close(database) }
         let environmentData = try JSONSerialization.data(withJSONObject: event.environment, options: [.sortedKeys])
+        let storedContentDigest = contentDigest ?? event.contentDigest
         let quote: (String) -> String = { value in
             "'\(value.replacingOccurrences(of: "'", with: "''"))'"
         }
@@ -894,7 +950,7 @@ struct AgentHookDeliveryQueueTests {
             delivery_id, content_digest, agent, subcommand, payload,
             socket_path, environment_json, accepted_at, next_attempt_at
         ) VALUES (
-            \(quote(event.deliveryID)), X'\(hex(event.contentDigest))', \(quote(event.agent)),
+            \(quote(event.deliveryID)), X'\(hex(storedContentDigest))', \(quote(event.agent)),
             \(quote(event.subcommand)), X'\(hex(event.payload))', \(quote(event.socketPath)),
             X'\(hex(environmentData))', 0, \(nextAttemptAt)
         );
@@ -907,6 +963,31 @@ struct AgentHookDeliveryQueueTests {
                 userInfo: [NSLocalizedDescriptionKey: String(cString: sqlite3_errmsg(database))]
             )
         }
+    }
+
+    private func contentDigest(
+        agent: String,
+        subcommand: String,
+        payload: Data,
+        environment: [String: String]
+    ) -> Data {
+        var hasher = SHA256()
+        hash(Data(agent.utf8), into: &hasher)
+        hash(Data(subcommand.utf8), into: &hasher)
+        hash(payload, into: &hasher)
+        for key in environment.keys.sorted() {
+            hash(Data(key.utf8), into: &hasher)
+            hash(Data((environment[key] ?? "").utf8), into: &hasher)
+        }
+        return Data(hasher.finalize())
+    }
+
+    private func hash(_ data: Data, into hasher: inout SHA256) {
+        var count = UInt64(data.count).bigEndian
+        withUnsafeBytes(of: &count) { bytes in
+            hasher.update(data: Data(bytes))
+        }
+        hasher.update(data: data)
     }
 
     private func waitUntil(
