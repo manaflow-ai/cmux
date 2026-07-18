@@ -1145,7 +1145,7 @@ impl ClientRegistry {
         self.clients.lock().unwrap().keys().copied().collect()
     }
 
-    fn client_info(&self, client: u64) -> Option<(Option<String>, Option<String>)> {
+    pub(crate) fn client_info(&self, client: u64) -> Option<(Option<String>, Option<String>)> {
         self.clients
             .lock()
             .unwrap()
@@ -1507,7 +1507,12 @@ fn authenticate_websocket(
 }
 
 fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
-    let Some(record) = mux.control_clients.remove(client) else { return false };
+    let record = {
+        let _lifecycle = mux.lock_client_sizing_lifecycle();
+        let Some(record) = mux.control_clients.remove(client) else { return false };
+        mux.remove_size_client(client);
+        record
+    };
     if send_detached {
         let _ = record.writer.set_write_timeout(Some(CLIENT_DETACH_WRITE_TIMEOUT));
         for (surface, attached) in &record.attached {
@@ -1519,7 +1524,6 @@ fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
         }
     }
     record.writer.close();
-    mux.remove_size_client(client);
     mux.emit(MuxEvent::ClientDetached(client));
     true
 }
@@ -2255,33 +2259,18 @@ fn handle_command(
             if exclusive && !enabled {
                 anyhow::bail!("exclusive client sizing must be enabled");
             }
-            let (changed, changed_clients) = if let Some(target) = target {
-                if !mux.control_clients.contains(target) && !mux.has_size_client(target) {
-                    anyhow::bail!("unknown client {target}");
-                }
+            if let Some(target) = target {
                 if exclusive {
-                    (
-                        mux.use_only_client_size(target)
-                            .ok_or_else(|| anyhow::anyhow!("unknown client {target}"))?,
-                        mux.control_clients.client_ids().into_iter().collect::<Vec<_>>(),
-                    )
+                    mux.use_only_client_size(target)
+                        .ok_or_else(|| anyhow::anyhow!("unknown client {target}"))?;
                 } else {
-                    (mux.set_client_size_participation(target, enabled), vec![target])
+                    mux.set_client_size_participation(target, enabled)
+                        .ok_or_else(|| anyhow::anyhow!("unknown client {target}"))?;
                 }
             } else if enabled {
-                (
-                    mux.use_all_client_sizes(),
-                    mux.control_clients.client_ids().into_iter().collect::<Vec<_>>(),
-                )
+                mux.use_all_client_sizes();
             } else {
                 anyhow::bail!("client is required when disabling sizing");
-            };
-            if changed {
-                for changed_client in changed_clients {
-                    let (name, kind) =
-                        mux.control_clients.client_info(changed_client).unwrap_or((None, None));
-                    mux.emit(MuxEvent::ClientChanged { client: changed_client, name, kind });
-                }
             }
             Ok(json!({}))
         }
@@ -3894,6 +3883,34 @@ mod tests {
         assert_eq!(clients[0]["sizes"][0]["surface"], missing_surface);
         assert_eq!(clients[0]["sizes"][0]["cols"], Value::Null);
         assert_eq!(clients[0]["sizes"][0]["rows"], Value::Null);
+    }
+
+    #[test]
+    fn disconnect_cleanup_wins_over_a_waiting_stale_sizing_action() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+        mux.control_clients.attach_surface(client, surface.id, stream).unwrap();
+        mux.resize_surface_for_control_client_with_reservation(surface.id, client, 80, 24).unwrap();
+
+        let lifecycle = mux.lock_client_sizing_lifecycle();
+        let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
+        let action_mux = mux.clone();
+        let action = std::thread::spawn(move || {
+            ready_tx.send(()).unwrap();
+            action_mux.set_client_size_participation(client, false)
+        });
+        ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let removed = mux.control_clients.remove(client).expect("registered client");
+        mux.remove_size_client(client);
+        drop(removed);
+        drop(lifecycle);
+
+        assert_eq!(action.join().unwrap(), None);
+        assert!(!mux.control_clients.contains(client));
     }
 
     #[test]

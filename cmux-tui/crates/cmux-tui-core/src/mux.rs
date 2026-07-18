@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Receiver;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
@@ -417,6 +417,7 @@ pub struct Mux {
     next_active_at: AtomicU64,
     surface_options: Mutex<SurfaceOptions>,
     latest_client_size: Mutex<LatestClientSize>,
+    client_sizing_lifecycle: Mutex<()>,
     client_sizing: Mutex<ClientSizingState>,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
@@ -459,6 +460,7 @@ impl Mux {
             next_active_at: AtomicU64::new(1),
             surface_options: Mutex::new(surface_options),
             latest_client_size: Mutex::new(LatestClientSize::default()),
+            client_sizing_lifecycle: Mutex::new(()),
             client_sizing: Mutex::new(ClientSizingState::default()),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
@@ -506,6 +508,10 @@ impl Mux {
 
     pub fn emit(&self, event: MuxEvent) {
         self.subscribers.emit(event);
+    }
+
+    pub(crate) fn lock_client_sizing_lifecycle(&self) -> MutexGuard<'_, ()> {
+        self.client_sizing_lifecycle.lock().unwrap()
     }
 
     pub fn begin_pairing(
@@ -878,11 +884,24 @@ impl Mux {
             .and_then(|viewers| viewers.get(&client).copied())
     }
 
-    /// Include or exclude one attached client's reported dimensions from the
-    /// tmux-style shared minimum. Reports remain cached while excluded so
-    /// restoring participation takes effect immediately.
-    pub fn set_client_size_participation(&self, client: u64, participating: bool) -> bool {
+    fn emit_client_sizing_changes(&self, clients: impl IntoIterator<Item = u64>) {
+        for client in clients {
+            let (name, kind) = self.control_clients.client_info(client).unwrap_or((None, None));
+            self.emit(MuxEvent::ClientChanged { client, name, kind });
+        }
+    }
+
+    /// Include or exclude one live client's reported dimensions from the
+    /// tmux-style shared minimum. Validation, mutation, and disconnect cleanup
+    /// share one lifecycle lock so a stale menu action cannot retain a dead ID.
+    pub fn set_client_size_participation(&self, client: u64, participating: bool) -> Option<bool> {
+        let _lifecycle = self.lock_client_sizing_lifecycle();
         let mut sizing = self.client_sizing.lock().unwrap();
+        let known = self.control_clients.contains(client)
+            || sizing.surfaces.values().any(|viewers| viewers.contains_key(&client));
+        if !known {
+            return None;
+        }
         let attached_clients = self.control_clients.attached_client_ids();
         let changed = if participating {
             sizing.excluded_clients.remove(&client)
@@ -890,7 +909,7 @@ impl Mux {
             sizing.excluded_clients.insert(client)
         };
         if !changed {
-            return false;
+            return Some(false);
         }
         sizing.exclusive_client = None;
         let affected = sizing.surfaces.keys().copied().collect::<Vec<_>>();
@@ -901,12 +920,14 @@ impl Mux {
         }
         self.reconcile_latest_client_size(&sizing, &attached_clients);
         drop(sizing);
-        true
+        self.emit_client_sizing_changes([client]);
+        Some(true)
     }
 
     /// Atomically make one client the only sizing participant. This avoids
     /// transient intermediate grids while a menu action updates many clients.
     pub fn use_only_client_size(&self, target: u64) -> Option<bool> {
+        let _lifecycle = self.lock_client_sizing_lifecycle();
         let mut sizing = self.client_sizing.lock().unwrap();
         let attached_clients = self.control_clients.attached_client_ids();
         let mut known_clients = self.control_clients.client_ids();
@@ -919,8 +940,11 @@ impl Mux {
         if !target_is_connected && !target_is_reporting {
             return None;
         }
-        let excluded =
-            known_clients.into_iter().filter(|client| *client != target).collect::<HashSet<_>>();
+        let excluded = known_clients
+            .iter()
+            .copied()
+            .filter(|client| *client != target)
+            .collect::<HashSet<_>>();
         if sizing.excluded_clients == excluded && sizing.exclusive_client == Some(target) {
             return Some(false);
         }
@@ -934,15 +958,21 @@ impl Mux {
         }
         self.reconcile_latest_client_size(&sizing, &attached_clients);
         drop(sizing);
+        self.emit_client_sizing_changes(known_clients);
         Some(true)
     }
 
     /// Atomically restore every connected or reporting client to sizing.
     pub fn use_all_client_sizes(&self) -> bool {
+        let _lifecycle = self.lock_client_sizing_lifecycle();
         let mut sizing = self.client_sizing.lock().unwrap();
         let attached_clients = self.control_clients.attached_client_ids();
         if sizing.excluded_clients.is_empty() && sizing.exclusive_client.is_none() {
             return false;
+        }
+        let mut known_clients = self.control_clients.client_ids();
+        for viewers in sizing.surfaces.values() {
+            known_clients.extend(viewers.keys().copied());
         }
         sizing.excluded_clients.clear();
         sizing.exclusive_client = None;
@@ -954,20 +984,12 @@ impl Mux {
         }
         self.reconcile_latest_client_size(&sizing, &attached_clients);
         drop(sizing);
+        self.emit_client_sizing_changes(known_clients);
         true
     }
 
     pub fn client_size_participates(&self, client: u64) -> bool {
         self.client_sizing.lock().unwrap().client_participates(client)
-    }
-
-    pub fn has_size_client(&self, client: u64) -> bool {
-        self.client_sizing
-            .lock()
-            .unwrap()
-            .surfaces
-            .values()
-            .any(|viewers| viewers.contains_key(&client))
     }
 
     pub fn control_clients_json(&self, requesting_client: u64) -> Value {
@@ -3154,7 +3176,7 @@ mod tests {
         mux.resize_surface_for_client(surface.id, 2, 80, 50).unwrap();
         assert_eq!(surface.size(), (80, 40));
 
-        assert!(mux.set_client_size_participation(2, false));
+        assert_eq!(mux.set_client_size_participation(2, false), Some(true));
         assert_eq!(surface.size(), (120, 40));
         assert!(!mux.client_size_participates(2));
 
@@ -3162,9 +3184,38 @@ mod tests {
         assert_eq!(surface.size(), (120, 40));
         assert_eq!(mux.client_surface_size(surface.id, 2), Some((60, 30)));
 
-        assert!(mux.set_client_size_participation(2, true));
+        assert_eq!(mux.set_client_size_participation(2, true), Some(true));
         assert_eq!(surface.size(), (60, 30));
         assert!(mux.client_size_participates(2));
+    }
+
+    #[test]
+    fn local_sizing_mutations_broadcast_authoritative_client_changes() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        mux.resize_surface_for_client(surface.id, 7, 80, 24).unwrap();
+        let events = mux.subscribe();
+
+        assert_eq!(mux.set_client_size_participation(7, false), Some(true));
+
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::ClientChanged { client: 7, .. })
+        ));
+    }
+
+    #[test]
+    fn stale_sizing_target_does_not_change_exclusive_state() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        mux.resize_surface_for_client(surface.id, 1, 120, 40).unwrap();
+        mux.resize_surface_for_client(surface.id, 2, 80, 24).unwrap();
+        assert_eq!(mux.use_only_client_size(1), Some(true));
+
+        assert_eq!(mux.set_client_size_participation(99, false), None);
+
+        assert!(mux.client_size_participates(1));
+        assert!(!mux.client_size_participates(2));
     }
 
     #[test]
@@ -3176,9 +3227,9 @@ mod tests {
         mux.resize_surface_for_client(surface.id, 2, 80, 50).unwrap();
         assert_eq!(surface.size(), (80, 40));
 
-        assert!(mux.set_client_size_participation(1, false));
+        assert_eq!(mux.set_client_size_participation(1, false), Some(true));
         assert_eq!(surface.size(), (80, 50));
-        assert!(mux.set_client_size_participation(2, false));
+        assert_eq!(mux.set_client_size_participation(2, false), Some(true));
 
         // tmux's ignore-size flag is only effective while at least one
         // size-capable client is not ignored. If every viewer is ignored,
@@ -3194,14 +3245,14 @@ mod tests {
 
         mux.resize_surface_for_client(first.id, 1, 120, 40).unwrap();
         mux.resize_surface_for_client(second.id, 2, 80, 25).unwrap();
-        assert!(mux.set_client_size_participation(2, false));
+        assert_eq!(mux.set_client_size_participation(2, false), Some(true));
 
         // Keep the ignored client's report current without applying it while
         // another size-capable client still participates elsewhere.
         mux.resize_surface_for_client(second.id, 2, 60, 20).unwrap();
         assert_eq!(second.size(), (80, 25));
 
-        assert!(mux.set_client_size_participation(1, false));
+        assert_eq!(mux.set_client_size_participation(1, false), Some(true));
         assert_eq!(first.size(), (120, 40));
         assert_eq!(second.size(), (60, 20));
     }
@@ -3214,7 +3265,7 @@ mod tests {
 
         mux.resize_surface_for_client(first.id, 1, 120, 40).unwrap();
         mux.resize_surface_for_client(second.id, 2, 80, 25).unwrap();
-        assert!(mux.set_client_size_participation(2, false));
+        assert_eq!(mux.set_client_size_participation(2, false), Some(true));
         mux.resize_surface_for_client(second.id, 2, 60, 20).unwrap();
         assert_eq!(second.size(), (80, 25));
 
@@ -3400,14 +3451,16 @@ mod tests {
                     mux.remove_surface_size_client(surface, client);
                 }
                 3 => {
-                    let participates = excluded.contains(&client);
-                    if participates {
-                        excluded.remove(&client);
-                    } else {
-                        excluded.insert(client);
+                    if reports.keys().any(|(_, reporter)| *reporter == client) {
+                        let participates = excluded.contains(&client);
+                        if participates {
+                            excluded.remove(&client);
+                        } else {
+                            excluded.insert(client);
+                        }
+                        assert!(mux.set_client_size_participation(client, participates).is_some());
+                        exclusive = None;
                     }
-                    exclusive = None;
-                    mux.set_client_size_participation(client, participates);
                 }
                 _ => {
                     let known = reports.keys().any(|(_, reporter)| *reporter == client);

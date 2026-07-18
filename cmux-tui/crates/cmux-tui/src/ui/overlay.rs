@@ -237,7 +237,14 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
             } else {
                 parent.rect.x.saturating_sub(width.saturating_sub(1))
             };
-            (x, parent.rect.y.saturating_add(parent.selected as u16))
+            (
+                x,
+                parent
+                    .rect
+                    .y
+                    .saturating_add(1)
+                    .saturating_add(parent.selected.saturating_sub(parent.scroll_offset) as u16),
+            )
         };
         let x = desired_x.min(screen.width.saturating_sub(width));
         let y = desired_y.min(screen.height.saturating_sub(height));
@@ -260,11 +267,10 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
         let inner_y = y + 1;
         let inner_w = width.saturating_sub(2);
         let inner_h = height.saturating_sub(2);
-        for (i, item) in level.items.iter().enumerate() {
-            let row_y = inner_y + i as u16;
-            if i as u16 >= inner_h {
-                break;
-            }
+        for (i, item) in
+            level.items.iter().enumerate().skip(level.scroll_offset).take(inner_h as usize)
+        {
+            let row_y = inner_y + (i - level.scroll_offset) as u16;
             if *item == MenuItem::Separator {
                 set_cell(buf, x, row_y, "├", border);
                 for dx in 0..inner_w {

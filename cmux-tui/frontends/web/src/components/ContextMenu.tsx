@@ -24,6 +24,12 @@ interface MenuPopoverProps {
   ariaLabel?: string;
 }
 
+function focusMenuItem(item: HTMLButtonElement | null | undefined) {
+  if (!item) return;
+  item.focus({ preventScroll: true });
+  item.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+}
+
 export function MenuPopover({ point, onClose, children, className, ariaLabel }: MenuPopoverProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState(point);
@@ -36,7 +42,7 @@ export function MenuPopover({ point, onClose, children, className, ariaLabel }: 
       x: Math.max(8, Math.min(point.x, window.innerWidth - rect.width - 8)),
       y: Math.max(8, Math.min(point.y, window.innerHeight - rect.height - 8)),
     });
-    menu.querySelector<HTMLButtonElement>('button[role="menuitem"]')?.focus();
+    focusMenuItem(menu.querySelector<HTMLButtonElement>('button[role="menuitem"]'));
   }, [point]);
 
   useEffect(() => {
@@ -67,7 +73,7 @@ export function MenuPopover({ point, onClose, children, className, ariaLabel }: 
       : activeMenu.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]'))];
     const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
     const offset = event.key === "ArrowDown" ? 1 : -1;
-    buttons[(index + offset + buttons.length) % buttons.length]?.focus();
+    focusMenuItem(buttons[(index + offset + buttons.length) % buttons.length]);
   };
 
   return createPortal(
@@ -108,9 +114,8 @@ function MenuItems({ items, onClose }: { items: ContextMenuItem[]; onClose(): vo
               className={item.danger ? "danger" : undefined}
               onClick={(event) => {
                 if (nested) {
-                  event.currentTarget.parentElement
-                    ?.querySelector<HTMLButtonElement>(".context-menu-submenu button")
-                    ?.focus();
+                  focusMenuItem(event.currentTarget.parentElement
+                    ?.querySelector<HTMLButtonElement>(".context-menu-submenu button"));
                   return;
                 }
                 onClose();
@@ -119,9 +124,8 @@ function MenuItems({ items, onClose }: { items: ContextMenuItem[]; onClose(): vo
               onKeyDown={(event) => {
                 if (event.key === "ArrowRight" && nested) {
                   event.preventDefault();
-                  event.currentTarget.parentElement
-                    ?.querySelector<HTMLButtonElement>(".context-menu-submenu button")
-                    ?.focus();
+                  focusMenuItem(event.currentTarget.parentElement
+                    ?.querySelector<HTMLButtonElement>(".context-menu-submenu button"));
                 } else if (event.key === "ArrowLeft") {
                   const submenu = event.currentTarget.closest<HTMLElement>(".context-menu-submenu");
                   const parentButton = submenu?.parentElement?.querySelector<HTMLButtonElement>(
@@ -129,7 +133,7 @@ function MenuItems({ items, onClose }: { items: ContextMenuItem[]; onClose(): vo
                   );
                   if (parentButton) {
                     event.preventDefault();
-                    parentButton.focus();
+                    focusMenuItem(parentButton);
                   }
                 }
               }}
@@ -171,7 +175,7 @@ function Submenu({ items, onClose }: { items: ContextMenuItem[]; onClose(): void
       Math.min(opensLeft ? entryRect.left - submenuRect.width + overlap : entryRect.right - overlap, maxX),
     );
     const y = Math.max(margin, Math.min(entryRect.top - verticalOffset, maxY));
-    const next = { left: x - entryRect.left, top: y - entryRect.top };
+    const next = { left: x, top: y };
     setPosition((current) => current?.left === next.left && current.top === next.top ? current : next);
   }, [items]);
 

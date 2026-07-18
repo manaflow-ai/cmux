@@ -141,10 +141,10 @@ impl Session {
 
     pub fn set_client_sizing(&self, client: u64, enabled: bool) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => {
-                mux.set_client_size_participation(client, enabled);
-                Ok(())
-            }
+            Session::Local(mux) => mux
+                .set_client_size_participation(client, enabled)
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("unknown client {client}")),
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd": "set-client-sizing",

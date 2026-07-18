@@ -52,10 +52,41 @@ describe("nested ContextMenu", () => {
     );
 
     const submenu = screen.getAllByRole("menu", { hidden: true })[1];
-    expect(submenu).toHaveStyle({ left: "-188px", top: "-98px" });
+    expect(submenu).toHaveStyle({ left: "402px", top: "472px" });
 
     rect.mockRestore();
     Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
     Object.defineProperty(window, "innerHeight", { configurable: true, value: originalHeight });
+  });
+
+  it("scrolls keyboard-focused rows into a constrained menu viewport", () => {
+    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    render(
+      <ContextMenu
+        point={{ x: 20, y: 20 }}
+        onClose={vi.fn()}
+        items={Array.from({ length: 20 }, (_, index) => ({ label: `Client ${index + 1}` }))}
+      />,
+    );
+    scrollIntoView.mockClear();
+
+    const first = screen.getByRole("menuitem", { name: "Client 1" });
+    first.focus();
+    fireEvent.keyDown(first, { key: "ArrowDown" });
+
+    expect(screen.getByRole("menuitem", { name: "Client 2" })).toHaveFocus();
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "nearest", inline: "nearest" });
+
+    if (original) {
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", original);
+    } else {
+      delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
   });
 });

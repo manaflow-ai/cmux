@@ -188,10 +188,11 @@ button { color: inherit; touch-action: manipulation; }
 .clients-trigger:hover, .clients-trigger[aria-expanded="true"] { color: var(--status-active-fg); background: var(--status-active-bg); }
 
 .context-menu { position: fixed; z-index: 100; min-width: 190px; padding: 3px; border: 1px solid var(--menu-border); background: var(--menu-bg); box-shadow: 0 10px 30px rgba(0, 0, 0, .55); }
+.context-menu-items { max-height: calc(100dvh - 24px); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .context-menu-entry { position: relative; }
 .context-menu-entry > button { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .context-menu-arrow { margin-left: auto; color: var(--status-dim); }
-.context-menu-submenu { position: absolute; top: -4px; left: calc(100% - 2px); visibility: hidden; pointer-events: none; }
+.context-menu-submenu { position: fixed; top: 0; left: 0; visibility: hidden; pointer-events: none; }
 .context-menu-entry:hover > .context-menu-submenu, .context-menu-entry:focus-within > .context-menu-submenu { visibility: visible; pointer-events: auto; }
 .context-menu-separator { height: 1px; margin: 3px 5px; background: var(--border-inactive); }
 .clients-popover { width: min(320px, calc(100vw - 16px)); max-height: min(420px, calc(100vh - 16px)); overflow-y: auto; }

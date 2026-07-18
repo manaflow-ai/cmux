@@ -1929,6 +1929,8 @@ pub struct MenuLevel {
     pub items: Vec<MenuItem>,
     all_items: Vec<MenuItem>,
     pub selected: usize,
+    pub scroll_offset: usize,
+    visible_rows: usize,
     pub rect: Rect,
 }
 
@@ -1943,7 +1945,15 @@ impl MenuLevel {
         let width = label_w + 2 + ContextMenu::PAD * 2 + 2;
         let height = items.len() as u16 + 2;
         let selected = items.iter().position(MenuItem::selectable).unwrap_or(0);
-        Self { all_items: items.clone(), items, selected, rect: Rect { x, y, width, height } }
+        let visible_rows = items.len();
+        Self {
+            all_items: items.clone(),
+            items,
+            selected,
+            scroll_offset: 0,
+            visible_rows,
+            rect: Rect { x, y, width, height },
+        }
     }
 
     pub fn fit_to_rows(&mut self, max_rows: usize) {
@@ -1967,7 +1977,23 @@ impl MenuLevel {
             .and_then(|selected| self.items.iter().position(|item| *item == selected))
             .or_else(|| self.items.iter().position(MenuItem::selectable))
             .unwrap_or(0);
-        self.rect.height = self.items.len() as u16 + 2;
+        self.visible_rows = self.items.len().min(max_rows);
+        self.ensure_selection_visible();
+        self.rect.height = self.visible_rows as u16 + 2;
+    }
+
+    fn ensure_selection_visible(&mut self) {
+        if self.visible_rows == 0 || self.items.is_empty() {
+            self.scroll_offset = 0;
+            return;
+        }
+        if self.selected < self.scroll_offset {
+            self.scroll_offset = self.selected;
+        } else if self.selected >= self.scroll_offset + self.visible_rows {
+            self.scroll_offset = self.selected + 1 - self.visible_rows;
+        }
+        self.scroll_offset =
+            self.scroll_offset.min(self.items.len().saturating_sub(self.visible_rows));
     }
 }
 
@@ -2029,7 +2055,7 @@ impl ContextMenu {
             if x == rect.x || y == rect.y || x == right || y == bottom {
                 return None;
             }
-            let row = (y - rect.y - 1) as usize;
+            let row = level.scroll_offset + (y - rect.y - 1) as usize;
             level.items.get(row).filter(|item| item.selectable()).map(|_| (depth, row))
         })
     }
@@ -2060,7 +2086,11 @@ impl ContextMenu {
             return false;
         };
         let x = parent.rect.x.saturating_add(parent.rect.width.saturating_sub(1));
-        let y = parent.rect.y.saturating_add(parent.selected as u16);
+        let y = parent
+            .rect
+            .y
+            .saturating_add(1)
+            .saturating_add(parent.selected.saturating_sub(parent.scroll_offset) as u16);
         self.levels.push(MenuLevel::new(x, y, items.to_vec()));
         true
     }
@@ -2082,6 +2112,7 @@ impl ContextMenu {
         }
         let changed = level.selected != item || had_deeper_level;
         level.selected = item;
+        level.ensure_selection_visible();
         self.levels.truncate(depth + 1);
         self.open_selected_submenu();
         changed || self.levels.len() > depth + 1
@@ -2104,6 +2135,7 @@ impl ContextMenu {
             .and_then(|items| items.iter().rposition(MenuItem::selectable))
         {
             level.selected = index;
+            level.ensure_selection_visible();
             let depth = self.levels.len();
             self.levels.truncate(depth);
         }
@@ -2116,6 +2148,7 @@ impl ContextMenu {
             level.items.get(start..).and_then(|items| items.iter().position(MenuItem::selectable))
         {
             level.selected += offset + 1;
+            level.ensure_selection_visible();
         }
     }
 }
@@ -7792,6 +7825,25 @@ mod tests {
             4
         );
         assert_eq!(menu.selected_action(), Some(MenuAction::CopyPaneId(pane)));
+    }
+
+    #[test]
+    fn context_menu_scrolls_selection_and_hit_testing_through_tall_client_lists() {
+        let mut menu =
+            ContextMenu::at(10, 5, vec![(1..=8).map(MenuAction::UseClientSize).collect()]);
+
+        menu.fit_to_rows(3);
+        assert_eq!(menu.levels[0].rect.height, 5);
+        assert_eq!(menu.levels[0].scroll_offset, 0);
+
+        for _ in 0..4 {
+            menu.select_next();
+        }
+
+        assert_eq!(menu.selected_action(), Some(MenuAction::UseClientSize(5)));
+        assert_eq!(menu.levels[0].scroll_offset, 2);
+        assert_eq!(menu.item_at(10, 5), Some(2));
+        assert_eq!(menu.item_at(10, 7), Some(4));
     }
 
     #[test]
