@@ -12,8 +12,7 @@ final class AgentTerminalStateSurfaceObserver {
     private let classifier: AgentTerminalStateClassifier
     private var previousReliableState: AgentTerminalSemanticState?
     private var previousReliableIdentity: AgentTerminalProcessIdentity?
-    private var cachedProcessIdentity: AgentTerminalProcessIdentity?
-    private var cachedFamilyID: String?
+    private var recognitionCache = AgentTerminalRecognitionCache()
 
     init(
         workspaceID: UUID,
@@ -37,14 +36,13 @@ final class AgentTerminalStateSurfaceObserver {
         let runtimeGeneration = expectedRuntimeGeneration
         guard let identity = await inspector.identity(pid: pid, runtimeGeneration: runtimeGeneration) else { return nil }
         let familyID: String?
-        if cachedProcessIdentity == identity {
-            familyID = cachedFamilyID
+        if !recognitionCache.requiresSnapshot(for: identity) {
+            familyID = recognitionCache.familyID(for: identity)
         } else {
             guard let process = await inspector.snapshot(pid: pid, runtimeGeneration: runtimeGeneration),
                   process.identity == identity else { return nil }
             familyID = classifier.recognize(process)?.id
-            cachedProcessIdentity = identity
-            cachedFamilyID = familyID
+            recognitionCache.store(identity: identity, familyID: familyID)
             previousReliableIdentity = nil
             previousReliableState = nil
         }
