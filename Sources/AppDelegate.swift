@@ -9325,13 +9325,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func routeFeedFocus(workspaceId _: String, surfaceId: String) -> Bool {
-        guard let claimedSurfaceID = UUID(uuidString: surfaceId),
-              let located = locateBonsplitSurface(tabId: claimedSurfaceID)
-        else {
-            return false
-        }
+        guard let claimedSurfaceID = UUID(uuidString: surfaceId) else { return false }
+        // Hook session stores persist CMUX_SURFACE_ID, which is the panel UUID.
+        // Older records may contain the Bonsplit tab UUID, so preserve that as
+        // a compatibility fallback and normalize both forms to a panel route.
+        let located = locateSurface(surfaceId: claimedSurfaceID).map {
+            (
+                windowId: $0.windowId,
+                workspaceId: $0.workspaceId,
+                panelId: claimedSurfaceID,
+                tabManager: $0.tabManager
+            )
+        } ?? locateBonsplitSurface(tabId: claimedSurfaceID)
+        guard let located else { return false }
         // Workspace IDs are placement metadata and change during restoration
-        // or moves. Surface IDs are stable and globally identify the terminal,
+        // or moves. Panel IDs are stable and globally identify the terminal,
         // so its current live owner is the navigation authority.
         let targetWorkspaceID = located.workspaceId
         guard let workspace = located.tabManager.tabs.first(where: {
