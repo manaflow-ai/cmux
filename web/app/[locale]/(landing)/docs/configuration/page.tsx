@@ -69,6 +69,8 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "windowTitleTemplate": "[cmux:{windowToken}] {activeWorkspace}",
   //   "confirmQuit": "always",
   //   "openSupportedFilesInCmux": true,
+  //   "terminalEditorCommand": "nvim",
+  //   "terminalEditorExtensions": "rs, ts, py",
   //   "workspaceInheritWorkingDirectory": true,
   //   "iMessageMode": true
   // },
