@@ -649,15 +649,15 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let showsSection = settings.visibleAuxiliaryDetails.showsBranchDirectory
         var lines: [SidebarRowIconTextLine.BranchLineContent] = []
         if showsSection {
-            if settings.usesVerticalBranchLayout {
+            if settings.branchDirectory.branchLayout == .vertical {
                 for line in snapshot.branchDirectoryLines {
                     lines.append(.init(
                         branch: settings.showsGitBranch ? line.branch : nil,
                         directoryCandidates: line.directoryCandidates,
-                        stacked: settings.stacksBranchAndDirectory
+                        stacked: settings.branchDirectory.branchDirectoryPlacement == .stacked
                     ))
                 }
-            } else if settings.stacksBranchAndDirectory {
+            } else if settings.branchDirectory.branchDirectoryPlacement == .stacked {
                 if snapshot.compactGitBranchSummaryText != nil || !snapshot.compactDirectoryCandidates.isEmpty {
                     lines.append(.init(
                         branch: snapshot.compactGitBranchSummaryText,
@@ -674,7 +674,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             }
         }
         let showsIcon = showsSection && settings.showsGitBranchIcon
-            && (settings.usesVerticalBranchLayout ? snapshot.branchLinesContainBranch : snapshot.compactGitBranchSummaryText != nil || !snapshot.compactBranchDirectoryCandidates.isEmpty)
+            && (settings.branchDirectory.branchLayout == .vertical
+                ? snapshot.branchLinesContainBranch
+                : snapshot.compactGitBranchSummaryText != nil || !snapshot.compactBranchDirectoryCandidates.isEmpty)
         branchIconView.isHidden = !(showsIcon && !lines.isEmpty)
         if !branchIconView.isHidden {
             branchIconView.image = RenderableSystemSymbol.configuredAppKitImage(

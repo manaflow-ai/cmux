@@ -10037,104 +10037,6 @@ private enum SidebarFontSizeProvider {
     }
 }
 
-struct SidebarTabItemSettingsSnapshot: Equatable {
-    let hidesAllDetails: Bool
-    let wrapsWorkspaceTitles: Bool
-    let showsWorkspaceDescription: Bool
-    let sidebarShortcutHintXOffset: Double
-    let sidebarShortcutHintYOffset: Double
-    let alwaysShowShortcutHints: Bool
-    let sidebarFontScale: CGFloat
-    let showsGitBranch: Bool
-    let usesVerticalBranchLayout: Bool
-    let stacksBranchAndDirectory: Bool
-    let usesLastSegmentPath: Bool
-    let showsGitBranchIcon: Bool
-    let showsSSH: Bool
-    let makesPullRequestsClickable: Bool
-    let openPullRequestLinksInCmuxBrowser: Bool
-    let openPortLinksInCmuxBrowser: Bool
-    let showsNotificationMessage: Bool
-    let notificationMessageLineLimit: Int
-    let activeTabIndicatorStyle: WorkspaceIndicatorStyle
-    let loadingSpinnerPosition: SidebarIndicatorPosition
-    let notificationBadgePosition: SidebarIndicatorPosition
-    let selectionColorHex: String?
-    let notificationBadgeColorHex: String?
-    let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
-    let iMessageModeEnabled: Bool
-    let workspaceTodoChecklistStyle: WorkspaceTodoChecklistStyle
-
-    init(
-        defaults: UserDefaults = .standard,
-        sidebarFontSize: CGFloat = GhosttyConfig.defaultSidebarFontSize
-    ) {
-        sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
-        sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
-        alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
-        sidebarFontScale = SidebarTabItemFontScale.scale(for: sidebarFontSize)
-        let settings = UserDefaultsSettingsClient(defaults: defaults)
-        let catalog = SettingCatalog()
-        showsGitBranch = Self.bool(defaults: defaults, key: "sidebarShowGitBranch", defaultValue: true)
-        usesVerticalBranchLayout = settings.value(for: catalog.sidebar.branchVerticalLayout)
-        stacksBranchAndDirectory = settings.value(for: catalog.sidebar.stackBranchDirectory)
-        usesLastSegmentPath = settings.value(for: catalog.sidebar.pathLastSegmentOnly)
-        showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
-        showsSSH = Self.bool(defaults: defaults, key: "sidebarShowSSH", defaultValue: SidebarWorkspaceDetailDefaults.showSSH)
-        makesPullRequestsClickable = settings.value(for: catalog.sidebar.makePullRequestsClickable)
-        openPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(
-            defaults: defaults
-        )
-        openPortLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowser(
-            defaults: defaults
-        )
-        hidesAllDetails = settings.value(for: catalog.sidebar.hideAllDetails)
-        wrapsWorkspaceTitles = SidebarWorkspaceTitleWrapSettings.wraps(defaults: defaults)
-        let detailVisibility = SidebarWorkspaceDetailVisibility(
-            showWorkspaceDescription: settings.value(for: catalog.sidebar.showWorkspaceDescription),
-            showNotificationMessage: settings.value(for: catalog.sidebar.showNotificationMessage),
-            hideAllDetails: hidesAllDetails
-        )
-        showsWorkspaceDescription = detailVisibility.showsWorkspaceDescription
-        showsNotificationMessage = detailVisibility.showsNotificationMessage
-        notificationMessageLineLimit = min(max(settings.value(for: catalog.sidebar.notificationMessageLineLimit), SidebarCatalogSection.notificationMessageLineLimitRange.lowerBound), SidebarCatalogSection.notificationMessageLineLimitRange.upperBound)
-        let showsMetadata = Self.bool(defaults: defaults, key: "sidebarShowStatusPills", defaultValue: SidebarWorkspaceDetailDefaults.showCustomMetadata)
-        let showsLog = Self.bool(defaults: defaults, key: "sidebarShowLog", defaultValue: SidebarWorkspaceDetailDefaults.showLog)
-        let showsProgress = Self.bool(defaults: defaults, key: "sidebarShowProgress", defaultValue: SidebarWorkspaceDetailDefaults.showProgress)
-        let showsBranchDirectory = Self.bool(defaults: defaults, key: "sidebarShowBranchDirectory", defaultValue: SidebarWorkspaceDetailDefaults.showBranchDirectory)
-        let showsPullRequests = Self.bool(defaults: defaults, key: "sidebarShowPullRequest", defaultValue: SidebarWorkspaceDetailDefaults.showPullRequests)
-        let showsPorts = Self.bool(defaults: defaults, key: "sidebarShowPorts", defaultValue: SidebarWorkspaceDetailDefaults.showPorts)
-        visibleAuxiliaryDetails = SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
-            showMetadata: showsMetadata,
-            showLog: showsLog,
-            showProgress: showsProgress,
-            showBranchDirectory: showsBranchDirectory,
-            showPullRequests: showsPullRequests,
-            showPorts: showsPorts,
-            hideAllDetails: hidesAllDetails
-        )
-
-        activeTabIndicatorStyle = settings.value(for: catalog.workspaceColors.indicatorStyle)
-        loadingSpinnerPosition = settings.value(for: catalog.sidebar.loadingSpinnerPosition)
-        notificationBadgePosition = settings.value(for: catalog.sidebar.notificationBadgePosition)
-        selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
-        notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
-        iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
-        workspaceTodoChecklistStyle = settings.value(for: catalog.betaFeatures.workspaceTodosChecklistStyle)
-    }
-
-    private static func bool(
-        defaults: UserDefaults,
-        key: String,
-        defaultValue: Bool
-    ) -> Bool {
-        guard defaults.object(forKey: key) != nil else { return defaultValue }
-        return defaults.bool(forKey: key)
-    }
-
-}
-
-
 enum CmuxExtensionSidebarSelection {
     static let defaultsKey = "cmuxExtensionSidebar.providerId"
     static let selectedExtensionNameDefaultsKey = "cmuxExtensionSidebar.selectedExtensionName"
@@ -10606,7 +10508,6 @@ struct VerticalTabsSidebar: View, Equatable {
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
-    @LiveSetting(\.sidebar.showAgentActivity) private var showAgentActivity
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
     @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
@@ -10936,7 +10837,8 @@ struct VerticalTabsSidebar: View, Equatable {
             canCloseWorkspace: canCloseWorkspace,
             workspaceNumberShortcut: workspaceNumberShortcut,
             tabItemSettings: tabItemSettings,
-            showsAgentActivity: showAgentActivity && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled,
+            showsAgentActivity: tabItemSettings.details.showAgentActivity
+                && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled,
             pinResolutionContext: pinResolutionContext,
             tabIndexById: tabIndexById,
             workspaceById: workspaceById,
@@ -11970,7 +11872,8 @@ struct VerticalTabsSidebar: View, Equatable {
         guard !workspaceIds.isEmpty else { return }
         let workspaceById = Dictionary(uniqueKeysWithValues: tabManager.tabs.map { ($0.id, $0) })
         let settings = tabItemSettingsStore.snapshot
-        let showsAgentActivity = showAgentActivity && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
+        let showsAgentActivity = settings.details.showAgentActivity
+            && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
         var next = workspaceSnapshotsById
         var changed = false
         for workspaceId in workspaceIds {
@@ -11999,7 +11902,8 @@ struct VerticalTabsSidebar: View, Equatable {
         let tabs = tabManager.tabs
         let liveIds = Set(tabs.map(\.id))
         let settings = tabItemSettingsStore.snapshot
-        let showsAgentActivity = showAgentActivity && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
+        let showsAgentActivity = settings.details.showAgentActivity
+            && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
         var next: [UUID: SidebarWorkspaceSnapshotBuilder.Snapshot] = [:]
         next.reserveCapacity(tabs.count)
         for workspace in tabs {
@@ -14698,12 +14602,12 @@ struct TabItemView: View, Equatable {
         settings.showsGitBranch
     }
 
-    private var sidebarBranchVerticalLayout: Bool {
-        settings.usesVerticalBranchLayout
+    private var sidebarBranchLayout: SidebarWorkspaceBranchDirectorySettings.BranchLayout {
+        settings.branchDirectory.branchLayout
     }
 
-    private var sidebarStacksBranchAndDirectory: Bool {
-        settings.stacksBranchAndDirectory
+    private var sidebarBranchDirectoryPlacement: SidebarWorkspaceBranchDirectorySettings.BranchDirectoryPlacement {
+        settings.branchDirectory.branchDirectoryPlacement
     }
 
     private var sidebarUsesLastSegmentPath: Bool {
@@ -15223,7 +15127,7 @@ struct TabItemView: View, Equatable {
 
             // Branch + directory row
             if detailVisibility.showsBranchDirectory {
-                if sidebarBranchVerticalLayout {
+                if sidebarBranchLayout == .vertical {
                     if !workspaceSnapshot.branchDirectoryLines.isEmpty {
                         HStack(alignment: .top, spacing: 3) {
                             if sidebarShowGitBranchIcon, workspaceSnapshot.branchLinesContainBranch {
@@ -15232,7 +15136,7 @@ struct TabItemView: View, Equatable {
                             }
                             VStack(alignment: .leading, spacing: 1) {
                                 ForEach(Array(workspaceSnapshot.branchDirectoryLines.enumerated()), id: \.offset) { _, line in
-                                    if sidebarStacksBranchAndDirectory {
+                                    if sidebarBranchDirectoryPlacement == .stacked {
                                         if let branch = line.branch {
                                             Text(branch)
                                                 .font(magnifiedFont(scaledFontSize(10), design: .monospaced))
@@ -15274,7 +15178,7 @@ struct TabItemView: View, Equatable {
                             }
                         }
                     }
-                } else if sidebarStacksBranchAndDirectory,
+                } else if sidebarBranchDirectoryPlacement == .stacked,
                           (workspaceSnapshot.compactGitBranchSummaryText != nil
                            || !workspaceSnapshot.compactDirectoryCandidates.isEmpty) {
                     HStack(alignment: .top, spacing: 3) {
