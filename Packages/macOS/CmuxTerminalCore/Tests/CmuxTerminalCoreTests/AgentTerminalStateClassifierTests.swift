@@ -60,6 +60,53 @@ struct AgentTerminalStateClassifierTests {
     }
 
     @Test
+    func exactWrappedAgentExecutableOutranksInheritedHint() throws {
+        let wrapped = AgentTerminalProcessSnapshot(
+            identity: identity,
+            executablePath: "/usr/local/bin/node",
+            arguments: ["node", "/Users/test/.bun/bin/claude", "--resume", "session-id"],
+            environment: ["CMUX_AGENT_LAUNCH_KIND": "codex"]
+        )
+
+        #expect(try #require(classifier.recognize(wrapped)).id == "claude-code")
+    }
+
+    @Test
+    func recognizesCodexExecutableBehindGenericWrappers() throws {
+        let node = process(
+            executable: "node",
+            arguments: ["node", "/Users/test/.bun/bin/codex", "fork", "session-id"]
+        )
+        #expect(try #require(classifier.recognize(node)).id == "codex")
+
+        let bun = process(
+            executable: "bun",
+            arguments: ["bun", "/Users/test/.bun/bin/codex", "resume", "session-id"]
+        )
+        #expect(try #require(classifier.recognize(bun)).id == "codex")
+    }
+
+    @Test
+    func wrappedPromptTextCannotImpersonateAnAgent() {
+        let wrapped = process(
+            executable: "node",
+            arguments: ["node", "/app/tool.js", "--prompt", "please run codex next"]
+        )
+
+        #expect(classifier.recognize(wrapped) == nil)
+    }
+
+    @Test
+    func conflictingWrappedAgentExecutablesRemainUnknown() {
+        let wrapped = process(
+            executable: "node",
+            arguments: ["node", "/tmp/codex", "/tmp/claude"]
+        )
+
+        #expect(classifier.recognize(wrapped) == nil)
+    }
+
+    @Test
     func versionedPythonRuntimeRecognizesKimiProcessTitle() throws {
         let kimi = process(executable: "python3.14", arguments: ["Kimi Code"])
         #expect(try #require(classifier.recognize(kimi)).id == "kimi")
