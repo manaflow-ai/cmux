@@ -34,10 +34,24 @@ fi
 
 DMG_TMP_DIR="$(mktemp -d)"
 MOUNT_DIR=""
+detach_mounted_dmg() {
+  local attempt
+  [ -n "$MOUNT_DIR" ] || return 0
+  for attempt in 1 2 3 4 5; do
+    if "$HDIUTIL_TOOL" detach "$MOUNT_DIR"; then
+      rmdir "$MOUNT_DIR"
+      MOUNT_DIR=""
+      return 0
+    fi
+    sleep "$attempt"
+  done
+  "$HDIUTIL_TOOL" detach -force "$MOUNT_DIR"
+  rmdir "$MOUNT_DIR"
+  MOUNT_DIR=""
+}
 cleanup() {
   if [ -n "$MOUNT_DIR" ]; then
-    "$HDIUTIL_TOOL" detach "$MOUNT_DIR" || true
-    rmdir "$MOUNT_DIR" || true
+    detach_mounted_dmg || true
   fi
   rm -rf "$DMG_TMP_DIR"
 }
@@ -97,8 +111,6 @@ CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$MOUNT
 CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$MOUNTED_APP"
 "$VERIFY_METADATA_TOOL" "$MOUNTED_APP" nightly
 "$VERIFY_LICENSES_TOOL" "$MOUNTED_APP"
-"$HDIUTIL_TOOL" detach "$MOUNT_DIR"
-rmdir "$MOUNT_DIR"
-MOUNT_DIR=""
+detach_mounted_dmg
 
 cp "$DMG_RELEASE" "$DMG_IMMUTABLE"
