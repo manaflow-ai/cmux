@@ -57,6 +57,90 @@ struct ProviderCurrentVersionContractTests {
         )
     }
 
+    @Test("Claude 2.1.214 optional selectors preserve adjacent options")
+    func claudeCurrentOptionalSelectorsPreserveAdjacentOptions() {
+        for selector in ["--resume", "--from-pr", "--worktree", "-w", "--tmux"] {
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    ["claude", selector, "--model", "sonnet"],
+                    launcher: "claude",
+                    fallbackKind: "claude"
+                ) == ["claude", "--model", "sonnet"],
+                "direct \(selector)"
+            )
+        }
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["claude", "--remote-control", "--model", "sonnet"],
+                launcher: "claude",
+                fallbackKind: "claude"
+            ) == ["claude", "--remote-control", "--model", "sonnet"]
+        )
+
+        for arguments in [
+            ["--resume", "session-1", "--model", "sonnet"],
+            ["--from-pr", "123", "--model", "sonnet"],
+            ["--worktree", "feature-a", "--model", "sonnet"],
+            ["-w", "feature-b", "--model", "sonnet"],
+            ["--tmux=classic", "--model", "sonnet"],
+        ] {
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    ["claude"] + arguments,
+                    launcher: "claude",
+                    fallbackKind: "claude"
+                ) == ["claude", "--model", "sonnet"],
+                "direct \(arguments)"
+            )
+        }
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["claude", "--remote-control", "pairing", "--model", "sonnet"],
+                launcher: "claude",
+                fallbackKind: "claude"
+            ) == ["claude", "--remote-control", "pairing", "--model", "sonnet"]
+        )
+
+        for selector in ["--resume", "--from-pr", "--tmux"] {
+            #expect(
+                AgentLaunchSanitizer.preservedClaudeTeamsLaunchArguments(
+                    args: [selector, "--model", "sonnet"]
+                ) == ["--model", "sonnet"],
+                "teams \(selector)"
+            )
+        }
+        for selector in ["--worktree", "-w", "--remote-control"] {
+            #expect(
+                AgentLaunchSanitizer.preservedClaudeTeamsLaunchArguments(
+                    args: [selector, "--model", "sonnet"]
+                ) == [selector, "--model", "sonnet"],
+                "teams \(selector)"
+            )
+        }
+        for arguments in [
+            ["--resume", "session-1", "--model", "sonnet"],
+            ["--from-pr", "123", "--model", "sonnet"],
+            ["--tmux=classic", "--model", "sonnet"],
+        ] {
+            #expect(
+                AgentLaunchSanitizer.preservedClaudeTeamsLaunchArguments(args: arguments)
+                    == ["--model", "sonnet"],
+                "teams \(arguments)"
+            )
+        }
+        for arguments in [
+            ["--worktree", "feature-a", "--model", "sonnet"],
+            ["-w", "feature-b", "--model", "sonnet"],
+            ["--remote-control", "pairing", "--model", "sonnet"],
+        ] {
+            #expect(
+                AgentLaunchSanitizer.preservedClaudeTeamsLaunchArguments(args: arguments)
+                    == arguments,
+                "teams \(arguments)"
+            )
+        }
+    }
+
     @Test("Cursor 2026.07.16 paths and booleans")
     func cursorCurrentContracts() {
         let launch = [

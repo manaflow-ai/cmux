@@ -45,14 +45,22 @@ import Testing
         let utilityCases = [
             ["--append-system-prompt-file", "/tmp/prompt file", "--teammate-mode", "auto", "gateway"],
             ["--system-prompt-file", "/tmp/system prompt", "project"],
+            ["--debug", "api", "gateway"],
             ["--prompt-suggestions", "false", "gateway"],
             ["--prompt-suggestions", "true", "ultrareview"],
+            ["--print", "--help"],
         ]
         let sessionCases = [
             ["--append-system-prompt-file", "/tmp/prompt file", "--teammate-mode", "auto", "--resume", "session-1"],
+            ["--from-pr", "--model", "sonnet"],
             ["--prompt-suggestions", "true", "--resume", "session-2"],
             ["--prompt-suggestions", "--resume", "session-3"],
+            ["--remote-control", "--model", "sonnet"],
+            ["--resume", "--model", "sonnet"],
             ["--tmux"],
+            ["--tmux", "--model", "sonnet"],
+            ["--tmux=classic", "--model", "sonnet"],
+            ["--worktree", "--model", "sonnet"],
         ]
 
         for (index, arguments) in (utilityCases + sessionCases).enumerated() {
