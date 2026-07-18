@@ -120,6 +120,8 @@ struct AgentHookDeliveryQueueTests {
         let delivered = try lines(at: root.appendingPathComponent("delivered"))
         #expect(delivered.count == 65)
         #expect(Set(delivered) == Set((0..<64).map { "burst-\($0)" } + ["burst-empty"]))
+        #expect(Array(delivered.prefix(64)) == (0..<64).map { "burst-\($0)" })
+        #expect(delivered.last == "burst-empty")
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("overlap").path))
         for index in 0..<64 {
             let actual = try Data(contentsOf: root.appendingPathComponent("payload-burst-\(index)"))
@@ -145,7 +147,51 @@ struct AgentHookDeliveryQueueTests {
         #expect(collisionWasRejected)
     }
 
-    @Test func failedChildIsObservableRetriableAndDoesNotBlockLaterEvent() async throws {
+    @Test func independentOrderingKeysUseBoundedParallelDelivery() async throws {
+        let root = try temporaryDirectory(named: "parallel-keys")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let scriptURL = root.appendingPathComponent("deliver.sh")
+        try writeExecutable(
+            at: scriptURL,
+            contents: """
+            #!/bin/sh
+            active="$TMPDIR/active-$CMUX_AGENT_HOOK_DELIVERY_ID"
+            /bin/mkdir "$active"
+            set -- "$TMPDIR"/active-*
+            printf '%s\n' "$#" >> "$TMPDIR/active-counts"
+            /bin/sleep 0.15
+            /bin/rmdir "$active"
+            printf '%s\n' "$CMUX_AGENT_HOOK_DELIVERY_ID" >> "$TMPDIR/delivered"
+            """
+        )
+        let queue = AgentHookDeliveryQueue(
+            databaseURL: root.appendingPathComponent("deliveries.sqlite3"),
+            executableURLProvider: { scriptURL },
+            processTimeout: 2,
+            retryBaseDelay: 60,
+            retryMaximumDelay: 60
+        )
+        let started = ContinuousClock().now
+        for index in 0..<36 {
+            let event = try #require(makeEvent(
+                deliveryID: "parallel-\(index)",
+                payload: Data("payload-\(index)".utf8),
+                environment: testEnvironment(root: root, surfaceID: "surface-\(index)")
+            ))
+            try queue.enqueue(event)
+        }
+        await queue.waitUntilCurrentDrainFinishes()
+        let elapsed = started.duration(to: ContinuousClock().now)
+
+        let activeCounts = try lines(at: root.appendingPathComponent("active-counts")).compactMap(Int.init)
+        let maximumActive = try #require(activeCounts.max())
+        #expect(maximumActive > 1)
+        #expect(activeCounts.allSatisfy { $0 <= 32 })
+        #expect(elapsed < .seconds(2.5))
+        #expect(Set(try lines(at: root.appendingPathComponent("delivered"))).count == 36)
+    }
+
+    @Test func failedChildBlocksItsOrderingKeyButNotIndependentKeys() async throws {
         let root = try temporaryDirectory(named: "retry")
         defer { try? FileManager.default.removeItem(at: root) }
         let scriptURL = root.appendingPathComponent("deliver.sh")
@@ -179,24 +225,39 @@ struct AgentHookDeliveryQueueTests {
             payload: Data("later".utf8),
             environment: testEnvironment(root: root)
         ))
+        let independent = try #require(makeEvent(
+            deliveryID: "retry-independent",
+            payload: Data("independent".utf8),
+            environment: testEnvironment(root: root, surfaceID: "surface:independent")
+        ))
         try queue.enqueue(first)
         try queue.enqueue(later)
+        try queue.enqueue(independent)
         await queue.waitUntilCurrentDrainFinishes()
 
         let firstFailure = try await queue.diagnosticStatus(for: first.deliveryID)
-        let laterSuccess = try await queue.diagnosticStatus(for: later.deliveryID)
+        let blockedLater = try await queue.diagnosticStatus(for: later.deliveryID)
+        let independentSuccess = try await queue.diagnosticStatus(for: independent.deliveryID)
         #expect(firstFailure?["state"] == "pending")
         #expect(firstFailure?["attempts"] == "1")
         #expect(firstFailure?["last_error"]?.contains("status 9") == true)
         #expect(firstFailure?["last_error"]?.contains("intentional first failure") == true)
-        #expect(laterSuccess?["state"] == "delivered")
+        #expect(blockedLater?["state"] == "pending")
+        #expect(blockedLater?["attempts"] == "0")
+        #expect(independentSuccess?["state"] == "delivered")
 
         try await queue.retryPendingDeliveries()
         await queue.waitUntilCurrentDrainFinishes()
         let retried = try await queue.diagnosticStatus(for: first.deliveryID)
+        let unblockedLater = try await queue.diagnosticStatus(for: later.deliveryID)
         #expect(retried?["state"] == "delivered")
         #expect(retried?["attempts"] == "2")
-        #expect(Set(try lines(at: root.appendingPathComponent("delivered"))) == ["retry-first", "retry-later"])
+        #expect(unblockedLater?["state"] == "delivered")
+        let delivered = try lines(at: root.appendingPathComponent("delivered"))
+        #expect(Set(delivered) == ["retry-first", "retry-later", "retry-independent"])
+        let firstIndex = try #require(delivered.firstIndex(of: "retry-first"))
+        let laterIndex = try #require(delivered.firstIndex(of: "retry-later"))
+        #expect(firstIndex < laterIndex)
     }
 
     @Test func hungChildIsKilledWithinDeadlineAndLaterEventRuns() async throws {
@@ -271,10 +332,10 @@ struct AgentHookDeliveryQueueTests {
         ])
     }
 
-    private func testEnvironment(root: URL) -> [String: String] {
+    private func testEnvironment(root: URL, surfaceID: String = "surface:test") -> [String: String] {
         [
             "CMUX_SOCKET_PATH": "/tmp/cmux-agent-hook-delivery-test.sock",
-            "CMUX_SURFACE_ID": "surface:test",
+            "CMUX_SURFACE_ID": surfaceID,
             "TMPDIR": root.path,
         ]
     }
