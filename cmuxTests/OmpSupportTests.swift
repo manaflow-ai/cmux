@@ -447,11 +447,13 @@ struct OmpSupportTests {
         var index = PiSessionDirectoryIndex(fileManager: .default)
         #expect(index.newestJSONLFile(in: root.path) == expectedLatest)
         for session in sessionFiles {
-            let resolved = try #require(index.resolvedSessionPath(String(session.id.prefix(8)), in: root.path))
+            let candidate = index.resolvedSessionPath(String(session.id.prefix(8)), in: root.path)
+            let resolved = try #require(candidate)
             #expect(Self.normalizedPath(resolved) == Self.normalizedPath(session.url.path))
         }
         let exactBasename = sessionFiles[500].url.deletingPathExtension().lastPathComponent
-        let exact = try #require(index.resolvedSessionPath(exactBasename, in: root.path))
+        let exactCandidate = index.resolvedSessionPath(exactBasename, in: root.path)
+        let exact = try #require(exactCandidate)
         #expect(Self.normalizedPath(exact) == Self.normalizedPath(sessionFiles[500].url.path))
         #expect(index.newestJSONLFile(in: root.path) == expectedLatest)
         #expect(index.directoryEnumerationCount == 1)
@@ -473,7 +475,8 @@ struct OmpSupportTests {
         )
 
         var index = PiSessionDirectoryIndex(fileManager: .default)
-        let resolved = try #require(index.resolvedSessionPath("019e1c86-def0", in: root.path))
+        let candidate = index.resolvedSessionPath("019e1c86-def0", in: root.path)
+        let resolved = try #require(candidate)
         #expect(Self.normalizedPath(resolved) == Self.normalizedPath(newer.path))
         #expect(Self.normalizedPath(resolved) != Self.normalizedPath(older.path))
         #expect(index.resolvedSessionPath("def0-72c9", in: root.path) == nil)
