@@ -12,11 +12,37 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `bb30526cd`. It advances the previous cmux pin
-`b4b6d69c8` through the already-merged theme, render-grid, and wrap-aware URL
-updates, then preserves authoritative sprite-font shaping runs. The commit is
-reachable from fork `main` through the merged
-https://github.com/manaflow-ai/ghostty/pull/120.
+Current cmux pinned fork patch head: `11dd30a9b`. It adds indented hard-newline
+link continuations on top of `bb30526cd` and is published through
+https://github.com/manaflow-ai/ghostty/pull/124.
+
+### Indented hard-newline link continuations
+
+- Commits:
+  - `a1d8997f8` (test: cover indented hard-newline path links)
+  - `11dd30a9b` (fix: join indented hard-wrapped links)
+- Files:
+  - `src/Surface.zig`
+  - `src/config/Config.zig`
+  - `src/input/Link.zig`
+  - `src/link_wrap.zig`
+  - `src/renderer/link.zig`
+- Summary:
+  - Recognizes built-in URLs and paths split by a real CRLF/newline plus
+    indentation after punctuation commonly chosen by prose wrappers.
+  - Uses one normalized byte-to-cell map for hit testing, opened text, link
+    previews, and Cmd-hover highlighting. Newline indentation and trailing
+    sentence punctuation are excluded from the opened value and highlight.
+  - Keeps custom matchers literal by default and preserves the existing
+    semantic soft-wrap boundary for path matching.
+  - Conflict note: future link matching or renderer string-map changes must
+    keep candidate normalization, opened text, and highlighted coordinates on
+    the same hard-wrap policy.
+
+The previous pin `bb30526cd` advances `b4b6d69c8` through the already-merged
+theme, render-grid, and wrap-aware URL updates, then preserves authoritative
+sprite-font shaping runs. The commit is reachable from fork `main` through the
+merged https://github.com/manaflow-ai/ghostty/pull/120.
 The corresponding universal ReleaseFast GhosttyKit archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-bb30526cdab8f5fb08ae43e404e3aacc40d3ffc3-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
