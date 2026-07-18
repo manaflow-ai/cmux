@@ -63,6 +63,88 @@ struct TerminalClientCompositionTests {
         #expect(composition.mobileTerminalDataPlane.profile == .embeddedGhostty)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func rendererDetachRetryIsWokenByReconnectWithoutPolling() async throws {
+        let client = RecordingPersistentTerminalBackendClient(detachFailures: 1)
+        let presentationID = UUID()
+        let retry = Task {
+            await awaitRendererPresentationQuiescence(
+                client: client,
+                presentationID: presentationID,
+                binding: nil
+            )
+        }
+
+        await client.waitForRendererSubscriberCount(1)
+        await client.waitForDetachCount(1)
+        for _ in 0..<32 { await Task.yield() }
+        #expect(await client.detachedPresentationCount() == 1)
+
+        await client.publish(.reconnected(try Self.rendererReconnectEvent()))
+
+        #expect(await retry.value)
+        #expect(await client.detachedPresentationCount() == 2)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func rendererFrameReleaseRetryIsWokenByReconnectWithoutPolling() async throws {
+        let client = RecordingPersistentTerminalBackendClient(releaseFailures: 1)
+        let frame = try Self.makeRenderDiagnosticsFrame(sequence: 17)
+        let release = TerminalRenderFrameRelease(frame: frame)
+        let retry = Task {
+            await returnRendererFrameLease(client: client, release: release)
+        }
+
+        await client.waitForRendererSubscriberCount(1)
+        await client.waitForReleaseCount(1)
+        for _ in 0..<32 { await Task.yield() }
+        #expect(await client.releaseAttemptCount() == 1)
+
+        await client.publish(.reconnected(try Self.rendererReconnectEvent()))
+
+        await retry.value
+        #expect(await client.releaseAttemptCount() == 2)
+    }
+
+    private static func rendererReconnectEvent() throws -> BackendRendererWorkersResponse {
+        let daemonInstanceID = UUID()
+        return try JSONDecoder().decode(
+            BackendRendererWorkersResponse.self,
+            from: Data(
+                """
+                {"daemon_instance_id":"\(daemonInstanceID.uuidString)","workers":[]}
+                """.utf8
+            )
+        )
+    }
+
+    private static func rendererWorkerChange(
+        workspaceID: UUID,
+        priorRendererEpoch: UInt64,
+        rendererEpoch: UInt64?,
+        state: BackendRendererWorkerState?
+    ) throws -> BackendRendererWorkerChanged {
+        let rendererEpochJSON = rendererEpoch.map(String.init) ?? "null"
+        let stateJSON = state.map { "\"\($0.rawValue)\"" } ?? "null"
+        return try JSONDecoder().decode(
+            BackendRendererWorkerChanged.self,
+            from: Data(
+                """
+                {
+                  "workspace_uuid":"\(workspaceID.uuidString)",
+                  "prior_renderer_epoch":\(priorRendererEpoch),
+                  "renderer_epoch":\(rendererEpochJSON),
+                  "pid":42,
+                  "effective_user_id":501,
+                  "scene_capabilities":1,
+                  "state":\(stateJSON),
+                  "restart_count":0
+                }
+                """.utf8
+            )
+        )
+    }
+
     @Test @MainActor
     func tabManagerRoutesInitialAndNestedTerminalsThroughOneComposition() throws {
         let recorder = RecordingTerminalPanelFactory()
@@ -1076,6 +1158,158 @@ struct TerminalClientCompositionTests {
     }
 
     @Test @MainActor
+    func rendererConnectionLossRetainsEndpointUntilExactDetachAfterReconnect() async throws {
+        let client = RecordingPersistentTerminalBackendClient(detachFailures: 1)
+        let registry = TerminalBackendPresentationRegistry()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let runtime = PersistentTerminalExternalRuntime(
+            client: client,
+            launchResolver: makeLaunchResolver(),
+            launchRequest: makeLaunchRequest(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID
+            ),
+            presentationRegistry: registry,
+            renderConfigSource: TerminalBackendRenderConfigSource {
+                Data("font-family = Menlo\n".utf8)
+            }
+        )
+        let lease = runtime.attachPresentation(TerminalExternalPresentation(
+            surfaceID: surfaceID,
+            workspaceID: workspaceID
+        ))
+        defer { lease.detach() }
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        #expect(registry.mountCompositor(surfaceID: surfaceID, in: host))
+        #expect(runtime.enqueue(.visibility(true)).accepted)
+        #expect(runtime.enqueue(.resize(TerminalExternalViewport(
+            widthPoints: 640,
+            heightPoints: 480,
+            widthPixels: 1_280,
+            heightPixels: 960,
+            xScale: 2,
+            yScale: 2,
+            proposedColumns: 160,
+            proposedRows: 48
+        ))).accepted)
+        await client.waitForMutationCount(1)
+        #expect(runtime.debugHasCurrentFrameReceiverForTesting())
+
+        let request = try #require((await client.ensureRequests()).first)
+        let loss = Task { @MainActor in
+            await runtime.debugHandleRendererEventForTesting(
+                .connectionLost(request.authorityForTesting)
+            )
+        }
+        await client.waitForDetachCount(1)
+        #expect(!runtime.debugHasCurrentFrameReceiverForTesting())
+        #expect(runtime.debugHasFrameReceiverRetirementForTesting())
+        for _ in 0..<32 { await Task.yield() }
+        #expect(await client.detachedPresentationCount() == 1)
+
+        await client.publish(.reconnected(try Self.rendererReconnectEvent()))
+        await loss.value
+        #expect(await client.detachedPresentationCount() == 2)
+        #expect(!runtime.debugHasFrameReceiverRetirementForTesting())
+    }
+
+    @Test @MainActor
+    func rendererWorkerChangeRetiresOnlyAnExactlyReplacedEpoch() async throws {
+        let client = RecordingPersistentTerminalBackendClient()
+        let registry = TerminalBackendPresentationRegistry()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let runtime = PersistentTerminalExternalRuntime(
+            client: client,
+            launchResolver: makeLaunchResolver(),
+            launchRequest: makeLaunchRequest(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID
+            ),
+            presentationRegistry: registry,
+            renderConfigSource: TerminalBackendRenderConfigSource {
+                Data("font-family = Menlo\n".utf8)
+            }
+        )
+        let lease = runtime.attachPresentation(TerminalExternalPresentation(
+            surfaceID: surfaceID,
+            workspaceID: workspaceID
+        ))
+        defer { lease.detach() }
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        #expect(registry.mountCompositor(surfaceID: surfaceID, in: host))
+        let viewport = TerminalExternalViewport(
+            widthPoints: 640,
+            heightPoints: 480,
+            widthPixels: 1_280,
+            heightPixels: 960,
+            xScale: 2,
+            yScale: 2,
+            proposedColumns: 160,
+            proposedRows: 48
+        )
+        #expect(runtime.enqueue(.visibility(true)).accepted)
+        #expect(runtime.enqueue(.resize(viewport)).accepted)
+        await client.waitForMutationCount(1)
+
+        let presentationID = runtime.debugPresentationIDForTesting()
+        let attachment = TerminalBackendRendererAttachment(
+            fence: try TerminalRenderPresentationFence(
+                daemonInstanceID: UUID(),
+                rendererEpoch: 7,
+                terminalID: surfaceID,
+                terminalEpoch: 1,
+                minimumTerminalSequence: 0,
+                presentationID: presentationID,
+                presentationGeneration: 1,
+                width: 1_280,
+                height: 960,
+                pixelFormat: .bgra8Unorm,
+                colorSpace: .sRGB,
+                completionRequirement: .producerCompleted
+            ),
+            worker: try TerminalRenderWorkerIdentity(
+                processID: 42,
+                effectiveUserID: 501
+            ),
+            cellMetrics: TerminalExternalCellMetrics(
+                columns: 160,
+                rows: 48,
+                cellWidthPixels: 8,
+                cellHeightPixels: 20,
+                surfaceWidthPixels: 1_280,
+                surfaceHeightPixels: 960,
+                backingScale: 2
+            )
+        )
+        await runtime.debugHandleRendererEventForTesting(.presentationReady(
+            presentationID: presentationID,
+            attachment: attachment
+        ))
+        #expect(registry.compositorView(surfaceID: surfaceID) != nil)
+
+        let sameEpoch = try Self.rendererWorkerChange(
+            workspaceID: workspaceID,
+            priorRendererEpoch: 7,
+            rendererEpoch: 7,
+            state: .ready
+        )
+        await runtime.debugHandleRendererEventForTesting(.workerChanged(sameEpoch))
+        #expect(registry.compositorView(surfaceID: surfaceID) != nil)
+
+        let replacedEpoch = try Self.rendererWorkerChange(
+            workspaceID: workspaceID,
+            priorRendererEpoch: 7,
+            rendererEpoch: 8,
+            state: .ready
+        )
+        await runtime.debugHandleRendererEventForTesting(.workerChanged(replacedEpoch))
+        #expect(registry.compositorView(surfaceID: surfaceID) == nil)
+        #expect(!runtime.debugHasFrameReceiverRetirementForTesting())
+    }
+
+    @Test @MainActor
     func liveRenderConfigReloadReconfiguresOnlyTheVisiblePresentation() async throws {
         let notificationCenter = NotificationCenter()
         let notificationName = Notification.Name("test.persistent-terminal.config-reload")
@@ -1305,6 +1539,119 @@ struct TerminalClientCompositionTests {
         await client.waitForMutationCount(1)
         let mutationsAfterClose = await client.mutations()
         #expect(mutationsAfterClose.filter { $0.mutation == .closeCanonicalTerminal }.count == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func rendererDetachWaitsForAnInFlightConfigurationBeforeAcknowledgingQuiescence() async throws {
+        let authority = BackendAuthority(
+            daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
+            sessionID: SessionID(rawValue: UUID())
+        )
+        let workspaceID = WorkspaceID(rawValue: UUID())
+        let surfaceID = SurfaceID(rawValue: UUID())
+        let lifecycle = BackendSessionLifecycleRecorder()
+        let renderer = RendererSerializationSessionHarness(
+            authority: authority,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
+        let session = OverflowingBackendSession(
+            identifier: "renderer-serialization",
+            snapshot: nil,
+            initialEvents: nil,
+            lifecycle: lifecycle,
+            rendererSerialization: renderer
+        )
+        let readiness = makeBackendReadiness(
+            authority: authority,
+            processID: 61,
+            revision: 1
+        )
+        let coordinator = TerminalBackendClientCoordinator(
+            readinessProvider: { .ready(readiness) },
+            sessionFactory: { _ in session },
+            reconnectPolicy: .immediate
+        )
+        let binding = TerminalBackendTerminalBinding(
+            authority: authority,
+            appWorkspaceID: workspaceID.rawValue,
+            appSurfaceID: surfaceID.rawValue,
+            workspaceHandle: 1,
+            workspaceID: workspaceID,
+            surfaceHandle: 2,
+            surfaceID: surfaceID,
+            columns: 80,
+            rows: 24,
+            created: false
+        )
+        let appPresentationID = UUID()
+        let fence = try TerminalRenderPresentationFence(
+            daemonInstanceID: authority.daemonInstanceID.rawValue,
+            rendererEpoch: 1,
+            terminalID: surfaceID.rawValue,
+            terminalEpoch: 1,
+            minimumTerminalSequence: 0,
+            presentationID: appPresentationID,
+            presentationGeneration: 1,
+            width: 1_280,
+            height: 960,
+            pixelFormat: .bgra8Unorm,
+            colorSpace: .sRGB,
+            completionRequirement: .producerCompleted
+        )
+        let receiver = try TerminalRenderFrameReceiver(initialFence: fence)
+        let descriptor = TerminalBackendPresentationDescriptor(
+            presentationID: appPresentationID,
+            endpoint: receiver.endpoint,
+            viewport: TerminalExternalViewport(
+                widthPoints: 640,
+                heightPoints: 480,
+                widthPixels: 1_280,
+                heightPixels: 960,
+                xScale: 2,
+                yScale: 2,
+                proposedColumns: 160,
+                proposedRows: 48
+            ),
+            focused: true,
+            visible: true,
+            preedit: nil,
+            pixelFormat: .bgra8Unorm,
+            colorSpace: .sRGB,
+            resolvedConfigRevision: 1,
+            resolvedConfig: Data("font-family = Menlo\n".utf8)
+        )
+
+        let configuration = Task {
+            try await coordinator.apply(
+                .visibility(true),
+                requestID: UUID(),
+                to: binding,
+                presentation: descriptor
+            )
+        }
+        await renderer.waitForConfiguration()
+        let detach = Task {
+            try await coordinator.detachPresentation(
+                presentationID: appPresentationID,
+                from: binding
+            )
+        }
+        for _ in 0..<32 { await Task.yield() }
+        #expect(await renderer.detachCount() == 0)
+
+        await renderer.resumeConfiguration()
+        _ = try await configuration.value
+        try await detach.value
+        #expect(await renderer.detachCount() == 1)
+        #expect(Array((await renderer.events()).prefix(3)) == [
+            "configure-start",
+            "configure-finish",
+            "detach",
+        ])
+
+        await receiver.stop()
+        await coordinator.disconnectFrontend()
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -2698,12 +3045,164 @@ private actor BackendCompatibilityReporterRecorder {
     func recorded() -> [BackendCompatibilityResult?] { reports }
 }
 
+private actor RendererSerializationSessionHarness {
+    private let authority: BackendAuthority
+    private let workspaceID: WorkspaceID
+    private let surfaceID: SurfaceID
+    private let presentationID = PresentationID(rawValue: UUID())
+    private var configurationContinuation:
+        CheckedContinuation<BackendRendererPresentationReceipt, Never>?
+    private var pendingConfigurationReceipt: BackendRendererPresentationReceipt?
+    private var configurationWaiters: [CheckedContinuation<Void, Never>] = []
+    private var recordedEvents: [String] = []
+    private var recordedDetachCount = 0
+
+    init(
+        authority: BackendAuthority,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID
+    ) {
+        self.authority = authority
+        self.workspaceID = workspaceID
+        self.surfaceID = surfaceID
+    }
+
+    func openPresentation(
+        view: BackendPresentationView,
+        zoom: BackendPresentationZoom,
+        scroll: BackendPresentationScroll
+    ) throws -> BackendPresentation {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "presentation_id": presentationID.description,
+            "generation": 1,
+            "client": 1,
+            "view": [
+                "workspace_uuid": view.workspaceID.map { $0.description as Any } ?? NSNull(),
+                "screen_uuid": view.screenID.map { $0.description as Any } ?? NSNull(),
+                "pane_uuid": view.paneID.map { $0.description as Any } ?? NSNull(),
+                "surface_uuid": view.surfaceID.map { $0.description as Any } ?? NSNull(),
+            ],
+            "zoom": [
+                "pane_uuid": zoom.paneID.map { $0.description as Any } ?? NSNull(),
+            ],
+            "scroll": [
+                "surface_uuid": scroll.surfaceID.map { $0.description as Any } ?? NSNull(),
+                "offset": scroll.offset,
+            ],
+        ])
+        return try JSONDecoder().decode(BackendPresentation.self, from: data)
+    }
+
+    func configureRendererPresentation(
+        id: PresentationID,
+        expectedGeneration: UInt64,
+        configuration: BackendRendererPresentationConfiguration
+    ) async throws -> BackendRendererPresentationReceipt {
+        #expect(id == presentationID)
+        #expect(expectedGeneration == 1)
+        recordedEvents.append("configure-start")
+        let waiters = configurationWaiters
+        configurationWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        pendingConfigurationReceipt = try rendererReceipt(configuration: configuration)
+        let resumed = await withCheckedContinuation { continuation in
+            configurationContinuation = continuation
+        }
+        recordedEvents.append("configure-finish")
+        return resumed
+    }
+
+    func waitForConfiguration() async {
+        guard !recordedEvents.contains("configure-start") else { return }
+        await withCheckedContinuation { continuation in
+            configurationWaiters.append(continuation)
+        }
+    }
+
+    func resumeConfiguration() {
+        guard let configurationContinuation, let pendingConfigurationReceipt else {
+            Issue.record("renderer configuration was not suspended")
+            return
+        }
+        self.configurationContinuation = nil
+        self.pendingConfigurationReceipt = nil
+        configurationContinuation.resume(returning: pendingConfigurationReceipt)
+    }
+
+    func detachRendererPresentation(
+        id: PresentationID,
+        expectedGeneration: UInt64
+    ) {
+        #expect(id == presentationID)
+        #expect(expectedGeneration == 1)
+        recordedDetachCount += 1
+        recordedEvents.append("detach")
+    }
+
+    func closePresentation(id: PresentationID) {
+        #expect(id == presentationID)
+        recordedEvents.append("close")
+    }
+
+    func terminalProcessInfo(surface: UInt64) throws -> BackendProcessInfo {
+        _ = surface
+        return try JSONDecoder().decode(
+            BackendProcessInfo.self,
+            from: Data(
+                """
+                {"pid":null,"command":null,"cwd":null,"tty":null}
+                """.utf8
+            )
+        )
+    }
+
+    func detachCount() -> Int { recordedDetachCount }
+
+    func events() -> [String] { recordedEvents }
+
+    private func rendererReceipt(
+        configuration: BackendRendererPresentationConfiguration
+    ) throws -> BackendRendererPresentationReceipt {
+        try JSONDecoder().decode(
+            BackendRendererPresentationReceipt.self,
+            from: Data(
+                """
+                {
+                  "daemon_instance_id":"\(authority.daemonInstanceID.description)",
+                  "workspace_uuid":"\(workspaceID.description)",
+                  "renderer_epoch":1,
+                  "worker_state":"starting",
+                  "worker_pid":null,
+                  "worker_effective_user_id":null,
+                  "scene_capabilities":null,
+                  "terminal_id":"\(surfaceID.description)",
+                  "terminal_epoch":1,
+                  "presentation_id":"\(presentationID.description)",
+                  "generation":1,
+                  "renderer_generation":1,
+                  "minimum_content_sequence":0,
+                  "width":\(configuration.width),
+                  "height":\(configuration.height),
+                  "backing_scale_factor":\(configuration.backingScaleFactor),
+                  "columns":\(configuration.columns),
+                  "rows":\(configuration.rows),
+                  "metrics":null,
+                  "pixel_format":"bgra8-unorm",
+                  "color_space":"srgb"
+                }
+                """.utf8
+            )
+        )
+    }
+}
+
 private actor OverflowingBackendSession: TerminalBackendSessionServing {
     private let identifier: String
     private let snapshot: TopologySnapshot?
     private let initialEvents: [BackendCanonicalSessionEvent]?
     private let compatibility: BackendCompatibilityResult
     private let lifecycle: BackendSessionLifecycleRecorder
+    private let rendererSerialization: RendererSerializationSessionHarness?
     private var stableContinuation: AsyncStream<BackendCanonicalSessionEvent>.Continuation?
     private var recordedEventSubscriptionCount = 0
     private var recordedConnectCount = 0
@@ -2720,13 +3219,15 @@ private actor OverflowingBackendSession: TerminalBackendSessionServing {
             negotiatedProtocol: 9,
             requiredCapabilities: []
         )),
-        lifecycle: BackendSessionLifecycleRecorder
+        lifecycle: BackendSessionLifecycleRecorder,
+        rendererSerialization: RendererSerializationSessionHarness? = nil
     ) {
         self.identifier = identifier
         self.snapshot = snapshot
         self.initialEvents = initialEvents
         self.compatibility = compatibility
         self.lifecycle = lifecycle
+        self.rendererSerialization = rendererSerialization
     }
 
     func events() -> AsyncStream<BackendCanonicalSessionEvent> {
@@ -2812,10 +3313,21 @@ private actor OverflowingBackendSession: TerminalBackendSessionServing {
         zoom: BackendPresentationZoom,
         scroll: BackendPresentationScroll
     ) async throws -> BackendPresentation {
+        if let rendererSerialization {
+            return try await rendererSerialization.openPresentation(
+                view: view,
+                zoom: zoom,
+                scroll: scroll
+            )
+        }
         throw BackendProtocolError.notConnected
     }
 
     func closePresentation(id: PresentationID) async throws {
+        if let rendererSerialization {
+            await rendererSerialization.closePresentation(id: id)
+            return
+        }
         throw BackendProtocolError.notConnected
     }
 
@@ -2824,6 +3336,13 @@ private actor OverflowingBackendSession: TerminalBackendSessionServing {
         expectedGeneration: UInt64,
         configuration: BackendRendererPresentationConfiguration
     ) async throws -> BackendRendererPresentationReceipt {
+        if let rendererSerialization {
+            return try await rendererSerialization.configureRendererPresentation(
+                id: id,
+                expectedGeneration: expectedGeneration,
+                configuration: configuration
+            )
+        }
         throw BackendProtocolError.notConnected
     }
 
@@ -2831,6 +3350,13 @@ private actor OverflowingBackendSession: TerminalBackendSessionServing {
         id: PresentationID,
         expectedGeneration: UInt64
     ) async throws {
+        if let rendererSerialization {
+            await rendererSerialization.detachRendererPresentation(
+                id: id,
+                expectedGeneration: expectedGeneration
+            )
+            return
+        }
         throw BackendProtocolError.notConnected
     }
 
@@ -3008,6 +3534,9 @@ private actor OverflowingBackendSession: TerminalBackendSessionServing {
     }
 
     func terminalProcessInfo(surface: UInt64) async throws -> BackendProcessInfo {
+        if let rendererSerialization {
+            return try await rendererSerialization.terminalProcessInfo(surface: surface)
+        }
         throw BackendProtocolError.notConnected
     }
 
@@ -3263,6 +3792,8 @@ private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
     private let suspendEnsures: Bool
     private let suspendUXReads: Bool
     private let failFirstMutation: Bool
+    private var detachFailuresRemaining: Int
+    private var releaseFailuresRemaining: Int
     private var didFailMutation = false
     private var requests: [TerminalBackendTerminalRequest] = []
     private var recordedMutations: [RecordedPersistentTerminalMutation] = []
@@ -3274,6 +3805,7 @@ private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
     private var rendererSubscriberWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
     private var uxReadWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
     private var detachWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
+    private var releaseWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
     private var ensureContinuations: [
         Int: CheckedContinuation<TerminalBackendTerminalBinding, Never>
     ] = [:]
@@ -3282,15 +3814,20 @@ private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
     ] = [:]
     private var uxReadWorkspaces: [UUID] = []
     private var detachedBindingWorkspaces: [UUID?] = []
+    private var releaseAttempts = 0
 
     init(
         suspendEnsures: Bool = false,
         suspendUXReads: Bool = false,
-        failFirstMutation: Bool = false
+        failFirstMutation: Bool = false,
+        detachFailures: Int = 0,
+        releaseFailures: Int = 0
     ) {
         self.suspendEnsures = suspendEnsures
         self.suspendUXReads = suspendUXReads
         self.failFirstMutation = failFirstMutation
+        self.detachFailuresRemaining = detachFailures
+        self.releaseFailuresRemaining = releaseFailures
     }
 
     func rendererEvents() async -> AsyncStream<TerminalBackendRendererEvent> {
@@ -3388,15 +3925,27 @@ private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
     func detachPresentation(
         presentationID: UUID,
         from binding: TerminalBackendTerminalBinding?
-    ) async {
+    ) async throws {
         detachedBindingWorkspaces.append(binding?.appWorkspaceID)
         resumeSatisfiedWaiters(
             &detachWaiters,
             count: detachedBindingWorkspaces.count
         )
+        if detachFailuresRemaining > 0 {
+            detachFailuresRemaining -= 1
+            throw BackendProtocolError.connectionClosed
+        }
     }
 
-    func releaseFrame(_ release: TerminalRenderFrameRelease) async {}
+    func releaseFrame(_ release: TerminalRenderFrameRelease) async throws {
+        _ = release
+        releaseAttempts += 1
+        resumeSatisfiedWaiters(&releaseWaiters, count: releaseAttempts)
+        if releaseFailuresRemaining > 0 {
+            releaseFailuresRemaining -= 1
+            throw BackendProtocolError.connectionClosed
+        }
+    }
 
     func waitForEnsureCount(_ count: Int) async {
         guard requests.count < count else { return }
@@ -3433,6 +3982,13 @@ private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
         }
     }
 
+    func waitForReleaseCount(_ count: Int) async {
+        guard releaseAttempts < count else { return }
+        await withCheckedContinuation { continuation in
+            releaseWaiters[count, default: []].append(continuation)
+        }
+    }
+
     func resumeEnsure(at index: Int) {
         guard requests.indices.contains(index),
               let continuation = ensureContinuations.removeValue(forKey: index) else { return }
@@ -3464,6 +4020,8 @@ private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
     func lastMutation() -> RecordedPersistentTerminalMutation? { recordedMutations.last }
 
     func detachedPresentationCount() -> Int { detachedBindingWorkspaces.count }
+
+    func releaseAttemptCount() -> Int { releaseAttempts }
 
     func detachedBindingWorkspaceIDs() -> [UUID?] { detachedBindingWorkspaces }
 
