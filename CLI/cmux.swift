@@ -26721,6 +26721,7 @@ let hookShutdownDeadlineExpired = false;
 let hookShutdownPromise = null;
 let hookShutdownResolve = null;
 let hookShutdownDeadline = null;
+let activePluginGeneration = null;
 
 function firstString(...values) {
   for (const value of values) {
@@ -27229,18 +27230,38 @@ function trackMessage(event) {
 
 const CMUXSessionRestore = async (ctx) => {
   if (globalThis[CMUX_PLUGIN_INSTALLED_KEY]) return {};
-  globalThis[CMUX_PLUGIN_INSTALLED_KEY] = true;
+  const generation = Symbol("cmux.session.restore.plugin.generation");
+  globalThis[CMUX_PLUGIN_INSTALLED_KEY] = generation;
+  activePluginGeneration = generation;
+  let disposed = false;
+  let disposalPromise = null;
   return {
-    dispose: async () => {
-      try {
-        await drainHooksForShutdown();
-      } finally {
-        if (resetHookDispatcherAfterShutdown()) {
-          delete globalThis[CMUX_PLUGIN_INSTALLED_KEY];
-        }
+    dispose: () => {
+      if (disposalPromise) return disposalPromise;
+      disposed = true;
+      if (activePluginGeneration !== generation
+          || globalThis[CMUX_PLUGIN_INSTALLED_KEY] !== generation) {
+        disposalPromise = Promise.resolve();
+        return disposalPromise;
       }
+      disposalPromise = (async () => {
+        try {
+          await drainHooksForShutdown();
+        } finally {
+          if (activePluginGeneration === generation
+              && resetHookDispatcherAfterShutdown()) {
+            activePluginGeneration = null;
+            if (globalThis[CMUX_PLUGIN_INSTALLED_KEY] === generation) {
+              delete globalThis[CMUX_PLUGIN_INSTALLED_KEY];
+            }
+          }
+        }
+      })();
+      return disposalPromise;
     },
     event: async ({ event }) => {
+      if (disposed || activePluginGeneration !== generation
+          || globalThis[CMUX_PLUGIN_INSTALLED_KEY] !== generation) return;
       trackMessage(event);
       const props = eventProperties(event);
       switch (event && event.type) {
