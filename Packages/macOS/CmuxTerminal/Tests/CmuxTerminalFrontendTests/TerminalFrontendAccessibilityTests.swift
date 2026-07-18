@@ -247,6 +247,39 @@ import Testing
         #expect(runtime.accessibilityLinkActivations.count == 1)
     }
 
+    @Test func retainedAXLinkRejectsAfterBridgeOwnerTeardown() throws {
+        let snapshot = makeAccessibilitySnapshot(
+            contentSequence: 12,
+            text: "link",
+            links: [TerminalAccessibilityLink(
+                id: "retained",
+                target: "https://example.com/retained",
+                utf16Range: TerminalAccessibilityRange(location: 0, length: 4),
+                row: 40,
+                startColumn: 0,
+                endColumn: 3
+            )]
+        )
+        let runtime = FakeTerminalExternalRuntime()
+        runtime.snapshot = makeRuntimeSnapshot(accessibility: snapshot)
+        weak var weakBridge: TerminalFrontendAccessibilityBridge?
+        let retainedChild: NSAccessibilityElement
+
+        do {
+            let view = TerminalFrontendInteractionView(runtime: runtime)
+            weakBridge = view.accessibilityBridge
+            let window = mount(view)
+            retainedChild = try #require(
+                view.accessibilityChildren()?.first as? NSAccessibilityElement
+            )
+            window.contentView = nil
+        }
+
+        #expect(weakBridge == nil)
+        #expect(!retainedChild.accessibilityPerformPress())
+        #expect(runtime.accessibilityLinkActivations.isEmpty)
+    }
+
     @Test func TrackingAndEditActionsStayInTheLightweightResponderHost() async throws {
         let runtime = FakeTerminalExternalRuntime()
         runtime.snapshot = makeRuntimeSnapshot(

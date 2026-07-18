@@ -11,9 +11,9 @@ final class TerminalFrontendAccessibilityLinkElement: NSAccessibilityElement {
         link: TerminalAccessibilityLink,
         label: String,
         frameInParentSpace: NSRect,
-        action: @escaping @Sendable () -> Void
+        actionGate: TerminalFrontendAccessibilityLinkActionGate
     ) {
-        actionGate = TerminalFrontendAccessibilityLinkActionGate(action: action)
+        self.actionGate = actionGate
         super.init()
         setAccessibilityRole(.link)
         setAccessibilityLabel(label)
@@ -25,9 +25,5 @@ final class TerminalFrontendAccessibilityLinkElement: NSAccessibilityElement {
 
     override func accessibilityPerformPress() -> Bool {
         actionGate.perform()
-    }
-
-    func invalidate() {
-        actionGate.invalidate()
     }
 }

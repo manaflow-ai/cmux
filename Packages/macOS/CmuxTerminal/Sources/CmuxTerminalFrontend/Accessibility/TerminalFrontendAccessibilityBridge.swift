@@ -12,6 +12,7 @@ final class TerminalFrontendAccessibilityBridge {
     private var demandStarted = false
     private var observedSnapshot: TerminalAccessibilitySnapshot?
     private var linkElements: [TerminalFrontendAccessibilityLinkElement] = []
+    private var linkActionGates: [TerminalFrontendAccessibilityLinkActionGate] = []
 
     init(linkOpener: @escaping @MainActor (String) -> Bool) {
         self.linkOpener = linkOpener
@@ -19,6 +20,9 @@ final class TerminalFrontendAccessibilityBridge {
 
     deinit {
         observationTask?.cancel()
+        for gate in linkActionGates {
+            gate.invalidate()
+        }
     }
 
     func bind(to owner: TerminalFrontendInteractionView) {
@@ -150,6 +154,7 @@ final class TerminalFrontendAccessibilityBridge {
         invalidateLinkElements()
         observedSnapshot = snapshot
         let model = TerminalFrontendAccessibilityTextModel(snapshot: snapshot)
+        var nextActionGates: [TerminalFrontendAccessibilityLinkActionGate] = []
         let nextLinkElements: [TerminalFrontendAccessibilityLinkElement] = snapshot.links.compactMap { link in
             let range = NSRange(
                 location: link.utf16Range.location,
@@ -169,18 +174,23 @@ final class TerminalFrontendAccessibilityBridge {
             let label = model.string(for: range)
             let accessibleLabel = label.flatMap { $0.isEmpty ? nil : $0 }
                 ?? link.target
-            return TerminalFrontendAccessibilityLinkElement(
-                parent: owner,
-                link: link,
-                label: accessibleLabel,
-                frameInParentSpace: frameInParentSpace,
+            let actionGate = TerminalFrontendAccessibilityLinkActionGate(
                 action: { [weak self] in
                     Task { @MainActor [weak self] in
                         await self?.activate(link: link, snapshot: snapshot)
                     }
                 }
             )
+            nextActionGates.append(actionGate)
+            return TerminalFrontendAccessibilityLinkElement(
+                parent: owner,
+                link: link,
+                label: accessibleLabel,
+                frameInParentSpace: frameInParentSpace,
+                actionGate: actionGate
+            )
         }
+        linkActionGates = nextActionGates
         linkElements = nextLinkElements
 
         guard postNotifications else { return }
@@ -210,9 +220,10 @@ final class TerminalFrontendAccessibilityBridge {
     }
 
     private func invalidateLinkElements() {
-        for element in linkElements {
-            element.invalidate()
+        for gate in linkActionGates {
+            gate.invalidate()
         }
+        linkActionGates.removeAll(keepingCapacity: false)
         linkElements.removeAll(keepingCapacity: false)
     }
 
