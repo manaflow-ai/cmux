@@ -180,14 +180,20 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
             .appendingPathComponent("cmux-design-mode-copy-test-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         var copiedPrompt: String?
+        var captureCoverStates: [Bool] = []
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        container.addSubview(webView)
         let controller = BrowserDesignModeController(
             surfaceID: UUID(),
             script: BrowserDesignModeScript(),
             promptFormatter: BrowserDesignModePromptFormatter(),
             screenshotStore: BrowserDesignModeScreenshotStore(directory: directory),
             javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
-            screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(timeout: 1) { _, completion in
+            screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(timeout: 1) { capturedWebView, completion in
+                captureCoverStates.append(
+                    capturedWebView.superview?.subviews.contains(where: { $0 !== capturedWebView }) == true
+                )
                 completion(.success(image))
             },
             canEnable: { true },
@@ -226,6 +232,8 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
 
         await controller.copySelection()
 
+        #expect(captureCoverStates == [false, true, true])
+        #expect(container.subviews == [webView])
         let prompt = try #require(copiedPrompt)
         #expect(prompt.contains("<cmux_design_mode>"))
         #expect(try requestedChange(from: prompt) == "")

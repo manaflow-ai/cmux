@@ -599,9 +599,15 @@ describe("browser design-mode runtime", () => {
     expect(inputEvents).toBe(0);
   });
 
-  test("prepares capture without depending on animation-frame delivery", () => {
-    const { dom, runtime } = fixture(`<main><h1 id="hero">Hello</h1></main>`);
+  test("prepares and restores capture without depending on animation-frame delivery", () => {
+    const { dom, overlayShadowRoot, runtime } = fixture(`<main><h1 id="hero">Hello</h1></main>`);
     runtime.select("#hero");
+    runtime.setSelectionHover(0);
+    const outline = Array.from(overlayShadowRoot()?.querySelectorAll("div") ?? []).find(
+      (element) => element.style.borderColor === "rgb(10, 132, 255)"
+        && element.style.position === "fixed",
+    );
+    expect(outline?.style.display).toBe("block");
     let requestedFrames = 0;
     Object.defineProperty(dom.window, "requestAnimationFrame", {
       value: () => {
@@ -612,8 +618,13 @@ describe("browser design-mode runtime", () => {
 
     const prepared = runtime.prepareCapture();
     expect(prepared.selection?.selector).toBe("#hero");
+    expect(outline?.style.display).toBe("none");
     expect(requestedFrames).toBe(0);
     runtime.finishCapture();
+    // Copy restoration must be synchronous so native can keep its visual
+    // shield up until WebKit confirms the restored overlay has painted.
+    expect(outline?.style.display).toBe("block");
+    expect(requestedFrames).toBe(0);
   });
 
   test("revalidates selector uniqueness immediately before capture", () => {
