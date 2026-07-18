@@ -803,9 +803,7 @@ async fn open_session(
             .ok_or(SessionOpenError::Unauthorized)?,
         (DiffSource::AgentTurn { .. }, None) | (DiffSource::Patch { .. }, _) => unreachable!(),
     };
-    if resolved_turn.is_none()
-        && !authorize_repo_for_token(state, &params.capability_token, repo).await
-    {
+    if !authorize_repo_for_token(state, &params.capability_token, repo).await {
         return Err(SessionOpenError::Unauthorized);
     }
     let canonical_repo = if let Some(resolved) = &resolved_turn {
