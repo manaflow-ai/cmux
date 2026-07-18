@@ -2217,7 +2217,8 @@ mod tests {
         AllowedFile, DiffSource, Manifest, OpenOptions, RpcRequestRead, SessionOpenError,
         TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID, handle_protocol_request,
         prune_orphaned_session_temp_files, read_rpc_request, register_session_temp,
-        reserve_session_owner, run_git_patch_with_limit, valid_group_id,
+        reserve_session_owner, run_git_patch_with_limit, session_lease_lock_is_active,
+        valid_group_id,
     };
 
     #[tokio::test]
@@ -2364,6 +2365,13 @@ mod tests {
         assert!(!active_final.exists());
         assert!(unrelated.exists());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn session_lease_lock_errors_preserve_session_files() {
+        assert!(session_lease_lock_is_active(Err(
+            std::fs::TryLockError::Error(std::io::Error::other("lock state unavailable"))
+        )));
     }
 
     #[tokio::test]
