@@ -447,6 +447,17 @@ enum AgentResumeCommandBuilder {
         }
     }
 
+    static func piFamilyVersionProbe(
+        launchCommand: AgentLaunchCommandSnapshot?,
+        fallbackExecutable: String
+    ) -> (executable: String, arguments: [String]) {
+        let original = commandParts(
+            launchCommand: launchCommand,
+            fallbackExecutable: fallbackExecutable
+        )
+        return (original.executable, ["--version"])
+    }
+
     private static func launchEnvironmentParts(
         kind: RestorableAgentKind,
         environment: [String: String]?
@@ -457,7 +468,15 @@ enum AgentResumeCommandBuilder {
 
         var environmentParts: [String] = []
         var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
-        let selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: environment, kind: kind.rawValue)
+        var selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: environment, kind: kind.rawValue)
+        let piFamilyUsesCapturedPath = kind == .pi
+            || kind.customAgentID == "pi"
+            || kind.customAgentID == "omp"
+        if piFamilyUsesCapturedPath,
+           let path = environment["PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !path.isEmpty {
+            selectedEnvironment["PATH"] = path
+        }
         for key in selectedEnvironment.keys.sorted() {
             guard let value = selectedEnvironment[key] else { continue }
             environmentParts.append("\(key)=\(value)")
@@ -1026,26 +1045,26 @@ struct RestorableAgentSessionIndex: Sendable {
         )
     }
 
-    static func loadIncludingProcessDetectedSnapshots(homeDirectory: String = NSHomeDirectory(), fileManager: FileManager = .default, snapshotStore: CmuxTopProcessSnapshotStore = .shared) async -> RestorableAgentSessionIndex {
-        let processSnapshot = await snapshotStore.snapshot(
-            requirements: [.processDetails, .cmuxScope],
-            maximumAge: 3, consumer: .processDetectedResume
-        )
-        return await Task.detached(priority: .utility) {
+    static func loadIncludingProcessDetectedSnapshots(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) async -> RestorableAgentSessionIndex {
+        await Task.detached(priority: .utility) {
             loadIncludingProcessDetectedSnapshotsSynchronously(
                 homeDirectory: homeDirectory,
-                fileManager: fileManager, processSnapshot: processSnapshot
+                fileManager: fileManager
             )
         }.value
     }
 
-    static func loadIncludingProcessDetectedSnapshotsSynchronously(homeDirectory: String, fileManager: FileManager, processSnapshot: CmuxTopProcessSnapshot) -> RestorableAgentSessionIndex {
+    static func loadIncludingProcessDetectedSnapshotsSynchronously(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) -> RestorableAgentSessionIndex {
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let detectedSnapshots = processDetectedSnapshots(
             registry: registry,
-            fileManager: fileManager,
-            processSnapshot: processSnapshot,
-            capturedAt: processSnapshot.sampledAt.timeIntervalSince1970
+            fileManager: fileManager
         )
         return load(
             homeDirectory: homeDirectory,

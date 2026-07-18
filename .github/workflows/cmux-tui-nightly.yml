@@ -1,8 +1,8 @@
 name: cmux-tui nightly
 
 on:
-  schedule:
-    - cron: "23 9 * * *"
+  # CI pause: the macOS Nightly and rolling iOS beta remain automatic; this
+  # separate TUI package build remains available on demand.
   workflow_dispatch:
 
 permissions: {}
@@ -22,10 +22,18 @@ jobs:
       pypi_version: ${{ steps.version.outputs.pypi_version }}
       head_sha: ${{ steps.version.outputs.head_sha }}
     steps:
+      - name: Require main branch dispatch
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Refusing to publish a TUI nightly from $GITHUB_REF; dispatch this workflow on main." >&2
+            exit 1
+          fi
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Derive nightly versions
@@ -49,6 +57,10 @@ jobs:
           npm_version="$next_stable-nightly.$stamp.$GITHUB_RUN_NUMBER"
           pypi_version="$next_stable.dev${stamp}${GITHUB_RUN_NUMBER}"
           head_sha="$(git rev-parse HEAD)"
+          if [[ "$head_sha" != "$GITHUB_SHA" ]]; then
+            echo "Nightly checkout $head_sha does not match workflow commit $GITHUB_SHA" >&2
+            exit 1
+          fi
           {
             echo "npm_version=$npm_version"
             echo "pypi_version=$pypi_version"
@@ -89,11 +101,23 @@ jobs:
       name: npm-tui
       url: https://www.npmjs.com/package/cmux
     steps:
+      - name: Checkout immutable nightly source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.version.outputs.head_sha }}
+
       - name: Download npm package directories
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: npm-packages
-          path: dist/npm-packages
+          path: dist
+
+      - name: Restore npm package executable modes
+        run: |
+          python3 cmux-tui/dist/scripts/package_npm_artifact.py extract \
+            --archive dist/npm-packages.tar.gz \
+            --out dist
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -102,7 +126,7 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install npm with OIDC support
-        run: npm install -g npm@^11.5.1
+        run: npm install -g npm@11.5.1
 
       - name: Publish platform packages with nightly dist-tag
         run: |

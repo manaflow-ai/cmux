@@ -11,7 +11,7 @@ import Testing
 @MainActor
 struct CompletedRestoredAgentForkAvailabilityTests {
     @Test
-    func completedRestoredAgentCannotDriveForkActions() throws {
+    func completedRestoredAgentCannotDriveForkActions() async throws {
         let workspace = Workspace()
         let panel = try #require(workspace.focusedTerminalPanel)
         let snapshot = forkableClaudeSnapshot()
@@ -19,20 +19,19 @@ struct CompletedRestoredAgentForkAvailabilityTests {
         workspace.restoredAgentResumeStatesByPanelId[panel.id] = .observedAgentCommandRunning
 
         #expect(workspace.forkAgentConversationContextMenuAvailability(forPanelId: panel.id) == .available)
-        #expect(workspace.forkableAgentSnapshot(forPanelId: panel.id) != nil)
+        #expect(workspace.forkAgentConversationContextMenuOpenSelection(forPanelId: panel.id).snapshot != nil)
 
         workspace.updatePanelShellActivityState(panelId: panel.id, state: .promptIdle)
 
         #expect(workspace.restoredAgentResumeStatesByPanelId[panel.id] == .completedAgentExit)
         #expect(workspace.restoredAgentSnapshotsByPanelId[panel.id] != nil)
         #expect(workspace.forkAgentConversationContextMenuAvailability(forPanelId: panel.id) == .noAgentSnapshot)
-        #expect(workspace.forkableAgentSnapshot(forPanelId: panel.id) == nil)
-        #expect(
-            !workspace.forkAgentConversationFromContextMenu(
-                fromPanelId: panel.id,
-                destination: .newTab
-            )
+        #expect(workspace.forkAgentConversationContextMenuOpenSelection(forPanelId: panel.id).snapshot == nil)
+        let didForkFromCompletedAgent = await workspace.forkAgentConversationFromContextMenu(
+            fromPanelId: panel.id,
+            destination: .newTab
         )
+        #expect(!didForkFromCompletedAgent)
 
         let panelKey = ContentView.commandPaletteForkableAgentPanelKey(
             workspaceId: workspace.id,

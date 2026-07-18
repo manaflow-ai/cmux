@@ -38,18 +38,21 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// band and pins first responder so the keyboard hands over in place; when it
     /// flips off, the field is unmounted and the band collapses to zero height.
     var isComposerActive: Bool = false
-    /// The store's terminal-theme generation. The shell writes the synced theme
-    /// into `TerminalThemeStore` directly (it does not link GhosttyKit), so this
-    /// representable — which does — drives the live recolor: when the generation
-    /// advances, it rebuilds the runtime config and refreshes the mounted
-    /// surface's background/colors in place via `GhosttyRuntime.applyLiveThemeIfRunning()`.
-    var themeGeneration: UInt64 = 0
+    /// Theme for this exact Mac terminal surface.
+    var terminalTheme: TerminalTheme
+    /// Raw Mac Ghostty defaults installed into the local mirror surface.
+    var terminalConfigTheme: TerminalTheme
+    /// The store's raw config generation. This drives a surface-local
+    /// Ghostty config update without remounting or changing another scene.
+    var configThemeGeneration: UInt64 = 0
     var artifactFilesEnabled: Bool = false
+    var terminalFilesChipEnabled: Bool = false
     var sessionArtifactCountEnabled: Bool = false
     var visibleArtifactCount: Int = 0
     var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void = { _ in }
     var onArtifactPathTapped: @MainActor (_ path: String) -> Void = { _ in }
     var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void = { _ in }
+    var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -57,11 +60,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceID: surfaceID,
             store: store,
             artifactFilesEnabled: artifactFilesEnabled,
+            terminalFilesChipEnabled: terminalFilesChipEnabled,
             sessionArtifactCountEnabled: sessionArtifactCountEnabled,
             visibleArtifactCount: visibleArtifactCount,
             onArtifactFilesRequested: onArtifactFilesRequested,
             onArtifactPathTapped: onArtifactPathTapped,
-            onVisibleArtifactCountChanged: onVisibleArtifactCountChanged
+            onVisibleArtifactCountChanged: onVisibleArtifactCountChanged,
+            onArtifactGalleryRefreshSignal: onArtifactGalleryRefreshSignal
         )
     }
 
@@ -72,8 +77,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         } catch {
             let fallback = UILabel()
             fallback.numberOfLines = 0
-            fallback.textColor = .white
-            fallback.backgroundColor = UIColor(red: 0x27/255.0, green: 0x28/255.0, blue: 0x22/255.0, alpha: 1)
+            fallback.textColor = terminalTheme.terminalForegroundUIColor
+            fallback.backgroundColor = terminalTheme.terminalBackgroundUIColor
             fallback.text = L10n.string(
                 "mobile.terminal.rendererFailed",
                 defaultValue: "Terminal renderer failed to start."
@@ -83,7 +88,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let view = GhosttySurfaceView(
             runtime: runtime,
             delegate: context.coordinator,
-            fontSize: fontSize
+            fontSize: fontSize,
+            terminalTheme: terminalTheme,
+            terminalConfigTheme: terminalConfigTheme
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         view.artifactFilesEnabled = artifactFilesEnabled
@@ -97,6 +104,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // "View as Text" capture) resolve this exact terminal.
         view.hostSurfaceID = surfaceID
         context.coordinator.attach(surfaceView: view)
+        view.seedThemeParityPreviewIfRequested()
         // Mount the composer band immediately if the composer was already open when
         // this surface was (re)built (e.g. a terminal switch while composing), and
         // seed the surface's composerActive flag to match. SwiftUI does call
@@ -104,16 +112,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // math reads this flag, so it must never depend on that ordering contract.
         view.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
-        // The shared runtime is a process singleton; its config can carry a stale
-        // theme from before this connect. A freshly built surface reads its local
-        // background from the (current) theme store, but the renderer's default
-        // colors come from the runtime config, so rebuild it to the current theme
-        // when a theme has been applied. Records the generation so updateUIView
-        // does not re-apply the same one.
-        if themeGeneration > 0 {
-            GhosttyRuntime.applyLiveThemeIfRunning()
-        }
-        context.coordinator.lastAppliedThemeGeneration = themeGeneration
+        context.coordinator.themeApplicationScheduler.seed(generation: configThemeGeneration)
         return view
     }
 
@@ -126,11 +125,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // state write, so it is safe in `updateUIView`.
         guard let surfaceView = uiView as? GhosttySurfaceView else { return }
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        surfaceView.terminalTheme = terminalTheme
+        surfaceView.terminalConfigTheme = terminalConfigTheme
         context.coordinator.onArtifactFilesRequested = onArtifactFilesRequested
         context.coordinator.onArtifactPathTapped = onArtifactPathTapped
         context.coordinator.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
+        context.coordinator.onArtifactGalleryRefreshSignal = onArtifactGalleryRefreshSignal
         let artifactCountModeChanged = context.coordinator.updateArtifactCountMode(
             artifactFilesEnabled: artifactFilesEnabled,
+            terminalFilesChipEnabled: terminalFilesChipEnabled,
             sessionArtifactCountEnabled: sessionArtifactCountEnabled
         )
         surfaceView.artifactFilesEnabled = artifactFilesEnabled
@@ -140,20 +143,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let projectedArtifactCount = context.coordinator.artifactCountNeedsRefresh
             ? 0
             : visibleArtifactCount
-        context.coordinator.updateArtifactChip(
-            count: projectedArtifactCount,
-            enabled: artifactFilesEnabled
-        )
+        context.coordinator.updateArtifactChip(count: projectedArtifactCount)
         surfaceView.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
-        // Live theme change: the shell bumped the generation after writing the new
-        // theme into TerminalThemeStore. Rebuild the runtime config and recolor
-        // the mounted surface(s) in place so the background follows the new theme
-        // even when the `.id()` remount reused this same view.
-        if themeGeneration != context.coordinator.lastAppliedThemeGeneration {
-            context.coordinator.lastAppliedThemeGeneration = themeGeneration
-            GhosttyRuntime.applyLiveThemeIfRunning()
-        }
+        context.coordinator.scheduleTheme(terminalConfigTheme, generation: configThemeGeneration)
         // A width change (rotation) is not a text change, so the field-content trigger
         // misses it. Re-measure the open composer here so the band height tracks the new
         // width's wrapping. No-op when closed or when the height is unchanged.
@@ -173,17 +166,21 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
         var artifactFilesEnabled: Bool
+        var artifactChipGate: TerminalArtifactChipFeatureGate
         var sessionArtifactCountEnabled: Bool
         var visibleArtifactCount: Int
         var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void
         var onArtifactPathTapped: @MainActor (_ path: String) -> Void
         var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void
+        var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void
         private var outputTask: Task<Void, Never>?
         private var liveFontTask: Task<Void, Never>?
+        let themeApplicationScheduler = TerminalThemeApplicationScheduler()
         var artifactCountTask: Task<Void, Never>?
         var artifactCountTaskRequest: TerminalArtifactChipCountState.Request?
         var artifactCountState = TerminalArtifactChipCountState()
         var artifactCountNeedsRefresh: Bool
+        var freshestLocalArtifactCount = 0
         /// Hosts the SwiftUI ``TerminalComposerView`` so it can be installed into the
         /// surface's composer band. Built lazily on first open and torn down on
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
@@ -191,9 +188,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var artifactChipController: UIHostingController<TerminalArtifactChipView>?
         var lastArtifactChipRender: (count: Int, enabled: Bool)?
         private var composerMounted = false
-        /// The theme generation already pushed to the live runtime, so a repeated
-        /// `updateUIView` for the same generation does not rebuild the config again.
-        var lastAppliedThemeGeneration: UInt64 = 0
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
         /// Serializes the natural-grid viewport reports and their echoes. One
         /// detached Task per report (the previous shape) let Task scheduling
@@ -214,32 +208,36 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceID: String,
             store: CMUXMobileShellStore,
             artifactFilesEnabled: Bool,
+            terminalFilesChipEnabled: Bool,
             sessionArtifactCountEnabled: Bool,
             visibleArtifactCount: Int,
             onArtifactFilesRequested: @escaping @MainActor (_ anchor: UnitPoint) -> Void,
             onArtifactPathTapped: @escaping @MainActor (_ path: String) -> Void,
-            onVisibleArtifactCountChanged: @escaping @MainActor (_ count: Int) -> Void
+            onVisibleArtifactCountChanged: @escaping @MainActor (_ count: Int) -> Void,
+            onArtifactGalleryRefreshSignal: @escaping @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void
         ) {
             self.workspaceID = workspaceID
             self.surfaceID = surfaceID
             self.store = store
             self.artifactFilesEnabled = artifactFilesEnabled
+            self.artifactChipGate = TerminalArtifactChipFeatureGate(
+                artifactsAvailable: artifactFilesEnabled,
+                preferenceEnabled: terminalFilesChipEnabled
+            )
             self.sessionArtifactCountEnabled = sessionArtifactCountEnabled
             self.visibleArtifactCount = visibleArtifactCount
-            self.artifactCountNeedsRefresh = artifactFilesEnabled
+            self.artifactCountNeedsRefresh = artifactChipGate.isEnabled
             self.onArtifactFilesRequested = onArtifactFilesRequested
             self.onArtifactPathTapped = onArtifactPathTapped
             self.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
+            self.onArtifactGalleryRefreshSignal = onArtifactGalleryRefreshSignal
             super.init()
         }
 
         func attach(surfaceView: GhosttySurfaceView) {
             self.surfaceView = surfaceView
             surfaceView.artifactFilesEnabled = artifactFilesEnabled
-            updateArtifactChip(
-                count: artifactCountNeedsRefresh ? 0 : visibleArtifactCount,
-                enabled: artifactFilesEnabled
-            )
+            updateArtifactChip(count: artifactCountNeedsRefresh ? 0 : visibleArtifactCount)
             guard let store else { return }
             let surfaceID = surfaceID
             viewportReportScheduler = TerminalViewportReportScheduler(
@@ -317,8 +315,19 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     case nil:
                         break
                     }
-                    if !chunk.data.isEmpty {
-                        let applied = await surfaceView.processOutputAndWait(chunk.data)
+                    if let chunkConfigTheme = chunk.terminalConfigTheme,
+                       chunkConfigTheme != store.terminalConfigTheme(for: surfaceID) {
+                        store.terminalOutputDidReset(
+                            surfaceID: surfaceID,
+                            streamToken: chunk.streamToken
+                        )
+                        continue
+                    }
+                    if !chunk.data.isEmpty || chunk.terminalConfigTheme != nil {
+                        let applied = await surfaceView.processOutputAndWait(
+                            chunk.data,
+                            terminalConfigTheme: chunk.terminalConfigTheme
+                        )
                         guard applied else {
                             store.terminalOutputDidReset(
                                 surfaceID: surfaceID,
@@ -351,6 +360,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             outputTask = nil
             liveFontTask?.cancel()
             liveFontTask = nil
+            themeApplicationScheduler.cancel()
             artifactCountTask?.cancel()
             artifactCountTask = nil
             artifactCountTaskRequest = nil

@@ -393,7 +393,8 @@ extension ControlCommandCoordinator {
             return remoteRoutedCreationResult(
                 windowID: windowID,
                 workspaceID: workspaceID,
-                typeRawValue: typeRawValue
+                typeRawValue: typeRawValue,
+                operation: .splitWindow
             )
         case .created(let windowID, let workspaceID, let paneID, let surfaceID, let typeRawValue):
             return .ok(.object([
@@ -537,6 +538,15 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         case .paneNotFound:
             return .err(code: "not_found", message: "Pane not found", data: nil)
+        case .mirrorPaneTargetUnsupportedType(let typeRawValue, let message):
+            return .err(
+                code: "invalid_params",
+                message: message,
+                data: .object([
+                    "type": .string(typeRawValue),
+                    "target": .string("remote-tmux-pane"),
+                ])
+            )
         case .createFailed:
             return .err(code: "internal_error", message: "Failed to create surface", data: nil)
         case .mirrorUnsupportedOptions(let unsupported):
@@ -545,7 +555,8 @@ extension ControlCommandCoordinator {
             return remoteRoutedCreationResult(
                 windowID: windowID,
                 workspaceID: workspaceID,
-                typeRawValue: typeRawValue
+                typeRawValue: typeRawValue,
+                operation: .newWindow
             )
         case .createdDock(let windowID, let workspaceID, let dockPaneID, let dockSurfaceID, let typeRawValue):
             return .ok(.object([

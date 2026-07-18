@@ -1,14 +1,31 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
+use std::mem::size_of;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
+use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError, TrySendError, channel};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use tungstenite::client::IntoClientRequest;
 use tungstenite::{Error as WsError, Message, WebSocket, client};
+
+/// Maximum number of pending events in each bounded CDP event queue.
+///
+/// Downstream queue implementations use the same limit so moving an event
+/// between CDP layers cannot expand the maximum pending event count.
+pub const CDP_EVENT_QUEUE_CAPACITY: usize = 64;
+const CDP_INGRESS_EVENT_CAPACITY: usize = 1024;
+/// Maximum estimated retained bytes in each bounded CDP event queue.
+///
+/// The estimate covers dynamically retained event payloads and uses saturating
+/// arithmetic. It is a queue-enforcement budget, not an exact allocator usage
+/// measurement.
+pub const CDP_EVENT_QUEUE_MAX_BYTES: usize = 32 * 1024 * 1024;
+
+#[cfg(test)]
+static RETAINED_SIZE_CALLS: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScreencastFrame {
@@ -79,22 +96,192 @@ pub struct CdpClient {
 }
 
 struct Inner {
-    outbound: Sender<String>,
+    outbound: Sender<Outbound>,
     pending: Mutex<HashMap<u64, Sender<Result<Value, String>>>>,
-    events: Sender<CdpEvent>,
+    events: Arc<EventQueue>,
     next_id: AtomicU64,
     closed: AtomicBool,
     timeout: Duration,
+    #[cfg(test)]
+    reader_stopped: Arc<AtomicBool>,
+}
+
+struct EventQueue {
+    state: Mutex<EventQueueState>,
+}
+
+#[derive(Default)]
+struct EventQueueState {
+    events: VecDeque<QueuedEvent>,
+    retained_bytes: usize,
+    closed: bool,
+}
+
+struct QueuedEvent {
+    event: CdpEvent,
+    retained_bytes: usize,
+}
+
+impl EventQueue {
+    fn new() -> Self {
+        Self { state: Mutex::new(EventQueueState::default()) }
+    }
+
+    fn push(&self, event: CdpEvent) -> Result<(), ()> {
+        let mut state = self.state.lock().unwrap();
+        if state.closed {
+            return Err(());
+        }
+        let event_bytes = event_retained_bytes(&event);
+        if let Some(index) =
+            state.events.iter().position(|queued| same_replaceable(&queued.event, &event))
+        {
+            let previous_bytes = state.events[index].retained_bytes;
+            let retained_bytes = state
+                .retained_bytes
+                .checked_sub(previous_bytes)
+                .and_then(|bytes| bytes.checked_add(event_bytes))
+                .ok_or(())?;
+            if retained_bytes > CDP_EVENT_QUEUE_MAX_BYTES {
+                return Err(());
+            }
+            state.events.remove(index);
+            state.events.push_back(QueuedEvent { event, retained_bytes: event_bytes });
+            state.retained_bytes = retained_bytes;
+        } else {
+            let retained_bytes = state.retained_bytes.checked_add(event_bytes).ok_or(())?;
+            if state.events.len() >= CDP_INGRESS_EVENT_CAPACITY
+                || retained_bytes > CDP_EVENT_QUEUE_MAX_BYTES
+            {
+                return Err(());
+            }
+            state.events.push_back(QueuedEvent { event, retained_bytes: event_bytes });
+            state.retained_bytes = retained_bytes;
+        }
+        Ok(())
+    }
+
+    fn drain_into(&self, output: &SyncSender<CdpEvent>) -> Result<(), ()> {
+        let mut state = self.state.lock().unwrap();
+        while let Some(queued) = state.events.pop_front() {
+            state.retained_bytes = state.retained_bytes.saturating_sub(queued.retained_bytes);
+            match output.try_send(queued.event) {
+                Ok(()) => {}
+                Err(TrySendError::Full(event)) => {
+                    state.retained_bytes =
+                        state.retained_bytes.saturating_add(queued.retained_bytes);
+                    state
+                        .events
+                        .push_front(QueuedEvent { event, retained_bytes: queued.retained_bytes });
+                    return Ok(());
+                }
+                Err(TrySendError::Disconnected(_)) => return Err(()),
+            }
+        }
+        Ok(())
+    }
+
+    fn close(&self, reason: &str) {
+        let mut state = self.state.lock().unwrap();
+        if state.closed {
+            return;
+        }
+        state.events.clear();
+        let event = CdpEvent::Closed(reason.to_string());
+        let retained_bytes = event_retained_bytes(&event);
+        state.retained_bytes = retained_bytes;
+        state.events.push_back(QueuedEvent { event, retained_bytes });
+        state.closed = true;
+    }
+}
+
+fn same_replaceable(queued: &CdpEvent, incoming: &CdpEvent) -> bool {
+    match (queued, incoming) {
+        (CdpEvent::ScreencastFrame(queued), CdpEvent::ScreencastFrame(incoming)) => {
+            queued.session_id == incoming.session_id
+        }
+        (CdpEvent::TargetInfoChanged(queued), CdpEvent::TargetInfoChanged(incoming)) => {
+            queued.target_id == incoming.target_id
+        }
+        _ => false,
+    }
+}
+
+/// Estimates the bytes retained by a CDP event for bounded-queue accounting.
+///
+/// The result includes dynamically owned strings and JSON data, plus the frame
+/// container size, using saturating arithmetic. Callers should compare it with
+/// [`CDP_EVENT_QUEUE_MAX_BYTES`], not treat it as exact allocator usage.
+pub fn event_retained_bytes(event: &CdpEvent) -> usize {
+    #[cfg(test)]
+    RETAINED_SIZE_CALLS.fetch_add(1, Ordering::Relaxed);
+    match event {
+        CdpEvent::ScreencastFrame(frame) => frame
+            .data_b64
+            .len()
+            .saturating_add(frame.session_id.len())
+            .saturating_add(size_of::<ScreencastFrame>()),
+        CdpEvent::TargetCreated(target) => target
+            .target_id
+            .len()
+            .saturating_add(target.opener_id.as_ref().map_or(0, String::len))
+            .saturating_add(target.target_type.len())
+            .saturating_add(target.title.len())
+            .saturating_add(target.url.len()),
+        CdpEvent::TargetInfoChanged(info) => info
+            .session_id
+            .as_ref()
+            .map_or(0, String::len)
+            .saturating_add(info.target_id.len())
+            .saturating_add(info.title.len())
+            .saturating_add(info.url.len()),
+        CdpEvent::Other { method, params, session_id } => method
+            .len()
+            .saturating_add(json_retained_bytes(params))
+            .saturating_add(session_id.as_ref().map_or(0, String::len)),
+        CdpEvent::Closed(reason) => reason.len(),
+    }
+}
+
+fn json_retained_bytes(value: &Value) -> usize {
+    let base = size_of::<Value>();
+    match value {
+        Value::Null | Value::Bool(_) | Value::Number(_) => base,
+        Value::String(value) => base.saturating_add(value.capacity()),
+        Value::Array(values) => values.iter().fold(
+            base.saturating_add(values.capacity().saturating_mul(size_of::<Value>())),
+            |bytes, value| bytes.saturating_add(json_retained_bytes(value)),
+        ),
+        Value::Object(values) => values.iter().fold(base, |bytes, (key, value)| {
+            bytes
+                .saturating_add(size_of::<String>())
+                .saturating_add(size_of::<Value>())
+                .saturating_add(key.capacity())
+                .saturating_add(json_retained_bytes(value))
+        }),
+    }
+}
+
+impl Drop for Inner {
+    fn drop(&mut self) {
+        self.events.close("CDP client dropped");
+    }
+}
+
+enum Outbound {
+    Message(String),
+    Flush(Sender<()>),
 }
 
 impl CdpClient {
-    pub fn connect(web_socket_url: &str, events: Sender<CdpEvent>) -> anyhow::Result<Self> {
+    pub fn connect(web_socket_url: &str, events: SyncSender<CdpEvent>) -> anyhow::Result<Self> {
         let endpoint = WsEndpoint::parse(web_socket_url)?;
         let mut addrs = (endpoint.host.as_str(), endpoint.port).to_socket_addrs()?;
         let addr = addrs.next().ok_or_else(|| {
             anyhow::anyhow!("no socket address for {}:{}", endpoint.host, endpoint.port)
         })?;
         let stream = TcpStream::connect_timeout(&addr, Duration::from_secs(5))?;
+        stream.set_nodelay(true)?;
         stream.set_read_timeout(Some(Duration::from_secs(5)))?;
         stream.set_write_timeout(Some(Duration::from_secs(5)))?;
         let request = web_socket_url.into_client_request()?;
@@ -106,28 +293,36 @@ impl CdpClient {
         ws.get_ref().set_read_timeout(Some(Duration::from_millis(20)))?;
         ws.get_ref().set_write_timeout(Some(Duration::from_secs(5)))?;
         let (outbound_tx, outbound_rx) = channel();
+        let event_queue = Arc::new(EventQueue::new());
         let client = CdpClient {
             inner: Arc::new(Inner {
                 outbound: outbound_tx,
                 pending: Mutex::new(HashMap::new()),
-                events,
+                events: event_queue,
                 next_id: AtomicU64::new(1),
                 closed: AtomicBool::new(false),
                 timeout: Duration::from_secs(30),
+                #[cfg(test)]
+                reader_stopped: Arc::new(AtomicBool::new(false)),
             }),
         };
-        client.spawn_reader(ws, outbound_rx)?;
+        client.spawn_reader(ws, outbound_rx, events)?;
         Ok(client)
     }
 
     fn spawn_reader(
         &self,
         ws: WebSocket<TcpStream>,
-        outbound: Receiver<String>,
+        outbound: Receiver<Outbound>,
+        event_output: SyncSender<CdpEvent>,
     ) -> anyhow::Result<()> {
         let weak = Arc::downgrade(&self.inner);
+        #[cfg(test)]
+        let reader_stopped = self.inner.reader_stopped.clone();
         std::thread::Builder::new().name("cmux-tui-cdp-reader".into()).spawn(move || {
-            reader_loop(&weak, ws, &outbound);
+            reader_loop(&weak, ws, &outbound, &event_output);
+            #[cfg(test)]
+            reader_stopped.store(true, Ordering::Release);
         })?;
         Ok(())
     }
@@ -215,6 +410,20 @@ impl CdpClient {
             "params": { "targetId": target_id },
         });
         self.send_value(&msg)
+    }
+
+    /// Wait until every command queued before this call has been written to
+    /// the socket. Responses remain asynchronous.
+    pub fn flush_outbound(&self, timeout: Duration) -> anyhow::Result<()> {
+        if self.inner.closed.load(Ordering::Acquire) {
+            anyhow::bail!("CDP connection is closed");
+        }
+        let (tx, rx) = channel();
+        self.inner
+            .outbound
+            .send(Outbound::Flush(tx))
+            .map_err(|_| anyhow::anyhow!("CDP connection is closed"))?;
+        rx.recv_timeout(timeout).map_err(|_| anyhow::anyhow!("timed out flushing CDP commands"))
     }
 
     pub fn page_enable(&self, session_id: &str) -> anyhow::Result<()> {
@@ -404,7 +613,10 @@ impl CdpClient {
         if cdp_debug() {
             eprintln!("cdp-> {text}");
         }
-        self.inner.outbound.send(text).map_err(|_| anyhow::anyhow!("CDP connection is closed"))?;
+        self.inner
+            .outbound
+            .send(Outbound::Message(text))
+            .map_err(|_| anyhow::anyhow!("CDP connection is closed"))?;
         Ok(())
     }
 }
@@ -425,9 +637,18 @@ pub fn discover_browser_ws_url(ports: &[u16]) -> Option<String> {
     ports.iter().find_map(|port| fetch_json_version("127.0.0.1", *port).ok())
 }
 
-fn reader_loop(weak: &Weak<Inner>, mut ws: WebSocket<TcpStream>, outbound: &Receiver<String>) {
+fn reader_loop(
+    weak: &Weak<Inner>,
+    mut ws: WebSocket<TcpStream>,
+    outbound: &Receiver<Outbound>,
+    event_output: &SyncSender<CdpEvent>,
+) {
     loop {
         let Some(inner) = weak.upgrade() else { break };
+        if inner.events.drain_into(event_output).is_err() {
+            close_inner(&inner, "CDP event receiver closed");
+            break;
+        }
         if inner.closed.load(Ordering::Acquire) {
             break;
         }
@@ -445,6 +666,7 @@ fn reader_loop(weak: &Weak<Inner>, mut ws: WebSocket<TcpStream>, outbound: &Rece
             }
             Ok(Message::Close(_)) => {
                 close_inner(&inner, "CDP socket closed");
+                let _ = inner.events.drain_into(event_output);
                 break;
             }
             Ok(Message::Ping(_)) | Ok(Message::Pong(_)) | Ok(Message::Frame(_)) => {}
@@ -458,6 +680,7 @@ fn reader_loop(weak: &Weak<Inner>, mut ws: WebSocket<TcpStream>, outbound: &Rece
             }
             Err(e) => {
                 close_inner(&inner, &format!("CDP socket error: {e}"));
+                let _ = inner.events.drain_into(event_output);
                 break;
             }
         }
@@ -466,11 +689,14 @@ fn reader_loop(weak: &Weak<Inner>, mut ws: WebSocket<TcpStream>, outbound: &Rece
 
 fn drain_outbound(
     ws: &mut WebSocket<TcpStream>,
-    outbound: &Receiver<String>,
+    outbound: &Receiver<Outbound>,
 ) -> anyhow::Result<()> {
     loop {
         match outbound.try_recv() {
-            Ok(text) => ws.send(Message::Text(text.into()))?,
+            Ok(Outbound::Message(text)) => ws.send(Message::Text(text.into()))?,
+            Ok(Outbound::Flush(done)) => {
+                let _ = done.send(());
+            }
             Err(TryRecvError::Empty | TryRecvError::Disconnected) => return Ok(()),
         }
     }
@@ -499,28 +725,36 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
     match method {
         "Page.screencastFrame" => {
             if let Some(target_session) = session_id.as_deref() {
+                let Some(ack_id) = params.get("sessionId").and_then(|value| value.as_u64()) else {
+                    return;
+                };
+                ack_screencast_frame(inner, target_session, ack_id);
                 let Some(frame) = screencast_frame(&params, target_session) else { return };
-                ack_screencast_frame(inner, target_session, frame.ack_id);
-                let _ = inner.events.send(CdpEvent::ScreencastFrame(frame));
+                dispatch_event(inner, CdpEvent::ScreencastFrame(frame));
             }
         }
         "Target.targetCreated" => {
             if let Some(created) = target_created(&params) {
-                let _ = inner.events.send(CdpEvent::TargetCreated(created));
+                dispatch_event(inner, CdpEvent::TargetCreated(created));
             }
         }
         "Target.targetInfoChanged" => {
             if let Some(info) = target_info(&params, session_id.as_deref()) {
-                let _ = inner.events.send(CdpEvent::TargetInfoChanged(info));
+                dispatch_event(inner, CdpEvent::TargetInfoChanged(info));
             }
         }
         _ => {
-            let _ = inner.events.send(CdpEvent::Other {
-                method: method.to_string(),
-                params,
-                session_id,
-            });
+            dispatch_event(
+                inner,
+                CdpEvent::Other { method: method.to_string(), params, session_id },
+            );
         }
+    }
+}
+
+fn dispatch_event(inner: &Arc<Inner>, event: CdpEvent) {
+    if inner.events.push(event).is_err() {
+        close_inner(inner, "CDP event queue overflow");
     }
 }
 
@@ -533,11 +767,20 @@ fn ack_screencast_frame(inner: &Arc<Inner>, target_session: &str, frame_session:
         "params": { "sessionId": frame_session },
     });
     let Ok(text) = serde_json::to_string(&msg) else { return };
-    let _ = inner.outbound.send(text);
+    let _ = inner.outbound.send(Outbound::Message(text));
 }
 
 fn screencast_frame(params: &Value, session_id: &str) -> Option<ScreencastFrame> {
-    let data_b64 = params.get("data")?.as_str()?.to_string();
+    const MAX_ENCODED_FRAME_BYTES: usize = 16 * 1024 * 1024;
+    const MAX_DECODED_FRAME_BYTES: usize = 12 * 1024 * 1024;
+
+    let supplied = params.get("data")?.as_str()?;
+    if supplied.len() > MAX_ENCODED_FRAME_BYTES {
+        return None;
+    }
+    if canonical_base64_decoded_len(supplied)? > MAX_DECODED_FRAME_BYTES {
+        return None;
+    }
     let ack_id = params.get("sessionId")?.as_u64()?;
     let metadata = params.get("metadata").unwrap_or(&Value::Null);
     let css_width = metadata
@@ -552,11 +795,47 @@ fn screencast_frame(params: &Value, session_id: &str) -> Option<ScreencastFrame>
         .unwrap_or(0) as u32;
     Some(ScreencastFrame {
         session_id: session_id.to_string(),
-        data_b64,
+        data_b64: supplied.to_string(),
         css_width,
         css_height,
         ack_id,
     })
+}
+
+fn canonical_base64_decoded_len(input: &str) -> Option<usize> {
+    let bytes = input.as_bytes();
+    if !bytes.len().is_multiple_of(4) {
+        return None;
+    }
+    let padding = bytes.iter().rev().take_while(|byte| **byte == b'=').count();
+    if padding > 2 {
+        return None;
+    }
+    let data_len = bytes.len().checked_sub(padding)?;
+    if !bytes[..data_len].iter().all(|byte| base64_value(*byte).is_some()) {
+        return None;
+    }
+    if !bytes[data_len..].iter().all(|byte| *byte == b'=') {
+        return None;
+    }
+    if padding == 1 && base64_value(*bytes.get(data_len.checked_sub(1)?)?)? & 0b11 != 0 {
+        return None;
+    }
+    if padding == 2 && base64_value(*bytes.get(data_len.checked_sub(1)?)?)? & 0b1111 != 0 {
+        return None;
+    }
+    bytes.len().checked_div(4)?.checked_mul(3)?.checked_sub(padding)
+}
+
+fn base64_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'A'..=b'Z' => Some(byte - b'A'),
+        b'a'..=b'z' => Some(byte - b'a' + 26),
+        b'0'..=b'9' => Some(byte - b'0' + 52),
+        b'+' => Some(62),
+        b'/' => Some(63),
+        _ => None,
+    }
 }
 
 fn target_info(params: &Value, session_id: Option<&str>) -> Option<TargetInfo> {
@@ -587,7 +866,7 @@ fn close_inner(inner: &Arc<Inner>, why: &str) {
     for (_, tx) in inner.pending.lock().unwrap().drain() {
         let _ = tx.send(Err(why.to_string()));
     }
-    let _ = inner.events.send(CdpEvent::Closed(why.to_string()));
+    inner.events.close(why);
 }
 
 struct WsEndpoint {
@@ -619,6 +898,7 @@ fn fetch_json_version(host: &str, port: u16) -> anyhow::Result<String> {
     let addr =
         addrs.next().ok_or_else(|| anyhow::anyhow!("no socket address for {host}:{port}"))?;
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_millis(250))?;
+    stream.set_nodelay(true)?;
     stream.set_read_timeout(Some(Duration::from_millis(500)))?;
     stream.set_write_timeout(Some(Duration::from_millis(500)))?;
     write!(
@@ -640,19 +920,50 @@ fn fetch_json_version(host: &str, port: u16) -> anyhow::Result<String> {
 }
 
 fn read_http_response(stream: &mut TcpStream) -> anyhow::Result<String> {
+    read_http_response_with_limits(stream, 64 * 1024, Duration::from_secs(2))
+}
+
+fn read_http_response_with_limits(
+    stream: &mut TcpStream,
+    max_bytes: usize,
+    timeout: Duration,
+) -> anyhow::Result<String> {
+    let deadline = Instant::now() + timeout;
     let mut bytes = Vec::new();
     let mut buf = [0u8; 1024];
     loop {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .ok_or_else(|| anyhow::anyhow!("CDP discovery deadline exceeded"))?;
+        stream.set_read_timeout(Some(remaining.min(Duration::from_millis(500))))?;
         match stream.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => {
+                let new_len = bytes
+                    .len()
+                    .checked_add(n)
+                    .ok_or_else(|| anyhow::anyhow!("CDP discovery response size overflow"))?;
+                if new_len > max_bytes {
+                    anyhow::bail!("CDP discovery response exceeds size limit");
+                }
                 bytes.extend_from_slice(&buf[..n]);
-                if complete_http_response(&bytes) {
+                if complete_http_response(&bytes, max_bytes)? {
                     break;
                 }
             }
             Err(e) if !bytes.is_empty() && e.kind() == std::io::ErrorKind::ConnectionReset => {
                 break;
+            }
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                if Instant::now() >= deadline {
+                    anyhow::bail!("CDP discovery deadline exceeded");
+                }
+                continue;
             }
             Err(e) => return Err(e.into()),
         }
@@ -660,18 +971,28 @@ fn read_http_response(stream: &mut TcpStream) -> anyhow::Result<String> {
     Ok(String::from_utf8(bytes)?)
 }
 
-fn complete_http_response(bytes: &[u8]) -> bool {
+fn complete_http_response(bytes: &[u8], max_bytes: usize) -> anyhow::Result<bool> {
     let Some(header_end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") else {
-        return false;
+        return Ok(false);
     };
     let headers = String::from_utf8_lossy(&bytes[..header_end]);
     let Some(content_len) = headers.lines().find_map(|line| {
         let (name, value) = line.split_once(':')?;
         name.eq_ignore_ascii_case("content-length").then(|| value.trim().parse::<usize>().ok())?
     }) else {
-        return false;
+        return Ok(false);
     };
-    bytes.len() >= header_end + 4 + content_len
+    if content_len > max_bytes {
+        anyhow::bail!("CDP discovery response exceeds size limit");
+    }
+    let expected_len = header_end
+        .checked_add(4)
+        .and_then(|length| length.checked_add(content_len))
+        .ok_or_else(|| anyhow::anyhow!("CDP discovery response size overflow"))?;
+    if expected_len > max_bytes {
+        anyhow::bail!("CDP discovery response exceeds size limit");
+    }
+    Ok(bytes.len() >= expected_len)
 }
 
 impl WsEndpoint {
@@ -690,7 +1011,9 @@ impl WsEndpoint {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
     use std::net::TcpListener;
+    use std::sync::mpsc::sync_channel;
     use std::sync::{Arc, Barrier};
     use std::thread;
     use std::time::{Duration, Instant};
@@ -698,6 +1021,195 @@ mod tests {
     use tungstenite::{Message, accept};
 
     use super::*;
+
+    #[test]
+    fn screencast_frame_rejects_terminal_control_bytes() {
+        let params = json!({
+            "data": "AAAA\u{1b}_Ga=T,f=100;AAAA\u{1b}\\",
+            "sessionId": 7,
+            "metadata": {"deviceWidth": 80, "deviceHeight": 24}
+        });
+
+        assert!(screencast_frame(&params, "session-1").is_none());
+    }
+
+    #[test]
+    fn screencast_frame_preserves_valid_canonical_base64() {
+        let params = json!({
+            "data": "aGk=",
+            "sessionId": 7,
+            "metadata": {"deviceWidth": 80, "deviceHeight": 24}
+        });
+
+        assert_eq!(screencast_frame(&params, "session-1").unwrap().data_b64, "aGk=");
+    }
+
+    #[test]
+    fn screencast_frame_rejects_noncanonical_padding_bits() {
+        let params = json!({
+            "data": "aGl=",
+            "sessionId": 7,
+            "metadata": {"deviceWidth": 80, "deviceHeight": 24}
+        });
+
+        assert!(screencast_frame(&params, "session-1").is_none());
+    }
+
+    #[test]
+    fn json_queue_budget_charges_container_allocations() {
+        let value = Value::Array(vec![Value::Null; 128]);
+        assert!(
+            json_retained_bytes(&value) >= 128 * size_of::<Value>(),
+            "null container storage was not charged"
+        );
+    }
+
+    #[test]
+    fn backpressured_event_reuses_its_cached_retained_size() {
+        RETAINED_SIZE_CALLS.store(0, Ordering::Relaxed);
+        let queue = EventQueue::new();
+        queue
+            .push(CdpEvent::Other {
+                method: "Test.large".to_string(),
+                params: json!({"payload": "x".repeat(1024 * 1024)}),
+                session_id: Some("session-1".to_string()),
+            })
+            .unwrap();
+        let (event_tx, _event_rx) = sync_channel(0);
+
+        queue.drain_into(&event_tx).unwrap();
+        let calls_after_first_retry = RETAINED_SIZE_CALLS.load(Ordering::Relaxed);
+        queue.drain_into(&event_tx).unwrap();
+
+        assert_eq!(
+            RETAINED_SIZE_CALLS.load(Ordering::Relaxed),
+            calls_after_first_retry,
+            "retry rescanned the retained JSON event"
+        );
+    }
+
+    #[test]
+    fn coalesced_event_keeps_chronological_order() {
+        let queue = EventQueue::new();
+        let target = |title: &str| {
+            CdpEvent::TargetInfoChanged(TargetInfo {
+                session_id: Some("session-1".to_string()),
+                target_id: "target-1".to_string(),
+                title: title.to_string(),
+                url: "https://example.test".to_string(),
+            })
+        };
+        queue.push(target("old")).unwrap();
+        queue
+            .push(CdpEvent::Other {
+                method: "Page.frameNavigated".to_string(),
+                params: Value::Null,
+                session_id: Some("session-1".to_string()),
+            })
+            .unwrap();
+        queue.push(target("new")).unwrap();
+        let (event_tx, event_rx) = sync_channel(2);
+
+        queue.drain_into(&event_tx).unwrap();
+
+        assert!(matches!(event_rx.recv().unwrap(), CdpEvent::Other { .. }));
+        assert!(matches!(
+            event_rx.recv().unwrap(),
+            CdpEvent::TargetInfoChanged(TargetInfo { title, .. }) if title == "new"
+        ));
+    }
+
+    #[test]
+    fn rejected_screencast_frame_is_acknowledged() {
+        let (outbound_tx, outbound_rx) = channel();
+        let inner = Arc::new(Inner {
+            outbound: outbound_tx,
+            pending: Mutex::new(HashMap::new()),
+            events: Arc::new(EventQueue::new()),
+            next_id: AtomicU64::new(1),
+            closed: AtomicBool::new(false),
+            timeout: Duration::from_secs(1),
+            reader_stopped: Arc::new(AtomicBool::new(false)),
+        });
+        handle_text(
+            &inner,
+            &json!({
+                "method": "Page.screencastFrame",
+                "sessionId": "session-1",
+                "params": {
+                    "data": "not base64",
+                    "sessionId": 77,
+                    "metadata": {"deviceWidth": 80, "deviceHeight": 24}
+                }
+            })
+            .to_string(),
+        );
+
+        let Outbound::Message(ack) = outbound_rx.try_recv().expect("rejected frame ack") else {
+            panic!("expected a CDP message");
+        };
+        let ack: Value = serde_json::from_str(&ack).unwrap();
+        assert_eq!(ack["method"], "Page.screencastFrameAck");
+        assert_eq!(ack["params"]["sessionId"], 77);
+    }
+
+    #[test]
+    fn http_discovery_rejects_response_over_limit() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.write_all(b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n").unwrap();
+            stream.write_all(&vec![b'x'; 65 * 1024]).unwrap();
+        });
+        let mut stream = TcpStream::connect(addr).unwrap();
+
+        let error = read_http_response(&mut stream).unwrap_err();
+        assert!(error.to_string().contains("exceeds size limit"), "{error:#}");
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn http_discovery_enforces_absolute_deadline() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            for byte in b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n" {
+                if stream.write_all(&[*byte]).is_err() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(20));
+            }
+        });
+        let mut stream = TcpStream::connect(addr).unwrap();
+
+        let started = Instant::now();
+        let error =
+            read_http_response_with_limits(&mut stream, 64 * 1024, Duration::from_millis(100))
+                .unwrap_err();
+        assert!(error.to_string().contains("deadline exceeded"), "{error:#}");
+        assert!(started.elapsed() < Duration::from_millis(500));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn http_discovery_retries_idle_timeout_before_absolute_deadline() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.write_all(b"HTTP/1.1 200 OK\r\n").unwrap();
+            thread::sleep(Duration::from_millis(600));
+            stream.write_all(b"Content-Length: 2\r\n\r\n{}").unwrap();
+        });
+        let mut stream = TcpStream::connect(addr).unwrap();
+
+        let response =
+            read_http_response_with_limits(&mut stream, 64 * 1024, Duration::from_secs(2)).unwrap();
+        assert!(response.ends_with("{}"));
+        server.join().unwrap();
+    }
 
     #[test]
     fn concurrent_calls_complete_while_reader_receives_events() {
@@ -770,7 +1282,7 @@ mod tests {
             assert_eq!(responses, CALLS);
         });
 
-        let (event_tx, _event_rx) = channel();
+        let (event_tx, _event_rx) = sync_channel(64);
         let client =
             CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
         let barrier = Arc::new(Barrier::new(CALLS));
@@ -789,5 +1301,155 @@ mod tests {
             worker.join().unwrap();
         }
         server.join().unwrap();
+    }
+
+    #[test]
+    fn undrained_event_sink_does_not_block_command_responses() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (stop_tx, stop_rx) = channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let request = ws.read().unwrap();
+            let Message::Text(request) = request else { panic!("expected text request") };
+            let request: Value = serde_json::from_str(&request).unwrap();
+            ws.send(Message::Text(
+                json!({
+                    "method": "Target.targetInfoChanged",
+                    "params": {
+                        "targetInfo": {
+                            "targetId": "target-1",
+                            "title": "busy",
+                            "url": "https://example.test"
+                        }
+                    }
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+            ws.send(Message::Text(
+                json!({
+                    "id": request["id"],
+                    "result": {"userAgent": "Mozilla/5.0 Chrome/136.0 Safari/537.36"}
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+            let _ = stop_rx.recv();
+        });
+        let (event_tx, event_rx) = sync_channel(0);
+        let client =
+            CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
+        let (result_tx, result_rx) = channel();
+        let call_client = client.clone();
+        let call = thread::spawn(move || {
+            result_tx.send(call_client.browser_version()).unwrap();
+        });
+
+        let result = result_rx.recv_timeout(Duration::from_millis(200));
+        let retained_event = event_rx.recv_timeout(Duration::from_millis(200));
+        drop(client);
+        stop_tx.send(()).unwrap();
+        server.join().unwrap();
+        call.join().unwrap();
+        assert!(result.is_ok(), "undrained event sink blocked command response: {result:?}");
+        assert!(
+            matches!(retained_event, Ok(CdpEvent::TargetInfoChanged(_))),
+            "final replaceable event was lost: {retained_event:?}"
+        );
+    }
+
+    #[test]
+    fn saturated_event_sink_preserves_critical_event_and_response() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (stop_tx, stop_rx) = channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let request = ws.read().unwrap();
+            let Message::Text(request) = request else { panic!("expected text request") };
+            let request: Value = serde_json::from_str(&request).unwrap();
+            ws.send(Message::Text(
+                json!({
+                    "method": "Page.javascriptDialogOpening",
+                    "sessionId": "session-1",
+                    "params": {"type": "alert", "message": "blocked"}
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+            ws.send(Message::Text(
+                json!({
+                    "id": request["id"],
+                    "result": {"userAgent": "Mozilla/5.0 Chrome/136.0 Safari/537.36"}
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+            let _ = stop_rx.recv();
+        });
+        let (event_tx, event_rx) = sync_channel(0);
+        let client =
+            CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
+        let (result_tx, result_rx) = channel();
+        let call_client = client.clone();
+        let call = thread::spawn(move || {
+            result_tx.send(call_client.browser_version()).unwrap();
+        });
+
+        let result = result_rx.recv_timeout(Duration::from_millis(200));
+        let retained_event = event_rx.recv_timeout(Duration::from_millis(200));
+        drop(client);
+        stop_tx.send(()).unwrap();
+        server.join().unwrap();
+        call.join().unwrap();
+        assert!(matches!(result, Ok(Ok(_))), "critical event blocked command progress: {result:?}");
+        assert!(
+            matches!(retained_event, Ok(CdpEvent::Other { .. })),
+            "critical event was lost: {retained_event:?}"
+        );
+    }
+
+    #[test]
+    fn socket_shutdown_disconnects_a_backpressured_event_receiver() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            ws.close(None).unwrap();
+        });
+        let (event_tx, event_rx) = sync_channel(1);
+        event_tx
+            .send(CdpEvent::Other {
+                method: "Test.blocked".to_string(),
+                params: Value::Null,
+                session_id: None,
+            })
+            .unwrap();
+        let client =
+            CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
+        server.join().unwrap();
+
+        let deadline = Instant::now() + Duration::from_millis(500);
+        while !client.inner.reader_stopped.load(Ordering::Acquire) {
+            assert!(Instant::now() < deadline, "CDP reader did not stop");
+            thread::yield_now();
+        }
+        assert!(matches!(event_rx.recv(), Ok(CdpEvent::Other { .. })));
+
+        let shutdown = event_rx.recv_timeout(Duration::from_millis(500));
+        drop(client);
+
+        assert!(
+            matches!(shutdown, Err(std::sync::mpsc::RecvTimeoutError::Disconnected)),
+            "reader exit left the event channel live: {shutdown:?}"
+        );
     }
 }

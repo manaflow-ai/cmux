@@ -50,8 +50,11 @@ public final class AuthCoordinator {
         }
     }
 
-    /// The team id API calls should target: the persisted selection while it is
-    /// still one of ``availableTeams``, else the first available team.
+    /// The team id API calls should target. While the team refresh is unavailable
+    /// or still loading, the account-scoped persisted selection remains effective
+    /// so local state and reconnect routes do not temporarily fall into the
+    /// teamless partition. Once teams load, an invalid selection falls back to the
+    /// first available team.
     public var resolvedTeamID: String? {
         Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: availableTeams)
     }
@@ -78,6 +81,7 @@ public final class AuthCoordinator {
     var debugCredentials: CMUXAuthAutoLoginCredentials?
     private var bootstrapTask: Task<Void, Never>?
     var isRevalidatingSession = false
+    var sessionRevalidationWaiters: [CheckedContinuation<Void, Never>] = []
     /// Monotonic session epoch, advanced by every session transition: each
     /// ``clearAuthState()`` AND each published sign-in
     /// (``applySignedInUser(_:)``). Flows that touch session state after
@@ -625,6 +629,9 @@ public final class AuthCoordinator {
         selectedTeamID: String?,
         teams: [CMUXAuthTeam]
     ) -> String? {
+        if teams.isEmpty {
+            return selectedTeamID
+        }
         if let selectedTeamID,
            teams.contains(where: { $0.id == selectedTeamID }) {
             return selectedTeamID

@@ -8,8 +8,8 @@ import SwiftUI
 /// Status submenu and the todo pane's status popover so both surfaces present
 /// identical lanes, titles, and selection through one model, and apply through
 /// the same `WorkspaceTodoActions.applyStatusOverride` path. Sidebar workspace
-/// rows deliberately draw no status glyph (the leading status circles were
-/// removed; see `SidebarWorkspaceRowStatusGlyphRemovalTests`).
+/// rows may expose this list from the compact manual-status glyph, but automatic
+/// status stays out of row chrome.
 struct WorkspaceTodoStatusLane: Equatable, Identifiable {
     /// The lane to pin, or `nil` for Auto (clear the override) and for None.
     let status: WorkspaceTaskStatus?
@@ -20,6 +20,28 @@ struct WorkspaceTodoStatusLane: Equatable, Identifiable {
 
     var id: String { isNone ? "none" : (status?.rawValue ?? "auto") }
 }
+
+nonisolated struct SidebarWorkspaceCompactStatusMenuModel: Equatable {
+    let inferred: WorkspaceTaskStatus
+    let activeOverride: WorkspaceTaskStatus?
+}
+
+extension SidebarWorkspaceCompactStatusMenuModel {
+    static func resolve(
+        inferred: WorkspaceTaskStatus,
+        override: WorkspaceTaskStatusOverride?
+    ) -> Self {
+        let resolution = WorkspaceTaskStatusOverride.effectiveStatus(
+            override: override,
+            inferred: inferred
+        )
+        guard let override, !resolution.shouldClearOverride else {
+            return Self(inferred: inferred, activeOverride: nil)
+        }
+        return Self(inferred: inferred, activeOverride: override.status)
+    }
+}
+
 extension WorkspaceTodoStatusLane {
     /// The ordered lane list: Auto first, then the five status lanes, then None.
     ///

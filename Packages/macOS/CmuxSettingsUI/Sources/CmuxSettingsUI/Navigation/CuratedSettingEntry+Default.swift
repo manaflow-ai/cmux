@@ -112,7 +112,36 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .terminal, id: "renderer-realization", title: "Reclaim Offscreen Terminal Memory", synonyms: "terminal.rendererRealization.enabled renderer reclaim offscreen memory iosurface gpu idle warm release background terminals"),
             .init(section: .terminal, id: "renderer-realization-idle", title: "Reclaim After Idle Seconds", synonyms: "terminal.rendererRealization.idleSeconds renderer reclaim idle seconds timeout delay offscreen memory"),
             .init(section: .terminal, id: "renderer-realization-max", title: "Max Warm Renderers", synonyms: "terminal.rendererRealization.maxWarmRenderers max warm renderers limit count reclaim offscreen gpu"),
+            .init(
+                section: .terminal,
+                id: "memory-guardrail",
+                title: String(localized: "settings.terminal.memoryGuardrail", defaultValue: "Runaway Memory Guardrail"),
+                detailText: [
+                    String(localized: "settings.terminal.memoryGuardrail.subtitleOn", defaultValue: "cmux warns you with a badge and a banner when one pane's process tree uses too much memory, so a single leak can't crash the whole app."),
+                    String(localized: "settings.terminal.memoryGuardrail.subtitleOff", defaultValue: "No warning is shown when a pane's process tree grows large. A leaking process can OOM-suspend the entire app."),
+                ].joined(separator: " "),
+                synonyms: "terminal.runawayMemoryGuardrail.enabled runaway memory guardrail high memory warning badge banner oom leak process tree pane"
+            ),
+            .init(
+                section: .terminal,
+                id: "memory-guardrail-threshold",
+                title: String(localized: "settings.terminal.memoryGuardrail.threshold", defaultValue: "Memory Warning Threshold (GB)"),
+                detailText: String(localized: "settings.terminal.memoryGuardrail.threshold.subtitle", defaultValue: "A pane is flagged once its combined process-tree memory crosses this many gigabytes."),
+                synonyms: "terminal.runawayMemoryGuardrail.thresholdGB memory warning threshold gb gigabytes limit process tree pane"
+            ),
             .init(section: .terminal, id: "resume-commands", title: "Resume Commands", synonyms: "terminal.resumeCommands surface resume command approvals prefixes auto restore prompt manual tmux hibernation"),
+            .init(
+                section: .terminal,
+                id: "session-content-width",
+                title: String(localized: "settings.terminal.sessionContentWidth", defaultValue: "Session Content Width"),
+                synonyms: String(localized: "settings.search.alias.setting.terminal.session-content-width", defaultValue: "terminal.sessionContentMaxWidth terminal agent chat max width readable line length points pt narrow wide")
+            ),
+            .init(
+                section: .terminal,
+                id: "session-content-alignment",
+                title: String(localized: "settings.terminal.sessionContentAlignment", defaultValue: "Session Content Alignment"),
+                synonyms: String(localized: "settings.search.alias.setting.terminal.session-content-alignment", defaultValue: "terminal.sessionContentAlignment terminal agent chat left center right alignment position")
+            ),
 
             // TextBox
             .init(section: .textBox, id: "show-textbox-new-terminals", title: "Show TextBox on New Terminals", synonyms: "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta"),
@@ -172,6 +201,14 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .mobile, id: "iOSPairingHost", title: "iOS Pairing", synonyms: "ios iphone ipad mobile pairing local network permission sync"),
             .init(section: .mobile, id: "iOSPairingPort", title: String(localized: "settings.mobile.port", defaultValue: "Pairing Port"), synonyms: "mobile.iOSPairingHost.port ios iphone mobile pairing port tcp listener firewall conflict"),
             .init(section: .mobile, id: "iOSPairingDisplayName", title: String(localized: "settings.mobile.displayName", defaultValue: "Display Name"), synonyms: "mobile.iOSPairingHost.displayName ios iphone mobile pairing display name mac hostname device label"),
+            .init(
+                section: .mobile,
+                id: "artifactFolderAccess",
+                title: String(localized: "settings.mobile.artifactFolderAccess", defaultValue: "Folder Access"),
+                detailText: String(localized: "settings.mobile.artifactFolderAccess.subtitleSubtree", defaultValue: "Lets iOS browse any item inside a folder referenced by chat or visible in a terminal."),
+                paths: ["mobile.artifactFolderAccess"],
+                synonyms: "ios iphone ipad mobile files folders directory subtree one level authorization security"
+            ),
 
             // Custom Sidebars
             .init(section: .customSidebars, id: "enabled", title: String(localized: "settings.customSidebars.enabled", defaultValue: "Show Custom Sidebars"), synonyms: "custom sidebars enable show vibe swift json interpreted picker beta"),
@@ -182,6 +219,17 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .betaFeatures, id: "dock", title: "Dock", synonyms: "dock right sidebar terminal controls tui beta unstable"),
             .init(section: .betaFeatures, id: "customSidebars", title: "Custom Sidebars", synonyms: "custom sidebars swift json interpreted vibe beta unstable"),
             .init(section: .betaFeatures, id: "remoteTmux", title: "Remote tmux", synonyms: "remote tmux ssh control mode -CC mirror session window pane sidebar workspace beta unstable"),
+            .init(
+                section: .betaFeatures,
+                id: "workspace-todo-controls",
+                title: String(localized: "settings.betaFeatures.workspaceTodoControls", defaultValue: "Workspace Todo Controls"),
+                detailText: [
+                    String(localized: "settings.betaFeatures.workspaceTodoControls.subtitleOn", defaultValue: "Shows Add Checklist Item and workspace status controls."),
+                    String(localized: "settings.betaFeatures.workspaceTodoControls.subtitleOff", defaultValue: "Keeps workspace todo summaries read-only unless remote rollout enables the controls."),
+                ].joined(separator: " "),
+                paths: ["sidebar.beta.workspaceTodos.controls.enabled"],
+                synonyms: String(localized: "settings.search.alias.setting.betaFeatures.workspace-todo-controls", defaultValue: "sidebar.beta.workspaceTodos.controls.enabled workspace todo todos task status checklist add item controls beta")
+            ),
             .init(
                 section: .betaFeatures,
                 id: "workspace-todos-checklist-style",

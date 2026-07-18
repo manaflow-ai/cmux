@@ -130,13 +130,12 @@ extension TerminalSurface {
               GhosttySurfaceRuntimeProbe.surfacePointerAppearsLive(surface) else {
             let callbackContext = surfaceCallbackContext
             surfaceCallbackContext = nil
-            let manualIOContext = manualIOContext
-            self.manualIOContext = nil
             let teeLease = mobileByteTeeLease
             mobileByteTeeLease = nil
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
             activePortalHostLease = nil
+            portalHostAuthority = nil
             recordTeardownRequest(reason: reason)
             markPortalLifecycleClosed(reason: reason)
 #if DEBUG
@@ -148,7 +147,6 @@ extension TerminalSurface {
             )
 #endif
             callbackContext?.release()
-            manualIOContext?.release()
             teeLease?.release()
             return nil
         }
@@ -200,6 +198,9 @@ extension TerminalSurface {
         guard portalLifecycleState != .closing else { return }
         recordTeardownRequest(reason: reason)
         portalLifecycleState = .closing
+        // Parked wake-ups are for re-anchoring live content; a closing surface
+        // has none, and the park guard refuses new entries from here on.
+        clearPortalHostVacancyRetries()
         portalLifecycleGeneration &+= 1
 #if DEBUG
         logDebugEvent(
@@ -214,6 +215,7 @@ extension TerminalSurface {
         guard portalLifecycleState != .closed else { return }
         portalLifecycleState = .closed
         portalLifecycleGeneration &+= 1
+        clearPortalHostVacancyRetries()
 #if DEBUG
         logDebugEvent(
             "surface.lifecycle.close.sealed surface=\(id.uuidString.prefix(5)) " +
@@ -266,6 +268,9 @@ extension TerminalSurface {
 
 #if DEBUG
         if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
+            // Transport manualIOContext and teeLease through the request too:
+            // the coordinator releases all callback userdata only after the
+            // native free, which is what joins ghostty's IO threads.
             runtimeTeardown.enqueueRuntimeTeardown(
                 id: id,
                 workspaceId: tabId,
@@ -276,7 +281,6 @@ extension TerminalSurface {
                 byteTeeLease: teeLease,
                 freeSurface: freeSurface
             )
-            // The coordinator releases every callback owner after free returns.
             return
         }
 #endif
@@ -314,10 +318,12 @@ extension TerminalSurface {
         }
         surface = nil
         activePortalHostLease = nil
+        portalHostAuthority = nil
+        clearPortalHostVacancyRetries()
+        portalLifecycleGeneration &+= 1
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
         pendingSocketInputBytes = 0
         desiredFocusState = false
-        noteRuntimeSurfaceRecreatedForOcclusion()
 
         guard let surfaceToFree else {
             callbackContext?.release()
@@ -335,6 +341,9 @@ extension TerminalSurface {
 
 #if DEBUG
         if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
+            // Transport manualIOContext and teeLease through the request too:
+            // the coordinator releases all callback userdata only after the
+            // native free, which is what joins ghostty's IO threads.
             runtimeTeardown.enqueueRuntimeTeardown(
                 id: id,
                 workspaceId: tabId,
@@ -345,7 +354,6 @@ extension TerminalSurface {
                 byteTeeLease: teeLease,
                 freeSurface: freeSurface
             )
-            // The coordinator releases every callback owner after free returns.
             return
         }
 #endif
@@ -624,7 +632,6 @@ extension TerminalSurface {
         // surface converges with any focus changes that happened while the
         // surface was being initialized.
         ghostty_surface_set_focus(createdSurface, desiredFocusState)
-        applyRetainedOcclusionAfterRuntimeInstallation()
 
         flushPendingSocketInputIfNeeded()
 

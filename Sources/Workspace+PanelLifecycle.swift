@@ -450,7 +450,7 @@ extension Workspace {
         }
 
         if requestTransferredRemoteCleanup, let transferredRemoteCleanupConfiguration {
-            Self.requestSSHControlMasterCleanupIfNeeded(configuration: transferredRemoteCleanupConfiguration)
+            requestSSHControlMasterCleanupIfNeeded(configuration: transferredRemoteCleanupConfiguration)
         }
         return transferredRemoteCleanupConfiguration
     }

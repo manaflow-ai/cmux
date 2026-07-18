@@ -8577,7 +8577,7 @@ struct CMUXCLI {
         let workspaceName: String?
         let windowRaw: String?
         let noFocus: Bool
-        let sshOptions: [String]
+        var sshOptions: [String]
         let extraArguments: [String]
         let agentSocketPath: String?
         let passwordCredential: String?
@@ -8918,7 +8918,7 @@ struct CMUXCLI {
     /// drop the user in a shell" pipeline. The inner loop of `cmux ssh`; also called from
     /// `cmux vm new`/`shell`/`attach` so cloud VMs reuse the exact same bootstrap.
     private func runSSHWithOptions(
-        _ sshOptions: SSHCommandOptions,
+        _ inputSSHOptions: SSHCommandOptions,
         relayID: String,
         relayToken: String,
         client: SocketClient,
@@ -8926,6 +8926,13 @@ struct CMUXCLI {
         idFormat: CLIIDFormat,
         vmIDForSplitAttach: String? = nil
     ) throws {
+        var sshOptions = inputSSHOptions
+        let sharingOptions = SSHConnectionSharingOptions()
+        sshOptions.sshOptions = sharingOptions.mergingDefaults(
+            into: inputSSHOptions.sshOptions,
+            userConfiguredControlOptions: resolvedUserSSHControlOptions(for: inputSSHOptions)
+        )
+        sshOptions.sshOptions = resolvedCmuxControlPathOptions(for: sshOptions)
         let sshStartedAt = Date()
         func logSSHTiming(_ stage: String, extra: String = "") {
             let elapsedMs = Int(Date().timeIntervalSince(sshStartedAt) * 1000)
@@ -9766,32 +9773,11 @@ struct CMUXCLI {
             options.sshOptions,
             remoteRelayPort: options.remoteRelayPort
         )
-        guard let controlMaster = sshOptionValue(named: "ControlMaster", in: effectiveOptions)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased(),
-              !["no", "false", "off"].contains(controlMaster),
-              let controlPath = sshOptionValue(named: "ControlPath", in: effectiveOptions)?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-              !controlPath.isEmpty,
-              controlPath.lowercased() != "none" else {
-            return nil
-        }
-
-        let sshPrefix = baseSSHArguments(options).map(shellQuote).joined(separator: " ")
-        let destination = shellQuote(options.destination)
-        return [
-            "cmux_ssh_preflight_control_path() {",
-            #"  cmux_ssh_control_path="$(command \#(sshPrefix) -G \#(destination) 2>/dev/null | awk 'tolower($1) == "controlpath" { $1 = ""; sub(/^[[:space:]]+/, ""); print; exit }')" "#,
-            "  case \"${cmux_ssh_control_path:-}\" in",
-            "    /tmp/cmux-ssh-*|\"$HOME\"/.cmux/control/*)",
-            "      if ! command \(sshPrefix) -S \"$cmux_ssh_control_path\" -O check \(destination) >/dev/null 2>&1; then",
-            "        rm -f -- \"$cmux_ssh_control_path\" 2>/dev/null || true",
-            "      fi",
-            "      ;;",
-            "  esac",
-            "  unset cmux_ssh_control_path",
-            "}",
-        ].joined(separator: "\n")
+        return SSHConnectionSharingOptions().controlPathPreflightShellFunction(
+            sshArguments: baseSSHArguments(options),
+            destination: options.destination,
+            options: effectiveOptions
+        )
     }
 
     func buildInteractiveRemoteShellScript(
@@ -10098,28 +10084,8 @@ struct CMUXCLI {
         _ options: [String],
         remoteRelayPort: Int? = nil
     ) -> [String] {
-        var merged: [String] = []
-        for option in options {
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            merged.append(trimmed)
-        }
-        let controlMaster = sshOptionValue(named: "ControlMaster", in: merged)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let controlMasterDisabled = ["no", "false", "off"].contains(controlMaster ?? "")
-        if controlMaster == nil {
-            merged.append("ControlMaster=auto")
-        }
-        if !controlMasterDisabled {
-            if !hasSSHOptionKey(merged, key: "ControlPersist") {
-                merged.append("ControlPersist=600")
-            }
-            if !hasSSHOptionKey(merged, key: "ControlPath") {
-                merged.append("ControlPath=\(defaultSSHControlPathTemplate(remoteRelayPort: remoteRelayPort))")
-            }
-        }
-        return merged
+        _ = remoteRelayPort
+        return SSHConnectionSharingOptions().mergingDefaults(into: options)
     }
 
     private func scopedGhosttyShellFeaturesValue() -> String {
@@ -10170,18 +10136,61 @@ struct CMUXCLI {
         passwordCredential: String?,
         controlPathPreflightShellFunction: String?
     ) -> String {
-        var authArguments = sshArgumentsOverridingHostRemoteCommand(baseSSHArguments(options, localCommandScript: localCommandScript))
+        var authArguments = sshArgumentsOverridingHostRemoteCommand(baseSSHArguments(options))
         authArguments += ["-T", options.destination, "true"]
         let authCommand = authArguments.map(shellQuote).joined(separator: " ")
         let attachScript = buildSSHPTYAttachScriptBody(
             remoteShellCommand: remoteShellCommand
         )
-        let authScript = [
+        var authScriptLines: [String] = []
+        let authenticationLockPath = SSHConnectionSharingOptions().foregroundAuthenticationLockPath(
+            destination: options.destination,
+            port: options.port,
+            options: effectiveSSHOptions(options.sshOptions, remoteRelayPort: options.remoteRelayPort)
+        )
+        if let lockPath = authenticationLockPath {
+            let inFlightPath = lockPath + ".inflight"
+            authScriptLines += [
+                "umask 077",
+                "cmux_ssh_auth_inflight_path=\(shellQuote(inFlightPath))",
+                "cmux_ssh_auth_lock_path=\(shellQuote(lockPath))",
+                "printf '%s\\n' \"$$\" > \"$cmux_ssh_auth_inflight_path\" || exit 255",
+                "cmux_ssh_clear_auth_inflight() { if [ \"$(/bin/cat -- \"$cmux_ssh_auth_inflight_path\" 2>/dev/null || true)\" = \"$$\" ]; then /bin/rm -f -- \"$cmux_ssh_auth_inflight_path\" 2>/dev/null || true; fi; }",
+                "trap 'cmux_ssh_clear_auth_inflight' EXIT",
+                "trap 'cmux_ssh_clear_auth_inflight; exit 129' HUP",
+                "trap 'cmux_ssh_clear_auth_inflight; exit 130' INT",
+                "trap 'cmux_ssh_clear_auth_inflight; exit 143' TERM",
+                ": >> \"$cmux_ssh_auth_lock_path\" || exit 255",
+                "zmodload zsh/system || exit 255",
+                "zsystem flock -t 45 -e -f cmux_ssh_auth_lock_fd \"$cmux_ssh_auth_lock_path\" || exit 255",
+            ]
+            if let controlPathPreflightShellFunction {
+                authScriptLines.append(controlPathPreflightShellFunction)
+            }
+        }
+        if controlPathPreflightShellFunction != nil {
+            authScriptLines.append("cmux_ssh_preflight_control_path")
+        }
+        authScriptLines += [
             "command \(authCommand) <&0",
             "cmux_auth_status=$?",
             "if [ \"$cmux_auth_status\" -ne 0 ]; then exit \"$cmux_auth_status\"; fi",
         ]
-            .joined(separator: "\n")
+        if let localCommandScript = localCommandScript?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !localCommandScript.isEmpty {
+            authScriptLines.append(localCommandScript)
+        }
+        if authenticationLockPath != nil {
+            authScriptLines += [
+                "zsystem flock -u \"$cmux_ssh_auth_lock_fd\" || exit 255",
+                "trap - EXIT HUP INT TERM",
+            ]
+        }
+        let authScriptBody = authScriptLines.joined(separator: "\n")
+        let authScript = authenticationLockPath == nil
+            ? authScriptBody
+            : "/bin/zsh -fc \(shellQuote(authScriptBody))"
         return buildReusableSSHStartupCommand(
             sshCommand: attachScript,
             shellFeatures: "",
@@ -12914,13 +12923,6 @@ struct CMUXCLI {
         return ["no", "false", "off"].contains(normalized) || (zeroIsDisabled && normalized == "0")
     }
 
-    private func defaultSSHControlPathTemplate(remoteRelayPort: Int? = nil) -> String {
-        if let remoteRelayPort, remoteRelayPort > 0 {
-            return "/tmp/cmux-ssh-\(getuid())-\(remoteRelayPort)-%C"
-        }
-        return "/tmp/cmux-ssh-\(getuid())-%C"
-    }
-
     private func normalizedSSHIdentityPath(_ rawPath: String?) -> String? {
         guard let rawPath else { return nil }
         let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -13056,7 +13058,7 @@ struct CMUXCLI {
         var surfaceRaw = surfaceOpt
         var args = argsWithoutSurfaceFlag
 
-        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles", "react-grab", "reactgrab", "devtools", "dev-tools", "focus-mode", "zoom", "history"]
+        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles", "react-grab", "reactgrab", "devtools", "dev-tools", "focus-mode", "design-mode", "zoom", "history"]
         if surfaceRaw == nil, let first = args.first {
             if !first.hasPrefix("-") && !verbsWithoutSurface.contains(first.lowercased()) {
                 surfaceRaw = first
@@ -13070,6 +13072,14 @@ struct CMUXCLI {
         let subcommand = subcommandRaw.lowercased()
         let subArgs = Array(args.dropFirst())
         let browserValueTextFormatter = BrowserValueTextFormatter()
+
+        // A post-action snapshot can spend 3s in document readiness, 10s in the
+        // requested action, 10s in snapshot JavaScript, and 2.5s in recovery.
+        // Keep transport headroom beyond that 25.5s app-side maximum.
+        func sendBrowserAutomationRequest(method: String, params: [String: Any]) throws -> [String: Any] {
+            let responseTimeout: TimeInterval = (params["snapshot_after"] as? Bool) == true ? 30 : 20
+            return try client.sendV2(method: method, params: params, responseTimeout: responseTimeout)
+        }
 
         func requireSurface() throws -> String {
             guard let raw = surfaceRaw else {
@@ -13539,7 +13549,7 @@ struct CMUXCLI {
             if snapshotAfter {
                 params["snapshot_after"] = true
             }
-            let payload = try client.sendV2(method: "browser.navigate", params: params)
+            let payload = try sendBrowserAutomationRequest(method: "browser.navigate", params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -13555,7 +13565,7 @@ struct CMUXCLI {
             if hasFlag(subArgs, name: "--snapshot-after") {
                 params["snapshot_after"] = true
             }
-            let payload = try client.sendV2(method: methodMap[subcommand]!, params: params)
+            let payload = try sendBrowserAutomationRequest(method: methodMap[subcommand]!, params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -13664,19 +13674,19 @@ struct CMUXCLI {
             output(payload, fallback: "OK")
             return
         }
-
-        if subcommand == "focus-mode" {
-            let mode = browserActionVerbArgs().first?.lowercased() ?? "toggle"
-            guard ["enter", "exit", "toggle", "on", "off"].contains(mode) else {
-                throw CLIError(message: "browser focus-mode requires one of: enter, exit, toggle, on, off")
-            }
+        if subcommand == "focus-mode" || subcommand == "design-mode" {
+            let isDesignMode = subcommand == "design-mode"
+            let mode = browserActionVerbArgs().first?.lowercased() ?? (isDesignMode ? "status" : "toggle")
+            let validModes = isDesignMode ? ["enable", "disable", "toggle", "status"] : ["enter", "exit", "toggle", "on", "off"]
+            guard validModes.contains(mode) else { throw CLIError(message: isDesignMode ? String(localized: "cli.browser.designMode.expectedModes", defaultValue: "browser design-mode requires one of: enable, disable, toggle, status") : "browser focus-mode requires one of: enter, exit, toggle, on, off") }
             var params = try optionalSurfaceParams()
             params["mode"] = mode
-            let payload = try client.sendV2(method: "browser.focus_mode.set", params: params)
-            output(payload, fallback: "OK")
+            let method = isDesignMode ? (mode == "status" ? "browser.design_mode.status" : "browser.design_mode.set") : "browser.focus_mode.set"
+            let payload = try client.sendV2(method: method, params: params)
+            let fallback = isDesignMode ? ((payload["enabled"] as? Bool) == true ? String(localized: "cli.browser.designMode.enabled", defaultValue: "enabled") : String(localized: "cli.browser.designMode.disabled", defaultValue: "disabled")) : "OK"
+            output(payload, fallback: fallback)
             return
         }
-
         if subcommand == "zoom" {
             guard let direction = browserActionVerbArgs().first?.lowercased(), ["in", "out", "reset"].contains(direction) else {
                 throw CLIError(message: "browser zoom requires one of: in, out, reset")
@@ -13687,7 +13697,6 @@ struct CMUXCLI {
             output(payload, fallback: "OK")
             return
         }
-
         if subcommand == "history" {
             let verb = browserActionVerbArgs().first?.lowercased() ?? "clear"
             guard verb == "clear" else {
@@ -13755,7 +13764,7 @@ struct CMUXCLI {
                 params["max_depth"] = depth
             }
 
-            let payload = try client.sendV2(method: "browser.snapshot", params: params)
+            let payload = try sendBrowserAutomationRequest(method: "browser.snapshot", params: params)
             if effectiveJSONOutput {
                 print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
             } else {
@@ -13771,7 +13780,7 @@ struct CMUXCLI {
             guard !trimmed.isEmpty else {
                 throw CLIError(message: "browser eval requires a script")
             }
-            let payload = try client.sendV2(method: "browser.eval", params: ["surface_id": sid, "script": trimmed])
+            let payload = try sendBrowserAutomationRequest(method: "browser.eval", params: ["surface_id": sid, "script": trimmed])
             let fallback: String
             if let value = payload["value"] {
                 fallback = browserValueTextFormatter.string(from: value)
@@ -13825,7 +13834,7 @@ struct CMUXCLI {
             // Give the socket response timeout headroom beyond the wait deadline so long
             // waits are reported by the app handler instead of dying at the socket layer.
             let waitMs = (params["timeout_ms"] as? Int) ?? 5_000
-            let responseTimeout = max(10.0, Double(waitMs) / 1000.0 + 5.0)
+            let responseTimeout = max(15.0, Double(waitMs) / 1000.0 + 8.0)
             let payload = try client.sendV2(method: "browser.wait", params: params, responseTimeout: responseTimeout)
             output(payload, fallback: "OK")
             return
@@ -13853,7 +13862,7 @@ struct CMUXCLI {
             if hasFlag(subArgs, name: "--snapshot-after") {
                 params["snapshot_after"] = true
             }
-            let payload = try client.sendV2(method: methodMap[subcommand]!, params: params)
+            let payload = try sendBrowserAutomationRequest(method: methodMap[subcommand]!, params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -13886,7 +13895,7 @@ struct CMUXCLI {
             if hasFlag(subArgs, name: "--snapshot-after") {
                 params["snapshot_after"] = true
             }
-            let payload = try client.sendV2(method: method, params: params)
+            let payload = try sendBrowserAutomationRequest(method: method, params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -13908,7 +13917,7 @@ struct CMUXCLI {
             if hasFlag(subArgs, name: "--snapshot-after") {
                 params["snapshot_after"] = true
             }
-            let payload = try client.sendV2(method: methodMap[subcommand]!, params: params)
+            let payload = try sendBrowserAutomationRequest(method: methodMap[subcommand]!, params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -13929,7 +13938,7 @@ struct CMUXCLI {
             if hasFlag(subArgs, name: "--snapshot-after") {
                 params["snapshot_after"] = true
             }
-            let payload = try client.sendV2(method: "browser.select", params: params)
+            let payload = try sendBrowserAutomationRequest(method: "browser.select", params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -13963,7 +13972,7 @@ struct CMUXCLI {
                 params["snapshot_after"] = true
             }
 
-            let payload = try client.sendV2(method: "browser.scroll", params: params)
+            let payload = try sendBrowserAutomationRequest(method: "browser.scroll", params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -13973,7 +13982,12 @@ struct CMUXCLI {
             let (outPathOpt, _) = parseOption(subArgs, name: "--out")
             let localJSONOutput = hasFlag(subArgs, name: "--json")
             let outputAsJSON = effectiveJSONOutput || localJSONOutput
-            var payload = try client.sendV2(method: "browser.screenshot", params: ["surface_id": sid])
+            // Leave room beyond the app's capture deadline for its liveness probe and recovery reply.
+            var payload = try client.sendV2(
+                method: "browser.screenshot",
+                params: ["surface_id": sid],
+                responseTimeout: 25
+            )
 
             func fileURL(fromPath rawPath: String) -> URL {
                 let resolvedPath = resolvePath(rawPath)
@@ -14160,7 +14174,7 @@ struct CMUXCLI {
                     "box": "browser.get.box",
                     "styles": "browser.get.styles",
                 ]
-                let payload = try client.sendV2(method: methodMap[getVerb]!, params: params)
+                let payload = try sendBrowserAutomationRequest(method: methodMap[getVerb]!, params: params)
                 if effectiveJSONOutput {
                     print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
                 } else if let value = payload["value"] {
@@ -14200,7 +14214,7 @@ struct CMUXCLI {
             guard let method = methodMap[isVerb] else {
                 throw CLIError(message: "Unsupported browser is subcommand: \(isVerb)")
             }
-            let payload = try client.sendV2(method: method, params: ["surface_id": sid, "selector": selector])
+            let payload = try sendBrowserAutomationRequest(method: method, params: ["surface_id": sid, "selector": selector])
             if effectiveJSONOutput {
                 print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
             } else if let value = payload["value"] {
@@ -14283,7 +14297,7 @@ struct CMUXCLI {
                 throw CLIError(message: "Unsupported browser find locator: \(locator)")
             }
 
-            let payload = try client.sendV2(method: method, params: params)
+            let payload = try sendBrowserAutomationRequest(method: method, params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -14303,7 +14317,7 @@ struct CMUXCLI {
             guard let selector else {
                 throw CLIError(message: "browser frame requires a selector or 'main'")
             }
-            let payload = try client.sendV2(method: "browser.frame.select", params: ["surface_id": sid, "selector": selector])
+            let payload = try sendBrowserAutomationRequest(method: "browser.frame.select", params: ["surface_id": sid, "selector": selector])
             output(payload, fallback: "OK")
             return
         }
@@ -14321,10 +14335,10 @@ struct CMUXCLI {
                 if !text.isEmpty {
                     params["text"] = text
                 }
-                let payload = try client.sendV2(method: "browser.dialog.accept", params: params)
+                let payload = try sendBrowserAutomationRequest(method: "browser.dialog.accept", params: params)
                 output(payload, fallback: "OK")
             case "dismiss":
-                let payload = try client.sendV2(method: "browser.dialog.dismiss", params: ["surface_id": sid])
+                let payload = try sendBrowserAutomationRequest(method: "browser.dialog.dismiss", params: ["surface_id": sid])
                 output(payload, fallback: "OK")
             default:
                 throw CLIError(message: "Unsupported browser dialog subcommand: \(dialogVerb)")
@@ -14446,7 +14460,7 @@ struct CMUXCLI {
                 if let key = positional.first {
                     params["key"] = key
                 }
-                let payload = try client.sendV2(method: "browser.storage.get", params: params)
+                let payload = try sendBrowserAutomationRequest(method: "browser.storage.get", params: params)
                 output(payload, fallback: "OK")
             case "set":
                 guard positional.count >= 2 else {
@@ -14454,10 +14468,10 @@ struct CMUXCLI {
                 }
                 params["key"] = positional[0]
                 params["value"] = positional[1]
-                let payload = try client.sendV2(method: "browser.storage.set", params: params)
+                let payload = try sendBrowserAutomationRequest(method: "browser.storage.set", params: params)
                 output(payload, fallback: "OK")
             case "clear":
-                let payload = try client.sendV2(method: "browser.storage.clear", params: params)
+                let payload = try sendBrowserAutomationRequest(method: "browser.storage.clear", params: params)
                 output(payload, fallback: "OK")
             default:
                 throw CLIError(message: "Unsupported browser storage subcommand: \(op)")
@@ -14519,7 +14533,7 @@ struct CMUXCLI {
             if consoleVerb != "list" && consoleVerb != "clear" {
                 throw CLIError(message: "Unsupported browser console subcommand: \(consoleVerb)")
             }
-            let payload = try client.sendV2(method: method, params: ["surface_id": sid])
+            let payload = try sendBrowserAutomationRequest(method: method, params: ["surface_id": sid])
             if effectiveJSONOutput || consoleVerb == "clear" {
                 output(payload, fallback: "OK")
             } else {
@@ -14537,7 +14551,7 @@ struct CMUXCLI {
             } else if errorsVerb != "list" {
                 throw CLIError(message: "Unsupported browser errors subcommand: \(errorsVerb)")
             }
-            let payload = try client.sendV2(method: "browser.errors.list", params: params)
+            let payload = try sendBrowserAutomationRequest(method: "browser.errors.list", params: params)
             if effectiveJSONOutput || errorsVerb == "clear" {
                 output(payload, fallback: "OK")
             } else {
@@ -14553,7 +14567,7 @@ struct CMUXCLI {
             guard let selector else {
                 throw CLIError(message: "browser highlight requires a selector")
             }
-            let payload = try client.sendV2(method: "browser.highlight", params: ["surface_id": sid, "selector": selector])
+            let payload = try sendBrowserAutomationRequest(method: "browser.highlight", params: ["surface_id": sid, "selector": selector])
             output(payload, fallback: "OK")
             return
         }
@@ -14576,7 +14590,7 @@ struct CMUXCLI {
             default:
                 throw CLIError(message: "Unsupported browser state subcommand: \(stateVerb)")
             }
-            let payload = try client.sendV2(method: method, params: ["surface_id": sid, "path": path])
+            let payload = try sendBrowserAutomationRequest(method: method, params: ["surface_id": sid, "path": path])
             output(payload, fallback: "OK")
             return
         }
@@ -14590,19 +14604,14 @@ struct CMUXCLI {
             guard !content.isEmpty else {
                 throw CLIError(message: "browser \(subcommand) requires content")
             }
-            let payload = try client.sendV2(method: "browser.\(subcommand)", params: ["surface_id": sid, field: content])
+            let payload = try sendBrowserAutomationRequest(method: "browser.\(subcommand)", params: ["surface_id": sid, field: content])
             output(payload, fallback: "OK")
             return
         }
 
         if subcommand == "viewport" {
-            let sid = try requireSurface()
-            guard subArgs.count >= 2,
-                  let width = Int(subArgs[0]),
-                  let height = Int(subArgs[1]) else {
-                throw CLIError(message: "browser viewport requires: <width> <height>")
-            }
-            let payload = try client.sendV2(method: "browser.viewport.set", params: ["surface_id": sid, "width": width, "height": height])
+            let params = try Self.browserViewportSetParams(subArgs, surfaceID: requireSurface())
+            let payload = try client.sendV2(method: "browser.viewport.set", params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -16955,7 +16964,7 @@ struct CMUXCLI {
               state <save|load> <path>
               addinitscript|addscript [--script <js> | <js>]
               addstyle [--css <css> | <css>]
-              viewport <width> <height>
+              \(Self.browserViewportHelp)
               geolocation|geo <latitude> <longitude>
               offline <true|false>
               trace <start|stop> [path]
@@ -17651,9 +17660,7 @@ struct CMUXCLI {
         return parts.joined(separator: " ")
     }
 
-    /// Summary for surface.split / surface.create responses, which report
-    /// `accepted: true` (and no surface id) when the request was routed to a
-    /// remote tmux mirror — the new pane arrives asynchronously.
+    /// Summary for remote-tmux creations whose pane or window arrives asynchronously.
     func v2CreationSummary(_ payload: [String: Any], idFormat: CLIIDFormat, kinds: [String] = ["surface", "workspace"]) -> String {
         guard (payload["accepted"] as? Bool) == true else {
             return v2OKSummary(payload, idFormat: idFormat, kinds: kinds)
@@ -17662,7 +17669,9 @@ struct CMUXCLI {
         if let handle = formatHandle(payload, kind: "workspace", idFormat: idFormat) {
             parts.append(handle)
         }
-        parts.append("(routed to remote tmux; the new pane arrives asynchronously)")
+        parts.append((payload["remote_tmux_operation"] as? String) == "new-window"
+            ? String(localized: "cli.creation.remoteTmux.newWindow", defaultValue: "(routed to remote tmux; the new window arrives asynchronously)")
+            : String(localized: "cli.creation.remoteTmux.newPane", defaultValue: "(routed to remote tmux; the new pane arrives asynchronously)"))
         return parts.joined(separator: " ")
     }
 
@@ -25863,7 +25872,25 @@ struct CMUXCLI {
                 }
                 sawRelevantTurn = true
                 sawTerminalTurn = true
-                if let lastMessage = payload["last_agent_message"] as? String,
+                // Codex persists fatal turn failures inside task_complete.error. Standalone
+                // error events are transient, and a failed turn may still contain partial
+                // assistant output, so the terminal error must be authoritative.
+                if let terminalError = payload["error"] as? [String: Any],
+                   let failure = codexHookFailureCandidate(
+                       from: terminalError,
+                       requireFailureSignal: false
+                   ) {
+                    candidate = failure
+                    candidateCanPublishBeforeTerminal = false
+                } else if let terminalError = codexHookStringValue(payload["error"]) {
+                    candidate = CodexHookFailureCandidate(
+                        message: terminalError,
+                        codexErrorInfo: nil,
+                        additionalDetails: nil,
+                        isStreamError: false
+                    )
+                    candidateCanPublishBeforeTerminal = false
+                } else if let lastMessage = payload["last_agent_message"] as? String,
                    !lastMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     sawAssistantMessage = true
                     candidate = nil
@@ -30532,6 +30559,10 @@ export default CMUXSessionRestore;
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
+            let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
+                kind: def.name, current: launchCommand, mapped: mapped,
+                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath, currentPID: pid
+            )
             func codexSessionStartWentStaleAfterAccept() -> Bool {
                 def.name == "codex" && ((try? store.codexSessionStartIsStale(
                     sessionId: sessionId,
@@ -30549,7 +30580,7 @@ export default CMUXSessionRestore;
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
-                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
+                        launchCommand: resumeLaunchCommand,
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations
@@ -30562,7 +30593,7 @@ export default CMUXSessionRestore;
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
-                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
+                        launchCommand: resumeLaunchCommand,
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations
@@ -30622,7 +30653,7 @@ export default CMUXSessionRestore;
                         displayName: def.displayName,
                         sessionId: sessionId,
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped)
+                        launchCommand: resumeLaunchCommand
                     )
                 }
             }
@@ -30656,13 +30687,12 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             let pid = mapped?.pid ?? inferredPID
-            let launchCommand = agentLaunchCommandFromEnvironment(
-                env,
-                fallbackPID: pid,
-                fallbackKind: def.name,
-                cwd: hookCwd ?? mapped?.cwd
-            )
+            let launchCommand = agentLaunchCommandFromEnvironment(env, fallbackPID: pid, fallbackKind: def.name, cwd: hookCwd ?? mapped?.cwd)
             let transcriptPathForStore = input.transcriptPath ?? mapped?.transcriptPath
+            let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
+                kind: def.name, current: launchCommand, mapped: mapped,
+                transcriptPath: transcriptPathForStore, currentPID: inferredPID
+            )
             let activePromptTurnStack = mapped?.activePromptTurnIds?
                 .compactMap({ normalizedHookValue($0) }) ?? []
             let activePromptTurnId = activePromptTurnStack.last ?? normalizedHookValue(mapped?.activePromptTurnId)
@@ -30802,7 +30832,7 @@ export default CMUXSessionRestore;
                         previousActivePromptTurnIsTerminal: previousActivePromptTurnIsTerminal,
                         terminalActivePromptTurnIds: terminalActivePromptTurnIds,
                         pid: pid,
-                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
+                        launchCommand: resumeLaunchCommand,
                         agentLifecycle: .running,
                         autoNameMessages: autoNamingMessages(
                             for: def,
@@ -30859,7 +30889,7 @@ export default CMUXSessionRestore;
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         turnId: input.turnId,
                         pid: pid,
-                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped)
+                        launchCommand: resumeLaunchCommand
                     )) ?? false
                 } else {
                     try? store.upsert(
@@ -30869,7 +30899,7 @@ export default CMUXSessionRestore;
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
-                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
+                        launchCommand: resumeLaunchCommand,
                         agentLifecycle: .running,
                         runtimeStatus: .running,
                         updateRuntimeStatus: true
@@ -30889,7 +30919,7 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped)
+                    launchCommand: resumeLaunchCommand
                 )
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
@@ -31031,6 +31061,10 @@ export default CMUXSessionRestore;
             let rawCwd = hookCwd ?? mapped?.cwd
             let launchCommand = agentLaunchCommandFromEnvironment(env, fallbackPID: pid, fallbackKind: def.name, cwd: rawCwd)
             let cwd = preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped)
+            let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
+                kind: def.name, current: launchCommand, mapped: mapped,
+                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath, currentPID: inferredPID
+            )
             let grokAssistantMessage: String? = {
                 guard def.name == "grok" else { return nil }
                 return latestGrokAssistantMessage(
@@ -31116,7 +31150,7 @@ export default CMUXSessionRestore;
                     turnId: input.turnId,
                     terminalActivePromptTurnIds: terminalActivePromptTurnIdsForStop,
                     pid: pid,
-                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
+                    launchCommand: resumeLaunchCommand,
                     agentLifecycle: lifecycleAfterStop,
                     lastSubtitle: nil,
                     lastBody: nil,
@@ -31143,7 +31177,7 @@ export default CMUXSessionRestore;
                 try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
                                   transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                                   pid: pid,
-                                  launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
+                                  launchCommand: resumeLaunchCommand,
                                   agentLifecycle: lifecycleAfterStop,
                                   lastSubtitle: subtitle,
                                   lastBody: body,
@@ -31159,7 +31193,7 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: cwd,
-                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped)
+                    launchCommand: resumeLaunchCommand
                 )
             }
             if let pid, !suppressVisibleMutations {
@@ -31338,6 +31372,10 @@ export default CMUXSessionRestore;
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
+            let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
+                kind: def.name, current: launchCommand, mapped: mapped,
+                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath, currentPID: inferredPID
+            )
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
             if !sessionId.isEmpty, !suppressVisibleMutations {
                 try? store.markNotificationResolved(
@@ -31347,7 +31385,7 @@ export default CMUXSessionRestore;
                     cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     pid: pid,
-                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
+                    launchCommand: resumeLaunchCommand,
                     agentLifecycle: .running,
                     runtimeStatus: .running
                 )
@@ -31359,7 +31397,7 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped)
+                    launchCommand: resumeLaunchCommand
                 )
             }
             if let pid, !suppressVisibleMutations {
@@ -35310,6 +35348,7 @@ export default CMUXSessionRestore;
           browser react-grab toggle [--surface <id>] [--return-to <terminal-surface>]
           browser devtools toggle|console [--surface <id>]
           browser focus-mode enter|exit|toggle [--surface <id>]
+          \(String(localized: "cli.browser.designMode.help", defaultValue: "browser design-mode enable|disable|toggle|status [--surface <id>]"))
           browser zoom in|out|reset [--surface <id>]
           browser history clear --force   (clears the default profile's history; mirrors the View menu)
           browser url|get-url

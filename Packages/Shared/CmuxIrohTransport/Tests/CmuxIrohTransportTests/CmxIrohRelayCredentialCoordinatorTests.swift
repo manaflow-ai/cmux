@@ -231,12 +231,9 @@ struct CmxIrohRelayCredentialCoordinatorTests {
             endpointIdentity: fixture.identity
         )
 
-        guard case let .sleep(deadline) = await clockEvents.next() else {
-            Issue.record("Expected the relay retry sleep")
-            return
-        }
-        #expect(deadline == fixture.now.addingTimeInterval(600))
+        let clockEvent = await clockEvents.next()
         #expect(await endpoint.observedRelayUpdates().isEmpty)
+        #expect(clockEvent == .sleep(fixture.now.addingTimeInterval(600)))
         await coordinator.deactivate()
     }
 
@@ -302,16 +299,24 @@ actor TestRelayTokenBroker: CmxIrohRelayTokenServing {
 
     private var steps: [Step]
     private var endpointIDs: [CmxIrohPeerIdentity] = []
+    private var issueCount = 0
+    private let issueHook: (@Sendable (_ count: Int) async -> Void)?
 
-    init(steps: [Step]) {
+    init(
+        steps: [Step],
+        issueHook: (@Sendable (_ count: Int) async -> Void)? = nil
+    ) {
         self.steps = steps
+        self.issueHook = issueHook
     }
 
     func issueRelayToken(
         bindingID _: String,
         endpointID: CmxIrohPeerIdentity
-    ) throws -> CmxIrohRelayTokenResponse {
+    ) async throws -> CmxIrohRelayTokenResponse {
         endpointIDs.append(endpointID)
+        issueCount += 1
+        await issueHook?(issueCount)
         guard !steps.isEmpty else { throw TestRelayCoordinatorError.noResponse }
         switch steps.removeFirst() {
         case let .response(response):
@@ -383,6 +388,10 @@ final class TestRelayClock: CmxIrohRelayClock, @unchecked Sendable {
         for sleeper in pending {
             sleeper.resume()
         }
+    }
+
+    func setNowWithoutResuming(_ date: Date) {
+        lock.withLock { currentDate = date }
     }
 
     func events() -> AsyncStream<Event> {

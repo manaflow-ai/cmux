@@ -84,14 +84,33 @@ export async function handleIrohRoute(
   }
   if (!user) return unauthorized();
 
+  if (operation !== "discover") {
+    const mutationForbidden = enforceBrowserMutationProtection(request);
+    if (mutationForbidden) return mutationForbidden;
+  }
+
+  // Challenge and registration bodies carry the authenticated app identity.
+  // Read their already-bounded JSON before the platform firewall so concurrent
+  // app instances do not consume one account-wide bucket. The broker's database
+  // quotas remain account- and physical-device-wide, so varying this partition
+  // cannot bypass the global safety bounds.
+  let bodyResult: Awaited<ReturnType<typeof readBoundedJson>> | undefined;
+  if (operation === "challenge" || operation === "register") {
+    bodyResult = await readBoundedJson(request);
+    if (!bodyResult.ok) return bodyResult.response;
+  }
+
   const firewall = dependencies.firewall ?? (
     process.env.VERCEL === "1" && env.CMUX_IROH_RATE_LIMIT_ID
       ? { id: env.CMUX_IROH_RATE_LIMIT_ID, check: checkIrohVercelFirewall }
       : undefined
   );
   if (firewall) {
+    const identityPartition = bodyResult?.ok
+      ? registrationFirewallPartition(operation, bodyResult.value)
+      : undefined;
     const rateLimitKey = createHash("sha256")
-      .update(`iroh-rate:${user.id}:${operation}`)
+      .update(`iroh-rate:${user.id}:${operation}:${identityPartition ?? "account"}`)
       .digest("hex");
     const abortController = new AbortController();
     const timeout = setTimeout(
@@ -127,12 +146,7 @@ export async function handleIrohRoute(
     }
   }
 
-  if (operation !== "discover") {
-    const mutationForbidden = enforceBrowserMutationProtection(request);
-    if (mutationForbidden) return mutationForbidden;
-  }
-
-  const bodyResult = operation === "discover"
+  bodyResult ??= operation === "discover"
     ? { ok: true as const, value: undefined }
     : await readBoundedJson(request);
   if (!bodyResult.ok) return bodyResult.response;
@@ -157,6 +171,45 @@ export async function handleIrohRoute(
     console.error("iroh trust broker request failed", { operation, failure: "unexpected" });
     return jsonResponse({ error: "iroh_internal_error" }, 500);
   }
+}
+
+function registrationFirewallPartition(
+  operation: IrohRouteOperation,
+  body: unknown,
+): string | undefined {
+  let identity: unknown = body;
+  if (operation === "register") {
+    const payload = recordString(body, "payload");
+    if (!payload || payload.length > 48_000) return undefined;
+    try {
+      const decoded = Buffer.from(payload, "base64url");
+      if (decoded.byteLength === 0 || decoded.byteLength > 32_768) return undefined;
+      identity = JSON.parse(decoded.toString("utf8"));
+    } catch {
+      return undefined;
+    }
+  } else if (operation !== "challenge") {
+    return undefined;
+  }
+
+  const deviceId = registrationUUID(identity, "deviceId");
+  const appInstanceId = registrationUUID(identity, "appInstanceId");
+  if (!deviceId || !appInstanceId) return undefined;
+  return `device:${deviceId}:instance:${appInstanceId}`;
+}
+
+function recordString(value: unknown, key: string): string | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === "string" ? field : undefined;
+}
+
+function registrationUUID(value: unknown, key: string): string | undefined {
+  const candidate = recordString(value, key);
+  if (!candidate || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(candidate)) {
+    return undefined;
+  }
+  return candidate.toLowerCase();
 }
 
 function invoke(

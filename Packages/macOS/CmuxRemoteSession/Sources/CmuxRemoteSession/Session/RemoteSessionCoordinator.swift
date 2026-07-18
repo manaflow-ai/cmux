@@ -55,6 +55,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     let host: any RemoteSessionHosting
     let configuration: WorkspaceRemoteConfiguration
     let proxyBroker: any RemoteProxyBrokering
+    let connectionBroker: NativeSSHConnectionBroker
     let manifestRepository: RemoteDaemonManifestRepository
     let processRunner: any RemoteSessionProcessRunning
     let reachabilityProbe: any RemoteHostReachabilityProbing
@@ -114,6 +115,8 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var reconnectRetryCount = 0
     var reconnectTask: Task<Void, Never>?
     var reconnectToken: UUID?
+    var connectionAttemptTask: Task<Void, Never>?
+    var connectionAttemptToken: UUID?
     var consecutiveUnreachableProbeCount = 0
     var reconnectSuspended = false
     var isSystemSleeping = false
@@ -140,6 +143,8 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     ///     this coordinator's lifetime; reconnects construct a fresh one).
     ///   - proxyBroker: Process-wide proxy-tunnel broker (one shared tunnel
     ///     per remote transport), injected from the app hub.
+    ///   - connectionBroker: Process-wide native SSH ownership and per-host
+    ///     connection-attempt broker.
     ///   - manifestRepository: cmuxd-remote manifest/binary-cache repository.
     ///   - processRunner: Blocking subprocess seam (ssh/scp/dev go build).
     ///   - reachabilityProbe: SSH endpoint reachability seam for the
@@ -154,6 +159,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         host: any RemoteSessionHosting,
         configuration: WorkspaceRemoteConfiguration,
         proxyBroker: any RemoteProxyBrokering,
+        connectionBroker: NativeSSHConnectionBroker,
         manifestRepository: RemoteDaemonManifestRepository,
         processRunner: any RemoteSessionProcessRunning,
         reachabilityProbe: any RemoteHostReachabilityProbing,
@@ -166,6 +172,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         self.host = host
         self.configuration = configuration
         self.proxyBroker = proxyBroker
+        self.connectionBroker = connectionBroker
         self.manifestRepository = manifestRepository
         self.processRunner = processRunner
         self.reachabilityProbe = reachabilityProbe
@@ -205,20 +212,20 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         queue.async { [weak self] in
             guard let self else { return }
             guard !self.isStopping else { return }
-            self.beginConnectionAttemptLocked()
+            self.requestConnectionAttemptLocked()
         }
     }
 
-    /// Stops the session: tears down the relay, releases the proxy lease,
-    /// fails parked PTY-bridge starts, and publishes cleared state.
-    /// Synchronous when already on the coordinator queue.
-    public func stop() {
+    /// Stops the session with the requested ownership scope; synchronous on the coordinator queue.
+    ///
+    /// - Parameter cleanupScope: The ownership scope released by this stop.
+    public func stop(cleanupScope: RemoteRelayCleanupScope = .persistentSlot) {
         if DispatchQueue.getSpecific(key: queueKey) != nil {
-            stopAllLocked()
+            _ = stopAllLocked(cleanupScope: cleanupScope)
             return
         }
         queue.async { [self] in
-            stopAllLocked()
+            _ = stopAllLocked(cleanupScope: cleanupScope)
         }
     }
 
@@ -234,43 +241,6 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
                 surfaceAliases: surfaceAliases
             )
         }
-    }
-
-    func stopAllLocked() {
-        debugLog("remote.session.stop \(debugConfigSummary())")
-        isStopping = true
-        cancelReconnectRetryLocked()
-        reconnectRetryCount = 0
-        consecutiveUnreachableProbeCount = 0
-        reconnectSuspended = false
-        reachabilityProbeGeneration &+= 1
-        cancelReverseRelayRestartLocked()
-        cancelRemotePortScanCoalesceLocked()
-        stopReverseRelayLocked()
-        remotePortScanGeneration &+= 1
-        remotePortScanBurstTask?.cancel()
-        remotePortScanBurstTask = nil
-        remotePortScanBurstActive = false
-        remotePortScanActiveReason = nil
-        remotePortScanPendingReason = nil
-        remotePortScanTTYNames.removeAll()
-        remotePortScanSnapshot.reset()
-        stopRemotePortPollingLocked()
-        remotePortPollState.reset()
-        keepPolledRemotePortsUntilTTYScan = false
-        bootstrapRemoteTTYResolved = false
-        cancelBootstrapRemoteTTYRetryLocked()
-        bootstrapRemoteTTYFetchInFlight = false
-        bootstrapRemoteTTYRetryCount = 0
-        failPendingPTYBridgeStartsLocked("remote daemon is not ready")
-
-        releaseProxyLeaseLocked()
-        proxyEndpoint = nil
-        daemonReady = false
-        daemonBootstrapVersion = nil
-        daemonRemotePath = nil
-        publishProxyEndpoint(nil)
-        publishPortsSnapshotLocked()
     }
 
     func beginConnectionAttemptLocked() {

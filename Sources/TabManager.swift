@@ -8,6 +8,7 @@ import CmuxBrowser
 import CmuxGit
 import CmuxNotifications
 import CmuxPanes
+import CmuxRemoteSession
 import CmuxSettings
 import CmuxSidebar
 import CmuxSidebarGit
@@ -227,6 +228,7 @@ class TabManager: ObservableObject {
     private var isRestoringSessionSnapshot: Bool = false
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
+    @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
@@ -390,6 +392,7 @@ class TabManager: ObservableObject {
     /// Typed synchronous settings access (CmuxSettings).
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
+    let nativeSSHConnectionBroker: NativeSSHConnectionBroker
 
     @Published private(set) var focusHistoryRevision: UInt64 = 0 {
         didSet {
@@ -447,10 +450,6 @@ class TabManager: ObservableObject {
     // default) on purpose: the cap is per process, not per window, matching
     // the legacy shared limiter; tests inject their own instance.
     private static let sharedWorkspaceGitProbeLimiter = WorkspaceGitMetadataProbeLimiter(limit: 2)
-    // Default windows share one explicit CmuxGit coordination scope and one
-    // fallback clock. Tests can still inject isolated services/coordinators.
-    private static let sharedGitTrackedChangesSnapshotScope = GitTrackedChangesSnapshotScope()
-    private static let sharedWorkspaceGitFallbackCoordinator = WorkspaceGitFallbackCoordinator()
 
     // The sidebar git/PR subsystem (extracted to CmuxSidebarGit). TabManager
     // is the per-window composition point: it constructs the concrete
@@ -459,6 +458,10 @@ class TabManager: ObservableObject {
     // entry points.
     let sidebarGitMetadataService: any SidebarGitMetadataServing
     let pullRequestProbing: any PullRequestProbing
+    /// Process-scoped GitHub transport state. AppDelegate passes this same
+    /// value to every subsequently-created window so their pollers share one
+    /// session, ETag cache, backoff deadline, and request queue.
+    let pullRequestProbeService: PullRequestProbeService
 
     init(
         initialWorkspaceTitle: String? = nil,
@@ -466,19 +469,18 @@ class TabManager: ObservableObject {
         initialTerminalInput: String? = nil,
         autoWelcomeIfNeeded: Bool = true,
         commandRunner: any CommandRunning = CommandRunner(),
-        gitMetadataService: GitMetadataService? = nil,
+        gitMetadataService: GitMetadataService = GitMetadataService(),
+        pullRequestProbeService: PullRequestProbeService? = nil,
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
         gitPollClock: any GitPollClock = SystemGitPollClock(),
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
-        gitFallbackCoordinator: WorkspaceGitFallbackCoordinator? = nil,
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
+        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
-        let gitMetadataService = gitMetadataService ?? GitMetadataService(
-            trackedChangesSnapshotScope: Self.sharedGitTrackedChangesSnapshotScope
-        )
         self.settings = settings
+        self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
@@ -499,10 +501,12 @@ class TabManager: ObservableObject {
 #else
         let sidebarGitDebugLog: @Sendable (String) -> Void = { _ in }
 #endif
-        let pullRequestProbeService = PullRequestProbeService(
-            commandRunner: commandRunner,
-            debugLog: sidebarGitDebugLog
-        )
+        let pullRequestProbeService = pullRequestProbeService
+            ?? PullRequestProbeService(
+                commandRunner: commandRunner,
+                debugLog: sidebarGitDebugLog
+            )
+        self.pullRequestProbeService = pullRequestProbeService
         let pullRequestPollService = PullRequestPollService(
             gitMetadataService: gitMetadataService,
             probeService: pullRequestProbeService,
@@ -516,8 +520,6 @@ class TabManager: ObservableObject {
             pullRequestProbing: pullRequestPollService,
             probeLimiter: gitProbeLimiter ?? Self.sharedWorkspaceGitProbeLimiter,
             clock: gitPollClock,
-            fallbackCoordinator: gitFallbackCoordinator
-                ?? Self.sharedWorkspaceGitFallbackCoordinator,
             debugLog: sidebarGitDebugLog
         )
         // Wire the host seam before the first workspace is added so the
@@ -550,7 +552,7 @@ class TabManager: ObservableObject {
                 guard let change = GhosttyTitleChange(notification: notification),
                       let workspace = workspacesById[change.tabId],
                       workspace.owningTabManager === self,
-                      let sourceSurface = (notification.object as? TerminalSurface) ?? workspace.terminalPanel(for: change.surfaceId)?.surface else { return }
+                      let sourceSurface = (notification.object as? TerminalSurface) ?? workspace.terminalPanel(for: change.surfaceId)?.surface, change.matches(sourceSurface: sourceSurface) else { return }
                 enqueuePanelTitleUpdate(change, sourceSurface: sourceSurface)
             }
         })
@@ -959,7 +961,8 @@ class TabManager: ObservableObject {
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             workspaceEnvironment: workspaceEnvironment,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
-            closeTabWarningDefaults: closeTabWarningDefaults
+            closeTabWarningDefaults: closeTabWarningDefaults,
+            nativeSSHConnectionBroker: nativeSSHConnectionBroker
         )
     }
 
@@ -1255,6 +1258,21 @@ class TabManager: ObservableObject {
         var updated = pendingBackgroundWorkspaceLoadIds
         updated.remove(workspaceId)
         pendingBackgroundWorkspaceLoadIds = updated
+        releaseBackgroundWorkspaceMount(for: workspaceId)
+    }
+
+    func retainBackgroundWorkspaceMount(for workspaceId: UUID) {
+        guard shouldRetainBackgroundWorkspaceMount(for: workspaceId) else { return }
+        var updated = mountedBackgroundWorkspaceLoadIds
+        updated.insert(workspaceId)
+        mountedBackgroundWorkspaceLoadIds = updated
+    }
+
+    func releaseBackgroundWorkspaceMount(for workspaceId: UUID) {
+        guard mountedBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
+        var updated = mountedBackgroundWorkspaceLoadIds
+        updated.remove(workspaceId)
+        mountedBackgroundWorkspaceLoadIds = updated
     }
 
     func retainDebugWorkspaceLoads(for workspaceIds: Set<UUID>) {
@@ -1277,6 +1295,10 @@ class TabManager: ObservableObject {
         let pruned = pendingBackgroundWorkspaceLoadIds.intersection(existingIds)
         if pruned != pendingBackgroundWorkspaceLoadIds {
             pendingBackgroundWorkspaceLoadIds = pruned
+        }
+        let mounted = mountedBackgroundWorkspaceLoadIds.intersection(existingIds)
+        if mounted != mountedBackgroundWorkspaceLoadIds {
+            mountedBackgroundWorkspaceLoadIds = mounted
         }
         let retained = debugPinnedWorkspaceLoadIds.intersection(existingIds)
         if retained != debugPinnedWorkspaceLoadIds {
@@ -2138,6 +2160,7 @@ class TabManager: ObservableObject {
             guard confirmClose(
                 title: prompt.title,
                 message: prompt.message,
+                scrollableDetails: prompt.details,
                 acceptCmdD: false
             ) else { return }
         }
@@ -2229,6 +2252,7 @@ class TabManager: ObservableObject {
             guard confirmClose(
                 title: plan.title,
                 message: plan.message,
+                scrollableDetails: plan.details,
                 acceptCmdD: plan.acceptCmdD
             ) else { return }
         }
@@ -2308,18 +2332,25 @@ class TabManager: ObservableObject {
         }
     }
 
-    func confirmClose(title: String, message: String, acceptCmdD: Bool) -> Bool {
+    func confirmClose(
+        title: String,
+        message: String,
+        scrollableDetails: String? = nil,
+        acceptCmdD: Bool
+    ) -> Bool {
         guard beginCloseConfirmationSession() else { return false }
         defer { endCloseConfirmationSession() }
 
+        let content = scrollableDetails.map {
+            CmuxAlertContent(flattenedText: message, separatingScrollableDetails: $0)
+        } ?? CmuxAlertContent(informativeText: message)
         if let confirmCloseHandler {
-            return confirmCloseHandler(title, message, acceptCmdD)
+            return confirmCloseHandler(title, content.flattenedText, acceptCmdD)
         }
         _ = acceptCmdD
 
         let alert = NSAlert()
         alert.messageText = title
-        alert.informativeText = message
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
         alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
@@ -2341,18 +2372,21 @@ class TabManager: ObservableObject {
         ])
         #endif
 
-        return runCloseConfirmationAlert(alert) == .alertFirstButtonReturn
+        return runCloseConfirmationAlert(alert, content: content) == .alertFirstButtonReturn
     }
 
-    private func runCloseConfirmationAlert(_ alert: NSAlert) -> NSApplication.ModalResponse {
+    private func runCloseConfirmationAlert(
+        _ alert: NSAlert,
+        content: CmuxAlertContent? = nil
+    ) -> NSApplication.ModalResponse {
         // Presentation (activate + sheet-on-main-window, else app-modal) is
-        // shared with every other cmux dialog via `runCmuxModalAlert`. This
+        // shared with every other cmux dialog via `NSAlert.runCmuxModal`. This
         // wrapper only adds the close-confirmation-specific UITest telemetry,
         // recorded from the presenter's actual path so the label can never
         // disagree with how the alert was really shown.
-        return runCmuxModalAlert(
-            alert,
-            presentingWindow: closeConfirmationPresentingWindow()
+        return alert.runCmuxModal(
+            presentingWindow: closeConfirmationPresentingWindow(),
+            content: content
         ) { presentation in
             #if DEBUG
             switch presentation {
@@ -2376,7 +2410,7 @@ class TabManager: ObservableObject {
     }
 
     private func closeConfirmationPresentingWindow() -> NSWindow? {
-        cmuxMainWindowForModalPresentation(preferring: window)
+        NSApp.cmuxMainWindowForModalPresentation(preferring: window)
     }
 
     private struct CloseOtherTabsInFocusedPanePlan {
@@ -2389,6 +2423,7 @@ class TabManager: ObservableObject {
         let workspaces: [Workspace]
         let title: String
         let message: String
+        let details: String
         let acceptCmdD: Bool
     }
 
@@ -2466,6 +2501,7 @@ class TabManager: ObservableObject {
             workspaces: workspaces,
             title: title,
             message: message,
+            details: titleLines,
             acceptCmdD: willCloseWindow
         )
     }
@@ -2856,7 +2892,7 @@ class TabManager: ObservableObject {
     }
 
     func titleForTab(_ tabId: UUID) -> String? {
-        tabs.first(where: { $0.id == tabId })?.title
+        workspacesById[tabId]?.title
     }
 
     // MARK: - Panel/Surface ID Access
@@ -5968,7 +6004,8 @@ extension TabManager {
                 title: workspaceSnapshot.processTitle,
                 workingDirectory: workspaceSnapshot.currentDirectory,
                 portOrdinal: ordinal,
-                closeTabWarningDefaults: closeTabWarningDefaults
+                closeTabWarningDefaults: closeTabWarningDefaults,
+                nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             workspace.owningTabManager = self
             let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot, excludingStableIdentities: excludingStableIdentities)
@@ -5981,7 +6018,12 @@ extension TabManager {
         if newTabs.isEmpty {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
-            let fallback = Workspace(title: "Terminal 1", portOrdinal: ordinal, closeTabWarningDefaults: closeTabWarningDefaults)
+            let fallback = Workspace(
+                title: "Terminal 1",
+                portOrdinal: ordinal,
+                closeTabWarningDefaults: closeTabWarningDefaults,
+                nativeSSHConnectionBroker: nativeSSHConnectionBroker
+            )
             fallback.owningTabManager = self
             wireClosedBrowserTracking(for: fallback)
             newTabs.append(fallback)

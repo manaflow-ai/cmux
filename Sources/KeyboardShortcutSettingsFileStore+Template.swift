@@ -91,6 +91,8 @@ extension CmuxSettingsFileStore {
                 "terminal": [
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
                     "scrollSpeed": TerminalScrollSpeedSettings.defaultMultiplier,
+                    "sessionContentMaxWidth": false,
+                    "sessionContentAlignment": SessionContentAlignment.center.rawValue,
                     "copyOnSelect": TerminalCopyOnSelectSettings.defaultCopyOnSelect,
                     "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
                     "showTextBoxOnNewTerminals": TerminalTextBoxInputSettings.defaultShowOnNewTerminals,
@@ -131,6 +133,9 @@ extension CmuxSettingsFileStore {
                     "showWorkspaceDescription": SettingCatalog().sidebar.showWorkspaceDescription.defaultValue,
                     "beta": [
                         "workspaceTodos": [
+                            "controls": [
+                                "enabled": SettingCatalog().betaFeatures.workspaceTodoControls.defaultValue,
+                            ],
                             "checklistStyle": SettingCatalog().betaFeatures.workspaceTodosChecklistStyle.defaultValue.rawValue,
                         ],
                     ],
@@ -206,6 +211,11 @@ extension CmuxSettingsFileStore {
                     "insecureHttpHostsAllowedInEmbeddedBrowser": BrowserInsecureHTTPSettings.defaultAllowlistPatterns,
                     "showImportHintOnBlankTabs": BrowserImportHintSettings.defaultShowOnBlankTabs,
                     "reactGrabVersion": ReactGrabSettings.defaultVersion,
+                ],
+            ],
+            [
+                "mobile": [
+                    "artifactFolderAccess": SettingCatalog().mobile.artifactFolderAccess.defaultValue.rawValue,
                 ],
             ],
             [

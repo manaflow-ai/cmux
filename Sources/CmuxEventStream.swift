@@ -1,5 +1,6 @@
 import CmuxControlSocket
 import Darwin
+import Dispatch
 import Foundation
 
 extension TerminalController {
@@ -13,9 +14,24 @@ extension TerminalController {
         return method == "events.stream"
     }
 
-    nonisolated func handleEventsStreamRequest(_ line: String, socket: Int32) {
+    nonisolated func handleEventsStreamRequest(
+        _ line: String,
+        socket: Int32,
+        authorizationGeneration: UInt64,
+        authorizationRevocationSignal: SocketAuthorizationRevocationSignal,
+        passwordAuthorization: SocketPasswordAuthorization
+    ) {
+        var streamPasswordAuthorization = passwordAuthorization
+        guard socketEventStreamAuthorizationIsCurrent(
+            authorizationGeneration,
+            passwordAuthorization: &streamPasswordAuthorization
+        ) else { return }
         guard let data = line.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            guard socketEventStreamAuthorizationIsCurrent(
+                authorizationGeneration,
+                passwordAuthorization: &streamPasswordAuthorization
+            ) else { return }
             _ = writeEventsStreamLine([
                 "type": "error",
                 "ok": false,
@@ -35,16 +51,39 @@ extension TerminalController {
             names: names,
             categories: categories
         )
-        defer { CmuxEventBus.shared.unsubscribe(snapshot.subscription) }
-
-        guard writeEventsStreamLine(snapshot.ack, socket: socket) else { return }
-        for frame in snapshot.replayFrames {
-            guard writeEventsStreamFrame(frame, socket: socket) else { return }
+        let revocationSource = socketEventStreamRevocationSource(
+            authorizationRevocationSignal,
+            subscription: snapshot.subscription
+        )
+        defer {
+            revocationSource?.cancel()
+            CmuxEventBus.shared.unsubscribe(snapshot.subscription)
         }
 
-        while true {
-            if let frame = snapshot.subscription.nextFrame(timeout: CmuxEventBus.defaultHeartbeatIntervalSeconds) {
-                guard writeEventsStreamFrame(frame, socket: socket) else { return }
+        guard socketEventStreamAuthorizationIsCurrent(
+                  authorizationGeneration,
+                  passwordAuthorization: &streamPasswordAuthorization
+              ),
+              writeEventsStreamLine(snapshot.ack, socket: socket) else { return }
+        for event in snapshot.replay {
+            guard socketEventStreamAuthorizationIsCurrent(
+                      authorizationGeneration,
+                      passwordAuthorization: &streamPasswordAuthorization
+                  ),
+                  writeEventsStreamLine(event, socket: socket) else { return }
+        }
+
+        while socketEventStreamAuthorizationIsCurrent(
+            authorizationGeneration,
+            passwordAuthorization: &streamPasswordAuthorization
+        ) {
+            let event = snapshot.subscription.next(timeout: CmuxEventBus.defaultHeartbeatIntervalSeconds)
+            guard socketEventStreamAuthorizationIsCurrent(
+                authorizationGeneration,
+                passwordAuthorization: &streamPasswordAuthorization
+            ) else { return }
+            if let event {
+                guard writeEventsStreamLine(event, socket: socket) else { return }
             } else if snapshot.subscription.isClosed {
                 if let reason = snapshot.subscription.closeReason {
                     _ = writeEventsStreamLine([
@@ -58,13 +97,47 @@ extension TerminalController {
                     ], socket: socket)
                 }
                 return
-            } else if includeHeartbeats {
+            } else if includeHeartbeats,
+                      socketEventStreamAuthorizationIsCurrent(
+                          authorizationGeneration,
+                          passwordAuthorization: &streamPasswordAuthorization
+                      ) {
                 let heartbeat = CmuxEventBus.shared.heartbeat(subscription: snapshot.subscription)
                 guard writeEventsStreamLine(heartbeat, socket: socket) else { return }
             } else if Self.socketPeerClosed(socket) {
                 return
             }
         }
+    }
+
+    private nonisolated func socketEventStreamRevocationSource(
+        _ signal: SocketAuthorizationRevocationSignal,
+        subscription: CmuxEventSubscription
+    ) -> (any DispatchSourceRead)? {
+        let signalDescriptor = signal.readFileDescriptor
+        guard signalDescriptor >= 0 else { return nil }
+
+        // Dispatch source cancellation is asynchronous. Give the source its
+        // own descriptor so the signal may release its copy without racing a
+        // pending event handler, then close this copy in the cancel handler.
+        let descriptor = dup(signalDescriptor)
+        guard descriptor >= 0 else { return nil }
+        _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC)
+
+        // DispatchSource bridges the pollable revocation pipe into the
+        // subscription's existing wake signal without a timer or polling loop.
+        let source = DispatchSource.makeReadSource(
+            fileDescriptor: descriptor,
+            queue: .global(qos: .utility)
+        )
+        source.setEventHandler {
+            subscription.close()
+        }
+        source.setCancelHandler {
+            close(descriptor)
+        }
+        source.activate()
+        return source
     }
 
     nonisolated func publishSocketEvents(command: String, response: String) {
@@ -76,10 +149,6 @@ extension TerminalController {
             guard let line = CmuxEventBus.encodeLine(object) else { return false }
             return transport.writeAll(Data((line + "\n").utf8), to: socket)
         }
-    }
-
-    private nonisolated func writeEventsStreamFrame(_ frame: CmuxEventFrame, socket: Int32) -> Bool {
-        transport.writeAll(frame.wireData, to: socket)
     }
 
     private nonisolated static func stringSet(_ value: Any?) -> Set<String> {

@@ -33,21 +33,37 @@ extension MobileShellComposite {
         scope: MobileShellScopeSnapshot
     ) async -> [MobilePairedMac] {
         let forgottenIDs = await forgottenMacDeviceIDs(scope: scope)
-        return loadedMacs.filter { !forgottenIDs.contains($0.macDeviceID) }
+        return loadedMacs.filter {
+            !forgottenIDs.contains($0.id) && !forgottenIDs.contains($0.macDeviceID)
+        }
     }
 
-    func isForgottenMacDeviceID(_ macDeviceID: String, scope: MobileShellScopeSnapshot) async -> Bool {
-        await forgottenMacDeviceIDs(scope: scope).contains(macDeviceID)
+    func isForgottenMacDeviceID(
+        _ macDeviceID: String,
+        instanceTag: String? = nil,
+        scope: MobileShellScopeSnapshot
+    ) async -> Bool {
+        let ids = await forgottenMacDeviceIDs(scope: scope)
+        return ids.contains(macDeviceID) || ids.contains(MobilePairedMac.pairingID(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ))
     }
 
     func removeStoredPairedMacIfForgotten(
         _ macDeviceID: String,
+        instanceTag: String? = nil,
         scope: MobileShellScopeSnapshot
     ) async -> Bool {
-        guard await isForgottenMacDeviceID(macDeviceID, scope: scope) else { return false }
+        guard await isForgottenMacDeviceID(
+            macDeviceID,
+            instanceTag: instanceTag,
+            scope: scope
+        ) else { return false }
         do {
             try await pairedMacStore?.remove(
                 macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
                 stackUserID: scope.userID,
                 teamID: scope.teamID
             )
@@ -79,11 +95,26 @@ extension MobileShellComposite {
         await forgottenMacStore.save(ids, scope: key)
     }
 
-    func clearForgottenMacDeviceID(_ macDeviceID: String, scope: MobileShellScopeSnapshot?) async {
+    func clearForgottenMacDeviceID(
+        _ macDeviceID: String,
+        instanceTag: String? = nil,
+        scope: MobileShellScopeSnapshot?
+    ) async {
         guard !macDeviceID.isEmpty, let scope else { return }
-        await clearForgottenMacDeviceID(macDeviceID, scopeKey: pairedMacScopeKey(scope))
+        let ids = Set([
+            macDeviceID,
+            MobilePairedMac.pairingID(macDeviceID: macDeviceID, instanceTag: instanceTag),
+        ])
+        for id in ids {
+            await clearForgottenMacDeviceID(id, scopeKey: pairedMacScopeKey(scope))
+        }
         if scope.teamID != nil {
-            await clearForgottenMacDeviceID(macDeviceID, scopeKey: pairedMacScopeKey(userWideScope(from: scope)))
+            for id in ids {
+                await clearForgottenMacDeviceID(
+                    id,
+                    scopeKey: pairedMacScopeKey(userWideScope(from: scope))
+                )
+            }
         }
     }
 
@@ -110,6 +141,17 @@ extension MobileShellComposite {
         await forgetStoredMacDeviceIDs(macDeviceIDs, scope: scope)
     }
 
+    /// Forget one exact tagged app instance without removing sibling instances
+    /// that share the same physical Mac device id.
+    public func forgetMac(macDeviceID: String, instanceTag: String?) async {
+        guard let scope = await currentScopeSnapshot() else { return }
+        let targets = pairedMacsForIdentityMatching.filter {
+            $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag
+        }
+        guard !targets.isEmpty else { return }
+        await forgetStoredPairedMacs(targets, scope: scope)
+    }
+
     /// Forget exactly one stored paired-Mac row.
     ///
     /// The host picker lists stored rows, not coalesced logical computers, and its
@@ -120,40 +162,77 @@ extension MobileShellComposite {
         await forgetStoredMacDeviceIDs([macDeviceID], scope: scope)
     }
 
+    /// Forget exactly one tagged stored pairing.
+    public func forgetStoredMac(macDeviceID: String, instanceTag: String?) async {
+        guard let scope = await currentScopeSnapshot() else { return }
+        let targets = pairedMacsForIdentityMatching.filter {
+            $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag
+        }
+        guard !targets.isEmpty else { return }
+        await forgetStoredPairedMacs(targets, scope: scope)
+    }
+
     func forgetStoredMacDeviceIDs(
         _ macDeviceIDs: [String],
         scope: MobileShellScopeSnapshot
     ) async {
         guard !macDeviceIDs.isEmpty else { return }
         let targetIDSet = Set(macDeviceIDs)
-        let teamlessLegacyIDs = Set(pairedMacsForIdentityMatching
-            .filter { targetIDSet.contains($0.macDeviceID) && $0.teamID == nil }
-            .map(\.macDeviceID))
-        for id in macDeviceIDs {
+        var targets = pairedMacsForIdentityMatching.filter {
+            targetIDSet.contains($0.macDeviceID)
+        }
+        let foundPhysicalIDs = Set(targets.map(\.macDeviceID))
+        for id in targetIDSet.subtracting(foundPhysicalIDs) {
+            let now = Date()
+            targets.append(MobilePairedMac(
+                macDeviceID: id,
+                displayName: nil,
+                routes: [],
+                createdAt: now,
+                lastSeenAt: now,
+                isActive: false,
+                stackUserID: scope.userID,
+                teamID: scope.teamID
+            ))
+        }
+        await forgetStoredPairedMacs(targets, scope: scope)
+    }
+
+    private func forgetStoredPairedMacs(
+        _ targets: [MobilePairedMac],
+        scope: MobileShellScopeSnapshot
+    ) async {
+        guard !targets.isEmpty else { return }
+        let targetPairingIDs = Set(targets.map(\.id))
+        let targetPhysicalIDs = Set(targets.map(\.macDeviceID))
+        let teamlessLegacyIDs = Set(targets.filter { $0.teamID == nil }.map(\.id))
+        for mac in targets {
             await rememberForgottenMacDeviceID(
-                id,
+                mac.id,
                 scope: scope,
-                includeUserWideScope: teamlessLegacyIDs.contains(id)
+                includeUserWideScope: teamlessLegacyIDs.contains(mac.id)
             )
         }
         guard await isScopeCurrent(scope) else {
-            for id in macDeviceIDs {
-                await clearForgottenMacDeviceID(id, scope: scope)
+            for pairingID in targetPairingIDs {
+                await clearForgottenMacDeviceID(pairingID, scope: scope)
             }
             return
         }
         let workspacesBeforeForget = workspacesByMac
         let foregroundMacDeviceIDBeforeForget = foregroundMacDeviceID
-        let isActiveMac = pairedMacsForIdentityMatching.contains {
-            targetIDSet.contains($0.macDeviceID) && $0.isActive
-        }
-        if pairedMacsForIdentityMatching.contains(where: { targetIDSet.contains($0.macDeviceID) }) {
+        let isActiveMac = targets.contains(where: \.isActive)
+        if !targets.isEmpty {
             invalidateStoredMacReconnectAttempt()
         }
         if isActiveMac {
             disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
         }
-        for id in macDeviceIDs {
+        let remainingPhysicalIDs = Set(pairedMacsForIdentityMatching
+            .filter { !targetPairingIDs.contains($0.id) }
+            .map(\.macDeviceID))
+        let fullyRemovedPhysicalIDs = targetPhysicalIDs.subtracting(remainingPhysicalIDs)
+        for id in fullyRemovedPhysicalIDs {
             if let subscription = secondaryMacSubscriptions[id] {
                 subscription.cancel()
                 secondaryMacSubscriptions[id] = nil
@@ -161,36 +240,41 @@ extension MobileShellComposite {
             pruneWorkspaceStateForForgottenMac(id)
         }
         guard await isScopeCurrent(scope) else {
-            for id in macDeviceIDs {
-                await clearForgottenMacDeviceID(id, scope: scope)
+            for pairingID in targetPairingIDs {
+                await clearForgottenMacDeviceID(pairingID, scope: scope)
             }
             workspacesByMac = workspacesBeforeForget
             foregroundMacDeviceID = foregroundMacDeviceIDBeforeForget
             return
         }
-        var removedIDs = Set<String>()
-        var failedIDs = Set<String>()
-        for id in macDeviceIDs {
+        var removedPairingIDs = Set<String>()
+        var failedPairingIDs = Set<String>()
+        for mac in targets {
             do {
                 try await pairedMacStore?.remove(
-                    macDeviceID: id,
+                    macDeviceID: mac.macDeviceID,
+                    instanceTag: mac.instanceTag,
                     stackUserID: scope.userID,
                     teamID: scope.teamID
                 )
-                removedIDs.insert(id)
+                removedPairingIDs.insert(mac.id)
             } catch {
-                failedIDs.insert(id)
-                forgottenMacLog.error("paired mac store remove failed mac=\(id, privacy: .public) error=\(String(describing: error), privacy: .public)")
+                failedPairingIDs.insert(mac.id)
+                forgottenMacLog.error("paired mac store remove failed mac=\(mac.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
             }
         }
         guard await isScopeCurrent(scope) else { return }
-        if !failedIDs.isEmpty {
-            for id in failedIDs {
-                await clearForgottenMacDeviceID(id, scope: scope)
+        if !failedPairingIDs.isEmpty {
+            for pairingID in failedPairingIDs {
+                await clearForgottenMacDeviceID(pairingID, scope: scope)
             }
             workspacesByMac = workspacesBeforeForget
             foregroundMacDeviceID = foregroundMacDeviceIDBeforeForget
-            for id in removedIDs {
+            let removedPhysicalIDs = Set(targets
+                .filter { removedPairingIDs.contains($0.id) }
+                .map(\.macDeviceID))
+                .subtracting(remainingPhysicalIDs)
+            for id in removedPhysicalIDs {
                 pruneWorkspaceStateForForgottenMac(id)
             }
         }

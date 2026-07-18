@@ -91,6 +91,24 @@ import Testing
         controller.cacheConnection(connection)
         #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: harness.manager))
         let mirrorWorkspace = try #require(harness.manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
+        let keepWorkspaceOpenKey = "closeWorkspaceOnLastSurfaceShortcut"
+        let previousKeepWorkspaceOpen = UserDefaults.standard.object(forKey: keepWorkspaceOpenKey)
+        UserDefaults.standard.set(false, forKey: keepWorkspaceOpenKey)
+        defer {
+            if let previousKeepWorkspaceOpen {
+                UserDefaults.standard.set(previousKeepWorkspaceOpen, forKey: keepWorkspaceOpenKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: keepWorkspaceOpenKey)
+            }
+        }
+        let mirrorPanelID = try #require(mirrorWorkspace.focusedPanelId)
+        let mirrorSurfaceID = try #require(mirrorWorkspace.surfaceIdFromPanelId(mirrorPanelID))
+        mirrorWorkspace.markTabCloseButtonClose(surfaceId: mirrorSurfaceID)
+        #expect(!mirrorWorkspace.markRemoteTmuxWorkspaceCloseAfterWindowCloseIfNeeded(
+            surfaceId: mirrorSurfaceID,
+            tabStripClose: true,
+            tabCloseButton: true
+        ))
         harness.manager.closeWorkspace(harness.workspace, recordHistory: false)
         #expect(harness.manager.tabs.map(\.id) == [mirrorWorkspace.id])
         #expect(!connection.exited)
@@ -112,6 +130,97 @@ import Testing
         #expect(!log.contains("kill-session"), Comment(rawValue: log))
         #expect(controller.sessionMirror(host: host, sessionName: "dev") == nil)
         #expect(connection.exited)
+    }
+
+    /// Explicit detach of a mirror opened in its own window must close that
+    /// window when the mirror is its final workspace. Leaving a replacement
+    /// local workspace here strands the blank `--new-window` shell and makes a
+    /// subsequent socket `close-window` appear to succeed without removing the
+    /// observed window (#7992).
+    @Test func explicitDetachOfDedicatedLastMirrorClosesOwningWindow() async throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("remote-tmux-explicit-detach-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let logURL = root.appendingPathComponent("ssh.log")
+        let sshURL = root.appendingPathComponent("ssh")
+        try writeExecutable(
+            at: sshURL,
+            contents: """
+            #!/bin/sh
+            for arg in "$@"; do
+              printf 'ARG=%s\\n' "$arg" >> "${CMUX_PR7264_SSH_LOG:?}"
+            done
+            exit 0
+            """
+        )
+        let previousSSH = environmentValue(for: sshOverrideKey)
+        let previousLog = environmentValue(for: sshLogKey)
+        setenv(sshOverrideKey, sshURL.path, 1)
+        setenv(sshLogKey, logURL.path, 1)
+        defer {
+            restoreEnvironment(sshOverrideKey, previousValue: previousSSH)
+            restoreEnvironment(sshLogKey, previousValue: previousLog)
+        }
+
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let host = RemoteTmuxHost(destination: "explicit-detach-\(UUID().uuidString)@example.test")
+        let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
+        let controller = harness.controller
+        controller.cacheConnection(connection)
+        #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: harness.manager))
+        let mirrorWorkspace = try #require(harness.manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
+        harness.manager.closeWorkspace(harness.workspace, recordHistory: false)
+        #expect(harness.manager.tabs.map(\.id) == [mirrorWorkspace.id])
+        let owningWindow = try #require(harness.appDelegate.mainWindow(for: harness.windowId))
+        var didCloseOwningWindow = false
+        let closeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: owningWindow,
+            queue: nil
+        ) { _ in
+            didCloseOwningWindow = true
+        }
+        defer { NotificationCenter.default.removeObserver(closeObserver) }
+
+        controller.detach(host: host, sessionName: "dev")
+
+        _ = try await waitForSSHArgument("exit", at: logURL)
+        #expect(controller.sessionMirror(host: host, sessionName: "dev") == nil)
+        #expect(connection.exited)
+        #expect(didCloseOwningWindow)
+        #expect(!owningWindow.isVisible)
+        #expect(!harness.appDelegate.listMainWindowSummaries().contains {
+            $0.windowId == harness.windowId
+        })
+        #expect(harness.appDelegate.recoverableMainWindowRoute(windowId: harness.windowId) == nil)
+    }
+
+    /// A remote session ending removes its dead mirror but preserves the owning
+    /// window with a fresh local workspace. Only explicit detach closes a
+    /// dedicated final-mirror window.
+    @Test func remoteSessionEndOfDedicatedLastMirrorKeepsOwningWindowUsable() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let host = RemoteTmuxHost(destination: "remote-end-\(UUID().uuidString)@example.test")
+        let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
+        let controller = harness.controller
+        controller.cacheConnection(connection)
+        #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: harness.manager))
+        let mirrorWorkspace = try #require(harness.manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
+        harness.manager.closeWorkspace(harness.workspace, recordHistory: false)
+        let owningWindow = try #require(harness.appDelegate.mainWindow(for: harness.windowId))
+
+        controller.handleSessionEndedRemotely(host: host, sessionName: "dev", workspaceId: mirrorWorkspace.id)
+
+        #expect(connection.exited)
+        #expect(controller.sessionMirror(host: host, sessionName: "dev") == nil)
+        #expect(harness.appDelegate.mainWindow(for: harness.windowId) === owningWindow)
+        #expect(owningWindow.isVisible)
+        #expect(harness.manager.tabs.count == 1)
+        #expect(harness.manager.tabs.allSatisfy { !$0.isRemoteTmuxMirror })
+        #expect(!harness.manager.tabs.contains { $0.id == mirrorWorkspace.id })
     }
 
     /// The ordinary non-last tab-close route shares the same detach contract as
@@ -289,6 +398,14 @@ import Testing
         harness.cacheConnection(host: host, session: "one")
         #expect(harness.appDelegate.focusMainWindow(windowId: harness.windowId))
         #expect(harness.appDelegate.tabManager === harness.manager)
+        #expect(TerminalController.shared.activeTabManagerForCallerNotification() === harness.manager)
+        let focusedBefore = try #require(
+            TerminalController.shared.v2Identify(params: [:])["focused"] as? [String: Any]
+        )
+        let windowIDBefore = try #require(focusedBefore["window_id"] as? String)
+        let workspaceIDBefore = try #require(focusedBefore["workspace_id"] as? String)
+        let paneIDBefore = try #require(focusedBefore["pane_id"] as? String)
+        let surfaceIDBefore = try #require(focusedBefore["surface_id"] as? String)
 
         let responseText = await Task.detached {
             TerminalController.shared.v2RemoteTmuxWindow(
@@ -304,6 +421,14 @@ import Testing
         )
 
         #expect(harness.appDelegate.tabManager === harness.manager)
+        #expect(TerminalController.shared.activeTabManagerForCallerNotification() === harness.manager)
+        let focusedAfter = try #require(
+            TerminalController.shared.v2Identify(params: [:])["focused"] as? [String: Any]
+        )
+        #expect(focusedAfter["window_id"] as? String == windowIDBefore)
+        #expect(focusedAfter["workspace_id"] as? String == workspaceIDBefore)
+        #expect(focusedAfter["pane_id"] as? String == paneIDBefore)
+        #expect(focusedAfter["surface_id"] as? String == surfaceIDBefore)
     }
 
     private func writeExecutable(at url: URL, contents: String) throws {
