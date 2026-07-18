@@ -111,8 +111,7 @@ def main() -> int:
 set -euo pipefail
 printf '%s\n' "$*" >> "$CMUX_TEST_PI_ARGS_LOG"
 payload="$(cat)"
-printf '%s' "$payload" >> "$CMUX_TEST_PI_STDIN_LOG"
-printf '\n---\n' >> "$CMUX_TEST_PI_STDIN_LOG"
+printf '%s\n---\n' "$payload" >> "$CMUX_TEST_PI_STDIN_LOG"
 {
   printf 'kind=%s\n' "${CMUX_AGENT_LAUNCH_KIND-}"
   printf 'cwd=%s\n' "${CMUX_AGENT_LAUNCH_CWD-}"
