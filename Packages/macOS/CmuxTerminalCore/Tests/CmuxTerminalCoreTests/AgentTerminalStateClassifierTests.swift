@@ -60,6 +60,12 @@ struct AgentTerminalStateClassifierTests {
     }
 
     @Test
+    func versionedPythonRuntimeRecognizesKimiProcessTitle() throws {
+        let kimi = process(executable: "python3.14", arguments: ["Kimi Code"])
+        #expect(try #require(classifier.recognize(kimi)).id == "kimi")
+    }
+
+    @Test
     func scopedHintRecognizesOpaqueWrapper() throws {
         let wrapped = AgentTerminalProcessSnapshot(
             identity: identity,
