@@ -632,16 +632,19 @@ struct TerminalClientCompositionTests {
         await client.waitForEnsureCount(1)
     }
 
-    @Test @MainActor
-    func oneHundredDormantPersistentTerminalsNeverRequestRendererPresentations() async {
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func oneThousandDormantPersistentTerminalsShareOneKeyedFrontendEventRouter() async throws {
         let client = RecordingPersistentTerminalBackendClient()
         let registry = TerminalBackendPresentationRegistry()
         let resolver = makeLaunchResolver()
+        let renderConfigSource = TerminalBackendRenderConfigSource {
+            Data("font-family = Menlo\n".utf8)
+        }
         var runtimes: [PersistentTerminalExternalRuntime] = []
         var leases: [any TerminalExternalPresentationLease] = []
-        var hosts: [NSView] = []
+        var workspaceIDs: [UUID] = []
 
-        for index in 0..<100 {
+        for index in 0..<1_000 {
             let workspaceID = UUID()
             let surfaceID = UUID()
             let runtime = PersistentTerminalExternalRuntime(
@@ -652,28 +655,80 @@ struct TerminalClientCompositionTests {
                     surfaceID: surfaceID,
                     portOrdinal: index
                 ),
-                presentationRegistry: registry
+                presentationRegistry: registry,
+                renderConfigSource: renderConfigSource
             )
+            workspaceIDs.append(workspaceID)
             runtimes.append(runtime)
             leases.append(runtime.attachPresentation(TerminalExternalPresentation(
                 surfaceID: surfaceID,
                 workspaceID: workspaceID
             )))
-            let host = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-            hosts.append(host)
-            #expect(registry.mountCompositor(surfaceID: surfaceID, in: host))
         }
         defer { leases.forEach { $0.detach() } }
 
-        await client.waitForEnsureCount(100)
+        await client.waitForEnsureCount(1_000)
+        await client.waitForUXReadCount(1_000)
+        await client.waitForRendererSubscriberCount(1)
         let requests = await client.ensureRequests()
         let mutations = await client.mutations()
         let detachCount = await client.detachedPresentationCount()
-        #expect(requests.count == 100)
-        #expect(runtimes.count == 100)
-        #expect(hosts.count == 100)
+        #expect(requests.count == 1_000)
+        #expect(runtimes.count == 1_000)
         #expect(mutations.isEmpty)
         #expect(detachCount == 0)
+        #expect(await client.rendererEventStreamStartCount() == 1)
+        #expect(await client.activeRendererSubscriberCount() == 1)
+        #expect(renderConfigSource.debugActiveUpdateSubscriberCountForTesting() == 1)
+        #expect(runtimes.allSatisfy {
+            !$0.debugHasFrontendEventRouteForTesting()
+                && !$0.debugHasFrontendEventRegistrationTaskForTesting()
+        })
+
+        var router = await runtimes[0].debugFrontendEventRouterSnapshotForTesting()
+        #expect(router.rendererUpstreamSubscriptionCount == 1)
+        #expect(router.activeRouteCount == 0)
+        #expect(router.rendererDeliveryCounts.isEmpty)
+        #expect(router.configDeliveryCounts.isEmpty)
+
+        #expect(runtimes[0].enqueue(.visibility(true)).accepted)
+        #expect(runtimes[1].enqueue(.visibility(true)).accepted)
+        await runtimes[0].debugWaitForFrontendEventRouteCountForTesting(2)
+
+        router = await runtimes[0].debugFrontendEventRouterSnapshotForTesting()
+        #expect(router.activeRouteCount == 2)
+        #expect(router.configDeliveryCounts.count == 2)
+        let firstPresentationID = runtimes[0].debugPresentationIDForTesting()
+        let secondPresentationID = runtimes[1].debugPresentationIDForTesting()
+        #expect(router.configDeliveryCounts[firstPresentationID] == 1)
+        #expect(router.configDeliveryCounts[secondPresentationID] == 1)
+
+        await client.publish(.workerChanged(try Self.rendererWorkerChange(
+            workspaceID: workspaceIDs[0],
+            priorRendererEpoch: 0,
+            rendererEpoch: nil,
+            state: .starting
+        )))
+        await runtimes[0].debugWaitForFrontendRendererDeliveryCountForTesting(1)
+
+        router = await runtimes[0].debugFrontendEventRouterSnapshotForTesting()
+        #expect(router.rendererDeliveryCounts[firstPresentationID] == 1)
+        #expect(router.rendererDeliveryCounts[secondPresentationID] == nil)
+        #expect(router.rendererDeliveryCounts.count == 1)
+        #expect(await client.rendererEventStreamStartCount() == 1)
+
+        #expect(runtimes[0].enqueue(.visibility(false)).accepted)
+        #expect(runtimes[1].enqueue(.visibility(false)).accepted)
+        await runtimes[0].debugWaitForFrontendEventRouteCountForTesting(0)
+        #expect(runtimes.allSatisfy {
+            !$0.debugHasFrontendEventRouteForTesting()
+                && !$0.debugHasFrontendEventRegistrationTaskForTesting()
+        })
+        router = await runtimes[0].debugFrontendEventRouterSnapshotForTesting()
+        #expect(router.activeRouteCount == 0)
+        #expect(router.rendererUpstreamSubscriptionCount == 1)
+        #expect(await client.activeRendererSubscriberCount() == 1)
+        #expect(renderConfigSource.debugActiveUpdateSubscriberCountForTesting() == 1)
     }
 
     @Test @MainActor
@@ -4347,6 +4402,7 @@ private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
     private var rendererContinuations: [
         UUID: AsyncStream<TerminalBackendRendererEvent>.Continuation
     ] = [:]
+    private var rendererEventStreamStarts = 0
     private var ensureWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
     private var mutationWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
     private var rendererSubscriberWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
@@ -4378,6 +4434,7 @@ private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
     }
 
     func rendererEvents() async -> AsyncStream<TerminalBackendRendererEvent> {
+        rendererEventStreamStarts += 1
         let identifier = UUID()
         let pair = AsyncStream<TerminalBackendRendererEvent>.makeStream()
         rendererContinuations[identifier] = pair.continuation
@@ -4573,6 +4630,10 @@ private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
     func detachedBindingWorkspaceIDs() -> [UUID?] { detachedBindingWorkspaces }
 
     func uxReadWorkspaceIDs() -> [UUID] { uxReadWorkspaces }
+
+    func rendererEventStreamStartCount() -> Int { rendererEventStreamStarts }
+
+    func activeRendererSubscriberCount() -> Int { rendererContinuations.count }
 
     func publish(_ event: TerminalBackendRendererEvent) {
         for continuation in rendererContinuations.values {
