@@ -812,7 +812,6 @@ struct ContentView: View {
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @EnvironmentObject var fileExplorerState: FileExplorerState
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @Environment(\.colorScheme) private var colorScheme
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
@@ -5219,7 +5218,7 @@ struct ContentView: View {
         Self.commandPaletteCommandsFingerprint(
             snapshotFingerprint: commandsContext.snapshot.fingerprint(),
             configRevision: cmuxConfigStore.configRevision,
-            keyboardShortcutRevision: keyboardShortcutSettingsObserver.revision
+            keyboardShortcutRevision: KeyboardShortcutSettingsObserver.shared.revision
         )
     }
 
