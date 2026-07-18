@@ -12,11 +12,11 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork patch head: `eb9004aa8`. It adds indented hard-newline
+Current cmux pinned fork patch head: `0768b05d2`. It adds indented hard-newline
 link continuations on top of `bb30526cd` and is published through
 https://github.com/manaflow-ai/ghostty/pull/124.
 The corresponding universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-eb9004aa8ee3582f6199a4d8f8f74faec4967c24-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-0768b05d2be4886185ecde1a6bee27d201546a65-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Indented hard-newline link continuations
@@ -28,6 +28,8 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
   - `b5c39a8f7` (fix: align hover matcher priority with clicks)
   - `0a714f958` (test: reject non-link cells in wrapped URLs)
   - `eb9004aa8` (fix: resolve wrapped links from exact terminal cells)
+  - `4267fc865` (test: preserve copy-link space trimming)
+  - `0768b05d2` (fix: honor copy-link whitespace trimming)
 - Files:
   - `src/Surface.zig`
   - `src/config/Config.zig`
@@ -48,7 +50,8 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
   - Excludes indentation and trailing sentence punctuation from both actions
     and highlights. The built-in path matcher uses an unmapped match delimiter
     after joined candidates; custom end-of-input matchers retain literal
-    behavior.
+    behavior. Copy-link actions still honor the configured trailing-space
+    trimming without changing the canonical target used for opening.
   - Applies matcher priority across overlapping candidate scopes, keeps OSC 8
     ownership authoritative, and maps both cells of wide UTF-8 glyphs.
   - Bounds cell, byte, candidate, and regex work; compressed pages stay cold.
