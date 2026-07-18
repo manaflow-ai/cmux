@@ -62,13 +62,7 @@ struct SimulatorFramebufferOrientationState: Equatable, Sendable {
 
 /// Maps SimulatorKit's `SimScreenUIOrientation` values without importing its private type.
 func simulatorNativeOrientation(rawValue: UInt32) -> SimulatorOrientation? {
-    switch rawValue {
-    case 1: .portrait
-    case 2: .portraitUpsideDown
-    case 3: .landscapeRight
-    case 4: .landscapeLeft
-    default: nil
-    }
+    SimulatorNativeOrientationCodec.screenOrientation(rawValue: rawValue)
 }
 
 private func simulatorLandscapeShape(width: Int, height: Int) -> Bool? {

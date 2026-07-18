@@ -7,12 +7,7 @@ extension SimulatorHIDTransport {
     @discardableResult
     func rotate(_ orientation: SimulatorOrientation) -> Bool {
         guard let device else { return false }
-        let value: UInt32 = switch orientation {
-        case .portrait: 1
-        case .portraitUpsideDown: 2
-        case .landscapeRight: 3
-        case .landscapeLeft: 4
-        }
+        let value = SimulatorNativeOrientationCodec.purpleWorkspaceRawValue(for: orientation)
         return sendOrientation(value, to: device)
     }
 

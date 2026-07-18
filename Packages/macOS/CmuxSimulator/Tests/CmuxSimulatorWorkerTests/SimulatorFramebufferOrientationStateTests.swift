@@ -4,6 +4,20 @@ import Testing
 
 @Suite("Simulator framebuffer orientation state")
 struct SimulatorFramebufferOrientationStateTests {
+    @Test("Native orientation dialects map through logical orientation")
+    func mapsNativeOrientationDialects() {
+        #expect(SimulatorNativeOrientationCodec.purpleWorkspaceRawValue(for: .portrait) == 1)
+        #expect(SimulatorNativeOrientationCodec.purpleWorkspaceRawValue(for: .portraitUpsideDown) == 2)
+        #expect(SimulatorNativeOrientationCodec.purpleWorkspaceRawValue(for: .landscapeRight) == 3)
+        #expect(SimulatorNativeOrientationCodec.purpleWorkspaceRawValue(for: .landscapeLeft) == 4)
+
+        #expect(SimulatorNativeOrientationCodec.screenOrientation(rawValue: 1) == .portrait)
+        #expect(SimulatorNativeOrientationCodec.screenOrientation(rawValue: 2) == .portraitUpsideDown)
+        #expect(SimulatorNativeOrientationCodec.screenOrientation(rawValue: 3) == .landscapeLeft)
+        #expect(SimulatorNativeOrientationCodec.screenOrientation(rawValue: 4) == .landscapeRight)
+        #expect(SimulatorNativeOrientationCodec.screenOrientation(rawValue: 0) == nil)
+    }
+
     @Test("An already-landscape framebuffer attaches in its native orientation")
     func attachesToLandscapeDisplay() {
         var nativeState = SimulatorFramebufferOrientationState()
