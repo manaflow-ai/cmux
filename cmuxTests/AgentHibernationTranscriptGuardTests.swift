@@ -232,6 +232,393 @@ struct AgentHibernationTranscriptGuardTests {
         #expect(metadata["sessionId"] as? String == sessionId)
         #expect(metadata["transcriptPath"] as? String == transcript.path)
         #expect(metadata["snapshotPath"] as? String == snapshot.snapshotPath)
+
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: -60)],
+            ofItemAtPath: snapshot.snapshotPath
+        )
+        let newestContent = populatedTranscript
+            + #"{"type":"assistant","message":{"role":"assistant","content":"newest"}}"#
+            + "\n"
+        try newestContent.write(to: transcript, atomically: true, encoding: .utf8)
+        let newestSnapshot = try #require(
+            snapshotOutcomeValue(
+                from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+                    agent: agent(sessionId: sessionId, workingDirectory: cwd),
+                    homeDirectory: home.path,
+                    snapshotDirectory: snapshots
+                )
+            )
+        )
+        try metadataStub.write(to: transcript, atomically: true, encoding: .utf8)
+        #expect(
+            AgentHibernationTranscriptGuard.recoverPendingSnapshots(
+                snapshotDirectory: snapshots
+            ) == 1
+        )
+        #expect(AgentHibernationTranscriptGuard.transcriptHasConversationTurns(atPath: transcript.path))
+        #expect(try String(contentsOf: transcript, encoding: .utf8) == newestContent)
+        #expect(FileManager.default.fileExists(atPath: snapshot.snapshotPath) == false)
+        #expect(FileManager.default.fileExists(atPath: newestSnapshot.snapshotPath) == false)
+    }
+
+    @Test
+    func restartRecoveryPreservesDivergentPopulatedLiveTranscriptAndSnapshot() throws {
+        let home = try temporaryDirectory()
+        let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let cwd = "/tmp/restart-divergent-live"
+        let sessionId = "session-restart-divergent-live"
+        let transcript = transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
+        try writeFile(populatedTranscript, to: transcript)
+        let snapshot = try #require(snapshotOutcomeValue(
+            from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+                agent: agent(sessionId: sessionId, workingDirectory: cwd),
+                homeDirectory: home.path,
+                snapshotDirectory: snapshots
+            )
+        ))
+        let divergentLive = [
+            #"{"type":"user","message":{"role":"user","content":"new branch"}}"#,
+            #"{"type":"assistant","message":{"role":"assistant","content":"different history"}}"#,
+        ].joined(separator: "\n") + "\n"
+        try divergentLive.write(to: transcript, atomically: true, encoding: .utf8)
+
+        #expect(
+            AgentHibernationTranscriptGuard.recoverPendingSnapshots(
+                snapshotDirectory: snapshots
+            ) == 0
+        )
+        #expect(try String(contentsOf: transcript, encoding: .utf8) == divergentLive)
+        #expect(try String(contentsOfFile: snapshot.snapshotPath, encoding: .utf8) == populatedTranscript)
+    }
+
+    @Test
+    func retainedRenamePreservesMetadataAndNewestCaptureWinsRecovery() throws {
+        let home = try temporaryDirectory()
+        let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let cwd = "/tmp/restart-retained-ordering"
+        let sessionId = "session-retained-ordering"
+        let transcript = transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
+        try writeFile(populatedTranscript, to: transcript)
+        let olderSnapshot = try #require(snapshotOutcomeValue(
+            from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+                agent: agent(sessionId: sessionId, workingDirectory: cwd),
+                homeDirectory: home.path,
+                snapshotDirectory: snapshots
+            )
+        ))
+        var olderMetadata = try recoveryMetadataJSON(atPath: olderSnapshot.snapshotPath)
+        let oldCaptureDate = Date(timeIntervalSinceNow: -120)
+        olderMetadata["capturedAt"] = oldCaptureDate.timeIntervalSinceReferenceDate
+        try setRecoveryMetadata(
+            try JSONSerialization.data(withJSONObject: olderMetadata),
+            atPath: olderSnapshot.snapshotPath
+        )
+
+        let newestContent = populatedTranscript
+            + #"{"type":"assistant","message":{"role":"assistant","content":"newest"}}"#
+            + "\n"
+        try newestContent.write(to: transcript, atomically: true, encoding: .utf8)
+        let newestSnapshot = try #require(snapshotOutcomeValue(
+            from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+                agent: agent(sessionId: sessionId, workingDirectory: cwd),
+                homeDirectory: home.path,
+                snapshotDirectory: snapshots
+            )
+        ))
+
+        AgentHibernationTranscriptGuard.retainSnapshotForRecovery(
+            olderSnapshot,
+            sessionId: sessionId
+        )
+        let retained = snapshots.appendingPathComponent("\(sessionId)-retained.jsonl")
+        #expect(FileManager.default.fileExists(atPath: olderSnapshot.snapshotPath) == false)
+        #expect(FileManager.default.fileExists(atPath: retained.path))
+        let retainedMetadata = try recoveryMetadataJSON(atPath: retained.path)
+        #expect(retainedMetadata["snapshotPath"] as? String == retained.path)
+        #expect(
+            abs((retainedMetadata["capturedAt"] as? Double ?? 0) -
+                oldCaptureDate.timeIntervalSinceReferenceDate) < 0.001
+        )
+
+        try metadataStub.write(to: transcript, atomically: true, encoding: .utf8)
+        #expect(
+            AgentHibernationTranscriptGuard.recoverPendingSnapshots(
+                snapshotDirectory: snapshots
+            ) == 1
+        )
+        #expect(try String(contentsOf: transcript, encoding: .utf8) == newestContent)
+        #expect(FileManager.default.fileExists(atPath: newestSnapshot.snapshotPath) == false)
+        #expect(FileManager.default.fileExists(atPath: retained.path) == false)
+    }
+
+    @Test
+    func restartRecoveryIgnoresMissingCorruptAndOversizedMetadata() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let missing = directory.appendingPathComponent("missing-xattr-1.jsonl")
+        let corrupt = directory.appendingPathComponent("corrupt-xattr-1.jsonl")
+        let oversized = directory.appendingPathComponent("oversized-xattr-1.jsonl")
+        try populatedTranscript.write(to: missing, atomically: true, encoding: .utf8)
+        try populatedTranscript.write(to: corrupt, atomically: true, encoding: .utf8)
+        try populatedTranscript.write(to: oversized, atomically: true, encoding: .utf8)
+        try setRecoveryMetadata(Data("{".utf8), atPath: corrupt.path)
+        try setRecoveryMetadata(Data(repeating: 0x78, count: 64 * 1024 + 1), atPath: oversized.path)
+
+        #expect(
+            AgentHibernationTranscriptGuard.recoverPendingSnapshots(
+                snapshotDirectory: directory
+            ) == 0
+        )
+        #expect(FileManager.default.fileExists(atPath: missing.path))
+        #expect(FileManager.default.fileExists(atPath: corrupt.path))
+        #expect(FileManager.default.fileExists(atPath: oversized.path))
+    }
+
+    @Test
+    func restartRecoveryValidatesMetadataBeforeApplyingCandidateLimit() throws {
+        let home = try temporaryDirectory()
+        let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let cwd = "/tmp/restart-candidate-admission"
+        let sessionId = "session-valid-beyond-invalid-limit"
+        let transcript = transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
+        try writeFile(populatedTranscript, to: transcript)
+        let validSnapshot = try #require(snapshotOutcomeValue(
+            from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+                agent: agent(sessionId: sessionId, workingDirectory: cwd),
+                homeDirectory: home.path,
+                snapshotDirectory: snapshots
+            )
+        ))
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: -600)],
+            ofItemAtPath: validSnapshot.snapshotPath
+        )
+        for index in 0..<300 {
+            let invalid = snapshots.appendingPathComponent("invalid-newer-\(index).jsonl")
+            try populatedTranscript.write(to: invalid, atomically: true, encoding: .utf8)
+        }
+        try metadataStub.write(to: transcript, atomically: true, encoding: .utf8)
+
+        #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(snapshotDirectory: snapshots) == 1)
+        #expect(try String(contentsOf: transcript, encoding: .utf8) == populatedTranscript)
+        #expect(FileManager.default.fileExists(atPath: validSnapshot.snapshotPath) == false)
+    }
+
+    @Test
+    func restartRecoveryRotatesFairlyPastDivergentTranscriptGroups() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let divergentLive = [
+            #"{"type":"user","message":{"role":"user","content":"live branch"}}"#,
+            #"{"type":"assistant","message":{"role":"assistant","content":"live answer"}}"#,
+        ].joined(separator: "\n") + "\n"
+        for index in 0..<260 {
+            let sessionId = String(format: "fair-%03d", index)
+            let live = directory.appendingPathComponent("live-\(sessionId).jsonl")
+            let snapshot = directory.appendingPathComponent("\(sessionId)-snapshot.jsonl")
+            try divergentLive.write(to: live, atomically: true, encoding: .utf8)
+            try populatedTranscript.write(to: snapshot, atomically: true, encoding: .utf8)
+            try setRecoveryMetadata(
+                recoveryMetadataData(
+                    sessionId: sessionId,
+                    transcriptPath: live.path,
+                    snapshotPath: snapshot.path,
+                    capturedAt: Date(timeIntervalSinceNow: TimeInterval(-index))
+                ),
+                atPath: snapshot.path
+            )
+        }
+
+        let targetSessionId = "fair-zzz"
+        let targetLive = directory.appendingPathComponent("live-\(targetSessionId).jsonl")
+        let targetSnapshot = directory.appendingPathComponent("\(targetSessionId)-snapshot.jsonl")
+        try metadataStub.write(to: targetLive, atomically: true, encoding: .utf8)
+        try populatedTranscript.write(to: targetSnapshot, atomically: true, encoding: .utf8)
+        try setRecoveryMetadata(
+            recoveryMetadataData(
+                sessionId: targetSessionId,
+                transcriptPath: targetLive.path,
+                snapshotPath: targetSnapshot.path,
+                capturedAt: Date(timeIntervalSinceNow: -3_600)
+            ),
+            atPath: targetSnapshot.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: -3_600)],
+            ofItemAtPath: targetSnapshot.path
+        )
+
+        #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(snapshotDirectory: directory) == 0)
+        #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(snapshotDirectory: directory) == 1)
+        #expect(try String(contentsOf: targetLive, encoding: .utf8) == populatedTranscript)
+        #expect(FileManager.default.fileExists(atPath: targetSnapshot.path) == false)
+    }
+
+    @Test
+    func retainedSlotPreservesDivergentProtectedBranches() throws {
+        let home = try temporaryDirectory()
+        let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let cwd = "/tmp/retained-divergent-branches"
+        let sessionId = "retained-divergent-branches"
+        let transcript = transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
+        let firstBranch = populatedTranscript
+        try writeFile(firstBranch, to: transcript)
+        let first = try #require(snapshotOutcomeValue(
+            from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+                agent: agent(sessionId: sessionId, workingDirectory: cwd),
+                homeDirectory: home.path,
+                snapshotDirectory: snapshots
+            )
+        ))
+        AgentHibernationTranscriptGuard.retainSnapshotForRecovery(first, sessionId: sessionId)
+        let retained = snapshots.appendingPathComponent("\(sessionId)-retained.jsonl")
+
+        let secondBranch = [
+            #"{"type":"user","message":{"role":"user","content":"different branch"}}"#,
+            #"{"type":"assistant","message":{"role":"assistant","content":"different answer"}}"#,
+        ].joined(separator: "\n") + "\n"
+        try secondBranch.write(to: transcript, atomically: true, encoding: .utf8)
+        let second = try #require(snapshotOutcomeValue(
+            from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+                agent: agent(sessionId: sessionId, workingDirectory: cwd),
+                homeDirectory: home.path,
+                snapshotDirectory: snapshots
+            )
+        ))
+        AgentHibernationTranscriptGuard.retainSnapshotForRecovery(second, sessionId: sessionId)
+
+        #expect(try String(contentsOf: retained, encoding: .utf8) == firstBranch)
+        #expect(try String(contentsOfFile: second.snapshotPath, encoding: .utf8) == secondBranch)
+    }
+
+    @Test
+    func restartRecoveryDefersWhileCapturedOwnerProcessIsAlive() throws {
+        let home = try temporaryDirectory()
+        let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let cwd = "/tmp/restart-live-owner"
+        let sessionId = "session-restart-live-owner"
+        let transcript = transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
+        try writeFile(populatedTranscript, to: transcript)
+        let snapshot = try #require(snapshotOutcomeValue(
+            from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+                agent: agent(sessionId: sessionId, workingDirectory: cwd),
+                homeDirectory: home.path,
+                snapshotDirectory: snapshots
+            )
+        ))
+
+        let owner = Process()
+        owner.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        owner.arguments = ["30"]
+        try owner.run()
+        defer {
+            if owner.isRunning {
+                owner.terminate()
+                owner.waitUntilExit()
+            }
+        }
+        let ownerIdentity = try #require(AgentPIDProcessIdentity(pid: owner.processIdentifier))
+        var metadata = try recoveryMetadataJSON(atPath: snapshot.snapshotPath)
+        metadata["ownerProcessId"] = Int(ownerIdentity.pid)
+        metadata["ownerProcessStartSeconds"] = ownerIdentity.startSeconds
+        metadata["ownerProcessStartMicroseconds"] = ownerIdentity.startMicroseconds
+        try setRecoveryMetadata(try JSONSerialization.data(withJSONObject: metadata), atPath: snapshot.snapshotPath)
+        try metadataStub.write(to: transcript, atomically: true, encoding: .utf8)
+
+        #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(snapshotDirectory: snapshots) == 0)
+        #expect(FileManager.default.fileExists(atPath: snapshot.snapshotPath))
+
+        owner.terminate()
+        owner.waitUntilExit()
+        #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(snapshotDirectory: snapshots) == 1)
+        #expect(try String(contentsOf: transcript, encoding: .utf8) == populatedTranscript)
+    }
+
+    @Test
+    func restartRecoveryUsesAnInterprocessDirectoryLock() throws {
+        let home = try temporaryDirectory()
+        let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let cwd = "/tmp/restart-directory-lock"
+        let sessionId = "session-restart-directory-lock"
+        let transcript = transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
+        try writeFile(populatedTranscript, to: transcript)
+        let snapshot = try #require(snapshotOutcomeValue(
+            from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+                agent: agent(sessionId: sessionId, workingDirectory: cwd),
+                homeDirectory: home.path,
+                snapshotDirectory: snapshots
+            )
+        ))
+        try metadataStub.write(to: transcript, atomically: true, encoding: .utf8)
+
+        let lockPath = snapshots.appendingPathComponent(".agent-transcript-recovery.lock").path
+        let lockDescriptor = open(lockPath, O_CREAT | O_RDWR | O_CLOEXEC, S_IRUSR | S_IWUSR)
+        #expect(lockDescriptor >= 0)
+        defer { if lockDescriptor >= 0 { close(lockDescriptor) } }
+        #expect(flock(lockDescriptor, LOCK_EX | LOCK_NB) == 0)
+
+        #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(snapshotDirectory: snapshots) == 0)
+        #expect(FileManager.default.fileExists(atPath: snapshot.snapshotPath))
+
+        #expect(flock(lockDescriptor, LOCK_UN) == 0)
+        #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(snapshotDirectory: snapshots) == 1)
+        #expect(try String(contentsOf: transcript, encoding: .utf8) == populatedTranscript)
+    }
+
+    @Test
+    func restartRecoveryPreservesOlderDivergentSnapshotAfterRestoringNewest() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let sessionId = "restart-divergent-older"
+        let live = directory.appendingPathComponent("live.jsonl")
+        let older = directory.appendingPathComponent("\(sessionId)-older.jsonl")
+        let newest = directory.appendingPathComponent("\(sessionId)-newest.jsonl")
+        let olderBranch = [
+            #"{"type":"user","message":{"role":"user","content":"older branch"}}"#,
+            #"{"type":"assistant","message":{"role":"assistant","content":"older answer"}}"#,
+        ].joined(separator: "\n") + "\n"
+        try metadataStub.write(to: live, atomically: true, encoding: .utf8)
+        try olderBranch.write(to: older, atomically: true, encoding: .utf8)
+        try populatedTranscript.write(to: newest, atomically: true, encoding: .utf8)
+        try setRecoveryMetadata(
+            recoveryMetadataData(
+                sessionId: sessionId,
+                transcriptPath: live.path,
+                snapshotPath: older.path,
+                capturedAt: Date(timeIntervalSinceNow: -60)
+            ),
+            atPath: older.path
+        )
+        try setRecoveryMetadata(
+            recoveryMetadataData(
+                sessionId: sessionId,
+                transcriptPath: live.path,
+                snapshotPath: newest.path,
+                capturedAt: Date()
+            ),
+            atPath: newest.path
+        )
+
+        #expect(AgentHibernationTranscriptGuard.recoverPendingSnapshots(snapshotDirectory: directory) == 1)
+        #expect(try String(contentsOf: live, encoding: .utf8) == populatedTranscript)
+        #expect(FileManager.default.fileExists(atPath: newest.path) == false)
+        #expect(try String(contentsOf: older, encoding: .utf8) == olderBranch)
     }
 
     @Test
@@ -548,6 +935,54 @@ struct AgentHibernationTranscriptGuardTests {
     private func outcomeIsUnableToProtect(_ outcome: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome) -> Bool { guard case .unableToProtect = outcome else { return false }; return true }
 
     private func writeFile(_ content: String, to url: URL) throws { try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true); try content.write(to: url, atomically: true, encoding: .utf8) }
+
+    private func recoveryMetadataJSON(atPath path: String) throws -> [String: Any] {
+        let metadataName = "com.cmux.agent-transcript-recovery"
+        let byteCount = getxattr(path, metadataName, nil, 0, 0, 0)
+        guard byteCount > 0 else {
+            throw CocoaError(.fileReadUnknown)
+        }
+        var data = Data(count: byteCount)
+        let bytesRead = data.withUnsafeMutableBytes { buffer in
+            getxattr(path, metadataName, buffer.baseAddress, buffer.count, 0, 0)
+        }
+        guard bytesRead == byteCount,
+              let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        return object
+    }
+
+    private func setRecoveryMetadata(_ data: Data, atPath path: String) throws {
+        let result = data.withUnsafeBytes { buffer in
+            setxattr(
+                path,
+                "com.cmux.agent-transcript-recovery",
+                buffer.baseAddress,
+                buffer.count,
+                0,
+                0
+            )
+        }
+        guard result == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+    }
+
+    private func recoveryMetadataData(
+        sessionId: String,
+        transcriptPath: String,
+        snapshotPath: String,
+        capturedAt: Date
+    ) throws -> Data {
+        try JSONSerialization.data(withJSONObject: [
+            "version": 1,
+            "sessionId": sessionId,
+            "transcriptPath": transcriptPath,
+            "snapshotPath": snapshotPath,
+            "capturedAt": capturedAt.timeIntervalSinceReferenceDate,
+        ], options: [.sortedKeys])
+    }
 
     private func canonicalTranscriptRecord(
         sessionID: String,
