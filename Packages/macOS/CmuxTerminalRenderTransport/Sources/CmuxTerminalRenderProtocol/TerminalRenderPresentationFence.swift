@@ -35,13 +35,10 @@ public struct TerminalRenderPresentationFence: Equatable, Sendable {
     /// Expected frame color space.
     public let colorSpace: TerminalRenderColorSpace
 
-    /// Expected out-of-band shared Metal event identity.
-    public let completionFenceEventID: UUID
+    /// Completion mechanism accepted for this presentation generation.
+    public let completionRequirement: TerminalRenderCompletionRequirement
 
-    /// Oldest completed shared-event value that may be displayed.
-    public let minimumCompletionFenceValue: UInt64
-
-    /// Creates a presentation fence with bounded dimensions and a nonzero completion value.
+    /// Creates a presentation fence with bounded dimensions and validated completion requirements.
     ///
     /// - Parameters:
     ///   - daemonInstanceID: Expected cmuxd process lifetime.
@@ -55,9 +52,8 @@ public struct TerminalRenderPresentationFence: Equatable, Sendable {
     ///   - height: Expected IOSurface height in pixels.
     ///   - pixelFormat: Expected IOSurface pixel layout.
     ///   - colorSpace: Expected layer color-space semantics.
-    ///   - completionFenceEventID: Expected out-of-band shared Metal event identity.
-    ///   - minimumCompletionFenceValue: Oldest shared-event value that may be displayed.
-    /// - Throws: ``TerminalRenderFrameProtocolError`` when dimensions or the fence value are invalid.
+    ///   - completionRequirement: Accepted producer-completion or shared-event synchronization.
+    /// - Throws: ``TerminalRenderFrameProtocolError`` when dimensions or a shared-event value are invalid.
     public init(
         daemonInstanceID: UUID,
         rendererEpoch: UInt64,
@@ -70,9 +66,18 @@ public struct TerminalRenderPresentationFence: Equatable, Sendable {
         height: UInt32,
         pixelFormat: TerminalRenderPixelFormat,
         colorSpace: TerminalRenderColorSpace,
-        completionFenceEventID: UUID,
-        minimumCompletionFenceValue: UInt64
+        completionRequirement: TerminalRenderCompletionRequirement
     ) throws {
+        let completionFence: TerminalRenderCompletionFence
+        switch completionRequirement {
+        case .producerCompleted:
+            completionFence = .producerCompleted
+        case let .sharedEvent(eventID, minimumValue):
+            guard minimumValue > 0 else {
+                throw TerminalRenderFrameProtocolError.invalidCompletionFence
+            }
+            completionFence = .sharedEvent(eventID: eventID, value: minimumValue)
+        }
         _ = try TerminalRenderFrameMetadata(
             daemonInstanceID: daemonInstanceID,
             rendererEpoch: rendererEpoch,
@@ -86,10 +91,7 @@ public struct TerminalRenderPresentationFence: Equatable, Sendable {
             height: height,
             pixelFormat: pixelFormat,
             colorSpace: colorSpace,
-            completionFence: TerminalRenderCompletionFence(
-                eventID: completionFenceEventID,
-                value: minimumCompletionFenceValue
-            ),
+            completionFence: completionFence,
             damageBounds: nil
         )
         self.daemonInstanceID = daemonInstanceID
@@ -103,7 +105,6 @@ public struct TerminalRenderPresentationFence: Equatable, Sendable {
         self.height = height
         self.pixelFormat = pixelFormat
         self.colorSpace = colorSpace
-        self.completionFenceEventID = completionFenceEventID
-        self.minimumCompletionFenceValue = minimumCompletionFenceValue
+        self.completionRequirement = completionRequirement
     }
 }

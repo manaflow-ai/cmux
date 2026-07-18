@@ -54,6 +54,27 @@ struct TerminalRenderFrameAcceptanceTests {
     }
 
     @Test
+    func acceptsProducerCompletedFramesAndRejectsCompletionModeChanges() throws {
+        let producerFence = try fixture.makeFence(producerCompleted: true)
+        var producerAcceptance = TerminalRenderFrameAcceptance()
+        #expect(producerAcceptance.accept(
+            try fixture.makeMetadata(producerCompleted: true),
+            against: producerFence
+        ) == nil)
+        #expect(producerAcceptance.lastCompletionFenceValue == nil)
+
+        var sharedAcceptance = TerminalRenderFrameAcceptance()
+        #expect(sharedAcceptance.accept(
+            try fixture.makeMetadata(producerCompleted: true),
+            against: try fixture.makeFence()
+        ) == .completionModeMismatch)
+        #expect(sharedAcceptance.accept(
+            try fixture.makeMetadata(),
+            against: producerFence
+        ) == .completionModeMismatch)
+    }
+
+    @Test
     func rejectsTerminalAndCompletionRegressionsAfterNewerFrame() throws {
         let fence = try fixture.makeFence()
         var acceptance = TerminalRenderFrameAcceptance()

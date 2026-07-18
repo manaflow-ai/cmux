@@ -1,24 +1,12 @@
 public import Foundation
 
-/// The shared Metal-event generation and value completed for one frame.
-public struct TerminalRenderCompletionFence: Equatable, Sendable {
-    /// Identity of the shared event imported through the renderer control plane.
-    public let eventID: UUID
+/// Proof that a renderer finished writing an IOSurface before publishing it.
+public enum TerminalRenderCompletionFence: Equatable, Sendable {
+    /// The frame was sent from the producer's GPU-completion callback. No
+    /// cross-process wait is necessary before the consumer reads the surface.
+    case producerCompleted
 
-    /// The event value that must be signaled before presentation.
-    public let value: UInt64
+    /// The consumer must wait for an out-of-band shared Metal event.
+    case sharedEvent(eventID: UUID, value: UInt64)
 
-    /// Creates a completion fence.
-    ///
-    /// - Parameters:
-    ///   - eventID: Identity of the out-of-band shared Metal event.
-    ///   - value: A nonzero value signaled for this frame.
-    /// - Throws: ``TerminalRenderFrameProtocolError/invalidCompletionFence`` for zero.
-    public init(eventID: UUID, value: UInt64) throws {
-        guard value > 0 else {
-            throw TerminalRenderFrameProtocolError.invalidCompletionFence
-        }
-        self.eventID = eventID
-        self.value = value
-    }
 }

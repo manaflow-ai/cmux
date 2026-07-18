@@ -57,12 +57,19 @@ public struct TerminalRenderFrameAcceptance: Equatable, Sendable {
         guard metadata.colorSpace == fence.colorSpace else {
             return .colorSpaceMismatch
         }
-        guard metadata.completionFence.eventID == fence.completionFenceEventID else {
-            return .completionFenceIdentityMismatch
-        }
-        guard metadata.completionFence.value >= fence.minimumCompletionFenceValue,
-              lastCompletionFenceValue.map({ metadata.completionFence.value >= $0 }) ?? true else {
-            return .staleCompletionFence
+        switch (metadata.completionFence, fence.completionRequirement) {
+        case (.producerCompleted, .producerCompleted):
+            break
+        case let (.sharedEvent(eventID, value), .sharedEvent(expectedEventID, minimumValue)):
+            guard eventID == expectedEventID else {
+                return .completionFenceIdentityMismatch
+            }
+            guard value >= minimumValue,
+                  lastCompletionFenceValue.map({ value >= $0 }) ?? true else {
+                return .staleCompletionFence
+            }
+        default:
+            return .completionModeMismatch
         }
         guard lastFrameSequence.map({ metadata.frameSequence > $0 }) ?? true else {
             return .staleFrameSequence
@@ -70,7 +77,11 @@ public struct TerminalRenderFrameAcceptance: Equatable, Sendable {
 
         lastFrameSequence = metadata.frameSequence
         lastTerminalSequence = metadata.terminalSequence
-        lastCompletionFenceValue = metadata.completionFence.value
+        if case let .sharedEvent(_, value) = metadata.completionFence {
+            lastCompletionFenceValue = value
+        } else {
+            lastCompletionFenceValue = nil
+        }
         return nil
     }
 

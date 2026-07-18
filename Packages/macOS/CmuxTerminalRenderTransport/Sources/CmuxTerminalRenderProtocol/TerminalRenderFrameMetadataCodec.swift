@@ -3,7 +3,9 @@ public import Foundation
 /// Canonical fixed-width codec for renderer frame metadata.
 public struct TerminalRenderFrameMetadataCodec: Sendable {
     private let magic: [UInt8] = [0x43, 0x4D, 0x58, 0x46]
+    private let zeroUUID = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
     private let damagePresentFlag: UInt16 = 1
+    private let producerCompletedFlag: UInt16 = 1 << 1
 
     /// Creates a stateless metadata codec.
     public init() {}
@@ -16,7 +18,11 @@ public struct TerminalRenderFrameMetadataCodec: Sendable {
         var writer = TerminalRenderWireWriter()
         writer.append(bytes: magic)
         writer.append(value: TerminalRenderFrameProtocol.currentVersion)
-        writer.append(value: metadata.damageBounds == nil ? 0 : damagePresentFlag)
+        var flags: UInt16 = metadata.damageBounds == nil ? 0 : damagePresentFlag
+        if metadata.completionFence == .producerCompleted {
+            flags |= producerCompletedFlag
+        }
+        writer.append(value: flags)
         writer.append(uuid: metadata.daemonInstanceID)
         writer.append(value: metadata.rendererEpoch)
         writer.append(uuid: metadata.terminalID)
@@ -29,8 +35,14 @@ public struct TerminalRenderFrameMetadataCodec: Sendable {
         writer.append(value: metadata.height)
         writer.append(value: metadata.pixelFormat.rawValue)
         writer.append(value: metadata.colorSpace.rawValue)
-        writer.append(uuid: metadata.completionFence.eventID)
-        writer.append(value: metadata.completionFence.value)
+        switch metadata.completionFence {
+        case .producerCompleted:
+            writer.append(bytes: Array(repeating: 0, count: 16))
+            writer.append(value: UInt64(0))
+        case let .sharedEvent(eventID, value):
+            writer.append(uuid: eventID)
+            writer.append(value: value)
+        }
         writer.append(value: metadata.damageBounds?.x ?? 0)
         writer.append(value: metadata.damageBounds?.y ?? 0)
         writer.append(value: metadata.damageBounds?.width ?? 0)
@@ -59,7 +71,7 @@ public struct TerminalRenderFrameMetadataCodec: Sendable {
             throw TerminalRenderFrameProtocolError.unsupportedWireVersion(version)
         }
         let flags = try reader.readUInt16()
-        guard flags & ~damagePresentFlag == 0 else {
+        guard flags & ~(damagePresentFlag | producerCompletedFlag) == 0 else {
             throw TerminalRenderFrameProtocolError.unsupportedWireFlags(flags)
         }
 
@@ -83,10 +95,21 @@ public struct TerminalRenderFrameMetadataCodec: Sendable {
             throw TerminalRenderFrameProtocolError.unsupportedColorSpace(colorSpaceRawValue)
         }
 
-        let completionFence = try TerminalRenderCompletionFence(
-            eventID: reader.readUUID(),
-            value: reader.readUInt64()
-        )
+        let completionEventID = try reader.readUUID()
+        let completionValue = try reader.readUInt64()
+        let completionFence: TerminalRenderCompletionFence
+        if flags & producerCompletedFlag != 0 {
+            guard completionEventID == zeroUUID,
+                  completionValue == 0 else {
+                throw TerminalRenderFrameProtocolError.nonzeroReservedBytes
+            }
+            completionFence = .producerCompleted
+        } else {
+            guard completionValue > 0 else {
+                throw TerminalRenderFrameProtocolError.invalidCompletionFence
+            }
+            completionFence = .sharedEvent(eventID: completionEventID, value: completionValue)
+        }
         let damageX = try reader.readUInt32()
         let damageY = try reader.readUInt32()
         let damageWidth = try reader.readUInt32()

@@ -38,7 +38,7 @@ public struct TerminalRenderFrameMetadata: Equatable, Sendable {
     /// Color-space semantics used to render the pixels.
     public let colorSpace: TerminalRenderColorSpace
 
-    /// Shared-event completion point associated with this frame.
+    /// Proof that the renderer completed writing this frame.
     public let completionFence: TerminalRenderCompletionFence
 
     /// Optional bounding rectangle of changed pixels; `nil` means full-frame damage.
@@ -59,7 +59,7 @@ public struct TerminalRenderFrameMetadata: Equatable, Sendable {
     ///   - height: IOSurface height in pixels.
     ///   - pixelFormat: IOSurface pixel layout.
     ///   - colorSpace: Color-space semantics.
-    ///   - completionFence: Completed shared-event point.
+    ///   - completionFence: Producer-completed or shared-event synchronization.
     ///   - damageBounds: Optional changed-pixel bounds.
     /// - Throws: ``TerminalRenderFrameProtocolError`` when dimensions or damage are invalid.
     public init(
@@ -87,6 +87,9 @@ public struct TerminalRenderFrameMetadata: Equatable, Sendable {
         }
         if let damageBounds, !damageBounds.isContained(frameWidth: width, frameHeight: height) {
             throw TerminalRenderFrameProtocolError.invalidDamageBounds
+        }
+        if case let .sharedEvent(_, value) = completionFence, value == 0 {
+            throw TerminalRenderFrameProtocolError.invalidCompletionFence
         }
         self.daemonInstanceID = daemonInstanceID
         self.rendererEpoch = rendererEpoch

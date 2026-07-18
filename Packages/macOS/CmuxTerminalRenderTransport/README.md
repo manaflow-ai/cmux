@@ -18,7 +18,12 @@ try await receiver.authorize(worker: launchedWorkerIdentity)
 
 switch try await receiver.receive(timeoutMilliseconds: 50) {
 case .frame(let frame):
-    present(frame.surface, after: frame.metadata.completionFence)
+    switch frame.metadata.completionFence {
+    case .producerCompleted:
+        present(frame.surface)
+    case let .sharedEvent(eventID, value):
+        present(frame.surface, after: (eventID, value))
+    }
 case .dropped:
     break
 case .timedOut:
@@ -42,8 +47,12 @@ lifetime, renderer epoch, terminal identity or epoch, presentation identity or
 generation, dimensions, pixel format, color space, completion fence, and stale
 sequence before it accepts a frame. Metadata rejections occur before IOSurface
 import. Imported surface dimensions and pixel format are checked again.
+Sequence counters never wrap within an epoch or generation; the owner creates
+a new epoch or generation before exhaustion.
 
-The shared Metal event handle is intentionally outside this package. The
-control plane must import the event identified by `completionFence.eventID`,
-wait for its value without blocking the main thread, and send explicit surface
-release acknowledgements before a renderer reuses a pool slot.
+Ghostty's Metal completion callback sends `.producerCompleted` frames only
+after the producer command buffer finishes. A renderer that sends earlier may
+instead use `.sharedEvent`; its event handle remains outside this package, and
+the control plane must import and wait for it without blocking the main thread.
+Both modes require an explicit surface-release acknowledgement before the
+renderer reuses a pool slot.

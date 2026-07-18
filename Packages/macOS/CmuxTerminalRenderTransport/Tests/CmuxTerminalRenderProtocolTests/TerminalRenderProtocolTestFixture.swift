@@ -20,6 +20,7 @@ struct TerminalRenderProtocolTestFixture {
         height: UInt32 = 900,
         pixelFormat: TerminalRenderPixelFormat = .bgra8Unorm,
         colorSpace: TerminalRenderColorSpace = .displayP3,
+        producerCompleted: Bool = false,
         completionFenceEventID: UUID? = nil,
         completionFenceValue: UInt64 = 19,
         damageBounds: TerminalRenderDamageBounds? = nil
@@ -37,10 +38,12 @@ struct TerminalRenderProtocolTestFixture {
             height: height,
             pixelFormat: pixelFormat,
             colorSpace: colorSpace,
-            completionFence: TerminalRenderCompletionFence(
-                eventID: completionFenceEventID ?? self.completionFenceEventID,
-                value: completionFenceValue
-            ),
+            completionFence: producerCompleted
+                ? .producerCompleted
+                : .sharedEvent(
+                    eventID: completionFenceEventID ?? self.completionFenceEventID,
+                    value: completionFenceValue
+                ),
             damageBounds: damageBounds
         )
     }
@@ -57,6 +60,7 @@ struct TerminalRenderProtocolTestFixture {
         height: UInt32 = 900,
         pixelFormat: TerminalRenderPixelFormat = .bgra8Unorm,
         colorSpace: TerminalRenderColorSpace = .displayP3,
+        producerCompleted: Bool = false,
         completionFenceEventID: UUID? = nil,
         minimumCompletionFenceValue: UInt64 = 10
     ) throws -> TerminalRenderPresentationFence {
@@ -72,8 +76,12 @@ struct TerminalRenderProtocolTestFixture {
             height: height,
             pixelFormat: pixelFormat,
             colorSpace: colorSpace,
-            completionFenceEventID: completionFenceEventID ?? self.completionFenceEventID,
-            minimumCompletionFenceValue: minimumCompletionFenceValue
+            completionRequirement: producerCompleted
+                ? .producerCompleted
+                : .sharedEvent(
+                    eventID: completionFenceEventID ?? self.completionFenceEventID,
+                    minimumValue: minimumCompletionFenceValue
+                )
         )
     }
 }

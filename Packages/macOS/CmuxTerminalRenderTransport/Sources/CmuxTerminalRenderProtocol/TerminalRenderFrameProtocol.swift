@@ -1,7 +1,7 @@
 /// Version and size limits for the renderer-to-Swift frame plane.
 public struct TerminalRenderFrameProtocol: Sendable {
     /// The fixed-width metadata wire version implemented by this package.
-    public static let currentVersion: UInt16 = 1
+    public static let currentVersion: UInt16 = 2
 
     /// The exact byte count of one encoded metadata record.
     public static let metadataLength = 160

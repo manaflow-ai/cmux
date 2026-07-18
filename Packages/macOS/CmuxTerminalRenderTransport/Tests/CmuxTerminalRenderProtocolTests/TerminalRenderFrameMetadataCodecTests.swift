@@ -37,6 +37,12 @@ struct TerminalRenderFrameMetadataCodecTests {
     }
 
     @Test
+    func roundTripsProducerCompletedFramesWithoutASharedEvent() throws {
+        let metadata = try fixture.makeMetadata(producerCompleted: true)
+        #expect(try codec.decode(codec.encode(metadata)) == metadata)
+    }
+
+    @Test
     func rejectsWrongLengthMagicVersionFlagsAndReservedBytes() throws {
         let valid = codec.encode(try fixture.makeMetadata())
 
@@ -52,8 +58,8 @@ struct TerminalRenderFrameMetadataCodecTests {
 
         var badVersion = valid
         badVersion[4] = 0
-        badVersion[5] = 2
-        #expect(throws: TerminalRenderFrameProtocolError.unsupportedWireVersion(2)) {
+        badVersion[5] = 3
+        #expect(throws: TerminalRenderFrameProtocolError.unsupportedWireVersion(3)) {
             try codec.decode(badVersion)
         }
 
@@ -90,6 +96,15 @@ struct TerminalRenderFrameMetadataCodecTests {
         zeroFence.replaceSubrange(128..<136, with: repeatElement(UInt8(0), count: 8))
         #expect(throws: TerminalRenderFrameProtocolError.invalidCompletionFence) {
             try codec.decode(zeroFence)
+        }
+    }
+
+    @Test
+    func rejectsNoncanonicalProducerCompletedPayload() throws {
+        var encoded = codec.encode(try fixture.makeMetadata(producerCompleted: true))
+        encoded[127] = 1
+        #expect(throws: TerminalRenderFrameProtocolError.nonzeroReservedBytes) {
+            try codec.decode(encoded)
         }
     }
 

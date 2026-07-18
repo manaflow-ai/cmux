@@ -30,6 +30,9 @@ public enum TerminalRenderFrameRejection: Equatable, Sendable {
     /// The frame color space does not match the current layer target.
     case colorSpaceMismatch
 
+    /// The frame and presentation use different GPU-completion mechanisms.
+    case completionModeMismatch
+
     /// The frame refers to another out-of-band shared Metal event.
     case completionFenceIdentityMismatch
 

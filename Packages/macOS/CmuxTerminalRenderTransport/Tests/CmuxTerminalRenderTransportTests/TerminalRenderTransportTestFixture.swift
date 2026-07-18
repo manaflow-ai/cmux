@@ -15,7 +15,8 @@ struct TerminalRenderTransportTestFixture {
         presentationGeneration: UInt64 = 13,
         width: UInt32 = 32,
         height: UInt32 = 24,
-        pixelFormat: TerminalRenderPixelFormat = .bgra8Unorm
+        pixelFormat: TerminalRenderPixelFormat = .bgra8Unorm,
+        producerCompleted: Bool = false
     ) throws -> TerminalRenderPresentationFence {
         try TerminalRenderPresentationFence(
             daemonInstanceID: daemonInstanceID,
@@ -29,8 +30,9 @@ struct TerminalRenderTransportTestFixture {
             height: height,
             pixelFormat: pixelFormat,
             colorSpace: .displayP3,
-            completionFenceEventID: completionFenceEventID,
-            minimumCompletionFenceValue: 10
+            completionRequirement: producerCompleted
+                ? .producerCompleted
+                : .sharedEvent(eventID: completionFenceEventID, minimumValue: 10)
         )
     }
 
@@ -43,6 +45,7 @@ struct TerminalRenderTransportTestFixture {
         height: UInt32 = 24,
         pixelFormat: TerminalRenderPixelFormat = .bgra8Unorm,
         completionFenceValue: UInt64 = 19,
+        producerCompleted: Bool = false,
         damageBounds: TerminalRenderDamageBounds? = nil
     ) throws -> TerminalRenderFrameMetadata {
         try TerminalRenderFrameMetadata(
@@ -58,10 +61,12 @@ struct TerminalRenderTransportTestFixture {
             height: height,
             pixelFormat: pixelFormat,
             colorSpace: .displayP3,
-            completionFence: TerminalRenderCompletionFence(
-                eventID: completionFenceEventID,
-                value: completionFenceValue
-            ),
+            completionFence: producerCompleted
+                ? .producerCompleted
+                : .sharedEvent(
+                    eventID: completionFenceEventID,
+                    value: completionFenceValue
+                ),
             damageBounds: damageBounds
         )
     }
