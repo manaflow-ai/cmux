@@ -32,6 +32,7 @@
   const maxSnippetCharacters = 2400;
   const maxSnippetNodes = 512;
   const maxSelectionRecoveryAttempts = 8;
+  const maxAnnotationReferences = 8;
   const mutationEmissionInterval = 100;
   const redactedValue = "<redacted>";
   const sensitiveNamePattern = /(?:^|[-_:])(api[-_]?key|auth|authorization|credential|csrf|password|passwd|secret|session|token)(?:$|[-_:])/i;
@@ -2086,6 +2087,13 @@
         imageURL: String(imageURL),
         colorIndex: pendingAnnotation.colorIndex,
       });
+      // Each card retains screenshot-sized encoded and decoded image data.
+      // Keep a useful multi-stroke stack while evicting the oldest card so a
+      // long drawing session has a fixed memory ceiling.
+      if (regionReferences.length > maxAnnotationReferences) {
+        regionReferences.splice(0, regionReferences.length - maxAnnotationReferences);
+        hoveredSelectionIndex = null;
+      }
       colorSequence += 1;
       pendingAnnotation = null;
       annotationPhase = "captured";

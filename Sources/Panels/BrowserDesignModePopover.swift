@@ -384,9 +384,8 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             ]
         }
 
-        /// A deletion that removes a pill also absorbs the pill's trailing
-        /// separator space; otherwise every removed token strands one space
-        /// and the prompt accumulates gaps.
+        /// Plain text follows normal editing semantics immediately. Pills wait
+        /// for the authoritative page-runtime mutation before storage changes.
         func textView(
             _ textView: NSTextView,
             shouldChangeTextIn affectedRange: NSRange,
@@ -397,6 +396,19 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
                   let storage = textView.textStorage else { return true }
             let identities = attachmentIdentities(in: storage, range: affectedRange)
             guard !identities.isEmpty else { return true }
+            let textRanges = BrowserDesignModeTokenDeletion.textRangesOutsideAttachments(
+                in: storage,
+                range: affectedRange
+            )
+            for range in textRanges.reversed() {
+                storage.deleteCharacters(in: range)
+            }
+            if !textRanges.isEmpty {
+                textView.setSelectedRange(
+                    NSRange(location: min(affectedRange.location, storage.length), length: 0)
+                )
+                textView.didChangeText()
+            }
             for identity in identities {
                 requestTokenRemoval(identity: identity)
             }

@@ -1,6 +1,33 @@
 import AppKit
 import CmuxBrowser
 
+/// Splits a composer deletion around authoritative context-token attachments.
+enum BrowserDesignModeTokenDeletion {
+    static func textRangesOutsideAttachments(
+        in content: NSAttributedString,
+        range: NSRange
+    ) -> [NSRange] {
+        let validRange = NSIntersectionRange(
+            range,
+            NSRange(location: 0, length: content.length)
+        )
+        guard validRange.length > 0 else { return [] }
+        var textRanges: [NSRange] = []
+        var cursor = validRange.location
+        content.enumerateAttribute(.attachment, in: validRange) { value, attachmentRange, _ in
+            guard value != nil else { return }
+            if cursor < attachmentRange.location {
+                textRanges.append(NSRange(location: cursor, length: attachmentRange.location - cursor))
+            }
+            cursor = max(cursor, attachmentRange.upperBound)
+        }
+        if cursor < validRange.upperBound {
+            textRanges.append(NSRange(location: cursor, length: validRange.upperBound - cursor))
+        }
+        return textRanges
+    }
+}
+
 /// Draws a context token with a stable leading column that becomes a delete affordance on hover.
 final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
     let identity: String
