@@ -50,6 +50,12 @@ CMUX_IOS_AUTH_ENV =
 // Empty normal builds retain AuthConfig's channel default.
 CMUX_API_BASE_URL =
 
+// Iroh trust-broker origin, independent of the general app API. Tagged dev
+// reloads bake shared staging here so parallel Mac/iOS lanes can discover one
+// another without moving their local feature APIs. Empty release builds fall
+// back to AuthConfig's production API origin.
+CMUX_IROH_BROKER_BASE_URL =
+
 // Crash reporting stays enabled for development and TestFlight. The official
 // App Store lane overrides this to NO until its consent lifecycle is proven.
 CMUX_CRASH_REPORTING_ENABLED = YES
