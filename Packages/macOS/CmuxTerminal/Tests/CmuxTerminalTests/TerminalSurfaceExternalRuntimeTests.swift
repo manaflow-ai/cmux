@@ -11,14 +11,13 @@ struct TerminalSurfaceExternalRuntimeTests {
         defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
 
         #expect(fixture.surface.isExternallyManaged)
+        #expect(fixture.surface.embeddedRuntime == nil)
         #expect(fixture.surface.surfaceView.renderOwnership == .externalCompositor)
         #expect(fixture.surface.compositorHostView === fixture.surface.surfaceView)
         #expect(fixture.surface.hasLiveSurface)
         #expect(fixture.surface.surface == nil)
         #expect(fixture.surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0)
         #expect(!fixture.surface.debugHasHeadlessStartupWindowForTesting())
-        #expect(fixture.engine.runtimeAppAccessCount == 0)
-        #expect(fixture.engine.runtimeConfigAccessCount == 0)
         #expect(fixture.runtime.presentations == [
             TerminalExternalPresentation(
                 surfaceID: fixture.surface.id,
@@ -169,8 +168,7 @@ struct TerminalSurfaceExternalRuntimeTests {
         runtime: FakeExternalTerminalRuntime? = nil
     ) -> (
         surface: TerminalSurface,
-        runtime: FakeExternalTerminalRuntime,
-        engine: FakeTerminalEngine
+        runtime: FakeExternalTerminalRuntime
     ) {
         let nativeView = FakeTerminalSurfaceNativeView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
@@ -180,7 +178,6 @@ struct TerminalSurfaceExternalRuntimeTests {
             surfaceView: nativeView,
             attachesThroughSurfaceModel: true
         )
-        let engine = FakeTerminalEngine()
         let resolvedRuntime = runtime ?? FakeExternalTerminalRuntime(snapshot: Self.liveSnapshot)
         let surface = TerminalSurface(
             tabId: UUID(),
@@ -188,33 +185,18 @@ struct TerminalSurfaceExternalRuntimeTests {
             configTemplate: nil,
             initialInput: initialInput,
             externalRuntime: resolvedRuntime,
-            dependencies: TerminalSurfaceRuntimeDependencies(
+            presentationDependencies: TerminalSurfacePresentationDependencies(
                 registry: FakeSurfaceRegistry(),
-                engine: engine,
                 viewProvider: FakeTerminalSurfaceViewProvider(
                     surfaceView: nativeView,
                     paneHost: paneHost
                 ),
                 spawnPolicy: FakeSpawnPolicyProvider(),
-                byteTee: FakeTerminalByteTee(),
-                rendererRealization: FakeRendererRealizationScheduler(),
                 hibernationRecorder: FakeHibernationRecorder(),
-                runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator(),
-                restoreSpawnScheduler: TerminalSurfaceRestoreSpawnScheduler(interSpawnDelay: .zero),
-                runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
-                    claudeCommandShimTemporaryDirectory: URL(
-                        fileURLWithPath: "/tmp/cmux-terminal-external-runtime-tests",
-                        isDirectory: true
-                    ),
-                    installClaudeCommandShim: { _, _, _ in nil },
-                    isExecutableFile: { _ in false }
-                ),
-                sessionPortBase: 40_000,
-                sessionPortRangeSize: 100,
                 scrollbackReplayEnvironmentKey: "CMUX_TEST_SCROLLBACK_REPLAY"
             )
         )
-        return (surface, resolvedRuntime, engine)
+        return (surface, resolvedRuntime)
     }
 }
 

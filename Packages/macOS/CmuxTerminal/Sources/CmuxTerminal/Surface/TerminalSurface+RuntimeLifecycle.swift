@@ -173,7 +173,10 @@ extension TerminalSurface {
     }
 
     func allowsRuntimeSurfaceCreation() -> Bool {
-        externalRuntime == nil && portalLifecycleState == .live && !runtimeSurfaceSuspendedForAgentHibernation
+        embeddedRuntime != nil &&
+            externalRuntime == nil &&
+            portalLifecycleState == .live &&
+            !runtimeSurfaceSuspendedForAgentHibernation
     }
 
     private var hasDeferredStartupWork: Bool {

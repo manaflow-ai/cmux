@@ -21,7 +21,9 @@ extension TerminalSurface {
         let baseConfig = configTemplate ?? CmuxSurfaceConfigTemplate()
         let runtimeInitialInput = nextRuntimeInitialInput
         let resolvedLaunch = TerminalSurfaceLaunchResolver(
-            engine: engine,
+            userGhosttyShellIntegrationMode: { [engine] in
+                engine.userGhosttyShellIntegrationMode
+            },
             spawnPolicyProvider: spawnPolicyProvider,
             runtimeFilesystem: runtimeFilesystem,
             sessionPortBase: sessionPortBase,

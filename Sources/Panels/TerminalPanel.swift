@@ -224,8 +224,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     convenience init(
         request: TerminalPanelCreationRequest,
-        dependencies: TerminalSurfaceRuntimeDependencies,
-        externalRuntime: (any TerminalExternalRuntime)? = nil
+        dependencies: TerminalSurfaceRuntimeDependencies
     ) {
         let preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void
         if request.manualIO {
@@ -255,7 +254,6 @@ final class TerminalPanel: Panel, ObservableObject {
             focusPlacement: request.focusPlacement,
             manualIO: request.manualIO,
             manualInputHandler: request.manualInputHandler,
-            externalRuntime: externalRuntime,
             runtimeSpawnPolicy: request.runtimeSpawnPolicy,
             preparePaneHost: preparePaneHost,
             dependencies: dependencies
@@ -265,6 +263,52 @@ final class TerminalPanel: Panel, ObservableObject {
             configTemplate: request.configTemplate,
             initialCommand: request.initialCommand,
             tmuxStartCommand: request.tmuxStartCommand,
+            initialInput: request.initialInput
+        ) {
+            updateShellActivityState(.promptIdle)
+        }
+    }
+
+
+    /// Constructs a panel that can only present an externally-owned terminal.
+    /// The initializer cannot receive a Ghostty engine, PTY tee, native surface
+    /// teardown queue, restore scheduler, runtime filesystem, or session ports.
+    convenience init(
+        externalRequest request: TerminalPanelCreationRequest,
+        presentationDependencies: TerminalSurfacePresentationDependencies,
+        externalRuntime: any TerminalExternalRuntime
+    ) {
+        precondition(
+            !request.manualIO && request.tmuxStartCommand == nil,
+            "External terminal panels cannot use embedded MANUAL-I/O or tmux bootstrap"
+        )
+        let preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = {
+            Self.prepareNotificationScrollReplay(
+                for: $0,
+                environment: request.additionalEnvironment
+            )
+        }
+        let surface = TerminalSurface(
+            id: request.id,
+            tabId: request.workspaceId,
+            context: request.context,
+            configTemplate: request.configTemplate,
+            workingDirectory: request.workingDirectory,
+            portOrdinal: request.portOrdinal,
+            initialCommand: request.initialCommand,
+            initialInput: request.initialInput,
+            initialEnvironmentOverrides: request.initialEnvironmentOverrides,
+            additionalEnvironment: request.additionalEnvironment,
+            focusPlacement: request.focusPlacement,
+            externalRuntime: externalRuntime,
+            preparePaneHost: preparePaneHost,
+            presentationDependencies: presentationDependencies
+        )
+        self.init(workspaceId: request.workspaceId, surface: surface)
+        if Self.startsAtOwnedPrompt(
+            configTemplate: request.configTemplate,
+            initialCommand: request.initialCommand,
+            tmuxStartCommand: nil,
             initialInput: request.initialInput
         ) {
             updateShellActivityState(.promptIdle)

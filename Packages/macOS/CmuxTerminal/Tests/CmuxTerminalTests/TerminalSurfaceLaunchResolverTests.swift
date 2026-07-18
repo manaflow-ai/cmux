@@ -80,7 +80,7 @@ struct TerminalSurfaceLaunchResolverTests {
 
     private func makeResolver(defaultArguments: [String]) -> TerminalSurfaceLaunchResolver {
         TerminalSurfaceLaunchResolver(
-            engine: FakeTerminalEngine(),
+            userGhosttyShellIntegrationMode: { "none" },
             spawnPolicyProvider: FakeSpawnPolicyProvider(),
             runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
                 claudeCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),

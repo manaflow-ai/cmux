@@ -77,7 +77,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     weak var attachedView: (any TerminalSurfaceNativeViewing)?
     // MARK: Injected collaborators (see TerminalSurfaceRuntimeDependencies)
     let registry: any TerminalSurfaceRegistering
-    let engine: any TerminalEngineHosting
+    /// Present only for the legacy in-process Ghostty ownership model.
+    let embeddedRuntime: TerminalSurfaceEmbeddedRuntimeDependencies?
     /// The persistent owner of this terminal, or nil for embedded Ghostty.
     let externalRuntime: (any TerminalExternalRuntime)?
     /// Detaches this Swift presentation without closing the backend-owned PTY.
@@ -87,17 +88,33 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// App Quit preserves daemon-owned PTYs even if AppKit subsequently closes panels.
     var externalCanonicalCloseSuppressedForAppTermination = false
     let spawnPolicyProvider: any TerminalSurfaceSpawnPolicyProviding
-    let byteTee: any TerminalByteTeeBinding
-    let rendererRealization: any TerminalRendererRealizationScheduling
     let hibernationRecorder: any AgentHibernationRecording
-    let runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator
-    let restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling
-    let runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
-    /// Port ordinal base/range for CMUX_PORT assignment, snapshotted by the app composition root.
-    let sessionPortBase: Int
-    let sessionPortRangeSize: Int
     let scrollbackReplayEnvironmentKey: String
     let globalFontMagnificationPercent: @Sendable () -> Int
+
+    private var requiredEmbeddedRuntime: TerminalSurfaceEmbeddedRuntimeDependencies {
+        guard let embeddedRuntime else {
+            preconditionFailure("Externally-owned terminals cannot access embedded Ghostty runtime capabilities")
+        }
+        return embeddedRuntime
+    }
+
+    var engine: any TerminalEngineHosting { requiredEmbeddedRuntime.engine }
+    var byteTee: any TerminalByteTeeBinding { requiredEmbeddedRuntime.byteTee }
+    var rendererRealization: any TerminalRendererRealizationScheduling {
+        requiredEmbeddedRuntime.rendererRealization
+    }
+    var runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator {
+        requiredEmbeddedRuntime.runtimeTeardown
+    }
+    var restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling {
+        requiredEmbeddedRuntime.restoreSpawnScheduler
+    }
+    var runtimeFilesystem: TerminalSurfaceRuntimeFilesystem {
+        requiredEmbeddedRuntime.runtimeFilesystem
+    }
+    var sessionPortBase: Int { requiredEmbeddedRuntime.sessionPortBase }
+    var sessionPortRangeSize: Int { requiredEmbeddedRuntime.sessionPortRangeSize }
 
     /// cmux renderer reclamation: whether the current runtime surface's GPU
     /// renderer (Metal swap chain / IOSurface, ~40MB) is realized. A freshly
@@ -470,7 +487,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         )[key]
     }
 
-    /// Creates a surface model and its hosted view pair.
+    /// Creates an embedded Ghostty surface model and its hosted view pair.
     ///
     /// Main-actor isolated (the legacy initializer asserted main-queue and
     /// hopped through `MainActor.assumeIsolated`; the isolation is now
@@ -482,7 +499,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// - Parameter preparePaneHost: Configures the newly-created pane host
     ///   before it is attached or any startup work can create a runtime.
     @MainActor
-    public init(
+    public convenience init(
         id: UUID = UUID(),
         tabId: UUID,
         context: ghostty_surface_context_e,
@@ -497,18 +514,100 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
         manualIO: Bool = false,
         manualInputHandler: (@Sendable (Data) -> Void)? = nil,
-        externalRuntime: (any TerminalExternalRuntime)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in },
         dependencies: TerminalSurfaceRuntimeDependencies
     ) {
-        precondition(
-            externalRuntime == nil || !manualIO,
-            "External terminal runtimes cannot use the embedded MANUAL-I/O path"
+        self.init(
+            id: id,
+            tabId: tabId,
+            context: context,
+            configTemplate: configTemplate,
+            workingDirectory: workingDirectory,
+            portOrdinal: portOrdinal,
+            initialCommand: initialCommand,
+            tmuxStartCommand: tmuxStartCommand,
+            initialInput: initialInput,
+            initialEnvironmentOverrides: initialEnvironmentOverrides,
+            additionalEnvironment: additionalEnvironment,
+            focusPlacement: focusPlacement,
+            manualIO: manualIO,
+            manualInputHandler: manualInputHandler,
+            externalRuntime: nil,
+            embeddedRuntime: dependencies.embeddedRuntime,
+            runtimeSpawnPolicy: runtimeSpawnPolicy,
+            preparePaneHost: preparePaneHost,
+            presentationDependencies: dependencies.presentation
         )
+    }
+
+    /// Creates a presentation whose terminal, PTY, parser, and renderer are
+    /// externally owned. This initializer has no embedded-runtime parameter.
+    @MainActor
+    public convenience init(
+        id: UUID = UUID(),
+        tabId: UUID,
+        context: ghostty_surface_context_e,
+        configTemplate: CmuxSurfaceConfigTemplate?,
+        workingDirectory: String? = nil,
+        portOrdinal: Int = 0,
+        initialCommand: String? = nil,
+        initialInput: String? = nil,
+        initialEnvironmentOverrides: [String: String] = [:],
+        additionalEnvironment: [String: String] = [:],
+        focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        externalRuntime: any TerminalExternalRuntime,
+        preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in },
+        presentationDependencies: TerminalSurfacePresentationDependencies
+    ) {
+        self.init(
+            id: id,
+            tabId: tabId,
+            context: context,
+            configTemplate: configTemplate,
+            workingDirectory: workingDirectory,
+            portOrdinal: portOrdinal,
+            initialCommand: initialCommand,
+            tmuxStartCommand: nil,
+            initialInput: initialInput,
+            initialEnvironmentOverrides: initialEnvironmentOverrides,
+            additionalEnvironment: additionalEnvironment,
+            focusPlacement: focusPlacement,
+            manualIO: false,
+            manualInputHandler: nil,
+            externalRuntime: externalRuntime,
+            embeddedRuntime: nil,
+            runtimeSpawnPolicy: .immediate,
+            preparePaneHost: preparePaneHost,
+            presentationDependencies: presentationDependencies
+        )
+    }
+
+    @MainActor
+    private init(
+        id: UUID,
+        tabId: UUID,
+        context: ghostty_surface_context_e,
+        configTemplate: CmuxSurfaceConfigTemplate?,
+        workingDirectory: String?,
+        portOrdinal: Int,
+        initialCommand: String?,
+        tmuxStartCommand: String?,
+        initialInput: String?,
+        initialEnvironmentOverrides: [String: String],
+        additionalEnvironment: [String: String],
+        focusPlacement: TerminalSurfaceFocusPlacement,
+        manualIO: Bool,
+        manualInputHandler: (@Sendable (Data) -> Void)?,
+        externalRuntime: (any TerminalExternalRuntime)?,
+        embeddedRuntime: TerminalSurfaceEmbeddedRuntimeDependencies?,
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy,
+        preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void,
+        presentationDependencies: TerminalSurfacePresentationDependencies
+    ) {
         precondition(
-            externalRuntime == nil || tmuxStartCommand == nil,
-            "External terminal runtimes cannot use the embedded remote-tmux bootstrap path"
+            (externalRuntime == nil) != (embeddedRuntime == nil),
+            "Terminal ownership must be exactly embedded or external"
         )
         self.id = id
         self.tabId = tabId
@@ -527,28 +626,21 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.focusPlacement = focusPlacement
         self.manualIO = manualIO
         self.manualInputHandler = manualInputHandler
-        self.registry = dependencies.registry
-        self.engine = dependencies.engine
+        self.registry = presentationDependencies.registry
+        self.embeddedRuntime = embeddedRuntime
         self.externalRuntime = externalRuntime
-        self.spawnPolicyProvider = dependencies.spawnPolicy
-        self.byteTee = dependencies.byteTee
-        self.rendererRealization = dependencies.rendererRealization
-        self.hibernationRecorder = dependencies.hibernationRecorder
-        self.runtimeTeardown = dependencies.runtimeTeardown
-        self.restoreSpawnScheduler = dependencies.restoreSpawnScheduler
-        self.runtimeFilesystem = dependencies.runtimeFilesystem
+        self.spawnPolicyProvider = presentationDependencies.spawnPolicy
+        self.hibernationRecorder = presentationDependencies.hibernationRecorder
         self.requiresRestoreSpawnPacing = runtimeSpawnPolicy == .pacedSessionRestore
-        self.sessionPortBase = dependencies.sessionPortBase
-        self.sessionPortRangeSize = dependencies.sessionPortRangeSize
-        self.scrollbackReplayEnvironmentKey = dependencies.scrollbackReplayEnvironmentKey
-        self.globalFontMagnificationPercent = dependencies.globalFontMagnificationPercent
+        self.scrollbackReplayEnvironmentKey = presentationDependencies.scrollbackReplayEnvironmentKey
+        self.globalFontMagnificationPercent = presentationDependencies.globalFontMagnificationPercent
         // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
         // has non-zero bounds and the renderer can initialize without presenting a blank/stretched
         // intermediate frame on the first real resize.
         let renderOwnership: TerminalSurfaceRenderOwnership = externalRuntime == nil
             ? .embeddedGhostty
             : .externalCompositor
-        let views = dependencies.viewProvider.makeSurfaceViews(
+        let views = presentationDependencies.viewProvider.makeSurfaceViews(
             initialFrame: NSRect(x: 0, y: 0, width: 800, height: 600),
             renderOwnership: renderOwnership
         )
@@ -698,6 +790,18 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             Task { @MainActor in closeRequest.close() }
         }
 
+        // External presentations have no native surface or embedded teardown
+        // collaborators by construction. End their lifecycle here, before any
+        // code can ask for an embedded-only capability.
+        guard let embeddedRuntime else {
+            precondition(
+                surface == nil && surfaceCallbackContext == nil &&
+                    manualIOContext == nil && mobileByteTeeLease == nil,
+                "Externally-owned terminal acquired embedded Ghostty runtime state"
+            )
+            return
+        }
+
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
         let manualIOContext = manualIOContext
@@ -716,7 +820,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         // Dropping by id only clears the registry/replay state; releasing
         // `teeLease` on each exit path frees the userdata independently.
         let teeSurfaceID = id
-        let teeBinding = byteTee
+        let teeBinding = embeddedRuntime.byteTee
         Task { @MainActor in teeBinding.dropSurface(surfaceID: teeSurfaceID) }
 
         // Nil out the surface pointer so any in-flight closures (e.g. geometry
@@ -767,7 +871,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         // the coordinator's deferred free runs.
 #if DEBUG
         if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
-            runtimeTeardown.enqueueRuntimeTeardown(
+            embeddedRuntime.runtimeTeardown.enqueueRuntimeTeardown(
                 id: id,
                 workspaceId: tabId,
                 reason: "deinit",
@@ -780,7 +884,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             return
         }
 #endif
-        runtimeTeardown.enqueueRuntimeTeardown(
+        embeddedRuntime.runtimeTeardown.enqueueRuntimeTeardown(
             id: id,
             workspaceId: tabId,
             reason: "deinit",

@@ -61,7 +61,9 @@ final class TerminalClientComposition {
 
     static func persistent<Client>(
         backendClient: Client,
-        dependencies: TerminalSurfaceRuntimeDependencies,
+        presentationDependencies: TerminalSurfacePresentationDependencies,
+        launchDependencies: TerminalSurfaceLaunchDependencies,
+        renderConfigSerializer: @escaping @MainActor () -> Data?,
         mobileTerminalDataPlane: any MobileTerminalDataPlane =
             UnavailablePersistentMobileTerminalDataPlane(),
         topologyFailureReporter: @escaping @MainActor (String) -> Void = { _ in }
@@ -73,9 +75,9 @@ final class TerminalClientComposition {
             mutator: backendClient,
             failureReporter: topologyFailureReporter
         )
-        let renderConfigSource = TerminalBackendRenderConfigSource {
-            GhosttyApp.shared.serializedTerminalRendererConfig()
-        }
+        let renderConfigSource = TerminalBackendRenderConfigSource(
+            serializer: renderConfigSerializer
+        )
         let remoteTmuxSurfaceRegistry: TerminalBackendRemoteTmuxSurfaceRegistry? = {
             guard let externalService = backendClient as?
                     any TerminalBackendExternalTerminalServing,
@@ -92,9 +94,9 @@ final class TerminalClientComposition {
                 )
         }()
         let factory = PersistentTerminalPanelFactory(
-            dependencies: dependencies,
+            presentationDependencies: presentationDependencies,
             backendClient: backendClient,
-            launchResolver: TerminalSurfaceLaunchResolver(dependencies: dependencies),
+            launchResolver: TerminalSurfaceLaunchResolver(dependencies: launchDependencies),
             presentationRegistry: registry,
             renderConfigSource: renderConfigSource,
             topologyAuthorizationGate: topologyAuthorizationGate,

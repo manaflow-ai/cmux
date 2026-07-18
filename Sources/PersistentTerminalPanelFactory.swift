@@ -8,7 +8,7 @@ import Foundation
 /// silently moving terminal ownership back into the Swift app process.
 @MainActor
 final class PersistentTerminalPanelFactory: TerminalPanelCreating {
-    private let dependencies: TerminalSurfaceRuntimeDependencies
+    private let presentationDependencies: TerminalSurfacePresentationDependencies
     private let backendClient: any TerminalBackendClient
     private let launchResolver: TerminalSurfaceLaunchResolver
     private let presentationRegistry: TerminalBackendPresentationRegistry
@@ -17,7 +17,7 @@ final class PersistentTerminalPanelFactory: TerminalPanelCreating {
     private let remoteTmuxSurfaceRegistry: TerminalBackendRemoteTmuxSurfaceRegistry?
 
     init(
-        dependencies: TerminalSurfaceRuntimeDependencies,
+        presentationDependencies: TerminalSurfacePresentationDependencies,
         backendClient: any TerminalBackendClient,
         launchResolver: TerminalSurfaceLaunchResolver,
         presentationRegistry: TerminalBackendPresentationRegistry,
@@ -25,7 +25,7 @@ final class PersistentTerminalPanelFactory: TerminalPanelCreating {
         topologyAuthorizationGate: TerminalBackendTopologyAuthorizationGate,
         remoteTmuxSurfaceRegistry: TerminalBackendRemoteTmuxSurfaceRegistry? = nil
     ) {
-        self.dependencies = dependencies
+        self.presentationDependencies = presentationDependencies
         self.backendClient = backendClient
         self.launchResolver = launchResolver
         self.presentationRegistry = presentationRegistry
@@ -58,8 +58,8 @@ final class PersistentTerminalPanelFactory: TerminalPanelCreating {
                 .runtimeMutationRouter(surfaceID: request.id)
         )
         let panel = TerminalPanel(
-            request: request,
-            dependencies: dependencies,
+            externalRequest: request,
+            presentationDependencies: presentationDependencies,
             externalRuntime: runtime
         )
         _ = presentationRegistry.mountCompositor(
@@ -75,7 +75,7 @@ final class PersistentTerminalPanelFactory: TerminalPanelCreating {
               baseFontSize > 0 else { return Data() }
         let runtimeFontSize = CmuxSurfaceConfigTemplate.runtimeFontSize(
             fromBasePoints: baseFontSize,
-            percent: dependencies.globalFontMagnificationPercent()
+            percent: presentationDependencies.globalFontMagnificationPercent()
         )
         return Data("font-size = \(runtimeFontSize)\n".utf8)
     }

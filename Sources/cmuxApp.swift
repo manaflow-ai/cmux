@@ -309,7 +309,11 @@ struct cmuxApp: App {
             )
             terminalClientComposition = .persistent(
                 backendClient: backendClient,
-                dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies,
+                presentationDependencies: GhosttyApp.terminalSurfacePresentationDependencies,
+                launchDependencies: GhosttyApp.terminalSurfaceLaunchDependencies,
+                renderConfigSerializer: {
+                    GhosttyApp.shared.serializedTerminalRendererConfig()
+                },
                 mobileTerminalDataPlane: mobileTerminalDataPlane,
                 topologyFailureReporter: { message in
                     terminalBackendServiceModel.reportTopologyFailure(message)

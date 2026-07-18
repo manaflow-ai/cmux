@@ -407,24 +407,50 @@ class GhosttyApp {
         return val > 0 ? val : AutomationSettings.defaultPortRange
     }()
 
-    /// The injected collaborators for every `TerminalSurface` (transitional:
-    /// dissolves into composition-root injection when `GhosttyAppService`
-    /// replaces this type).
+    /// Capabilities safe for both an embedded surface and a backend-owned
+    /// presentation. This graph cannot construct or tear down a Ghostty app,
+    /// surface, PTY, parser, or process-local renderer.
     @MainActor
-    static let terminalSurfaceRuntimeDependencies = TerminalSurfaceRuntimeDependencies(
+    static let terminalSurfacePresentationDependencies = TerminalSurfacePresentationDependencies(
         registry: GhosttyApp.terminalSurfaceRegistry,
-        engine: GhosttyApp.shared,
         viewProvider: TerminalSurfaceViewFactory(),
         spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
+        hibernationRecorder: TerminalAgentHibernationRecorder(),
+        scrollbackReplayEnvironmentKey: SessionScrollbackReplayStore.environmentKey,
+        globalFontMagnificationPercent: { GlobalFontMagnification.storedPercent }
+    )
+
+    /// Capabilities that exist only in the legacy embedded ownership graph.
+    @MainActor
+    static let terminalSurfaceEmbeddedRuntimeDependencies = TerminalSurfaceEmbeddedRuntimeDependencies(
+        engine: GhosttyApp.shared,
         byteTee: TerminalOutputByteTeeBridge(),
         rendererRealization: RendererRealizationController.shared,
-        hibernationRecorder: TerminalAgentHibernationRecorder(),
         runtimeTeardown: GhosttyApp.terminalSurfaceRuntimeTeardown,
         restoreSpawnScheduler: GhosttyApp.terminalSurfaceRestoreSpawnScheduler,
         runtimeFilesystem: .live(),
         sessionPortBase: GhosttyApp.terminalSessionPortBase,
+        sessionPortRangeSize: GhosttyApp.terminalSessionPortRangeSize
+    )
+
+    /// Complete legacy graph, materialized only by the embedded factory.
+    @MainActor
+    static let terminalSurfaceRuntimeDependencies = TerminalSurfaceRuntimeDependencies(
+        presentation: GhosttyApp.terminalSurfacePresentationDependencies,
+        embeddedRuntime: GhosttyApp.terminalSurfaceEmbeddedRuntimeDependencies
+    )
+
+    /// Narrow launch assembly graph used by cmuxd-backed terminals. It can
+    /// read the config-only Ghostty host but cannot reach a runtime app.
+    @MainActor
+    static let terminalSurfaceLaunchDependencies = TerminalSurfaceLaunchDependencies(
+        spawnPolicyProvider: TerminalSurfaceSpawnPolicyBridge(),
+        runtimeFilesystem: .live(),
+        sessionPortBase: GhosttyApp.terminalSessionPortBase,
         sessionPortRangeSize: GhosttyApp.terminalSessionPortRangeSize,
-        scrollbackReplayEnvironmentKey: SessionScrollbackReplayStore.environmentKey, globalFontMagnificationPercent: { GlobalFontMagnification.storedPercent }
+        userGhosttyShellIntegrationMode: {
+            GhosttyApp.shared.userGhosttyShellIntegrationMode
+        }
     )
 
     private static let releaseBundleIdentifier = "com.cmuxterm.app"

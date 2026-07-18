@@ -8,7 +8,7 @@ internal import Darwin
 public final class TerminalSurfaceLaunchResolver {
     public typealias DefaultShellArguments = @Sendable () -> [String]
 
-    private let engine: any TerminalEngineHosting
+    private let userGhosttyShellIntegrationMode: @MainActor () -> String
     private let spawnPolicyProvider: any TerminalSurfaceSpawnPolicyProviding
     private let runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
     private let sessionPortBase: Int
@@ -19,14 +19,14 @@ public final class TerminalSurfaceLaunchResolver {
     private let defaultShellArguments: DefaultShellArguments
 
     public convenience init(
-        dependencies: TerminalSurfaceRuntimeDependencies,
+        dependencies: TerminalSurfaceLaunchDependencies,
         resourceURL: URL? = Bundle.main.resourceURL,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
         ambientEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) {
         self.init(
-            engine: dependencies.engine,
-            spawnPolicyProvider: dependencies.spawnPolicy,
+            userGhosttyShellIntegrationMode: dependencies.userGhosttyShellIntegrationMode,
+            spawnPolicyProvider: dependencies.spawnPolicyProvider,
             runtimeFilesystem: dependencies.runtimeFilesystem,
             sessionPortBase: dependencies.sessionPortBase,
             sessionPortRangeSize: dependencies.sessionPortRangeSize,
@@ -38,7 +38,7 @@ public final class TerminalSurfaceLaunchResolver {
     }
 
     public init(
-        engine: any TerminalEngineHosting,
+        userGhosttyShellIntegrationMode: @escaping @MainActor () -> String,
         spawnPolicyProvider: any TerminalSurfaceSpawnPolicyProviding,
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem,
         sessionPortBase: Int,
@@ -48,7 +48,7 @@ public final class TerminalSurfaceLaunchResolver {
         ambientEnvironment: [String: String],
         defaultShellArguments: @escaping DefaultShellArguments
     ) {
-        self.engine = engine
+        self.userGhosttyShellIntegrationMode = userGhosttyShellIntegrationMode
         self.spawnPolicyProvider = spawnPolicyProvider
         self.runtimeFilesystem = runtimeFilesystem
         self.sessionPortBase = sessionPortBase
@@ -210,7 +210,7 @@ public final class TerminalSurfaceLaunchResolver {
             if let command = TerminalSurface.applyManagedShellSpecificStartupEnvironment(
                 shell: shell,
                 integrationDir: integrationDir,
-                userGhosttyShellIntegrationMode: engine.userGhosttyShellIntegrationMode,
+                userGhosttyShellIntegrationMode: userGhosttyShellIntegrationMode(),
                 to: &environment,
                 protectedKeys: &protectedKeys
             ), baseConfig.command?.isEmpty != false {

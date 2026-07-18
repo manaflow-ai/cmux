@@ -23,7 +23,9 @@ struct TerminalClientCompositionTests {
         let client = RecordingPersistentTerminalBackendClient()
         let composition = TerminalClientComposition.persistent(
             backendClient: client,
-            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
+            presentationDependencies: GhosttyApp.terminalSurfacePresentationDependencies,
+            launchDependencies: GhosttyApp.terminalSurfaceLaunchDependencies,
+            renderConfigSerializer: { GhosttyApp.shared.serializedTerminalRendererConfig() }
         )
         let workspaceID = UUID()
         let surfaceID = UUID()
@@ -216,7 +218,9 @@ struct TerminalClientCompositionTests {
         var failures: [String] = []
         let composition = TerminalClientComposition.persistent(
             backendClient: client,
-            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies,
+            presentationDependencies: GhosttyApp.terminalSurfacePresentationDependencies,
+            launchDependencies: GhosttyApp.terminalSurfaceLaunchDependencies,
+            renderConfigSerializer: { GhosttyApp.shared.serializedTerminalRendererConfig() },
             topologyFailureReporter: { failures.append($0) }
         )
         let workspace = Workspace(
@@ -241,7 +245,9 @@ struct TerminalClientCompositionTests {
         var failures: [String] = []
         let composition = TerminalClientComposition.persistent(
             backendClient: client,
-            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies,
+            presentationDependencies: GhosttyApp.terminalSurfacePresentationDependencies,
+            launchDependencies: GhosttyApp.terminalSurfaceLaunchDependencies,
+            renderConfigSerializer: { GhosttyApp.shared.serializedTerminalRendererConfig() },
             topologyFailureReporter: { failures.append($0) }
         )
         let workspace = Workspace(
@@ -271,7 +277,9 @@ struct TerminalClientCompositionTests {
         var failures: [String] = []
         let composition = TerminalClientComposition.persistent(
             backendClient: client,
-            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies,
+            presentationDependencies: GhosttyApp.terminalSurfacePresentationDependencies,
+            launchDependencies: GhosttyApp.terminalSurfaceLaunchDependencies,
+            renderConfigSerializer: { GhosttyApp.shared.serializedTerminalRendererConfig() },
             topologyFailureReporter: { failures.append($0) }
         )
         let workspaceID = UUID()
@@ -311,7 +319,9 @@ struct TerminalClientCompositionTests {
         var failures: [String] = []
         let composition = TerminalClientComposition.persistent(
             backendClient: client,
-            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies,
+            presentationDependencies: GhosttyApp.terminalSurfacePresentationDependencies,
+            launchDependencies: GhosttyApp.terminalSurfaceLaunchDependencies,
+            renderConfigSerializer: { GhosttyApp.shared.serializedTerminalRendererConfig() },
             topologyFailureReporter: { failures.append($0) }
         )
         let workspaceID = UUID()
@@ -369,7 +379,9 @@ struct TerminalClientCompositionTests {
         let client = RecordingPersistentTerminalBackendClient()
         let composition = TerminalClientComposition.persistent(
             backendClient: client,
-            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
+            presentationDependencies: GhosttyApp.terminalSurfacePresentationDependencies,
+            launchDependencies: GhosttyApp.terminalSurfaceLaunchDependencies,
+            renderConfigSerializer: { GhosttyApp.shared.serializedTerminalRendererConfig() }
         )
         let workspaceID = UUID()
         let surfaceID = UUID()
@@ -430,7 +442,7 @@ struct TerminalClientCompositionTests {
         let registry = TerminalBackendPresentationRegistry()
         let topologyAuthorizationGate = TerminalBackendTopologyAuthorizationGate()
         let factory = PersistentTerminalPanelFactory(
-            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies,
+            presentationDependencies: GhosttyApp.terminalSurfacePresentationDependencies,
             backendClient: client,
             launchResolver: makeLaunchResolver(),
             presentationRegistry: registry,
@@ -610,7 +622,7 @@ struct TerminalClientCompositionTests {
             ),
         ])
         let factory = PersistentTerminalPanelFactory(
-            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies,
+            presentationDependencies: GhosttyApp.terminalSurfacePresentationDependencies,
             backendClient: client,
             launchResolver: makeLaunchResolver(),
             presentationRegistry: TerminalBackendPresentationRegistry(),
@@ -1489,7 +1501,7 @@ struct TerminalClientCompositionTests {
         let client = RecordingPersistentTerminalBackendClient()
         let topologyAuthorizationGate = TerminalBackendTopologyAuthorizationGate()
         let factory = PersistentTerminalPanelFactory(
-            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies,
+            presentationDependencies: GhosttyApp.terminalSurfacePresentationDependencies,
             backendClient: client,
             launchResolver: makeLaunchResolver(),
             presentationRegistry: TerminalBackendPresentationRegistry(),
