@@ -64,6 +64,7 @@
 		D36A00030000000000000001 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		A79700060000000000000001 /* AgentHibernationLifecycleStateTestAlias.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79700060000000000000002 /* AgentHibernationLifecycleStateTestAlias.swift */; };
+		A7867B010000000000000001 /* AgentHibernationOwnedLiveProcessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7867B010000000000000002 /* AgentHibernationOwnedLiveProcessTests.swift */; };
 		F65760160000000000000001 /* AgentHibernationPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760160000000000000002 /* AgentHibernationPlanner.swift */; };
 		F65760170000000000000001 /* AgentHibernationPlannerInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760170000000000000002 /* AgentHibernationPlannerInput.swift */; };
 		F65760010000000000000001 /* AgentHibernationPlannerSwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760010000000000000002 /* AgentHibernationPlannerSwiftTests.swift */; };
@@ -2248,6 +2249,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D36A00010000000000000002 /* AgentHibernationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentHibernationController.swift; sourceTree = "<group>"; };
 		D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernation/AgentHibernationLifecycleState.swift; sourceTree = "<group>"; };
 		A79700060000000000000002 /* AgentHibernationLifecycleStateTestAlias.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationLifecycleStateTestAlias.swift; sourceTree = "<group>"; };
+		A7867B010000000000000002 /* AgentHibernationOwnedLiveProcessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationOwnedLiveProcessTests.swift; sourceTree = "<group>"; };
 		F65760160000000000000002 /* AgentHibernationPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationPlanner.swift"; sourceTree = "<group>"; };
 		F65760170000000000000002 /* AgentHibernationPlannerInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationPlannerInput.swift"; sourceTree = "<group>"; };
 		F65760010000000000000002 /* AgentHibernationPlannerSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationPlannerSwiftTests.swift; sourceTree = "<group>"; };
@@ -5942,6 +5944,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */,
 				A9E040000000000000000001 /* CodexAppServerSessionTests.swift */,
 				F65760010000000000000002 /* AgentHibernationPlannerSwiftTests.swift */,
+				A7867B010000000000000002 /* AgentHibernationOwnedLiveProcessTests.swift */,
 				F65760240000000000000002 /* AgentHibernationRestoreMonitorTests.swift */,
 				F65760040000000000000002 /* AgentHibernationTranscriptGuardTests.swift */,
 				F65760080000000000000002 /* AgentHibernationTranscriptGuardScanTests.swift */,
@@ -8393,6 +8396,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A78670610000000000000001 /* AgentCmuxRuntimeIdentity.swift in Sources */,
 				A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */,
 				A79700060000000000000001 /* AgentHibernationLifecycleStateTestAlias.swift in Sources */,
+				A7867B010000000000000001 /* AgentHibernationOwnedLiveProcessTests.swift in Sources */,
 				F65760010000000000000001 /* AgentHibernationPlannerSwiftTests.swift in Sources */,
 				D72260010000000000000001 /* AgentHibernationPortalVisibilityTests.swift in Sources */,
 				F65760240000000000000001 /* AgentHibernationRestoreMonitorTests.swift in Sources */,

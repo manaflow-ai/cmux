@@ -165,7 +165,7 @@ struct AgentHibernationPlannerSwiftTests {
                     key: runningAgent,
                     hasRestorableAgent: true,
                     isLive: true,
-                    hasLiveProcess: true,
+                    liveProcessEvidence: .unverified(processIDs: [42]),
                     isProtected: false,
                     lifecycle: .idle,
                     hasUnconfirmedTerminalInput: false,
@@ -192,6 +192,11 @@ struct AgentHibernationPlannerSwiftTests {
     func idleRestorableSessionOwnerWithLiveProcessCanHibernate() {
         let workspaceId = UUID()
         let now: TimeInterval = 1_000
+        let processIdentity = AgentPIDProcessIdentity(
+            pid: 42,
+            startSeconds: 100,
+            startMicroseconds: 200
+        )
         let ownedIdleAgent = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let protectedAgent = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let settings = AgentHibernationSettings.Values(
@@ -207,7 +212,10 @@ struct AgentHibernationPlannerSwiftTests {
                     key: ownedIdleAgent,
                     hasRestorableAgent: true,
                     isLive: true,
-                    hasLiveProcess: true,
+                    liveProcessEvidence: .ownedIdleRestorableSession(
+                        processIDs: [42],
+                        agentProcessIdentities: [42: processIdentity]
+                    ),
                     isProtected: false,
                     lifecycle: .idle,
                     hasUnconfirmedTerminalInput: false,
