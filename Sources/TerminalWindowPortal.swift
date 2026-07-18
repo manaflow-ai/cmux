@@ -1683,8 +1683,8 @@ final class WindowTerminalPortal: NSObject {
         // geometry callback while another fires. Reconcile all mapped hosted views so no stale
         // frame remains "stuck" onscreen until the next interaction.
         //
-        // FLAG(sidebar-appkit-list-experiment): with the flag on, the failsafe is coalesced to
-        // one pass per main-queue turn. Inline it ran per anchor callback, so one divider width
+        // With the AppKit sidebar enabled, the failsafe is coalesced to one pass per main-queue
+        // turn. Inline it ran per anchor callback, so one divider width
         // commit cost panes x (all-hosted sync + all-visible reconcile) — 57% of drag-loop time
         // in a Time Profiler capture. The deferred pass still runs within the same drag tick
         // (the tracking loop spins the runloop per event), so the missed-callback window is

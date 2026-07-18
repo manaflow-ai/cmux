@@ -21,6 +21,12 @@ actor CmxIrohClientSessionPool {
         let pathObservationTask: Task<Void, Never>
     }
 
+    private struct ControlWaiter {
+        let id: UUID
+        let ownerID: UUID
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
     private let supervisor: CmxIrohEndpointSupervisor
     private let contextProvider: any CmxIrohClientContextProvider
     private let protocolConfiguration: CmxIrohProtocolConfiguration
@@ -30,6 +36,7 @@ actor CmxIrohClientSessionPool {
     private var sessionOrder: [SessionKey] = []
     private var connectionTasks: [SessionKey: PendingConnection] = [:]
     private var controlOwners: [SessionKey: UUID] = [:]
+    private var controlWaiters: [SessionKey: [ControlWaiter]] = [:]
     private var selectedPathContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
 
     init(
@@ -53,10 +60,22 @@ actor CmxIrohClientSessionPool {
         runtimeGeneration = nil
     }
 
-    func session(for request: CmxByteTransportRequest) async throws -> CmxIrohClientSession {
+    func session(
+        for request: CmxByteTransportRequest,
+        preservesControlOwnerOnClosed: Bool = false
+    ) async throws -> CmxIrohClientSession {
         let key = try sessionKey(for: request)
-        if let pooled = sessions[key] {
-            return pooled.session
+        while let pooled = sessions[key] {
+            let isClosed = await pooled.session.isClosed()
+            guard sessions[key]?.id == pooled.id else { continue }
+            if !isClosed {
+                return pooled.session
+            }
+            await invalidateSession(
+                for: key,
+                matching: pooled.id,
+                releasesControlOwner: !preservesControlOwnerOnClosed
+            )
         }
 
         let revision = lifecycleRevision
@@ -148,22 +167,22 @@ actor CmxIrohClientSessionPool {
     }
 
     /// Acquires exact ownership of control-stream framing before returning the
-    /// pooled session. The owner remains reserved across a reentrant dial so a
-    /// concurrent transport cannot install a second control reader.
+    /// pooled session. Same-peer route variants wait for the existing owner to
+    /// close instead of failing while an intentional reconnect is handing off.
     func acquireControlSession(
         for request: CmxByteTransportRequest,
         ownerID: UUID
     ) async throws -> CmxIrohClientSession {
         let key = try sessionKey(for: request)
-        if let existing = controlOwners[key], existing != ownerID {
-            throw CmxIrohByteTransportError.controlLaneAlreadyOwned
-        }
-        controlOwners[key] = ownerID
+        try await reserveControlOwner(for: key, ownerID: ownerID)
         do {
-            return try await session(for: request)
+            return try await session(
+                for: request,
+                preservesControlOwnerOnClosed: true
+            )
         } catch {
             if controlOwners[key] == ownerID {
-                controlOwners[key] = nil
+                releaseControlOwner(for: key, ownerID: ownerID)
             }
             throw error
         }
@@ -174,8 +193,20 @@ actor CmxIrohClientSessionPool {
         lane: CmxIrohLane,
         priority: Int32
     ) async throws -> CmxIrohBidirectionalStream {
+        let key = try sessionKey(for: request)
         let session = try await session(for: request)
-        return try await session.openBidirectionalLane(lane, priority: priority)
+        do {
+            return try await session.openBidirectionalLane(lane, priority: priority)
+        } catch {
+            try Task.checkCancellation()
+            guard await session.isClosed() else { throw error }
+            await invalidateSession(for: key, matching: session)
+            let replacement = try await self.session(for: request)
+            return try await replacement.openBidirectionalLane(
+                lane,
+                priority: priority
+            )
+        }
     }
 
     func serverEventByteStream(
@@ -195,13 +226,12 @@ actor CmxIrohClientSessionPool {
               controlOwners[key] == ownerID else {
             return
         }
-        controlOwners[key] = nil
-        await invalidateSession(for: key)
+        await invalidateSession(for: key, releasesControlOwner: false)
+        releaseControlOwner(for: key, ownerID: ownerID)
     }
 
     func invalidate(for request: CmxByteTransportRequest) async {
         guard let key = try? sessionKey(for: request) else { return }
-        controlOwners[key] = nil
         await invalidateSession(for: key)
     }
 
@@ -214,6 +244,9 @@ actor CmxIrohClientSessionPool {
         sessions.removeAll(keepingCapacity: false)
         sessionOrder.removeAll(keepingCapacity: false)
         controlOwners.removeAll(keepingCapacity: false)
+        let waiters = controlWaiters.values.flatMap { $0 }
+        controlWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters { waiter.continuation.resume() }
         for pooled in closing {
             pooled.closureTask.cancel()
             pooled.pathObservationTask.cancel()
@@ -239,17 +272,42 @@ actor CmxIrohClientSessionPool {
         }
     }
 
+    func controlWaiterCount(for request: CmxByteTransportRequest) -> Int {
+        guard let key = try? sessionKey(for: request) else { return 0 }
+        return controlWaiters[key]?.count ?? 0
+    }
+
     private func sessionDidClose(key: SessionKey, sessionID: UUID) async {
         guard let pooled = sessions[key], pooled.id == sessionID else { return }
+        let ownerID = controlOwners[key]
         sessions[key] = nil
         sessionOrder.removeAll { $0 == key }
-        controlOwners[key] = nil
         pooled.pathObservationTask.cancel()
         await pooled.session.close()
+        if let ownerID {
+            releaseControlOwner(for: key, ownerID: ownerID)
+        }
         publishSelectedPathChange()
     }
 
-    private func invalidateSession(for key: SessionKey) async {
+    private func invalidateSession(
+        for key: SessionKey,
+        releasesControlOwner: Bool = true
+    ) async {
+        await invalidateSession(
+            for: key,
+            matching: Optional<UUID>.none,
+            releasesControlOwner: releasesControlOwner
+        )
+    }
+
+    private func invalidateSession(
+        for key: SessionKey,
+        matching expectedID: UUID?,
+        releasesControlOwner: Bool = true
+    ) async {
+        if let expectedID, sessions[key]?.id != expectedID { return }
+        let ownerID = releasesControlOwner ? controlOwners[key] : nil
         connectionTasks[key]?.task.cancel()
         connectionTasks[key] = nil
         let pooled = sessions.removeValue(forKey: key)
@@ -257,7 +315,89 @@ actor CmxIrohClientSessionPool {
         pooled?.closureTask.cancel()
         pooled?.pathObservationTask.cancel()
         await pooled?.session.close()
+        if let ownerID {
+            releaseControlOwner(for: key, ownerID: ownerID)
+        }
         publishSelectedPathChange()
+    }
+
+    private func invalidateSession(
+        for key: SessionKey,
+        matching expectedSession: CmxIrohClientSession
+    ) async {
+        guard let pooled = sessions[key], pooled.session === expectedSession else { return }
+        await invalidateSession(for: key, matching: pooled.id)
+    }
+
+    private func reserveControlOwner(
+        for key: SessionKey,
+        ownerID: UUID
+    ) async throws {
+        if let existing = controlOwners[key] {
+            if existing == ownerID { return }
+        } else {
+            controlOwners[key] = ownerID
+            return
+        }
+
+        let waiterID = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume()
+                    return
+                }
+                if let existing = controlOwners[key] {
+                    if existing == ownerID {
+                        continuation.resume()
+                    } else {
+                        controlWaiters[key, default: []].append(ControlWaiter(
+                            id: waiterID,
+                            ownerID: ownerID,
+                            continuation: continuation
+                        ))
+                    }
+                } else {
+                    controlOwners[key] = ownerID
+                    continuation.resume()
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelControlWaiter(for: key, id: waiterID) }
+        }
+
+        do {
+            try Task.checkCancellation()
+            guard controlOwners[key] == ownerID else {
+                throw CmxIrohClientRuntimeError.inactive
+            }
+        } catch {
+            cancelControlWaiter(for: key, id: waiterID)
+            if controlOwners[key] == ownerID {
+                releaseControlOwner(for: key, ownerID: ownerID)
+            }
+            throw error
+        }
+    }
+
+    private func cancelControlWaiter(for key: SessionKey, id: UUID) {
+        guard var waiters = controlWaiters[key],
+              let index = waiters.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        let waiter = waiters.remove(at: index)
+        controlWaiters[key] = waiters.isEmpty ? nil : waiters
+        waiter.continuation.resume()
+    }
+
+    private func releaseControlOwner(for key: SessionKey, ownerID: UUID) {
+        guard controlOwners[key] == ownerID else { return }
+        controlOwners[key] = nil
+        guard var waiters = controlWaiters[key], !waiters.isEmpty else { return }
+        let next = waiters.removeFirst()
+        controlWaiters[key] = waiters.isEmpty ? nil : waiters
+        controlOwners[key] = next.ownerID
+        next.continuation.resume()
     }
 
     private func publishSelectedPathChange() {
@@ -283,14 +423,14 @@ actor CmxIrohClientSessionPool {
         guard request.route.kind == .iroh,
               request.authorizationMode == .transportAdmission,
               let deviceID = request.expectedPeerDeviceID,
-              !deviceID.isEmpty,
+              let canonicalDeviceID = CmxIrohDeviceID(deviceID)?.value,
               case let .peer(identity, _) = request.route.endpoint else {
             throw CmxIrohByteTransportError.missingPeerIntent
         }
         return SessionKey(
             runtimeGeneration: runtimeGeneration,
             identity: identity,
-            deviceID: deviceID
+            deviceID: canonicalDeviceID
         )
     }
 }

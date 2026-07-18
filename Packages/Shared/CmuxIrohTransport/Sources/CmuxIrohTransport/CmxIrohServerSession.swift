@@ -211,10 +211,14 @@ public actor CmxIrohServerSession {
                     sendStream: stream.sendStream
                 )
             )
+        } catch is CancellationError {
+            await stream.sendStream.reset(errorCode: 1)
+            await stream.receiveStream.stop(errorCode: 1)
+            throw CancellationError()
         } catch {
             await stream.sendStream.reset(errorCode: 1)
             await stream.receiveStream.stop(errorCode: 1)
-            throw error
+            throw CmxIrohServerSessionError.applicationLaneRejected
         }
     }
 
