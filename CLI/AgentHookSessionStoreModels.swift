@@ -81,6 +81,17 @@ struct ClaudeHookSessionRecord: Codable {
     var completedAt: TimeInterval? = nil
     /// The cmux app process that most recently owned the active run.
     var cmuxRuntime: AgentCmuxRuntimeIdentity? = nil
+    /// App-owned recovery tokens. Making these fields part of the typed model
+    /// lets an accepted provider activation remove a completed hibernation
+    /// handoff while the registry bridge continues preserving unrelated
+    /// fields written by newer schema generations.
+    var cmuxRestoreAdoptionId: String? = nil
+    var cmuxHibernationAttemptId: String? = nil
+    var cmuxHibernatedAt: TimeInterval? = nil
+    var cmuxHibernationDetached: Bool? = nil
+    var cmuxHibernationResumeAttemptId: String? = nil
+    var cmuxHibernationResumeStartedAt: TimeInterval? = nil
+    var cmuxHibernationResumeFromAttemptId: String? = nil
 }
 
 struct ClaudeHookActiveSessionRecord: Codable {

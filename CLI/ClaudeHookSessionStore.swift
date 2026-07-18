@@ -1252,6 +1252,13 @@ final class ClaudeHookSessionStore {
             record.hadPendingBackgroundWorkAtStop = hadPendingBackgroundWorkAtStop
         }
         record.completedAt = nil
+        record.cmuxRestoreAdoptionId = nil
+        record.cmuxHibernationAttemptId = nil
+        record.cmuxHibernatedAt = nil
+        record.cmuxHibernationDetached = nil
+        record.cmuxHibernationResumeAttemptId = nil
+        record.cmuxHibernationResumeStartedAt = nil
+        record.cmuxHibernationResumeFromAttemptId = nil
         record.sessionState = .active
         recordSessionRun(&record, lineage: lineage, now: now)
         record.updatedAt = now
