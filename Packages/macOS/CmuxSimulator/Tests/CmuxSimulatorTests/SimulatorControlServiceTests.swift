@@ -67,7 +67,7 @@ struct SimulatorControlServiceTests {
         )])
     }
 
-    @Test("Duplicate runtime identifiers prefer an available newer record without trapping")
+    @Test("Device type identifies family when runtimes omit family metadata")
     func handlesDuplicateRuntimeIdentifiers() async throws {
         let commands = RecordingCommandRunner(results: [
             .success(#"{"devices":{"com.apple.CoreSimulator.SimRuntime.iOS-26-4":[{"udid":"DEVICE","name":"iPhone 17","state":"Shutdown","isAvailable":true,"deviceTypeIdentifier":"com.apple.CoreSimulator.SimDeviceType.iPhone-17"}]}}"#),
@@ -78,7 +78,7 @@ struct SimulatorControlServiceTests {
         let devices = try await service.discoverDevices()
 
         #expect(devices.first?.runtimeName == "iOS 26.4.1")
-        #expect(devices.first?.family == .unknown)
+        #expect(devices.first?.family == .iPhone)
     }
 
     @Test("Missing structured family metadata never trusts the device name")

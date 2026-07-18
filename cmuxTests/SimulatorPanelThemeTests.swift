@@ -90,6 +90,20 @@ struct SimulatorPanelThemeTests {
 @MainActor
 @Suite("Canvas Simulator pointer ownership")
 struct CanvasSimulatorPointerOwnershipTests {
+    @Test("Hosted canvas presentation carries focus changes")
+    func hostedPresentationCarriesFocus() {
+        let owner = NSView(frame: .zero)
+        let presentation = CanvasHostedPanelPresentation(
+            isFocused: false,
+            allowsPointerInput: true,
+            pointerInputOwner: owner
+        )
+
+        #expect(!presentation.isFocused)
+        presentation.setFocused(true)
+        #expect(presentation.isFocused)
+    }
+
     @Test("An overlapping pointer entry belongs only to the frontmost pane")
     func frontmostPaneOwnsPointerEntry() throws {
         let bounds = CGRect(x: 0, y: 0, width: 300, height: 300)
@@ -108,10 +122,12 @@ struct CanvasSimulatorPointerOwnershipTests {
         window.orderBack(nil)
         defer { window.orderOut(nil) }
         let obscured = CanvasHostedPanelPresentation(
+            isFocused: false,
             allowsPointerInput: true,
             pointerInputOwner: obscuredOwner
         )
         let frontmost = CanvasHostedPanelPresentation(
+            isFocused: true,
             allowsPointerInput: true,
             pointerInputOwner: frontmostOwner
         )
