@@ -7,16 +7,22 @@ struct BackendOnlyHostControlDrainStateTests {
     func burstCoalescesToNewestCombinedState() throws {
         var state = BackendOnlyHostControlDrainState()
 
-        #expect(state.setVisibility(true))
-        #expect(!state.setFocus(true))
-        #expect(!state.setVisibility(false))
-        #expect(!state.setFocus(false))
-        #expect(!state.setVisibility(true))
+        let visibilityStartedDrain = state.setVisibility(true)
+        #expect(visibilityStartedDrain)
+        let focusStartedDrain = state.setFocus(true)
+        #expect(!focusStartedDrain)
+        let hideStartedDrain = state.setVisibility(false)
+        #expect(!hideStartedDrain)
+        let blurStartedDrain = state.setFocus(false)
+        #expect(!blurStartedDrain)
+        let reshowStartedDrain = state.setVisibility(true)
+        #expect(!reshowStartedDrain)
 
         let target = try #require(state.latestTarget())
         #expect(target.values == .init(visible: true, focused: false))
         #expect(state.isCurrent(target))
-        #expect(!state.complete(target))
+        let targetNeedsAnotherDrain = state.complete(target)
+        #expect(!targetNeedsAnotherDrain)
         #expect(state.latestTarget() == nil)
     }
 
@@ -24,17 +30,21 @@ struct BackendOnlyHostControlDrainStateTests {
     func staleCompletionKeepsNewerStatePending() throws {
         var state = BackendOnlyHostControlDrainState()
 
-        #expect(state.setVisibility(true))
+        let visibilityStartedDrain = state.setVisibility(true)
+        #expect(visibilityStartedDrain)
         let stale = try #require(state.latestTarget())
-        #expect(!state.setFocus(true))
+        let focusStartedDrain = state.setFocus(true)
+        #expect(!focusStartedDrain)
 
         #expect(!state.isCurrent(stale))
-        #expect(state.complete(stale))
+        let staleTargetNeedsAnotherDrain = state.complete(stale)
+        #expect(staleTargetNeedsAnotherDrain)
 
         let latest = try #require(state.latestTarget())
         #expect(latest.values == .init(visible: true, focused: true))
         #expect(state.isCurrent(latest))
-        #expect(!state.complete(latest))
+        let latestTargetNeedsAnotherDrain = state.complete(latest)
+        #expect(!latestTargetNeedsAnotherDrain)
         #expect(state.latestTarget() == nil)
     }
 
@@ -42,15 +52,21 @@ struct BackendOnlyHostControlDrainStateTests {
     func duplicateValuesDoNotPublishWork() throws {
         var state = BackendOnlyHostControlDrainState()
 
-        #expect(!state.setVisibility(false))
-        #expect(!state.setFocus(false))
+        let duplicateVisibilityStartedDrain = state.setVisibility(false)
+        #expect(!duplicateVisibilityStartedDrain)
+        let duplicateFocusStartedDrain = state.setFocus(false)
+        #expect(!duplicateFocusStartedDrain)
         #expect(state.latestTarget() == nil)
 
-        #expect(state.setFocus(true))
-        #expect(!state.setFocus(true))
+        let focusStartedDrain = state.setFocus(true)
+        #expect(focusStartedDrain)
+        let duplicateFocusedStartedDrain = state.setFocus(true)
+        #expect(!duplicateFocusedStartedDrain)
         let target = try #require(state.latestTarget())
-        #expect(!state.complete(target))
-        #expect(!state.setFocus(true))
+        let targetNeedsAnotherDrain = state.complete(target)
+        #expect(!targetNeedsAnotherDrain)
+        let appliedFocusStartedDrain = state.setFocus(true)
+        #expect(!appliedFocusStartedDrain)
         #expect(state.latestTarget() == nil)
     }
 }
