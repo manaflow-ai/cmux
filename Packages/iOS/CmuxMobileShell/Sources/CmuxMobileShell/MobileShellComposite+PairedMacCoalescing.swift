@@ -24,7 +24,7 @@ extension MobileShellComposite {
             let key = mac.dialEndpointKey(
                 supportedKinds: supportedKinds,
                 preferNonLoopback: preferNonLoopback
-            ) ?? "device:\(mac.macDeviceID)"
+            ) ?? "device:\(mac.id)"
             orderByKey[key] = min(orderByKey[key] ?? index, index)
             guard let existing = selectedByKey[key] else {
                 selectedByKey[key] = mac
@@ -42,6 +42,57 @@ extension MobileShellComposite {
                 (orderByKey[lhs.key] ?? .max) < (orderByKey[rhs.key] ?? .max)
             }
             .map(\.value)
+    }
+
+    /// Selects one logical client for each cryptographic Iroh endpoint.
+    ///
+    /// Presentation coalescing intentionally includes the reported name and
+    /// instance tag, but the Iroh server admits only one authoritative control
+    /// connection per EndpointID. Stale stored rows must therefore share one
+    /// connection owner even when their presentation metadata differs.
+    static func coalescePairedMacsByIrohEndpointAuthority(
+        _ macs: [MobilePairedMac],
+        supportedKinds: [CmxAttachTransportKind],
+        preferNonLoopback: Bool
+    ) -> [MobilePairedMac] {
+        var selectedByKey: [String: MobilePairedMac] = [:]
+        var orderByKey: [String: Int] = [:]
+
+        for (index, mac) in macs.enumerated() {
+            let key = irohEndpointID(
+                for: mac,
+                supportedKinds: supportedKinds,
+                preferNonLoopback: preferNonLoopback
+            ).map { "iroh-authority:\($0)" } ?? "device:\(mac.id)"
+            orderByKey[key] = min(orderByKey[key] ?? index, index)
+            guard let existing = selectedByKey[key] else {
+                selectedByKey[key] = mac
+                continue
+            }
+            selectedByKey[key] = mac.sortsBeforeDuplicate(existing) ? mac : existing
+        }
+
+        return selectedByKey
+            .sorted { lhs, rhs in
+                (orderByKey[lhs.key] ?? .max) < (orderByKey[rhs.key] ?? .max)
+            }
+            .map(\.value)
+    }
+
+    static func irohEndpointID(
+        for mac: MobilePairedMac,
+        supportedKinds: [CmxAttachTransportKind],
+        preferNonLoopback: Bool
+    ) -> String? {
+        let reconnectRoutes = storedReconnectRoutes(
+            mac.routes,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: preferNonLoopback
+        )
+        guard case let .peer(identity, _)? = reconnectRoutes.first?.endpoint else {
+            return nil
+        }
+        return identity.endpointID
     }
 
     static func macDeviceIDsForLogicalPairedMac(
@@ -77,20 +128,20 @@ extension MobileShellComposite {
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool
     ) -> [String: [String]] {
-        var groupKeyByMacID: [String: String] = [:]
+        var groupKeyByPairingID: [String: String] = [:]
         var idsByGroupKey: [String: [String]] = [:]
         for mac in macs {
             let key = mac.dialEndpointKey(
                 supportedKinds: supportedKinds,
                 preferNonLoopback: preferNonLoopback
-            ) ?? "device:\(mac.macDeviceID)"
-            groupKeyByMacID[mac.macDeviceID] = key
+            ) ?? "device:\(mac.id)"
+            groupKeyByPairingID[mac.id] = key
             idsByGroupKey[key, default: []].append(mac.macDeviceID)
         }
 
         var result: [String: [String]] = [:]
-        for (macID, groupKey) in groupKeyByMacID {
-            result[macID] = idsByGroupKey[groupKey] ?? [macID]
+        for (pairingID, groupKey) in groupKeyByPairingID {
+            result[pairingID] = idsByGroupKey[groupKey] ?? []
         }
         return result
     }
@@ -112,7 +163,7 @@ private extension MobilePairedMac {
             preferNonLoopback: preferNonLoopback
         )
         if case let .peer(identity, _)? = reconnectRoutes.first?.endpoint {
-            return "iroh:\(identity.endpointID):name:\(displayName.lowercased())"
+            return "iroh:\(identity.endpointID):name:\(displayName.lowercased()):instance:\(instanceTag ?? "")"
         }
         guard let (host, port) = MobileShellComposite.firstReconnectHostPortRoute(
             reconnectRoutes,
@@ -121,7 +172,7 @@ private extension MobilePairedMac {
         ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
             return nil
         }
-        return "host:\(normalizedHost.lowercased()):\(port):name:\(displayName.lowercased())"
+        return "host:\(normalizedHost.lowercased()):\(port):name:\(displayName.lowercased()):instance:\(instanceTag ?? "")"
     }
 
     func mergingCustomization(from other: MobilePairedMac) -> MobilePairedMac {

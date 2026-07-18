@@ -21,7 +21,10 @@ struct CmxIrohClientRuntimeTests {
             configuration: fixture.configuration,
             pendingRevocations: fixture.pendingRevocations(),
             now: { fixture.now },
-            handleBinding: { _, _ in await recorder.recordBinding() },
+            handleBinding: { _, _ in
+                await recorder.recordBinding()
+                return true
+            },
             handleRelayCredential: { _, _ in await recorder.recordRelay() }
         )
 
@@ -42,6 +45,95 @@ struct CmxIrohClientRuntimeTests {
         await recorder.waitForRelayCount(1)
         #expect(await recorder.observedRelayCount() == 1)
         #expect(runtime.transportFactory.supportedKinds == [.iroh])
+        await runtime.stop()
+    }
+
+    @Test
+    func liveDiscoveryRefreshReturnsTrueOnlyAfterNewVerifiedSnapshot() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let broker = TestIrohClientBroker(
+            binding: fixture.binding,
+            discovery: fixture.discovery,
+            relay: fixture.relayResponse()
+        )
+        let recorder = ClientRuntimeTestRecorder()
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now },
+            handleBinding: { _, _ in
+                await recorder.recordBinding()
+                return true
+            }
+        )
+        try await runtime.start()
+
+        let initialProvider = try #require(await runtime.registryContextProvider)
+        #expect(await runtime.refreshLiveDiscovery())
+        let refreshedProvider = try #require(await runtime.registryContextProvider)
+        #expect(await broker.observedRegistrations().count == 2)
+        #expect(await recorder.observedBindingCount() == 2)
+        #expect(initialProvider === refreshedProvider)
+        await runtime.stop()
+    }
+
+    @Test
+    func unavailableBrokerCannotReuseStaleSnapshotForFirstPairing() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let broker = TestIrohClientBroker(
+            binding: fixture.binding,
+            discovery: fixture.discovery,
+            relay: fixture.relayResponse()
+        )
+        let recorder = ClientRuntimeTestRecorder()
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now },
+            handleBinding: { _, _ in
+                await recorder.recordBinding()
+                return true
+            }
+        )
+        try await runtime.start()
+        await broker.setRegistrationError(CmxIrohTrustBrokerClientError.connectivity)
+
+        #expect(!(await runtime.refreshLiveDiscovery()))
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await recorder.observedBindingCount() == 1)
+        await runtime.stop()
+    }
+
+    @Test
+    func rejectedCatalogPublicationCannotAdvanceLiveDiscoveryGeneration() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: TestIrohClientBroker(
+                binding: fixture.binding,
+                discovery: fixture.discovery,
+                relay: fixture.relayResponse()
+            ),
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now },
+            handleBinding: { _, _ in false }
+        )
+
+        try await runtime.start()
+        #expect(await runtime.liveDiscoverySnapshotGeneration() == 0)
+        #expect(!(await runtime.refreshLiveDiscovery()))
+        #expect(await runtime.liveDiscoverySnapshotGeneration() == 0)
         await runtime.stop()
     }
 

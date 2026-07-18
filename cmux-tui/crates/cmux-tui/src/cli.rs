@@ -12,6 +12,7 @@ type BuildFn = fn(&FlagMap) -> Result<Value, UsageError>;
 type PrintFn = fn(&Value, &mut dyn Write) -> io::Result<()>;
 type LocalFn = fn(&GlobalArgs, &FlagMap) -> i32;
 
+#[derive(Debug)]
 pub struct UsageError(String);
 
 struct CliArgs {
@@ -78,6 +79,12 @@ const VERBS: &[VerbSpec] = &[
         kind: socket(build_detach_client, print_empty, false),
     },
     VerbSpec {
+        name: "set-client-sizing",
+        help: "Include or exclude a client from shared terminal sizing.",
+        allowed: &["client", "enabled"],
+        kind: socket(build_set_client_sizing, print_empty, false),
+    },
+    VerbSpec {
         name: "reload-config",
         help: "Ask a running TUI to reload its config file.",
         allowed: &[],
@@ -116,7 +123,7 @@ const VERBS: &[VerbSpec] = &[
     VerbSpec {
         name: "send",
         help: "Send text or bytes to a surface.",
-        allowed: &["surface", "text", "bytes"],
+        allowed: &["surface", "text", "bytes", "paste"],
         kind: socket(build_send, print_empty, false),
     },
     VerbSpec {
@@ -124,6 +131,12 @@ const VERBS: &[VerbSpec] = &[
         help: "Print visible screen text for a surface.",
         allowed: &["surface"],
         kind: socket(build_surface, print_read_screen, false),
+    },
+    VerbSpec {
+        name: "read-scrollback",
+        help: "Print a styled scrollback page as text.",
+        allowed: &["surface", "start", "count"],
+        kind: socket(build_read_scrollback, print_scrollback, false),
     },
     VerbSpec {
         name: "wait-for",
@@ -306,6 +319,12 @@ const VERBS: &[VerbSpec] = &[
         kind: socket(build_resize_surface, print_empty, false),
     },
     VerbSpec {
+        name: "release-surface-size",
+        help: "Stop this client from sizing a surface.",
+        allowed: &["surface"],
+        kind: socket(build_surface, print_empty, false),
+    },
+    VerbSpec {
         name: "focus-pane",
         help: "Focus a pane.",
         allowed: &["pane"],
@@ -350,14 +369,14 @@ const VERBS: &[VerbSpec] = &[
     VerbSpec {
         name: "subscribe",
         help: "Subscribe to session events.",
-        allowed: &[],
-        kind: socket(build_no_args, print_empty, true),
+        allowed: &["tree-events"],
+        kind: socket(build_subscribe, print_empty, true),
     },
     VerbSpec {
         name: "attach-surface",
         help: "Attach to a surface stream.",
-        allowed: &["surface"],
-        kind: socket(build_surface, print_empty, true),
+        allowed: &["surface", "mode"],
+        kind: socket(build_attach_surface, print_empty, true),
     },
     VerbSpec {
         name: "plugin",
@@ -570,6 +589,7 @@ fn run_command(args: CliArgs) -> i32 {
 
 fn is_boolean_flag(spec: &VerbSpec, name: &str) -> bool {
     (spec.name == "run" && name == "new-workspace")
+        || (spec.name == "send" && name == "paste")
         || (spec.name == "plugin" && matches!(name, "force" | "builtin"))
 }
 
@@ -733,6 +753,16 @@ fn build_detach_client(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(json!({ "client": flags.required_u64("client")? }))
 }
 
+fn build_set_client_sizing(flags: &FlagMap) -> Result<Value, UsageError> {
+    let enabled_value = flags.required("enabled")?;
+    let enabled = match enabled_value.as_str() {
+        "true" => true,
+        "false" => false,
+        _ => return Err(UsageError("--enabled must be true or false".to_string())),
+    };
+    Ok(json!({ "client": flags.required_u64("client")?, "enabled": enabled }))
+}
+
 fn build_surface(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(json!({ "surface": flags.required_u64("surface")? }))
 }
@@ -757,12 +787,49 @@ fn build_send(flags: &FlagMap) -> Result<Value, UsageError> {
     if let Some(bytes) = flags.optional("bytes") {
         value["bytes"] = json!(bytes);
     }
+    if flags.optional("paste").is_some() {
+        value["paste"] = json!(true);
+    }
     if value.get("text").is_none() && value.get("bytes").is_none() {
         let mut text = String::new();
         io::stdin()
             .read_to_string(&mut text)
             .map_err(|err| UsageError(format!("failed to read stdin: {err}")))?;
         value["text"] = json!(text);
+    }
+    Ok(value)
+}
+
+fn build_read_scrollback(flags: &FlagMap) -> Result<Value, UsageError> {
+    let count = flags.required_u32("count")?;
+    if count > u32::from(u16::MAX) {
+        return Err(UsageError("--count must be at most 65535".to_string()));
+    }
+    Ok(json!({
+        "surface": flags.required_u64("surface")?,
+        "start": flags.required_u32("start")?,
+        "count": count,
+    }))
+}
+
+fn build_subscribe(flags: &FlagMap) -> Result<Value, UsageError> {
+    let mut value = json!({});
+    if let Some(tree_events) = flags.optional("tree-events") {
+        if !matches!(tree_events.as_str(), "coarse" | "deltas") {
+            return Err(UsageError("--tree-events must be coarse or deltas".to_string()));
+        }
+        value["tree_events"] = json!(tree_events);
+    }
+    Ok(value)
+}
+
+fn build_attach_surface(flags: &FlagMap) -> Result<Value, UsageError> {
+    let mut value = json!({ "surface": flags.required_u64("surface")? });
+    if let Some(mode) = flags.optional("mode") {
+        if !matches!(mode.as_str(), "bytes" | "render") {
+            return Err(UsageError("--mode must be bytes or render".to_string()));
+        }
+        value["mode"] = json!(mode);
     }
     Ok(value)
 }
@@ -1070,6 +1137,10 @@ impl FlagMap {
         parse_u16(name, &self.required(name)?)
     }
 
+    fn required_u32(&self, name: &str) -> Result<u32, UsageError> {
+        parse_u32(name, &self.required(name)?)
+    }
+
     fn required_usize(&self, name: &str) -> Result<usize, UsageError> {
         parse_usize(name, &self.required(name)?)
     }
@@ -1134,6 +1205,10 @@ fn parse_u64(name: &str, value: &str) -> Result<u64, UsageError> {
 
 fn parse_u16(name: &str, value: &str) -> Result<u16, UsageError> {
     value.parse::<u16>().map_err(|_| UsageError(format!("--{name} must be a uint16")))
+}
+
+fn parse_u32(name: &str, value: &str) -> Result<u32, UsageError> {
+    value.parse::<u32>().map_err(|_| UsageError(format!("--{name} must be a uint32")))
 }
 
 fn parse_usize(name: &str, value: &str) -> Result<usize, UsageError> {
@@ -1220,7 +1295,7 @@ fn print_clients(data: &Value, out: &mut dyn Write) -> io::Result<()> {
             .unwrap_or_else(|| "-".to_string());
         writeln!(
             out,
-            "{} {} {} {} connected={}s attached={} sizes={} self={}",
+            "{} {} {} {} connected={}s attached={} sizes={} self={} sizing={}",
             client.get("client").and_then(Value::as_u64).unwrap_or(0),
             client.get("transport").and_then(Value::as_str).unwrap_or(""),
             client.get("name").and_then(Value::as_str).unwrap_or("-"),
@@ -1229,6 +1304,7 @@ fn print_clients(data: &Value, out: &mut dyn Write) -> io::Result<()> {
             attached,
             sizes,
             client.get("self").and_then(Value::as_bool).unwrap_or(false),
+            client.get("size_participating").and_then(Value::as_bool).unwrap_or(true),
         )?;
     }
     Ok(())
@@ -1236,6 +1312,19 @@ fn print_clients(data: &Value, out: &mut dyn Write) -> io::Result<()> {
 
 fn print_read_screen(data: &Value, out: &mut dyn Write) -> io::Result<()> {
     write!(out, "{}", data.get("text").and_then(Value::as_str).unwrap_or(""))
+}
+
+fn print_scrollback(data: &Value, out: &mut dyn Write) -> io::Result<()> {
+    let Some(rows) = data.get("rows").and_then(Value::as_array) else { return Ok(()) };
+    for row in rows {
+        if let Some(runs) = row.get("runs").and_then(Value::as_array) {
+            for run in runs {
+                write!(out, "{}", run.get("text").and_then(Value::as_str).unwrap_or(""))?;
+            }
+        }
+        writeln!(out)?;
+    }
+    Ok(())
 }
 
 fn print_vt_state(data: &Value, out: &mut dyn Write) -> io::Result<()> {
@@ -1444,5 +1533,64 @@ mod tests {
     #[test]
     fn registered_verbs_have_help_text() {
         assert!(VERBS.iter().all(|verb| !verb.help.is_empty()));
+    }
+
+    #[test]
+    fn protocol_v7_cli_builders_emit_render_tree_paste_and_scrollback_fields() {
+        let flags = FlagMap {
+            values: BTreeMap::from([
+                ("surface".to_string(), "9".to_string()),
+                ("text".to_string(), "hello".to_string()),
+                ("paste".to_string(), "true".to_string()),
+            ]),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_send(&flags).unwrap(),
+            json!({"surface": 9, "text": "hello", "paste": true})
+        );
+
+        let flags = FlagMap {
+            values: BTreeMap::from([
+                ("surface".to_string(), "9".to_string()),
+                ("mode".to_string(), "render".to_string()),
+            ]),
+            ..Default::default()
+        };
+        assert_eq!(build_attach_surface(&flags).unwrap(), json!({"surface": 9, "mode": "render"}));
+
+        let flags = FlagMap {
+            values: BTreeMap::from([("tree-events".to_string(), "deltas".to_string())]),
+            ..Default::default()
+        };
+        assert_eq!(build_subscribe(&flags).unwrap(), json!({"tree_events": "deltas"}));
+
+        let flags = FlagMap {
+            values: BTreeMap::from([
+                ("surface".to_string(), "9".to_string()),
+                ("start".to_string(), "40".to_string()),
+                ("count".to_string(), "2".to_string()),
+            ]),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_read_scrollback(&flags).unwrap(),
+            json!({"surface": 9, "start": 40, "count": 2})
+        );
+    }
+
+    #[test]
+    fn scrollback_human_output_flattens_runs_one_row_per_line() {
+        let data = json!({
+            "rows": [
+                {"row": 0, "runs": [{"text": "car"}, {"text": "go"}]},
+                {"row": 1, "runs": [{"text": "ok"}]},
+            ],
+            "start": 0,
+            "total": 2,
+        });
+        let mut output = Vec::new();
+        print_scrollback(&data, &mut output).unwrap();
+        assert_eq!(output, b"cargo\nok\n");
     }
 }

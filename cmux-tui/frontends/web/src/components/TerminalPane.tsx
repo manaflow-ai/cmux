@@ -5,18 +5,24 @@ import type { PaneLayoutView } from "../lib/layout";
 import { layoutToViewModel } from "../lib/layout";
 import type { ScreenView } from "../lib/tree";
 import { contextMenuReducer } from "../lib/contextMenu";
+import { clientSizingMenuItems, paneClientSummary } from "../lib/clientSizing";
 import { renameCanCommit, renameReducer } from "../lib/rename";
 import { splitDividerTarget, splitRatioFromPointer, splitRatioToCommit } from "../lib/splitDrag";
-import { useAttachedTerminal } from "../hooks/useAttachedTerminal";
 import { useContextTrigger } from "../hooks/useContextTrigger";
+import { ByteTerminal } from "./ByteTerminal";
 import { ContextMenu } from "./ContextMenu";
-import { ExtraKeysBar } from "./ExtraKeysBar";
 import { InlineRename } from "./InlineRename";
+import { RenderTerminal } from "./RenderTerminal";
 
 interface TerminalPaneProps {
   client: CmuxClient | null;
   clients: ClientInfo[];
   screen: ScreenView | null;
+  onRefreshClients(): void;
+  onSetClientSizing(client: Id, enabled: boolean): void;
+  onUseOnlyClientSizing(client: Id): void;
+  onUseAllClientSizing(): void;
+  onDetachClient(client: Id): void;
   onSelectTab(pane: Id, index: number, surface: Id): void;
   onNewTab(pane: Id): void;
   onSplit(pane: Id, dir: "right" | "down"): void;
@@ -43,7 +49,9 @@ function TabButton({ tab, index, pane, onSelect, onNewTab, onClose, onRename }: 
   const [menu, dispatchMenu] = useReducer(contextMenuReducer, { open: false });
   const [rename, dispatchRename] = useReducer(renameReducer, null);
   const trigger = useContextTrigger((point) => dispatchMenu({ type: "open", point }));
-  const label = tab.name || tab.title || t("tab", { number: index + 1 });
+  const titleWords = tab.title.toLowerCase().split(/[^a-z0-9_-]+/);
+  const agent = ["claude", "codex", "opencode", "pi"].find((candidate) => titleWords.includes(candidate));
+  const label = tab.name || `${index + 1}${agent ? ` ${agent}` : ""}`;
   const commit = () => {
     if (!renameCanCommit(rename)) return;
     onRename(tab.surface, rename.value.trim());
@@ -61,7 +69,8 @@ function TabButton({ tab, index, pane, onSelect, onNewTab, onClose, onRename }: 
         />
       ) : (
         <button className={pane.active_tab === index ? "active" : ""} onClick={onSelect} type="button">
-          <span aria-hidden="true">●</span>{label}
+          <span className="tab-rail" aria-hidden="true">{pane.active_tab === index ? "▎" : " "}</span>
+          <span className="tab-label">{label}</span>
         </button>
       )}
       {menu.open && (
@@ -105,10 +114,19 @@ function PaneLeaf({
   onCloseSurface,
   onRenamePane,
   onRenameSurface,
+  onRefreshClients,
+  onSetClientSizing,
+  onUseOnlyClientSizing,
+  onUseAllClientSizing,
+  onDetachClient,
 }: PaneLeafProps) {
   const [menu, dispatchMenu] = useReducer(contextMenuReducer, { open: false });
+  const [clientMenu, dispatchClientMenu] = useReducer(contextMenuReducer, { open: false });
   const [rename, dispatchRename] = useReducer(renameReducer, null);
-  const trigger = useContextTrigger((point) => dispatchMenu({ type: "open", point }));
+  const trigger = useContextTrigger((point) => {
+    dispatchMenu({ type: "open", point });
+    onRefreshClients();
+  });
   const { onPointerDown: startLongPress, ...contextTrigger } = trigger;
   const [errorState, setErrorState] = useState<{
     client: CmuxClient | null;
@@ -117,33 +135,20 @@ function PaneLeaf({
   } | null>(null);
   const tab = pane?.tabs[pane.active_tab] ?? null;
   const surface = tab?.kind === "pty" && !tab.dead ? tab.surface : null;
+  const clientSummary = paneClientSummary(clients, surface);
+  const clientItems = clientSummary ? clientSizingMenuItems(clientSummary, {
+    setParticipation: onSetClientSizing,
+    useOnly: onUseOnlyClientSizing,
+    useAll: onUseAllClientSizing,
+    detach: onDetachClient,
+  }) : [];
   const reportError = useCallback(
     (error: Error) => setErrorState({ client, surface, message: error.message }),
     [client, surface],
   );
-  const { terminalRef, focused, foreignSize } = useAttachedTerminal({ client, surface, onError: reportError });
   const terminalError = errorState !== null && errorState.client === client && errorState.surface === surface
     ? errorState.message
     : null;
-  const matchingClients = foreignSize === null || surface === null
-    ? []
-    : clients.filter((candidate) => (
-      !candidate.self
-      && candidate.sizes.some((size) => (
-        size.surface === surface
-        && size.cols === foreignSize.cols
-        && size.rows === foreignSize.rows
-      ))
-    ));
-  const foreignSizeHint = foreignSize === null
-    ? null
-    : matchingClients.length === 1
-      ? t("foreignSizeNamed", {
-          name: matchingClients[0]!.name || t("unnamed"),
-          cols: foreignSize.cols,
-          rows: foreignSize.rows,
-        })
-      : t("foreignSizeGeneric", { cols: foreignSize.cols, rows: foreignSize.rows });
   const commitPaneRename = () => {
     if (!renameCanCommit(rename)) return;
     onRenamePane(paneId, rename.value.trim());
@@ -153,7 +158,7 @@ function PaneLeaf({
   return (
     <section
       aria-label={t("pane", { number: paneId })}
-      className={`terminal-panel${active ? " active-pane" : ""}${focused ? " terminal-focused" : ""}`}
+      className={`terminal-panel${active ? " active-pane" : ""}`}
       {...contextTrigger}
       onPointerDown={(event) => {
         startLongPress(event);
@@ -162,6 +167,7 @@ function PaneLeaf({
       }}
     >
       <div className="tab-bar">
+        <span className="pane-corner" aria-hidden="true">┌</span>
         {rename?.kind === "pane" && rename.id === paneId && (
           <InlineRename
             value={rename.value}
@@ -182,23 +188,65 @@ function PaneLeaf({
             onRename={onRenameSurface}
           />
         ))}
-        <button className="new-tab" aria-label={t("newTab")} onClick={() => onNewTab(paneId)} type="button">+</button>
+        <button className="new-tab" aria-label={t("newTab")} onClick={() => onNewTab(paneId)} type="button"> + </button>
+        <span className="pane-rule" aria-hidden="true" />
+        <span className="pane-corner" aria-hidden="true">┐</span>
       </div>
-      <div className="terminal-stage">
-        {surface !== null && (
-          <div className={`terminal-host${foreignSize === null ? "" : " foreign-sized"}`} ref={terminalRef} />
+      <div className="pane-body">
+        <span className="pane-side" aria-hidden="true" />
+        <div className="pane-content">
+          {surface !== null && client !== null && (client.protocol ?? 0) >= 7 ? (
+            <RenderTerminal
+              client={client}
+              surface={surface}
+              active={active}
+              error={terminalError}
+              onError={reportError}
+            />
+          ) : surface !== null ? (
+            <ByteTerminal
+              client={client}
+              surface={surface}
+              error={terminalError}
+              onError={reportError}
+            />
+          ) : (
+            <div className="terminal-stage">
+              {!tab && <div className="terminal-empty">{t("noSurface")}</div>}
+              {tab?.kind === "browser" && <div className="terminal-empty">{t("browserSurface")}</div>}
+              {terminalError && <div className="terminal-error" role="alert">{terminalError}</div>}
+            </div>
+          )}
+        </div>
+        <span className="pane-side" aria-hidden="true" />
+      </div>
+      <div className="pane-bottom">
+        <span className="pane-corner" aria-hidden="true">└</span>
+        {clientSummary && (
+          <button
+            aria-expanded={clientMenu.open}
+            aria-haspopup="menu"
+            className="pane-clients-trigger"
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              dispatchClientMenu({ type: "open", point: { x: rect.left, y: rect.bottom } });
+              onRefreshClients();
+            }}
+            type="button"
+          >
+            {clientSummary.label}
+          </button>
         )}
-        {foreignSizeHint !== null && <div className="foreign-size-hint">{foreignSizeHint}</div>}
-        {!tab && <div className="terminal-empty">{t("noSurface")}</div>}
-        {tab?.kind === "browser" && <div className="terminal-empty">{t("browserSurface")}</div>}
-        {terminalError && <div className="terminal-error" role="alert">{terminalError}</div>}
+        <span className="pane-rule" />
+        <span className="pane-corner" aria-hidden="true">┘</span>
       </div>
-      <ExtraKeysBar
-        visible={focused && client !== null && surface !== null}
-        onSend={(text) => {
-          if (client !== null && surface !== null) void client.send(surface, { text }).catch(reportError);
-        }}
-      />
+      {clientMenu.open && clientSummary && (
+        <ContextMenu
+          point={clientMenu.point}
+          onClose={() => dispatchClientMenu({ type: "close" })}
+          items={clientItems}
+        />
+      )}
       {menu.open && (
         <ContextMenu
           point={menu.point}
@@ -211,6 +259,7 @@ function PaneLeaf({
               onSelect: () => dispatchRename({ type: "begin", target: { kind: "pane", id: paneId, value: pane?.name || "" } }),
             },
             { label: zoomed ? t("restorePane") : t("zoomPane"), onSelect: () => onZoomPane(paneId) },
+            ...(clientSummary ? [{ label: clientSummary.label, children: clientItems }] : []),
             { label: t("closePane"), danger: true, onSelect: () => onClosePane(paneId) },
           ]}
         />
