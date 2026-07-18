@@ -1218,12 +1218,17 @@ struct CLICodexHookTimeoutRegressionTests {
         let leaderPIDFile = root.appendingPathComponent("legacy-leader.pid", isDirectory: false)
         let descendantPIDFile = root.appendingPathComponent("legacy-descendant.pid", isDirectory: false)
         let codexDone = root.appendingPathComponent("codex-done", isDirectory: false)
+        let socketPath = makeCodexHookSocketPath("legacy")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let sessionID = "12345678-1234-1234-1234-123456789abc"
         let wrapper = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Resources/bin/cmux-codex-wrapper", isDirectory: false)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
             for file in [leaderPIDFile, descendantPIDFile] {
                 if let raw = try? String(contentsOf: file, encoding: .utf8),
                    let pid = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
@@ -1250,13 +1255,13 @@ struct CLICodexHookTimeoutRegressionTests {
         let started = ContinuousClock.now
         let result = runCodexHookProcess(
             executablePath: wrapper.path,
-            arguments: ["resume", "legacy-session"],
+            arguments: ["resume", sessionID],
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
                 "CMUX_CUSTOM_CODEX_PATH": fakeCodex.path,
-                "CMUX_SOCKET_PATH": "/tmp/cmux-wrapper-legacy-missing.sock",
+                "CMUX_SOCKET_PATH": socketPath,
                 "CMUX_SURFACE_ID": "surface-wrapper-legacy",
                 "CMUX_TEST_LEGACY_LEADER": leaderPIDFile.path,
                 "CMUX_TEST_LEGACY_DESCENDANT": descendantPIDFile.path,
