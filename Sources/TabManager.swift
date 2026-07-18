@@ -3750,6 +3750,74 @@ class TabManager: ObservableObject {
         return min(lower, upper)...max(lower, upper)
     }
 
+    /// Commits a gesture-driven drag of a NON-ANCHOR workspace row: the slot
+    /// (`toIndex`) and the group membership (`desiredGroupId`) were both
+    /// resolved live during the drag (position by Y, membership by X at
+    /// boundary slots), so membership is written EXPLICITLY instead of being
+    /// re-inferred from neighbors — the inference cannot express the
+    /// boundary-slot cases ("last slot but outside the group" vs "last slot
+    /// inside" share an array position). Writing membership before the move
+    /// also lets a member leave its group: the member-run clamp consults the
+    /// (already updated) groupId, so a row leaving is unclamped and a row
+    /// joining is clamped into its NEW group's run.
+    @discardableResult
+    func applyGestureDragReorder(
+        tabId: UUID,
+        toIndex targetIndex: Int,
+        desiredGroupId: UUID?
+    ) -> Bool {
+        guard let tab = tabs.first(where: { $0.id == tabId }),
+              !isWorkspaceGroupAnchor(tabId) else { return false }
+        let resolvedGroupId = desiredGroupId.flatMap { gid in
+            workspaceGroups.contains(where: { $0.id == gid }) ? gid : nil
+        }
+        let membershipChanged = tab.groupId != resolvedGroupId
+        if membershipChanged {
+            tab.groupId = resolvedGroupId
+            // A drag that changes membership expresses a spatial intent that
+            // overrides pinning: keeping the pin would let the pinned-tier
+            // clamp teleport the row to the top of the sidebar (or into the
+            // group's pinned sub-tier) far from the slot the preview showed.
+            if tab.isPinned {
+                tab.isPinned = false
+            }
+            // Joining a collapsed group expands it (matching the
+            // addWorkspaceToGroup path) so the dropped row stays visible
+            // instead of vanishing under the closed header.
+            if let resolvedGroupId,
+               let groupIndex = workspaceGroups.firstIndex(where: { $0.id == resolvedGroupId }),
+               workspaceGroups[groupIndex].isCollapsed {
+                workspaceGroups[groupIndex].isCollapsed = false
+            }
+        } else if tab.isPinned {
+            // No membership change, but landing OUTSIDE the pinned tier also
+            // expresses unpin intent — otherwise the commit-side tier clamp
+            // would snap the row back to the top, away from the slot the
+            // preview showed. The tier is counted without the moving row.
+            let tierCountExcludingSelf = tabs.prefix(while: { isGlobalPinnedRow($0) })
+                .filter { $0.id != tabId }
+                .count
+            if targetIndex >= tierCountExcludingSelf + 1 {
+                tab.isPinned = false
+            }
+        }
+        let moved = reorderWorkspace(tabId: tabId, toIndex: targetIndex, isDragOperation: false)
+        if membershipChanged {
+            // The reorder's own normalize is skipped on clamped no-op moves
+            // (early `return true`), and a membership flip at an unchanged
+            // index still needs the group invariants re-established —
+            // otherwise a row that just left its group would sit ungrouped
+            // INSIDE the group's contiguous run. Idempotent when the reorder
+            // already normalized.
+            if !workspaceGroups.isEmpty {
+                syncWorkspaceGroupsOrderToAnchorOrder()
+                normalizeWorkspaceGroupContiguity()
+            }
+            postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
+        }
+        return moved || membershipChanged
+    }
+
     @discardableResult
     func reorderSidebarWorkspace(
         tabId: UUID,
@@ -4175,62 +4243,90 @@ class TabManager: ObservableObject {
         let inferredCwd: String? = anchorWorkingDirectory
             ?? firstChildTab?.currentDirectory
         let originalTabOrder = tabs.map(\.id)
+        // Remember what the user was focused on before grouping. When we don't
+        // explicitly focus the new anchor (interactive ⌘⇧G / context menu pass
+        // selectAnchor: false), keep focus on that workspace instead of jumping
+        // to the freshly-created, empty group-pivot anchor.
+        let previousSelectedId = selectedTabId
 
-        let anchor = addWorkspace(
-            title: resolvedName,
-            workingDirectory: inferredCwd,
-            inheritWorkingDirectory: inferredCwd == nil,
-            select: selectAnchor,
-            placementOverride: .top,
-            autoWelcomeIfNeeded: false,
-            normalizeWorkspaceGroupsAfterInsert: false
-        )
-
-        let group = WorkspaceGroup(
-            id: UUID(),
-            name: resolvedName,
-            isCollapsed: false,
-            isPinned: false,
-            anchorWorkspaceId: anchor.id,
-            customColor: nil,
-            iconSymbol: nil
-        )
-        workspaceGroups.append(group)
-        anchor.groupId = group.id
-        for id in eligibleChildren {
-            assignGroup(workspaceId: id, groupId: group.id)
-        }
-        placeNewWorkspaceGroupAtCreationPosition(
-            groupId: group.id,
-            anchorId: anchor.id,
-            childWorkspaceIds: eligibleChildren,
-            originalTabOrder: originalTabOrder
-        )
-        // Collapse the sidebar multi-selection so a second ⌘⇧G press doesn't
-        // immediately reuse the same child ids and create a duplicate group
-        // around them. The new anchor is the only sensible "current"
-        // selection at this point. Posts the hide notification so the
-        // SwiftUI sidebar binding follows.
-        //
-        // Skipped for the non-focus socket/CLI path (caller passes
-        // collapseSidebarSelection: false): per the socket focus policy in
-        // CLAUDE.md, those entrypoints must not mutate the user's active
-        // sidebar selection.
-        if collapseSidebarSelection,
-           !sidebarSelectedWorkspaceIds.isDisjoint(with: Set(eligibleChildren)) || sidebarSelectedWorkspaceIds.count > 1 {
-            let hiddenIds = sidebarSelectedWorkspaceIds
-            sidebarSelectedWorkspaceIds = [anchor.id]
-            NotificationCenter.default.post(
-                name: .sidebarMultiSelectionDidHide,
-                object: self,
-                userInfo: [
-                    SidebarMultiSelectionHideKey.hiddenWorkspaceIds: hiddenIds,
-                    SidebarMultiSelectionHideKey.focusedWorkspaceId: anchor.id,
-                ]
+        // Animate the fresh-anchor grouping (multi-select "New Group from
+        // Selection" / 2+ ⌘⇧G): the new header row fades in at the top and the
+        // selected workspaces indent in under it. Same animation as the
+        // single-workspace promote so both grouping paths feel identical.
+        return withAnimation(SidebarGroupAnimation.structure) {
+            let anchor = addWorkspace(
+                title: resolvedName,
+                workingDirectory: inferredCwd,
+                inheritWorkingDirectory: inferredCwd == nil,
+                select: selectAnchor,
+                placementOverride: .top,
+                autoWelcomeIfNeeded: false,
+                normalizeWorkspaceGroupsAfterInsert: false
             )
+
+            let group = WorkspaceGroup(
+                id: UUID(),
+                name: resolvedName,
+                isCollapsed: false,
+                isPinned: false,
+                anchorWorkspaceId: anchor.id,
+                customColor: nil,
+                iconSymbol: nil
+            )
+            workspaceGroups.append(group)
+            anchor.groupId = group.id
+            for id in eligibleChildren {
+                assignGroup(workspaceId: id, groupId: group.id)
+            }
+            placeNewWorkspaceGroupAtCreationPosition(
+                groupId: group.id,
+                anchorId: anchor.id,
+                childWorkspaceIds: eligibleChildren,
+                originalTabOrder: originalTabOrder
+            )
+            // Collapse the sidebar multi-selection so a second ⌘⇧G press doesn't
+            // immediately reuse the same child ids and create a duplicate group
+            // around them. The new anchor is the only sensible "current"
+            // selection at this point. Posts the hide notification so the
+            // SwiftUI sidebar binding follows.
+            //
+            // Skipped for the non-focus socket/CLI path (caller passes
+            // collapseSidebarSelection: false): per the socket focus policy in
+            // CLAUDE.md, those entrypoints must not mutate the user's active
+            // sidebar selection.
+            if collapseSidebarSelection,
+               !sidebarSelectedWorkspaceIds.isDisjoint(with: Set(eligibleChildren)) || sidebarSelectedWorkspaceIds.count > 1 {
+                let hiddenIds = sidebarSelectedWorkspaceIds
+                // Collapse the multi-selection to a single row. Prefer the
+                // workspace the user was already focused on over the new empty
+                // anchor, so grouping doesn't yank them into the group-pivot
+                // workspace — whether or not that workspace became a member,
+                // since the active tab doesn't change when selectAnchor is
+                // false and the sidebar highlight should keep tracking it.
+                // Falls back to the anchor when the caller did want the anchor
+                // focused (selectAnchor: true) or the previously focused
+                // workspace is gone.
+                let focusId: UUID = {
+                    if !selectAnchor,
+                       let previousSelectedId,
+                       tabs.contains(where: { $0.id == previousSelectedId }) {
+                        return previousSelectedId
+                    }
+                    return anchor.id
+                }()
+                sidebarSelectedWorkspaceIds = [focusId]
+                NotificationCenter.default.post(
+                    name: .sidebarMultiSelectionDidHide,
+                    object: self,
+                    userInfo: [
+                        SidebarMultiSelectionHideKey.hiddenWorkspaceIds: hiddenIds,
+                        SidebarMultiSelectionHideKey.focusedWorkspaceId: focusId,
+                    ]
+                )
+            }
+            postWorkspaceOrderDidChange(movedWorkspaceIds: [anchor.id] + eligibleChildren)
+            return group.id
         }
-        postWorkspaceOrderDidChange(movedWorkspaceIds: [anchor.id] + eligibleChildren)
-        return group.id
     }
 
     /// Turn an existing workspace into a group by promoting it to be the
@@ -4285,14 +4381,21 @@ class TabManager: ObservableObject {
             customColor: nil,
             iconSymbol: nil
         )
-        workspaceGroups.append(group)
-        assignGroup(workspaceId: anchorWorkspaceId, groupId: group.id)
-        // The anchor is already at its sidebar position; normalize keeps it
-        // there (`sidebarTopLevelWorkspaceIds` maps the now-grouped workspace
-        // back to its anchor's slot) while syncing the workspaceGroups order
-        // to the tabs order.
-        normalizeWorkspaceGroupContiguity()
-        postWorkspaceOrderDidChange(movedWorkspaceIds: [anchorWorkspaceId])
+        // Animate the workspace row morphing into its group header in place.
+        // The anchor keeps its ForEach identity (see
+        // `SidebarWorkspaceRenderItem.id`), so this crossfades rather than
+        // teleports. Shared path: every entrypoint (⌘⇧G, context menu, socket)
+        // routes here, so they all animate identically.
+        withAnimation(SidebarGroupAnimation.structure) {
+            workspaceGroups.append(group)
+            assignGroup(workspaceId: anchorWorkspaceId, groupId: group.id)
+            // The anchor is already at its sidebar position; normalize keeps it
+            // there (`sidebarTopLevelWorkspaceIds` maps the now-grouped
+            // workspace back to its anchor's slot) while syncing the
+            // workspaceGroups order to the tabs order.
+            normalizeWorkspaceGroupContiguity()
+            postWorkspaceOrderDidChange(movedWorkspaceIds: [anchorWorkspaceId])
+        }
         return group.id
     }
 
@@ -4418,28 +4521,32 @@ class TabManager: ObservableObject {
         }
         if isAnchorOfOtherGroup { return }
         let originalTopLevelIds = sidebarTopLevelWorkspaceIds()
-        assignGroup(workspaceId: workspaceId, groupId: groupId)
-        // selectedTabId may not change here (the workspace was already
-        // selected), so the existing didSet hook won't fire. Expand manually
-        // when the added workspace is the focused one so it doesn't end up
-        // hidden inside a collapsed section.
-        if selectedTabId == workspaceId,
-           let groupIndex = workspaceGroups.firstIndex(where: { $0.id == groupId }),
-           workspaceGroups[groupIndex].isCollapsed {
-            workspaceGroups[groupIndex].isCollapsed = false
-        }
-        normalizeWorkspaceGroupContiguity(
-            preservingTopLevelIds: originalTopLevelIds.filter { $0 != workspaceId }
-        )
-        if let placement {
-            placeWithinGroup(
-                workspaceId: workspaceId,
-                groupId: groupId,
-                placement: placement,
-                referenceWorkspaceId: referenceWorkspaceId
+        // Animate the workspace sliding under the header and indenting as a
+        // member. Covers the drag-into-group drop and the socket/CLI add path.
+        withAnimation(SidebarGroupAnimation.structure) {
+            assignGroup(workspaceId: workspaceId, groupId: groupId)
+            // selectedTabId may not change here (the workspace was already
+            // selected), so the existing didSet hook won't fire. Expand
+            // manually when the added workspace is the focused one so it
+            // doesn't end up hidden inside a collapsed section.
+            if selectedTabId == workspaceId,
+               let groupIndex = workspaceGroups.firstIndex(where: { $0.id == groupId }),
+               workspaceGroups[groupIndex].isCollapsed {
+                workspaceGroups[groupIndex].isCollapsed = false
+            }
+            normalizeWorkspaceGroupContiguity(
+                preservingTopLevelIds: originalTopLevelIds.filter { $0 != workspaceId }
             )
+            if let placement {
+                placeWithinGroup(
+                    workspaceId: workspaceId,
+                    groupId: groupId,
+                    placement: placement,
+                    referenceWorkspaceId: referenceWorkspaceId
+                )
+            }
+            postWorkspaceOrderDidChange(movedWorkspaceIds: [workspaceId])
         }
-        postWorkspaceOrderDidChange(movedWorkspaceIds: [workspaceId])
     }
 
     /// Remove a non-anchor workspace from its group. If the workspace is its
@@ -4453,9 +4560,11 @@ class TabManager: ObservableObject {
             ungroupWorkspaceGroup(groupId: groupId)
             return
         }
-        assignGroup(workspaceId: workspaceId, groupId: nil)
-        normalizeWorkspaceGroupContiguity()
-        postWorkspaceOrderDidChange(movedWorkspaceIds: [workspaceId])
+        withAnimation(SidebarGroupAnimation.structure) {
+            assignGroup(workspaceId: workspaceId, groupId: nil)
+            normalizeWorkspaceGroupContiguity()
+            postWorkspaceOrderDidChange(movedWorkspaceIds: [workspaceId])
+        }
     }
 
     /// Dissolve a group while preserving every member workspace (including its
@@ -4471,11 +4580,16 @@ class TabManager: ObservableObject {
     func ungroupWorkspaceGroup(groupId: UUID) {
         let memberIds = tabs.filter { $0.groupId == groupId }.map(\.id)
         guard !memberIds.isEmpty || workspaceGroups.contains(where: { $0.id == groupId }) else { return }
-        for id in memberIds {
-            assignGroup(workspaceId: id, groupId: nil)
+        // Reverse of promote-in-place: the header morphs back into the anchor's
+        // workspace row at the same slot, and any members un-indent. Animated
+        // for the round-trip to read cleanly.
+        withAnimation(SidebarGroupAnimation.structure) {
+            for id in memberIds {
+                assignGroup(workspaceId: id, groupId: nil)
+            }
+            workspaceGroups.removeAll { $0.id == groupId }
+            postWorkspaceOrderDidChange(movedWorkspaceIds: memberIds)
         }
-        workspaceGroups.removeAll { $0.id == groupId }
-        postWorkspaceOrderDidChange(movedWorkspaceIds: memberIds)
     }
 
     /// Delete a group and close every workspace inside it (anchor + all
@@ -4574,7 +4688,12 @@ class TabManager: ObservableObject {
                 )
             }
         }
-        setWorkspaceGroupCollapsed(groupId: groupId, isCollapsed: nextCollapsed)
+        // Animate the disclosure: member rows slide+fade and the chevron spins.
+        // Only the UI toggle animates; the pure-data `setWorkspaceGroupCollapsed`
+        // socket/CLI path stays instant (no view transaction).
+        withAnimation(SidebarGroupAnimation.collapse) {
+            setWorkspaceGroupCollapsed(groupId: groupId, isCollapsed: nextCollapsed)
+        }
     }
 
     /// Pure data mutation — flips the collapse flag without touching
@@ -5088,7 +5207,14 @@ class TabManager: ObservableObject {
               workspace.id != group.anchorWorkspaceId else {
             return nil
         }
-        let memberIndices = tabs.indices.filter { tabs[$0].groupId == groupId }
+        // Exclude the moving row itself from the run bounds: a gesture join
+        // writes the NEW groupId before the move, so the row still sits at
+        // its OLD index — including it would stretch the run toward wherever
+        // the row happened to be and corrupt the clamp for cross-position
+        // joins. The anchor and the OTHER members define the run.
+        let memberIndices = tabs.indices.filter {
+            tabs[$0].groupId == groupId && tabs[$0].id != workspace.id
+        }
         guard let firstIndex = memberIndices.first,
               let lastIndex = memberIndices.last else {
             return nil
@@ -5099,12 +5225,15 @@ class TabManager: ObservableObject {
                 count += 1
             }
         }
+        // Bounds are insertion-style around the remaining run: a row moving
+        // up from below the run targets indices relative to the array WITH
+        // itself removed first, which `workspaceReorderPlan` accounts for.
         let lowerBound = workspace.isPinned
-            ? min(firstIndex + 1, lastIndex)
-            : min(firstIndex + 1 + pinnedMemberCount, lastIndex)
+            ? min(firstIndex + 1, lastIndex + 1)
+            : min(firstIndex + 1 + pinnedMemberCount, lastIndex + 1)
         let upperBound = workspace.isPinned
             ? max(firstIndex + pinnedMemberCount, lowerBound)
-            : lastIndex
+            : lastIndex + 1
         return min(max(clampedTargetIndex, lowerBound), upperBound)
     }
 

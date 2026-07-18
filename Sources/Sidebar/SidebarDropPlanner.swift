@@ -54,6 +54,53 @@ enum SidebarDropPlanner {
         return indicatorForInsertionPosition(legalInsertionPosition, tabIds: tabIds)
     }
 
+    /// Continuous-control entry for the gesture reorder. Takes a NEIGHBOR-space
+    /// insertion slot `s` (0...neighborCount, "above neighbor s", s == count is
+    /// the end sentinel) already chosen by the stable staircase, and returns
+    /// the legalized drop indicator (nil for a no-op at the dragged row's own
+    /// slot) plus the legalized neighbor-space slot `p` the membership rule
+    /// derives its neighbors from. Reuses the SAME legalization +
+    /// canonicalization chain as ``indicator(...)`` so pinned-tier rules hold;
+    /// it just skips the pointer/edge derivation, which is what the staircase
+    /// has already replaced upstream.
+    ///
+    /// Neighbor space ↔ tabIds: with the dragged row at `fromIndex`, neighbor
+    /// `i` is `tabIds[i]` for `i < fromIndex` and `tabIds[i + 1]` after, so a
+    /// neighbor slot `s` maps to the full-list insertion position `s` (when
+    /// `s <= fromIndex`) or `s + 1` (after), and the legalized target index
+    /// equals the legalized neighbor slot.
+    static func plan(
+        draggedTabId: UUID,
+        neighborSlot s: Int,
+        tabIds: [UUID],
+        pinnedTabIds: Set<UUID>,
+        legalInsertionRange: ClosedRange<Int>? = nil
+    ) -> (indicator: SidebarDropIndicator?, legalNeighborSlot: Int) {
+        guard tabIds.count > 1, let fromIndex = tabIds.firstIndex(of: draggedTabId) else {
+            return (nil, max(0, min(s, max(0, tabIds.count - 1))))
+        }
+        let proposed = (s <= fromIndex) ? s : s + 1
+        let legalInsertion = legalInsertionPosition(
+            draggedTabId: draggedTabId,
+            proposedInsertionPosition: proposed,
+            tabIds: tabIds,
+            pinnedTabIds: pinnedTabIds,
+            legalInsertionRange: legalInsertionRange
+        )
+        let target = resolvedTargetIndex(
+            from: fromIndex,
+            insertionPosition: legalInsertion,
+            totalCount: tabIds.count
+        )
+        // target == fromIndex means the dragged row stays put (no-op): nil
+        // indicator, but `p` still names the own slot so membership keeps a
+        // valid neighbor pair.
+        let indicator: SidebarDropIndicator? = (target == fromIndex)
+            ? nil
+            : indicatorForInsertionPosition(legalInsertion, tabIds: tabIds)
+        return (indicator, target)
+    }
+
     static func targetIndex(
         draggedTabId: UUID,
         targetTabId: UUID?,

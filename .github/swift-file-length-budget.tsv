@@ -3,13 +3,13 @@
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 32576	CLI/cmux.swift
 22034	Sources/TerminalController.swift
+19888	Sources/ContentView.swift
 19875	Sources/Workspace.swift
-19072	Sources/ContentView.swift
-17919	Sources/AppDelegate.swift
+17920	Sources/AppDelegate.swift
 16503	Sources/GhosttyTerminalView.swift
 13589	Sources/Panels/BrowserPanel.swift
 11756	cmuxTests/AppDelegateShortcutRoutingTests.swift
-9995	Sources/TabManager.swift
+10124	Sources/TabManager.swift
 8494	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7737	Sources/Panels/BrowserPanelView.swift
 7214	cmuxTests/WorkspaceUnitTests.swift
@@ -63,6 +63,7 @@
 1496	cmuxUITests/MultiWindowNotificationsUITests.swift
 1450	Sources/FileExplorerStore.swift
 1410	Sources/CommandPalette/CommandPaletteSearch.swift
+1405	cmuxTests/WorkspaceGroupTests.swift
 1380	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift
 1376	cmuxTests/KeyboardShortcutSettingsFileStoreStartupTests.swift
 1372	cmuxTests/AppDelegateIssue2907RoutingTests.swift
@@ -82,7 +83,6 @@
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 1000	cmuxTests/CmuxTopSnapshotScopeTests.swift
 969	cmuxUITests/TerminalCmdClickUITests.swift
-959	cmuxTests/WorkspaceGroupTests.swift
 949	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 947	Sources/TerminalNotificationPolicy.swift
 945	Sources/SessionIndexRegisteredAgents.swift
@@ -176,6 +176,7 @@
 516	Sources/CmuxConfigExecutor.swift
 514	cmuxUITests/UpdatePillUITests.swift
 509	Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerAdditionalPolicies.swift
+507	Sources/SidebarWorkspaceGroupHeaderView.swift
 507	Sources/TerminalControllerTopSupport.swift
 506	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
 506	Sources/App/MainWindowVisibilityController.swift

@@ -15,8 +15,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.isCollapsed == rhs.isCollapsed &&
             lhs.isPinned == rhs.isPinned &&
             lhs.isAnchorActive == rhs.isAnchorActive &&
+            lhs.isGroupHighlighted == rhs.isGroupHighlighted &&
             lhs.memberCount == rhs.memberCount &&
-            lhs.anchorUnreadCount == rhs.anchorUnreadCount &&
+            lhs.groupUnreadCount == rhs.groupUnreadCount &&
             lhs.shortcutDigit == rhs.shortcutDigit &&
             lhs.shortcutModifierSymbol == rhs.shortcutModifierSymbol &&
             lhs.showsShortcutHint == rhs.showsShortcutHint &&
@@ -27,8 +28,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.newWorkspacePlacement == rhs.newWorkspacePlacement &&
             lhs.rowSpacing == rhs.rowSpacing &&
             lhs.isFirstRow == rhs.isFirstRow &&
-            lhs.isBeingDragged == rhs.isBeingDragged &&
-            lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible
+            lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
+            lhs.isReorderEnabled == rhs.isReorderEnabled
     }
 
     let groupId: UUID
@@ -39,8 +40,17 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isCollapsed: Bool
     let isPinned: Bool
     let isAnchorActive: Bool
+    /// True while the WHOLE group region (this header plus its member rows)
+    /// should read as highlighted: either a gesture drag's resolved landing
+    /// membership is THIS group (drop-into target), or the cursor is hovering
+    /// the group. The member rows draw the matching tint themselves so the
+    /// area reads as one block.
+    let isGroupHighlighted: Bool
+    /// Reports header hover up to the parent so it can highlight the whole
+    /// group region (header + members), not just this row.
+    let onHoverChanged: (Bool) -> Void
     let memberCount: Int
-    let anchorUnreadCount: Int
+    let groupUnreadCount: Int
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool
@@ -51,10 +61,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let newWorkspacePlacement: WorkspaceGroupNewPlacement?
     let rowSpacing: CGFloat
     let isFirstRow: Bool
-    let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
-    let onDragStart: () -> NSItemProvider
-    let tabDropDelegateFactory: (CGFloat) -> SidebarWorkspaceGroupHeaderDropDelegate
+    /// Reorder gesture callbacks dispatched into the shared reorder helpers.
+    let onReorderChanged: (CGPoint, CGSize) -> Void
+    let onReorderEnded: (CGPoint, CGSize) -> Void
+    /// False for the floating follower copy.
+    let isReorderEnabled: Bool
     let onToggleCollapsed: () -> Void
     let onFocusAnchor: () -> Void
     let onTapPlus: () -> Void
@@ -105,9 +117,16 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+            // One chevron rotated rather than two swapped glyphs, so the
+            // disclosure twist animates. Rotation is keyed locally to
+            // `isCollapsed` so it spins even on entrypoints that don't wrap the
+            // toggle in `withAnimation` (e.g. socket/CLI); `chevron.right` at
+            // 0° points right (collapsed) and at 90° points down (expanded).
+            Image(systemName: "chevron.right")
                 .font(.system(size: metrics.chevronFontSize, weight: .semibold))
                 .foregroundStyle(.secondary)
+                .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                .animation(SidebarGroupAnimation.collapse, value: isCollapsed)
                 .frame(width: metrics.chevronFrame, height: metrics.chevronFrame)
                 .contentShape(Rectangle())
                 .onTapGesture { onToggleCollapsed() }
@@ -131,16 +150,18 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                if anchorUnreadCount > 0 {
-                    Text("\(anchorUnreadCount)")
+                if groupUnreadCount > 0 {
+                    Text("\(groupUnreadCount)")
                         .font(.system(size: metrics.unreadFontSize, weight: .semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, metrics.unreadHorizontalPadding)
                         .padding(.vertical, metrics.unreadVerticalPadding)
                         .background(Capsule().fill(Color.accentColor))
+                        .contentTransition(.numericText(value: Double(groupUnreadCount)))
+                        .animation(SidebarGroupAnimation.collapse, value: groupUnreadCount)
                         .accessibilityLabel(Text(String.localizedStringWithFormat(
                             String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),
-                            anchorUnreadCount
+                            groupUnreadCount
                         )))
                 }
             }
@@ -211,6 +232,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         }
         .padding(.vertical, 5)
         .contentShape(Rectangle())
+        // No separate hover tint on the header: hovering anywhere in the group
+        // (header or a member) draws the single whole-group backdrop behind the
+        // rows. Only the active-anchor indicator remains here.
         .background(
             isAnchorActive
                 ? Color.primary.opacity(0.08)
@@ -226,19 +250,18 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .padding(.horizontal, 6)
         .background { rowHeightProbe }
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
-        .opacity(isBeingDragged ? 0.6 : 1)
-        .overlay(alignment: .top) {
-            SidebarWorkspaceTopDropIndicator(
-                isVisible: topDropIndicatorVisible,
-                isFirstRow: isFirstRow,
-                rowSpacing: rowSpacing
-            )
-        }
-        .onDrag(onDragStart)
-        .internalOnlyTabDrag()
-        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
+        // Emit the header bounds for the whole-group backdrop (drawn behind the
+        // rows by the sidebar), instead of tinting the header itself.
+        .sidebarGroupHighlightBounds(groupId: groupId, isHighlighted: isGroupHighlighted)
+        .modifier(SidebarReorderRowModifier(
+            enabled: isReorderEnabled,
+            workspaceId: anchorWorkspaceId,
+            onChanged: onReorderChanged,
+            onEnded: onReorderEnded
+        ))
         .onHover { hovering in
             isHovered = hovering
+            onHoverChanged(hovering)
         }
         .contextMenu {
             Button(
