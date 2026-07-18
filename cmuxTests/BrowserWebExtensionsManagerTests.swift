@@ -1388,6 +1388,86 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func userPopupActionPresentsWithoutWaitingForWebKitDelegate() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var manifest = Self.minimalManifest
+        manifest["action"] = ["default_popup": "popup.html"]
+        let directory = try Self.writeExtension(
+            named: "direct-popup-probe",
+            in: root,
+            manifest: manifest
+        )
+        try "// no-op".write(
+            to: directory.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "<main>Popup ready</main>".write(
+            to: directory.appendingPathComponent("popup.html"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+        try await manager.approveInstalledCandidate(directory)
+        await manager.loadExtensions()
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        manager.register(
+            panel: panel,
+            ownerID: UUID(),
+            activePanelID: { panel.id },
+            focusPanel: { _ in }
+        )
+        defer { manager.unregister(panelID: panel.id) }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let anchor = NSButton(frame: NSRect(x: 20, y: 20, width: 40, height: 24))
+        window.contentView?.addSubview(anchor)
+        window.orderFront(nil)
+        defer { window.close() }
+
+        let actionSelector = NSSelectorFromString("performActionForTab:")
+        let actionMethod = try #require(class_getInstanceMethod(
+            WKWebExtensionContext.self,
+            actionSelector
+        ))
+        let originalActionImplementation = method_getImplementation(actionMethod)
+        let actionReplacement: @convention(block) (WKWebExtensionContext, AnyObject?) -> Void = { _, _ in }
+        let actionReplacementImplementation = imp_implementationWithBlock(actionReplacement)
+        method_setImplementation(actionMethod, actionReplacementImplementation)
+        defer {
+            method_setImplementation(actionMethod, originalActionImplementation)
+            imp_removeBlock(actionReplacementImplementation)
+        }
+
+        let context = try #require(manager.loadedContexts.first)
+        let tab = try #require(manager
+            .webExtensionController(manager.controller, openWindowsFor: context)
+            .flatMap { $0.tabs?(for: context) ?? [] }
+            .first)
+        let action = try #require(context.action(for: tab))
+        let popover = try #require(action.popupPopover)
+
+        #expect(!popover.isShown)
+        #expect(manager.performAction(
+            uniqueIdentifier: context.uniqueIdentifier,
+            in: panel,
+            anchorView: anchor
+        ))
+        #expect(popover.isShown)
+    }
+
+    @available(macOS 15.4, *)
     @Test func nativeInstallTargetsRequestedProfileDirectory() async throws {
         let managedRoot = try Self.makeExtensionsRoot()
         let sourceRoot = try Self.makeExtensionsRoot()
