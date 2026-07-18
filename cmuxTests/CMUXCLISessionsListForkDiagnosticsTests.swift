@@ -305,6 +305,98 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["fork_unavailable_reason"] as? String == "record_marked_non_restorable")
     }
 
+    @Test func testSessionsListForkDiagnosticsFollowCanonicalRunAuthority() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sessions-list-run-authority-\(UUID().uuidString)", isDirectory: true)
+        let stateDir = root.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let workspaceID = "33B0D372-292E-42BF-97B6-E37CCA79AB84"
+        let sessionIDs = [
+            "019ef275-74e3-7777-9773-9dcb118ed5a1",
+            "019ef275-74e3-7777-9773-9dcb118ed5a2",
+            "019ef275-74e3-7777-9773-9dcb118ed5a3",
+        ]
+        let activeRunIDs: [Any] = ["child-run-1", "missing-run", NSNull()]
+        var sessions: [String: Any] = [:]
+        for (index, sessionID) in sessionIDs.enumerated() {
+            let childRunID = "child-run-\(index + 1)"
+            var record: [String: Any] = [
+                "sessionId": sessionID,
+                "workspaceId": workspaceID,
+                "surfaceId": "A2AECAA9-EE1C-4999-B7A9-EE4BB4CDA5D\(index + 1)",
+                "cwd": "/tmp/cmux/debug",
+                "startedAt": 1_781_996_800.0,
+                "updatedAt": 1_781_996_900.0 + Double(index),
+                // Simulate a stale compatibility field that still describes the
+                // previous root while run history says the projected run is a child.
+                "restoreAuthority": true,
+                "launchCommand": [
+                    "launcher": "codex",
+                    "executablePath": "/usr/local/bin/codex",
+                    "arguments": ["/usr/local/bin/codex"],
+                    "workingDirectory": "/tmp/cmux/debug",
+                    "environment": [:],
+                    "source": "environment",
+                ],
+                "runs": [
+                    [
+                        "runId": "root-run-\(index + 1)",
+                        "restoreAuthority": true,
+                        "startedAt": 1_781_996_800.0,
+                        "updatedAt": 1_781_996_850.0,
+                        "endedAt": 1_781_996_850.0,
+                    ],
+                    [
+                        "runId": childRunID,
+                        "parentRunId": "root-run-\(index + 1)",
+                        "relationship": "spawned",
+                        "restoreAuthority": false,
+                        "startedAt": 1_781_996_900.0 + Double(index),
+                        "updatedAt": 1_781_996_900.0 + Double(index),
+                    ],
+                ],
+            ]
+            if let activeRunID = activeRunIDs[index] as? String {
+                record["activeRunId"] = activeRunID
+            }
+            sessions[sessionID] = record
+        }
+        let store: [String: Any] = ["version": 1, "sessions": sessions]
+        let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["sessions", "list", "--agent", "codex", "--workspace", workspaceID, "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let outputData = try #require(result.stdout.data(using: .utf8))
+        let object = try #require(JSONSerialization.jsonObject(with: outputData) as? [String: Any])
+        let outputSessions = try #require(object["sessions"] as? [[String: Any]])
+        #expect(Set(outputSessions.compactMap { $0["session_id"] as? String }) == Set(sessionIDs))
+        for session in outputSessions {
+            #expect(session["restore_authority"] as? Bool == false)
+            #expect(session["hook_record_restorable"] as? Bool == false)
+            #expect(session["fork_command_available"] as? Bool == false)
+            #expect(session["fork_supported"] as? Bool == false)
+            #expect(session["fork_unavailable_reason"] as? String == "run_marked_non_restorable")
+        }
+    }
+
     @Test func testSessionsListFailsClosedForUnverifiedPiVersion() throws {
         let session = try sessionsListDiagnosticSession(
             agent: "pi",
