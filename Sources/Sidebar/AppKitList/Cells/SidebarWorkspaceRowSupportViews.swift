@@ -323,18 +323,25 @@ final class SidebarRowPullRequestLine: NSView {
             x: 0, y: (bounds.height - iconSize.height) / 2,
             width: iconSize.width, height: iconSize.height
         )
-        let statusSize = statusLabel.intrinsicContentSize
+        // sidebarNaturalCellSize, never intrinsicContentSize: see the
+        // extension note — a pooled truncating label laid out narrow once
+        // reports the truncated width forever ("PR #4  o…").
+        let statusSize = statusLabel.sidebarNaturalCellSize
         let titleX = iconSize.width + 4
-        let titleWidth = max(10, bounds.width - titleX - statusSize.width - 8)
+        // The short status word keeps its natural width; the title absorbs
+        // any shortfall (it is the long, truncatable part).
+        let titleWidth = max(10, bounds.width - titleX - ceil(statusSize.width) - 8)
         let title: NSView = titleButton.isHidden ? titleLabel : titleButton
-        let titleSize = titleButton.isHidden ? titleLabel.intrinsicContentSize : titleButton.intrinsicContentSize
+        let titleSize = titleButton.isHidden
+            ? titleLabel.sidebarNaturalCellSize
+            : titleButton.intrinsicContentSize
         title.frame = NSRect(
             x: titleX, y: (bounds.height - titleSize.height) / 2,
             width: min(ceil(titleSize.width), titleWidth), height: titleSize.height
         )
         statusLabel.frame = NSRect(
             x: title.frame.maxX + 4, y: (bounds.height - statusSize.height) / 2,
-            width: statusSize.width, height: statusSize.height
+            width: ceil(statusSize.width), height: statusSize.height
         )
     }
 }

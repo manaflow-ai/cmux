@@ -162,6 +162,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             // live) and re-measure once the width settles.
             scheduleWidthRemeasure()
         }
+        // Releasing a pump override changes what heightOfRow answers, so the
+        // released rows must be re-noted like any other height change.
+        // Clearing silently left the table on the override height while the
+        // cache served the measured one — the row clipping/overlap reports
+        // (probe: served=48 actual=50 on every streaming row).
+        if !pumpHeightOverrides.isEmpty {
+            for (index, row) in nextRows.enumerated() where pumpHeightOverrides[row.id] != nil {
+                heightChanges.insert(index)
+            }
+        }
         pumpHeightOverrides.removeAll(keepingCapacity: true)
         rows = nextRows
 
@@ -174,13 +184,69 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
 #endif
         if hasStructuralChanges {
-            containerView.tableView.reloadData()
+            let previousIds = previousRows.map(\.id)
+            let nextIds = nextRows.map(\.id)
+            if previousIds.count == nextIds.count, Set(previousIds) == Set(nextIds) {
+                // Pure reorder (drag-drop): move rows in place. reloadData
+                // tears down every visible cell and snaps the scroll
+                // position — the "click to reorder is jank" report — while
+                // moves keep cells alive and settle smoothly.
+                let table = containerView.tableView
+                table.beginUpdates()
+                var current = previousIds
+                for targetIndex in nextIds.indices where current[targetIndex] != nextIds[targetIndex] {
+                    guard let fromIndex = current.firstIndex(of: nextIds[targetIndex]) else { continue }
+                    table.moveRow(at: fromIndex, to: targetIndex)
+                    current.remove(at: fromIndex)
+                    current.insert(nextIds[targetIndex], at: targetIndex)
+                }
+                table.endUpdates()
+                // Per-index state (first-row flag, drop-indicator geometry)
+                // shifts with the order even when per-id content didn't.
+                let visible = table.rows(in: table.visibleRect)
+                if visible.length > 0 {
+                    reconfigureVisibleRows(
+                        IndexSet(integersIn: visible.lowerBound..<(visible.lowerBound + visible.length))
+                    )
+                }
+                if !heightChanges.isEmpty {
+                    noteHeightOfRowsWithoutAnimation(table, heightChanges)
+                }
+            } else {
+                containerView.tableView.reloadData()
+            }
         } else {
             reconfigureVisibleRows(contentChanges)
             if !heightChanges.isEmpty {
                 noteHeightOfRowsWithoutAnimation(containerView.tableView, heightChanges)
             }
         }
+
+#if DEBUG
+        // Height-drift probe (row clipping reports): the height the cache
+        // would serve vs the height the table is actually using. Any drift
+        // means a noteHeightOfRows was missed for that row. rect(ofRow:)
+        // includes intercellSpacing — subtract it or every row reports a
+        // phantom constant drift.
+        do {
+            let table = containerView.tableView
+            let spacing = table.intercellSpacing.height
+            let probeWidth = lastMeasuredWidth > 0 ? lastMeasuredWidth : currentColumnWidth()
+            let visible = table.rows(in: table.visibleRect)
+            for row in visible.lowerBound..<(visible.lowerBound + visible.length)
+            where rows.indices.contains(row) {
+                let served = pumpHeightOverrides[rows[row].id]
+                    ?? rowHeightCache.height(for: rows[row], columnWidth: probeWidth)
+                    ?? rows[row].estimatedHeight
+                let actual = table.rect(ofRow: row).height - spacing
+                if abs(served - actual) > 0.5 {
+                    cmuxDebugLog(
+                        "sidebar.heightDrift row=\(row) served=\(served) actual=\(actual) width=\(probeWidth)"
+                    )
+                }
+            }
+        }
+#endif
 
         let shouldScrollAfterWorkspaceChange = SidebarSelectedWorkspaceScrollPolicy
             .shouldScrollSelectedWorkspace(
@@ -214,9 +280,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             // must not re-read the keyboard ~100ms later.
             let modifiers = NSEvent.modifierFlags
             if modifiers.contains(.command) || modifiers.contains(.shift) {
-                // Multi-select mutations are order-dependent; apply in order,
-                // never dropping intermediates.
-                selectionCoalescer.cancel()
+                // Multi-select mutations are order-dependent and extend the
+                // selection the user currently sees: flush (not drop) a
+                // plain click still in the coalescing window first.
+                selectionCoalescer.flushNow()
                 actions.commands.updateSelection(modifiers: modifiers)
             } else {
                 selectionCoalescer.request {
@@ -229,7 +296,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             // optimistic anchor-active treatment).
             let modifiers = NSEvent.modifierFlags
             if modifiers.contains(.command) || modifiers.contains(.shift) {
-                selectionCoalescer.cancel()
+                selectionCoalescer.flushNow()
                 headerActions.onFocusAnchor()
             } else {
                 selectionCoalescer.request {
@@ -531,10 +598,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // it forces a full settle even when the drag ends back at the width
         // it started from.
         guard width != lastMeasuredWidth || hasLiveMeasuredRows else { return }
-        let changed = rowHeightCache.prepareHostedRows(rows, columnWidth: width)
+        var changed = rowHeightCache.prepareHostedRows(rows, columnWidth: width)
         lastMeasuredWidth = width
         hasLiveMeasuredRows = false
         lastLiveMeasuredWidth = 0
+        // Same rule as apply(): released pump overrides change what
+        // heightOfRow answers, so those rows re-note even when the cache
+        // entry itself didn't move.
+        if !pumpHeightOverrides.isEmpty {
+            for (index, row) in rows.enumerated() where pumpHeightOverrides[row.id] != nil {
+                changed.insert(index)
+            }
+        }
         pumpHeightOverrides.removeAll(keepingCapacity: true)
         if !changed.isEmpty {
             if let table = containerView?.tableView { noteHeightOfRowsWithoutAnimation(table, changed) }
