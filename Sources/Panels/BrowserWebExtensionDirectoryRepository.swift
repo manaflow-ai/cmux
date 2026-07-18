@@ -9,12 +9,19 @@ struct BrowserWebExtensionApprovalDiscoveryResult: Sendable {
     }
 
     let candidates: [URL]
+    let appExtensionReferences: [BrowserWebExtensionAppExtensionReference]
     let failures: [Failure]
 }
 
-struct BrowserWebExtensionInstallSource: Sendable {
-    let packageURL: URL
+struct BrowserWebExtensionAppExtensionReference: Codable, Equatable, Sendable {
+    let bundleURL: URL
+    let bundleIdentifier: String
     let installationName: String
+}
+
+enum BrowserWebExtensionInstallSource: Sendable {
+    case managedPackage(packageURL: URL, installationName: String)
+    case appExtensionBundle(BrowserWebExtensionAppExtensionReference)
 }
 
 /// Moves extension-directory enumeration and metadata reads off the main actor.
@@ -52,6 +59,7 @@ actor BrowserWebExtensionDirectoryRepository {
     }
 
     private static let approvalFileName = ".cmux-approved-extensions.json"
+    private static let appExtensionReferencesFileName = ".cmux-app-extension-bundles.json"
     private static let toolbarPinsFileName = ".cmux-toolbar-pins.json"
     private static let copyChunkByteCount = 1024 * 1024
     private let packageLimits: PackageLimits
@@ -92,6 +100,7 @@ actor BrowserWebExtensionDirectoryRepository {
         }
         return BrowserWebExtensionApprovalDiscoveryResult(
             candidates: candidates,
+            appExtensionReferences: try readAppExtensionReferences(in: directory),
             failures: failures
         )
     }
@@ -125,7 +134,7 @@ actor BrowserWebExtensionDirectoryRepository {
         }
 
         guard sourceValues.isDirectory == true else {
-            return BrowserWebExtensionInstallSource(
+            return .managedPackage(
                 packageURL: source,
                 installationName: source.lastPathComponent
             )
@@ -133,7 +142,7 @@ actor BrowserWebExtensionDirectoryRepository {
         if FileManager.default.fileExists(
             atPath: source.appendingPathComponent("manifest.json").path
         ) {
-            return BrowserWebExtensionInstallSource(
+            return .managedPackage(
                 packageURL: source,
                 installationName: source.lastPathComponent
             )
@@ -163,7 +172,7 @@ actor BrowserWebExtensionDirectoryRepository {
             }
             return safariSources[0]
         default:
-            return BrowserWebExtensionInstallSource(
+            return .managedPackage(
                 packageURL: source,
                 installationName: source.lastPathComponent
             )
@@ -247,21 +256,15 @@ actor BrowserWebExtensionDirectoryRepository {
               let bundleIdentifier = info["CFBundleIdentifier"] as? String else {
             throw BrowserWebExtensionInstallError.invalidPackage(appex.lastPathComponent)
         }
-        let version = info["CFBundleShortVersionString"] as? String
-        let rawName = [bundleIdentifier, version]
-            .compactMap { value in
-                guard let value, !value.isEmpty else { return nil }
-                return value
-            }
-            .joined(separator: "-")
-        let installationName = Self.sanitizedInstallationName(rawName)
+        let installationName = Self.sanitizedInstallationName(bundleIdentifier)
         guard !installationName.isEmpty else {
             throw BrowserWebExtensionInstallError.invalidPackage(appex.lastPathComponent)
         }
-        return BrowserWebExtensionInstallSource(
-            packageURL: resources,
+        return .appExtensionBundle(.init(
+            bundleURL: appex.standardizedFileURL,
+            bundleIdentifier: bundleIdentifier,
             installationName: installationName
-        )
+        ))
     }
 
     private static func sanitizedInstallationName(_ name: String) -> String {
@@ -277,6 +280,29 @@ actor BrowserWebExtensionDirectoryRepository {
         guard var approvals = try? readApprovals(in: directory) else { return }
         approvals.removeValue(forKey: url.lastPathComponent)
         try? writeApprovals(approvals, in: directory)
+    }
+
+    func approveAppExtensionReference(
+        _ reference: BrowserWebExtensionAppExtensionReference,
+        in directory: URL
+    ) throws {
+        try requireActive()
+        var references = try readAppExtensionReferences(in: directory)
+        guard !references.contains(where: { $0.bundleIdentifier == reference.bundleIdentifier }) else {
+            throw BrowserWebExtensionInstallError.alreadyInstalled(reference.installationName)
+        }
+        references.append(reference)
+        try writeAppExtensionReferences(references, in: directory)
+    }
+
+    func removeAppExtensionReference(
+        _ reference: BrowserWebExtensionAppExtensionReference,
+        from directory: URL
+    ) {
+        guard !isShutDown,
+              var references = try? readAppExtensionReferences(in: directory) else { return }
+        references.removeAll { $0.bundleIdentifier == reference.bundleIdentifier }
+        try? writeAppExtensionReferences(references, in: directory)
     }
 
     func toolbarPinnedExtensionIdentifiers(in directory: URL) throws -> Set<String> {
@@ -318,6 +344,31 @@ actor BrowserWebExtensionDirectoryRepository {
         let data = try JSONEncoder().encode(approvals)
         try data.write(
             to: directory.appendingPathComponent(Self.approvalFileName),
+            options: .atomic
+        )
+    }
+
+    private func readAppExtensionReferences(
+        in directory: URL
+    ) throws -> [BrowserWebExtensionAppExtensionReference] {
+        let url = directory.appendingPathComponent(Self.appExtensionReferencesFileName)
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        return try JSONDecoder().decode(
+            [BrowserWebExtensionAppExtensionReference].self,
+            from: Data(contentsOf: url)
+        )
+    }
+
+    private func writeAppExtensionReferences(
+        _ references: [BrowserWebExtensionAppExtensionReference],
+        in directory: URL
+    ) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let data = try JSONEncoder().encode(references.sorted {
+            $0.bundleIdentifier < $1.bundleIdentifier
+        })
+        try data.write(
+            to: directory.appendingPathComponent(Self.appExtensionReferencesFileName),
             options: .atomic
         )
     }

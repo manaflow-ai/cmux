@@ -265,7 +265,7 @@ private struct BrowserExtensionCatalogItem: Identifiable {
     var id: String { entry.id }
 }
 
-private struct BrowserExtensionLocalAppItem: Identifiable {
+struct BrowserExtensionLocalAppItem: Identifiable {
     let id: String
     let name: String
     let detail: String
@@ -284,16 +284,22 @@ struct BrowserExtensionsManagerPage: View {
     @State private var catalogSearch = ""
 
     private var availableLocalApps: [BrowserExtensionLocalAppItem] {
-        let applicationsDirectories = [
+        Self.availableLocalApps()
+    }
+
+    static func availableLocalApps(
+        applicationsDirectories: [URL] = [
             URL(fileURLWithPath: "/Applications", isDirectory: true),
             FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent("Applications", isDirectory: true),
-        ]
+        ],
+        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+    ) -> [BrowserExtensionLocalAppItem] {
 
         func installedApplication(named bundleName: String) -> URL? {
             applicationsDirectories
                 .map { $0.appendingPathComponent(bundleName, isDirectory: true) }
-                .first { FileManager.default.fileExists(atPath: $0.path) }
+                .first { fileExists($0.path) }
         }
 
         return [
@@ -307,7 +313,33 @@ struct BrowserExtensionsManagerPage: View {
                     ),
                     icon: "lock.shield",
                     sourceURL: sourceURL,
-                    installedIdentifierPrefix: "cmux-browser-extension-com.bitwarden.desktop.safari-"
+                    installedIdentifierPrefix: "cmux-browser-extension-com.bitwarden.desktop.safari"
+                )
+            },
+            installedApplication(named: "1Password for Safari.app").map { sourceURL in
+                BrowserExtensionLocalAppItem(
+                    id: "1password-safari-app",
+                    name: "1Password",
+                    detail: String(
+                        localized: "browser.extensions.localApp.onePassword.detail",
+                        defaultValue: "Use the extension from the 1Password for Safari app"
+                    ),
+                    icon: "key.fill",
+                    sourceURL: sourceURL,
+                    installedIdentifierPrefix: "cmux-browser-extension-com.1password.safari.extension"
+                )
+            },
+            installedApplication(named: "uBlock Origin Lite.app").map { sourceURL in
+                BrowserExtensionLocalAppItem(
+                    id: "ublock-origin-lite-safari-app",
+                    name: "uBlock Origin Lite",
+                    detail: String(
+                        localized: "browser.extensions.localApp.ublockOriginLite.detail",
+                        defaultValue: "Block ads and trackers with the Safari extension"
+                    ),
+                    icon: "shield.lefthalf.filled",
+                    sourceURL: sourceURL,
+                    installedIdentifierPrefix: "cmux-browser-extension-net.raymondhill.uBlock-Origin-Lite.Extension"
                 )
             }
         ].compactMap { $0 }
@@ -534,7 +566,7 @@ private struct BrowserExtensionLocalAppsSection: View {
 
             Text(String(
                 localized: "browser.extensions.localApps.explanation",
-                defaultValue: "cmux copies only the Safari extension after you choose Get. It never installs one automatically."
+                defaultValue: "cmux connects to the Safari extension only after you choose Get. It never installs one automatically."
             ))
             .font(.caption)
             .foregroundStyle(.secondary)

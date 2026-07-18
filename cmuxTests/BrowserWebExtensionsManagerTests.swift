@@ -487,6 +487,8 @@ struct BrowserWebExtensionsManagerTests {
         let info: [String: Any] = [
             "CFBundleIdentifier": "com.example.password-manager.safari",
             "CFBundleShortVersionString": "2.3.4",
+            "CFBundleVersion": "1",
+            "CFBundlePackageType": "XPC!",
             "NSExtension": [
                 "NSExtensionPointIdentifier": "com.apple.Safari.web-extension",
             ],
@@ -506,23 +508,46 @@ struct BrowserWebExtensionsManagerTests {
         )
         let manager = BrowserWebExtensionsManager(
             directory: managedRoot,
-            controllerConfiguration: .nonPersistent()
+            controllerConfiguration: .nonPersistent(),
+            appExtensionLoader: { _ in
+                try await WKWebExtension(resourceBaseURL: resources)
+            }
         )
 
         let receipt = try await manager.installExtension(from: app)
 
         #expect(receipt.name == "Safari container fixture")
-        let copiedResources = managedRoot.appendingPathComponent(
-            "com.example.password-manager.safari-2.3.4",
+        #expect(!FileManager.default.fileExists(atPath: managedRoot.appendingPathComponent(
+            "com.example.password-manager.safari",
             isDirectory: true
+        ).path))
+        let referenceLedger = managedRoot.appendingPathComponent(
+            ".cmux-app-extension-bundles.json"
         )
-        #expect(!FileManager.default.fileExists(atPath: copiedResources.path))
-        #expect(FileManager.default.fileExists(
-            atPath: managedRoot.appendingPathComponent(
-                ".cmux-app-extension-bundles.json"
-            ).path
-        ))
+        let references = try JSONDecoder().decode(
+            [BrowserWebExtensionAppExtensionReference].self,
+            from: Data(contentsOf: referenceLedger)
+        )
+        #expect(references == [.init(
+            bundleURL: appex.standardizedFileURL,
+            bundleIdentifier: "com.example.password-manager.safari",
+            installationName: "com.example.password-manager.safari"
+        )])
         #expect(manager.loadedContexts.first?.uniqueIdentifier
+            == "cmux-browser-extension-com.example.password-manager.safari")
+
+        manager.shutdown()
+        let relaunchedManager = BrowserWebExtensionsManager(
+            directory: managedRoot,
+            controllerConfiguration: .nonPersistent(),
+            appExtensionLoader: { _ in
+                try await WKWebExtension(resourceBaseURL: resources)
+            }
+        )
+        await relaunchedManager.loadExtensions()
+
+        #expect(relaunchedManager.loadErrors.isEmpty)
+        #expect(relaunchedManager.loadedContexts.first?.uniqueIdentifier
             == "cmux-browser-extension-com.example.password-manager.safari")
     }
 
@@ -810,6 +835,31 @@ struct BrowserWebExtensionsManagerTests {
         )
 
         #expect(configuration.webExtensionController === services.webExtensionsManager?.controller)
+    }
+
+    @Test func installedSafariAppsAreOptInSuggestions() {
+        let applicationsDirectory = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        let installedPaths = Set([
+            applicationsDirectory.appendingPathComponent("Bitwarden.app").path,
+            applicationsDirectory.appendingPathComponent("1Password for Safari.app").path,
+            applicationsDirectory.appendingPathComponent("uBlock Origin Lite.app").path,
+        ])
+
+        let items = BrowserExtensionsManagerPage.availableLocalApps(
+            applicationsDirectories: [applicationsDirectory],
+            fileExists: { installedPaths.contains($0) }
+        )
+
+        #expect(items.map(\.id) == [
+            "bitwarden-safari-app",
+            "1password-safari-app",
+            "ublock-origin-lite-safari-app",
+        ])
+        #expect(items.map(\.installedIdentifierPrefix) == [
+            "cmux-browser-extension-com.bitwarden.desktop.safari",
+            "cmux-browser-extension-com.1password.safari.extension",
+            "cmux-browser-extension-net.raymondhill.uBlock-Origin-Lite.Extension",
+        ])
     }
 
     @available(macOS 15.4, *)

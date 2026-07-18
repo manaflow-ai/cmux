@@ -17,6 +17,8 @@ import WebKit
 @available(macOS 15.4, *)
 @MainActor
 final class BrowserWebExtensionsManager: NSObject {
+    typealias AppExtensionLoader = @MainActor (Bundle) async throws -> WKWebExtension
+
     private final class PendingActionInvocation {
         weak var anchorView: NSView?
         let panelID: UUID
@@ -60,6 +62,7 @@ final class BrowserWebExtensionsManager: NSObject {
     var loadTask: Task<Void, Never>?
     private let directoryRepository = BrowserWebExtensionDirectoryRepository()
     private let catalogPackageRepository = BrowserWebExtensionCatalogPackageRepository()
+    private let appExtensionLoader: AppExtensionLoader
     private(set) var isLoaded = false
     private var loadWaiters: [UUID: LoadWaiter] = [:]
     private(set) var loadedContexts: [WKWebExtensionContext] = []
@@ -93,10 +96,14 @@ final class BrowserWebExtensionsManager: NSObject {
         controllerIdentifier: UUID? = nil,
         controllerConfiguration: WKWebExtensionController.Configuration? = nil,
         websiteDataStore: WKWebsiteDataStore? = nil,
-        profileID: UUID? = nil
+        profileID: UUID? = nil,
+        appExtensionLoader: @escaping AppExtensionLoader = { bundle in
+            try await WKWebExtension(appExtensionBundle: bundle)
+        }
     ) {
         self.directory = directory
         self.profileID = profileID
+        self.appExtensionLoader = appExtensionLoader
         let configuration = controllerConfiguration
             ?? WKWebExtensionController.Configuration(identifier: controllerIdentifier ?? Self.controllerIdentifier)
         if let websiteDataStore {
@@ -260,6 +267,26 @@ final class BrowserWebExtensionsManager: NSObject {
 #endif
             }
         }
+        for reference in discovery.appExtensionReferences {
+            guard !Task.isCancelled, !isShutDown else { return }
+            do {
+                let context = try await loadAppExtensionBundle(reference)
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.extensions.loaded-app-bundle name=\(context.webExtension.displayName ?? reference.installationName) " +
+                    "bundle=\(reference.bundleIdentifier)"
+                )
+#endif
+            } catch {
+                guard !isShutDown, !Task.isCancelled else { return }
+                loadErrors.append((url: reference.bundleURL, error: error))
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.extensions.load-app-bundle-failed bundle=\(reference.bundleIdentifier) error=\(error)"
+                )
+#endif
+            }
+        }
     }
 
     func installExtension(from source: URL) async throws -> BrowserWebExtensionInstallReceipt {
@@ -276,30 +303,52 @@ final class BrowserWebExtensionsManager: NSObject {
         try requireActive()
         let installSource = try await directoryRepository.resolveInstallSource(at: source)
         try requireActive()
-        try await directoryRepository.validatePackageSize(at: installSource.packageURL)
-        try requireActive()
-        // Validate before copying. WKWebExtension accepts either a directory or
-        // ZIP archive and parses the manifest plus referenced resources.
-        _ = try await WKWebExtension(resourceBaseURL: installSource.packageURL)
-        try requireActive()
-        let destination = try await directoryRepository.installCandidate(
-            from: installSource.packageURL,
-            into: directory,
-            destinationName: installSource.installationName
-        )
-        do {
+        switch installSource {
+        case .managedPackage(let packageURL, let installationName):
+            try await directoryRepository.validatePackageSize(at: packageURL)
             try requireActive()
-            // Approval computes the package digest and rejects symbolic links.
-            // Finish it before WebKit can execute any extension resource.
-            try await directoryRepository.approveCandidate(at: destination, in: directory)
+            // Validate before copying. WKWebExtension accepts either a directory or
+            // ZIP archive and parses the manifest plus referenced resources.
+            _ = try await WKWebExtension(resourceBaseURL: packageURL)
             try requireActive()
-            let context = try await loadExtension(at: destination)
-            return BrowserWebExtensionInstallReceipt(
-                name: context.webExtension.displayName ?? destination.deletingPathExtension().lastPathComponent
+            let destination = try await directoryRepository.installCandidate(
+                from: packageURL,
+                into: directory,
+                destinationName: installationName
             )
-        } catch {
-            await directoryRepository.removeInstalledCandidate(at: destination, from: directory)
-            throw error
+            do {
+                try requireActive()
+                // Approval computes the package digest and rejects symbolic links.
+                // Finish it before WebKit can execute any extension resource.
+                try await directoryRepository.approveCandidate(at: destination, in: directory)
+                try requireActive()
+                let context = try await loadExtension(at: destination)
+                return BrowserWebExtensionInstallReceipt(
+                    name: context.webExtension.displayName
+                        ?? destination.deletingPathExtension().lastPathComponent
+                )
+            } catch {
+                await directoryRepository.removeInstalledCandidate(at: destination, from: directory)
+                throw error
+            }
+        case .appExtensionBundle(let reference):
+            // Keep the signed app-extension bundle attached. WebKit uses it to
+            // forward browser.runtime native messages to the containing app.
+            let webExtension = try await webExtension(for: reference)
+            try requireActive()
+            try await directoryRepository.approveAppExtensionReference(reference, in: directory)
+            do {
+                let context = try loadExtension(
+                    webExtension,
+                    installationName: reference.installationName
+                )
+                return BrowserWebExtensionInstallReceipt(
+                    name: context.webExtension.displayName ?? reference.installationName
+                )
+            } catch {
+                await directoryRepository.removeAppExtensionReference(reference, from: directory)
+                throw error
+            }
         }
     }
 
@@ -562,13 +611,41 @@ final class BrowserWebExtensionsManager: NSObject {
         try requireActive()
         let webExtension = try await WKWebExtension(resourceBaseURL: url)
         try requireActive()
+        return try loadExtension(webExtension, installationName: url.lastPathComponent)
+    }
+
+    private func loadAppExtensionBundle(
+        _ reference: BrowserWebExtensionAppExtensionReference
+    ) async throws -> WKWebExtensionContext {
+        let webExtension = try await webExtension(for: reference)
+        try requireActive()
+        return try loadExtension(webExtension, installationName: reference.installationName)
+    }
+
+    private func webExtension(
+        for reference: BrowserWebExtensionAppExtensionReference
+    ) async throws -> WKWebExtension {
+        guard let bundle = Bundle(url: reference.bundleURL),
+              bundle.bundleIdentifier == reference.bundleIdentifier else {
+            throw BrowserWebExtensionInstallError.invalidPackage(
+                reference.bundleURL.lastPathComponent
+            )
+        }
+        return try await appExtensionLoader(bundle)
+    }
+
+    private func loadExtension(
+        _ webExtension: WKWebExtension,
+        installationName: String
+    ) throws -> WKWebExtensionContext {
+        try requireActive()
         let context = WKWebExtensionContext(for: webExtension)
-        // Stable identifier derived from the install-directory name so
-        // per-extension storage survives relaunches.
-        context.uniqueIdentifier = "cmux-browser-extension-\(url.lastPathComponent)"
+        // Stable identifier derived from the managed entry or app-extension
+        // bundle identifier so storage survives extension and app updates.
+        context.uniqueIdentifier = "cmux-browser-extension-\(installationName)"
 #if DEBUG
         context.isInspectable = true
-        context.inspectionName = context.webExtension.displayName ?? url.lastPathComponent
+        context.inspectionName = context.webExtension.displayName ?? installationName
 #endif
         grantRequestedPermissions(in: context, for: webExtension)
         try controller.load(context)
@@ -620,6 +697,14 @@ final class BrowserWebExtensionsManager: NSObject {
                 [
                     "entry": failure.url.lastPathComponent,
                     "error": Self.errorPayload(failure.error),
+                ]
+            },
+            "tabs": tabAdapters.values.compactMap { adapter -> [String: Any]? in
+                guard let panel = adapter.panel else { return nil }
+                return [
+                    "panel_id": panel.id.uuidString,
+                    "profile_id": panel.profileID.uuidString,
+                    "has_expected_controller": panel.webView.configuration.webExtensionController === controller,
                 ]
             },
         ]
@@ -718,6 +803,7 @@ final class BrowserWebExtensionsManager: NSObject {
         return [
             "domain": nsError.domain,
             "code": nsError.code,
+            "message": nsError.localizedDescription,
         ]
     }
 
