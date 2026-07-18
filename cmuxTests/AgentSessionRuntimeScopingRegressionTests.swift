@@ -3592,6 +3592,94 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(probe.externalProbeCount == 3)
     }
 
+    @Test func runtimeOwnershipProbeIgnoresCurrentRootWhenCanonicalRunOwnerIsDead() throws {
+        let currentIdentity = try #require(AgentPIDProcessIdentity(pid: getpid()))
+        var probe = AgentRuntimeOwnershipProbe(
+            environment: ["CMUX_RUNTIME_ID": "current-runtime"],
+            currentSocketStateResolver: {
+                (activePath: $0, pathOwnedByCurrentListener: false)
+            },
+            processIdentityResolver: { AgentPIDProcessIdentity(pid: $0) }
+        )
+        let record: [String: Any] = [
+            "cmuxRuntime": ["id": "current-runtime"],
+            "activeRunId": "canonical-run",
+            "runs": [[
+                "runId": "canonical-run",
+                "restoreAuthority": true,
+                "startedAt": 10.0,
+                "updatedAt": 20.0,
+                "cmuxRuntime": [
+                    "id": "foreign-runtime",
+                    "processId": Int(currentIdentity.pid),
+                    "processStartSeconds": currentIdentity.startSeconds + 1,
+                    "processStartMicroseconds": currentIdentity.startMicroseconds,
+                ],
+            ]],
+        ]
+
+        #expect(probe.evidence(for: record) == .provablyDeadForeign)
+    }
+
+    @Test func runtimeOwnershipProbeUsesCurrentCanonicalRunOverDeadRootOwner() throws {
+        let currentIdentity = try #require(AgentPIDProcessIdentity(pid: getpid()))
+        var probe = AgentRuntimeOwnershipProbe(
+            environment: ["CMUX_RUNTIME_ID": "current-runtime"],
+            currentSocketStateResolver: {
+                (activePath: $0, pathOwnedByCurrentListener: false)
+            },
+            processIdentityResolver: { AgentPIDProcessIdentity(pid: $0) }
+        )
+        let record: [String: Any] = [
+            "cmuxRuntime": [
+                "id": "stale-root-runtime",
+                "processId": Int(currentIdentity.pid),
+                "processStartSeconds": currentIdentity.startSeconds + 1,
+                "processStartMicroseconds": currentIdentity.startMicroseconds,
+            ],
+            "activeRunId": "canonical-run",
+            "runs": [[
+                "runId": "canonical-run",
+                "restoreAuthority": true,
+                "startedAt": 10.0,
+                "updatedAt": 20.0,
+                "cmuxRuntime": ["id": "current-runtime"],
+            ]],
+        ]
+
+        #expect(probe.evidence(for: record) == .current)
+    }
+
+    @Test func runtimeOwnershipProbeFallsBackToNewestCanonicalRun() {
+        var probe = AgentRuntimeOwnershipProbe(
+            environment: ["CMUX_RUNTIME_ID": "current-runtime"],
+            currentSocketStateResolver: {
+                (activePath: $0, pathOwnedByCurrentListener: false)
+            },
+            processIdentityResolver: { _ in nil }
+        )
+        let record: [String: Any] = [
+            "runs": [
+                [
+                    "runId": "older-run",
+                    "restoreAuthority": true,
+                    "startedAt": 10.0,
+                    "updatedAt": 20.0,
+                    "cmuxRuntime": ["id": "foreign-runtime"],
+                ],
+                [
+                    "runId": "newest-run",
+                    "restoreAuthority": true,
+                    "startedAt": 20.0,
+                    "updatedAt": 30.0,
+                    "cmuxRuntime": ["id": "current-runtime"],
+                ],
+            ],
+        ]
+
+        #expect(probe.evidence(for: record) == .current)
+    }
+
     @MainActor
     @Test func startupReconciliationTurnsSavedActiveCanonicalHibernationIntoInertPlaceholder() throws {
         let root = FileManager.default.temporaryDirectory
