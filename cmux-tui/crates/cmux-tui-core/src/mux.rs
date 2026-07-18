@@ -3275,9 +3275,9 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
         let workspace = self.create_empty_workspace(name, None, None)?.workspace;
-        let placement = self.create_terminal_in_workspace(workspace, None, None, None, size)?;
-        self.surface(placement.surface)
-            .ok_or_else(|| anyhow::anyhow!("new terminal disappeared after creation"))
+        let (_, surface) =
+            self.create_terminal_in_workspace_impl(workspace, None, None, None, size, None)?;
+        Ok(surface)
     }
 
     /// Add an ordered workspace-registry entry without creating a PTY,
@@ -3734,7 +3734,9 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<RunPlacement> {
-        self.create_terminal_in_workspace_impl(workspace, argv, cwd, name, size, None)
+        let (placement, _) =
+            self.create_terminal_in_workspace_impl(workspace, argv, cwd, name, size, None)?;
+        Ok(placement)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3787,7 +3789,7 @@ impl Mux {
             expected_generation: expected_generation.map(str::to_string),
             expected_revision,
         };
-        let placement = self.create_terminal_in_workspace_impl(
+        let (placement, surface) = self.create_terminal_in_workspace_impl(
             workspace,
             argv,
             cwd,
@@ -3795,9 +3797,8 @@ impl Mux {
             size,
             Some(reservation),
         )?;
-        let identity = self
-            .surface(placement.surface)
-            .and_then(|surface| surface.terminal_host_identity())
+        let identity = surface
+            .terminal_host_identity()
             .ok_or_else(|| anyhow::anyhow!("created terminal has no host identity"))?;
         let snapshot = self.workspace_registry.lock().unwrap().terminal_snapshot()?;
         Ok(TerminalPlacementResult {
@@ -3844,7 +3845,7 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
         reservation: Option<TerminalReservationRequest>,
-    ) -> anyhow::Result<RunPlacement> {
+    ) -> anyhow::Result<(RunPlacement, Arc<Surface>)> {
         let (workspace_key, inherited_pane) = {
             let state = self.state.lock().unwrap();
             let Some(workspace) = state.workspace_by_id(workspace) else {
@@ -3890,7 +3891,7 @@ impl Mux {
                 self.emit(MuxEvent::TreeChanged);
             }
             self.reap_if_dead(&surface);
-            return Ok(placement);
+            return Ok((placement, surface));
         }
         let notifications = self.surface_notifications();
         let active_at = self.next_active_at();
@@ -3988,7 +3989,7 @@ impl Mux {
         self.emit_tree_delta(attached.1, attached.2);
         drop(workspace_lifecycle);
         self.reap_if_dead(&surface);
-        Ok((surface, attached.0))
+        Ok((attached.0, surface))
     }
 
     /// Bind a just-launched hosted surface using the latest durable row, not
