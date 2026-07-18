@@ -35,9 +35,10 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarBranchVerticalLayout"
     )
 
+    /// Defaults to separate lines while preserving an explicitly stored inline preference.
     public let stackBranchDirectory = DefaultsKey<Bool>(
         id: "sidebar.stackBranchDirectory",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "sidebarBranchDirectoryStacked"
     )
 
