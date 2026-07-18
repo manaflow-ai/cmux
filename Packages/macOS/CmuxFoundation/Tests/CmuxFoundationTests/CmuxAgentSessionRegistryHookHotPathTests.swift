@@ -584,7 +584,7 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
         ])
     }
 
-    @Test("bounded list joins canonically equivalent slot owner identities")
+    @Test("active slot writes align canonically equivalent owner identities")
     func boundedListJoinsCanonicalUnicodeSlotOwner() throws {
         let fixture = try makeFixture()
         let provider = "unicode-slot-owner"
@@ -614,6 +614,11 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
                 json: slotJSON
             )]
         )
+
+        let storedSlot = try #require(
+            fixture.registry.snapshot(provider: provider).activeSlots.first
+        )
+        #expect(storedSlot.sessionID.utf8.elementsEqual(recordSessionID.utf8))
 
         let bounded = try fixture.registry.hookBoundedRecentSnapshot(
             provider: provider,
