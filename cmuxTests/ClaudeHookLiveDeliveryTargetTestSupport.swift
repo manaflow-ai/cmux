@@ -83,6 +83,7 @@ enum ClaudeHookLiveDeliveryHarness {
         context: Context,
         surfacesByWorkspace: [String: [String]],
         pidTarget: (workspaceId: String, surfaceId: String)?,
+        legacyProcessTarget: (pid: Int, workspaceId: String, surfaceId: String)? = nil,
         surfaceTargets: [String: String] = [:],
         ttyRows: [(tty: String, workspaceId: String, surfaceId: String)] = [],
         resolverMethodAvailable: Bool = true
@@ -127,6 +128,27 @@ enum ClaudeHookLiveDeliveryHarness {
                     ["id": surfaceId, "ref": "surface:\(index + 1)", "focused": index == 0]
                 }
                 return v2Response(id: id, ok: true, result: ["surfaces": surfaces])
+            case "system.top":
+                guard let legacyProcessTarget else {
+                    return v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                    )
+                }
+                return v2Response(id: id, ok: true, result: [
+                    "windows": [[
+                        "workspaces": [[
+                            "id": legacyProcessTarget.workspaceId,
+                            "panes": [[
+                                "surfaces": [[
+                                    "id": legacyProcessTarget.surfaceId,
+                                    "top_level_pids": [legacyProcessTarget.pid],
+                                ]],
+                            ]],
+                        ]],
+                    ]],
+                ])
             case "debug.terminals":
                 let terminals: [[String: Any]] = ttyRows.map {
                     ["tty": $0.tty, "workspace_id": $0.workspaceId, "surface_id": $0.surfaceId]
@@ -345,5 +367,9 @@ enum ClaudeHookLiveDeliveryHarness {
     private static func jsonObject(_ line: String) -> [String: Any]? {
         guard let data = line.data(using: .utf8) else { return nil }
         return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
+    }
+
+    static func jsonObjectForAssertion(_ line: String) -> [String: Any]? {
+        jsonObject(line)
     }
 }
