@@ -7,7 +7,7 @@ internal import CmuxTerminalRenderTransport
 internal import Darwin
 public import Foundation
 
-private final class BackendOnlyPresentedFrameState: @unchecked Sendable {
+final class BackendOnlyPresentedFrameState: @unchecked Sendable {
     private let lock = NSLock()
     private var metadata: TerminalRenderFrameMetadata?
     private var accessibilityDemanded = false
