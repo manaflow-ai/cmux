@@ -9,6 +9,7 @@ struct SimulatorApplicationTools: View {
     @State private var waitForDebugger = false
 
     var body: some View {
+        let applicationRows = simulatorApplicationPickerRows(coordinator.installedApplications)
         SimulatorToolSection(simulatorStrings.applications) {
             HStack {
                 Button(simulatorStrings.installApplication) {
@@ -22,9 +23,9 @@ struct SimulatorApplicationTools: View {
                     }
                 }
             }
-            if !coordinator.installedApplications.isEmpty {
+            if !applicationRows.isEmpty {
                 Picker(simulatorStrings.applications, selection: $selectedBundleIdentifier) {
-                    ForEach(coordinator.installedApplications) { application in
+                    ForEach(applicationRows) { application in
                         Text(verbatim: application.displayName).tag(application.id)
                     }
                 }
@@ -62,5 +63,18 @@ struct SimulatorApplicationTools: View {
                 selectedBundleIdentifier = applications.first?.id ?? ""
             }
         }
+    }
+}
+
+struct SimulatorApplicationPickerRow: Equatable, Identifiable {
+    let id: String
+    let displayName: String
+}
+
+func simulatorApplicationPickerRows(
+    _ applications: [SimulatorInstalledApplication]
+) -> [SimulatorApplicationPickerRow] {
+    applications.map {
+        SimulatorApplicationPickerRow(id: $0.id, displayName: $0.displayName)
     }
 }

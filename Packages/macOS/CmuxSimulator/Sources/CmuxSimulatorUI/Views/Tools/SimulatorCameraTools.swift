@@ -8,14 +8,15 @@ struct SimulatorCameraTools: View {
     @State private var hostCameraID = ""
 
     var body: some View {
+        let applicationRows = simulatorApplicationPickerRows(coordinator.userInstalledApplications)
         SimulatorToolSection(simulatorStrings.cameraExperimental) {
             Text(simulatorStrings.experimentalHelp)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            if !coordinator.userInstalledApplications.isEmpty {
+            if !applicationRows.isEmpty {
                 Picker(simulatorStrings.bundleIdentifier, selection: $targetBundleIdentifier) {
                     Text(simulatorStrings.foregroundApp).tag("")
-                    ForEach(coordinator.userInstalledApplications) { application in
+                    ForEach(applicationRows) { application in
                         Text(verbatim: application.displayName).tag(application.id)
                     }
                 }
