@@ -192,7 +192,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if hasStructuralChanges {
             let previousIds = previousRows.map(\.id)
             let nextIds = nextRows.map(\.id)
-            if previousIds.count == nextIds.count, Set(previousIds) == Set(nextIds) {
+            // Positional mismatches bound the number of moveRow calls a drag
+            // needs (a single dragged row misaligns one contiguous span).
+            // Multiset equality (not Set) so duplicate ids — corrupt state —
+            // never masquerade as a pure reorder; and past the threshold the
+            // move planner's rescans would go quadratic, so bulk permutations
+            // take the reload path (they gain nothing from animation).
+            let mismatches = zip(previousIds, nextIds).reduce(into: 0) { count, pair in
+                if pair.0 != pair.1 { count += 1 }
+            }
+            if previousIds.count == nextIds.count,
+               mismatches <= Self.maxAnimatedReorderMoves,
+               Self.multisetEqual(previousIds, nextIds) {
                 // Pure reorder (drag-drop): move rows in place. reloadData
                 // tears down every visible cell and snaps the scroll
                 // position — the "click to reorder is jank" report — while
@@ -477,6 +488,26 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // alone, those strand the peel — the sidebar shows NO selection until
         // an unrelated change repaints. Restore truth if no apply arrives.
         schedulePreviewBailout()
+    }
+
+    /// A user drag misaligns one contiguous span (single-digit moves); past
+    /// this, the per-move array rescans trend quadratic and the reload path
+    /// is both cheaper and visually equivalent for bulk permutations.
+    static let maxAnimatedReorderMoves = 32
+
+    static func multisetEqual(
+        _ a: [SidebarWorkspaceRenderItemID],
+        _ b: [SidebarWorkspaceRenderItemID]
+    ) -> Bool {
+        guard a.count == b.count else { return false }
+        var counts: [SidebarWorkspaceRenderItemID: Int] = [:]
+        counts.reserveCapacity(a.count)
+        for id in a { counts[id, default: 0] += 1 }
+        for id in b {
+            guard let count = counts[id], count > 0 else { return false }
+            counts[id] = count - 1
+        }
+        return true
     }
 
     private var applyGeneration: UInt64 = 0
