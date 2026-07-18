@@ -130,6 +130,38 @@ final class WindowGlassEffectTests: XCTestCase {
         XCTAssertGreaterThan(tintOverlay.alphaValue, 0)
     }
 
+    func testNativeGlassTintCanRemainStableAcrossWindowKeyNotifications() throws {
+        let glassEffect = WindowGlassEffect()
+        guard glassEffect.isAvailable else {
+            throw XCTSkip("NSGlassEffectView is unavailable on this macOS version")
+        }
+        _ = NSApplication.shared
+
+        let originalContentView = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
+        let window = NSWindow(
+            contentRect: originalContentView.bounds,
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = originalContentView
+
+        glassEffect.adjustsTintForInactiveWindow = false
+        glassEffect.apply(to: window, tintColor: .black, style: .clear)
+
+        guard let backgroundView = Self.glassBackgroundView(in: window.contentView),
+              let tintOverlay = backgroundView.subviews.last else {
+            XCTFail("Expected glass background tint overlay")
+            return
+        }
+
+        XCTAssertEqual(tintOverlay.alphaValue, 0, accuracy: 0.001)
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        XCTAssertEqual(tintOverlay.alphaValue, 0, accuracy: 0.001)
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        XCTAssertEqual(tintOverlay.alphaValue, 0, accuracy: 0.001)
+    }
+
     private static func windowContainsGlassBackground(_ window: NSWindow) -> Bool {
         guard let contentView = window.contentView else { return false }
         let root = contentView.superview ?? contentView

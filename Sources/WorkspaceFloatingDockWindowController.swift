@@ -8,7 +8,11 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     let dock: WorkspaceFloatingDock
     private weak var parentWindow: NSWindow?
     private let onCloseRequest: (UUID) -> Void
-    private let glassEffect = WindowGlassEffect()
+    private let glassEffect: WindowGlassEffect = {
+        let effect = WindowGlassEffect()
+        effect.adjustsTintForInactiveWindow = false
+        return effect
+    }()
     private var isApplyingModelFrame = false
 
     init(

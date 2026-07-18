@@ -14,6 +14,12 @@ public final class WindowGlassEffect: WindowGlassEffectManaging {
     private static var originalContentViewKey: UInt8 = 0
     private static var originalContentLayoutStateKey: UInt8 = 0
 
+    /// Whether the tint overlay darkens when its window is not key.
+    ///
+    /// Disable this for auxiliary windows whose glass should remain visually
+    /// stable while focus moves between them and their parent window.
+    public var adjustsTintForInactiveWindow = true
+
     /// Creates a window glass effect service.
     public init() {}
 
@@ -61,7 +67,8 @@ public final class WindowGlassEffect: WindowGlassEffectManaging {
                 tintColor: tintColor,
                 style: style,
                 cornerRadius: cornerRadius,
-                isKeyWindow: window.isKeyWindow
+                isKeyWindow: window.isKeyWindow,
+                adjustsTintForInactiveWindow: adjustsTintForInactiveWindow
             )
             return false
         }
@@ -74,7 +81,8 @@ public final class WindowGlassEffect: WindowGlassEffectManaging {
             tintColor: tintColor,
             style: style,
             cornerRadius: cornerRadius,
-            isKeyWindow: window.isKeyWindow
+            isKeyWindow: window.isKeyWindow,
+            adjustsTintForInactiveWindow: adjustsTintForInactiveWindow
         )
         window.contentView = rootView
         rootView.attachOriginalContentView(originalContentView)
@@ -93,14 +101,16 @@ public final class WindowGlassEffect: WindowGlassEffectManaging {
                 tintColor: color,
                 style: nil,
                 cornerRadius: windowCornerRadius(for: window),
-                isKeyWindow: window.isKeyWindow
+                isKeyWindow: window.isKeyWindow,
+                adjustsTintForInactiveWindow: adjustsTintForInactiveWindow
             )
         } else if let fallbackView = fallbackBackgroundView(for: window) {
             fallbackView.configure(
                 tintColor: color,
                 style: nil,
                 cornerRadius: windowCornerRadius(for: window),
-                isKeyWindow: window.isKeyWindow
+                isKeyWindow: window.isKeyWindow,
+                adjustsTintForInactiveWindow: adjustsTintForInactiveWindow
             )
         }
     }
@@ -176,7 +186,8 @@ public final class WindowGlassEffect: WindowGlassEffectManaging {
                 tintColor: tintColor,
                 style: nil,
                 cornerRadius: cornerRadius,
-                isKeyWindow: window.isKeyWindow
+                isKeyWindow: window.isKeyWindow,
+                adjustsTintForInactiveWindow: adjustsTintForInactiveWindow
             )
             return false
         }
@@ -187,7 +198,8 @@ public final class WindowGlassEffect: WindowGlassEffectManaging {
             tintColor: tintColor,
             style: nil,
             cornerRadius: cornerRadius,
-            isKeyWindow: window.isKeyWindow
+            isKeyWindow: window.isKeyWindow,
+            adjustsTintForInactiveWindow: adjustsTintForInactiveWindow
         )
         attachFallback(fallbackView, to: themeFrame, below: contentView)
         objc_setAssociatedObject(window, &Self.fallbackBackgroundViewKey, fallbackView, .OBJC_ASSOCIATION_RETAIN)

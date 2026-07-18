@@ -26,6 +26,7 @@ extension WindowGlassEffect {
         private var effectTopConstraint: NSLayoutConstraint!
         private weak var observedWindow: NSWindow?
         private var currentTintColor: NSColor?
+        private var adjustsTintForInactiveWindow: Bool
 
         init(
             frame: NSRect,
@@ -33,7 +34,8 @@ extension WindowGlassEffect {
             tintColor: NSColor?,
             style: WindowGlassEffectStyle?,
             cornerRadius: CGFloat?,
-            isKeyWindow: Bool
+            isKeyWindow: Bool,
+            adjustsTintForInactiveWindow: Bool
         ) {
             if let glassClass = NSClassFromString("NSGlassEffectView") as? NSView.Type {
                 effectView = glassClass.init(frame: .zero)
@@ -47,6 +49,7 @@ extension WindowGlassEffect {
                 usesNativeGlass = false
             }
             tintOverlay = NSView(frame: .zero)
+            self.adjustsTintForInactiveWindow = adjustsTintForInactiveWindow
 
             super.init(frame: frame)
 
@@ -82,7 +85,8 @@ extension WindowGlassEffect {
                 tintColor: tintColor,
                 style: style,
                 cornerRadius: cornerRadius,
-                isKeyWindow: isKeyWindow
+                isKeyWindow: isKeyWindow,
+                adjustsTintForInactiveWindow: adjustsTintForInactiveWindow
             )
         }
 
@@ -108,9 +112,11 @@ extension WindowGlassEffect {
             tintColor: NSColor?,
             style: WindowGlassEffectStyle?,
             cornerRadius: CGFloat?,
-            isKeyWindow: Bool
+            isKeyWindow: Bool,
+            adjustsTintForInactiveWindow: Bool
         ) {
             currentTintColor = tintColor
+            self.adjustsTintForInactiveWindow = adjustsTintForInactiveWindow
             effectView.layer?.cornerRadius = cornerRadius ?? 0
             if usesNativeGlass {
                 updateNativeGlassConfiguration(
@@ -169,7 +175,7 @@ extension WindowGlassEffect {
         }
 
         private func updateInactiveTintOverlay(tintColor: NSColor?, isKeyWindow: Bool) {
-            guard let tintColor else {
+            guard adjustsTintForInactiveWindow, let tintColor else {
                 tintOverlay.layer?.backgroundColor = nil
                 tintOverlay.alphaValue = 0
                 return
@@ -225,7 +231,8 @@ extension WindowGlassEffect {
             tintColor: NSColor?,
             style: WindowGlassEffectStyle?,
             cornerRadius: CGFloat?,
-            isKeyWindow: Bool
+            isKeyWindow: Bool,
+            adjustsTintForInactiveWindow: Bool
         ) {
             backgroundView = GlassBackgroundView(
                 frame: frame,
@@ -233,7 +240,8 @@ extension WindowGlassEffect {
                 tintColor: tintColor,
                 style: style,
                 cornerRadius: cornerRadius,
-                isKeyWindow: isKeyWindow
+                isKeyWindow: isKeyWindow,
+                adjustsTintForInactiveWindow: adjustsTintForInactiveWindow
             )
 
             super.init(frame: frame)
@@ -287,14 +295,16 @@ extension WindowGlassEffect {
             tintColor: NSColor?,
             style: WindowGlassEffectStyle?,
             cornerRadius: CGFloat?,
-            isKeyWindow: Bool
+            isKeyWindow: Bool,
+            adjustsTintForInactiveWindow: Bool
         ) {
             backgroundView.updateTopOffset(topOffset)
             backgroundView.configure(
                 tintColor: tintColor,
                 style: style,
                 cornerRadius: cornerRadius,
-                isKeyWindow: isKeyWindow
+                isKeyWindow: isKeyWindow,
+                adjustsTintForInactiveWindow: adjustsTintForInactiveWindow
             )
         }
     }
