@@ -31,9 +31,15 @@ final class SidebarWorkspaceTableRowHeightCache {
 
     func prepareHostedRows(
         _ rows: [SidebarWorkspaceTableRowConfiguration],
-        columnWidth: CGFloat
+        columnWidth: CGFloat,
+        skippingEquivalenceCheckAt unchanged: IndexSet = []
     ) -> IndexSet {
-        return prepare(rows: rows, columnWidth: columnWidth, measure: measureHostedRow)
+        return prepare(
+            rows: rows,
+            columnWidth: columnWidth,
+            skippingEquivalenceCheckAt: unchanged,
+            measure: measureHostedRow
+        )
     }
 
     func prepareHostedRowsIfWidthChanged(
@@ -46,9 +52,17 @@ final class SidebarWorkspaceTableRowHeightCache {
 
     /// Measures only missing or invalid entries. Call from render updates or
     /// viewport-width notifications, never from `heightOfRow`.
+    ///
+    /// `skippingEquivalenceCheckAt`: indices the caller already proved
+    /// content-equivalent to the previous apply (the controller's reconfigure
+    /// diff). Their entries carry over without re-running the row equality
+    /// check here, so one apply performs a single equivalence pass instead
+    /// of two. Only valid when the row at that index kept its id, which the
+    /// controller guarantees by passing it only on non-structural applies.
     func prepare(
         rows: [SidebarWorkspaceTableRowConfiguration],
         columnWidth: CGFloat,
+        skippingEquivalenceCheckAt unchanged: IndexSet = [],
         measure: Measurement
     ) -> IndexSet {
         guard columnWidth > 0 else {
@@ -56,6 +70,7 @@ final class SidebarWorkspaceTableRowHeightCache {
             preparedColumnWidth = nil
             return []
         }
+        let widthUnchanged = preparedColumnWidth == columnWidth
         preparedColumnWidth = columnWidth
 
         var nextEntries: [SidebarWorkspaceRenderItemID: Entry] = [:]
@@ -64,6 +79,10 @@ final class SidebarWorkspaceTableRowHeightCache {
 
         for (index, row) in rows.enumerated() {
             let previous = entries[row.id]
+            if widthUnchanged, unchanged.contains(index), let previous {
+                nextEntries[row.id] = previous
+                continue
+            }
             if let previous, previous.matches(row: row, columnWidth: columnWidth) {
                 nextEntries[row.id] = previous
                 continue
@@ -85,15 +104,49 @@ final class SidebarWorkspaceTableRowHeightCache {
         return changedHeights
     }
 
+    /// Live-resize partial pass: re-measures only `indexes` at the live
+    /// width, leaving every other entry at its previous width. Only the
+    /// deterministic pure-AppKit rows re-measure here; hosted SwiftUI rows
+    /// keep their entry and settle in the next full `prepareHostedRows`
+    /// pass. Returns the indexes whose height changed.
+    func prepareRows(
+        at indexes: IndexSet,
+        in rows: [SidebarWorkspaceTableRowConfiguration],
+        columnWidth: CGFloat
+    ) -> IndexSet {
+        guard columnWidth > 0 else { return [] }
+        var changedHeights = IndexSet()
+        for index in indexes {
+            guard rows.indices.contains(index) else { continue }
+            let row = rows[index]
+            guard row.appKitGroupHeaderModel != nil || row.appKitWorkspaceRowModel != nil else { continue }
+            let previous = entries[row.id]
+            if let previous, previous.matches(row: row, columnWidth: columnWidth) { continue }
+            let measuredHeight = Self.normalizedHeight(measureHostedRow(row: row, columnWidth: columnWidth))
+            if (previous?.height ?? row.estimatedHeight) != measuredHeight {
+                changedHeights.insert(index)
+            }
+            entries[row.id] = Entry(
+                row: row,
+                columnWidth: columnWidth,
+                height: measuredHeight
+            )
+        }
+        return changedHeights
+    }
+
     /// A pure cache read used by `tableView(_:heightOfRow:)` during layout.
     func height(
         for row: SidebarWorkspaceTableRowConfiguration,
         columnWidth: CGFloat
     ) -> CGFloat? {
-        guard let entry = entries[row.id],
-              entry.matches(row: row, columnWidth: columnWidth) else {
-            return nil
-        }
+        guard let entry = entries[row.id] else { return nil }
+        if entry.matches(row: row, columnWidth: columnWidth) { return entry.height }
+        // Mid-live-resize, visible rows carry entries at the live width while
+        // the lookup still uses the last settled width; a content-matched
+        // entry at another width is that fresher measurement, and the settle
+        // pass re-measures every width-mismatched entry afterward.
+        guard entry.row.hasEquivalentContent(to: row) else { return nil }
         return entry.height
     }
 
