@@ -680,6 +680,8 @@ extension Workspace {
             return nil
         case .mobilePairing:
             return nil
+        case .accountSignIn:
+            return nil
         }
         return SessionPanelSnapshot(
             id: panelId,
@@ -1675,6 +1677,8 @@ extension Workspace {
         case .cloudVMLoading:
             return nil
         case .mobilePairing:
+            return nil
+        case .accountSignIn:
             return nil
         }
     }

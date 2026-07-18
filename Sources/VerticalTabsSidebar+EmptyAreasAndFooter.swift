@@ -107,6 +107,7 @@ struct SidebarFooterHelpIcon: View {
 }
 
 struct SidebarAccountMenuButton: View {
+    @EnvironmentObject private var tabManager: TabManager
     private let accountFlow: HostAccountFlow? = AppDelegate.shared?.auth?.accountFlow
     private let title = String(localized: "settings.section.account", defaultValue: "Account")
     private let signInTitle = String(localized: "settings.account.signIn", defaultValue: "Sign In…")
@@ -133,7 +134,10 @@ struct SidebarAccountMenuButton: View {
             if isSignedIn {
                 isPopoverPresented.toggle()
             } else {
-                accountFlow?.startSignIn()
+                _ = AppDelegate.shared?.performAccountSignInWorkspaceAction(
+                    tabManager: tabManager,
+                    debugSource: "sidebar.account"
+                )
             }
         } label: {
             SidebarAccountAvatar(
@@ -248,9 +252,10 @@ struct SidebarAccountAvatar: View {
 
     var body: some View {
         if isSignedIn {
-            SidebarSignedInAccountAvatar(
+            StackAccountAvatarView(
                 avatarURL: avatarURL,
-                initial: accountInitial,
+                displayName: displayName,
+                email: email,
                 size: size
             )
         } else {
@@ -264,53 +269,6 @@ struct SidebarAccountAvatar: View {
         }
     }
 
-    private var accountInitial: String? {
-        let source = displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? email : displayName
-        return source.first.map { String($0).uppercased() }
-    }
-}
-
-private struct SidebarSignedInAccountAvatar: View {
-    let avatarURL: URL?
-    let initial: String?
-    let size: CGFloat
-
-    var body: some View {
-        Group {
-            if let avatarURL {
-                AsyncImage(url: avatarURL) { phase in
-                    if let image = phase.image {
-                        image.resizable().scaledToFill()
-                    } else {
-                        fallback
-                    }
-                }
-            } else {
-                fallback
-            }
-        }
-        .frame(width: size, height: size)
-        .clipShape(Circle())
-        .overlay(Circle().stroke(Color.primary.opacity(0.12), lineWidth: 0.5))
-    }
-
-    private var fallback: some View {
-        ZStack {
-            Circle().fill(Color.accentColor.opacity(0.18))
-            if let initial {
-                Text(verbatim: initial)
-                    .cmuxFont(size: max(8, size * 0.4), weight: .semibold)
-                    .foregroundStyle(Color.accentColor)
-            } else {
-                CmuxSystemSymbolImage(
-                    systemName: "person.fill",
-                    pointSize: max(8, size * 0.45),
-                    weight: .medium
-                )
-                .foregroundStyle(Color.accentColor)
-            }
-        }
-    }
 }
 
 struct SidebarMobileConnectButton: View {

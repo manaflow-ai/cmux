@@ -74,8 +74,8 @@ final class CmuxFeatureFlags {
 
             // FLAG(key: mobile-connect-button-enabled-release, owner: lawrencecchen,
             //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
-            // Shows the top-right iPhone button that opens the Mobile Connect
-            // (phone pairing) window. Default keeps it visible when flags are
+            // Shows the bottom-left sidebar iPhone button that opens the Mobile
+            // Connect workspace. Default keeps it visible when flags are
             // unavailable; the window it opens ships in every build.
             CmuxFeatureFlagDefinition(
                 key: "mobile-connect-button-enabled-release",

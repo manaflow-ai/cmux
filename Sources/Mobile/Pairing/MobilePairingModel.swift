@@ -231,13 +231,6 @@ final class MobilePairingModel {
         }
     }
 
-    /// Launches the Mac browser sign-in flow. Fire-and-forget; the view re-runs
-    /// ``refresh()`` when the coordinator's auth state settles.
-    func signIn() {
-        state = .loading
-        AppDelegate.shared?.auth?.accountFlow.startSignIn()
-    }
-
     /// Cancels the connection observation. Call when the window closes.
     ///
     /// There is deliberately no timer to cancel: the displayed code never

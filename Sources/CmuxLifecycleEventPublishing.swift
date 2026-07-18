@@ -229,6 +229,8 @@ extension Workspace {
             return "cloud_vm_loading"
         case .mobilePairing:
             return "mobile_pairing"
+        case .accountSignIn:
+            return "account_sign_in"
         }
     }
 }

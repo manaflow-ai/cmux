@@ -5554,6 +5554,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.cloudVMLoading", defaultValue: "Cloud VM")
         case .mobilePairing:
             return String(localized: "command.mobileConnect.subtitle", defaultValue: "Mobile")
+        case .accountSignIn:
+            return String(localized: "settings.section.account", defaultValue: "Account")
         }
     }
     private func commandPaletteSurfaceKeywords(for panelType: PanelType) -> [String] {
@@ -5582,6 +5584,8 @@ struct ContentView: View {
             return ["cloud", "vm", "loading"]
         case .mobilePairing:
             return Self.commandPaletteMobileConnectKeywords
+        case .accountSignIn:
+            return ["account", "auth", "profile", "sign in"]
         }
     }
     private func commandPaletteCachedCommandsContext() -> CommandPaletteCommandsContext {
@@ -12046,7 +12050,7 @@ struct VerticalTabsSidebar: View {
             return .project
         case .extensionBrowser:
             return .unknown
-        case .workspaceTodo, .cloudVMLoading, .mobilePairing:
+        case .workspaceTodo, .cloudVMLoading, .mobilePairing, .accountSignIn:
             return .unknown
         }
     }

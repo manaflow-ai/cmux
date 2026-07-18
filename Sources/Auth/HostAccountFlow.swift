@@ -16,7 +16,7 @@ import Observation
 /// change after Settings is already open.
 @MainActor
 @Observable
-final class HostAccountFlow: AccountFlow {
+final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     private let coordinator: AuthCoordinator
     private let browserSignIn: HostBrowserSignInFlow
     private let featureFlags = CmuxFeatureFlags.shared
@@ -77,12 +77,41 @@ final class HostAccountFlow: AccountFlow {
         browserSignIn.signInIsSlow
     }
 
-    var lastSignInFailureDescription: String? {
-        browserSignIn.lastFailure?.errorDescription
+    var isCompletingSignIn: Bool {
+        coordinator.isLoading || coordinator.isRestoringSession
+    }
+
+    var lastSignInFailure: AccountSignInModel.Failure? {
+        guard let failure = browserSignIn.lastFailure else { return nil }
+        switch failure {
+        case .offline:
+            return .offline
+        case .networkError:
+            return .network
+        case .timedOut:
+            return .timedOut
+        case .serverError:
+            return .server
+        case .invalidCode, .invalidCallback:
+            return .invalidLink
+        case .browserSignInFailed:
+            return .browserUnavailable
+        case .unauthorized:
+            return .unauthorized
+        case .authFailure:
+            return .rejected
+        case .cancelled:
+            return .cancelled
+        }
     }
 
     func startSignIn() {
         browserSignIn.beginSignIn()
+    }
+
+    func startSignInForPane() -> URL? {
+        browserSignIn.beginSignIn()
+        return browserSignIn.activeAttemptSignInURL
     }
 
     /// Runs the same hosted Stack sign-in used by every UI entrypoint, while
@@ -104,7 +133,17 @@ final class HostAccountFlow: AccountFlow {
 
     func openSignInInDefaultBrowser() {
         guard let url = browserSignIn.activeAttemptSignInURL else { return }
+        _ = openSignInURLInDefaultBrowser(url)
+    }
+
+    func openSignInURLInDefaultBrowser(_ url: URL) -> Bool {
         NSWorkspace.shared.open(url)
+    }
+
+    func copySignInURL(_ url: URL) -> Bool {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        return pasteboard.setString(url.absoluteString, forType: .string)
     }
 
     func signOut() async {
