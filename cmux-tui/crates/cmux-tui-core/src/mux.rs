@@ -16169,6 +16169,126 @@ mod tests {
     }
 
     #[test]
+    fn renderer_config_install_is_versioned_digested_and_last_known_good() {
+        let mux = test_mux();
+        let events = mux.subscribe();
+        let colors = DefaultColors {
+            fg: Some(Rgb { r: 0x11, g: 0x22, b: 0x33 }),
+            bg: Some(Rgb { r: 0x44, g: 0x55, b: 0x66 }),
+            ..DefaultColors::default()
+        };
+        let resolved = b"foreground = #112233\nbackground = #445566\n".to_vec();
+
+        assert!(
+            mux.install_renderer_config(
+                resolved.clone(),
+                colors,
+                Arc::<str>::from("ghostty-config-loaded"),
+            )
+            .unwrap()
+        );
+        let installed = mux.renderer_config_snapshot();
+        assert_eq!(installed.revision, 1);
+        assert_eq!(installed.digest, Sha256::digest(&resolved).into());
+        assert_eq!(installed.resolved_config.as_ref(), resolved.as_slice());
+        assert_eq!(installed.default_colors, colors);
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::RendererConfigInvalidated {
+                revision: 1,
+                digest,
+                reason,
+                default_colors,
+            } if digest == installed.digest
+                && reason.as_ref() == "ghostty-config-loaded"
+                && default_colors == colors
+        ));
+
+        assert!(
+            !mux.install_renderer_config(
+                resolved.clone(),
+                colors,
+                Arc::<str>::from("ghostty-config-reloaded"),
+            )
+            .unwrap()
+        );
+        assert_eq!(mux.renderer_config_snapshot(), installed);
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+
+        assert!(
+            mux.install_renderer_config(
+                vec![0xff],
+                DefaultColors::default(),
+                Arc::<str>::from("ghostty-config-reloaded"),
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("UTF-8")
+        );
+        assert_eq!(mux.renderer_config_snapshot(), installed);
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn renderer_configure_uses_daemon_snapshot_instead_of_frontend_bytes() {
+        let fixture = configured_renderer_fixture();
+        let resolved = b"font-size = 17\ncustom-shader = daemon.glsl\n".to_vec();
+        let colors = DefaultColors {
+            bg: Some(Rgb { r: 0x10, g: 0x20, b: 0x30 }),
+            ..DefaultColors::default()
+        };
+        fixture
+            .mux
+            .install_renderer_config(
+                resolved.clone(),
+                colors,
+                Arc::<str>::from("ghostty-config-loaded"),
+            )
+            .unwrap();
+        let daemon = fixture.mux.renderer_config_snapshot();
+        let mut untrusted = renderer_configuration();
+        untrusted.resolved_config_revision = u64::MAX;
+        untrusted.resolved_config = b"custom-shader = frontend.glsl\n".to_vec();
+
+        let receipt = fixture
+            .mux
+            .configure_renderer_presentation(
+                fixture.client,
+                fixture.presentation_id,
+                1,
+                untrusted,
+            )
+            .unwrap();
+        assert_eq!(receipt.resolved_config_revision, daemon.revision);
+        assert_eq!(receipt.resolved_config_digest, daemon.digest);
+        fixture
+            .mux
+            .activate_renderer_presentation(
+                fixture.client,
+                fixture.presentation_id,
+                1,
+                receipt.renderer_presentation_generation,
+                fixture.worker.renderer_epoch,
+                fixture.worker.pid.unwrap(),
+                RendererProcessInstanceToken {
+                    start_time_seconds: fixture.worker.process_start_time_seconds.unwrap(),
+                    start_time_microseconds: fixture
+                        .worker
+                        .process_start_time_microseconds
+                        .unwrap(),
+                },
+            )
+            .unwrap();
+
+        assert!(matches!(
+            fixture.supervisor.sent_messages().first(),
+            Some(RendererControlMessage::UpsertPresentation(attachment))
+                if attachment.resolved_config_revision == daemon.revision
+                    && attachment.resolved_config == resolved
+        ));
+    }
+
+    #[test]
     fn split_and_close_collapses_tree() {
         let mux = test_mux();
         let s1 = mux.new_workspace(None, None).unwrap();
