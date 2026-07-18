@@ -14,8 +14,8 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ### Renderer scene projection seam (feature integration)
 
-The cmux terminal-backend feature currently pins `eefdfed16` on the fork branch
-`feat/cmux-render-scene`, five commits above the released fork `main` head
+The cmux terminal-backend feature currently pins `b11389d9b` on the fork branch
+`feat/cmux-render-scene`, seven commits above the released fork `main` head
 `bb30526cd`. This feature integration is pushed to `manaflow-ai/ghostty`, but it
 is not merged into fork `main` and does not have a GhosttyKit release archive
 yet.
@@ -26,6 +26,8 @@ yet.
   - `2e11055cb` (`renderer: complete external scene fidelity`)
   - `b9746b9cf` (`renderer: preserve advanced external scene fidelity`)
   - `eefdfed16` (`instrument process-lifetime terminal ownership`)
+  - `0638be516` (`instrument runtime app construction`)
+  - `b11389d9b` (`build: add scene-only renderer kit`)
 - Files:
   - `src/renderer/Scene.zig`
   - `src/renderer.zig`
@@ -125,6 +127,22 @@ Conflict note: every future embedded surface constructor must use
 around `openpty`, and census counters must remain monotonic for the process
 lifetime. Changes to the signpost subsystem, interval, unit names, C struct
 layout, or snapshot bound require a matching acceptance-verifier update.
+
+The sixth commit advances the census to schema 2 and counts every embedded
+runtime-app constructor attempt. This distinguishes a renderer process that
+never entered Ghostty's app runtime from one that created an app but no surface
+or PTY.
+
+The seventh commit adds `GhosttySceneRendererKit.xcframework`, a separate
+macOS static artifact rooted at `main_scene_c.zig`. Its public module contains
+only scene initialization, resolved-config diagnostics, and semantic-scene
+Metal renderer APIs. Its build disables the embedded app runtime, PTY bridge,
+termio, parser replay, process census, inspector, crash reporter, Freetype,
+gettext, SIMD, and libghostty-vt dependency graphs. The final cmux renderer
+link audit rejects those symbols and objects in both the static archive and
+the worker Mach-O. Future scene-renderer changes must preserve that closed
+dependency set and extend `include/ghostty_scene.h` with every new public
+Ghostty symbol.
 
 Current cmux pinned fork head: `bb30526cd`. It advances the previous cmux pin
 `b4b6d69c8` through the already-merged theme, render-grid, and wrap-aware URL

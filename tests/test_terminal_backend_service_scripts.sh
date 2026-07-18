@@ -38,6 +38,7 @@ cleanup() {
 trap cleanup EXIT
 
 bash -n \
+  "$ROOT/scripts/audit-terminal-renderer-linkage.sh" \
   "$ROOT/scripts/build-terminal-backend.sh" \
   "$ROOT/scripts/build-terminal-renderer.sh" \
   "$ROOT/scripts/cleanup-dev-builds.sh" \
@@ -59,6 +60,7 @@ second_fingerprint="$("$ROOT/scripts/terminal-backend-build-fingerprint.py" --me
   --dependency-target "$TEST_ROOT/cmux-terminal-backend" >/dev/null
 grep -q 'cmux-tui/crates/cmux-tui-core/src/server.rs' "$TEST_ROOT/backend.d"
 grep -q 'ghostty/src/terminal' "$TEST_ROOT/backend.d"
+grep -q 'scripts/audit-terminal-renderer-linkage.sh' "$TEST_ROOT/backend.d"
 grep -q 'Packages/macOS/CmuxTerminalRenderer' "$TEST_ROOT/backend.d"
 grep -q 'scripts/build-terminal-renderer.sh' "$ROOT/cmux.xcodeproj/project.pbxproj"
 grep -q 'UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-terminal-renderer' \

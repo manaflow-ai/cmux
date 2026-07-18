@@ -19,6 +19,7 @@ GHOSTTYKIT_BUILD_FLAVOR="${GHOSTTYKIT_BUILD_FLAVOR:-crashsubdir-$(printf '%s' "$
 TAG="${GHOSTTYKIT_RELEASE_TAG:-xcframework-$GHOSTTY_SHA-$GHOSTTYKIT_BUILD_FLAVOR}"
 ARCHIVE_NAME="${GHOSTTYKIT_ARCHIVE_NAME:-GhosttyKit.xcframework.tar.gz}"
 OUTPUT_DIR="${GHOSTTYKIT_OUTPUT_DIR:-GhosttyKit.xcframework}"
+SCENE_OUTPUT_DIR="${GHOSTTY_SCENE_RENDERER_KIT_OUTPUT_DIR:-GhosttySceneRendererKit.xcframework}"
 CHECKSUMS_FILE="${GHOSTTYKIT_CHECKSUMS_FILE:-$SCRIPT_DIR/ghosttykit-checksums.txt}"
 DOWNLOAD_URL="${GHOSTTYKIT_URL:-https://github.com/manaflow-ai/ghostty/releases/download/$TAG/$ARCHIVE_NAME}"
 DOWNLOAD_RETRIES="${GHOSTTYKIT_DOWNLOAD_RETRIES:-30}"
@@ -79,9 +80,13 @@ fi
 
 python3 "$ARCHIVE_VALIDATOR" "$ARCHIVE_PATH"
 mkdir -p "$(dirname "$OUTPUT_DIR")"
+mkdir -p "$(dirname "$SCENE_OUTPUT_DIR")"
 tar --no-same-owner -xzf "$ARCHIVE_PATH" -C "$EXTRACT_DIR"
 rm -rf "$OUTPUT_DIR"
+rm -rf "$SCENE_OUTPUT_DIR"
 mv "$EXTRACT_DIR/GhosttyKit.xcframework" "$OUTPUT_DIR"
+mv "$EXTRACT_DIR/GhosttySceneRendererKit.xcframework" "$SCENE_OUTPUT_DIR"
 test -d "$OUTPUT_DIR"
+test -d "$SCENE_OUTPUT_DIR"
 
-echo "Verified and extracted $OUTPUT_DIR"
+echo "Verified and extracted $OUTPUT_DIR and $SCENE_OUTPUT_DIR"

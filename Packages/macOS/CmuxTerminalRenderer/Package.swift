@@ -23,7 +23,7 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "GhosttySceneRendererKit",
-            path: "../../../GhosttyKit.xcframework"
+            path: "../../../GhosttySceneRendererKit.xcframework"
         ),
         .target(
             name: "CmuxTerminalRendererRuntime",
@@ -94,6 +94,25 @@ let package = Package(
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
                 .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
+        .testTarget(
+            name: "CmuxTerminalRendererGhosttyTests",
+            dependencies: ["GhosttySceneRendererKit"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ],
+            linkerSettings: [
+                .linkedLibrary("c++"),
+                .linkedFramework("AppKit"),
+                .linkedFramework("Carbon"),
+                .linkedFramework("CoreText"),
+                .linkedFramework("IOSurface"),
+                .linkedFramework("Metal"),
+                .linkedFramework("QuartzCore"),
+                .linkedFramework("UniformTypeIdentifiers"),
             ]
         ),
     ]

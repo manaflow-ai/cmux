@@ -3,7 +3,7 @@ internal import CmuxTerminalRenderProtocol
 internal import CmuxTerminalRendererControl
 internal import CmuxTerminalRenderTransport
 internal import Foundation
-internal import GhosttyKit
+internal import GhosttySceneRendererKit
 internal import IOSurface
 internal import OSLog
 
@@ -14,7 +14,7 @@ nonisolated private let logger = Logger(
 
 struct GhosttyPresentationEngineFactory: RendererPresentationEngineFactory {
     init() throws {
-        guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == GHOSTTY_SUCCESS else {
+        guard ghostty_scene_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == 0 else {
             throw RendererPresentationEngineError.invariantViolation
         }
     }

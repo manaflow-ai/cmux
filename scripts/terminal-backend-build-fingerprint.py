@@ -35,6 +35,7 @@ def source_files(root: pathlib.Path) -> list[pathlib.Path]:
         root / "ghostty/build.zig.zon",
         root / "scripts/build-terminal-backend.sh",
         root / "scripts/build-terminal-renderer.sh",
+        root / "scripts/audit-terminal-renderer-linkage.sh",
         root / "scripts/ensure-ghosttykit.sh",
         root / "scripts/test-terminal-renderer-helper.sh",
         root / "scripts/terminal-backend-build-fingerprint.py",

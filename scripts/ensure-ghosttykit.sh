@@ -69,6 +69,12 @@ if [[ ! -f "$PROJECT_DIR/ghostty/include/ghostty.h" ]]; then
   exit 1
 fi
 
+if [[ ! -f "$PROJECT_DIR/ghostty/include/ghostty_scene.h" ]]; then
+  echo "error: ghostty/include/ghostty_scene.h is missing." >&2
+  echo "Update the Ghostty submodule to a revision with the scene renderer artifact." >&2
+  exit 1
+fi
+
 if ! validate_bridge_header "$PROJECT_DIR/ghostty.h"; then
   echo "error: ghostty.h no longer points at ghostty/include/ghostty.h." >&2
   echo "Restore the bridge header so Xcode uses Ghostty's canonical C API." >&2
@@ -102,9 +108,13 @@ fi
 CACHE_ROOT="${CMUX_GHOSTTYKIT_CACHE_DIR:-$HOME/.cache/cmux/ghosttykit}"
 CACHE_DIR="$CACHE_ROOT/$GHOSTTY_KEY"
 CACHE_XCFRAMEWORK="$CACHE_DIR/GhosttyKit.xcframework"
+CACHE_SCENE_XCFRAMEWORK="$CACHE_DIR/GhosttySceneRendererKit.xcframework"
 LOCAL_XCFRAMEWORK="$PROJECT_DIR/ghostty/macos/GhosttyKit.xcframework"
+LOCAL_SCENE_XCFRAMEWORK="$PROJECT_DIR/ghostty/macos/GhosttySceneRendererKit.xcframework"
 LOCAL_KEY_STAMP="$LOCAL_XCFRAMEWORK/.ghostty_state_key"
+LOCAL_SCENE_KEY_STAMP="$LOCAL_SCENE_XCFRAMEWORK/.ghostty_state_key"
 LEGACY_LOCAL_SHA_STAMP="$LOCAL_XCFRAMEWORK/.ghostty_sha"
+LEGACY_LOCAL_SCENE_SHA_STAMP="$LOCAL_SCENE_XCFRAMEWORK/.ghostty_sha"
 LOCK_DIR="$CACHE_ROOT/$GHOSTTY_KEY.lock"
 GHOSTTYKIT_CHECKSUMS_FILE="${CMUX_GHOSTTYKIT_CHECKSUMS_FILE:-$SCRIPT_DIR/ghosttykit-checksums.txt}"
 GHOSTTYKIT_ARCHIVE_VALIDATOR="${CMUX_GHOSTTYKIT_ARCHIVE_VALIDATOR:-$SCRIPT_DIR/validate-xcframework-archive.py}"
@@ -189,74 +199,95 @@ try_fetch_prebuilt_xcframework() {
   fi
 
   local extracted="$tmp_extract/GhosttyKit.xcframework"
-  if [[ ! -d "$extracted" ]]; then
+  local extracted_scene="$tmp_extract/GhosttySceneRendererKit.xcframework"
+  if [[ ! -d "$extracted" || ! -d "$extracted_scene" ]]; then
     rm -rf "$tmp_dir"
-    echo "==> Prebuilt archive did not contain GhosttyKit.xcframework; falling back." >&2
+    echo "==> Prebuilt archive did not contain both Ghostty XCFrameworks; falling back." >&2
     return 1
   fi
 
   mkdir -p "$(dirname "$LOCAL_XCFRAMEWORK")"
-  rm -rf "$LOCAL_XCFRAMEWORK"
+  rm -rf "$LOCAL_XCFRAMEWORK" "$LOCAL_SCENE_XCFRAMEWORK"
   mv "$extracted" "$LOCAL_XCFRAMEWORK"
+  mv "$extracted_scene" "$LOCAL_SCENE_XCFRAMEWORK"
   rm -rf "$tmp_dir"
   echo "$GHOSTTY_KEY" > "$LOCAL_KEY_STAMP"
+  echo "$GHOSTTY_KEY" > "$LOCAL_SCENE_KEY_STAMP"
   echo "$GHOSTTY_SHA" > "$LEGACY_LOCAL_SHA_STAMP"
+  echo "$GHOSTTY_SHA" > "$LEGACY_LOCAL_SCENE_SHA_STAMP"
   return 0
 }
 
-if [[ -d "$CACHE_XCFRAMEWORK" ]]; then
-  echo "==> Reusing cached GhosttyKit.xcframework"
+if [[ -d "$CACHE_XCFRAMEWORK" && -d "$CACHE_SCENE_XCFRAMEWORK" ]]; then
+  echo "==> Reusing cached Ghostty XCFrameworks"
 else
   LOCAL_KEY=""
+  LOCAL_SCENE_KEY=""
   if [[ -f "$LOCAL_KEY_STAMP" ]]; then
     LOCAL_KEY="$(cat "$LOCAL_KEY_STAMP")"
   elif [[ -f "$LEGACY_LOCAL_SHA_STAMP" ]]; then
     LOCAL_KEY="$(cat "$LEGACY_LOCAL_SHA_STAMP")"
   fi
+  if [[ -f "$LOCAL_SCENE_KEY_STAMP" ]]; then
+    LOCAL_SCENE_KEY="$(cat "$LOCAL_SCENE_KEY_STAMP")"
+  elif [[ -f "$LEGACY_LOCAL_SCENE_SHA_STAMP" ]]; then
+    LOCAL_SCENE_KEY="$(cat "$LEGACY_LOCAL_SCENE_SHA_STAMP")"
+  fi
 
-  if [[ -d "$LOCAL_XCFRAMEWORK" && "$LOCAL_KEY" == "$GHOSTTY_KEY" ]]; then
-    echo "==> Seeding cache from existing local GhosttyKit.xcframework (build key matches)"
+  if [[ -d "$LOCAL_XCFRAMEWORK" && -d "$LOCAL_SCENE_XCFRAMEWORK" && \
+        "$LOCAL_KEY" == "$GHOSTTY_KEY" && "$LOCAL_SCENE_KEY" == "$GHOSTTY_KEY" ]]; then
+    echo "==> Seeding cache from existing local Ghostty XCFrameworks (build key matches)"
   elif try_fetch_prebuilt_xcframework; then
-    echo "==> Seeding cache from prebuilt GhosttyKit.xcframework"
+    echo "==> Seeding cache from prebuilt Ghostty XCFrameworks"
   else
-    echo "==> Building GhosttyKit.xcframework (this may take a few minutes)..."
+    echo "==> Building Ghostty XCFrameworks (this may take a few minutes)..."
     (
       cd ghostty
-      zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
+      zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Demit-xcframework=true -Demit-scene-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
     )
     echo "$GHOSTTY_KEY" > "$LOCAL_KEY_STAMP"
+    echo "$GHOSTTY_KEY" > "$LOCAL_SCENE_KEY_STAMP"
     echo "$GHOSTTY_SHA" > "$LEGACY_LOCAL_SHA_STAMP"
+    echo "$GHOSTTY_SHA" > "$LEGACY_LOCAL_SCENE_SHA_STAMP"
   fi
 
   if [[ ! -d "$LOCAL_XCFRAMEWORK" ]]; then
     echo "Error: GhosttyKit.xcframework not found at $LOCAL_XCFRAMEWORK" >&2
     exit 1
   fi
+  if [[ ! -d "$LOCAL_SCENE_XCFRAMEWORK" ]]; then
+    echo "Error: GhosttySceneRendererKit.xcframework not found at $LOCAL_SCENE_XCFRAMEWORK" >&2
+    exit 1
+  fi
 
   TMP_DIR="$(mktemp -d "$CACHE_ROOT/.ghosttykit-tmp.XXXXXX")"
   mkdir -p "$CACHE_DIR"
   cp -R "$LOCAL_XCFRAMEWORK" "$TMP_DIR/GhosttyKit.xcframework"
-  rm -rf "$CACHE_XCFRAMEWORK"
+  cp -R "$LOCAL_SCENE_XCFRAMEWORK" "$TMP_DIR/GhosttySceneRendererKit.xcframework"
+  rm -rf "$CACHE_XCFRAMEWORK" "$CACHE_SCENE_XCFRAMEWORK"
   mv "$TMP_DIR/GhosttyKit.xcframework" "$CACHE_XCFRAMEWORK"
+  mv "$TMP_DIR/GhosttySceneRendererKit.xcframework" "$CACHE_SCENE_XCFRAMEWORK"
   rmdir "$TMP_DIR"
-  echo "==> Cached GhosttyKit.xcframework at $CACHE_XCFRAMEWORK"
+  echo "==> Cached Ghostty XCFrameworks at $CACHE_DIR"
 fi
 
-MACOS_ARCHIVE="$CACHE_XCFRAMEWORK/macos-arm64_x86_64/libghostty.a"
-if [[ -f "$MACOS_ARCHIVE" ]]; then
+if find "$CACHE_XCFRAMEWORK" "$CACHE_SCENE_XCFRAMEWORK" -type f -name '*.a' -print -quit | grep -q .; then
   # Xcode 26 can fail to resolve symbols from Ghostty's universal static archive
   # until its ranlib index is refreshed after reuse or copy.
-  echo "==> Refreshing libghostty archive index..."
+  echo "==> Refreshing Ghostty archive indexes..."
   if ! command -v xcrun >/dev/null 2>&1; then
-    echo "error: xcrun is required to refresh libghostty archive index." >&2
+    echo "error: xcrun is required to refresh Ghostty archive indexes." >&2
     exit 1
   fi
   if ! XCODE_RANLIB="$(xcrun --find ranlib 2>/dev/null)"; then
     echo "error: could not locate ranlib via xcrun." >&2
     exit 1
   fi
-  "$XCODE_RANLIB" "$MACOS_ARCHIVE"
+  while IFS= read -r archive; do
+    "$XCODE_RANLIB" "$archive"
+  done < <(find "$CACHE_XCFRAMEWORK" "$CACHE_SCENE_XCFRAMEWORK" -type f -name '*.a' -print)
 fi
 
-echo "==> Creating symlink for GhosttyKit.xcframework..."
+echo "==> Creating symlinks for Ghostty XCFrameworks..."
 ln -sfn "$CACHE_XCFRAMEWORK" GhosttyKit.xcframework
+ln -sfn "$CACHE_SCENE_XCFRAMEWORK" GhosttySceneRendererKit.xcframework

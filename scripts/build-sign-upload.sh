@@ -61,12 +61,17 @@ echo "Pre-flight checks passed"
 
 # --- Build GhosttyKit ---
 echo "Building GhosttyKit..."
-rm -rf GhosttyKit.xcframework ghostty/macos/GhosttyKit.xcframework
+rm -rf \
+  GhosttyKit.xcframework \
+  GhosttySceneRendererKit.xcframework \
+  ghostty/macos/GhosttyKit.xcframework \
+  ghostty/macos/GhosttySceneRendererKit.xcframework
 (
   cd ghostty
-  zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
+  zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Demit-xcframework=true -Demit-scene-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
 )
 cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
+cp -R ghostty/macos/GhosttySceneRendererKit.xcframework GhosttySceneRendererKit.xcframework
 
 # --- Build app (Release, unsigned) ---
 echo "Building app..."

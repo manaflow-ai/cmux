@@ -91,19 +91,20 @@ jobs:
           set -euo pipefail
           ./scripts/install-zig-ci.sh
 
-      - name: Build GhosttyKit.xcframework
+      - name: Build Ghostty XCFrameworks
         if: steps.check-release.outputs.exists == 'false'
         run: |
           set -euo pipefail
-          cd ghostty && zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
+          cd ghostty && zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Demit-xcframework=true -Demit-scene-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
 
-      - name: Package xcframework
+      - name: Package xcframeworks
         if: steps.check-release.outputs.exists == 'false'
         run: |
           set -euo pipefail
-          rm -rf GhosttyKit.xcframework
+          rm -rf GhosttyKit.xcframework GhosttySceneRendererKit.xcframework
           cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
-          COPYFILE_DISABLE=1 tar czf GhosttyKit.xcframework.tar.gz GhosttyKit.xcframework
+          cp -R ghostty/macos/GhosttySceneRendererKit.xcframework GhosttySceneRendererKit.xcframework
+          COPYFILE_DISABLE=1 tar czf GhosttyKit.xcframework.tar.gz GhosttyKit.xcframework GhosttySceneRendererKit.xcframework
           python3 scripts/validate-xcframework-archive.py GhosttyKit.xcframework.tar.gz
 
       - name: Upload xcframework release
@@ -120,7 +121,7 @@ jobs:
           gh release create "$TAG" \
             --repo manaflow-ai/ghostty \
             --target "${{ steps.ghostty-sha.outputs.sha }}" \
-            --title "GhosttyKit xcframework (${{ steps.ghostty-sha.outputs.sha }}, ${GHOSTTYKIT_BUILD_FLAVOR})" \
-            --notes "Pre-built GhosttyKit.xcframework for commit ${{ steps.ghostty-sha.outputs.sha }} with crash-report-subdir=${GHOSTTYKIT_CRASH_REPORT_SUBDIR}" \
+            --title "Ghostty XCFrameworks (${{ steps.ghostty-sha.outputs.sha }}, ${GHOSTTYKIT_BUILD_FLAVOR})" \
+            --notes "Pre-built GhosttyKit.xcframework and GhosttySceneRendererKit.xcframework for commit ${{ steps.ghostty-sha.outputs.sha }} with crash-report-subdir=${GHOSTTYKIT_CRASH_REPORT_SUBDIR}" \
             GhosttyKit.xcframework.tar.gz
           echo "Published release $TAG"

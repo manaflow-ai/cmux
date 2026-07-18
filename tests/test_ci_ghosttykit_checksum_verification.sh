@@ -25,9 +25,21 @@ MISMATCH_LOG="$TMP_DIR/curl-mismatch.log"
 MISMATCH_OUTPUT="$TMP_DIR/mismatch.out"
 MISSING_ENTRY_OUTPUT="$TMP_DIR/missing-entry.out"
 
-mkdir -p "$FIXTURE_DIR/GhosttyKit.xcframework" "$SUCCESS_DIR" "$MISMATCH_DIR" "$MISSING_ENTRY_DIR" "$BIN_DIR"
+mkdir -p \
+  "$FIXTURE_DIR/GhosttyKit.xcframework" \
+  "$FIXTURE_DIR/GhosttySceneRendererKit.xcframework" \
+  "$SUCCESS_DIR" \
+  "$MISMATCH_DIR" \
+  "$MISSING_ENTRY_DIR" \
+  "$BIN_DIR"
 printf 'fixture\n' > "$FIXTURE_DIR/GhosttyKit.xcframework/marker.txt"
-(cd "$FIXTURE_DIR" && COPYFILE_DISABLE=1 tar czf "$TMP_DIR/GhosttyKit.xcframework.tar.gz" GhosttyKit.xcframework)
+printf 'scene fixture\n' > "$FIXTURE_DIR/GhosttySceneRendererKit.xcframework/marker.txt"
+(
+  cd "$FIXTURE_DIR"
+  COPYFILE_DISABLE=1 tar czf "$TMP_DIR/GhosttyKit.xcframework.tar.gz" \
+    GhosttyKit.xcframework \
+    GhosttySceneRendererKit.xcframework
+)
 ACTUAL_SHA256="$(shasum -a 256 "$TMP_DIR/GhosttyKit.xcframework.tar.gz" | awk '{print $1}')"
 printf '%s %s\n' "$FIXTURE_SHA" "$ACTUAL_SHA256" > "$CHECKSUMS_FILE"
 
@@ -80,6 +92,10 @@ chmod +x "$BIN_DIR/curl"
 
 if [ ! -f "$SUCCESS_DIR/GhosttyKit.xcframework/marker.txt" ]; then
   echo "FAIL: verification helper did not extract GhosttyKit.xcframework"
+  exit 1
+fi
+if [ ! -f "$SUCCESS_DIR/GhosttySceneRendererKit.xcframework/marker.txt" ]; then
+  echo "FAIL: verification helper did not extract GhosttySceneRendererKit.xcframework"
   exit 1
 fi
 

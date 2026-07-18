@@ -22,6 +22,8 @@ ios/Config/AppStoreConnect.local.plist
 # GhosttyKit binary (built from ghostty submodule via scripts/setup.sh)
 GhosttyKit.xcframework
 GhosttyKit.xcframework.bak-*/
+GhosttySceneRendererKit.xcframework
+GhosttySceneRendererKit.xcframework.bak-*/
 
 # Release artifacts
 cmux-*.zip

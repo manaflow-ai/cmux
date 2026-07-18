@@ -75,8 +75,8 @@ if [[ "${CMUX_TERMINAL_RENDERER_SKIP_GHOSTTYKIT:-0}" != "1" ]]; then
     CMUX_GHOSTTYKIT_NO_PREBUILT="${CMUX_GHOSTTYKIT_NO_PREBUILT:-0}" \
     "$REPO_ROOT/scripts/ensure-ghosttykit.sh"
 fi
-[[ -d "$REPO_ROOT/GhosttyKit.xcframework" ]] || {
-  echo "error: GhosttyKit.xcframework is missing" >&2
+[[ -d "$REPO_ROOT/GhosttySceneRendererKit.xcframework" ]] || {
+  echo "error: GhosttySceneRendererKit.xcframework is missing" >&2
   exit 1
 }
 
@@ -121,6 +121,10 @@ else
   /usr/bin/lipo -create "${BUILT_SLICES[@]}" -output "$OUTPUT_PATH"
   chmod 0755 "$OUTPUT_PATH"
 fi
+
+"$REPO_ROOT/scripts/audit-terminal-renderer-linkage.sh" \
+  --binary "$OUTPUT_PATH" \
+  --xcframework "$REPO_ROOT/GhosttySceneRendererKit.xcframework"
 
 if [[ "$SHOULD_SIGN" -eq 1 ]]; then
   /usr/bin/codesign \
