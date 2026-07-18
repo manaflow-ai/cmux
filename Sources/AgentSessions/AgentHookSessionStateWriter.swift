@@ -1634,21 +1634,35 @@ struct AgentHookSessionStateWriter: Sendable {
             uniquingKeysWith: { existing, _ in existing }
         )
 
-        let legacyStamp = CmuxAgentSessionRegistry.LegacyStamp.read(path: stateURL.path)
-        let legacyWillRefresh: Bool
-        if let legacyStamp {
-            guard let canSkip = try? registry.canonicalRebindCanSkipLegacySource(
+        var legacyAdmission: CmuxAgentSessionRegistry.HookLegacySourceAdmission?
+        if let legacyStamp = CmuxAgentSessionRegistry.LegacyStamp.read(path: stateURL.path) {
+            guard let canSkipInitialStamp = try? registry.canonicalRebindCanSkipLegacySource(
                 provider: provider,
                 stamp: legacyStamp
             ) else { return nil }
-            legacyWillRefresh = !canSkip
-        } else {
-            legacyWillRefresh = false
+            if !canSkipInitialStamp {
+                guard let admission = try? registry
+                    .hookLegacySourceAdmissionRetryingOneReplacement(
+                        source: .init(provider: provider, url: stateURL),
+                        expectedStamp: legacyStamp
+                    ),
+                    let canSkipAdmittedStamp = try? registry
+                        .canonicalRebindCanSkipLegacySource(
+                            provider: provider,
+                            stamp: admission.stamp
+                        ) else {
+                    return nil
+                }
+                if !canSkipAdmittedStamp {
+                    legacyAdmission = admission
+                }
+            }
         }
         let legacySessions: [String: Any] = {
-            guard legacyWillRefresh,
-                  let data = try? registry.readHookLegacySourceData(at: stateURL),
-                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            guard let legacyAdmission,
+                  let root = try? JSONSerialization.jsonObject(
+                    with: legacyAdmission.json
+                  ) as? [String: Any] else {
                 return [:]
             }
             return root["sessions"] as? [String: Any] ?? [:]
@@ -1665,7 +1679,7 @@ struct AgentHookSessionStateWriter: Sendable {
             let record: [String: Any]?
             if let canonical, canonical.writerGeneration > 0 {
                 record = try? JSONSerialization.jsonObject(with: canonical.json) as? [String: Any]
-            } else if legacyWillRefresh,
+            } else if legacyAdmission != nil,
                       let legacyRecord = legacySessions[sessionId] as? [String: Any] {
                 record = legacyRecord
             } else if let canonical {

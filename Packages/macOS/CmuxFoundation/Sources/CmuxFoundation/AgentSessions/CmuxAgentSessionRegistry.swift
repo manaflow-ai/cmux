@@ -322,6 +322,82 @@ public struct CmuxAgentSessionRegistry: Sendable {
         return snapshots[provider] ?? Snapshot(records: [], activeSlots: [])
     }
 
+    typealias HookLegacySourceAdmissionLoader = (
+        _ source: LegacySource,
+        _ expectedStamp: LegacyStamp
+    ) throws -> HookLegacySourceAdmission
+
+    private enum RetryingHookLegacySourceAdmissionResult {
+        case admitted(HookLegacySourceAdmission)
+        case stableFailure(stamp: LegacyStamp, error: any Error)
+        case unstable
+    }
+
+    /// Pins the compatibility bytes and stamp to one descriptor, retrying once
+    /// when the path changes while it is being opened or read. A second change
+    /// is reported as unstable instead of being mistaken for a malformed exact
+    /// revision and quarantined under the wrong stamp.
+    private func retryingHookLegacySourceAdmission(
+        source: LegacySource,
+        expectedStamp initialStamp: LegacyStamp,
+        fileManager: FileManager,
+        loader: HookLegacySourceAdmissionLoader
+    ) -> RetryingHookLegacySourceAdmissionResult {
+        var expectedStamp = initialStamp
+        for attempt in 0..<2 {
+            do {
+                let admission = try loader(source, expectedStamp)
+                guard admission.source.provider == source.provider,
+                      admission.source.url.standardizedFileURL == source.url.standardizedFileURL,
+                      admission.stamp == expectedStamp else {
+                    throw HookLegacySourceRevisionChangedError(path: source.url.path)
+                }
+                return .admitted(admission)
+            } catch {
+                let observedStamp = LegacyStamp.read(
+                    path: source.url.path,
+                    fileManager: fileManager
+                )
+                let revisionChanged = error is HookLegacySourceRevisionChangedError
+                    || observedStamp != Optional(expectedStamp)
+                guard revisionChanged else {
+                    return .stableFailure(stamp: expectedStamp, error: error)
+                }
+                guard attempt == 0, let observedStamp else { return .unstable }
+                expectedStamp = observedStamp
+            }
+        }
+        return .unstable
+    }
+
+    /// Public counterpart used by app restore preflight. The returned bytes and
+    /// stamp always describe the same descriptor revision.
+    public func hookLegacySourceAdmissionRetryingOneReplacement(
+        source: LegacySource,
+        expectedStamp: LegacyStamp,
+        fileManager: FileManager = .default
+    ) throws -> HookLegacySourceAdmission {
+        switch retryingHookLegacySourceAdmission(
+            source: source,
+            expectedStamp: expectedStamp,
+            fileManager: fileManager,
+            loader: { source, stamp in
+                try hookLegacySourceAdmission(
+                    source: source,
+                    expectedStamp: stamp,
+                    fileManager: fileManager
+                )
+            }
+        ) {
+        case let .admitted(admission):
+            return admission
+        case let .stableFailure(_, error):
+            throw error
+        case .unstable:
+            throw HookLegacySourceRevisionChangedError(path: source.url.path)
+        }
+    }
+
     /// Imports changed compatibility files without materializing provider
     /// snapshots. Session restore uses this bounded preflight before it adopts
     /// hibernated rows. A malformed provider is isolated from valid peers, while
@@ -330,6 +406,26 @@ public struct CmuxAgentSessionRegistry: Sendable {
         _ sources: [LegacySource],
         preservingCanonicalRestoreOwners restoreOwners: Set<RestoreOwnerContext> = [],
         fileManager: FileManager = .default
+    ) throws -> LegacyRefreshResult {
+        try refreshLegacySources(
+            sources,
+            preservingCanonicalRestoreOwners: restoreOwners,
+            fileManager: fileManager,
+            legacyAdmissionLoader: { source, stamp in
+                try hookLegacySourceAdmission(
+                    source: source,
+                    expectedStamp: stamp,
+                    fileManager: fileManager
+                )
+            }
+        )
+    }
+
+    func refreshLegacySources(
+        _ sources: [LegacySource],
+        preservingCanonicalRestoreOwners restoreOwners: Set<RestoreOwnerContext> = [],
+        fileManager: FileManager = .default,
+        legacyAdmissionLoader: HookLegacySourceAdmissionLoader
     ) throws -> LegacyRefreshResult {
         let uniqueSources = Dictionary(
             sources.map { ($0.provider, $0) },
@@ -381,12 +477,40 @@ public struct CmuxAgentSessionRegistry: Sendable {
                     malformed.append((source, stamp, false))
                     continue
                 }
-                do {
-                    let data = try readHookLegacySourceData(at: source.url)
-                    changed.append((source, stamp, try legacyPayload(provider: source.provider, json: data)))
-                } catch {
+                switch retryingHookLegacySourceAdmission(
+                    source: source,
+                    expectedStamp: stamp,
+                    fileManager: fileManager,
+                    loader: legacyAdmissionLoader
+                ) {
+                case let .admitted(admission):
+                    let admittedState = try legacySourceState(
+                        database: database,
+                        provider: source.provider,
+                        stamp: admission.stamp
+                    )
+                    if admittedState == .imported { continue }
+                    if admittedState == .quarantined {
+                        failedProviders.insert(source.provider)
+                        malformed.append((source, admission.stamp, false))
+                        continue
+                    }
+                    do {
+                        changed.append((
+                            source,
+                            admission.stamp,
+                            try legacyPayload(provider: source.provider, json: admission.json)
+                        ))
+                    } catch {
+                        failedProviders.insert(source.provider)
+                        malformed.append((source, admission.stamp, true))
+                    }
+                case let .stableFailure(failedStamp, _):
                     failedProviders.insert(source.provider)
-                    malformed.append((source, stamp, true))
+                    malformed.append((source, failedStamp, true))
+                case .unstable:
+                    failedProviders.insert(source.provider)
+                    malformed.append((source, stamp, false))
                 }
             }
             func verifyMalformedOwners(
@@ -520,8 +644,21 @@ public struct CmuxAgentSessionRegistry: Sendable {
                         provider: source.provider,
                         stamp: stamp
                       ) else { continue }
-                let data = try readHookLegacySourceData(at: source.url)
-                changed.append((source, stamp, try legacyPayload(provider: source.provider, json: data)))
+                let admission = try hookLegacySourceAdmissionRetryingOneReplacement(
+                    source: source,
+                    expectedStamp: stamp,
+                    fileManager: fileManager
+                )
+                guard try !legacySourceIsCurrent(
+                    database: database,
+                    provider: source.provider,
+                    stamp: admission.stamp
+                ) else { continue }
+                changed.append((
+                    source,
+                    admission.stamp,
+                    try legacyPayload(provider: source.provider, json: admission.json)
+                ))
             }
             if !changed.isEmpty {
                 try transaction(database) {
@@ -571,11 +708,20 @@ public struct CmuxAgentSessionRegistry: Sendable {
                         stamp: stamp
                       ) else { continue }
                 do {
-                    let data = try readHookLegacySourceData(at: source.url)
+                    let admission = try hookLegacySourceAdmissionRetryingOneReplacement(
+                        source: source,
+                        expectedStamp: stamp,
+                        fileManager: fileManager
+                    )
+                    guard try !legacySourceIsCurrent(
+                        database: database,
+                        provider: source.provider,
+                        stamp: admission.stamp
+                    ) else { continue }
                     changed.append((
                         source,
-                        stamp,
-                        try legacyPayload(provider: source.provider, json: data)
+                        admission.stamp,
+                        try legacyPayload(provider: source.provider, json: admission.json)
                     ))
                 } catch {
                     throw HookLegacySourceImportError(provider: source.provider)
@@ -979,13 +1125,24 @@ public struct CmuxAgentSessionRegistry: Sendable {
                    provider: provider,
                    stamp: stamp
                ) {
-                changedLegacy = (
-                    stamp,
-                    try legacyPayload(
-                        provider: provider,
-                        json: readHookLegacySourceData(at: legacyURL)
-                    )
+                let source = LegacySource(provider: provider, url: legacyURL)
+                let admission = try hookLegacySourceAdmissionRetryingOneReplacement(
+                    source: source,
+                    expectedStamp: stamp,
+                    fileManager: fileManager
                 )
+                if try legacySourceCanBeSkippedForCanonicalRebind(
+                    database: database,
+                    provider: provider,
+                    stamp: admission.stamp
+                ) {
+                    changedLegacy = nil
+                } else {
+                    changedLegacy = (
+                        admission.stamp,
+                        try legacyPayload(provider: provider, json: admission.json)
+                    )
+                }
             } else {
                 changedLegacy = nil
             }
