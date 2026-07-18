@@ -4,10 +4,15 @@ import SQLite3
 
 extension CmuxAgentSessionRegistry {
     func withDatabase<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
+        let stateDirectory = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
+            at: stateDirectory,
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: Int16(0o700))],
+            ofItemAtPath: stateDirectory.path
         )
         var database: OpaquePointer?
         let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
