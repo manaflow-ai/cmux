@@ -12,6 +12,17 @@ private let mobileShellLog = Logger(
     category: "mobile-shell"
 )
 
+enum StoredMacReconnectOutcome: Equatable, Sendable {
+    case connected
+    case failed(DiagnosticFailureKind)
+    case superseded
+
+    var didConnect: Bool {
+        if case .connected = self { return true }
+        return false
+    }
+}
+
 @MainActor
 extension MobileShellComposite {
     func startObservingNetworkPathChanges() {
@@ -92,7 +103,7 @@ extension MobileShellComposite {
             let replacementIsInstalled = connectionRecoveryOwner.isValidatingReplacement
                 || connectionRecoveryOwner.activeAttempt?.sourceConnectionGeneration != connectionGeneration
             guard replacementIsInstalled else { return }
-            _ = connectionRecoveryOwner.failReplacement()
+            guard failConnectionRecoveryReplacement(failure: .connectionClosed) else { return }
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
@@ -182,12 +193,7 @@ extension MobileShellComposite {
                         return
                     }
                     if healthy {
-                        _ = self.connectionRecoveryOwner.complete(attempt)
-                        self.diagnosticLog?.record(DiagnosticEvent(
-                            .recoverySucceeded,
-                            a: self.activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
-                                ?? DiagnosticTransportKind.unknown.rawValue
-                        ))
+                        guard self.completeConnectionRecovery(attempt) else { return }
                         self.markMacConnectionHealthy()
                         if resyncAfterHealthy {
                             self.resyncTerminalOutput(
@@ -227,31 +233,17 @@ extension MobileShellComposite {
                 // Recovery uses authenticated local Iroh state first. A stuck
                 // account-backup fetch must not block a known EndpointID from
                 // dialing; normal launch reconnect still refreshes first.
-                let reconnected = await self.reconnectActiveMacIfAvailable(
+                let reconnectOutcome = await self.reconnectActiveMacOutcome(
                     stackUserID: stackUserID,
                     refreshBackupBeforeDial: false
                 )
                 guard !Task.isCancelled,
                       self.connectionRecoveryOwner.isCurrent(attempt) else { return }
-                if reconnected {
-                    let generation = self.connectionGeneration
-                    if self.lastSuccessfulTerminalSubscriptionGeneration == generation {
-                        _ = self.connectionRecoveryOwner.complete(attempt)
-                    } else {
-                        _ = self.connectionRecoveryOwner.transitionToValidation(
-                            attempt,
-                            connectionGeneration: generation
-                        )
-                    }
-                } else {
-                    _ = self.connectionRecoveryOwner.fail(attempt)
-                    self.diagnosticLog?.record(DiagnosticEvent(
-                        .recoveryFailed,
-                        a: self.activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
-                            ?? DiagnosticTransportKind.unknown.rawValue,
-                        b: DiagnosticFailureKind.connectionClosed.rawValue
-                    ))
-                }
+                guard self.settleConnectionRecovery(
+                    attempt,
+                    outcome: reconnectOutcome,
+                    connectionGeneration: self.connectionGeneration
+                ) else { return }
                 self.applyConnectionRecoveryOwnerState()
             } onCancel: {
                 MobileDebugLog.anchormux(
@@ -262,14 +254,88 @@ extension MobileShellComposite {
         connectionRecoveryOwner.install(task, for: attempt)
     }
 
+    @discardableResult
+    func completeConnectionRecovery(
+        _ attempt: MobileConnectionRecoveryOwner.Attempt
+    ) -> Bool {
+        guard connectionRecoveryOwner.complete(attempt) else { return false }
+        recordConnectionRecoverySucceeded()
+        return true
+    }
+
+    @discardableResult
+    func settleSuccessfulConnectionRecovery(
+        _ attempt: MobileConnectionRecoveryOwner.Attempt,
+        connectionGeneration: UUID
+    ) -> Bool {
+        if lastSuccessfulTerminalSubscriptionGeneration == connectionGeneration {
+            return completeConnectionRecovery(attempt)
+        }
+        return connectionRecoveryOwner.transitionToValidation(
+            attempt,
+            connectionGeneration: connectionGeneration
+        )
+    }
+
+    @discardableResult
+    func settleConnectionRecovery(
+        _ attempt: MobileConnectionRecoveryOwner.Attempt,
+        outcome: StoredMacReconnectOutcome,
+        connectionGeneration: UUID
+    ) -> Bool {
+        switch outcome {
+        case .connected:
+            return settleSuccessfulConnectionRecovery(
+                attempt,
+                connectionGeneration: connectionGeneration
+            )
+        case .failed(let failure):
+            return failConnectionRecovery(attempt, failure: failure)
+        case .superseded:
+            return failConnectionRecovery(attempt, failure: .superseded)
+        }
+    }
+
+    @discardableResult
+    func failConnectionRecovery(
+        _ attempt: MobileConnectionRecoveryOwner.Attempt,
+        failure: DiagnosticFailureKind
+    ) -> Bool {
+        guard connectionRecoveryOwner.fail(attempt) else { return false }
+        recordConnectionRecoveryFailed(failure)
+        return true
+    }
+
+    @discardableResult
+    func failConnectionRecoveryReplacement(
+        failure: DiagnosticFailureKind
+    ) -> Bool {
+        guard connectionRecoveryOwner.failReplacement() != nil else { return false }
+        recordConnectionRecoveryFailed(failure)
+        return true
+    }
+
+    private func recordConnectionRecoverySucceeded() {
+        diagnosticLog?.record(DiagnosticEvent(
+            .recoverySucceeded,
+            a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
+                ?? DiagnosticTransportKind.unknown.rawValue
+        ))
+    }
+
+    private func recordConnectionRecoveryFailed(_ failure: DiagnosticFailureKind) {
+        diagnosticLog?.record(DiagnosticEvent(
+            .recoveryFailed,
+            a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
+                ?? DiagnosticTransportKind.unknown.rawValue,
+            b: failure.rawValue
+        ))
+    }
+
     func recordSuccessfulTerminalSubscription() {
         lastSuccessfulTerminalSubscriptionGeneration = connectionGeneration
         if connectionRecoveryOwner.completeValidation(connectionGeneration: connectionGeneration) {
-            diagnosticLog?.record(DiagnosticEvent(
-                .recoverySucceeded,
-                a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
-                    ?? DiagnosticTransportKind.unknown.rawValue
-            ))
+            recordConnectionRecoverySucceeded()
             applyConnectionRecoveryOwnerState()
         }
     }
@@ -447,7 +513,27 @@ extension MobileShellComposite {
         recordsPairingAttempt: Bool = false,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> Bool {
-        await connectStoredMac(
+        (await connectStoredMacOutcome(
+            name: name,
+            routes: routes,
+            pairedMacDeviceID: pairedMacDeviceID,
+            instanceTag: instanceTag,
+            automaticReconnectAccountID: automaticReconnectAccountID,
+            recordsPairingAttempt: recordsPairingAttempt,
+            ifStillCurrent: ifStillCurrent
+        )).didConnect
+    }
+
+    func connectStoredMacOutcome(
+        name: String,
+        routes: [CmxAttachRoute],
+        pairedMacDeviceID: String,
+        instanceTag: String?,
+        automaticReconnectAccountID: String? = nil,
+        recordsPairingAttempt: Bool = false,
+        ifStillCurrent: (() -> Bool)? = nil
+    ) async -> StoredMacReconnectOutcome {
+        await connectStoredMacOutcome(
             name: name,
             routes: routes,
             pairedMacDeviceID: pairedMacDeviceID,
@@ -463,7 +549,7 @@ extension MobileShellComposite {
     /// Connects through a stored route set while enforcing the caller's exact
     /// authenticated instance-authority requirement.
     @discardableResult
-    private func connectStoredMac(
+    private func connectStoredMacOutcome(
         name: String,
         routes: [CmxAttachRoute],
         pairedMacDeviceID: String,
@@ -471,15 +557,17 @@ extension MobileShellComposite {
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
         ifStillCurrent: (() -> Bool)? = nil
-    ) async -> Bool {
-        guard ifStillCurrent?() ?? true else { return false }
+    ) async -> StoredMacReconnectOutcome {
+        guard ifStillCurrent?() ?? true else { return .superseded }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let pinnedRoutes = Self.storedReconnectRoutes(
             routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         )
-        guard let firstRoute = pinnedRoutes.first else { return false }
+        guard let firstRoute = pinnedRoutes.first else { return .failed(.unsupportedRoute) }
+
+        var outcome: StoredMacReconnectOutcome = .failed(.unknown)
 
         if firstRoute.kind == .iroh {
             do {
@@ -488,14 +576,19 @@ extension MobileShellComposite {
                     routes: pinnedRoutes,
                     pairedMacDeviceID: pairedMacDeviceID
                 )
-                _ = try await connect(
+                let noThrowFailure = try await connect(
                     ticket: ticket,
                     pairedMacDeviceID: pairedMacDeviceID,
                     instanceTagExpectation: instanceTagExpectation,
                     ifStillCurrent: ifStillCurrent
                 )
+                guard ifStillCurrent?() ?? true else { return .superseded }
+                if noThrowFailure == .noSupportedRoute {
+                    outcome = .failed(.unsupportedRoute)
+                }
             } catch {
-                guard ifStillCurrent?() ?? true else { return false }
+                guard ifStillCurrent?() ?? true else { return .superseded }
+                outcome = .failed(Self.diagnosticFailureKind(for: error))
                 if let automaticReconnectAccountID {
                     recordAutomaticReconnectBackoff(
                         error: error,
@@ -515,7 +608,7 @@ extension MobileShellComposite {
                 preferNonLoopback: Self.prefersNonLoopbackRoutes
             )
             for route in candidates {
-                guard ifStillCurrent?() ?? true else { return false }
+                guard ifStillCurrent?() ?? true else { return .superseded }
                 await connectManualHost(
                     name: name,
                     host: route.host,
@@ -540,7 +633,7 @@ extension MobileShellComposite {
         if connected, let automaticReconnectAccountID {
             clearAutomaticReconnectBackoff(accountID: automaticReconnectAccountID)
         }
-        return connected
+        return connected ? .connected : outcome
     }
 
     func automaticIrohReconnectIsBlocked(accountID: String) -> Bool {
@@ -684,13 +777,13 @@ extension MobileShellComposite {
             return
         }
         let previousActive = pairedMacs.first { $0.isActive }
-        let connectedRoute = await connectStoredMac(
+        let connectedRoute = (await connectStoredMacOutcome(
             name: device.displayName ?? device.deviceId,
             routes: candidateRoutes,
             pairedMacDeviceID: device.deviceId,
             instanceTagExpectation: .require(instance.tag),
             recordsPairingAttempt: true
-        )
+        )).didConnect
         guard connectedRoute else {
             if previousActive != nil, connectionState != .connected {
                 _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)

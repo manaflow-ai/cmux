@@ -1000,9 +1000,6 @@ public final class MobileIrohRuntimeComposition:
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
         connectionReadiness.begin(revision: revision)
-        if targetAccountID != nil {
-            diagnosticLog?.record(DiagnosticEvent(.endpointStarting, a: DiagnosticTransportKind.iroh.rawValue))
-        }
         let previous = transitionTask
         previous?.cancel()
         let task = Task { @MainActor [weak self] in
@@ -1073,6 +1070,10 @@ public final class MobileIrohRuntimeComposition:
               signOutPhase.allowsLifecycle,
               let targetAccountID,
               runtime == nil else { return }
+        diagnosticLog?.record(DiagnosticEvent(
+            .endpointStarting,
+            a: DiagnosticTransportKind.iroh.rawValue
+        ))
         do {
             try await activate(accountID: targetAccountID, revision: revision)
         } catch is CancellationError {

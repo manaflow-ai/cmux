@@ -628,14 +628,14 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Last Failure" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "最後のエラー" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "直近の失敗" } }
       }
     },
     "mobile.iroh.diagnostics.lastFailureTime" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Failure Time" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エラー発生時刻" } }
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "失敗時刻" } }
       }
     },
     "mobile.iroh.diagnostics.lastSuccess" : {

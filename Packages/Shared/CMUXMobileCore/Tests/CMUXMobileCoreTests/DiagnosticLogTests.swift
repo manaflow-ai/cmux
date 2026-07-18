@@ -383,10 +383,33 @@ import Testing
 
         #expect(await log.count() == 0)
         #expect(await log.processedCount() == 0)
-        for _ in 0..<100 { await Task.yield() }
-        #expect(await log.count() == 0)
 
         log.record(DiagnosticEvent(code: .rpcReady, tNanos: 101))
+        await waitForProcessed(log, 1)
+        #expect((await log.snapshot()).events.map(\.code) == [.rpcReady])
+    }
+
+    @Test func consecutiveClearsChainBoundedSessionsInOrder() async {
+        let log = DiagnosticLog(
+            capacity: 2,
+            anchorWallNanos: 100,
+            anchorMonotonicNanos: 1
+        )
+        log.record(DiagnosticEvent(code: .endpointStarting, tNanos: 2))
+        await waitForProcessed(log, 1)
+
+        await log.clear(anchorWallNanos: 1_000, anchorMonotonicNanos: 10)
+        log.record(DiagnosticEvent(code: .endpointActive, tNanos: 11))
+        await waitForProcessed(log, 1)
+
+        await log.clear(anchorWallNanos: 2_000, anchorMonotonicNanos: 20)
+        let empty = await log.snapshot()
+        #expect(empty.anchorWallNanos == 2_000)
+        #expect(empty.anchorMonotonicNanos == 20)
+        #expect(empty.events.isEmpty)
+        #expect(await log.processedCount() == 0)
+
+        log.record(DiagnosticEvent(code: .rpcReady, tNanos: 21))
         await waitForProcessed(log, 1)
         #expect((await log.snapshot()).events.map(\.code) == [.rpcReady])
     }
@@ -435,5 +458,50 @@ import Testing
         let hostileData = try JSONSerialization.data(withJSONObject: object)
         let decoded = try JSONDecoder().decode(DiagnosticReport.self, from: hostileData)
         #expect(decoded.buildStamp == "cmuxprivateidentityvalue")
+    }
+
+    @Test func reportDecoderRejectsAnOversizedEventArrayBeforeDecodingTheExtraEvent() throws {
+        let maximum = DiagnosticReport.maximumEventCount
+        let exactEvents = (0..<maximum).map { index in
+            DiagnosticEvent(code: .connect, tNanos: UInt64(index))
+        }
+        let exactReport = DiagnosticReport(events: exactEvents)
+        let exactData = try JSONEncoder().encode(exactReport)
+        #expect(try JSONDecoder().decode(DiagnosticReport.self, from: exactData).events.count == maximum)
+
+        var object = try #require(
+            JSONSerialization.jsonObject(with: exactData) as? [String: Any]
+        )
+        var encodedEvents = try #require(object["events"] as? [[String: Any]])
+        encodedEvents.append(["malformed": true])
+        object["events"] = encodedEvents
+        let oversizedData = try JSONSerialization.data(withJSONObject: object)
+
+        do {
+            _ = try JSONDecoder().decode(DiagnosticReport.self, from: oversizedData)
+            Issue.record("Expected the oversized diagnostic report to be rejected")
+        } catch let DecodingError.dataCorrupted(context) {
+            #expect(context.debugDescription == "Diagnostic report exceeds the maximum event count.")
+        } catch {
+            Issue.record("Expected a maximum-count error before decoding the malformed extra event: \(error)")
+        }
+    }
+
+    @Test func reportInitializerBoundsBeforeStableOrdering() {
+        let maximum = DiagnosticReport.maximumEventCount
+        var events = [
+            DiagnosticEvent(code: .connect, tNanos: 99_999),
+            DiagnosticEvent(code: .pairOk, tNanos: 88_888),
+        ]
+        events += (0..<maximum).map { index in
+            DiagnosticEvent(code: .rpcReady, tNanos: UInt64(maximum - index))
+        }
+
+        let report = DiagnosticReport(events: events)
+
+        #expect(report.events.count == maximum)
+        #expect(report.events.first?.tNanos == 1)
+        #expect(report.events.last?.tNanos == UInt64(maximum))
+        #expect(!report.events.contains(where: { $0.tNanos == 99_999 || $0.tNanos == 88_888 }))
     }
 }

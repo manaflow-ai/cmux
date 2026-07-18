@@ -431,7 +431,7 @@ private struct IrohDiagnosticsReportRows: View {
                         systemImage: "square.and.arrow.up"
                     )
                 }
-                .disabled(exportText.isEmpty)
+                .disabled(exportText.isEmpty || isMutating)
                 .accessibilityIdentifier("SettingsIrohShareDiagnosticReport")
 
                 Button(role: .destructive) {

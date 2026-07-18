@@ -153,6 +153,29 @@ struct IrohSettingsModelTests {
         #expect(!model.isMutating)
     }
 
+    @Test func stalePreClearDiagnosticReloadCannotRestoreClearedReport() async {
+        let controller = IrohSettingsControllerDouble(snapshot: .unavailable)
+        controller.holdsDiagnosticReportReads = true
+        let model = IrohSettingsModel(controller: controller)
+
+        let observation = Task { await model.observe() }
+        await waitUntil { controller.pendingDiagnosticReportRequestIDs == [0] }
+
+        let clear = Task { await model.clearDiagnosticReport() }
+        await waitUntil { controller.pendingDiagnosticReportRequestIDs == [0, 1] }
+        #expect(model.isMutating)
+
+        controller.resumeDiagnosticReportRequest(1, returning: .empty)
+        await clear.value
+        controller.resumeDiagnosticReportRequest(0, returning: diagnosticReport())
+        await waitUntil { controller.streamCreations == 1 }
+
+        #expect(model.diagnosticReport == .empty)
+        #expect(model.diagnosticExportText.isEmpty)
+        observation.cancel()
+        await observation.value
+    }
+
     #if DEBUG
     @Test func relayOnlyMutationUsesTheDebugControllerBoundary() async {
         let controller = IrohSettingsControllerDouble(snapshot: .unavailable)
@@ -243,6 +266,11 @@ private final class IrohSettingsControllerDouble:
     var report = DiagnosticReport.empty
     var exportData = Data()
     var diagnosticClearCount = 0
+    var holdsDiagnosticReportReads = false
+    private(set) var nextDiagnosticReportRequestID = 0
+    private var pendingDiagnosticReportReads: [
+        Int: CheckedContinuation<DiagnosticReport, Never>
+    ] = [:]
     let continuation: AsyncStream<CmxIrohSettingsSnapshot>.Continuation
     private let stream: AsyncStream<CmxIrohSettingsSnapshot>
 
@@ -282,7 +310,22 @@ private final class IrohSettingsControllerDouble:
     func testIrohCustomRelay(id: String) async -> CmxIrohRelayTestResult { .failed }
     func refreshIrohSettings() async {}
 
-    func irohDiagnosticReport() async -> DiagnosticReport { report }
+    func irohDiagnosticReport() async -> DiagnosticReport {
+        guard holdsDiagnosticReportReads else { return report }
+        let requestID = nextDiagnosticReportRequestID
+        nextDiagnosticReportRequestID += 1
+        return await withCheckedContinuation { continuation in
+            pendingDiagnosticReportReads[requestID] = continuation
+        }
+    }
+
+    var pendingDiagnosticReportRequestIDs: [Int] {
+        pendingDiagnosticReportReads.keys.sorted()
+    }
+
+    func resumeDiagnosticReportRequest(_ id: Int, returning report: DiagnosticReport) {
+        pendingDiagnosticReportReads.removeValue(forKey: id)?.resume(returning: report)
+    }
 
     func exportIrohDiagnosticReport() async -> Data { exportData }
 

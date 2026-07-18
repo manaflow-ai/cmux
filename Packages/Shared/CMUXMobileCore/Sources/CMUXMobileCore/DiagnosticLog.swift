@@ -1,17 +1,17 @@
 public import Foundation
+internal import os
 
-/// A fixed-capacity ring of recent ``DiagnosticEvent`` values with a lock-free
-/// hot-path recorder.
+/// A fixed-capacity ring of recent ``DiagnosticEvent`` values with a
+/// non-blocking hot-path recorder.
 ///
 /// The recorder seam is the point of the design: ``record(_:)`` is
-/// `nonisolated` and does nothing but `continuation.yield(event)` on an
-/// `AsyncStream<DiagnosticEvent>.Continuation` created with
-/// `.bufferingNewest(capacity)`. There is no per-event `Task { await … }` hop
-/// (the cost the string-based `MobileDebugLog.append` pays), no lock, and no
-/// actor hop on the caller's thread, so it is safe to call from the input and
-/// render seams. A single internal consumer `Task` drains the stream into the
-/// ring (the only mutable state, held by an inner `actor`), evicting the oldest
-/// events past ``capacity``.
+/// `nonisolated` and yields onto the current bounded event segment inside one
+/// short critical region. There is no per-event `Task { await … }` hop (the
+/// cost the string-based `MobileDebugLog.append` pays) and no actor hop on the
+/// caller's thread, so it is safe to call from the input and render seams. A
+/// single internal consumer `Task` drains ordered event segments and
+/// non-droppable clear commands into the ring (the only diagnostic state,
+/// held by an inner `actor`), evicting the oldest events past ``capacity``.
 ///
 /// ``export()`` drains the ring into a compact blob: a one-line header carrying
 /// a wall-clock anchor and the build stamp, then one short row per event
@@ -38,15 +38,16 @@ public final class DiagnosticLog: Sendable {
     /// a device or account identifier.
     public let role: DiagnosticRuntimeRole
 
-    /// The continuation the hot path yields onto. `.bufferingNewest(capacity)`
-    /// drops the oldest pending event if the consumer falls behind, so a burst
-    /// can never block the recorder or grow unboundedly.
-    private let continuation: AsyncStream<Message>.Continuation
+    /// Synchronously orders record calls against rare clear operations while
+    /// keeping every event segment bounded by ``capacity``.
+    private let ingress: Ingress
 
     /// The inner actor owning the ring buffer and the wall-clock anchor.
     private let store: Store
 
-    /// The drain task. Held so it is cancelled when the log is deinitialized.
+    /// The drain task. Its closure captures only local stream/store values, so
+    /// deinitialization can finish ingress and let accepted clear commands drain
+    /// to their acknowledgements without retaining this log.
     private let drainTask: Task<Void, Never>
 
     /// Creates a diagnostic log.
@@ -85,23 +86,45 @@ public final class DiagnosticLog: Sendable {
             anchorMonotonicNanos: anchorMonotonicNanos
         )
         self.store = store
-        let (stream, continuation) = AsyncStream<Message>.makeStream(
-            bufferingPolicy: .bufferingNewest(capacity)
+        let (commandStream, commandContinuation) = AsyncStream<DrainCommand>.makeStream(
+            bufferingPolicy: .unbounded
         )
-        self.continuation = continuation
+        let ingress = Ingress(
+            capacity: capacity,
+            commandContinuation: commandContinuation
+        )
+        self.ingress = ingress
         self.drainTask = Task {
-            for await message in stream {
-                await store.process(message)
+            for await command in commandStream {
+                switch command {
+                case let .events(events):
+                    for await event in events {
+                        await store.append(event)
+                    }
+                case let .clear(
+                    anchorWallNanos,
+                    anchorMonotonicNanos,
+                    nextEvents,
+                    acknowledgement
+                ):
+                    await store.clear(
+                        anchorWallNanos: anchorWallNanos,
+                        anchorMonotonicNanos: anchorMonotonicNanos
+                    )
+                    acknowledgement.resume()
+                    for await event in nextEvents {
+                        await store.append(event)
+                    }
+                }
             }
         }
     }
 
     deinit {
-        continuation.finish()
-        drainTask.cancel()
+        ingress.finish()
     }
 
-    /// Record one event. Lock-free, non-blocking, safe from any thread.
+    /// Record one event. Non-blocking and safe from any thread.
     ///
     /// This is the hot-path API. It only yields the value onto the buffered
     /// stream; the actual ring write happens on the internal drain task. A burst
@@ -110,7 +133,7 @@ public final class DiagnosticLog: Sendable {
     ///
     /// - Parameter event: The event to record.
     public nonisolated func record(_ event: DiagnosticEvent) {
-        continuation.yield(.event(event))
+        ingress.record(event)
     }
 
     /// Snapshot the currently-drained ring and format a compact export blob.
@@ -138,28 +161,21 @@ public final class DiagnosticLog: Sendable {
     /// Starts a fresh diagnostic session by clearing retained events, resetting
     /// the processed count, and capturing a new wall/monotonic clock anchor.
     ///
-    /// The clear is an ordered barrier in the same bounded stream as recorded
-    /// events. It retries if a burst evicts the marker, so events yielded before
-    /// the barrier cannot drain back into the new session after this returns.
+    /// Clear rotates to a new bounded event segment and inserts a non-droppable
+    /// command between the old and new segments. The drain acknowledges the
+    /// command only after every retained old-segment event has been consumed and
+    /// the store has reset, so no old event can reappear after this returns.
     /// Recording itself remains non-blocking.
     public func clear(
         anchorWallNanos: UInt64 = UInt64(max(0, Date().timeIntervalSince1970 * 1_000_000_000)),
         anchorMonotonicNanos: UInt64 = DispatchTime.now().uptimeNanoseconds
     ) async {
-        let barrierID = await store.reserveClearBarrier()
-        while await !store.hasAppliedClearBarrier(barrierID) {
-            switch continuation.yield(.clear(
-                id: barrierID,
+        await withCheckedContinuation { acknowledgement in
+            ingress.clear(
                 anchorWallNanos: anchorWallNanos,
-                anchorMonotonicNanos: anchorMonotonicNanos
-            )) {
-            case .enqueued, .dropped:
-                await Task.yield()
-            case .terminated:
-                return
-            @unknown default:
-                return
-            }
+                anchorMonotonicNanos: anchorMonotonicNanos,
+                acknowledgement: acknowledgement
+            )
         }
     }
 
@@ -187,9 +203,124 @@ public final class DiagnosticLog: Sendable {
     /// the cursor (no `Array.removeFirst`, which would be O(capacity) per event
     /// once full and would starve the drain task during the exact lag bursts this
     /// log captures).
-    private enum Message: Sendable {
-        case event(DiagnosticEvent)
-        case clear(id: UInt64, anchorWallNanos: UInt64, anchorMonotonicNanos: UInt64)
+    private enum DrainCommand: Sendable {
+        case events(AsyncStream<DiagnosticEvent>)
+        case clear(
+            anchorWallNanos: UInt64,
+            anchorMonotonicNanos: UInt64,
+            nextEvents: AsyncStream<DiagnosticEvent>,
+            acknowledgement: CheckedContinuation<Void, Never>
+        )
+    }
+
+    /// Serializes event-segment rotation without suspending callers. Event
+    /// segments use `.bufferingNewest(capacity)` and therefore stay bounded;
+    /// the command stream is unbounded only for rare clear controls, which must
+    /// never be evicted by diagnostic traffic.
+    private final class Ingress: Sendable {
+        private struct State: Sendable {
+            let capacity: Int
+            let commandContinuation: AsyncStream<DrainCommand>.Continuation
+            var eventContinuation: AsyncStream<DiagnosticEvent>.Continuation?
+            var isFinished = false
+        }
+
+        private enum ClearEnqueueResult: Sendable {
+            case enqueued(previous: AsyncStream<DiagnosticEvent>.Continuation?)
+            case terminated(
+                previous: AsyncStream<DiagnosticEvent>.Continuation?,
+                next: AsyncStream<DiagnosticEvent>.Continuation
+            )
+        }
+
+        // lint:allow lock - record is synchronous by contract. The critical
+        // region only selects/yields a value or rotates stream continuations;
+        // no async work runs while the lock is held.
+        private let state: OSAllocatedUnfairLock<State>
+
+        init(
+            capacity: Int,
+            commandContinuation: AsyncStream<DrainCommand>.Continuation
+        ) {
+            let (events, eventContinuation) = Self.makeEventSegment(capacity: capacity)
+            self.state = OSAllocatedUnfairLock(initialState: State(
+                capacity: capacity,
+                commandContinuation: commandContinuation,
+                eventContinuation: eventContinuation
+            ))
+            commandContinuation.yield(.events(events))
+        }
+
+        func record(_ event: DiagnosticEvent) {
+            state.withLock { state in
+                guard !state.isFinished else { return }
+                state.eventContinuation?.yield(event)
+            }
+        }
+
+        func clear(
+            anchorWallNanos: UInt64,
+            anchorMonotonicNanos: UInt64,
+            acknowledgement: CheckedContinuation<Void, Never>
+        ) {
+            let result: ClearEnqueueResult = state.withLock { state in
+                guard !state.isFinished else {
+                    let (_, next) = Self.makeEventSegment(capacity: state.capacity)
+                    return .terminated(previous: nil, next: next)
+                }
+
+                let previous = state.eventContinuation
+                let (events, continuation) = Self.makeEventSegment(capacity: state.capacity)
+                let yieldResult = state.commandContinuation.yield(.clear(
+                    anchorWallNanos: anchorWallNanos,
+                    anchorMonotonicNanos: anchorMonotonicNanos,
+                    nextEvents: events,
+                    acknowledgement: acknowledgement
+                ))
+                switch yieldResult {
+                case .enqueued:
+                    state.eventContinuation = continuation
+                    return .enqueued(previous: previous)
+                case .dropped, .terminated:
+                    state.isFinished = true
+                    state.eventContinuation = nil
+                    return .terminated(previous: previous, next: continuation)
+                @unknown default:
+                    state.isFinished = true
+                    state.eventContinuation = nil
+                    return .terminated(previous: previous, next: continuation)
+                }
+            }
+            switch result {
+            case .enqueued(let previous):
+                previous?.finish()
+            case let .terminated(previous, next):
+                previous?.finish()
+                next.finish()
+                acknowledgement.resume()
+            }
+        }
+
+        func finish() {
+            let continuations: (
+                AsyncStream<DiagnosticEvent>.Continuation?,
+                AsyncStream<DrainCommand>.Continuation
+            )? = state.withLock { state in
+                guard !state.isFinished else { return nil }
+                state.isFinished = true
+                let eventContinuation = state.eventContinuation
+                state.eventContinuation = nil
+                return (eventContinuation, state.commandContinuation)
+            }
+            continuations?.0?.finish()
+            continuations?.1.finish()
+        }
+
+        private static func makeEventSegment(
+            capacity: Int
+        ) -> (AsyncStream<DiagnosticEvent>, AsyncStream<DiagnosticEvent>.Continuation) {
+            AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(capacity))
+        }
     }
 
     private actor Store {
@@ -197,8 +328,6 @@ public final class DiagnosticLog: Sendable {
         private var head = 0
         private var filled = 0
         private var totalProcessed = 0
-        private var nextClearBarrierID: UInt64 = 1
-        private var appliedClearBarrierID: UInt64 = 0
         private let capacity: Int
         private let buildStamp: String
         private let role: DiagnosticRuntimeRole
@@ -223,21 +352,7 @@ public final class DiagnosticLog: Sendable {
             self.slots = Array(repeating: nil, count: clamped)
         }
 
-        func process(_ message: Message) {
-            switch message {
-            case let .event(event):
-                append(event)
-            case let .clear(id, anchorWallNanos, anchorMonotonicNanos):
-                guard id > appliedClearBarrierID else { return }
-                clear(
-                    anchorWallNanos: anchorWallNanos,
-                    anchorMonotonicNanos: anchorMonotonicNanos
-                )
-                appliedClearBarrierID = id
-            }
-        }
-
-        private func append(_ event: DiagnosticEvent) {
+        func append(_ event: DiagnosticEvent) {
             slots[head] = event
             head = (head + 1) % capacity
             if filled < capacity {
@@ -252,19 +367,6 @@ public final class DiagnosticLog: Sendable {
 
         func processedCount() -> Int {
             totalProcessed
-        }
-
-        func reserveClearBarrier() -> UInt64 {
-            let id = nextClearBarrierID
-            nextClearBarrierID &+= 1
-            if nextClearBarrierID == 0 {
-                nextClearBarrierID = 1
-            }
-            return id
-        }
-
-        func hasAppliedClearBarrier(_ id: UInt64) -> Bool {
-            appliedClearBarrierID >= id
         }
 
         func clear(anchorWallNanos: UInt64, anchorMonotonicNanos: UInt64) {

@@ -44,7 +44,8 @@ public struct DiagnosticReport: Sendable, Codable, Equatable {
         self.anchorWallNanos = anchorWallNanos
         self.anchorMonotonicNanos = anchorMonotonicNanos
         self.buildStamp = Self.sanitizeBuildStamp(buildStamp)
-        let orderedEvents = events
+        let retainedEvents = events.suffix(Self.maximumEventCount)
+        let orderedEvents = retainedEvents
             .enumerated()
             .sorted { lhs, rhs in
                 if lhs.element.tNanos == rhs.element.tNanos {
@@ -53,7 +54,7 @@ public struct DiagnosticReport: Sendable, Codable, Equatable {
                 return lhs.element.tNanos < rhs.element.tNanos
             }
             .map(\.element)
-        self.events = Array(orderedEvents.suffix(Self.maximumEventCount))
+        self.events = orderedEvents
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -68,6 +69,18 @@ public struct DiagnosticReport: Sendable, Codable, Equatable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        var eventsContainer = try container.nestedUnkeyedContainer(forKey: .events)
+        var events: [DiagnosticEvent] = []
+        events.reserveCapacity(min(eventsContainer.count ?? 0, Self.maximumEventCount))
+        while !eventsContainer.isAtEnd, events.count < Self.maximumEventCount {
+            events.append(try eventsContainer.decode(DiagnosticEvent.self))
+        }
+        guard eventsContainer.isAtEnd else {
+            throw DecodingError.dataCorruptedError(
+                in: eventsContainer,
+                debugDescription: "Diagnostic report exceeds the maximum event count."
+            )
+        }
         self.init(
             schemaVersion: try container.decode(Int.self, forKey: .schemaVersion),
             role: try container.decode(DiagnosticRuntimeRole.self, forKey: .role),
@@ -75,7 +88,7 @@ public struct DiagnosticReport: Sendable, Codable, Equatable {
             anchorWallNanos: try container.decode(UInt64.self, forKey: .anchorWallNanos),
             anchorMonotonicNanos: try container.decode(UInt64.self, forKey: .anchorMonotonicNanos),
             buildStamp: try container.decode(String.self, forKey: .buildStamp),
-            events: try container.decode([DiagnosticEvent].self, forKey: .events)
+            events: events
         )
     }
 

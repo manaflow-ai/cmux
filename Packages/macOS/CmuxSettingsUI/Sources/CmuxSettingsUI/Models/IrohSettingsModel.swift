@@ -13,6 +13,7 @@ final class IrohSettingsModel {
     private(set) var testResults: [String: CmxIrohRelayTestResult] = [:]
     private(set) var diagnosticReport = DiagnosticReport.empty
     private(set) var diagnosticExportText = ""
+    private var diagnosticReloadGeneration: UInt64 = 0
 
     init(controller: (any CmxIrohSettingsControlling)?) {
         self.controller = controller
@@ -41,6 +42,7 @@ final class IrohSettingsModel {
     func clearDiagnosticReport() async {
         guard let controller, !isMutating else { return }
         isMutating = true
+        diagnosticReloadGeneration &+= 1
         defer { isMutating = false }
         await controller.clearIrohDiagnosticReport()
         await reloadDiagnostics(using: controller)
@@ -110,7 +112,10 @@ final class IrohSettingsModel {
     }
 
     private func reloadDiagnostics(using controller: any CmxIrohSettingsControlling) async {
+        diagnosticReloadGeneration &+= 1
+        let generation = diagnosticReloadGeneration
         let report = await controller.irohDiagnosticReport()
+        guard generation == diagnosticReloadGeneration else { return }
         diagnosticReport = report
         diagnosticExportText = report.events.isEmpty
             ? ""
