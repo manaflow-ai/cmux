@@ -52,4 +52,10 @@ public protocol TerminalSurfaceRegistering: AnyObject, Sendable {
 
     /// All live registered surfaces, ordered by id for stable iteration.
     func allSurfaces() -> [any TerminalSurfacing]
+
+    /// All live surfaces whose GPU renderer is owned by this process.
+    ///
+    /// Implementations keep this index separate from ``allSurfaces()`` so a
+    /// renderer-reclamation pass does not scan daemon-owned terminals.
+    func allInProcessRendererSurfaces() -> [any TerminalSurfacing]
 }

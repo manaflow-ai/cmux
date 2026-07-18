@@ -10,10 +10,16 @@ import Testing
 private final class FakeSurface: TerminalSurfacing {
     let id: UUID
     let focusPlacement: TerminalSurfaceFocusPlacement
+    let isExternallyManaged: Bool
 
-    init(id: UUID = UUID(), focusPlacement: TerminalSurfaceFocusPlacement = .workspace) {
+    init(
+        id: UUID = UUID(),
+        focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        isExternallyManaged: Bool = false
+    ) {
         self.id = id
         self.focusPlacement = focusPlacement
+        self.isExternallyManaged = isExternallyManaged
     }
 }
 
@@ -117,6 +123,27 @@ struct TerminalSurfaceRegistryTests {
         let ids = registry.allSurfaces().map(\.id.uuidString)
         #expect(ids == ids.sorted())
         #expect(Set(ids) == Set(surfaces.map(\.id.uuidString)))
+    }
+
+    @Test func inProcessRendererSnapshotHasNoExternalTerminalCountSlope() {
+        let registry = TerminalSurfaceRegistry()
+        let native = FakeSurface()
+        let external = (0..<2_048).map { _ in
+            FakeSurface(isExternallyManaged: true)
+        }
+        registry.register(native)
+        for surface in external {
+            registry.register(surface)
+        }
+
+        #expect(registry.allSurfaces().count == external.count + 1)
+        let rendererSurfaces = registry.allInProcessRendererSurfaces()
+        #expect(rendererSurfaces.count == 1)
+        #expect(rendererSurfaces.first === native)
+
+        registry.unregister(native)
+        #expect(registry.allInProcessRendererSurfaces().isEmpty)
+        #expect(registry.allSurfaces().count == external.count)
     }
 
     @Test func runtimeSurfaceOwnershipFollowsOwnerIdGuard() throws {

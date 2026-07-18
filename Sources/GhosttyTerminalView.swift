@@ -3593,7 +3593,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @MainActor static var debugGhosttySurfaceKeyEventObserver: ((ghostty_input_key_s) -> Void)?
     @MainActor static var debugTextInputEventHandler: ((GhosttyNSView, NSEvent) -> Bool)?
 #endif
-    private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
     private var windowObserver: NSObjectProtocol?
     private var lastScrollEventTime: CFTimeInterval = 0
@@ -3670,7 +3669,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         wantsLayer = true
         layer?.masksToBounds = true
         setupKeyboardCopyModeCursorOverlay()
-        installEventMonitor()
         updateTrackingAreas()
         registerForDraggedTypes(Array(Self.dropTypes))
     }
@@ -3789,34 +3787,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
             }
         }
-    }
-
-    private func installEventMonitor() {
-        guard eventMonitor == nil else { return }
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel]) { [weak self] event in
-            return self?.localEventHandler(event) ?? event
-        }
-    }
-
-    private func localEventHandler(_ event: NSEvent) -> NSEvent? {
-        switch event.type {
-        case .scrollWheel:
-            return localEventScrollWheel(event)
-        default:
-            return event
-        }
-    }
-
-    private func localEventScrollWheel(_ event: NSEvent) -> NSEvent? {
-        guard let window,
-              let eventWindow = event.window,
-              window == eventWindow else { return event }
-
-        let location = convert(event.locationInWindow, from: nil)
-        guard hitTest(location) == self else { return event }
-
-        Self.focusLog("localEventScrollWheel: window=\(ObjectIdentifier(window)) firstResponder=\(String(describing: window.firstResponder))")
-        return event
     }
 
     func attachSurface(_ surface: TerminalSurface) {
@@ -8274,9 +8244,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             "inWindow=\(window != nil ? 1 : 0) hasSuperview=\(superview != nil ? 1 : 0)"
         )
 #endif
-        if let eventMonitor {
-            NSEvent.removeMonitor(eventMonitor)
-        }
         if let windowObserver {
             NotificationCenter.default.removeObserver(windowObserver)
         }

@@ -131,11 +131,13 @@ final class RendererRealizationController {
         let settings = RendererRealizationSettings.values()
         guard settings.enabled else { return .empty }
 
-        // Iterate the global registry rather than re-deriving per-workspace
-        // visibility: each TerminalSurface carries its own authoritative
-        // on-screen flag (driven by setVisibleInUI, the same signal that drives
-        // occlusion), so we never misclassify a visible surface as offscreen.
-        let surfaces = GhosttyApp.terminalSurfaceRegistry.allTerminalSurfaces()
+        // Read the registry's dedicated native-renderer index rather than
+        // filtering all terminals. Backend-owned surfaces have no releasable
+        // renderer in this process, and their count must not affect the cost of
+        // this periodic pass.
+        let surfaces = GhosttyApp.terminalSurfaceRegistry
+            .allInProcessRendererSurfaces()
+            .compactMap { $0 as? TerminalSurface }
 
         // Keep currently-visible surfaces ranked at the top of the warm set, and
         // re-realize any that are visible but not realized. setVisibleInUI
