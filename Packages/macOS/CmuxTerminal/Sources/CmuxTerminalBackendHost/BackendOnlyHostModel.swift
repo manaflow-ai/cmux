@@ -33,6 +33,11 @@ public final class BackendOnlyHostModel: ObservableObject {
         let lifecycle: any BackendOnlyHostRuntimeLifecycle
     }
 
+    private struct RuntimeTarget {
+        let session: BackendCanonicalSession
+        let selection: BackendOnlyTerminalSelection
+    }
+
     public enum Phase: Equatable {
         case connecting
         case ready
@@ -66,6 +71,9 @@ public final class BackendOnlyHostModel: ObservableObject {
     private var pendingProjectionWrite: PendingProjectionWrite?
     private var projection: BackendProjectionState?
     private var managedRuntime: ManagedRuntime?
+    // Selection, topology, and connection changes only update desired state.
+    // This single task serializes retirement before replacement materialization.
+    private var runtimeReconciliationTask: Task<Void, Never>?
 
     public convenience init(
         bundleURL: URL = Bundle.main.bundleURL,
@@ -121,6 +129,7 @@ public final class BackendOnlyHostModel: ObservableObject {
     deinit {
         eventTask?.cancel()
         connectTask?.cancel()
+        runtimeReconciliationTask?.cancel()
         // A selection already admitted to the daemon projection journal must
         // survive SwiftUI model teardown. The task owns only value snapshots
         // and a weak model reference, so allow its final write to complete.
@@ -229,7 +238,6 @@ public final class BackendOnlyHostModel: ObservableObject {
 
     public func selectWorkspace(_ identifier: UUID?) {
         guard selectedWorkspaceID != identifier else { return }
-        retireActiveRuntime()
         selectedWorkspaceID = identifier
         if let identifier {
             defaults.set(
@@ -241,7 +249,7 @@ public final class BackendOnlyHostModel: ObservableObject {
                 forKey: Self.selectedWorkspaceDefaultsKey
             )
         }
-        materializeSelectedRuntime()
+        scheduleRuntimeReconciliation()
         persistProjectionSelection()
     }
 
@@ -325,7 +333,7 @@ public final class BackendOnlyHostModel: ObservableObject {
         cancelProjectionPersistence()
         projection = nil
         topology = nil
-        retireActiveRuntime()
+        scheduleRuntimeReconciliation()
         phase = .connecting
         eventTask = nil
 
@@ -345,7 +353,7 @@ public final class BackendOnlyHostModel: ObservableObject {
            ) {
             selectWorkspace(snapshot.topology.workspaces.first?.uuid.rawValue)
         } else {
-            materializeSelectedRuntime()
+            scheduleRuntimeReconciliation()
         }
     }
 
@@ -357,39 +365,102 @@ public final class BackendOnlyHostModel: ObservableObject {
             .first(where: valid.contains)
             ?? workspaces.first?.uuid.rawValue
         if selectedWorkspaceID == selected {
-            materializeSelectedRuntime()
+            scheduleRuntimeReconciliation()
             persistProjectionSelection()
         } else {
             selectWorkspace(selected)
         }
     }
 
-    private func materializeSelectedRuntime() {
-        let desiredSelection = selectedWorkspaceID.flatMap { selectedWorkspaceID in
-            workspaces.first(
+    private func desiredRuntimeTarget() -> RuntimeTarget? {
+        guard let connection,
+              let selectedWorkspaceID,
+              let selection = workspaces.first(
                 where: { $0.uuid.rawValue == selectedWorkspaceID }
-            )?.backendOnlyFirstTerminal
-        }
-        if let managedRuntime,
-           managedRuntime.lifecycle.selection != desiredSelection {
-            retireActiveRuntime()
-        }
-        guard managedRuntime == nil,
-              let connection,
-              let selection = desiredSelection else { return }
-        let lifecycle = runtimeFactory(connection.session, selection)
-        managedRuntime = ManagedRuntime(
+              )?.backendOnlyFirstTerminal
+        else { return nil }
+        return RuntimeTarget(
             session: connection.session,
-            lifecycle: lifecycle
+            selection: selection
         )
-        activeRuntime = lifecycle as? BackendOnlyTerminalRuntime
     }
 
-    private func retireActiveRuntime() {
-        guard let retiredRuntime = managedRuntime?.lifecycle else { return }
-        managedRuntime = nil
-        activeRuntime = nil
-        Task { await retiredRuntime.shutdown() }
+    private func scheduleRuntimeReconciliation() {
+        let desired = desiredRuntimeTarget()
+        if let managedRuntime,
+           let desired,
+           runtime(managedRuntime, matches: desired) {
+            publish(managedRuntime)
+        } else {
+            publish(nil)
+        }
+
+        guard runtimeReconciliationTask == nil,
+              !runtimeIsReconciled(with: desired) else { return }
+        runtimeReconciliationTask = Task { @MainActor [weak self] in
+            await self?.reconcileRuntime()
+        }
+    }
+
+    private func reconcileRuntime() async {
+        defer { runtimeReconciliationTask = nil }
+
+        while !Task.isCancelled {
+            let desired = desiredRuntimeTarget()
+            if let current = managedRuntime {
+                if let desired, runtime(current, matches: desired) {
+                    publish(current)
+                    return
+                }
+                publish(nil)
+                managedRuntime = nil
+                await current.lifecycle.shutdown()
+                // Every suspension invalidates the prior desired snapshot. The
+                // next loop derives the newest selection and connection again.
+                continue
+            }
+
+            guard let desired else {
+                publish(nil)
+                return
+            }
+            let lifecycle = runtimeFactory(
+                desired.session,
+                desired.selection
+            )
+            let replacement = ManagedRuntime(
+                session: desired.session,
+                lifecycle: lifecycle
+            )
+            managedRuntime = replacement
+            publish(replacement)
+            return
+        }
+    }
+
+    private func runtimeIsReconciled(with desired: RuntimeTarget?) -> Bool {
+        switch (managedRuntime, desired) {
+        case (nil, nil):
+            true
+        case let (current?, desired?):
+            runtime(current, matches: desired)
+        default:
+            false
+        }
+    }
+
+    private func runtime(
+        _ current: ManagedRuntime,
+        matches desired: RuntimeTarget
+    ) -> Bool {
+        current.session === desired.session
+            && current.lifecycle.selection == desired.selection
+    }
+
+    private func publish(_ runtime: ManagedRuntime?) {
+        let terminalRuntime = runtime?.lifecycle as? BackendOnlyTerminalRuntime
+        guard activeRuntime !== terminalRuntime else { return }
+        activeRuntime = terminalRuntime
     }
 
     private func persistProjectionSelection() {
