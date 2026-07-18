@@ -26,6 +26,8 @@ private actor BrowserDesignModeScreenshotPinRegistry {
 
 /// Persists bounded screenshot crops away from the main actor.
 actor BrowserDesignModeScreenshotStore {
+    private static let fileLimit = 100
+
     private let directory: URL
     private let fileManager: FileManager
     private let pinRegistry = BrowserDesignModeScreenshotPinRegistry.shared
@@ -53,7 +55,7 @@ actor BrowserDesignModeScreenshotStore {
             await pinRegistry.release(url)
             throw error
         }
-        await pruneKeepingNewest(limit: 100)
+        await pruneKeepingNewest(limit: Self.fileLimit)
         return url
     }
 
@@ -66,6 +68,7 @@ actor BrowserDesignModeScreenshotStore {
     /// Returns a former live-context file to normal recency-based pruning.
     func release(_ url: URL) async {
         await pinRegistry.release(url)
+        await pruneKeepingNewest(limit: Self.fileLimit)
     }
 
     private func pruneKeepingNewest(limit: Int) async {
