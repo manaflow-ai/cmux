@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 import Testing
 
 #if canImport(cmux_DEV)
@@ -178,6 +179,209 @@ struct AgentHibernationOwnedLiveProcessTests {
         #expect(!validates(children: [shellPID + 1]))
         #expect(!validates(currentIdentity: processIdentity(pid: shellPID, seconds: 101)))
         #expect(!validates(currentTopology: nil))
+    }
+
+    @Test
+    func frozenLeaseClosesForkWindowUntilExplicitResume() throws {
+        let key = panelKey()
+        let identity = processIdentity(pid: shellPID)
+        let lease = try #require(topologyIndex(
+            key: key,
+            identity: identity,
+            ttyEnumeration: .complete([shellPID]),
+            childEnumeration: .complete([])
+        ).evidence(for: key).lease)
+        let state = AgentHibernationFrozenShellTestState(identity: identity, status: UInt32(SRUN))
+
+        let frozen = try #require(lease.freezeForFinalTeardown(
+            processIdentity: { _ in state.identity },
+            processStatus: { _ in state.status },
+            sendSignal: { _, signal in state.send(signal) },
+            yieldThread: {},
+            finalProcessFreeValidation: {
+                state.recordFinalValidation()
+                return state.status == UInt32(SSTOP) && !state.hasChild
+            }
+        ))
+
+        #expect(state.finalValidationObservedStop)
+        state.attemptFork()
+        #expect(!state.hasChild)
+        #expect(frozen.isStillFrozenAndProcessFree(finalProcessFreeValidation: {
+            state.status == UInt32(SSTOP) && !state.hasChild
+        }))
+        frozen.resume()
+        #expect(state.signals == [SIGSTOP, SIGCONT])
+        state.attemptFork()
+        #expect(state.hasChild)
+    }
+
+    @Test
+    func frozenLeaseRejectsPreStoppedShellWithoutResumingIt() throws {
+        let key = panelKey()
+        let identity = processIdentity(pid: shellPID)
+        let lease = try #require(topologyIndex(
+            key: key,
+            identity: identity,
+            ttyEnumeration: .complete([shellPID]),
+            childEnumeration: .complete([])
+        ).evidence(for: key).lease)
+        let state = AgentHibernationFrozenShellTestState(identity: identity, status: UInt32(SSTOP))
+
+        #expect(lease.freezeForFinalTeardown(
+            processIdentity: { _ in state.identity },
+            processStatus: { _ in state.status },
+            sendSignal: { _, signal in state.send(signal) },
+            yieldThread: {},
+            finalProcessFreeValidation: { true }
+        ) == nil)
+        #expect(state.signals.isEmpty)
+    }
+
+    @Test
+    func failedFrozenValidationResumesExactShellGeneration() throws {
+        let key = panelKey()
+        let identity = processIdentity(pid: shellPID)
+        let lease = try #require(topologyIndex(
+            key: key,
+            identity: identity,
+            ttyEnumeration: .complete([shellPID]),
+            childEnumeration: .complete([])
+        ).evidence(for: key).lease)
+        let state = AgentHibernationFrozenShellTestState(identity: identity, status: UInt32(SRUN))
+
+        #expect(lease.freezeForFinalTeardown(
+            processIdentity: { _ in state.identity },
+            processStatus: { _ in state.status },
+            sendSignal: { _, signal in state.send(signal) },
+            yieldThread: {},
+            finalProcessFreeValidation: { false }
+        ) == nil)
+        #expect(state.signals == [SIGSTOP, SIGCONT])
+    }
+
+    @MainActor
+    @Test
+    func frozenShellSpansFinalProcessProofDurableCommitAndNativeFree() async throws {
+        let key = panelKey()
+        let identity = processIdentity(pid: shellPID)
+        let lease = try #require(topologyIndex(
+            key: key,
+            identity: identity,
+            ttyEnumeration: .complete([shellPID]),
+            childEnumeration: .complete([])
+        ).evidence(for: key).lease)
+        let state = AgentHibernationFrozenShellTestState(identity: identity, status: UInt32(SRUN))
+        let workspace = Workspace(workingDirectory: "/tmp")
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.terminalPanel(for: panelID))
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        panel.surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { pointer in
+            state.recordNativeFree()
+            pointer.deallocate()
+        }
+        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+
+        let didHibernate = await panel.enterAgentHibernation(
+            agent: restorableAgent(),
+            lastActivityAt: Date(timeIntervalSince1970: 10),
+            finalValidation: { true },
+            finalTeardownPreparation: {
+                guard let frozen = lease.freezeForFinalTeardown(
+                    processIdentity: { _ in state.identity },
+                    processStatus: { _ in state.status },
+                    sendSignal: { _, signal in state.send(signal) },
+                    yieldThread: {},
+                    finalProcessFreeValidation: {
+                        state.recordFinalValidation()
+                        return state.status == UInt32(SSTOP) && !state.hasChild
+                    }
+                ) else {
+                    return nil
+                }
+                return { frozen.resume() }
+            },
+            finalCommit: {
+                state.recordLifecycleCommit(accepted: true)
+                return true
+            }
+        )
+
+        #expect(didHibernate)
+        #expect(panel.isAgentHibernated)
+        #expect(state.events == [
+            "SIGSTOP",
+            "processFree",
+            "lifecycleCommit",
+            "nativeFree",
+            "SIGCONT",
+        ])
+    }
+
+    @MainActor
+    @Test
+    func rejectedDurableCommitResumesShellAndRestoresExactLiveRuntime() async throws {
+        let key = panelKey()
+        let identity = processIdentity(pid: shellPID)
+        let lease = try #require(topologyIndex(
+            key: key,
+            identity: identity,
+            ttyEnumeration: .complete([shellPID]),
+            childEnumeration: .complete([])
+        ).evidence(for: key).lease)
+        let state = AgentHibernationFrozenShellTestState(identity: identity, status: UInt32(SRUN))
+        let workspace = Workspace(workingDirectory: "/tmp")
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.terminalPanel(for: panelID))
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        panel.surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            state.recordNativeFree()
+        }
+        defer {
+            if panel.surface.surface == runtimeSurface {
+                panel.surface.runtimeSurfaceFreedOutOfBandForTesting = true
+                panel.surface.teardownSurface()
+                runtimeSurface.deallocate()
+            }
+            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
+        }
+
+        let didHibernate = await panel.enterAgentHibernation(
+            agent: restorableAgent(),
+            lastActivityAt: Date(timeIntervalSince1970: 10),
+            finalValidation: { true },
+            finalTeardownPreparation: {
+                guard let frozen = lease.freezeForFinalTeardown(
+                    processIdentity: { _ in state.identity },
+                    processStatus: { _ in state.status },
+                    sendSignal: { _, signal in state.send(signal) },
+                    yieldThread: {},
+                    finalProcessFreeValidation: {
+                        state.recordFinalValidation()
+                        return state.status == UInt32(SSTOP) && !state.hasChild
+                    }
+                ) else {
+                    return nil
+                }
+                return { frozen.resume() }
+            },
+            finalCommit: {
+                state.recordLifecycleCommit(accepted: false)
+                return false
+            }
+        )
+
+        #expect(!didHibernate)
+        #expect(!panel.isAgentHibernated)
+        #expect(panel.surface.surface == runtimeSurface)
+        #expect(state.events == [
+            "SIGSTOP",
+            "processFree",
+            "lifecycleCommitRejected",
+            "SIGCONT",
+        ])
     }
 
     @Test
@@ -408,6 +612,23 @@ struct AgentHibernationOwnedLiveProcessTests {
         )
     }
 
+    private func restorableAgent() -> SessionRestorableAgentSnapshot {
+        SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "frozen-shell-integration",
+            workingDirectory: "/tmp",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex"],
+                workingDirectory: "/tmp",
+                environment: nil,
+                capturedAt: 10,
+                source: "test"
+            )
+        )
+    }
+
     private func topologyIndex(
         key: RestorableAgentSessionIndex.PanelKey,
         identity: AgentPIDProcessIdentity,
@@ -479,5 +700,73 @@ struct AgentHibernationOwnedLiveProcessTests {
             ttyProcessIDsProvider: { _ in .complete([self.shellPID]) },
             childProcessIDsProvider: { _ in .complete([]) }
         )
+    }
+}
+
+private final class AgentHibernationFrozenShellTestState: @unchecked Sendable {
+    private struct Storage {
+        var identity: AgentPIDProcessIdentity?
+        var status: UInt32
+        var signals: [Int32] = []
+        var hasChild = false
+        var finalValidationObservedStop = false
+        var events: [String] = []
+    }
+
+    private let storage: OSAllocatedUnfairLock<Storage>
+
+    init(identity: AgentPIDProcessIdentity, status: UInt32) {
+        storage = OSAllocatedUnfairLock(initialState: Storage(identity: identity, status: status))
+    }
+
+    var identity: AgentPIDProcessIdentity? { storage.withLock { $0.identity } }
+    var status: UInt32 { storage.withLock { $0.status } }
+    var signals: [Int32] { storage.withLock { $0.signals } }
+    var hasChild: Bool { storage.withLock { $0.hasChild } }
+    var events: [String] { storage.withLock { $0.events } }
+    var finalValidationObservedStop: Bool {
+        storage.withLock { $0.finalValidationObservedStop }
+    }
+
+    func send(_ signal: Int32) -> Int32 {
+        storage.withLock { state in
+            state.signals.append(signal)
+            if signal == SIGSTOP {
+                state.status = UInt32(SSTOP)
+                state.events.append("SIGSTOP")
+            } else if signal == SIGCONT {
+                state.status = UInt32(SRUN)
+                state.events.append("SIGCONT")
+            }
+        }
+        return 0
+    }
+
+    func attemptFork() {
+        storage.withLock { state in
+            if state.status != UInt32(SSTOP) {
+                state.hasChild = true
+            }
+        }
+    }
+
+    func recordFinalValidation() {
+        storage.withLock { state in
+            state.finalValidationObservedStop = state.status == UInt32(SSTOP)
+            state.events.append("processFree")
+        }
+    }
+
+    func recordLifecycleCommit(accepted: Bool) {
+        storage.withLock {
+            $0.events.append(accepted ? "lifecycleCommit" : "lifecycleCommitRejected")
+        }
+    }
+
+    func recordNativeFree() {
+        storage.withLock { state in
+            #expect(state.status == UInt32(SSTOP))
+            state.events.append("nativeFree")
+        }
     }
 }
