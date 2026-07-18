@@ -41,6 +41,24 @@ import Testing
         stalledDeadline.continuation.finish()
     }
 
+    @Test func sidecarReadinessTimeoutDoesNotWaitForOpenPipeWriter() async {
+        let readiness = Pipe()
+        let clock = ContinuousClock()
+        let started = clock.now
+
+        do {
+            try await DiffSidecarProcessSupervisor.waitForProcessGroupReady(
+                from: readiness.fileHandleForReading,
+                timeout: .milliseconds(20)
+            )
+            Issue.record("readiness wait unexpectedly succeeded")
+        } catch {
+            #expect(clock.now - started < .seconds(1))
+        }
+
+        try? readiness.fileHandleForWriting.close()
+    }
+
     @Test func loadingOwnershipRejectsSupersededOperation() {
         let panel = BrowserPanel(
             workspaceId: UUID(),

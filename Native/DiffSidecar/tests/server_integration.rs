@@ -141,6 +141,65 @@ fn rpc_returns_typed_failure_for_malformed_request() {
 }
 
 #[test]
+fn rpc_rejects_malformed_cancel_without_terminating_the_shared_process() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-diff-sidecar-malformed-cancel-test-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&root).expect("create root");
+    #[cfg(unix)]
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
+        .expect("secure root permissions");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-diff-sidecar"))
+        .arg("rpc")
+        .arg("--root")
+        .arg(&root)
+        .arg("--cmux")
+        .arg(env!("CARGO_BIN_EXE_diff-sidecar-test-host"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("start persistent sidecar");
+    let mut input = child.stdin.take().expect("sidecar stdin");
+    writeln!(
+        input,
+        "{}",
+        serde_json::json!({"id": "bad", "control": "cancel"})
+    )
+    .expect("write malformed cancel");
+    writeln!(
+        input,
+        "{}",
+        serde_json::json!({
+            "id": "still-alive",
+            "version": 1,
+            "method": "protocolHandshake"
+        })
+    )
+    .expect("write follow-up request");
+    drop(input);
+
+    let output = child.wait_with_output().expect("wait for sidecar");
+    assert!(output.status.success());
+    let responses = BufReader::new(output.stdout.as_slice())
+        .lines()
+        .collect::<Result<Vec<_>, _>>()
+        .expect("read responses");
+    assert_eq!(responses.len(), 2, "{responses:?}");
+    let rejected: serde_json::Value =
+        serde_json::from_str(&responses[0]).expect("decode rejection");
+    assert_eq!(rejected["error"]["code"], "invalidRequest");
+    let follow_up: serde_json::Value =
+        serde_json::from_str(&responses[1]).expect("decode follow-up");
+    assert_eq!(follow_up["id"], "still-alive");
+    assert_eq!(follow_up["result"]["type"], "handshake");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn rpc_returns_typed_failure_for_oversized_request() {
     let output = run_stdio_rpc(&vec![b' '; 1024 * 1024 + 1]);
     assert!(output.status.success());
@@ -508,6 +567,64 @@ fn rpc_resolves_agent_turn_from_provider_and_session_id() {
     let patch = std::fs::read_to_string(root.join(request_path.trim_start_matches('/')))
         .expect("read trajectory patch");
     assert!(patch.contains("diff --git a/story.txt b/story.txt"));
+    assert!(patch.contains("+after"));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn rpc_uses_authorized_hook_state_overrides_for_agent_turns() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-diff-sidecar-agent-hook-override-test-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let home = prepare_agent_rpc_fixture(&root);
+    let custom_hook_dir = home.join("custom-hook-state");
+    std::fs::create_dir_all(&custom_hook_dir).expect("create custom hook directory");
+    std::fs::rename(
+        home.join(".cmuxterm/claude-hook-sessions.json"),
+        custom_hook_dir.join("claude-hook-sessions.json"),
+    )
+    .expect("move hook store to custom directory");
+    let authorization_path = root.join(".branch-session-agent-test.json");
+    let mut authorization: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&authorization_path).expect("read authorization"))
+            .expect("decode authorization");
+    authorization["allowedAgentTurns"][0]["hookStateDir"] =
+        serde_json::Value::String(custom_hook_dir.to_string_lossy().into_owned());
+    std::fs::write(
+        authorization_path,
+        serde_json::to_vec(&authorization).expect("encode authorization"),
+    )
+    .expect("write authorization override");
+    let token = "0123456789abcdef";
+    let request = serde_json::to_vec(&serde_json::json!({
+        "id": "agent-session-custom-hooks",
+        "version": 1,
+        "method": "sessionOpen",
+        "params": {
+            "source": {
+                "kind": "agentTurn",
+                "provider": "claude",
+                "sessionId": "claude-session"
+            },
+            "capabilityToken": token
+        }
+    }))
+    .expect("encode request");
+
+    let output = run_stdio_rpc_in_root_with_home(&request, &root, Some(&home));
+    assert!(output.status.success());
+    let response: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("decode response");
+    assert_eq!(response["result"]["type"], "sessionOpened", "{response}");
+    let patch_id = response["result"]["value"]["patch"]["id"]
+        .as_str()
+        .expect("patch id");
+    let request_path = patch_id.split_once(token).expect("token in patch id").1;
+    let patch = std::fs::read_to_string(root.join(request_path.trim_start_matches('/')))
+        .expect("read trajectory patch");
     assert!(patch.contains("+after"));
 
     let _ = std::fs::remove_dir_all(root);

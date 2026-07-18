@@ -1203,7 +1203,7 @@ fn opencode_resolver_uses_diffs_parented_to_the_latest_user_message() {
 }
 
 #[test]
-fn opencode_resolver_rejects_patch_paths_outside_the_repository() {
+fn opencode_resolver_skips_patch_paths_outside_the_repository() {
     let fixture = FixtureRoot::new("opencode-outside-repo");
     prepare_common_directories(&fixture);
     let home = fixture.home();
@@ -1250,9 +1250,71 @@ fn opencode_resolver_rejects_patch_paths_outside_the_repository() {
         &AgentTurnIdentity::new(AgentProvider::OpenCode, "opencode-session"),
         &TrajectoryRoots::for_home(home),
     )
-    .expect_err("outside-repository OpenCode paths must be rejected");
+    .expect_err("an outside-only OpenCode turn has no usable patch");
 
-    assert_eq!(error.to_string(), "agent trajectory is invalid");
+    assert_eq!(error.to_string(), "agent turn has no file changes");
+}
+
+#[test]
+fn opencode_resolver_keeps_valid_fragments_when_one_path_is_outside_the_repository() {
+    let fixture = FixtureRoot::new("opencode-mixed-outside-repo");
+    prepare_common_directories(&fixture);
+    let home = fixture.home();
+    let repo = fixture.repo();
+    let database_path = home.join(".local/share/opencode/opencode.db");
+    fs::create_dir_all(database_path.parent().expect("database parent"))
+        .expect("create database parent");
+    let database = Connection::open(&database_path).expect("open fixture database");
+    database
+        .execute_batch(
+            "CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT NOT NULL);\n\
+             CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, data TEXT NOT NULL);\n\
+             CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, data TEXT NOT NULL);",
+        )
+        .expect("create OpenCode schema");
+    database
+        .execute(
+            "INSERT INTO session (id, directory) VALUES (?1, ?2)",
+            ("opencode-session", repo.to_string_lossy().as_ref()),
+        )
+        .expect("insert session");
+    insert_opencode_message(
+        &database,
+        "user-current",
+        1,
+        &serde_json::json!({"role":"user"}),
+    );
+    insert_opencode_message(
+        &database,
+        "assistant-current",
+        2,
+        &serde_json::json!({"role":"assistant","parentID":"user-current"}),
+    );
+    insert_opencode_part(
+        &database,
+        "part-outside",
+        "assistant-current",
+        3,
+        "Index: /tmp/outside.txt\n--- /tmp/outside.txt\n+++ /tmp/outside.txt\n@@ -1 +1 @@\n-before\n+after\n",
+    );
+    insert_opencode_part(
+        &database,
+        "part-inside",
+        "assistant-current",
+        4,
+        "Index: story.txt\n--- a/story.txt\n+++ b/story.txt\n@@ -1 +1 @@\n-before\n+after\n",
+    );
+    drop(database);
+
+    let resolved = resolve_last_turn_patch(
+        &AgentTurnIdentity::new(AgentProvider::OpenCode, "opencode-session"),
+        &TrajectoryRoots::for_home(home),
+    )
+    .expect("resolve in-repository OpenCode fragment");
+
+    assert!(resolved.patch.contains("Index: story.txt"));
+    assert!(resolved.patch.contains("+after"));
+    assert!(!resolved.patch.contains("outside.txt"));
 }
 
 fn prepare_common_directories(fixture: &FixtureRoot) {
