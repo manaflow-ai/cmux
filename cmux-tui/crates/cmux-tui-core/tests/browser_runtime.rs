@@ -492,7 +492,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     .expect("navigate errorText surfaced as browser failure");
     assert_eq!(failed, "net::ERR_NAME_NOT_RESOLVED");
 
-    mux.close_surface(surface);
+    mux.close_surface(surface).unwrap();
     mux.shutdown();
     server::cleanup(&socket_path);
     server.join().unwrap();
@@ -621,7 +621,7 @@ fn wedged_browser_navigate_does_not_block_same_socket_connection() {
     );
 
     let close_started = Instant::now();
-    mux.close_surface(surface);
+    mux.close_surface(surface).unwrap();
     assert!(
         close_started.elapsed() < Duration::from_millis(500),
         "wedged browser close blocked for {:?}",
@@ -754,7 +754,7 @@ fn queued_back_and_forward_do_not_collapse_while_worker_is_blocked() {
         "forward must not be swallowed by back through a shared latest-wins slot"
     );
 
-    mux.close_surface(surface);
+    mux.close_surface(surface).unwrap();
     mux.shutdown();
     server::cleanup(&socket_path);
     server.join().unwrap();
@@ -868,7 +868,7 @@ fn control_command_reports_backpressure_when_worker_queue_is_full() {
         "a full command queue must be reported as ok:false, not silently dropped with ok:true"
     );
 
-    mux.close_surface(surface);
+    mux.close_surface(surface).unwrap();
     mux.shutdown();
     server::cleanup(&socket_path);
     server.join().unwrap();

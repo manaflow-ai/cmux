@@ -1749,7 +1749,7 @@ mod tests {
         assert_eq!(colors.selection_bg, Some(Rgb { r: 0x22, g: 0x33, b: 0x44 }));
         assert_eq!(colors.selection_fg, Some(Rgb { r: 0xfe, g: 0xfe, b: 0xfe }));
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
         mux.shutdown();
         server::cleanup(&socket);
     }

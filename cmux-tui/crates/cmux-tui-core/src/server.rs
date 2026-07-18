@@ -3324,18 +3324,19 @@ fn handle_command(
         }
         Command::CloseSurface { surface } => {
             get_surface(mux, surface)?;
-            mux.close_surface(surface);
+            if !mux.close_surface(surface)? {
+                anyhow::bail!("unknown surface {surface}");
+            }
             Ok(json!({}))
         }
         Command::ClosePane { pane } => {
-            if !mux.with_state(|s| s.panes.contains_key(&pane)) {
+            if !mux.close_pane(pane)? {
                 anyhow::bail!("unknown pane {pane}");
             }
-            mux.close_pane(pane);
             Ok(json!({}))
         }
         Command::CloseScreen { screen } => {
-            if !mux.close_screen(screen) {
+            if !mux.close_screen(screen)? {
                 anyhow::bail!("unknown screen {screen}");
             }
             Ok(json!({}))
@@ -4301,6 +4302,37 @@ mod tests {
         assert_eq!(data["ok"].as_bool(), Some(true));
         assert_eq!(data["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pane_and_screen_close_publish_errors_until_registry_commit_succeeds() {
+        const TERMINAL: &str = "00000000000040008000000000000012";
+        const INCARNATION: &str = "10000000000040008000000000000012";
+        let mux = test_mux();
+        let workspace =
+            mux.create_empty_workspace(None, Some("server-close".into()), None).unwrap();
+        let surface =
+            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        let (pane, screen) = mux.with_state(|state| {
+            let pane = state.pane_of(surface).unwrap();
+            let (workspace, screen) = state.screen_of(pane).unwrap();
+            (pane, state.workspaces[workspace].screens[screen].id)
+        });
+        mux.set_terminal_close_failure_for_test(true).unwrap();
+
+        let pane_error =
+            handle_command(&mux, 0, Command::ClosePane { pane }, &test_writer()).unwrap_err();
+        assert!(format!("{pane_error:#}").contains("forced terminal close failure"));
+        let screen_error =
+            handle_command(&mux, 0, Command::CloseScreen { screen }, &test_writer()).unwrap_err();
+        assert!(format!("{screen_error:#}").contains("forced terminal close failure"));
+        assert!(mux.surface(surface).is_some());
+        assert_eq!(mux.with_state(|state| state.pane_of(surface)), Some(pane));
+
+        mux.set_terminal_close_failure_for_test(false).unwrap();
+        handle_command(&mux, 0, Command::CloseScreen { screen }, &test_writer()).unwrap();
+        assert!(mux.surface(surface).is_none());
     }
 
     #[test]

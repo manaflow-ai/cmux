@@ -640,8 +640,11 @@ impl Session {
     pub fn close_screen(&self, screen: ScreenId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.close_screen(screen);
-                Ok(())
+                if mux.close_screen(screen)? {
+                    Ok(())
+                } else {
+                    anyhow::bail!("unknown screen {screen}")
+                }
             }
             Session::Remote(remote) => {
                 remote.request(json!({"cmd": "close-screen", "screen": screen})).map(|_| ())
@@ -726,8 +729,11 @@ impl Session {
     pub fn close_surface(&self, surface: SurfaceId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.close_surface(surface);
-                Ok(())
+                if mux.close_surface(surface)? {
+                    Ok(())
+                } else {
+                    anyhow::bail!("unknown surface {surface}")
+                }
             }
             Session::Remote(remote) => {
                 remote.request(json!({"cmd": "close-surface", "surface": surface})).map(|_| ())
@@ -738,8 +744,11 @@ impl Session {
     pub fn close_pane(&self, pane: PaneId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.close_pane(pane);
-                Ok(())
+                if mux.close_pane(pane)? {
+                    Ok(())
+                } else {
+                    anyhow::bail!("unknown pane {pane}")
+                }
             }
             Session::Remote(remote) => {
                 remote.request(json!({"cmd": "close-pane", "pane": pane})).map(|_| ())
