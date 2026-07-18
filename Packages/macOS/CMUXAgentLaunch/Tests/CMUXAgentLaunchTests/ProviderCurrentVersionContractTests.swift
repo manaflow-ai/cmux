@@ -1104,4 +1104,38 @@ struct ProviderCurrentVersionContractTests {
             )
         }
     }
+
+    @Test("Protocol-looking prompt tokens do not extend one-shot lifetime")
+    func protocolLookingPromptTokensRemainOneShot() {
+        let cases: [(process: String, kind: String, arguments: [String])] = [
+            ("claude", "claude", [
+                "claude", "--print", "--", "--input-format", "stream-json",
+            ]),
+            ("pi", "pi", ["pi", "--print", "--", "--mode", "rpc"]),
+            ("omp", "omp", ["omp", "--print", "--", "--mode=rpc-ui"]),
+            ("campfire", "campfire", [
+                "campfire", "--print", "--", "--mode", "rpc",
+            ]),
+            ("gemini", "gemini", [
+                "gemini", "--prompt", "fix this", "--", "--acp",
+            ]),
+            ("kimi", "kimi", ["kimi", "--print", "--", "--acp"]),
+            ("codebuddy", "codebuddy", [
+                "codebuddy", "--print", "--", "--serve",
+            ]),
+            ("qodercli", "qoder", ["qodercli", "--print", "--", "--acp"]),
+            ("amp", "amp", ["amp", "--execute", "--", "--no-tui"]),
+        ]
+
+        for testCase in cases {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: testCase.process,
+                    arguments: testCase.arguments,
+                    kind: testCase.kind
+                ) == .oneShot,
+                "\(testCase.arguments)"
+            )
+        }
+    }
 }

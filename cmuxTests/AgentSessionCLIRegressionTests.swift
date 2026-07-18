@@ -2880,6 +2880,9 @@ extension CMUXCLIErrorOutputRegressionTests {
             ("agents", ["list", "--limit", "0", "--state-dir", root.path], "agents list: --limit must be a positive integer"),
             ("sessions", ["list", "--state-dir"], "sessions list: --state-dir requires a value"),
             ("sessions", ["list", "--limit", "0", "--state-dir", root.path], "sessions list: --limit must be a positive integer"),
+            ("sessions", ["list", "--state", "invalid", "--state-dir", root.path], "sessions list: unknown state 'invalid'"),
+            ("sessions", ["list", "--activity", "invalid", "--state-dir", root.path], "sessions list: unknown activity 'invalid'"),
+            ("sessions", ["list", "--work-kind", "invalid", "--state-dir", root.path], "sessions list: unknown workload kind 'invalid'"),
         ]
 
         for testCase in cases {
@@ -2894,6 +2897,160 @@ extension CMUXCLIErrorOutputRegressionTests {
             #expect(!result.timedOut, Comment(rawValue: context))
             #expect(result.status != 0, Comment(rawValue: context))
             #expect(result.stdout.contains(testCase.expectedPrefix), Comment(rawValue: context))
+        }
+    }
+
+    @Test func sessionsTreeErrorsNameTheInvokedCommand() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sessions-tree-error-command-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let cases: [(arguments: [String], expectedPrefix: String)] = [
+            (["tree", "--state", "invalid", "--state-dir", root.path], "sessions tree: unknown state 'invalid'"),
+            (["tree", "--depth", "0", "--state-dir", root.path], "sessions tree: --depth must be a positive integer"),
+            (["tree", "--state-dir"], "sessions tree: --state-dir requires a value"),
+            (["tree", "unexpected", "--state-dir", root.path], "sessions tree: unexpected argument 'unexpected'"),
+        ]
+
+        for testCase in cases {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["sessions"] + testCase.arguments,
+                environment: isolatedAgentTreeEnvironment(home: root),
+                timeout: 5
+            )
+            let context = "sessions tree: \(result.stdout)"
+
+            #expect(!result.timedOut, Comment(rawValue: context))
+            #expect(result.status != 0, Comment(rawValue: context))
+            #expect(result.stdout.contains(testCase.expectedPrefix), Comment(rawValue: context))
+        }
+    }
+
+    @Test func agentAndSessionJSONParseErrorsUseCompleteStructuredOutput() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-json-parse-error-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let cases: [(command: String, subcommand: String)] = [
+            ("agents", "list"),
+            ("sessions", "list"),
+            ("agents", "tree"),
+            ("sessions", "tree"),
+        ]
+
+        for (index, testCase) in cases.enumerated() {
+            let expectedPrefix = "\(testCase.command) \(testCase.subcommand): unknown state 'invalid'"
+            let stderrURL = root.appendingPathComponent("parse-error-\(index).stderr")
+            let command = ([
+                cliPath,
+                testCase.command,
+                testCase.subcommand,
+                "--state",
+                "invalid",
+                "--json",
+                "--state-dir",
+                root.path,
+            ]).map(shellQuoteAgentTreeArgument).joined(separator: " ")
+            let result = runProcess(
+                executablePath: "/bin/sh",
+                arguments: [
+                    "-c", "\(command) 2>\(shellQuoteAgentTreeArgument(stderrURL.path))",
+                ],
+                environment: isolatedAgentTreeEnvironment(home: root),
+                timeout: 5
+            )
+            let context = "\(testCase.command) \(testCase.subcommand): \(result.stdout)"
+
+            #expect(!result.timedOut, Comment(rawValue: context))
+            #expect(result.status != 0, Comment(rawValue: context))
+            let payload = try #require(
+                JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+                Comment(rawValue: context)
+            )
+            let error = try #require(payload["error"] as? [String: Any])
+            #expect(payload["schema_version"] as? Int == 2)
+            #expect(error["code"] as? String == "invalid_arguments")
+            #expect((error["message"] as? String)?.contains(expectedPrefix) == true)
+            if testCase.subcommand == "tree" {
+                #expect((payload["nodes"] as? [Any])?.isEmpty == true)
+                #expect((payload["edges"] as? [Any])?.isEmpty == true)
+            } else {
+                #expect((payload["sessions"] as? [Any])?.isEmpty == true)
+            }
+            let stderr = try String(contentsOf: stderrURL, encoding: .utf8)
+            #expect(stderr.contains(expectedPrefix), Comment(rawValue: stderr))
+        }
+    }
+
+    @Test func agentAndSessionJSONStateDirectoryFailuresUseCompleteStructuredOutput() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-json-state-error-\(UUID().uuidString)", isDirectory: true)
+        let stateDirectory = root.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: stateDirectory.path
+            )
+            try? FileManager.default.removeItem(at: root)
+        }
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0],
+            ofItemAtPath: stateDirectory.path
+        )
+
+        let cases: [(command: String, subcommand: String)] = [
+            ("agents", "list"),
+            ("sessions", "list"),
+            ("agents", "tree"),
+            ("sessions", "tree"),
+        ]
+
+        for (index, testCase) in cases.enumerated() {
+            let expectedPrefix = "\(testCase.command) \(testCase.subcommand):"
+            let stderrURL = root.appendingPathComponent("state-error-\(index).stderr")
+            let command = ([
+                cliPath,
+                testCase.command,
+                testCase.subcommand,
+                "--json",
+                "--state-dir",
+                stateDirectory.path,
+            ]).map(shellQuoteAgentTreeArgument).joined(separator: " ")
+            let result = runProcess(
+                executablePath: "/bin/sh",
+                arguments: [
+                    "-c", "\(command) 2>\(shellQuoteAgentTreeArgument(stderrURL.path))",
+                ],
+                environment: isolatedAgentTreeEnvironment(home: root),
+                timeout: 5
+            )
+            let context = "\(testCase.command) \(testCase.subcommand): \(result.stdout)"
+
+            #expect(!result.timedOut, Comment(rawValue: context))
+            #expect(result.status != 0, Comment(rawValue: context))
+            let payload = try #require(
+                JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+                Comment(rawValue: context)
+            )
+            let error = try #require(payload["error"] as? [String: Any])
+            #expect(payload["schema_version"] as? Int == 2)
+            #expect(error["code"] as? String == "agent_state_unavailable")
+            #expect((error["message"] as? String)?.hasPrefix(expectedPrefix) == true)
+            if testCase.subcommand == "tree" {
+                #expect((payload["nodes"] as? [Any])?.isEmpty == true)
+                #expect((payload["edges"] as? [Any])?.isEmpty == true)
+            } else {
+                #expect((payload["sessions"] as? [Any])?.isEmpty == true)
+            }
+            let stderr = try String(contentsOf: stderrURL, encoding: .utf8)
+            #expect(stderr.contains(expectedPrefix), Comment(rawValue: stderr))
         }
     }
 
