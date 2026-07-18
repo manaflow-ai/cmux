@@ -38,6 +38,10 @@ if ! cmp -s "$tmp_dir/one" "$tmp_dir/two"; then
   echo "FAIL: Mach-O UUID comparison must ignore differing file paths" >&2
   exit 1
 fi
+if grep -Fq "grep -q UUID" "$RUNNER"; then
+  echo "FAIL: normalized UUID intersections must not search for removed labels" >&2
+  exit 1
+fi
 
 for requirement in \
   'CMUX_CI_XCODE_APP_MACOS_26' \
