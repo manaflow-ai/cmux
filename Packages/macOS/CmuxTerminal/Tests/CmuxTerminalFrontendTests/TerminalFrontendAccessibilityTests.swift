@@ -278,9 +278,9 @@ import Testing
         window = nil
 
         #expect(weakBridge == nil)
-        let retainedChild = try #require(retainedChild)
-        #expect(retainedChild.accessibilityParent() == nil)
-        #expect(!retainedChild.accessibilityPerformPress())
+        let retainedChildElement = try #require(retainedChild)
+        #expect(retainedChildElement.accessibilityParent() == nil)
+        #expect(!retainedChildElement.accessibilityPerformPress())
         #expect(runtime.accessibilityLinkActivations.isEmpty)
     }
 
