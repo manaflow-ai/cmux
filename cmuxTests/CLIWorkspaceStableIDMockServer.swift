@@ -157,6 +157,15 @@ struct CLIWorkspaceStableIDMockServer: Sendable {
             "title": "remote",
             "has_custom_title": false,
             "selected": true,
+            "panes": [[
+                "id": Self.paneID,
+                "ref": "pane:1",
+                "surfaces": [[
+                    "id": Self.surfaceID,
+                    "ref": "surface:1",
+                    "type": "terminal",
+                ]],
+            ]],
             "remote": [
                 "enabled": true,
                 "transport": "remote-tmux",
@@ -203,4 +212,7 @@ struct CLIWorkspaceStableIDMockServer: Sendable {
             userInfo: [NSLocalizedDescriptionKey: "\(operation) failed: \(String(cString: strerror(errno)))"]
         )
     }
+
+    private static let paneID = "33333333-3333-3333-3333-333333333333"
+    private static let surfaceID = "44444444-4444-4444-4444-444444444444"
 }

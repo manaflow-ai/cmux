@@ -19,9 +19,11 @@ struct CLIWorkspaceStableIDTests {
             let result = try await run(command: command, cliPath: cliPath)
             #expect(!result.timedOut, Comment(rawValue: result.stderr))
             #expect(result.status == 0, Comment(rawValue: result.stderr))
-            let workspace = try workspaceRow(in: result.stdout)
+            let root = try responseObject(in: result.stdout)
+            let workspace = try workspaceRow(in: root)
             #expect(workspace["id"] as? String == Self.workspaceID, Comment(rawValue: "command=\(command) row=\(workspace)"))
             #expect(workspace["ref"] as? String == "workspace:1", Comment(rawValue: "command=\(command) row=\(workspace)"))
+            assertDefaultIdentifierShape(in: root, command: command)
         }
     }
 
@@ -42,7 +44,7 @@ struct CLIWorkspaceStableIDTests {
             let result = try await run(command: command, cliPath: cliPath)
             #expect(!result.timedOut, Comment(rawValue: result.stderr))
             #expect(result.status == 0, Comment(rawValue: result.stderr))
-            let workspace = try workspaceRow(in: result.stdout)
+            let workspace = try workspaceRow(in: responseObject(in: result.stdout))
             #expect((workspace["id"] as? String) == (expectation.hasID ? Self.workspaceID : nil))
             #expect((workspace["ref"] as? String) == (expectation.hasRef ? "workspace:1" : nil))
         }
@@ -77,11 +79,14 @@ struct CLIWorkspaceStableIDTests {
         return result
     }
 
-    private func workspaceRow(in stdout: String) throws -> [String: Any] {
-        let root = try #require(
+    private func responseObject(in stdout: String) throws -> [String: Any] {
+        try #require(
             JSONSerialization.jsonObject(with: Data(stdout.utf8)) as? [String: Any],
             "Expected JSON object, got: \(stdout)"
         )
+    }
+
+    private func workspaceRow(in root: [String: Any]) throws -> [String: Any] {
         if let workspace = (root["workspaces"] as? [[String: Any]])?.first {
             return workspace
         }
@@ -90,6 +95,34 @@ struct CLIWorkspaceStableIDTests {
         }
         let window = try #require((root["windows"] as? [[String: Any]])?.first)
         return try #require((window["workspaces"] as? [[String: Any]])?.first)
+    }
+
+    private func assertDefaultIdentifierShape(in value: Any, command: [String]) {
+        if let dictionary = value as? [String: Any] {
+            if let ref = dictionary["ref"] as? String {
+                let id = dictionary["id"] as? String
+                if ref.hasPrefix("workspace:") {
+                    #expect(id == Self.workspaceID, Comment(rawValue: "command=\(command) row=\(dictionary)"))
+                } else {
+                    #expect(id == nil, Comment(rawValue: "command=\(command) row=\(dictionary)"))
+                }
+            }
+            for kind in ["window", "workspace", "pane", "surface"] where dictionary["\(kind)_ref"] != nil {
+                let id = dictionary["\(kind)_id"] as? String
+                if kind == "workspace" {
+                    #expect(id == Self.workspaceID, Comment(rawValue: "command=\(command) row=\(dictionary)"))
+                } else {
+                    #expect(id == nil, Comment(rawValue: "command=\(command) row=\(dictionary)"))
+                }
+            }
+            for child in dictionary.values {
+                assertDefaultIdentifierShape(in: child, command: command)
+            }
+        } else if let array = value as? [Any] {
+            for child in array {
+                assertDefaultIdentifierShape(in: child, command: command)
+            }
+        }
     }
 
     private static func runProcess(
