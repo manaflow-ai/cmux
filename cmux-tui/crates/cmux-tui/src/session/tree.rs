@@ -262,7 +262,7 @@ fn parse_layout(value: &Value) -> Option<Node> {
                 .map(Value::as_u64)
                 .collect::<Option<Vec<_>>>()?;
             let expanded = value.get("expanded")?.as_u64()?;
-            panes.contains(&expanded).then(|| Node::stack(panes)).flatten()
+            Node::stack_with_expanded(panes, expanded)
         }
         _ => None,
     }
@@ -409,5 +409,17 @@ mod tests {
             panic!("layout should be split");
         };
         assert_eq!(*id, 9);
+    }
+
+    #[test]
+    fn protocol_v9_parser_preserves_stack_expansion() {
+        let layout = parse_layout(&json!({
+            "type": "stack",
+            "panes": [3, 4, 5],
+            "expanded": 4
+        }))
+        .unwrap();
+
+        assert!(matches!(layout, Node::Stack { expanded: 4, .. }));
     }
 }

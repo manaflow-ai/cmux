@@ -1615,13 +1615,13 @@ fn node_json(node: &Node, active_pane: PaneId) -> Value {
             "a": node_json(a, active_pane),
             "b": node_json(b, active_pane),
         }),
-        Node::Stack { panes } => json!({
+        Node::Stack { panes, expanded } => json!({
             "type": "stack",
             "panes": panes.as_slice(),
             "expanded": if panes.contains(&active_pane) {
                 active_pane
             } else {
-                *panes.last().expect("StackPanes is non-empty")
+                *expanded
             },
         }),
     }
@@ -3301,11 +3301,11 @@ mod tests {
     }
 
     #[test]
-    fn stack_json_derives_expansion_from_the_active_pane() {
-        let stack = Node::stack(vec![1, 2, 3]).unwrap();
+    fn stack_json_uses_the_stored_expansion_while_focus_is_elsewhere() {
+        let stack = Node::stack_with_expanded(vec![1, 2, 3], 2).unwrap();
 
-        assert_eq!(node_json(&stack, 2)["expanded"], 2);
-        assert_eq!(node_json(&stack, 9)["expanded"], 3);
+        assert_eq!(node_json(&stack, 1)["expanded"], 1);
+        assert_eq!(node_json(&stack, 9)["expanded"], 2);
     }
 
     #[test]

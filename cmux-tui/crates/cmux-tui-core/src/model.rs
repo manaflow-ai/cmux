@@ -49,16 +49,23 @@ pub enum Node {
         a: Box<Node>,
         b: Box<Node>,
     },
-    /// Zellij-style stacked panes. `Screen::active_pane` selects the expanded
-    /// member; the node owns membership and order only.
+    /// Zellij-style stacked panes. `expanded` preserves the selected member
+    /// while focus is elsewhere in the split tree.
     Stack {
         panes: StackPanes,
+        expanded: PaneId,
     },
 }
 
 impl Node {
     pub fn stack(panes: Vec<PaneId>) -> Option<Self> {
-        StackPanes::new(panes).map(|panes| Self::Stack { panes })
+        let expanded = *panes.last()?;
+        StackPanes::new(panes).map(|panes| Self::Stack { panes, expanded })
+    }
+
+    pub fn stack_with_expanded(panes: Vec<PaneId>, expanded: PaneId) -> Option<Self> {
+        let panes = StackPanes::new(panes)?;
+        panes.contains(&expanded).then_some(Self::Stack { panes, expanded })
     }
 
     pub fn pane_ids(&self, out: &mut Vec<PaneId>) {
@@ -68,7 +75,7 @@ impl Node {
                 a.pane_ids(out);
                 b.pane_ids(out);
             }
-            Node::Stack { panes } => out.extend(panes.iter().copied()),
+            Node::Stack { panes, .. } => out.extend(panes.iter().copied()),
         }
     }
 
@@ -76,7 +83,7 @@ impl Node {
         match self {
             Node::Leaf(id) => *id == target,
             Node::Split { a, b, .. } => a.contains(target) || b.contains(target),
-            Node::Stack { panes } => panes.contains(&target),
+            Node::Stack { panes, .. } => panes.contains(&target),
         }
     }
 
@@ -86,7 +93,27 @@ impl Node {
             Node::Split { a, b, .. } => {
                 a.contains_stack_pane(target) || b.contains_stack_pane(target)
             }
-            Node::Stack { panes } => panes.contains(&target),
+            Node::Stack { panes, .. } => panes.contains(&target),
+        }
+    }
+
+    pub(crate) fn expand_stack_pane(&mut self, target: PaneId) -> bool {
+        match self {
+            Node::Leaf(_) => false,
+            Node::Split { a, b, .. } => a.expand_stack_pane(target) || b.expand_stack_pane(target),
+            Node::Stack { panes, expanded } if panes.contains(&target) => {
+                *expanded = target;
+                true
+            }
+            Node::Stack { .. } => false,
+        }
+    }
+
+    pub(crate) fn stack_expanded_pane(&self) -> Option<PaneId> {
+        match self {
+            Node::Leaf(_) => None,
+            Node::Split { a, b, .. } => a.stack_expanded_pane().or_else(|| b.stack_expanded_pane()),
+            Node::Stack { expanded, .. } => Some(*expanded),
         }
     }
 
@@ -117,7 +144,7 @@ impl Node {
                 a.swap_leaf_ids(first, second);
                 b.swap_leaf_ids(first, second);
             }
-            Node::Stack { panes } => {
+            Node::Stack { panes, .. } => {
                 for pane in panes.iter_mut() {
                     if *pane == first {
                         *pane = second;
@@ -153,7 +180,7 @@ impl Node {
                 a.split_leaf(target, split_id, dir, new_pane)
                     || b.split_leaf(target, split_id, dir, new_pane)
             }
-            Node::Stack { panes } if panes.contains(&target) => {
+            Node::Stack { panes, .. } if panes.contains(&target) => {
                 let old = std::mem::replace(self, Node::Leaf(target));
                 *self = Node::Split {
                     id: split_id,
@@ -184,12 +211,19 @@ impl Node {
                     (None, None) => None,
                 }
             }
-            Node::Stack { mut panes } => {
+            Node::Stack { mut panes, expanded } => {
                 panes.retain(|pane| *pane != target);
                 match panes.as_slice() {
                     [] => None,
                     [pane] => Some(Node::Leaf(*pane)),
-                    _ => Some(Node::Stack { panes }),
+                    _ => {
+                        let expanded = if expanded == target {
+                            *panes.last().expect("retained stack is non-empty")
+                        } else {
+                            expanded
+                        };
+                        Some(Node::Stack { panes, expanded })
+                    }
                 }
             }
         }
@@ -221,7 +255,7 @@ impl Node {
                         (contains, false)
                     }
                 }
-                Node::Stack { panes } => (panes.contains(&target), false),
+                Node::Stack { panes, .. } => (panes.contains(&target), false),
             }
         }
 

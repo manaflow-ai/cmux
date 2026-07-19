@@ -274,11 +274,9 @@ fn walk(node: &Node, area: Rect, active_pane: Option<PaneId>, out: &mut LayoutRe
             walk(a, a_rect, active_pane, out);
             walk(b, b_rect, active_pane, out);
         }
-        Node::Stack { panes } => {
+        Node::Stack { panes, expanded } => {
             let panes = panes.as_slice();
-            let expanded = active_pane
-                .filter(|pane| panes.contains(pane))
-                .unwrap_or_else(|| *panes.last().expect("stack layout requires at least one pane"));
+            let expanded = active_pane.filter(|pane| panes.contains(pane)).unwrap_or(*expanded);
             walk_stack(panes, expanded, area, out);
         }
     }
@@ -445,8 +443,8 @@ fn leaf_without_crossing_dir(
                     .or_else(|| leaf_without_crossing_dir(b, dir, active_pane))
             }
         }
-        Node::Stack { panes } => {
-            active_pane.filter(|pane| panes.contains(pane)).or_else(|| panes.last().copied())
+        Node::Stack { panes, expanded } => {
+            active_pane.filter(|pane| panes.contains(pane)).or(Some(*expanded))
         }
     }
 }
