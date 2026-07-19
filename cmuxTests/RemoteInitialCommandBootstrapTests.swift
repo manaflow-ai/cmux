@@ -78,6 +78,55 @@ struct RemoteInitialCommandBootstrapTests {
     }
 
     @Test
+    func generatedFallbackBootstrapRunsCommandAsShellScriptOnlyOnce() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-remote-initial-command-fallback-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home")
+        let bin = root.appendingPathComponent("bin")
+        let fakeShell = bin.appendingPathComponent("tcsh")
+        let output = home.appendingPathComponent("fallback command.txt")
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try """
+        #!/bin/sh
+        case "${1:-}" in
+          -i) exit 0 ;;
+          -*) printf 'unexpected shell option: %s\\n' "$1" >&2; exit 64 ;;
+          '') exit 65 ;;
+          *) [ "$#" -eq 1 ] || exit 66; exec /bin/csh "$1" ;;
+        esac
+        """.write(to: fakeShell, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: fakeShell.path
+        )
+
+        let command = #"echo "fallback spaces $CMUX_REMOTE_VALUE" >> "$HOME/fallback command.txt""#
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 0,
+            shellFeatures: "ssh-env,ssh-terminfo",
+            initialCommand: command
+        )
+        let environment = ProcessInfo.processInfo.environment.merging([
+            "HOME": home.path,
+            "PATH": "/usr/bin:/bin",
+            "SHELL": fakeShell.path,
+            "CMUX_REMOTE_VALUE": "remote-only",
+        ]) { _, new in new }
+
+        let first = try runShell(script, environment: environment)
+        #expect(first.status == 0, "stdout: \(first.stdout)\nstderr: \(first.stderr)")
+        let second = try runShell(script, environment: environment)
+        #expect(second.status == 0, "stdout: \(second.stdout)\nstderr: \(second.stderr)")
+
+        let captured = try String(contentsOf: output, encoding: .utf8)
+        #expect(captured == "fallback spaces remote-only\n")
+    }
+
+    @Test
     func whitespaceOnlyCommandDoesNotAddBootstrapWork() {
         let bootstrap = RemoteInitialCommandBootstrap(command: " \n\t ")
 
