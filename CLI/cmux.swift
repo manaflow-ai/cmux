@@ -6015,7 +6015,7 @@ struct CMUXCLI {
                 break
             case .refs:
                 let preservesBareID = preservingIDKinds.contains { kind in
-                    (out["ref"] as? String)?.hasPrefix("\(kind):") == true
+                    (out["ref"] as? String)?.split(separator: ":", omittingEmptySubsequences: false).map { $0.count == 2 && $0.first == Substring(kind) && $0.last?.isEmpty == false } == true
                 }
                 if out["ref"] != nil && out["id"] != nil && !preservesBareID {
                     out.removeValue(forKey: "id")
