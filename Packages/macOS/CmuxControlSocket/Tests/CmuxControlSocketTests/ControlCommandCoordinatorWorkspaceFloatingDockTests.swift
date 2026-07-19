@@ -91,6 +91,13 @@ struct ControlCommandCoordinatorWorkspaceFloatingDockTests {
         ))
     }
 
+    @Test func closeAllForwardsOneWorkspaceScopedAction() {
+        let (coordinator, context) = makeCoordinator()
+        _ = coordinator.handle(request("workspace.float.close_all"))
+
+        #expect(context.lastAction == .closeAll)
+    }
+
     @Test func createRejectsPartialFrameBeforeMutation() {
         let (coordinator, context) = makeCoordinator()
         let result = coordinator.handle(request("workspace.float.create", ["width": .int(500)]))

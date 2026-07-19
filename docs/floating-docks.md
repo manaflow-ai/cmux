@@ -4,7 +4,7 @@ A Floating Dock is a movable, resizable Bonsplit container owned by one workspac
 
 New Floating Docks start with a terminal. Their tabs and panes use the same Bonsplit drag behavior as the existing right Dock, so notes, terminals, and browsers can move between the main workspace, right Dock, and Floating Docks without recreating the surface. The default glass tint follows the active Ghostty background while keeping the translucent Raycast-style material; a per-window color overrides that derived tint.
 
-Create one from the command palette with `New Terminal Floating Window`, `New Notes Floating Window`, or `New Browser Floating Window`. `Customize Floating Window Color…` changes the most recently active floating window. The CLI exposes the same choices:
+Create one from the command palette with `New Terminal Floating Window`, `New Notes Floating Window`, or `New Browser Floating Window`. `Customize Floating Window Color…` changes the most recently active floating window. `Close All Floating Windows in Workspace` closes only the selected workspace's floating windows. The CLI exposes the same choices:
 
 ```sh
 cmux workspace float create --type terminal --title Scratch --focus
@@ -16,6 +16,7 @@ cmux workspace float color reset float:1
 cmux workspace float note set float:1 "release checklist"
 cmux workspace float pane create float:1 --type browser --direction right --url https://cmux.com
 cmux workspace float hide float:1
+cmux workspace float close-all
 ```
 
 `list --json` returns every Floating Dock in the target workspace, including its frame, background color, presentation and focus state, panes, selected tabs, and surface identifiers. With no explicit frame, new windows use AppKit's cascade placement relative to `--relative-to`, the most recently active floating window, or the last existing floating window. Mutations preserve the user's current focus unless `--focus` is explicit.

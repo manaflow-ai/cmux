@@ -5113,9 +5113,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let targetWindow,
            let context = contextForMainWindow(targetWindow) {
             _ = context.tabManager.setFocusedBrowserFocusModeActive(false, reason: "commandPaletteRequest.\(source)")
-            if !targetWindow.isKeyWindow {
-                targetWindow.makeKey()
-            }
         }
         let markPending = kind.marksPending
         if markPending {
@@ -5957,12 +5954,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func isCommandPaletteOverlayPresented(in window: NSWindow) -> Bool {
+        if commandPalettePresentedPanelWindow(for: window) != nil {
+            return true
+        }
         guard let container = commandPaletteOverlayContainer(in: window) else { return false }
         return !container.isHidden && container.alphaValue > 0.001
     }
 
     private func isCommandPaletteResponderActive(in window: NSWindow) -> Bool {
-        guard let responder = window.firstResponder else { return false }
+        let inputWindow = commandPalettePresentedPanelWindow(for: window) ?? window
+        guard let responder = inputWindow.firstResponder else { return false }
         if let textView = responder as? NSTextView,
            textView.isFieldEditor,
            !(textView.delegate is NSView) {
@@ -5974,7 +5975,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func isCommandPaletteMultilineTextResponderActive(in window: NSWindow) -> Bool {
-        guard let textView = window.firstResponder as? NSTextView,
+        let inputWindow = commandPalettePresentedPanelWindow(for: window) ?? window
+        guard let textView = inputWindow.firstResponder as? NSTextView,
               !textView.isFieldEditor else {
             return false
         }
@@ -5982,13 +5984,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func commandPaletteMarkedTextInput(in window: NSWindow) -> NSTextView? {
-        if let textView = window.firstResponder as? NSTextView,
+        let inputWindow = commandPalettePresentedPanelWindow(for: window) ?? window
+        if let textView = inputWindow.firstResponder as? NSTextView,
            isCommandPaletteResponder(textView),
            textView.hasMarkedText() {
             return textView
         }
 
-        if let textField = window.firstResponder as? NSTextField,
+        if let textField = inputWindow.firstResponder as? NSTextField,
            let editor = textField.currentEditor() as? NSTextView,
            isCommandPaletteResponder(editor),
            editor.hasMarkedText() {

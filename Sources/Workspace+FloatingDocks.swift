@@ -70,6 +70,14 @@ extension Workspace {
         return true
     }
 
+    @discardableResult
+    func closeAllFloatingDocks() -> Int {
+        let docks = floatingDocks
+        floatingDocks.removeAll(keepingCapacity: true)
+        docks.forEach { $0.close() }
+        return docks.count
+    }
+
     func floatingDockSessionSnapshots() -> [SessionFloatingDockSnapshot]? {
         let snapshots = floatingDocks.map { dock in
             SessionFloatingDockSnapshot(

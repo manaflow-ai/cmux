@@ -72,6 +72,15 @@ extension ContentView {
                 subtitle: constant(String(localized: "command.workspace.subtitle", defaultValue: "Workspace")),
                 keywords: ["reset", "default", "color", "tint", "floating", "window"]
             ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.closeAllWorkspaceFloatingWindows",
+                title: constant(String(
+                    localized: "command.closeAllWorkspaceFloatingWindows.title",
+                    defaultValue: "Close All Floating Windows in Workspace"
+                )),
+                subtitle: constant(String(localized: "command.workspace.subtitle", defaultValue: "Workspace")),
+                keywords: ["close", "all", "floating", "dock", "workspace", "windows"]
+            ),
         ]
     }
 
@@ -143,6 +152,11 @@ extension ContentView {
         }
         registry.register(commandId: "palette.resetFloatingWindowColor") {
             if AppDelegate.shared?.resetWorkspaceFloatingDockColor(in: tabManager) != true {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.closeAllWorkspaceFloatingWindows") {
+            if AppDelegate.shared?.closeAllWorkspaceFloatingDocks(in: tabManager) == nil {
                 NSSound.beep()
             }
         }

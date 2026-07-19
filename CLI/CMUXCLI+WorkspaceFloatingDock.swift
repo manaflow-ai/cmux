@@ -13,7 +13,7 @@ extension CMUXCLI {
         guard let subcommand = commandArgs.first?.lowercased() else {
             throw CLIError(message: floatingDockCLIString(
                 "cli.workspace.float.error.subcommandRequired",
-                defaultValue: "workspace float requires a subcommand. Try: list, create, show, hide, focus, close, frame, color, note, surface, pane"
+                defaultValue: "workspace float requires a subcommand. Try: list, create, show, hide, focus, close, close-all, frame, color, note, surface, pane"
             ))
         }
         let target = try workspaceFloatingDockTarget(
@@ -47,6 +47,21 @@ extension CMUXCLI {
             if subcommand == "show" { params["focus"] = hasFlag(remaining, name: "--focus") }
             let payload = try client.sendV2(method: "workspace.float.\(subcommand)", params: params)
             printFloatingDockMutation(payload, jsonOutput: jsonOutput, idFormat: idFormat)
+        case "close-all", "close_all":
+            let payload = try client.sendV2(method: "workspace.float.close_all", params: params)
+            if jsonOutput {
+                printV2Payload(payload, jsonOutput: true, idFormat: idFormat, fallbackText: "")
+            } else {
+                let closedCount = (payload["closed_count"] as? NSNumber)?.intValue ?? 0
+                print(String(
+                    format: floatingDockCLIString(
+                        "cli.workspace.float.output.closedAll",
+                        defaultValue: "Closed %d floating window(s)."
+                    ),
+                    locale: .current,
+                    closedCount
+                ))
+            }
         case "frame":
             let (selector, remaining) = try floatingDockSelector(from: args)
             params["float"] = selector
@@ -319,7 +334,7 @@ extension CMUXCLI {
       create [--type terminal|browser|notes] [--title <title>] [--url <URL>]
              [--color #RRGGBB] [--relative-to <float>]
              [--x N --y N --width N --height N] [--focus]
-      show <float> [--focus] | hide <float> | focus <float> | close <float>
+      show <float> [--focus] | hide <float> | focus <float> | close <float> | close-all
       frame <float> --x N --y N --width N --height N
       color get <float> | color set <float> --color #RRGGBB | color reset <float>
       note get <float> | note set <float> <text>

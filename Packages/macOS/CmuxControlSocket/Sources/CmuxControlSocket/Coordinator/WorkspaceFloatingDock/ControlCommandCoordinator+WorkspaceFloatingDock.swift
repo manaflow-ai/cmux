@@ -31,6 +31,8 @@ extension ControlCommandCoordinator {
         case "workspace.float.close":
             guard let selector = floatingDockSelector(request.params) else { return missingFloatingDock() }
             action = .close(selector: selector)
+        case "workspace.float.close_all":
+            action = .closeAll
         case "workspace.float.set_frame":
             guard let selector = floatingDockSelector(request.params) else { return missingFloatingDock() }
             let frame = floatingDockFrame(request.params, required: true)

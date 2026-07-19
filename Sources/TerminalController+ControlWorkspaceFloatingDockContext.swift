@@ -113,6 +113,18 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
             _ = workspace.closeFloatingDock(id: dock.id)
             AppDelegate.shared?.refreshWorkspaceFloatingDocks(for: tabManager)
             return .resolved(payload)
+        case .closeAll:
+            guard let appDelegate = AppDelegate.shared else {
+                return .operationFailed("Failed to close floating Docks")
+            }
+            let closedCount = appDelegate.closeAllWorkspaceFloatingDocks(
+                in: workspace,
+                tabManager: tabManager
+            )
+            return .resolved(.object([
+                "workspace_id": .string(workspace.id.uuidString),
+                "closed_count": .int(Int64(closedCount)),
+            ]))
         case .setFrame(let selector, let frame):
             guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
             dock.frame = Workspace.sanitizedFloatingDockFrame(CGRect(controlFrame: frame))

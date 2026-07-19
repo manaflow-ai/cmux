@@ -55,9 +55,15 @@ extension AppDelegate {
         if let context = contextForMainTerminalWindow(window) {
             return context
         }
-        return mainWindowContexts.values.first { context in
+        if let context = mainWindowContexts.values.first(where: { context in
             context.workspaceFloatingDockPresenter?.owns(window: window) == true
+        }) {
+            return context
         }
+        if let parent = window.parent {
+            return contextForMainTerminalWindow(parent)
+        }
+        return nil
     }
 
     @discardableResult
@@ -137,6 +143,22 @@ extension AppDelegate {
         dock.backgroundTintHex = nil
         refreshWorkspaceFloatingDocks(for: tabManager)
         return true
+    }
+
+    @discardableResult
+    func closeAllWorkspaceFloatingDocks(
+        in workspace: Workspace,
+        tabManager: TabManager
+    ) -> Int {
+        let closedCount = workspace.closeAllFloatingDocks()
+        refreshWorkspaceFloatingDocks(for: tabManager)
+        return closedCount
+    }
+
+    @discardableResult
+    func closeAllWorkspaceFloatingDocks(in tabManager: TabManager) -> Int? {
+        guard let workspace = tabManager.selectedWorkspace else { return nil }
+        return closeAllWorkspaceFloatingDocks(in: workspace, tabManager: tabManager)
     }
 
     func refreshAllWorkspaceFloatingDocks() {
