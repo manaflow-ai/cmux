@@ -27,6 +27,62 @@ struct RemoteTmuxSessionCommandBuilderTests {
         }
     }
 
+    @Test("new session binds current workspace metadata before its first shell starts")
+    func newSessionBindsWorkspaceMetadataBeforeFirstShell() throws {
+        try withFakeTmux(sessionExists: false) { directory, environment in
+            let shellCommand = "exec integrated-shell"
+            let builder = RemoteTmuxSessionCommandBuilder(
+                sessionName: "fresh",
+                shellCommand: shellCommand
+            )
+            let currentWorkspace = "11111111-1111-1111-1111-111111111111"
+            let currentSurface = "22222222-2222-2222-2222-222222222222"
+            let currentSocket = "127.0.0.1:55272"
+            let currentEnvironment = [
+                "CMUX_BUNDLED_CLI_PATH": "/home/dev/.cmux/bin/cmux",
+                "CMUX_PANEL_ID": currentSurface,
+                "CMUX_SHELL_INTEGRATION": "1",
+                "CMUX_SHELL_INTEGRATION_DIR": "/home/dev/.cmux/relay/55272.shell",
+                "CMUX_SOCKET_PATH": currentSocket,
+                "CMUX_SURFACE_ID": currentSurface,
+                "CMUX_TAB_ID": currentWorkspace,
+                "CMUX_WORKSPACE_ID": currentWorkspace,
+            ]
+            let result = try run(
+                builder.remoteShellCommand,
+                environment: environment.merging(currentEnvironment) { _, current in current }
+            )
+
+            #expect(result.status == 0)
+            #expect(result.stderr.isEmpty)
+            let calls = try invocations(in: directory)
+            let newSessionCall = try #require(calls.first { $0.first == "new-session" })
+            #expect(newSessionCall == [
+                "new-session", "-d",
+                "-e", "CMUX_BUNDLED_CLI_PATH=/home/dev/.cmux/bin/cmux",
+                "-e", "CMUX_SHELL_INTEGRATION=1",
+                "-e", "CMUX_SHELL_INTEGRATION_DIR=/home/dev/.cmux/relay/55272.shell",
+                "-e", "CMUX_SOCKET_PATH=\(currentSocket)",
+                "-e", "CMUX_TAB_ID=\(currentWorkspace)",
+                "-e", "CMUX_WORKSPACE_ID=\(currentWorkspace)",
+                "-e", "CMUX_PANEL_ID=",
+                "-e", "CMUX_SURFACE_ID=",
+                "-s", "fresh", shellCommand,
+            ])
+
+            let newSessionIndex = try #require(calls.firstIndex(of: newSessionCall))
+            let setOptionIndex = try #require(calls.firstIndex {
+                $0.first == "set-option"
+            })
+            for (key, value) in currentEnvironment where key != "CMUX_PANEL_ID" && key != "CMUX_SURFACE_ID" {
+                let expectedCall = ["set-environment", "-t", "=fresh", key, value]
+                let index = try #require(calls.firstIndex(of: expectedCall), "missing tmux call: \(expectedCall)")
+                #expect(newSessionIndex < index)
+                #expect(index < setOptionIndex)
+            }
+        }
+    }
+
     @Test("existing session rebinds workspace metadata before attach without mutating user options")
     func existingSessionRebindsWorkspaceMetadata() throws {
         try withFakeTmux(sessionExists: true) { directory, environment in
