@@ -69,6 +69,35 @@ import UIKit
         )
     }
 
+    @Test func rebindingDuringInterruptedScrollDoesNotKeepUpdatesStaged() {
+        let initial = configuration(workspaceIDs: ["workspace-1"])
+        let coordinator = WorkspaceListTableCoordinator(configuration: initial)
+        let firstTable = WorkspaceListUITableView(
+            frame: CGRect(x: 0, y: 0, width: 390, height: 844)
+        )
+        coordinator.attach(to: firstTable)
+        coordinator.update(configuration: initial, in: firstTable)
+
+        let scrollDelegate: any UIScrollViewDelegate = coordinator
+        scrollDelegate.scrollViewWillBeginDragging?(firstTable)
+        let liveUpdate = configuration(workspaceIDs: ["workspace-1", "workspace-2"])
+        coordinator.update(configuration: liveUpdate, in: firstTable)
+
+        let replacementTable = WorkspaceListUITableView(
+            frame: CGRect(x: 0, y: 0, width: 390, height: 844)
+        )
+        coordinator.attach(to: replacementTable)
+        coordinator.update(configuration: liveUpdate, in: replacementTable)
+
+        let replacementRowCount = replacementTable.numberOfSections == 0
+            ? 0
+            : replacementTable.numberOfRows(inSection: 0)
+        #expect(
+            replacementRowCount == 2,
+            "A replacement table must receive the latest snapshot even if the old table vanished mid-gesture."
+        )
+    }
+
     private func configuration(workspaceIDs: [String]) -> WorkspaceListTable {
         let workspaces = workspaceIDs.map { rawID in
             MobileWorkspacePreview(
