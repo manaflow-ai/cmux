@@ -97,6 +97,13 @@ struct Request {
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify,
+    /// Gracefully hand this daemon's durable session to a replacement.
+    /// The caller must fence the request with values from this daemon's
+    /// `identify` response.
+    ShutdownDaemon {
+        pid: u32,
+        generation: String,
+    },
     Ping,
     SetClientInfo {
         #[serde(default)]
@@ -1191,8 +1198,14 @@ impl ClientRegistry {
         client: u64,
         name: Option<String>,
         kind: Option<String>,
+        daemon_handoff_pending: &AtomicBool,
     ) -> anyhow::Result<(Option<String>, Option<String>)> {
         let mut clients = self.clients.lock().unwrap();
+        if kind.as_deref() == Some("native-browser")
+            && daemon_handoff_pending.load(Ordering::Acquire)
+        {
+            anyhow::bail!("daemon handoff is already in progress");
+        }
         let record =
             clients.get_mut(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
         if let Some(name) = name {
@@ -1202,6 +1215,29 @@ impl ClientRegistry {
             record.kind = Some(clamp_client_label(kind));
         }
         Ok((record.name.clone(), record.kind.clone()))
+    }
+
+    pub(crate) fn begin_daemon_handoff(
+        &self,
+        requesting_client: u64,
+        daemon_handoff_pending: &AtomicBool,
+    ) -> anyhow::Result<()> {
+        let clients = self.clients.lock().unwrap();
+        let requester = clients
+            .get(&requesting_client)
+            .ok_or_else(|| anyhow::anyhow!("unknown client {requesting_client}"))?;
+        if !matches!(requester.transport, ClientTransport::Unix) {
+            anyhow::bail!("daemon shutdown requires a trusted local connection");
+        }
+        if clients.iter().any(|(client, record)| {
+            *client != requesting_client && record.kind.as_deref() == Some("native-browser")
+        }) {
+            anyhow::bail!("another native-browser frontend still owns this daemon");
+        }
+        daemon_handoff_pending
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| anyhow::anyhow!("daemon handoff is already in progress"))?;
+        Ok(())
     }
 
     pub(crate) fn list_json(&self, requesting_client: u64) -> Value {
@@ -1807,11 +1843,13 @@ pub fn detach_control_client(mux: &Mux, client: u64) -> bool {
 
 fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWriter) -> bool {
     let mut detach_self = false;
+    let mut shutdown_daemon = false;
     let response = match serde_json::from_str::<Request>(message) {
         Ok(req) => {
             let id = req.id.clone();
             detach_self =
                 matches!(&req.cmd, Command::DetachClient { client: target } if *target == client);
+            shutdown_daemon = matches!(&req.cmd, Command::ShutdownDaemon { .. });
             match handle_command(mux, client, req.cmd, writer) {
                 Ok(data) => Response { id, ok: true, data: Some(data), error: None },
                 Err(e) => Response { id, ok: false, data: None, error: Some(e.to_string()) },
@@ -1824,6 +1862,16 @@ fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWr
     let response_ok = response.ok;
     let sent =
         serde_json::to_value(&response).is_ok_and(|value| writer.send_control(&value).is_ok());
+    // Queue the successful acknowledgement before making the owning loop
+    // leave. The headless loop polls at a bounded interval, giving the writer
+    // thread time to flush the response before normal process teardown.
+    if shutdown_daemon && response_ok {
+        if sent {
+            mux.request_daemon_shutdown();
+        } else {
+            mux.cancel_daemon_handoff();
+        }
+    }
     if detach_self && response_ok && sent {
         disconnect_client(mux, client, true);
         return false;
@@ -2816,6 +2864,23 @@ fn handle_command(
                 "generation": generation,
                 "workspace_revision": mux.with_state(|state| state.workspace_revision),
                 "terminal_revision": mux.terminal_registry_snapshot()?.revision,
+                "daemon_handoff": 1,
+            }))
+        }
+        Command::ShutdownDaemon { pid, generation } => {
+            let actual_pid = std::process::id();
+            if pid != actual_pid {
+                anyhow::bail!("daemon pid changed; identify again");
+            }
+            let (_, actual_generation) = mux.registry_identity();
+            if generation != actual_generation {
+                anyhow::bail!("daemon generation changed; identify again");
+            }
+            mux.begin_daemon_handoff(client)?;
+            Ok(json!({
+                "accepted": true,
+                "pid": actual_pid,
+                "generation": actual_generation,
             }))
         }
         Command::Ping => Ok(json!({
@@ -2826,7 +2891,8 @@ fn handle_command(
             "protocol": PROTOCOL_VERSION,
         })),
         Command::SetClientInfo { name, kind } => {
-            let (name, kind) = mux.control_clients.set_info(client, name, kind)?;
+            let (name, kind) =
+                mux.control_clients.set_info(client, name, kind, &mux.daemon_handoff_pending)?;
             mux.emit(MuxEvent::ClientChanged { client, name, kind });
             Ok(json!({}))
         }
@@ -4833,6 +4899,7 @@ mod tests {
         assert_eq!(data["build_commit"].as_str(), stamped_build_commit());
         assert_eq!(data["ghostty_commit"].as_str(), stamped_ghostty_commit());
         assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
+        assert_eq!(identity["daemon_handoff"].as_u64(), Some(1));
         assert_eq!(STABLE_SPLIT_IDS_PROTOCOL_VERSION, 8);
         assert_eq!(STACK_LAYOUT_PROTOCOL_VERSION, 9);
         assert_eq!(PROTOCOL_VERSION, 9);
@@ -4974,6 +5041,155 @@ mod tests {
         };
         assert_eq!(recorded_size(first), (100, 30));
         assert_eq!(recorded_size(second), (132, 44));
+    }
+
+    #[test]
+    fn daemon_shutdown_is_local_fenced_and_queues_ack_first() {
+        let rejected = test_mux();
+        let rejected_outbound = Arc::new(BoundedOutbound::default());
+        let rejected_writer =
+            MessageWriter::new(QueuedSink { outbound: rejected_outbound.clone(), control: None });
+        let websocket =
+            rejected.control_clients.register(ClientTransport::WebSocket, rejected_writer.clone());
+        let (_, generation) = rejected.registry_identity();
+        assert!(handle_message(
+            &rejected,
+            websocket,
+            &json!({
+                "id": 91,
+                "cmd": "shutdown-daemon",
+                "pid": std::process::id(),
+                "generation": generation,
+            })
+            .to_string(),
+            &rejected_writer,
+        ));
+        let response: Value = serde_json::from_str(&rejected_outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["ok"], false);
+        assert!(response["error"].as_str().unwrap().contains("trusted local"));
+        assert!(!rejected.daemon_shutdown_requested());
+
+        let local =
+            rejected.control_clients.register(ClientTransport::Unix, rejected_writer.clone());
+        assert!(handle_message(
+            &rejected,
+            local,
+            &json!({
+                "id": 92,
+                "cmd": "shutdown-daemon",
+                "pid": std::process::id().wrapping_add(1),
+                "generation": generation,
+            })
+            .to_string(),
+            &rejected_writer,
+        ));
+        let response: Value = serde_json::from_str(&rejected_outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["ok"], false);
+        assert!(response["error"].as_str().unwrap().contains("pid changed"));
+        assert!(!rejected.daemon_shutdown_requested());
+
+        assert!(handle_message(
+            &rejected,
+            local,
+            &json!({
+                "id": 93,
+                "cmd": "shutdown-daemon",
+                "pid": std::process::id(),
+                "generation": "stale-generation",
+            })
+            .to_string(),
+            &rejected_writer,
+        ));
+        let response: Value = serde_json::from_str(&rejected_outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["ok"], false);
+        assert!(response["error"].as_str().unwrap().contains("generation changed"));
+        assert!(!rejected.daemon_shutdown_requested());
+
+        let accepted = test_mux();
+        let accepted_outbound = Arc::new(BoundedOutbound::default());
+        let accepted_writer =
+            MessageWriter::new(QueuedSink { outbound: accepted_outbound.clone(), control: None });
+        let local =
+            accepted.control_clients.register(ClientTransport::Unix, accepted_writer.clone());
+        let (_, generation) = accepted.registry_identity();
+        assert!(handle_message(
+            &accepted,
+            local,
+            &json!({
+                "id": 94,
+                "cmd": "shutdown-daemon",
+                "pid": std::process::id(),
+                "generation": generation,
+            })
+            .to_string(),
+            &accepted_writer,
+        ));
+
+        // `handle_message` queues this response before it flips the shutdown
+        // flag, so observing the requested state implies the ACK is already
+        // available to the connection's writer thread.
+        assert!(accepted.daemon_shutdown_requested());
+        let response: Value = serde_json::from_str(&accepted_outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["data"]["accepted"], true);
+        assert_eq!(response["data"]["pid"], std::process::id());
+        assert_eq!(response["data"]["generation"], generation);
+    }
+
+    #[test]
+    fn daemon_shutdown_atomically_fences_native_browser_ownership() {
+        let owned = test_mux();
+        let requester_writer = test_writer();
+        let owner_writer = test_writer();
+        let requester =
+            owned.control_clients.register(ClientTransport::Unix, requester_writer.clone());
+        let owner = owned.control_clients.register(ClientTransport::Unix, owner_writer.clone());
+        handle_command(
+            &owned,
+            owner,
+            Command::SetClientInfo {
+                name: Some("existing browser".to_string()),
+                kind: Some("native-browser".to_string()),
+            },
+            &owner_writer,
+        )
+        .unwrap();
+        let (_, generation) = owned.registry_identity();
+        let error = handle_command(
+            &owned,
+            requester,
+            Command::ShutdownDaemon { pid: std::process::id(), generation },
+            &requester_writer,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("still owns"));
+        assert!(!owned.daemon_shutdown_requested());
+
+        let fenced = test_mux();
+        let requester_writer = test_writer();
+        let late_writer = test_writer();
+        let requester =
+            fenced.control_clients.register(ClientTransport::Unix, requester_writer.clone());
+        let late = fenced.control_clients.register(ClientTransport::Unix, late_writer.clone());
+        let (_, generation) = fenced.registry_identity();
+        handle_command(
+            &fenced,
+            requester,
+            Command::ShutdownDaemon { pid: std::process::id(), generation },
+            &requester_writer,
+        )
+        .unwrap();
+        let error = handle_command(
+            &fenced,
+            late,
+            Command::SetClientInfo {
+                name: Some("late browser".to_string()),
+                kind: Some("native-browser".to_string()),
+            },
+            &late_writer,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("handoff is already in progress"));
     }
 
     #[cfg(unix)]

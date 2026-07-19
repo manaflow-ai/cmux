@@ -207,6 +207,13 @@ impl Session {
             remote.begin_shutdown();
         }
     }
+
+    pub fn daemon_shutdown_requested(&self) -> bool {
+        match self {
+            Session::Local(mux) => mux.daemon_shutdown_requested(),
+            Session::Remote(_) => false,
+        }
+    }
     pub fn invalidate_remote_tree(&self) {
         if let Session::Remote(remote) = self {
             remote.invalidate_tree();

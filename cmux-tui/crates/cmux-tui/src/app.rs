@@ -877,6 +877,10 @@ impl OrderedSession {
         self.inner.begin_shutdown();
     }
 
+    fn daemon_shutdown_requested(&self) -> bool {
+        self.inner.daemon_shutdown_requested()
+    }
+
     fn attach_surface(&self, id: SurfaceId, size: Option<(u16, u16)>) {
         if !self.can_attach_surface(id) {
             return;
@@ -2945,7 +2949,10 @@ impl App {
         self.draw_terminal(terminal)?;
         self.emit_graphics()?;
 
-        while !self.quit && !crate::shutdown_requested() {
+        while !self.quit
+            && !crate::shutdown_requested()
+            && !self.session.daemon_shutdown_requested()
+        {
             // Block for the first event, then drain whatever queued so a
             // torrent of pty output coalesces into one frame.
             let timeout = if self.shake_frames > 0

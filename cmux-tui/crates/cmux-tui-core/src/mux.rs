@@ -610,6 +610,10 @@ pub struct Mux {
     agent_records: Mutex<HashMap<SurfaceId, AgentRecord>>,
     surface_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
     terminal_adoptions: Mutex<HashSet<String>>,
+    /// Fences the interval between accepting a browser daemon-handoff request
+    /// and queueing its acknowledgement. ClientRegistry consults this under
+    /// its own lock so a new native-browser owner cannot race the shutdown.
+    pub(crate) daemon_handoff_pending: AtomicBool,
     shutting_down: AtomicBool,
     pub(crate) control_clients: crate::server::ClientRegistry,
     pairing: PairingBroker,
@@ -718,6 +722,7 @@ impl Mux {
             agent_records: Mutex::new(HashMap::new()),
             surface_notifications: Mutex::new(HashMap::new()),
             terminal_adoptions: Mutex::new(HashSet::new()),
+            daemon_handoff_pending: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
             control_clients: crate::server::ClientRegistry::new(),
             pairing: PairingBroker::new(),
@@ -3144,6 +3149,28 @@ impl Mux {
         if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
             runtime.shutdown();
         }
+    }
+
+    /// Atomically reserve a daemon handoff while proving no other native
+    /// browser owns this mux. New owner announcements are rejected until the
+    /// response is queued or the reservation is cancelled.
+    pub fn begin_daemon_handoff(&self, requesting_client: u64) -> anyhow::Result<()> {
+        self.control_clients.begin_daemon_handoff(requesting_client, &self.daemon_handoff_pending)
+    }
+
+    pub fn cancel_daemon_handoff(&self) {
+        self.daemon_handoff_pending.store(false, Ordering::Release);
+    }
+
+    /// Ask the owning frontend loop to leave through the normal daemon
+    /// shutdown path. Durable terminal hosts are disconnected by `shutdown`
+    /// and remain available for the replacement daemon to adopt.
+    pub fn request_daemon_shutdown(&self) {
+        self.shutting_down.store(true, Ordering::Release);
+    }
+
+    pub fn daemon_shutdown_requested(&self) -> bool {
+        self.shutting_down.load(Ordering::Acquire)
     }
 
     /// Update options used for future surface/browser launches.

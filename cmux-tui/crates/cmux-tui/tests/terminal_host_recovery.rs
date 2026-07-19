@@ -245,6 +245,128 @@ fn terminal_host_survives_daemon_process_group_hangup() {
 }
 
 #[test]
+fn fenced_daemon_shutdown_acks_then_preserves_and_re_adopts_terminal_host() {
+    let mut harness = RecoveryHarness::start("fenced-shutdown-adopt");
+    let marker = format!("before-fenced-shutdown-{}", std::process::id());
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": ["/bin/cat"],
+            "new_workspace": true,
+            "name": "handover-survivor",
+        }),
+    );
+    let original_surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 2,
+            "cmd": "send",
+            "surface": original_surface,
+            "text": format!("{marker}\n"),
+        }),
+    );
+    assert!(wait_for_screen(&harness.socket, original_surface, &marker).contains(&marker));
+
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let host_pid = record.host_pid;
+    let identify = request(&harness.socket, serde_json::json!({"id": 3, "cmd": "identify"}));
+    let daemon_pid = identify["pid"].as_u64().unwrap();
+    let generation = identify["generation"].as_str().unwrap().to_string();
+
+    let stale = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "id": 4,
+            "cmd": "shutdown-daemon",
+            "pid": daemon_pid,
+            "generation": "stale-generation",
+        }),
+    );
+    assert_eq!(stale["ok"], false);
+    assert!(stale["error"].as_str().unwrap().contains("generation changed"));
+    assert!(harness.child.as_mut().unwrap().try_wait().unwrap().is_none());
+
+    // Receiving this response proves the acknowledgement was flushed before
+    // the daemon entered its normal shutdown path.
+    let accepted = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 5,
+            "cmd": "shutdown-daemon",
+            "pid": daemon_pid,
+            "generation": generation,
+        }),
+    );
+    assert_eq!(accepted["accepted"], true);
+    assert_eq!(accepted["pid"].as_u64(), Some(daemon_pid));
+
+    let mut daemon = harness.child.take().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if daemon.try_wait().unwrap().is_some() {
+            break;
+        }
+        assert!(Instant::now() < deadline, "daemon did not exit after fenced shutdown");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(
+        terminal_host_record_liveness(&record_path, &record).unwrap(),
+        TerminalHostLiveness::Live,
+    );
+    assert_eq!(wait_for_host_records(&harness.host_root(), 1)[0].1.host_pid, host_pid);
+
+    harness.restart();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let adopted_surface = loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({
+                "id": 6,
+                "cmd": "resolve-terminal",
+                "terminal_id": terminal_id,
+            }),
+        );
+        if resolved["lifecycle"] == "running"
+            && resolved["terminal_incarnation"].as_str() == Some(incarnation.as_str())
+            && let Some(surface) = resolved["surface"].as_u64()
+        {
+            break surface;
+        }
+        assert!(Instant::now() < deadline, "replacement daemon did not adopt terminal host");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert!(wait_for_screen(&harness.socket, adopted_surface, &marker).contains(&marker));
+    assert_eq!(wait_for_host_records(&harness.host_root(), 1)[0].1.host_pid, host_pid);
+
+    let after = format!("after-fenced-shutdown-{}", std::process::id());
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 7,
+            "cmd": "send",
+            "surface": adopted_surface,
+            "text": format!("{after}\n"),
+        }),
+    );
+    assert!(wait_for_screen(&harness.socket, adopted_surface, &after).contains(&after));
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 8,
+            "cmd": "close-terminal",
+            "terminal_id": terminal_id,
+            "terminal_incarnation": incarnation,
+        }),
+    );
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
 fn new_host_rolls_back_when_surface_setup_fails_after_connect() {
     let harness = RecoveryHarness::start_with_hosted_spawn_failure("post-connect-rollback", 500);
     let socket = harness.socket.clone();

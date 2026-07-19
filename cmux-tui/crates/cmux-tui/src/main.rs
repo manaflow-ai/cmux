@@ -350,7 +350,7 @@ fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result
     // the mux reaps exited surfaces itself.
     let events = mux.subscribe();
     loop {
-        if shutdown_requested() {
+        if shutdown_requested() || mux.daemon_shutdown_requested() {
             break;
         }
         match events.recv_timeout(std::time::Duration::from_millis(250)) {
