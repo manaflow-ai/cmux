@@ -323,10 +323,10 @@ struct AgentHookSessionRegistryBridge {
             }
         }
         do {
-            let bounded = try registry.boundedRecentSnapshotsImportingAdmittedLegacy(
+            let bounded = try registry.globallyBoundedRecentSnapshotsImportingAdmittedLegacy(
                 sources: sources,
                 admissions: admissions,
-                maximumRecordsPerProvider: maximumRecordsPerProvider,
+                maximumRecords: maximumRecordsPerProvider,
                 maximumGraphNodes: max(0, maximumLegacyGraphNodes),
                 validateRecord: validateRecord,
                 validateActiveSlot: validateActiveSlot
@@ -456,10 +456,10 @@ struct AgentHookSessionRegistryBridge {
             }
             let consistent: [String: CmuxAgentSessionRegistry.BoundedRecentSnapshot]
             do {
-                consistent = try registry.boundedRecentSnapshotsImportingAdmittedLegacy(
+                consistent = try registry.globallyBoundedRecentSnapshotsImportingAdmittedLegacy(
                     sources: validSources,
                     admissions: [],
-                    maximumRecordsPerProvider: maximumRecordsPerProvider,
+                    maximumRecords: maximumRecordsPerProvider,
                     maximumGraphNodes: max(0, maximumLegacyGraphNodes),
                     validateRecord: validateRecord,
                     validateActiveSlot: validateActiveSlot
