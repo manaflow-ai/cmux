@@ -1011,7 +1011,8 @@ final class MobileHostService {
             let transport = CmxNetworkByteTransport(acceptedConnection: connection)
             await Self.acceptTransport(
                 transport,
-                authorization: .stackBearer,
+                authorization: MobileHostTransportAuthorizationPolicy
+                    .legacyPrivateNetworkListener,
                 isCurrent: {
                     await MobileHostService.shared.canAcceptConnection(
                         generation: generation
