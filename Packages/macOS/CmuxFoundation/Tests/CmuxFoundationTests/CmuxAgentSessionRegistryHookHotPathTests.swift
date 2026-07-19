@@ -488,8 +488,47 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
             "gamma:missing-active-run",
             "delta:invalid-active-run-reference",
             "alpha:equal-session",
+            "beta:equal-session",
         ]))
-        #expect(snapshots["beta"]?.snapshot.records.isEmpty == true)
+        #expect(snapshots["beta"]?.snapshot.records.count == 1)
+    }
+
+    @Test("global bounded list retains the full timestamp cutoff tie")
+    func globallyBoundedListDefersCanonicalUnicodeTieOrderingToSwift() throws {
+        let fixture = try makeFixture()
+        let decomposedSessionID = "e\u{301}"
+        let precomposedSessionID = "\u{e9}"
+        #expect(decomposedSessionID == precomposedSessionID)
+        try fixture.registry.apply(provider: "zeta", records: [try record(
+            provider: "zeta",
+            sessionID: decomposedSessionID,
+            workspaceID: "workspace-zeta",
+            surfaceID: "surface-zeta",
+            updatedAt: 100
+        )])
+        try fixture.registry.apply(provider: "alpha", records: [try record(
+            provider: "alpha",
+            sessionID: precomposedSessionID,
+            workspaceID: "workspace-alpha",
+            surfaceID: "surface-alpha",
+            updatedAt: 100
+        )])
+
+        let snapshots = try fixture.registry
+            .globallyBoundedRecentSnapshotsImportingAdmittedLegacy(
+                sources: ["alpha", "zeta"].map {
+                    .init(
+                        provider: $0,
+                        url: fixture.directory.appendingPathComponent("\($0).json")
+                    )
+                },
+                admissions: [],
+                maximumRecords: 1
+            )
+
+        #expect(snapshots.values.reduce(0) { $0 + $1.snapshot.records.count } == 2)
+        #expect(snapshots["alpha"]?.snapshot.records.first?.sessionID == precomposedSessionID)
+        #expect(snapshots["zeta"]?.snapshot.records.first?.sessionID == decomposedSessionID)
     }
 
     @Test("bounded validation selection and count share one WAL snapshot")
