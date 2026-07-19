@@ -302,6 +302,12 @@ pub struct WorkspacePlacement {
     pub revision: u64,
 }
 
+#[derive(Clone, Copy)]
+enum TreeCloseTarget {
+    Pane(PaneId),
+    Screen(ScreenId),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AppliedPane {
     pub pane: PaneId,
@@ -2474,11 +2480,34 @@ impl Mux {
         }
     }
 
-    /// Close every surface in `tabs` (helper for pane/screen/workspace
-    /// close). Emits events outside the lock.
-    fn close_surfaces(&self, tabs: Vec<SurfaceId>, mut delta: TreeDelta) {
-        let (removed, changed_screens, empty) = {
+    /// Close a pane or screen and build its delta in the same critical section
+    /// as removal so a concurrent registry mutation cannot stale its index.
+    fn close_tree_target(&self, target: TreeCloseTarget) -> bool {
+        let notifications = self.surface_notifications();
+        let Some((removed, changed_screens, empty, delta)) = (|| {
             let mut state = self.state.lock().unwrap();
+            let (tabs, mut delta) = match target {
+                TreeCloseTarget::Pane(target) => {
+                    let pane = state.panes.get(&target)?;
+                    (
+                        pane.tabs.clone(),
+                        close_pane_delta(&state, &notifications, target)
+                            .expect("live pane has a close delta"),
+                    )
+                }
+                TreeCloseTarget::Screen(target) => {
+                    let screen = state
+                        .workspaces
+                        .iter()
+                        .flat_map(|workspace| &workspace.screens)
+                        .find(|screen| screen.id == target)?;
+                    (
+                        screen_tabs(&state, screen),
+                        close_screen_delta(&state, &notifications, target)
+                            .expect("live screen has a close delta"),
+                    )
+                }
+            };
             let changed_screens = unique_screen_ids(
                 tabs.iter().filter_map(|surface| surface_screen_id(&state, *surface)),
             );
@@ -2492,7 +2521,9 @@ impl Mux {
                 state.workspace_revision = state.workspace_revision.saturating_add(1);
                 delta.workspace_revision = Some(state.workspace_revision);
             }
-            (removed, changed_screens, state.workspaces.is_empty())
+            Some((removed, changed_screens, state.workspaces.is_empty(), delta))
+        })() else {
+            return false;
         };
         if !removed.is_empty() {
             for surface in removed {
@@ -2507,43 +2538,17 @@ impl Mux {
         if empty {
             self.emit(MuxEvent::Empty);
         }
+        true
     }
 
     /// Close a pane and every tab in it.
     pub fn close_pane(&self, target: PaneId) {
-        let notifications = self.surface_notifications();
-        let (tabs, delta) = {
-            let state = self.state.lock().unwrap();
-            match state.panes.get(&target) {
-                Some(pane) => (
-                    pane.tabs.clone(),
-                    close_pane_delta(&state, &notifications, target)
-                        .expect("live pane has a close delta"),
-                ),
-                None => return,
-            }
-        };
-        self.close_surfaces(tabs, delta);
+        self.close_tree_target(TreeCloseTarget::Pane(target));
     }
 
     /// Close a screen and every pane/tab in it.
     pub fn close_screen(&self, target: ScreenId) -> bool {
-        let notifications = self.surface_notifications();
-        let (tabs, delta) = {
-            let state = self.state.lock().unwrap();
-            let Some(screen) =
-                state.workspaces.iter().flat_map(|ws| ws.screens.iter()).find(|s| s.id == target)
-            else {
-                return false;
-            };
-            (
-                screen_tabs(&state, screen),
-                close_screen_delta(&state, &notifications, target)
-                    .expect("live screen has a close delta"),
-            )
-        };
-        self.close_surfaces(tabs, delta);
-        true
+        self.close_tree_target(TreeCloseTarget::Screen(target))
     }
 
     /// Close a workspace and every screen/pane/tab in it.

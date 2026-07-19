@@ -6940,13 +6940,10 @@ impl App {
         }
         if let Some(Drag::Workspace { workspace, .. }) = self.drag {
             self.drag = None;
-            if let (Some(source), Some(insertion)) =
-                (self.workspace_index(workspace), self.workspace_drop_target_at(x, y))
+            if let Some(insertion) = self.workspace_drop_target_at(x, y)
                 && self.prepare_pty_input_before_mutation()
             {
-                let index =
-                    workspace_destination_index(source, insertion, self.tree.workspaces.len());
-                self.session.move_workspace(workspace, index);
+                self.session.move_workspace(workspace, insertion);
             }
             return Ok(RenderAction::Draw);
         }
@@ -7493,11 +7490,6 @@ fn rects_intersect(a: Rect, b: Rect) -> bool {
     a.x < bx2 && ax2 > b.x && a.y < by2 && ay2 > b.y
 }
 
-fn workspace_destination_index(source: usize, insertion: usize, len: usize) -> usize {
-    let final_index = if insertion > source { insertion - 1 } else { insertion };
-    final_index.min(len.saturating_sub(1))
-}
-
 fn browser_key_mapping(
     code: KeyCode,
 ) -> Option<(&'static str, &'static str, u32, Option<&'static str>)> {
@@ -7530,7 +7522,7 @@ mod tests {
         SurfaceResizeOwnership, browser_content_size_for_rect, browser_hover_forward_allowed,
         client_menu_item, forward_mux_event, forward_mux_events, pane_context_menu_groups,
         pane_parts_for_rect, preserve_client_view, record_surface_resize_dispatch_result,
-        sidebar_plugin_status_settles_passive_claim, workspace_destination_index,
+        sidebar_plugin_status_settles_passive_claim,
     };
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -7893,17 +7885,6 @@ mod tests {
     fn browser_tab_size_hint_uses_omnibar_reduced_content() {
         let rect = Rect { x: 10, y: 4, width: 80, height: 24 };
         assert_eq!(browser_content_size_for_rect(rect, ScrollbarPosition::Column), Some((77, 21)));
-    }
-
-    #[test]
-    fn workspace_drop_insertion_converts_to_final_destination_index() {
-        assert_eq!(workspace_destination_index(0, 2, 3), 1);
-        assert_eq!(workspace_destination_index(0, 3, 3), 2);
-        assert_eq!(workspace_destination_index(1, 1, 3), 1);
-        assert_eq!(workspace_destination_index(1, 2, 3), 1);
-        assert_eq!(workspace_destination_index(2, 0, 3), 0);
-        assert_eq!(workspace_destination_index(0, 99, 3), 2);
-        assert_eq!(workspace_destination_index(0, 0, 0), 0);
     }
 
     #[test]
