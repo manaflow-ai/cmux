@@ -619,9 +619,9 @@ fn server_supports_capability(
     write_json_line(reader.get_mut(), &json!({"id": CAPABILITY_REQUEST_ID, "cmd": "identify"}))
         .map_err(|err| format!("transport error: {err}"))?;
     let deadline = Instant::now() + Duration::from_secs(10);
+    let mut line = String::new();
 
     loop {
-        let mut line = String::new();
         match reader.read_line(&mut line) {
             Ok(0) => return Err("transport closed before identify response".to_string()),
             Ok(_) => {}
@@ -643,6 +643,7 @@ fn server_supports_capability(
         if value.get("event").is_some()
             || value.get("id").and_then(Value::as_u64) != Some(CAPABILITY_REQUEST_ID)
         {
+            line.clear();
             continue;
         }
         if value.get("ok").and_then(Value::as_bool) != Some(true) {
