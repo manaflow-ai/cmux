@@ -7,8 +7,16 @@ import UIKit
 @Suite("Workspace list refresh coordinator")
 @MainActor
 struct WorkspaceListRefreshCoordinatorTests {
-    @Test("keeps the refresh control active until a post-refresh snapshot arrives")
-    func keepsRefreshControlActiveUntilPostRefreshSnapshot() async {
+    @Test("keeps refresh geometry inside a neutral representable root")
+    func keepsRefreshGeometryInsideNeutralRoot() {
+        let host = makeContainer()
+
+        #expect(host.containerView.tableView.superview === host.containerView)
+        #expect(host.containerView.tableView.frame == host.containerView.bounds)
+    }
+
+    @Test("keeps custom refresh geometry held until a post-refresh snapshot arrives")
+    func keepsCustomRefreshHeldUntilPostRefreshSnapshot() async {
         let gate = RefreshActionGate()
         let refreshDidComplete = MainActorSignal()
         let configuration = makeConfiguration(
@@ -23,24 +31,26 @@ struct WorkspaceListRefreshCoordinatorTests {
             scheduleRefreshCollapse: scheduler.schedule,
             animateRefreshCollapse: animator.animate
         )
-        let tableView = WorkspaceListUITableView(frame: .zero, style: .plain)
-        let refreshControl = RecordingRefreshControl()
-        tableView.refreshControl = refreshControl
-        coordinator.attach(to: tableView)
-        coordinator.update(configuration: configuration, in: tableView)
+        let host = makeContainer()
+        coordinator.attach(to: host.containerView)
+        coordinator.update(configuration: configuration, in: host.tableView)
+        let baselineTopInset = host.tableView.contentInset.top
 
-        _ = coordinator.perform(
-            NSSelectorFromString("refreshRequested:"),
-            with: refreshControl
-        )
+        #expect(host.tableView.refreshControl == nil && refreshHeader(in: host.tableView) != nil)
+        #expect(coordinator.beginRefresh())
         await gate.waitUntilStarted()
-        #expect(refreshControl.endCount == 0)
+        coordinator.scrollViewWillBeginDragging(host.tableView)
+        #expect(
+            host.tableView.contentInset.top
+                == baselineTopInset + WorkspaceListRefreshGeometry.holdHeight
+        )
 
         await gate.release()
         await refreshDidComplete.wait()
 
         #expect(
-            refreshControl.endCount == 0,
+            host.tableView.contentInset.top
+                == baselineTopInset + WorkspaceListRefreshGeometry.holdHeight,
             "Refresh completion must wait for the authoritative post-refresh snapshot."
         )
 
@@ -48,29 +58,20 @@ struct WorkspaceListRefreshCoordinatorTests {
             refreshCompletionGeneration: 1,
             refresh: {}
         )
-        coordinator.update(configuration: completedConfiguration, in: tableView)
+        coordinator.update(configuration: completedConfiguration, in: host.tableView)
         await scheduler.waitUntilScheduled()
         #expect(scheduler.scheduleCount == 1)
         #expect(
-            refreshControl.endCount == 0,
+            host.tableView.contentInset.top
+                == baselineTopInset + WorkspaceListRefreshGeometry.holdHeight,
             "The snapshot completion must only schedule the visible collapse."
         )
 
         scheduler.runNext()
-        await refreshControl.waitUntilEndCount(1)
-        #expect(refreshControl.endCount == 1)
         #expect(animator.animationCount == 1)
-
-        _ = coordinator.perform(
-            NSSelectorFromString("refreshRequested:"),
-            with: refreshControl
-        )
-        await refreshControl.waitUntilEndCount(2)
-        #expect(
-            scheduler.scheduleCount == 1,
-            "A refresh event during collapse must end without starting another refresh."
-        )
+        #expect(!coordinator.beginRefresh())
         animator.completeNext()
+        #expect(host.tableView.contentInset.top == baselineTopInset)
     }
 
     @Test("ignores a queued collapse after refresh is removed")
@@ -89,17 +90,17 @@ struct WorkspaceListRefreshCoordinatorTests {
             scheduleRefreshCollapse: scheduler.schedule,
             animateRefreshCollapse: animator.animate
         )
-        let tableView = WorkspaceListUITableView(frame: .zero, style: .plain)
-        let refreshControl = RecordingRefreshControl()
-        tableView.refreshControl = refreshControl
-        coordinator.attach(to: tableView)
-        coordinator.update(configuration: configuration, in: tableView)
+        let host = makeContainer()
+        let baselineInset = host.tableView.contentInset
+        let baselineIndicatorInsets = host.tableView.verticalScrollIndicatorInsets
+        let baselineAlwaysBounces = host.tableView.alwaysBounceVertical
+        let baselineBounces = host.tableView.bounces
+        coordinator.attach(to: host.containerView)
+        coordinator.update(configuration: configuration, in: host.tableView)
 
-        _ = coordinator.perform(
-            NSSelectorFromString("refreshRequested:"),
-            with: refreshControl
-        )
+        #expect(coordinator.beginRefresh())
         await gate.waitUntilStarted()
+        coordinator.scrollViewWillBeginDragging(host.tableView)
         await gate.release()
         await refreshDidComplete.wait()
 
@@ -108,98 +109,74 @@ struct WorkspaceListRefreshCoordinatorTests {
                 refreshCompletionGeneration: 1,
                 refresh: {}
             ),
-            in: tableView
+            in: host.tableView
         )
         await scheduler.waitUntilScheduled()
-        #expect(refreshControl.endCount == 0)
 
         coordinator.update(
             configuration: makeConfiguration(
                 refreshCompletionGeneration: 1,
                 refresh: nil
             ),
-            in: tableView
+            in: host.tableView
         )
-        await refreshControl.waitUntilEndCount(1)
-        #expect(refreshControl.endCount == 1)
-        #expect(tableView.refreshControl == nil)
+        #expect(host.tableView.contentInset == baselineInset)
+        #expect(host.tableView.verticalScrollIndicatorInsets == baselineIndicatorInsets)
+        #expect(host.tableView.alwaysBounceVertical == baselineAlwaysBounces)
+        #expect(host.tableView.bounces == baselineBounces)
+        #expect(refreshHeader(in: host.tableView) == nil)
 
         scheduler.runNext()
-        #expect(refreshControl.endCount == 1)
         #expect(animator.animationCount == 0)
     }
 
-    @Test("cancels a queued collapse when the refresh control is replaced")
-    func cancelsQueuedCollapseWhenRefreshControlIsReplaced() async {
-        let firstGate = RefreshActionGate()
-        let firstRefreshDidComplete = MainActorSignal()
-        let configuration = makeConfiguration(
-            refreshDidComplete: firstRefreshDidComplete.signal
-        ) {
-            await firstGate.waitForRelease()
+    @Test("triggers only at the custom pull threshold")
+    func triggersOnlyAtCustomPullThreshold() async {
+        let gate = RefreshActionGate()
+        let configuration = makeConfiguration {
+            await gate.waitForRelease()
         }
-        let scheduler = ManualRefreshCollapseScheduler()
-        let animator = ManualRefreshCollapseAnimator()
-        let coordinator = WorkspaceListTableCoordinator(
-            configuration: configuration,
-            scheduleRefreshCollapse: scheduler.schedule,
-            animateRefreshCollapse: animator.animate
-        )
-        let tableView = WorkspaceListUITableView(frame: .zero, style: .plain)
-        let firstRefreshControl = RecordingRefreshControl()
-        tableView.refreshControl = firstRefreshControl
-        coordinator.attach(to: tableView)
-        coordinator.update(configuration: configuration, in: tableView)
+        let host = makeContainer()
+        let coordinator = WorkspaceListTableCoordinator(configuration: configuration)
+        coordinator.attach(to: host.containerView)
+        coordinator.update(configuration: configuration, in: host.tableView)
+        let baselineTopInset = host.tableView.contentInset.top
+        let restingOffsetY = -host.tableView.adjustedContentInset.top
 
-        _ = coordinator.perform(
-            NSSelectorFromString("refreshRequested:"),
-            with: firstRefreshControl
-        )
-        await firstGate.waitUntilStarted()
-        await firstGate.release()
-        await firstRefreshDidComplete.wait()
+        host.tableView.contentOffset.y = restingOffsetY
+            - WorkspaceListRefreshGeometry.triggerDistance + 1
+        _ = endDrag(coordinator: coordinator, tableView: host.tableView)
+        #expect(coordinator.refreshTask == nil)
 
-        coordinator.update(
-            configuration: makeConfiguration(
-                refreshCompletionGeneration: 1,
-                refresh: {}
-            ),
-            in: tableView
+        host.tableView.contentOffset.y = restingOffsetY
+            - WorkspaceListRefreshGeometry.triggerDistance
+        let releasedOffset = host.tableView.contentOffset
+        var releaseTarget = releasedOffset
+        withUnsafeMutablePointer(to: &releaseTarget) { pointer in
+            coordinator.scrollViewWillEndDragging(
+                host.tableView,
+                withVelocity: .zero,
+                targetContentOffset: pointer
+            )
+        }
+        await gate.waitUntilStarted()
+        #expect(releaseTarget == releasedOffset)
+        #expect(
+            host.tableView.contentInset.top
+                == baselineTopInset + WorkspaceListRefreshGeometry.triggerDistance
         )
-        await scheduler.waitUntilScheduled()
+        #expect(!host.tableView.bounces)
+        #expect(coordinator.refreshVisualAnimator == nil)
+        coordinator.scrollViewDidEndDragging(
+            host.tableView,
+            willDecelerate: false
+        )
+        #expect(coordinator.refreshVisualAnimator != nil)
+        #expect(coordinator.refreshTask != nil)
+        #expect(!coordinator.beginRefresh())
 
-        let replacementRefreshControl = RecordingRefreshControl()
-        tableView.refreshControl = replacementRefreshControl
-        scheduler.runNext()
-        await firstRefreshControl.waitUntilEndCount(1)
-        #expect(animator.animationCount == 0)
-
-        let secondRefreshDidComplete = MainActorSignal()
-        let secondConfiguration = makeConfiguration(
-            refreshCompletionGeneration: 1,
-            refreshDidComplete: secondRefreshDidComplete.signal,
-            refresh: {}
-        )
-        coordinator.update(configuration: secondConfiguration, in: tableView)
-        _ = coordinator.perform(
-            NSSelectorFromString("refreshRequested:"),
-            with: replacementRefreshControl
-        )
-        await secondRefreshDidComplete.wait()
-
-        coordinator.update(
-            configuration: makeConfiguration(
-                refreshCompletionGeneration: 2,
-                refresh: {}
-            ),
-            in: tableView
-        )
-        await scheduler.waitUntilScheduled()
-        #expect(scheduler.scheduleCount == 2)
-        scheduler.runNext()
-        await replacementRefreshControl.waitUntilEndCount(1)
-        #expect(animator.animationCount == 1)
-        animator.completeNext()
+        coordinator.update(configuration: makeConfiguration(refresh: nil), in: host.tableView)
+        await gate.release()
     }
 
     @Test("a stale cancelled task cannot release replacement task ownership")
@@ -217,24 +194,18 @@ struct WorkspaceListRefreshCoordinatorTests {
             scheduleRefreshCollapse: scheduler.schedule,
             animateRefreshCollapse: animator.animate
         )
-        let tableView = WorkspaceListUITableView(frame: .zero, style: .plain)
-        let firstRefreshControl = RecordingRefreshControl()
-        tableView.refreshControl = firstRefreshControl
-        coordinator.attach(to: tableView)
-        coordinator.update(configuration: firstConfiguration, in: tableView)
+        let host = makeContainer()
+        coordinator.attach(to: host.containerView)
+        coordinator.update(configuration: firstConfiguration, in: host.tableView)
 
-        _ = coordinator.perform(
-            NSSelectorFromString("refreshRequested:"),
-            with: firstRefreshControl
-        )
+        #expect(coordinator.beginRefresh())
         await firstGate.waitUntilStarted()
         let firstTask = try #require(coordinator.refreshTask)
 
         coordinator.update(
             configuration: makeConfiguration(refresh: nil),
-            in: tableView
+            in: host.tableView
         )
-        await firstRefreshControl.waitUntilEndCount(1)
 
         let secondGate = RefreshActionGate()
         let secondCancellationObserved = AsyncBoolSignal()
@@ -242,13 +213,8 @@ struct WorkspaceListRefreshCoordinatorTests {
             await secondGate.waitForRelease()
             await secondCancellationObserved.signal(Task.isCancelled)
         }
-        coordinator.update(configuration: secondConfiguration, in: tableView)
-        let secondRefreshControl = RecordingRefreshControl()
-        tableView.refreshControl = secondRefreshControl
-        _ = coordinator.perform(
-            NSSelectorFromString("refreshRequested:"),
-            with: secondRefreshControl
-        )
+        coordinator.update(configuration: secondConfiguration, in: host.tableView)
+        #expect(coordinator.beginRefresh())
         await secondGate.waitUntilStarted()
         let secondTask = try #require(coordinator.refreshTask)
 
@@ -257,13 +223,11 @@ struct WorkspaceListRefreshCoordinatorTests {
         let firstWasCancelled = await firstCancellationObserved.wait()
         #expect(firstWasCancelled)
         #expect(coordinator.refreshTask != nil)
-        #expect(firstRefreshControl.endCount == 1)
 
         coordinator.update(
             configuration: makeConfiguration(refresh: nil),
-            in: tableView
+            in: host.tableView
         )
-        await secondRefreshControl.waitUntilEndCount(1)
         await secondGate.release()
         await secondTask.value
         let secondWasCancelled = await secondCancellationObserved.wait()
@@ -273,8 +237,8 @@ struct WorkspaceListRefreshCoordinatorTests {
         )
     }
 
-    @Test("dismantling the table cancels its refresh task and ends its control")
-    func dismantleCancelsRefreshTaskAndEndsControl() async {
+    @Test("dismantling restores exact refresh geometry and cancels its task")
+    func dismantleRestoresRefreshGeometryAndCancelsTask() async {
         let gate = RefreshActionGate()
         let cancellationObserved = AsyncBoolSignal()
         let configuration = makeConfiguration {
@@ -288,28 +252,79 @@ struct WorkspaceListRefreshCoordinatorTests {
             scheduleRefreshCollapse: scheduler.schedule,
             animateRefreshCollapse: animator.animate
         )
-        let tableView = WorkspaceListUITableView(frame: .zero, style: .plain)
-        let refreshControl = RecordingRefreshControl()
-        tableView.refreshControl = refreshControl
-        coordinator.attach(to: tableView)
-        coordinator.update(configuration: configuration, in: tableView)
-
-        _ = coordinator.perform(
-            NSSelectorFromString("refreshRequested:"),
-            with: refreshControl
+        let host = makeContainer()
+        host.tableView.contentInset = UIEdgeInsets(top: 8, left: 1, bottom: 2, right: 3)
+        host.tableView.verticalScrollIndicatorInsets = UIEdgeInsets(
+            top: 9,
+            left: 4,
+            bottom: 5,
+            right: 6
         )
-        await gate.waitUntilStarted()
+        host.tableView.alwaysBounceVertical = false
+        let baselineInset = host.tableView.contentInset
+        let baselineIndicatorInsets = host.tableView.verticalScrollIndicatorInsets
+        let baselineBounces = host.tableView.bounces
+        coordinator.attach(to: host.containerView)
+        coordinator.update(configuration: configuration, in: host.tableView)
 
-        WorkspaceListTable.dismantleUIView(tableView, coordinator: coordinator)
-        await refreshControl.waitUntilEndCount(1)
-        #expect(tableView.refreshControl == nil)
-        #expect(tableView.delegate == nil)
-        #expect(tableView.dragDelegate == nil)
-        #expect(tableView.dropDelegate == nil)
+        #expect(coordinator.beginRefresh())
+        await gate.waitUntilStarted()
+        coordinator.scrollViewWillBeginDragging(host.tableView)
+
+        WorkspaceListTable.dismantleUIView(host.containerView, coordinator: coordinator)
+        #expect(host.tableView.contentInset == baselineInset)
+        #expect(host.tableView.verticalScrollIndicatorInsets == baselineIndicatorInsets)
+        #expect(!host.tableView.alwaysBounceVertical)
+        #expect(host.tableView.bounces == baselineBounces)
+        #expect(refreshHeader(in: host.tableView) == nil)
+        #expect(host.tableView.delegate == nil)
+        #expect(host.tableView.dragDelegate == nil)
+        #expect(host.tableView.dropDelegate == nil)
 
         await gate.release()
         let wasCancelled = await cancellationObserved.wait()
         #expect(wasCancelled)
+    }
+
+    private func makeContainer() -> WorkspaceListTableTestHost {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 700))
+        let viewController = UIViewController()
+        window.rootViewController = viewController
+        let containerView = WorkspaceListTableContainerView()
+        containerView.frame = viewController.view.bounds
+        containerView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        viewController.view.addSubview(containerView)
+        window.isHidden = false
+        viewController.view.layoutIfNeeded()
+        containerView.layoutIfNeeded()
+        return WorkspaceListTableTestHost(
+            window: window,
+            containerView: containerView
+        )
+    }
+
+    private func refreshHeader(
+        in tableView: WorkspaceListUITableView
+    ) -> WorkspaceListRefreshHeaderView? {
+        tableView.subviews.first { view in
+            view.accessibilityIdentifier == "MobileWorkspaceRefreshHeader"
+        } as? WorkspaceListRefreshHeaderView
+    }
+
+    private func endDrag(
+        coordinator: WorkspaceListTableCoordinator,
+        tableView: WorkspaceListUITableView
+    ) -> CGPoint {
+        var targetContentOffset = tableView.contentOffset
+        withUnsafeMutablePointer(to: &targetContentOffset) { pointer in
+            coordinator.scrollViewWillEndDragging(
+                tableView,
+                withVelocity: .zero,
+                targetContentOffset: pointer
+            )
+        }
+        coordinator.scrollViewDidEndDragging(tableView, willDecelerate: false)
+        return targetContentOffset
     }
 
     private func makeConfiguration(
@@ -367,6 +382,16 @@ struct WorkspaceListRefreshCoordinatorTests {
 }
 
 @MainActor
+private struct WorkspaceListTableTestHost {
+    let window: UIWindow
+    let containerView: WorkspaceListTableContainerView
+
+    var tableView: WorkspaceListUITableView {
+        containerView.tableView
+    }
+}
+
+@MainActor
 private final class ManualRefreshCollapseScheduler {
     private var pending: WorkspaceListTableCoordinator.RefreshCollapseAction?
     private var waiter: CheckedContinuation<Void, Never>?
@@ -400,57 +425,34 @@ private final class ManualRefreshCollapseScheduler {
 @MainActor
 private final class ManualRefreshCollapseAnimator {
     private var completion: WorkspaceListTableCoordinator.RefreshCollapseAction?
+    private weak var tableView: WorkspaceListUITableView?
     private(set) var animationCount = 0
 
     func animate(
-        _ refreshControl: UIRefreshControl,
         _ tableView: WorkspaceListUITableView,
         completion: @escaping WorkspaceListTableCoordinator.RefreshCollapseAction
     ) {
         precondition(self.completion == nil)
         animationCount += 1
-        refreshControl.endRefreshing()
+        self.tableView = tableView
         self.completion = completion
     }
 
     func completeNext() {
         precondition(completion != nil)
+        if let tableView {
+            tableView.contentInset.top -= WorkspaceListRefreshGeometry.holdHeight
+            tableView.verticalScrollIndicatorInsets.top -=
+                WorkspaceListRefreshGeometry.holdHeight
+            tableView.contentOffset.y = max(
+                tableView.contentOffset.y,
+                -tableView.adjustedContentInset.top
+            )
+        }
+        tableView = nil
         let completion = completion
         self.completion = nil
         completion?()
-    }
-}
-
-@MainActor
-private final class RecordingRefreshControl: UIRefreshControl {
-    private(set) var endCount = 0
-    private var endWaiters: [(
-        count: Int,
-        continuation: CheckedContinuation<Void, Never>
-    )] = []
-
-    override func endRefreshing() {
-        endCount += 1
-        super.endRefreshing()
-        var remaining: [(
-            count: Int,
-            continuation: CheckedContinuation<Void, Never>
-        )] = []
-        for waiter in endWaiters {
-            if endCount >= waiter.count {
-                waiter.continuation.resume()
-            } else {
-                remaining.append(waiter)
-            }
-        }
-        endWaiters = remaining
-    }
-
-    func waitUntilEndCount(_ count: Int) async {
-        guard endCount < count else { return }
-        await withCheckedContinuation { continuation in
-            endWaiters.append((count, continuation))
-        }
     }
 }
 
