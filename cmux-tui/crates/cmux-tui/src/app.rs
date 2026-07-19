@@ -6814,20 +6814,21 @@ impl App {
                 {
                     return Ok(RenderAction::Draw);
                 } else {
+                    let content = self.terminal_input_rect(&area);
+                    if !content.contains(x, y) {
+                        return Ok(RenderAction::Draw);
+                    }
                     if self.active_pane() != Some(area.pane) {
                         self.focus_pane_after_input(area.pane);
                     }
                     // Begin a text selection; it becomes visible once the
                     // mouse moves to a second cell.
                     let offset = self.surface_scroll_offset(area.surface);
-                    let cell = (x - area.content.x, offset + (y - area.content.y) as u64);
+                    let cell = (x - content.x, offset + (y - content.y) as u64);
                     self.selection =
                         Some(Selection { surface: area.surface, anchor: cell, head: cell });
-                    self.drag = Some(Drag::Select {
-                        content: area.content,
-                        auto_scroll: None,
-                        col: x - area.content.x,
-                    });
+                    self.drag =
+                        Some(Drag::Select { content, auto_scroll: None, col: x - content.x });
                 }
             } else if self.active_pane() != Some(area.pane) {
                 self.focus_pane_after_input(area.pane);

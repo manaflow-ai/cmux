@@ -333,14 +333,13 @@ fn draw_content(
     focused: bool,
 ) -> Option<(u16, u16)> {
     let rect = area.content;
+    app.rendered_terminal_bounds.remove(&area.surface);
     if rect.width == 0 || rect.height == 0 {
-        app.rendered_terminal_bounds.remove(&area.surface);
         return None;
     }
     let surface = app.session.surface(area.surface)?;
     surface.take_dirty();
     if surface.kind() == SurfaceKind::Browser {
-        app.rendered_terminal_bounds.remove(&area.surface);
         super::omnibar::draw(app, frame, area);
         draw_browser_content(app, frame, area, &surface);
         return None;
