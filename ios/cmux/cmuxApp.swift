@@ -111,14 +111,16 @@ struct cmuxApp: App {
 
     @ViewBuilder
     private var rootScene: some View {
-        #if DEBUG
-        MobileIrohReleaseGateScene(
-            root: mobileRootScene,
-            settingsController: Self.root.iroh
-        )
-        #else
-        mobileRootScene
-        #endif
+        Group {
+            #if DEBUG
+            MobileIrohReleaseGateScene(
+                root: mobileRootScene,
+                settingsController: Self.root.iroh
+            )
+            #else
+            mobileRootScene
+            #endif
+        }
         .environment(\.irohSettingsController, Self.root.iroh)
         .environment(
             \.dogfoodAttachPreparation,
