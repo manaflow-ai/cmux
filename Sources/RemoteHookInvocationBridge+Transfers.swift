@@ -89,6 +89,7 @@ extension RemoteHookInvocationBridge {
             maximumBytes: maximumInputBytes
         )
         let metadata = try JSONDecoder().decode(RemoteHookTransferMetadata.self, from: metadataData)
+        try validateInputSize(input.count, arguments: metadata.arguments)
         return RemoteHookInvocation(arguments: metadata.arguments, environment: metadata.environment, input: input)
     }
 

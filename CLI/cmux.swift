@@ -34725,7 +34725,7 @@ export default CMUXSessionRestore;
                     if positionalAgent != nil {
                         throw CLIError(message: String(
                             localized: "cli.hooks.setup.tooManyTargets",
-                            defaultValue: "Too many hooks targets: specify at most one positional agent"
+                            defaultValue: "Too many hook targets: specify at most one positional agent"
                         ))
                     }
                     positionalAgent = arg
@@ -34748,7 +34748,7 @@ export default CMUXSessionRestore;
             if flagDef.name != positionalDef.name {
                 throw CLIError(message: String(
                     localized: "cli.hooks.setup.conflictingTargets",
-                    defaultValue: "Conflicting hooks target: use either --agent or a positional target, not both"
+                    defaultValue: "Conflicting hook targets: use either --agent or a positional target, not both"
                 ))
             }
         }

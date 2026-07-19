@@ -109,17 +109,21 @@ nonisolated struct RemoteHookInvocationBridge: Sendable {
         } else {
             input = Data()
         }
+        try validateInputSize(input.count, arguments: arguments)
+        return RemoteHookInvocation(arguments: arguments, environment: environment, input: input)
+    }
+
+    func validateInputSize(_ count: Int, arguments: [String]) throws {
         let maximumBytes = arguments.first == "__remote-configure"
             ? maximumInputBytes
             : maximumHookInputBytes
-        guard input.count <= maximumBytes else {
+        guard count <= maximumBytes else {
             throw bridgeError(
                 "invalid_params",
                 key: "socket.hooks.remoteBridge.payloadTooLarge",
                 fallback: "Remote hook payload exceeds the relay limit."
             )
         }
-        return RemoteHookInvocation(arguments: arguments, environment: environment, input: input)
     }
 
     private static func argumentsAreAllowed(_ arguments: [String]) -> Bool {
