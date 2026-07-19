@@ -307,7 +307,7 @@ downstream_prompt_hook
         },
         "no tab": {
             "CMUX_TEST_PATH": "no-tab",
-            "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
+            "CMUX_SOCKET_PATH": "/dummy/cmux-test.sock",
             "CMUX_TAB_ID": "",
             "CMUX_PANEL_ID": "",
         },
@@ -319,13 +319,13 @@ downstream_prompt_hook
         },
         "no panel": {
             "CMUX_TEST_PATH": "no-panel",
-            "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
+            "CMUX_SOCKET_PATH": "/dummy/cmux-test.sock",
             "CMUX_TAB_ID": "tab-test",
             "CMUX_PANEL_ID": "",
         },
         "full path": {
             "CMUX_TEST_PATH": "full",
-            "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
+            "CMUX_SOCKET_PATH": "/dummy/cmux-test.sock",
             "CMUX_TAB_ID": "tab-test",
             "CMUX_PANEL_ID": "panel-test",
         },
