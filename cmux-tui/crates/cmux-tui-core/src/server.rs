@@ -2504,7 +2504,7 @@ struct MarkedClientAttach {
 }
 
 fn mark_client_attached(
-    mux: &Mux,
+    mux: &Arc<Mux>,
     client: u64,
     surface: SurfaceId,
     stream: OutboundStream,
@@ -2624,7 +2624,7 @@ struct AttachWorkerCommit {
 }
 
 fn commit_client_attach_and_start_worker(
-    mux: &Mux,
+    mux: &Arc<Mux>,
     client: u64,
     surface: SurfaceId,
     stream: u64,
@@ -2652,7 +2652,7 @@ fn cleanup_failed_attach(mux: &Mux, client: u64, surface: SurfaceId, stream: u64
 }
 
 fn rollback_failed_attach(
-    mux: &Mux,
+    mux: &Arc<Mux>,
     client: u64,
     surface: SurfaceId,
     stream: u64,
@@ -2667,7 +2667,7 @@ fn rollback_failed_attach(
     }
 }
 
-fn detach_committed_attach(mux: &Mux, client: u64, surface: SurfaceId, stream: u64) {
+fn detach_committed_attach(mux: &Arc<Mux>, client: u64, surface: SurfaceId, stream: u64) {
     let detached = mux.control_clients.detach_surface(client, surface, stream);
     if detached.final_stream {
         mux.remove_surface_size_client(surface, client);

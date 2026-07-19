@@ -1162,7 +1162,7 @@ impl Mux {
     }
 
     pub(crate) fn rollback_surface_size_client(
-        &self,
+        self: &Arc<Self>,
         id: SurfaceId,
         client: u64,
         rollback: ClientSizeRollback,
@@ -1237,20 +1237,54 @@ impl Mux {
             hook();
         }
 
-        // The browser worker owns the bounded CDP request timeout and closes
-        // resize waiters on shutdown. A second timeout here could expire while
-        // the compensating resize is still queued, so wait for its terminal
-        // success or failure before deciding which size claim is authoritative.
-        let restored = match restore {
-            SurfaceResizeRestore::Complete(restored) => restored,
+        let restoration_failed = match restore {
+            SurfaceResizeRestore::Complete(restored) => !restored,
             SurfaceResizeRestore::Pending(completion) => {
-                matches!(completion.recv(), Ok(Ok(())))
+                match completion.recv_timeout(Duration::from_secs(10)) {
+                    Ok(Ok(())) => false,
+                    Ok(Err(_)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => true,
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        let mux = Arc::downgrade(self);
+                        let _ = std::thread::Builder::new()
+                            .name(format!("cmux-rollback-resize-{id}"))
+                            .spawn(move || {
+                                if matches!(completion.recv(), Ok(Ok(()))) {
+                                    return;
+                                }
+                                if let Some(mux) = mux.upgrade() {
+                                    mux.reconcile_failed_surface_size_rollback(
+                                        id,
+                                        client,
+                                        current_size,
+                                        current_report_order,
+                                        rollback_token,
+                                    );
+                                }
+                            });
+                        return;
+                    }
+                }
             }
         };
-        if restored {
-            return;
+        if restoration_failed {
+            self.reconcile_failed_surface_size_rollback(
+                id,
+                client,
+                current_size,
+                current_report_order,
+                rollback_token,
+            );
         }
+    }
 
+    fn reconcile_failed_surface_size_rollback(
+        &self,
+        id: SurfaceId,
+        client: u64,
+        current_size: Option<(u16, u16)>,
+        current_report_order: Option<u64>,
+        rollback_token: ClientSizingRollbackToken,
+    ) {
         let _lifecycle = self.lock_client_sizing_lifecycle();
         if !self.control_clients.contains(client) {
             return;
@@ -3697,6 +3731,9 @@ impl Mux {
         layout: &LayoutSpec,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<AppliedLayout> {
+        let workspace_lifecycle = workspace.map(|id| self.workspace_lifecycle(id));
+        let _workspace_lifecycle_guard =
+            workspace_lifecycle.as_ref().map(|lifecycle| lifecycle.lock().unwrap());
         {
             let state = self.state.lock().unwrap();
             if let Some(id) = workspace
