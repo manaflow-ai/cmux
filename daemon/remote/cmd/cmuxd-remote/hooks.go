@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -351,7 +352,12 @@ func configureRemoteHook(socketPath string, descriptor remoteHookDescriptor, act
 		writeRemoteHookOutput(plan.StderrBase64, os.Stderr)
 		return plan.ExitCode
 	}
-	if err := applyRemoteHookMutations(plan.Mutations, descriptor.SnapshotPaths, descriptor.RecursivePaths); err != nil {
+	if err := applyRemoteHookMutations(
+		plan.Mutations,
+		descriptor.SnapshotPaths,
+		descriptor.RecursivePaths,
+		entries,
+	); err != nil {
 		fmt.Fprintf(os.Stderr, "cmux hooks %s: %v\n", descriptor.Name, err)
 		return 1
 	}
@@ -623,12 +629,20 @@ func snapshotRemoteHookFile(path string, info os.FileInfo) (remoteHookSnapshotEn
 	}, len(data), nil
 }
 
-func applyRemoteHookMutations(mutations []remoteHookMutation, allowedPaths, recursivePaths []string) error {
+func applyRemoteHookMutations(
+	mutations []remoteHookMutation,
+	allowedPaths, recursivePaths []string,
+	expectedEntries []remoteHookSnapshotEntry,
+) error {
 	prepared, err := prepareRemoteHookMutations(mutations, allowedPaths, recursivePaths)
 	if err != nil {
 		return err
 	}
-	previous, err := captureRemoteHookFileStates(prepared)
+	expectedFiles, err := expectedRemoteHookFiles(expectedEntries)
+	if err != nil {
+		return err
+	}
+	previous, err := captureRemoteHookFileStates(prepared, expectedFiles)
 	if err != nil {
 		return err
 	}
@@ -706,13 +720,36 @@ func prepareRemoteHookMutations(
 	return prepared, nil
 }
 
-func captureRemoteHookFileStates(mutations []preparedRemoteHookMutation) ([]remoteHookFileState, error) {
+func expectedRemoteHookFiles(entries []remoteHookSnapshotEntry) (map[string]remoteHookSnapshotEntry, error) {
+	files := make(map[string]remoteHookSnapshotEntry)
+	seen := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		path := filepath.Clean(entry.Path)
+		if seen[path] {
+			return nil, fmt.Errorf("duplicate hook snapshot path: %s", path)
+		}
+		seen[path] = true
+		if entry.Kind == "file" {
+			files[path] = entry
+		}
+	}
+	return files, nil
+}
+
+func captureRemoteHookFileStates(
+	mutations []preparedRemoteHookMutation,
+	expectedFiles map[string]remoteHookSnapshotEntry,
+) ([]remoteHookFileState, error) {
 	states := make([]remoteHookFileState, 0, len(mutations))
 	totalBytes := 0
 	for _, mutation := range mutations {
 		state := remoteHookFileState{path: mutation.path}
+		expected, expectedFile := expectedFiles[mutation.path]
 		info, err := os.Lstat(mutation.path)
 		if errors.Is(err, os.ErrNotExist) {
+			if expectedFile {
+				return nil, remoteHookConfigurationConflict(mutation.path)
+			}
 			states = append(states, state)
 			continue
 		}
@@ -721,6 +758,9 @@ func captureRemoteHookFileStates(mutations []preparedRemoteHookMutation) ([]remo
 		}
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			return nil, fmt.Errorf("unsupported existing hook config file type at %s", mutation.path)
+		}
+		if !expectedFile {
+			return nil, remoteHookConfigurationConflict(mutation.path)
 		}
 		state.existed = true
 		state.mode = info.Mode().Perm()
@@ -732,9 +772,20 @@ func captureRemoteHookFileStates(mutations []preparedRemoteHookMutation) ([]remo
 		if totalBytes > remoteHookMaxInput {
 			return nil, errors.New("existing hook configuration exceeds 8 MiB rollback limit")
 		}
+		expectedData, err := base64.StdEncoding.DecodeString(expected.ContentBase64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid expected content for %s", mutation.path)
+		}
+		if !bytes.Equal(state.data, expectedData) || uint32(state.mode) != expected.Mode {
+			return nil, remoteHookConfigurationConflict(mutation.path)
+		}
 		states = append(states, state)
 	}
 	return states, nil
+}
+
+func remoteHookConfigurationConflict(path string) error {
+	return fmt.Errorf("hook configuration changed while installer was running; retry: %s", path)
 }
 
 func stageRemoteHookMutations(mutations []preparedRemoteHookMutation) ([]string, error) {

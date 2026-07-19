@@ -70,7 +70,9 @@ func TestApplyRemoteHookMutationsPreservesUnrelatedFiles(t *testing.T) {
 
 	err := applyRemoteHookMutations([]remoteHookMutation{{
 		Path: configPath, ContentBase64: base64.StdEncoding.EncodeToString([]byte(`{"hooks":{"Stop":[]}}`)), Mode: 0o640,
-	}}, []string{configPath}, nil)
+	}}, []string{configPath}, nil, []remoteHookSnapshotEntry{{
+		Path: configPath, Kind: "file", ContentBase64: base64.StdEncoding.EncodeToString([]byte(`{"hooks":{}}`)), Mode: 0o600,
+	}})
 	if err != nil {
 		t.Fatalf("apply mutation: %v", err)
 	}
@@ -90,7 +92,7 @@ func TestApplyRemoteHookMutationsRejectsSiblingPath(t *testing.T) {
 	siblingPath := filepath.Join(root, "settings.json")
 	err := applyRemoteHookMutations([]remoteHookMutation{{
 		Path: siblingPath, ContentBase64: base64.StdEncoding.EncodeToString([]byte("{}")), Mode: 0o600,
-	}}, []string{managedPath}, nil)
+	}}, []string{managedPath}, nil, nil)
 	if err == nil {
 		t.Fatal("out-of-scope sibling mutation should be rejected")
 	}
@@ -111,7 +113,7 @@ func TestApplyRemoteHookMutationsValidatesPlanBeforeWriting(t *testing.T) {
 		{
 			Path: secondPath, ContentBase64: "not-base64", Mode: 0o600,
 		},
-	}, []string{firstPath, secondPath}, nil)
+	}, []string{firstPath, secondPath}, nil, nil)
 	if err == nil {
 		t.Fatal("invalid later mutation should reject the plan")
 	}
@@ -121,6 +123,35 @@ func TestApplyRemoteHookMutationsValidatesPlanBeforeWriting(t *testing.T) {
 	}
 	if string(content) != "before" {
 		t.Fatalf("earlier mutation was applied before plan validation: %q", content)
+	}
+}
+
+func TestApplyRemoteHookMutationsRejectsStaleSnapshot(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "hooks.json")
+	if err := os.WriteFile(configPath, []byte("snapshot"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := snapshotRemoteHookPaths([]string{configPath}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte("concurrent edit"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err = applyRemoteHookMutations([]remoteHookMutation{{
+		Path: configPath, ContentBase64: base64.StdEncoding.EncodeToString([]byte("installer edit")), Mode: 0o600,
+	}}, []string{configPath}, nil, expected)
+	if err == nil {
+		t.Fatal("stale hook plan should be rejected")
+	}
+	content, readErr := os.ReadFile(configPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(content) != "concurrent edit" {
+		t.Fatalf("concurrent hook edit was overwritten: %q", content)
 	}
 }
 
