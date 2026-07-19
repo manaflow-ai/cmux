@@ -379,6 +379,119 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
         ]))
     }
 
+    @Test("global bounded list ordering matches projected run and CLI tie rules")
+    func globallyBoundedListOrderingCoversDuplicateAndMissingActiveRuns() throws {
+        let fixture = try makeFixture()
+        let recordsByProvider: [String: [CmuxAgentSessionRegistry.Record]] = [
+            "zeta": [try record(
+                provider: "zeta",
+                sessionID: "duplicate-active-run",
+                workspaceID: "workspace-duplicate",
+                surfaceID: "surface-duplicate",
+                updatedAt: 1,
+                extra: [
+                    "activeRunId": "active",
+                    "runs": [
+                        [
+                            "runId": "active",
+                            "restoreAuthority": true,
+                            "startedAt": 1.0,
+                            "updatedAt": 11.0,
+                        ],
+                        [
+                            "runId": "active",
+                            "restoreAuthority": true,
+                            "startedAt": 2.0,
+                            "updatedAt": 20.0,
+                        ],
+                    ],
+                ]
+            )],
+            "gamma": [try record(
+                provider: "gamma",
+                sessionID: "missing-active-run",
+                workspaceID: "workspace-missing",
+                surfaceID: "surface-missing",
+                updatedAt: 100,
+                extra: [
+                    "runs": [
+                        [
+                            "runId": "old",
+                            "restoreAuthority": true,
+                            "startedAt": 1.0,
+                            "updatedAt": 3.0,
+                        ],
+                        [
+                            "runId": "new",
+                            "restoreAuthority": true,
+                            "startedAt": 2.0,
+                            "updatedAt": 19.0,
+                        ],
+                    ],
+                ]
+            )],
+            "delta": [try record(
+                provider: "delta",
+                sessionID: "invalid-active-run-reference",
+                workspaceID: "workspace-invalid",
+                surfaceID: "surface-invalid",
+                updatedAt: 200,
+                extra: [
+                    "activeRunId": "not-present",
+                    "runs": [
+                        [
+                            "runId": "fallback",
+                            "restoreAuthority": true,
+                            "startedAt": 1.0,
+                            "updatedAt": 18.0,
+                        ],
+                    ],
+                ]
+            )],
+            "alpha": [try record(
+                provider: "alpha",
+                sessionID: "equal-session",
+                workspaceID: "workspace-alpha",
+                surfaceID: "surface-alpha",
+                updatedAt: 17
+            )],
+            "beta": [try record(
+                provider: "beta",
+                sessionID: "equal-session",
+                workspaceID: "workspace-beta",
+                surfaceID: "surface-beta",
+                updatedAt: 17
+            )],
+        ]
+        for (provider, records) in recordsByProvider {
+            try fixture.registry.apply(provider: provider, records: records)
+        }
+
+        let providers = recordsByProvider.keys.sorted()
+        let snapshots = try fixture.registry
+            .globallyBoundedRecentSnapshotsImportingAdmittedLegacy(
+                sources: providers.map {
+                    .init(
+                        provider: $0,
+                        url: fixture.directory.appendingPathComponent("\($0).json")
+                    )
+                },
+                admissions: [],
+                maximumRecords: 4
+            )
+        let selected = Set(snapshots.flatMap { provider, snapshot in
+            snapshot.snapshot.records.map { "\(provider):\($0.sessionID)" }
+        })
+
+        #expect(selected == Set([
+            "zeta:duplicate-active-run",
+            "gamma:missing-active-run",
+            "delta:invalid-active-run-reference",
+            "alpha:equal-session",
+        ]))
+        #expect(snapshots["beta"]?.snapshot.records.isEmpty == true)
+    }
+
     @Test("bounded validation selection and count share one WAL snapshot")
     func boundedListValidationAndSelectionAreAtomic() throws {
         let fixture = try makeFixture()
