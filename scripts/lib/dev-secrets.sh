@@ -183,9 +183,11 @@ cmux_dev_secrets_load() {
   if [[ -n "$explicit_file" ]]; then
     # An explicit one-shot file is exclusive. Never fall through to ambient
     # development credentials during a production release gate.
+    # shellcheck disable=SC2329
     cmux_dev_secrets__explicit_dogfood() {
       case "$1" in EMAIL) cmux_dev_secrets__read_key "$explicit_file" CMUX_DOGFOOD_STACK_EMAIL ;; PASSWORD) cmux_dev_secrets__read_key "$explicit_file" CMUX_DOGFOOD_STACK_PASSWORD ;; esac
     }
+    # shellcheck disable=SC2329
     cmux_dev_secrets__explicit_uitest() {
       case "$1" in EMAIL) cmux_dev_secrets__read_key "$explicit_file" CMUX_UITEST_STACK_EMAIL ;; PASSWORD) cmux_dev_secrets__read_key "$explicit_file" CMUX_UITEST_STACK_PASSWORD ;; esac
     }
