@@ -48,6 +48,7 @@ nonisolated enum BackendOnlyProjectionDriverError: Error, Equatable, Sendable {
     case operationLimitExceeded(maximum: Int)
     case intentSequenceExhausted
     case ambiguousTransport
+    case nonadvancingConnectionGeneration(current: UInt64, proposed: UInt64)
 }
 
 nonisolated struct BackendOnlyProjectionDriverMetrics: Equatable, Sendable {
@@ -114,7 +115,7 @@ actor BackendOnlyProjectionDriver {
     let logicalPresentationID: UUID
     let stableClientID: UUID
     let processInstanceID: UUID
-    let connectionGeneration: UInt64
+    private(set) var connectionGeneration: UInt64
 
     private(set) var phase: BackendOnlyProjectionDriverPhase = .idle
     private(set) var publication: BackendOnlyProjectionDriverPublication?
@@ -251,7 +252,8 @@ actor BackendOnlyProjectionDriver {
 
     func reconcileAfterReconnect(
         rpc: any BackendOnlyProjectionDriverRPC,
-        topology: TopologySnapshot
+        topology: TopologySnapshot,
+        connectionGeneration: UInt64
     ) async throws {
         guard phase == .reconciliationRequired else {
             throw BackendOnlyProjectionDriverError.notReady
@@ -259,7 +261,15 @@ actor BackendOnlyProjectionDriver {
         guard drainTask == nil, rpcsInFlight == 0 else {
             throw BackendOnlyProjectionDriverError.notReady
         }
+        guard connectionGeneration > self.connectionGeneration else {
+            throw BackendOnlyProjectionDriverError
+                .nonadvancingConnectionGeneration(
+                    current: self.connectionGeneration,
+                    proposed: connectionGeneration
+                )
+        }
         self.rpc = rpc
+        self.connectionGeneration = connectionGeneration
         topologySnapshot = topology
         publication = nil
         let ambiguous = ambiguousIntents

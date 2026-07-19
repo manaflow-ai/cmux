@@ -342,7 +342,11 @@ struct BackendOnlyProjectionDriverTests {
         await fixture.rpc.failNextMutationAmbiguously()
 
         _ = try await fixture.driver.submit([
-            .selectWorkspace(workspaceID: fixture.workspace(0).uuid),
+            .setZoomedPane(
+                workspaceID: fixture.workspace(0).uuid,
+                screenID: fixture.workspace(0).screens[0].uuid,
+                paneID: fixture.workspace(0).screens[0].panes[0].uuid
+            ),
         ])
         await fixture.driver.waitUntilIdle()
 
