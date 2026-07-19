@@ -134,6 +134,31 @@ describe("TerminalPane split dividers", () => {
     await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledWith(42, 0.55));
   });
 
+  it("queues repeated arrow-key adjustments without dropping input", async () => {
+    let resolveFirst: ((succeeded: boolean) => void) | null = null;
+    const onSetSplitRatio = vi.fn((_split: number, ratio: number) => {
+      if (ratio !== 0.55) return Promise.resolve(true);
+      return new Promise<boolean>((resolve) => {
+        resolveFirst = resolve;
+      });
+    });
+    const props = terminalPaneProps(onSetSplitRatio);
+    const { getByRole } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
+    const divider = getByRole("separator");
+
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(1));
+    expect(onSetSplitRatio).toHaveBeenNthCalledWith(1, 42, 0.55);
+
+    resolveFirst?.(true);
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(3));
+    expect(onSetSplitRatio).toHaveBeenNthCalledWith(2, 42, 0.6);
+    expect(onSetSplitRatio).toHaveBeenNthCalledWith(3, 42, 0.65);
+  });
+
   it("previews pointer movement, commits once, and reconciles to server layout", async () => {
     const onSetSplitRatio = vi.fn(async () => true);
     const props = terminalPaneProps(onSetSplitRatio);
