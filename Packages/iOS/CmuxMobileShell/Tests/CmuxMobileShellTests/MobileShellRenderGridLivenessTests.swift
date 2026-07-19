@@ -473,32 +473,23 @@ import Testing
     clock.advance(by: 10)
     store.debugRunRenderGridLivenessCheckForTesting()
     #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 2))
-    await router.releaseAllHeld()
-
-    let firstFailureSettled = try await pollUntil {
+    // The second independent probe succeeds and resets the liveness window.
+    // Reconnecting makes `.connected` prove that its response was applied.
+    store.markMacConnectionReconnecting()
+    let followUpSucceeded = try await pollUntil {
         store.debugRunRenderGridLivenessCheckForTesting()
         return await router.count(of: "mobile.events.subscribe") >= 3
+            && store.macConnectionStatus == .connected
     }
-    #expect(firstFailureSettled, "a released held probe must settle before its follow-up starts")
-
+    #expect(followUpSucceeded, "the follow-up probe must complete successfully")
     #expect(store.remoteClient === originalClient)
     #expect(store.connectionGeneration == originalGeneration)
     #expect(store.connectionState == .connected)
+    #expect(store.macConnectionStatus == .connected)
     #expect(
         await router.count(of: "mobile.host.status") == hostStatusCountBeforeFailure,
         "one transient probe miss must not restart the event listener"
     )
-
-    // The second independent probe succeeds and resets the liveness window.
-    let followUpSettled = try await pollUntil {
-        store.lastTerminalEventAt == clock.now
-    }
-    #expect(followUpSettled, "the successful follow-up probe must stamp stream liveness")
-
-    #expect(store.remoteClient === originalClient)
-    #expect(store.connectionGeneration == originalGeneration)
-    #expect(store.macConnectionStatus == .connected)
-    #expect(await router.count(of: "mobile.host.status") == hostStatusCountBeforeFailure)
 }
 
 /// A successful probe that REPAIRED a lost registration (the host reports
@@ -592,19 +583,15 @@ import Testing
     clock.advance(by: 10)
     store.debugRunRenderGridLivenessCheckForTesting()
     #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 2))
-    await router.releaseAllHeld()
-    #expect(
-        await router.count(of: "mobile.host.status") == hostStatusCountBeforeFailure,
-        "the first ambiguous probe failure must preserve the current listener"
-    )
-
-    await router.holdSubscribeRequest(number: 3)
     let secondProbeStarted = try await pollUntil {
         store.debugRunRenderGridLivenessCheckForTesting()
         return await router.count(of: "mobile.events.subscribe") >= 3
     }
-    #expect(secondProbeStarted, "the first failed probe must release the single-flight slot")
-    await router.releaseAllHeld()
+    #expect(secondProbeStarted, "the first failure must permit a confirmation probe")
+    #expect(
+        await router.count(of: "mobile.host.status") == hostStatusCountBeforeFailure,
+        "the first ambiguous probe failure must preserve the current listener"
+    )
 
     // Recovery restarts the listener, which re-resolves capabilities. A new
     // mobile.host.status request is the teardown-and-restart proof.

@@ -1495,6 +1495,7 @@
       "flagName": "Flaga",
       "flagDesc": "Opis",
       "flagNameVal": "Ustaw tytuł obszaru roboczego",
+      "flagCommand": "Uruchom tekst polecenia jeden raz w początkowym zdalnym terminalu po starcie powłoki",
       "flagPort": "Port SSH (domyślnie 22)",
       "flagIdentity": "Ścieżka do pliku tożsamości",
       "flagSshOption": "Przekaż dowolne opcje SSH (np. -o StrictHostKeyChecking=no)",

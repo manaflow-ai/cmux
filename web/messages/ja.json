@@ -2447,6 +2447,7 @@
       "flagName": "旗",
       "flagDesc": "説明",
       "flagNameVal": "ワークスペースのタイトルを設定する",
+      "flagCommand": "シェル起動後、最初のリモートターミナルでコマンドテキストを一度だけ実行する",
       "flagPort": "SSH ポート (デフォルトは 22)",
       "flagIdentity": "ID ファイルへのパス",
       "flagSshOption": "任意の SSH オプションを渡します (例: -o StrictHostKeyChecking=no)",

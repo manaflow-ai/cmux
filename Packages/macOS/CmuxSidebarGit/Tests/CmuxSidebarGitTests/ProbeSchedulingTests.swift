@@ -462,7 +462,7 @@ import CmuxGit
             pullRequestProbing: pullRequestProbing
         )
 
-        host.watchEnabled = false
+        host.gitMetadataActivity = .disabled
         service.sidebarGitMetadataWatchSettingsDidChange()
 
         #expect(host.events.contains(.clearAllGitMetadata))
