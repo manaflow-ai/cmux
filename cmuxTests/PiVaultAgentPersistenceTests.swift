@@ -232,6 +232,42 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         )
     }
 
+    func testVaultProjectConfigCacheBoundsOneThousandDistinctChildDirectories() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-project-cache-\(UUID().uuidString)", isDirectory: true)
+        let children = root.appendingPathComponent("children", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeVaultConfig(
+            [makeVaultRegistration(id: "project-agent", name: "Project Agent")],
+            to: root.appendingPathComponent(".cmux/cmux.json")
+        )
+        var workingDirectories: [String] = []
+        for index in 0..<1_000 {
+            let directory = children.appendingPathComponent("child-\(index)", isDirectory: true)
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+            workingDirectories.append(directory.path)
+        }
+
+        var cache = CmuxVaultAgentRegistry.ProjectConfigCache(
+            base: CmuxVaultAgentRegistry(registrations: [])
+        )
+        for workingDirectory in workingDirectories {
+            XCTAssertEqual(
+                cache.registry(
+                    forWorkingDirectory: workingDirectory,
+                    fileManager: .default
+                ).registration(id: "project-agent")?.name,
+                "Project Agent"
+            )
+        }
+
+        XCTAssertEqual(cache.configDecodeCount, 1)
+        XCTAssertLessThanOrEqual(cache.directoryProbeCount, 1_100)
+    }
+
     func testKnownProcessOnlySnapshotsRejectOneShotAndNonSessionLaunches() {
         func registration(_ id: String) -> CmuxVaultAgentRegistration {
             CmuxVaultAgentRegistration(
