@@ -6,6 +6,46 @@ import Testing
 
 @Suite("Agent session registry", .serialized)
 struct CmuxAgentSessionRegistryTests {
+    @Test("batched provider storage metrics preserve single-provider semantics")
+    func batchedProviderStorageMetricsMatchSingleReads() throws {
+        let fixture = try Fixture()
+        try fixture.registry.apply(
+            provider: "alpha",
+            records: [
+                try fixture.record(sessionID: "alpha-small", updatedAt: 1, generation: 1),
+                try fixture.record(
+                    sessionID: "alpha-large",
+                    updatedAt: 2,
+                    generation: 1,
+                    extra: ["padding": String(repeating: "x", count: 512)]
+                ),
+            ],
+            activeSlots: [
+                try fixture.slot(
+                    provider: "alpha",
+                    scope: .surface,
+                    scopeID: "alpha-surface",
+                    sessionID: "alpha-large",
+                    updatedAt: 2
+                ),
+            ]
+        )
+        try fixture.registry.apply(provider: "beta", records: [
+            try fixture.record(sessionID: "beta-only", updatedAt: 3, generation: 1),
+        ])
+
+        let providers = ["beta", "missing", "alpha"]
+        let expected = try Dictionary(uniqueKeysWithValues: providers.map {
+            ($0, try fixture.registry.hookStorageMetrics(provider: $0))
+        })
+
+        #expect(
+            try fixture.registry.hookStorageMetrics(
+                providers: ["beta", "missing", "alpha", "alpha"]
+            ) == expected
+        )
+    }
+
     @Test("provider identifiers enforce the path-safe byte boundary")
     func providerIdentifierValidationIsPathSafeAndByteBounded() {
         #expect(CmuxAgentSessionRegistry.isSafeProviderIdentifier(String(repeating: "a", count: 128)))
