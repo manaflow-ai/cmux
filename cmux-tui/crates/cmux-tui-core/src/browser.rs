@@ -1256,6 +1256,7 @@ impl BrowserSurface {
         state.capture_scale = geometry.capture_scale;
         if changed {
             state.latest_frame = None;
+            state.page_viewport = None;
             state.live_since = Some(Instant::now());
             state.last_frame_at = None;
             state.stall_nudged = false;
@@ -3045,6 +3046,36 @@ mod tests {
         assert_eq!(browser.scale_input_point(2380.0, 1274.0), (966.5, 517.5));
         let expected_scale = browser.state.lock().unwrap().capture_scale;
         assert!((browser.scale_delta(100.0) - 100.0 * expected_scale).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn input_mapping_uses_new_capture_geometry_while_waiting_for_resized_frame() {
+        let opts = SurfaceOptions::default();
+        let surface =
+            new_surface(1, "https://example.test".into(), (476, 182), (10, 14), &opts, Weak::new());
+        let browser = surface.as_browser().expect("browser surface");
+
+        let mut frame = test_frame(1);
+        frame.css_width = 2320;
+        frame.css_height = 1363;
+        browser.store_frame(frame);
+
+        let queued = browser.reserve_reconfigure(400, 100).expect("changed geometry");
+        browser.confirm_reconfigure(queued);
+
+        let state = browser.state.lock().unwrap();
+        assert_eq!(state.latest_frame, None);
+        assert_eq!(state.page_viewport, None);
+        let (pane_width, pane_height) = state.pane_pixels;
+        let (capture_width, capture_height) = state.capture_pixels;
+        let capture_scale = state.capture_scale;
+        drop(state);
+
+        assert_eq!(
+            browser.scale_input_point(f64::from(pane_width), f64::from(pane_height)),
+            (f64::from(capture_width), f64::from(capture_height))
+        );
+        assert!((browser.scale_delta(100.0) - 100.0 * capture_scale).abs() < f64::EPSILON);
     }
 
     #[test]
