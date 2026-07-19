@@ -427,6 +427,9 @@ pub struct PtySurface {
     taps: Mutex<Vec<AttachTap>>,
     /// A PTY color mutation awaiting bounded attach-stream fan-out.
     attach_colors_pending: AtomicBool,
+    /// A terminal reset requires reapplying equal palette values because byte
+    /// frontends reset their local palette while Ghostty preserves overrides.
+    attach_colors_force_pending: AtomicBool,
     /// Last effective color state emitted to attach streams. This suppresses
     /// repeated OSC sets that advance Ghostty's revision without changing the
     /// frontend-visible state.
@@ -538,6 +541,7 @@ impl Surface {
             mux: mux.clone(),
             taps: Mutex::new(Vec::new()),
             attach_colors_pending: AtomicBool::new(false),
+            attach_colors_force_pending: AtomicBool::new(false),
             last_attach_colors: Mutex::new(None),
             render: Mutex::new(RenderHub {
                 state: Box::new(render_state),
@@ -567,12 +571,16 @@ impl Surface {
                         let mut term = pty.term.lock().unwrap();
                         let before = terminal_scroll_position(&term);
                         let color_revision = term.color_revision();
+                        let color_reapply_revision = term.color_reapply_revision();
                         term.vt_write(&buf[..n]);
                         pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                         let after = terminal_scroll_position(&term);
                         let has_attach_taps = pty.broadcast_attach_output(&buf[..n]);
                         if has_attach_taps && term.color_revision() != color_revision {
                             pty.attach_colors_pending.store(true, Ordering::Release);
+                            if term.color_reapply_revision() != color_reapply_revision {
+                                pty.attach_colors_force_pending.store(true, Ordering::Release);
+                            }
                         }
                         if title_changed.swap(false, Ordering::Relaxed) {
                             let title = term.title().unwrap_or_default();
@@ -681,6 +689,7 @@ impl Surface {
             mux,
             taps: Mutex::new(Vec::new()),
             attach_colors_pending: AtomicBool::new(false),
+            attach_colors_force_pending: AtomicBool::new(false),
             last_attach_colors: Mutex::new(None),
             render: Mutex::new(RenderHub {
                 state: Box::new(render_state),
@@ -889,6 +898,7 @@ impl Surface {
             let live_colors = TerminalColors::from_pty_output(&term, colors);
             let colors = pty.terminal_colors_locked(&mut term, colors);
             pty.attach_colors_pending.store(false, Ordering::Release);
+            pty.attach_colors_force_pending.store(false, Ordering::Release);
             *pty.last_attach_colors.lock().unwrap() = Some(Box::new(live_colors));
             pty.broadcast_attach_frame(AttachFrame::ColorsChanged(Arc::new(colors)));
             let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
@@ -1301,6 +1311,7 @@ impl PtySurface {
         if !self.attach_colors_pending.swap(false, Ordering::AcqRel) {
             return false;
         }
+        let force = self.attach_colors_force_pending.swap(false, Ordering::AcqRel);
         {
             let mut taps = self.taps.lock().unwrap();
             taps.retain(|tap| !tap.lifecycle.is_canceled());
@@ -1311,7 +1322,7 @@ impl PtySurface {
 
         let colors = TerminalColors::from_pty_output(term, defaults);
         let mut last = self.last_attach_colors.lock().unwrap();
-        if last.as_deref() == Some(&colors) {
+        if !force && last.as_deref() == Some(&colors) {
             return false;
         }
         *last = Some(Box::new(colors));
@@ -1396,6 +1407,7 @@ impl PtySurface {
         let live_colors = TerminalColors::from_pty_output(&term, defaults);
         let colors = Box::new(self.terminal_colors_locked(&mut term, defaults));
         self.attach_colors_pending.store(false, Ordering::Release);
+        self.attach_colors_force_pending.store(false, Ordering::Release);
         *self.last_attach_colors.lock().unwrap() = Some(Box::new(live_colors));
         self.broadcast_attach_frame(AttachFrame::Resized { cols, rows, replay, colors });
         true
@@ -1559,6 +1571,19 @@ mod tests {
         }
         assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Empty)));
         assert!(matches!(attach_two.stream.try_recv(), Err(TryRecvError::Empty)));
+
+        {
+            let term = pty.term.lock().unwrap();
+            pty.attach_colors_pending.store(true, Ordering::Release);
+            pty.attach_colors_force_pending.store(true, Ordering::Release);
+            assert!(pty.flush_attach_colors_locked(&term, mux.default_colors()));
+        }
+        for stream in [&attach.stream, &attach_two.stream] {
+            assert!(matches!(
+                stream.recv_timeout(Duration::from_secs(1)),
+                Ok(AttachFrame::ColorsChanged(_))
+            ));
+        }
 
         {
             let mut term = pty.term.lock().unwrap();

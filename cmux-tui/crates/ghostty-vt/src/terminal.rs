@@ -358,11 +358,17 @@ struct PaletteOverrideTracker {
     state: PaletteTrackState,
     active: [bool; 256],
     revision: u64,
+    reapply_revision: u64,
 }
 
 impl Default for PaletteOverrideTracker {
     fn default() -> Self {
-        Self { state: PaletteTrackState::Ground, active: [false; 256], revision: 0 }
+        Self {
+            state: PaletteTrackState::Ground,
+            active: [false; 256],
+            revision: 0,
+            reapply_revision: 0,
+        }
     }
 }
 
@@ -458,6 +464,7 @@ impl PaletteOverrideTracker {
                         // attached byte frontends reset their mirror palette.
                         // Re-emit the authoritative sparse snapshot afterward.
                         self.revision = self.revision.wrapping_add(1);
+                        self.reapply_revision = self.reapply_revision.wrapping_add(1);
                         PaletteTrackState::Ground
                     }
                     0x18 | 0x1a => PaletteTrackState::Ground,
@@ -869,6 +876,12 @@ impl Terminal {
     /// Monotonic revision for PTY-authored palette or special-color changes.
     pub fn color_revision(&self) -> u64 {
         self.palette_override.revision
+    }
+
+    /// Monotonic revision for terminal resets that require byte frontends to
+    /// reapply the authoritative palette even when its values are unchanged.
+    pub fn color_reapply_revision(&self) -> u64 {
+        self.palette_override.reapply_revision
     }
 
     /// Current effective terminal palette without consuming render damage.

@@ -708,7 +708,7 @@ fn control_socket_attach_stream_receives_merged_colors_changed() {
     let mux = Mux::new(
         unique_session("test-colors-changed"),
         shell_opts(
-            "read line; printf '\\033]21;0_1=#112233;foreground=#445566\\033\\\\'; sleep 30",
+            "read line; printf '\\033]21;0_1=#112233;foreground=#445566\\033\\\\'; read line; printf '\\033c'; sleep 30",
         ),
     );
     mux.set_default_colors(DefaultColors {
@@ -785,6 +785,22 @@ fn control_socket_attach_stream_receives_merged_colors_changed() {
     .expect("live colors-changed event");
     assert_eq!(live_event["fg"], "#445566");
     assert_eq!(live_event["palette"], serde_json::json!({"1": "#112233"}));
+
+    surface.write_bytes(b"reset\n").unwrap();
+    let reset_event = wait_for(
+        || {
+            while let Some(value) = read_json_line(&mut attach_reader) {
+                if value.get("event").and_then(|value| value.as_str()) == Some("colors-changed") {
+                    return Some(value);
+                }
+            }
+            None
+        },
+        Duration::from_secs(5),
+    )
+    .expect("RIS palette reapply event");
+    assert_eq!(reset_event["fg"], "#445566");
+    assert_eq!(reset_event["palette"], serde_json::json!({"1": "#112233"}));
 
     mux.close_surface(surface.id);
     cmux_tui_core::server::cleanup(&sock_path);

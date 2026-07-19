@@ -494,9 +494,15 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
         "resetting Ghostty's italic special color must not clear palette overrides"
     );
     let revision_before_ris = term.color_revision();
+    let reapply_before_ris = term.color_reapply_revision();
     term.vt_write(b"\x1bc");
     assert!(term.palette_overridden(4), "Ghostty RIS preserves palette overrides");
     assert_ne!(term.color_revision(), revision_before_ris, "RIS must trigger frontend reapply");
+    assert_ne!(
+        term.color_reapply_revision(),
+        reapply_before_ris,
+        "RIS must advance the forced palette-reapply revision"
+    );
     state.update(&mut term).unwrap();
     assert_eq!(state.palette_color(4), Rgb { r: 1, g: 2, b: 3 });
 }
