@@ -50,6 +50,7 @@ final class TerminalRenderMetalBlitter: @unchecked Sendable {
         var nextWorkID: UInt64 = 1
         var active: Active?
         var pending: Work?
+        var highestPresentedFrameSequence: UInt64?
         var cacheInvalidationPending = false
         var drainScheduled = false
         var stopped = false
@@ -134,6 +135,7 @@ final class TerminalRenderMetalBlitter: @unchecked Sendable {
 
         state.currentEpoch = epoch
         state.currentLayer = layer
+        state.highestPresentedFrameSequence = nil
         state.cacheInvalidationPending = true
         pendingToRelease = state.pending?.frame
         state.pending = nil
@@ -530,9 +532,16 @@ final class TerminalRenderMetalBlitter: @unchecked Sendable {
         layer: TerminalRenderMetalLayerHandle
     ) {
         lock.lock()
-        let shouldPresent = !state.stopped
+        let matchesCurrentLayer = !state.stopped
             && epoch == state.currentEpoch
             && layer === state.currentLayer
+        let advancesSequence = state.highestPresentedFrameSequence.map {
+            metadata.frameSequence > $0
+        } ?? true
+        let shouldPresent = matchesCurrentLayer && advancesSequence
+        if shouldPresent {
+            state.highestPresentedFrameSequence = metadata.frameSequence
+        }
         lock.unlock()
         if shouldPresent {
             presentedHandler?(metadata)
