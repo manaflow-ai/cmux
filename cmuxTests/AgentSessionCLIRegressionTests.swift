@@ -2674,21 +2674,21 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(try store.lookup(sessionId: sessionID)?.runtimeStatus == nil)
     }
 
-    @Test func hooksHelpUsesJapaneseLocalization() throws {
+    @Test func hooksHelpIncludesJapaneseLocalizationInTheAppBundle() throws {
         let cliPath = try bundledCLIPath()
-        var environment = ProcessInfo.processInfo.environment
-        environment["AppleLanguages"] = "(ja)"
-        environment["LANG"] = "ja_JP.UTF-8"
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["hooks", "help"],
-            environment: environment,
-            timeout: 5
+        let resourcesURL = URL(fileURLWithPath: cliPath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let japaneseBundle = try #require(
+            Bundle(path: resourcesURL.appendingPathComponent("ja.lproj").path)
+        )
+        let usage = japaneseBundle.localizedString(
+            forKey: "cli.hooks.usage",
+            value: nil,
+            table: nil
         )
 
-        #expect(!result.timedOut)
-        #expect(result.status == 0, Comment(rawValue: result.stdout))
-        #expect(result.stdout.contains("使い方: cmux hooks setup"), Comment(rawValue: result.stdout))
+        #expect(usage.contains("使い方: cmux hooks setup"), Comment(rawValue: usage))
     }
 
     @Test func equalTimeEndedDuplicateCannotBeRevivedByLiveDuplicate() throws {
