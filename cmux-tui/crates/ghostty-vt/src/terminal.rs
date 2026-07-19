@@ -507,7 +507,12 @@ impl PaletteOverrideTracker {
                         osc.commit(&mut self.active);
                         PaletteTrackState::Ground
                     }
-                    0x18 | 0x1a => PaletteTrackState::Ground,
+                    0x18 | 0x1a => {
+                        // Ghostty dispatches the OSC prefix while exiting
+                        // osc_string on CAN/SUB.
+                        osc.commit(&mut self.active);
+                        PaletteTrackState::Ground
+                    }
                     0..=0x06 | 0x08..=0x17 | 0x19 | 0x1c..=0x1f => PaletteTrackState::Osc(osc),
                     0x1b => {
                         // Ghostty exits and dispatches OSC on the ESC byte
