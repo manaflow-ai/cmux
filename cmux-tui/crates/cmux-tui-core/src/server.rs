@@ -4611,6 +4611,32 @@ mod tests {
     }
 
     #[test]
+    fn rejected_attach_rollback_keeps_registry_at_actual_size() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+        let stream_id = stream.id;
+        mux.control_clients.attach_surface(client, surface.id, stream).unwrap();
+        mux.control_clients.commit_surface(client, surface.id, stream_id).unwrap();
+        mux.resize_surface_for_control_client_with_reservation(surface.id, client, 80, 24).unwrap();
+        let changed = mux
+            .resize_surface_for_control_client_with_reservation(surface.id, client, 70, 20)
+            .unwrap();
+        assert_eq!(surface.size(), (70, 20));
+
+        let removed = mux.remove_surface_runtime_for_test(surface.id).unwrap();
+        mux.rollback_surface_size_client(surface.id, client, changed.rollback);
+
+        assert_eq!(mux.client_surface_size(surface.id, client), Some((70, 20)));
+        let clients = mux.control_clients.list_json(client);
+        assert_eq!(clients[0]["sizes"][0]["cols"], 70);
+        assert_eq!(clients[0]["sizes"][0]["rows"], 20);
+        removed.kill();
+    }
+
+    #[test]
     fn disconnect_cleanup_wins_over_a_waiting_stale_sizing_action() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((100, 40))).unwrap();

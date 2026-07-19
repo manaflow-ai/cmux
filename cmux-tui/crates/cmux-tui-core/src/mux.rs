@@ -989,6 +989,9 @@ impl Mux {
             return;
         }
         let mut sizing = self.client_sizing.lock().unwrap();
+        let current_size =
+            sizing.surfaces.get(&id).and_then(|viewers| viewers.get(&client).copied());
+        let current_report_order = sizing.report_order.get(&(id, client)).copied();
         self.control_clients.restore_size(client, id, rollback.previous_size);
         match rollback.previous_size {
             Some(size) => {
@@ -1013,8 +1016,43 @@ impl Mux {
         }
         let attached_clients = self.control_clients.attached_client_ids();
         let use_excluded = sizing.uses_excluded_fallback(&attached_clients);
-        if let Some((cols, rows)) = sizing.effective_size(id, use_excluded) {
-            let _ = self.resize_surface(id, cols, rows);
+        let restored =
+            sizing.effective_size(id, use_excluded).is_none_or(|(cols, rows)| {
+                match self.resize_surface(id, cols, rows) {
+                    Ok(true) => true,
+                    Ok(false) => {
+                        self.surface(id).is_some_and(|surface| surface.size() == (cols, rows))
+                    }
+                    Err(_) => false,
+                }
+            });
+        if !restored {
+            // The failed attach already changed the real surface geometry. If
+            // the browser rejects restoring the old effective grid, retain
+            // the pre-rollback report so registry state still describes the
+            // geometry that surviving viewers are actually observing.
+            self.control_clients.restore_size(client, id, current_size);
+            match current_size {
+                Some(size) => {
+                    sizing.surfaces.entry(id).or_default().insert(client, size);
+                }
+                None => {
+                    if let Some(viewers) = sizing.surfaces.get_mut(&id) {
+                        viewers.remove(&client);
+                        if viewers.is_empty() {
+                            sizing.surfaces.remove(&id);
+                        }
+                    }
+                }
+            }
+            match current_report_order {
+                Some(order) => {
+                    sizing.report_order.insert((id, client), order);
+                }
+                None => {
+                    sizing.report_order.remove(&(id, client));
+                }
+            }
         }
         self.reconcile_latest_client_size(&sizing, &attached_clients);
     }
@@ -1317,6 +1355,11 @@ impl Mux {
 
     pub fn surface(&self, id: SurfaceId) -> Option<Arc<Surface>> {
         self.state.lock().unwrap().surfaces.get(&id).cloned()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn remove_surface_runtime_for_test(&self, id: SurfaceId) -> Option<Arc<Surface>> {
+        self.state.lock().unwrap().surfaces.remove(&id)
     }
 
     /// Run `f` with the session state.
