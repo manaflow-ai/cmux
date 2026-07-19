@@ -81,6 +81,16 @@ struct MobileHostServiceSettingsTests {
         #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .nightly))
     }
 
+    @Test func legacyExplicitDisableWinsOverNightlyCompatibility() throws {
+        let suiteName = "MobileHostServiceSettingsTests.LegacyNightlyDisabled.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(false, forKey: "cmuxMobilePairingHostEnabled")
+
+        #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .nightly))
+    }
+
     @Test func stableWithoutExplicitOptInKeepsLegacyListenerOff() throws {
         let suiteName = "MobileHostServiceSettingsTests.StableDefault.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
