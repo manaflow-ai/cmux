@@ -50,6 +50,8 @@ final class TerminalRenderMetalBlitter: @unchecked Sendable {
         var nextWorkID: UInt64 = 1
         var active: Active?
         var pending: Work?
+        var outstandingFrameLeaseCount = 0
+        var quiescenceWaiters: [CheckedContinuation<Void, Never>] = []
         var highestPresentedFrameSequence: UInt64?
         var cacheInvalidationPending = false
         var drainScheduled = false
@@ -205,6 +207,34 @@ final class TerminalRenderMetalBlitter: @unchecked Sendable {
         return state.metrics
     }
 
+    var outstandingFrameLeaseCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return state.outstandingFrameLeaseCount
+    }
+
+    var quiescenceWaiterCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return state.quiescenceWaiters.count
+    }
+
+    /// Stops new submissions and returns only after every accepted frame's
+    /// release callback has completed, including an active GPU read.
+    func stopAndWait() async {
+        stop()
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if state.outstandingFrameLeaseCount == 0 {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                state.quiescenceWaiters.append(continuation)
+                lock.unlock()
+            }
+        }
+    }
+
     func stop() {
         var pendingToRelease: TerminalRenderFrame?
         var queuedToReject: Work?
@@ -253,6 +283,8 @@ final class TerminalRenderMetalBlitter: @unchecked Sendable {
         var incrementCoalescedMetric = false
 
         lock.lock()
+        precondition(state.outstandingFrameLeaseCount < Int.max)
+        state.outstandingFrameLeaseCount += 1
         if state.stopped {
             state.metrics.rejectedFrames &+= 1
             state.metrics.metalUnavailableFrames &+= 1
@@ -565,6 +597,17 @@ final class TerminalRenderMetalBlitter: @unchecked Sendable {
         lock.unlock()
         metricEventHandler?(.releasedSurface)
         releaseHandler(TerminalRenderFrameRelease(frame: frame))
+
+        var waiters: [CheckedContinuation<Void, Never>] = []
+        lock.lock()
+        precondition(state.outstandingFrameLeaseCount > 0)
+        state.outstandingFrameLeaseCount -= 1
+        if state.stopped, state.outstandingFrameLeaseCount == 0 {
+            waiters = state.quiescenceWaiters
+            state.quiescenceWaiters.removeAll(keepingCapacity: true)
+        }
+        lock.unlock()
+        for waiter in waiters { waiter.resume() }
     }
 
     private func record(

@@ -182,6 +182,13 @@ public final class TerminalRenderCompositorIngress: @unchecked Sendable {
         blitter.stop()
     }
 
+    /// Fences future ingress and waits until every accepted IOSurface has run
+    /// its release callback after any active GPU read completes.
+    public func stopAndWait() async {
+        stop()
+        await blitter.stopAndWait()
+    }
+
     private func withState<T>(_ body: (State) -> T) -> T {
         lock.lock()
         defer { lock.unlock() }
