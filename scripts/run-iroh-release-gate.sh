@@ -185,11 +185,16 @@ trap handle_interrupt INT
 trap handle_termination TERM
 
 if [[ "$PRODUCTION" -eq 1 ]]; then
-  STATE_DIR="$(mktemp -d "${TMPDIR:-/private/tmp}/cmux-iroh-production-${SLUG}.XXXXXX")"
+  # macOS normally exports TMPDIR with a trailing slash. Resolve its logical
+  # spelling once so every protected path given to the account helper is
+  # absolute and syntactically normalized without changing symlink identity.
+  TEMPORARY_ROOT="$(cd -L "${TMPDIR:-/private/tmp}" && pwd -L)"
+  TEMPORARY_PREFIX="${TEMPORARY_ROOT%/}"
+  STATE_DIR="$(mktemp -d "$TEMPORARY_PREFIX/cmux-iroh-production-${SLUG}.XXXXXX")"
   chmod 700 "$STATE_DIR"
   PROD_ACCOUNT_STATE_FILE="$STATE_DIR/account.json"
   PROD_CREDENTIALS_FILE="$STATE_DIR/credentials.env"
-  RECOVERY_DIR="${TMPDIR:-/private/tmp}/cmux-iroh-production-gate-recovery-$(id -u)"
+  RECOVERY_DIR="$TEMPORARY_PREFIX/cmux-iroh-production-gate-recovery-$(id -u)"
   mkdir -p "$RECOVERY_DIR"
   chmod 700 "$RECOVERY_DIR"
   PROD_RECOVERY_FILE="$RECOVERY_DIR/${SLUG}.json"
