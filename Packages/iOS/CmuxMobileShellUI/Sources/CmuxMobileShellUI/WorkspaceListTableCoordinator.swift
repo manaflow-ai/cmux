@@ -38,9 +38,16 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private var dropJustCompleted = false
     private var pendingConfiguration: WorkspaceListTable?
     private weak var attachedTableView: WorkspaceListUITableView?
+    private let isScrollInteractionActive: @MainActor (UITableView) -> Bool
 
-    init(configuration: WorkspaceListTable) {
+    init(
+        configuration: WorkspaceListTable,
+        isScrollInteractionActive: @escaping @MainActor (UITableView) -> Bool = {
+            $0.isTracking || $0.isDragging || $0.isDecelerating
+        }
+    ) {
         self.configuration = configuration
+        self.isScrollInteractionActive = isScrollInteractionActive
         super.init()
     }
 
@@ -142,9 +149,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     }
 
     private func shouldStageConfiguration(in tableView: UITableView) -> Bool {
-        tableView.isTracking
-            || tableView.isDragging
-            || tableView.isDecelerating
+        isScrollInteractionActive(tableView)
     }
 
     private func applyPendingConfiguration(in scrollView: UIScrollView) {

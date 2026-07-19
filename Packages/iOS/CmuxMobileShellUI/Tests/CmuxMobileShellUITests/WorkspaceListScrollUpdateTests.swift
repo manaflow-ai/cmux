@@ -5,14 +5,14 @@ import UIKit
 @testable import CmuxMobileShellUI
 
 @MainActor
-private final class WorkspaceListInteractionTestTableView: WorkspaceListUITableView {
-    var reportsTracking = false
-    var reportsDragging = false
-    var reportsDecelerating = false
+private final class WorkspaceListInteractionTestState {
+    var isTracking = false
+    var isDragging = false
+    var isDecelerating = false
 
-    override var isTracking: Bool { reportsTracking }
-    override var isDragging: Bool { reportsDragging }
-    override var isDecelerating: Bool { reportsDecelerating }
+    var isActive: Bool {
+        isTracking || isDragging || isDecelerating
+    }
 }
 
 @MainActor
@@ -29,8 +29,9 @@ private final class WorkspaceListInteractionTestPanGestureRecognizer: UIPanGestu
 @Suite struct WorkspaceListScrollUpdateTests {
     @Test func liveSnapshotWaitsForDirectionReversalToFinish() {
         let initial = configuration(workspaceIDs: ["workspace-1"])
-        let coordinator = WorkspaceListTableCoordinator(configuration: initial)
-        let tableView = WorkspaceListInteractionTestTableView(
+        let interaction = WorkspaceListInteractionTestState()
+        let coordinator = coordinator(configuration: initial, interaction: interaction)
+        let tableView = WorkspaceListUITableView(
             frame: CGRect(x: 0, y: 0, width: 390, height: 844)
         )
         coordinator.attach(to: tableView)
@@ -38,9 +39,9 @@ private final class WorkspaceListInteractionTestPanGestureRecognizer: UIPanGestu
         #expect(tableView.numberOfRows(inSection: 0) == 1)
 
         let scrollDelegate: any UIScrollViewDelegate = coordinator
-        tableView.reportsDragging = true
-        tableView.reportsDragging = false
-        tableView.reportsDecelerating = true
+        interaction.isDragging = true
+        interaction.isDragging = false
+        interaction.isDecelerating = true
         scrollDelegate.scrollViewDidEndDragging?(tableView, willDecelerate: true)
 
         let liveUpdate = configuration(workspaceIDs: ["workspace-1", "workspace-2"])
@@ -50,9 +51,9 @@ private final class WorkspaceListInteractionTestPanGestureRecognizer: UIPanGestu
             "A live workspace update must not mutate the table while the first flick is decelerating."
         )
 
-        tableView.reportsDecelerating = false
-        tableView.reportsTracking = true
-        tableView.reportsDragging = true
+        interaction.isDecelerating = false
+        interaction.isTracking = true
+        interaction.isDragging = true
         scrollDelegate.scrollViewDidEndDecelerating?(tableView)
         #expect(
             tableView.numberOfRows(inSection: 0) == 1,
@@ -68,8 +69,8 @@ private final class WorkspaceListInteractionTestPanGestureRecognizer: UIPanGestu
             "Updates received during the reverse drag must remain staged."
         )
 
-        tableView.reportsTracking = false
-        tableView.reportsDragging = false
+        interaction.isTracking = false
+        interaction.isDragging = false
         scrollDelegate.scrollViewDidEndDragging?(tableView, willDecelerate: false)
         #expect(
             tableView.numberOfRows(inSection: 0) == 3,
@@ -79,22 +80,23 @@ private final class WorkspaceListInteractionTestPanGestureRecognizer: UIPanGestu
 
     @Test func liveSnapshotAppliesAfterDecelerationEnds() {
         let initial = configuration(workspaceIDs: ["workspace-1"])
-        let coordinator = WorkspaceListTableCoordinator(configuration: initial)
-        let tableView = WorkspaceListInteractionTestTableView(
+        let interaction = WorkspaceListInteractionTestState()
+        let coordinator = coordinator(configuration: initial, interaction: interaction)
+        let tableView = WorkspaceListUITableView(
             frame: CGRect(x: 0, y: 0, width: 390, height: 844)
         )
         coordinator.attach(to: tableView)
         coordinator.update(configuration: initial, in: tableView)
 
         let scrollDelegate: any UIScrollViewDelegate = coordinator
-        tableView.reportsDecelerating = true
+        interaction.isDecelerating = true
         scrollDelegate.scrollViewDidEndDragging?(tableView, willDecelerate: true)
         coordinator.update(
             configuration: configuration(workspaceIDs: ["workspace-1", "workspace-2"]),
             in: tableView
         )
 
-        tableView.reportsDecelerating = false
+        interaction.isDecelerating = false
         scrollDelegate.scrollViewDidEndDecelerating?(tableView)
         #expect(
             tableView.numberOfRows(inSection: 0) == 2,
@@ -104,14 +106,15 @@ private final class WorkspaceListInteractionTestPanGestureRecognizer: UIPanGestu
 
     @Test func panEndWaitsForUIKitDecelerationDecision() {
         let initial = configuration(workspaceIDs: ["workspace-1"])
-        let coordinator = WorkspaceListTableCoordinator(configuration: initial)
-        let tableView = WorkspaceListInteractionTestTableView(
+        let interaction = WorkspaceListInteractionTestState()
+        let coordinator = coordinator(configuration: initial, interaction: interaction)
+        let tableView = WorkspaceListUITableView(
             frame: CGRect(x: 0, y: 0, width: 390, height: 844)
         )
         coordinator.attach(to: tableView)
         coordinator.update(configuration: initial, in: tableView)
 
-        tableView.reportsDragging = true
+        interaction.isDragging = true
         coordinator.update(
             configuration: configuration(workspaceIDs: ["workspace-1", "workspace-2"]),
             in: tableView
@@ -121,7 +124,7 @@ private final class WorkspaceListInteractionTestPanGestureRecognizer: UIPanGestu
         // UIScrollView's private pan target can finish before UIKit calls the
         // delegate with its authoritative willDecelerate decision. The
         // auxiliary target must not flush in that transient idle-looking gap.
-        tableView.reportsDragging = false
+        interaction.isDragging = false
         let selector = NSSelectorFromString("scrollPanGestureStateChanged:")
         #expect(coordinator.responds(to: selector))
         let panGesture = WorkspaceListInteractionTestPanGestureRecognizer(
@@ -137,11 +140,11 @@ private final class WorkspaceListInteractionTestPanGestureRecognizer: UIPanGestu
         )
 
         let scrollDelegate: any UIScrollViewDelegate = coordinator
-        tableView.reportsDecelerating = true
+        interaction.isDecelerating = true
         scrollDelegate.scrollViewDidEndDragging?(tableView, willDecelerate: true)
         #expect(tableView.numberOfRows(inSection: 0) == 1)
 
-        tableView.reportsDecelerating = false
+        interaction.isDecelerating = false
         scrollDelegate.scrollViewDidEndDecelerating?(tableView)
         #expect(
             tableView.numberOfRows(inSection: 0) == 2,
@@ -151,19 +154,20 @@ private final class WorkspaceListInteractionTestPanGestureRecognizer: UIPanGestu
 
     @Test func failedPanFlushesPendingUpdateAfterStateSettles() async {
         let initial = configuration(workspaceIDs: ["workspace-1"])
-        let coordinator = WorkspaceListTableCoordinator(configuration: initial)
-        let tableView = WorkspaceListInteractionTestTableView(
+        let interaction = WorkspaceListInteractionTestState()
+        let coordinator = coordinator(configuration: initial, interaction: interaction)
+        let tableView = WorkspaceListUITableView(
             frame: CGRect(x: 0, y: 0, width: 390, height: 844)
         )
         coordinator.attach(to: tableView)
         coordinator.update(configuration: initial, in: tableView)
 
-        tableView.reportsTracking = true
+        interaction.isTracking = true
         coordinator.update(
             configuration: configuration(workspaceIDs: ["workspace-1", "workspace-2"]),
             in: tableView
         )
-        tableView.reportsTracking = false
+        interaction.isTracking = false
 
         let selector = NSSelectorFromString("scrollPanGestureStateChanged:")
         let panGesture = WorkspaceListInteractionTestPanGestureRecognizer(
@@ -189,15 +193,16 @@ private final class WorkspaceListInteractionTestPanGestureRecognizer: UIPanGestu
 
     @Test func rebindingDuringInterruptedScrollDoesNotKeepUpdatesStaged() {
         let initial = configuration(workspaceIDs: ["workspace-1"])
-        let coordinator = WorkspaceListTableCoordinator(configuration: initial)
-        let firstTable = WorkspaceListInteractionTestTableView(
+        let interaction = WorkspaceListInteractionTestState()
+        let coordinator = coordinator(configuration: initial, interaction: interaction)
+        let firstTable = WorkspaceListUITableView(
             frame: CGRect(x: 0, y: 0, width: 390, height: 844)
         )
         coordinator.attach(to: firstTable)
         coordinator.update(configuration: initial, in: firstTable)
 
-        firstTable.reportsTracking = true
-        firstTable.reportsDragging = true
+        interaction.isTracking = true
+        interaction.isDragging = true
         let liveUpdate = configuration(workspaceIDs: ["workspace-1", "workspace-2"])
         coordinator.update(configuration: liveUpdate, in: firstTable)
 
@@ -212,6 +217,16 @@ private final class WorkspaceListInteractionTestPanGestureRecognizer: UIPanGestu
         #expect(
             replacementRowCount == 2,
             "A replacement table must receive the latest snapshot even if the old table vanished mid-gesture."
+        )
+    }
+
+    private func coordinator(
+        configuration: WorkspaceListTable,
+        interaction: WorkspaceListInteractionTestState
+    ) -> WorkspaceListTableCoordinator {
+        WorkspaceListTableCoordinator(
+            configuration: configuration,
+            isScrollInteractionActive: { _ in interaction.isActive }
         )
     }
 
