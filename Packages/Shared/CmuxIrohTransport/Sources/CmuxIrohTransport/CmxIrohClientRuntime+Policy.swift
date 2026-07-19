@@ -20,6 +20,9 @@ extension CmxIrohClientRuntime {
         let publicHints = Array(address.pathHints.compactMap {
             $0.publicDisclosure(at: now())
         }.prefix(CmxAttachEndpoint.maximumIrohPathHintCount))
+        let directPorts = CmxIrohDirectPorts(
+            localDirectAddresses: await endpoint.localDirectAddresses()
+        )
         let payload = try CmxIrohRegistrationPayload(
             deviceID: configuration.deviceID,
             appInstanceID: configuration.appInstanceID,
@@ -31,6 +34,7 @@ extension CmxIrohClientRuntime {
             pairingEnabled: false,
             capabilities: configuration.capabilities,
             pathHints: publicHints,
+            directPorts: directPorts,
             now: now()
         )
         let expectation = try CmxIrohLocalBindingExpectation(
@@ -166,6 +170,7 @@ extension CmxIrohClientRuntime {
                 networkPathSnapshot: networkPathSnapshot,
                 offlinePolicy: offlinePolicy,
                 lanFallback: lanFallback,
+                customPrivateFallback: customPrivateFallback,
                 now: now
             )
             registryContextProvider = provider

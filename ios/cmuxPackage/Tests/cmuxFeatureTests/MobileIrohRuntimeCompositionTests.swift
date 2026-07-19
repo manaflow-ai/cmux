@@ -69,6 +69,45 @@ struct MobileIrohRuntimeCompositionTests {
         #expect(await fixture.endpointFactory.bindCount() == 1)
     }
 
+    #if DEBUG
+    @Test
+    func debugTransportModePersistsAndRebindsWithoutRotatingIdentity() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make()
+        let initialBindCount = await fixture.endpointFactory.bindCount()
+        #expect(fixture.endpointFactoryModes.modes == [.automatic])
+
+        try await fixture.composition.setIrohDebugTransportVerificationMode(.directOnly)
+
+        #expect(
+            fixture.debugDefaults.string(
+                forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
+            ) == CmxIrohTransportVerificationMode.directOnly.rawValue
+        )
+        #expect(await fixture.endpointFactory.bindCount() == initialBindCount + 1)
+        #expect(fixture.endpointFactoryModes.modes == [.automatic, .directOnly])
+        #expect(
+            await fixture.composition.irohSettingsSnapshot()
+                .debugTransportVerificationMode == .directOnly
+        )
+        try await fixture.expectOriginalRepositoriesRemain()
+
+        try await fixture.composition.setIrohDebugTransportVerificationMode(.directOnly)
+
+        #expect(await fixture.endpointFactory.bindCount() == initialBindCount + 1)
+        #expect(fixture.endpointFactoryModes.modes == [.automatic, .directOnly])
+
+        try await fixture.composition.setIrohDebugTransportVerificationMode(.relayOnly)
+
+        #expect(await fixture.endpointFactory.bindCount() == initialBindCount + 2)
+        #expect(fixture.endpointFactoryModes.modes == [.automatic, .directOnly, .relayOnly])
+        #expect(
+            await fixture.composition.irohSettingsSnapshot()
+                .debugTransportVerificationMode == .relayOnly
+        )
+        try await fixture.expectOriginalRepositoriesRemain()
+    }
+    #endif
+
     @Test
     func connectionReadinessIgnoresSupersededLifecycleCompletion() async {
         let readiness = MobileIrohConnectionReadinessSignal()
@@ -81,6 +120,32 @@ struct MobileIrohRuntimeCompositionTests {
         #expect(readiness.isPending == false)
 
         await readiness.wait()
+    }
+
+    @Test
+    func discoveryRefreshDiagnosticPreservesTypedFailureCategory() throws {
+        let offline = try #require(
+            MobileIrohRuntimeComposition.discoveryRefreshFailureEvent(
+                for: .failed(.offline)
+            )
+        )
+        #expect(offline.code == .discoveryFailed)
+        #expect(offline.a == DiagnosticTransportKind.iroh.rawValue)
+        #expect(offline.b == DiagnosticFailureKind.offline.rawValue)
+        #expect(offline.surface == nil)
+        #expect(offline.c == nil)
+
+        let unavailable = try #require(
+            MobileIrohRuntimeComposition.discoveryRefreshFailureEvent(
+                for: .failed(.policyUnavailable)
+            )
+        )
+        #expect(unavailable.b == DiagnosticFailureKind.policyUnavailable.rawValue)
+        #expect(
+            MobileIrohRuntimeComposition.discoveryRefreshFailureEvent(
+                for: .refreshed
+            ) == nil
+        )
     }
 
     @Test
@@ -995,6 +1060,8 @@ private struct MobileIrohSignOutFixture {
     let outbox: CmxIrohPendingRevocationOutbox
     let outboxStore: MobileIrohControlledCredentialStore
     let endpointFactory: MobileIrohCountingEndpointFactory
+    let endpointFactoryModes: MobileIrohEndpointFactoryModeRecorder
+    let debugDefaults: UserDefaults
     let broker: MobileIrohRevocationBroker
     let request: CmxByteTransportRequest
     let initialBindCount: Int
@@ -1114,6 +1181,7 @@ private struct MobileIrohSignOutFixture {
 
         let outbox = CmxIrohPendingRevocationOutbox(secureStore: outboxStore)
         let endpointFactory = MobileIrohCountingEndpointFactory()
+        let endpointFactoryModes = MobileIrohEndpointFactoryModeRecorder()
         let broker = MobileIrohRevocationBroker()
         let stableDeviceID = deviceID
         let composition = MobileIrohRuntimeComposition(
@@ -1125,10 +1193,15 @@ private struct MobileIrohSignOutFixture {
                 secureStore: offlineStore
             ),
             endpointFactory: endpointFactory,
+            endpointFactoryProvider: { mode in
+                endpointFactoryModes.record(mode)
+                return endpointFactory
+            },
             brokerFactory: { _ in broker },
             deviceID: { stableDeviceID },
             tag: tag,
-            now: { Date(timeIntervalSince1970: 1_000) }
+            now: { Date(timeIntervalSince1970: 1_000) },
+            debugDefaults: defaults
         )
         composition.configure(auth: auth)
         let remoteIdentity = try CmxIrohPeerIdentity(
@@ -1162,6 +1235,8 @@ private struct MobileIrohSignOutFixture {
             outbox: outbox,
             outboxStore: outboxStore,
             endpointFactory: endpointFactory,
+            endpointFactoryModes: endpointFactoryModes,
+            debugDefaults: defaults,
             broker: broker,
             request: request,
             initialBindCount: initialBindCount,
@@ -1341,6 +1416,15 @@ private actor MobileIrohCountingEndpointFactory: CmxIrohEndpointFactory {
     }
 
     func bindCount() -> Int { count }
+}
+
+@MainActor
+private final class MobileIrohEndpointFactoryModeRecorder {
+    private(set) var modes: [CmxIrohTransportVerificationMode] = []
+
+    func record(_ mode: CmxIrohTransportVerificationMode) {
+        modes.append(mode)
+    }
 }
 
 private actor MobileIrohRevocationBroker: CmxIrohClientBrokerServing {

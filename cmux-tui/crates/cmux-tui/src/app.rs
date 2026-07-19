@@ -17,7 +17,8 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use cmux_tui_core::{
     BrowserSource, BrowserStatus, MuxEvent, PairingChallenge, PaneId, Rect, SplitDir, SplitEdge,
-    SurfaceId, SurfaceKind, WorkspaceId, layout_screen, split_for_pane_edge, split_sides,
+    SplitId, SurfaceId, SurfaceKind, WorkspaceId, exact_split_for_pane_edge, layout_screen,
+    split_sides, zellij_default_pane_layout,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -1655,20 +1656,24 @@ impl OrderedSession {
         Ok(())
     }
 
-    pub fn set_ratio(&self, pane: PaneId, dir: SplitDir, ratio: f32) {
-        self.set_ratio_deferred(pane, dir, ratio);
+    pub fn new_pane(&self, pane: PaneId, size: Option<(u16, u16)>) -> anyhow::Result<()> {
+        self.enqueue_with_completion("create pane", true, move |session| {
+            let surface = session.new_pane(pane, size)?;
+            Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
+        });
+        Ok(())
+    }
+
+    pub fn set_split_ratio(&self, split: SplitId, ratio: f32) {
+        self.set_split_ratio_deferred(split, ratio);
         self.settle_split_ratio();
     }
 
-    fn set_ratio_deferred(&self, pane: PaneId, dir: SplitDir, ratio: f32) {
-        let direction = match dir {
-            SplitDir::Right => "horizontal split ratio",
-            SplitDir::Down => "vertical split ratio",
-        };
+    fn set_split_ratio_deferred(&self, split: SplitId, ratio: f32) {
         self.enqueue_coalescing_session_mutation(
-            "resize pane split",
-            (direction, pane),
-            move |session| session.set_ratio(pane, dir, ratio),
+            "resize exact pane split",
+            ("split id", split),
+            move |session| session.set_split_ratio(split, ratio),
         );
     }
 
@@ -2581,50 +2586,6 @@ fn content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Option<(u1
     (content.width > 0 && content.height > 0).then_some((content.width, content.height))
 }
 
-fn cell_height_width_ratio(cell_pixels: (u16, u16)) -> u16 {
-    let (width, height) = cell_pixels;
-    if width == 0 || height == 0 {
-        return 4;
-    }
-    ((height as f32 / width as f32).round() as u16).max(1)
-}
-
-fn zellij_smart_direction(content: Rect, ratio: u16) -> Option<SplitDir> {
-    let rows = content.height as u32;
-    let cols = content.width as u32;
-    let ratio = ratio as u32;
-    if rows.saturating_mul(ratio) > cols && rows > 20 {
-        Some(SplitDir::Down)
-    } else if cols > 60 {
-        Some(SplitDir::Right)
-    } else {
-        None
-    }
-}
-
-fn smart_split_target(
-    areas: &[PaneArea],
-    focused: Option<PaneId>,
-    cell_pixels: (u16, u16),
-) -> Option<(PaneId, SplitDir)> {
-    let ratio = cell_height_width_ratio(cell_pixels);
-    if let Some(area) = focused.and_then(|pane| areas.iter().find(|area| area.pane == pane))
-        && let Some(dir) = zellij_smart_direction(area.content, ratio)
-    {
-        return Some((area.pane, dir));
-    }
-    areas
-        .iter()
-        .filter_map(|area| {
-            zellij_smart_direction(area.content, ratio).map(|dir| {
-                let area_score = area.content.width as u32 * area.content.height as u32;
-                (area_score, area.pane, dir)
-            })
-        })
-        .max_by_key(|(area_score, _, _)| *area_score)
-        .map(|(_, pane, dir)| (pane, dir))
-}
-
 fn browser_content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Option<(u16, u16)> {
     let (_, _, content, _) = pane_parts_for_rect(rect, scrollbar, true);
     (content.width > 0 && content.height > 0).then_some((content.width, content.height))
@@ -2667,6 +2628,10 @@ fn pane_parts_for_rect(
         None
     };
     (bar, omnibar, content, track)
+}
+
+fn stacked_header_parts_for_rect(rect: Rect) -> (Option<Rect>, Option<Rect>, Rect, Option<Rect>) {
+    (Some(rect), None, Rect { y: rect.y.saturating_add(rect.height), height: 0, ..rect }, None)
 }
 
 pub fn run(
@@ -3415,6 +3380,9 @@ impl App {
             if surface.kind() != SurfaceKind::Browser {
                 continue;
             }
+            if area.content.width == 0 || area.content.height == 0 {
+                continue;
+            }
             if self.browser_graphic_occluded(area.content) {
                 continue;
             }
@@ -3540,9 +3508,9 @@ impl App {
             .active_screen()
             .map(|screen| {
                 if let Some(pane) = screen.zoomed_pane {
-                    layout_screen(&cmux_tui_core::Node::Leaf(pane), area)
+                    layout_screen(&cmux_tui_core::Node::Leaf(pane), area, Some(pane))
                 } else {
-                    layout_screen(&screen.layout, area)
+                    layout_screen(&screen.layout, area, Some(screen.active_pane))
                 }
             })
             .unwrap_or_default();
@@ -3563,13 +3531,17 @@ impl App {
             }
             return;
         };
+        let stacked_headers = layout.stacked_headers;
         for (pane_id, rect) in layout.panes {
             let Some(pane) = screen.pane(pane_id) else { continue };
             let Some(surface_id) = pane.active_surface() else { continue };
             let has_browser_omnibar =
                 pane.tabs.get(pane.active_tab).is_some_and(|tab| tab.kind == SurfaceKind::Browser);
-            let (bar, omnibar, content, track) =
-                pane_parts_for_rect(rect, self.config.scrollbar.position, has_browser_omnibar);
+            let (bar, omnibar, content, track) = if stacked_headers.contains(&pane_id) {
+                stacked_header_parts_for_rect(rect)
+            } else {
+                pane_parts_for_rect(rect, self.config.scrollbar.position, has_browser_omnibar)
+            };
             self.pane_areas.push(PaneArea {
                 pane: pane_id,
                 surface: surface_id,
@@ -3610,6 +3582,9 @@ impl App {
         // cached transport state, the shared-size ownership boundary.
         for index in 0..self.pane_areas.len() {
             let area = self.pane_areas[index];
+            if area.content.width == 0 || area.content.height == 0 {
+                continue;
+            }
             let Some(pane) = screen.pane(area.pane) else { continue };
             for tab in &pane.tabs {
                 if self.session.has_surface(tab.surface) {
@@ -3623,10 +3598,6 @@ impl App {
                 {
                     self.session.attach_surface(tab.surface, size);
                 }
-            }
-
-            if area.content.width == 0 || area.content.height == 0 {
-                continue;
             }
             let Some(surface) = self.session.surface(area.surface) else { continue };
             let desired = (area.content.width, area.content.height);
@@ -4627,12 +4598,24 @@ impl App {
     }
 
     fn new_pane_smart(&mut self) -> anyhow::Result<()> {
-        let Some((pane, dir)) =
-            smart_split_target(&self.pane_areas, self.active_pane(), self.cell_pixels)
-        else {
+        let Some(pane) = self.active_pane() else {
             return Ok(());
         };
-        self.split_pane(pane, dir)
+        let Some(hint) = self.tree.active_screen().and_then(|screen| {
+            let mut panes = Vec::new();
+            screen.layout.pane_ids(&mut panes);
+            panes.push(PaneId::MAX);
+            let layout = zellij_default_pane_layout(&panes)?;
+            let rect = layout_screen(&layout, self.content_area, Some(PaneId::MAX))
+                .rect_of(PaneId::MAX)?;
+            self.size_of_rect(rect)
+        }) else {
+            return Ok(());
+        };
+        if !self.prepare_pty_input_before_mutation() {
+            return Ok(());
+        }
+        self.session.new_pane(pane, Some(hint))
     }
 
     fn new_workspace(&mut self) -> anyhow::Result<()> {
@@ -5389,6 +5372,7 @@ impl App {
         // Re-derive the layout geometry from the frame's pane areas.
         let layout = cmux_tui_core::LayoutResult {
             panes: self.pane_areas.iter().map(|a| (a.pane, a.rect)).collect(),
+            ..Default::default()
         };
         if let Some(next) = layout.neighbor(active, dx, dy) {
             self.focus_pane_after_input(next);
@@ -6964,10 +6948,10 @@ impl App {
         }
         if let Some(Drag::Workspace { workspace, .. }) = self.drag {
             self.drag = None;
-            if let Some(index) = self.workspace_drop_target_at(x, y)
+            if let Some(insertion) = self.workspace_drop_target_at(x, y)
                 && self.prepare_pty_input_before_mutation()
             {
-                self.session.move_workspace(workspace, index);
+                self.session.move_workspace(workspace, insertion);
             }
             return Ok(RenderAction::Draw);
         }
@@ -7135,45 +7119,43 @@ impl App {
         let Some((edge, target)) = candidates
             .into_iter()
             .filter_map(|(split_edge, pane_edge)| {
-                split_for_pane_edge(&screen.layout, self.content_area, pane, split_edge)
-                    .map(|target| (pane_edge, target))
+                exact_split_for_pane_edge(
+                    &screen.layout,
+                    self.content_area,
+                    Some(screen.active_pane),
+                    pane,
+                    split_edge,
+                )
+                .map(|target| (pane_edge, target))
             })
             .min_by_key(|(_, target)| target.area.width as u32 * target.area.height as u32)
         else {
             return;
         };
-        let (current, dir, sign) = match edge {
+        let (current, sign) = match edge {
             PaneEdge::Left => (
                 (area.rect.x.saturating_sub(target.area.x)) as f32
                     / target.area.width.max(1) as f32,
-                SplitDir::Right,
                 -1.0,
             ),
             PaneEdge::Right => (
                 (area.rect.x + area.rect.width).saturating_sub(target.area.x) as f32
                     / target.area.width.max(1) as f32,
-                SplitDir::Right,
                 1.0,
             ),
             PaneEdge::Top => (
                 (area.rect.y.saturating_sub(target.area.y)) as f32
                     / target.area.height.max(1) as f32,
-                SplitDir::Down,
                 -1.0,
             ),
             PaneEdge::Bottom => (
                 (area.rect.y + area.rect.height).saturating_sub(target.area.y) as f32
                     / target.area.height.max(1) as f32,
-                SplitDir::Down,
                 1.0,
             ),
         };
         if self.prepare_pty_input_before_mutation() {
-            self.session.set_ratio(
-                target.set_pane,
-                dir,
-                (current + delta * sign).clamp(0.05, 0.95),
-            );
+            self.session.set_split_ratio(target.split, (current + delta * sign).clamp(0.05, 0.95));
         }
     }
 
@@ -7185,26 +7167,27 @@ impl App {
             PaneEdge::Top => SplitEdge::Top,
             PaneEdge::Bottom => SplitEdge::Bottom,
         };
-        let Some(target) = split_for_pane_edge(&screen.layout, self.content_area, pane, split_edge)
-        else {
+        let Some(target) = exact_split_for_pane_edge(
+            &screen.layout,
+            self.content_area,
+            Some(screen.active_pane),
+            pane,
+            split_edge,
+        ) else {
             return;
         };
-        let (coord, start, extent, dir) = match edge {
-            PaneEdge::Left => (x, target.area.x, target.area.width, SplitDir::Right),
-            PaneEdge::Right => {
-                (x.saturating_add(1), target.area.x, target.area.width, SplitDir::Right)
-            }
-            PaneEdge::Top => (y, target.area.y, target.area.height, SplitDir::Down),
-            PaneEdge::Bottom => {
-                (y.saturating_add(1), target.area.y, target.area.height, SplitDir::Down)
-            }
+        let (coord, start, extent) = match edge {
+            PaneEdge::Left => (x, target.area.x, target.area.width),
+            PaneEdge::Right => (x.saturating_add(1), target.area.x, target.area.width),
+            PaneEdge::Top => (y, target.area.y, target.area.height),
+            PaneEdge::Bottom => (y.saturating_add(1), target.area.y, target.area.height),
         };
         if extent == 0 {
             return;
         }
         let ratio = (coord.saturating_sub(start) as f32 / extent as f32).clamp(0.05, 0.95);
         if self.prepare_pty_input_before_mutation() {
-            self.session.set_ratio_deferred(target.set_pane, dir, ratio);
+            self.session.set_split_ratio_deferred(target.split, ratio);
         }
     }
 
@@ -7569,6 +7552,7 @@ mod tests {
 
     use cmux_tui_core::{
         BrowserStatus, Mux, MuxEvent, Node, Rect, SplitDir, SurfaceId, SurfaceKind, SurfaceOptions,
+        layout_screen,
     };
     use crossterm::event::{
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -7617,6 +7601,130 @@ mod tests {
                 MenuItem::Action(MenuAction::CopyPaneId(pane)),
             ]
         );
+    }
+
+    #[test]
+    fn alt_n_uses_zellij_default_vertical_distribution() {
+        let (mux, _) = test_mux("alt-n-zellij-layout-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+
+        for _ in 0..4 {
+            app.sync_layout((200, 40));
+            app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
+            while app.session.has_pending_mutations() {
+                let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+                app.handle(event).unwrap();
+            }
+        }
+
+        let screen = app.tree.active_screen().unwrap();
+        let mut panes = Vec::new();
+        screen.layout.pane_ids(&mut panes);
+        panes.sort_unstable();
+        assert_eq!(panes.len(), 5);
+
+        let layout = layout_screen(
+            &screen.layout,
+            Rect { x: 0, y: 0, width: 200, height: 40 },
+            Some(screen.active_pane),
+        );
+        assert_eq!(
+            layout.panes,
+            vec![
+                (panes[0], Rect { x: 0, y: 0, width: 100, height: 40 }),
+                (panes[1], Rect { x: 100, y: 0, width: 100, height: 10 }),
+                (panes[2], Rect { x: 100, y: 10, width: 100, height: 10 }),
+                (panes[3], Rect { x: 100, y: 20, width: 100, height: 10 }),
+                (panes[4], Rect { x: 100, y: 30, width: 100, height: 10 }),
+            ]
+        );
+
+        for _ in 0..8 {
+            app.sync_layout((200, 40));
+            app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
+            while app.session.has_pending_mutations() {
+                let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+                app.handle(event).unwrap();
+            }
+        }
+
+        let screen = app.tree.active_screen().unwrap();
+        let mut panes = Vec::new();
+        screen.layout.pane_ids(&mut panes);
+        panes.sort_unstable();
+        assert_eq!(panes.len(), 13);
+
+        let layout = layout_screen(
+            &screen.layout,
+            Rect { x: 0, y: 0, width: 200, height: 40 },
+            Some(screen.active_pane),
+        );
+        assert_eq!(layout.panes[0], (panes[0], Rect { x: 0, y: 0, width: 100, height: 40 }));
+        for (index, (pane, rect)) in layout.panes[1..12].iter().enumerate() {
+            assert_eq!(*pane, panes[index + 1]);
+            assert_eq!(*rect, Rect { x: 100, y: index as u16, width: 100, height: 1 });
+        }
+        assert_eq!(layout.panes[12], (panes[12], Rect { x: 100, y: 11, width: 100, height: 29 }));
+
+        app.sync_layout((200, 41));
+        let leading = app.pane_areas.iter().find(|area| area.pane == panes[0]).unwrap();
+        assert_eq!(leading.rect, Rect { x: 0, y: 0, width: 100, height: 40 });
+        assert_eq!(leading.bar, Some(Rect { x: 0, y: 0, width: 100, height: 1 }));
+        assert_eq!(leading.content.height, 38);
+        for pane in &panes[1..12] {
+            let area = app.pane_areas.iter().find(|area| area.pane == *pane).unwrap();
+            assert_eq!(area.bar, Some(area.rect));
+            assert_eq!(area.content.height, 0);
+        }
+        let expanded = app.pane_areas.iter().find(|area| area.pane == panes[12]).unwrap();
+        assert_eq!(expanded.rect.height, 29);
+        assert_eq!(expanded.content.height, 27);
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface);
+        }
+    }
+
+    #[test]
+    fn alt_n_rejects_a_new_pane_with_no_visible_content() {
+        let (mux, _) = test_mux("alt-n-zero-content-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+
+        for _ in 0..3 {
+            app.sync_layout((200, 40));
+            app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
+            while app.session.has_pending_mutations() {
+                let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+                app.handle(event).unwrap();
+            }
+        }
+        let before = app.tree.active_screen().unwrap().clone();
+        let mut before_panes = Vec::new();
+        before.layout.pane_ids(&mut before_panes);
+        assert_eq!(before_panes.len(), 4);
+
+        app.sync_layout((200, 4));
+        app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            app.handle(event).unwrap();
+        }
+
+        let after = app.tree.active_screen().unwrap();
+        let mut after_panes = Vec::new();
+        after.layout.pane_ids(&mut after_panes);
+        assert_eq!(after_panes, before_panes);
+        assert_eq!(after.active_pane, before.active_pane);
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface);
+        }
     }
 
     #[test]
@@ -10396,6 +10504,13 @@ mod tests {
         mux.new_workspace(None, Some((40, 12))).unwrap();
         let target = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
         mux.split(target, SplitDir::Right, Some((20, 12))).unwrap();
+        let split = mux.with_state(|state| {
+            let root = &state.workspaces[0].screens[0].root;
+            let Node::Split { id, .. } = root else {
+                panic!("expected split root");
+            };
+            *id
+        });
         let (app, events) = test_app_with_events(Session::Local(mux));
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
@@ -10407,7 +10522,7 @@ mod tests {
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
         for ratio in [0.2, 0.4, 0.8] {
-            app.session.set_ratio_deferred(target, SplitDir::Right, ratio);
+            app.session.set_split_ratio_deferred(split, ratio);
         }
         app.session.settle_split_ratio();
         release_tx.send(()).unwrap();
@@ -10853,9 +10968,11 @@ mod tests {
             tabs.push(tab(active_surface));
         }
         TreeView {
+            workspace_revision: 0,
             active_workspace: 0,
             workspaces: vec![WorkspaceView {
                 id: 4,
+                key: "00000000-0000-4000-8000-000000000004".to_string(),
                 short_id: "000004".to_string(),
                 name: "work".to_string(),
                 active_screen: 0,
@@ -11047,9 +11164,11 @@ mod tests {
 
     fn notify_tree(surface: u64, unread: bool) -> TreeView {
         TreeView {
+            workspace_revision: 0,
             active_workspace: 0,
             workspaces: vec![WorkspaceView {
                 id: 4,
+                key: "00000000-0000-4000-8000-000000000004".to_string(),
                 short_id: "000004".to_string(),
                 name: "work".to_string(),
                 active_screen: 0,

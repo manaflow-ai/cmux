@@ -344,7 +344,7 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         self.version = version
         self.workspaceID = workspaceID
         self.terminalID = terminalID
-        self.macDeviceID = macDeviceID
+        self.macDeviceID = cmxCanonicalDeviceID(macDeviceID)
         self.macDisplayName = macDisplayName
         self.macUserEmail = macUserEmail
         self.macUserID = macUserID

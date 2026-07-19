@@ -2,7 +2,7 @@
 
 [日本語](README.ja.md)
 
-A small third-party-style frontend that proves the protocol-v7 WebSocket API
+A small third-party-style frontend that proves the protocol-v9 WebSocket API
 and the browser entry of the TypeScript SDK are enough to build a natural cmux
 client. It renders the authoritative workspace tree, attaches xterm.js to the
 active PTY surface, forwards keyboard input, resizes from terminal cells, and
@@ -53,10 +53,11 @@ When served from a non-localhost host, the WebSocket URL defaults to `wss://<hos
 - `attachSurface()` replay and byte streaming directly into xterm.js.
 - Keyboard, trailing-debounced `ResizeObserver` sizing, tab selection,
   reconnect backoff, notifications, and unread attention state.
+- Stable split-id rendering and exact divider resizing through
+  `set-split-ratio`.
+- Zellij-style stack layouts with one expanded pane and collapsed title rows.
 
 ## Follow-ups
 
-- Render the complete pane split tree. This round intentionally renders only
-  the active pane's selected surface.
 - Render browser surfaces using their browser-specific attach events.
 - Persist connection profiles and add a user-controlled disconnect action.

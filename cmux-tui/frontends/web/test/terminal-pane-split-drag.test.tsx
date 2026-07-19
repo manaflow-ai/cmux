@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientInfo, CmuxClient } from "cmux/browser";
 import { TerminalPane } from "../src/components/TerminalPane";
@@ -54,6 +54,7 @@ function screenView(ratio: number, zoomedPane: number | null = null): ScreenView
     panes: [],
     layout: {
       type: "split",
+      split: 42,
       dir: "right",
       ratio,
       a: { type: "leaf", pane: 1 },
@@ -65,7 +66,7 @@ function screenView(ratio: number, zoomedPane: number | null = null): ScreenView
   };
 }
 
-function terminalPaneProps(onSetRatio: (pane: number, dir: "right" | "down", ratio: number) => Promise<boolean>) {
+function terminalPaneProps(onSetSplitRatio: (split: number, ratio: number) => Promise<boolean>) {
   return {
     client: null as CmuxClient | null,
     clients: [] as ClientInfo[],
@@ -77,7 +78,7 @@ function terminalPaneProps(onSetRatio: (pane: number, dir: "right" | "down", rat
     onSelectTab: vi.fn(),
     onNewTab: vi.fn(),
     onSplit: vi.fn(),
-    onSetRatio,
+    onSetSplitRatio,
     onSelectPane: vi.fn(),
     onZoomPane: vi.fn(),
     onClosePane: vi.fn(),
@@ -117,9 +118,166 @@ describe("TerminalPane split dividers", () => {
     expect(queryByRole("separator")).toBeNull();
   });
 
+  it("exposes split state and resizes with the orientation arrow keys", async () => {
+    const onSetSplitRatio = vi.fn(async () => true);
+    const props = terminalPaneProps(onSetSplitRatio);
+    const { getByRole } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
+    const divider = getByRole("separator");
+
+    expect(divider).toHaveAttribute("tabindex", "0");
+    expect(divider).toHaveAttribute("aria-valuemin", "5");
+    expect(divider).toHaveAttribute("aria-valuemax", "95");
+    expect(divider).toHaveAttribute("aria-valuenow", "50");
+
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledWith(42, 0.55));
+  });
+
+  it("queues repeated arrow-key adjustments without dropping input", async () => {
+    const onSetSplitRatio = vi.fn(async (_split: number, _ratio: number) => true);
+    const props = terminalPaneProps(onSetSplitRatio);
+    const { getByRole } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
+    const divider = getByRole("separator");
+
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(1));
+    expect(onSetSplitRatio.mock.calls[0]?.[0]).toBe(42);
+    expect(onSetSplitRatio.mock.calls[0]?.[1]).toBeCloseTo(0.65);
+  });
+
+  it("debounces locally completed key repeats into one authoritative commit", async () => {
+    vi.useFakeTimers();
+    try {
+      const onSetSplitRatio = vi.fn(async (_split: number, _ratio: number) => true);
+      const props = terminalPaneProps(onSetSplitRatio);
+      const { getByRole } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
+      const divider = getByRole("separator");
+
+      fireEvent.keyDown(divider, { key: "ArrowRight" });
+      await act(async () => Promise.resolve());
+      fireEvent.keyDown(divider, { key: "ArrowRight" });
+      await act(async () => Promise.resolve());
+      fireEvent.keyDown(divider, { key: "ArrowRight" });
+      await act(async () => Promise.resolve());
+
+      expect(onSetSplitRatio).not.toHaveBeenCalled();
+      await act(async () => vi.advanceTimersByTimeAsync(99));
+      expect(onSetSplitRatio).not.toHaveBeenCalled();
+      await act(async () => vi.advanceTimersByTimeAsync(1));
+      expect(onSetSplitRatio).toHaveBeenCalledTimes(1);
+      expect(onSetSplitRatio.mock.calls[0]?.[1]).toBeCloseTo(0.65);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("preserves a reversal queued behind an in-flight keyboard adjustment", async () => {
+    vi.useFakeTimers();
+    let resolveFirst: (succeeded: boolean) => void = (_succeeded) => {
+      throw new Error("first request was not started");
+    };
+    const onSetSplitRatio = vi.fn((_split: number, ratio: number) => {
+      if (ratio !== 0.55) return Promise.resolve(true);
+      return new Promise<boolean>((resolve) => {
+        resolveFirst = resolve;
+      });
+    });
+    try {
+      const props = terminalPaneProps(onSetSplitRatio);
+      const { getByRole } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
+      const divider = getByRole("separator");
+
+      fireEvent.keyDown(divider, { key: "ArrowRight" });
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      expect(onSetSplitRatio).toHaveBeenCalledTimes(1);
+      fireEvent.keyDown(divider, { key: "ArrowLeft" });
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      expect(onSetSplitRatio).toHaveBeenCalledTimes(1);
+      await act(async () => resolveFirst(true));
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+
+      expect(onSetSplitRatio).toHaveBeenCalledTimes(2);
+      expect(onSetSplitRatio.mock.calls[1]?.[0]).toBe(42);
+      expect(onSetSplitRatio.mock.calls[1]?.[1]).toBeCloseTo(0.5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("unlocks pointer dragging after the server confirms a keyboard adjustment", async () => {
+    const onSetSplitRatio = vi.fn(async () => true);
+    const props = terminalPaneProps(onSetSplitRatio);
+    const { getByRole, rerender } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
+    const divider = getByRole("separator");
+    const setPointerCapture = vi.fn();
+    Object.defineProperty(divider, "setPointerCapture", { value: setPointerCapture });
+
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledWith(42, 0.55));
+    rerender(<TerminalPane {...props} screen={screenView(0.55)} />);
+    fireEvent.pointerDown(getByRole("separator"), {
+      pointerId: 12,
+      pointerType: "mouse",
+      button: 0,
+      clientX: 220,
+    });
+
+    expect(setPointerCapture).toHaveBeenCalledWith(12);
+  });
+
+  it("cancels a queued keyboard adjustment when its split is replaced", async () => {
+    let resolveFirst: (succeeded: boolean) => void = (_succeeded) => {
+      throw new Error("first request was not started");
+    };
+    const onSetSplitRatio = vi.fn(() => new Promise<boolean>((resolve) => {
+      resolveFirst = resolve;
+    }));
+    const props = terminalPaneProps(onSetSplitRatio);
+    const { getByRole, rerender } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
+    const divider = getByRole("separator");
+
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(1));
+
+    const replacement = screenView(0.5);
+    if (replacement.layout?.type !== "split") throw new Error("expected split layout");
+    replacement.layout.split = 43;
+    rerender(<TerminalPane {...props} screen={replacement} />);
+    await act(async () => resolveFirst(true));
+
+    expect(onSetSplitRatio).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses a later authoritative ratio after a keyboard transaction settles", async () => {
+    const onSetSplitRatio = vi.fn(async (_split: number, _ratio: number) => true);
+    const props = terminalPaneProps(onSetSplitRatio);
+    const { getByRole, rerender } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
+    const divider = getByRole("separator");
+
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(1));
+    expect(onSetSplitRatio.mock.calls[0]?.[1]).toBeCloseTo(0.65);
+
+    rerender(<TerminalPane {...props} screen={screenView(0.65)} />);
+    rerender(<TerminalPane {...props} screen={screenView(0.55)} />);
+    const updatedDivider = getByRole("separator");
+    expect(updatedDivider).toHaveAttribute("aria-valuenow", "55");
+
+    fireEvent.keyDown(updatedDivider, { key: "ArrowRight" });
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(2));
+    expect(onSetSplitRatio.mock.calls[1]?.[1]).toBeCloseTo(0.6);
+  });
+
   it("previews pointer movement, commits once, and reconciles to server layout", async () => {
-    const onSetRatio = vi.fn(async () => true);
-    const props = terminalPaneProps(onSetRatio);
+    const onSetSplitRatio = vi.fn(async () => true);
+    const props = terminalPaneProps(onSetSplitRatio);
     const { getByRole, container, rerender } = render(
       <TerminalPane {...props} screen={screenView(0.5)} />,
     );
@@ -147,17 +305,57 @@ describe("TerminalPane split dividers", () => {
     expect(container.querySelector<HTMLElement>(".pane-leaf")?.style.flex).toContain("75%");
     fireEvent.pointerUp(divider, { pointerId: 7, pointerType: "touch", clientX: 400, clientY: 100 });
 
-    await waitFor(() => expect(onSetRatio).toHaveBeenCalledTimes(1));
-    expect(onSetRatio).toHaveBeenCalledWith(1, "right", 0.75);
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(1));
+    expect(onSetSplitRatio).toHaveBeenCalledWith(42, 0.75);
 
     rerender(<TerminalPane {...props} screen={screenView(0.75)} />);
     rerender(<TerminalPane {...props} screen={screenView(0.6)} />);
     expect(container.querySelector<HTMLElement>(".pane-leaf")?.style.flex).toContain("60%");
   });
 
+  it("bases a keyboard nudge on a pending pointer ratio", async () => {
+    let resolvePointer: (succeeded: boolean) => void = (_succeeded) => {
+      throw new Error("pointer request was not started");
+    };
+    const onSetSplitRatio = vi.fn((_split: number, ratio: number) => {
+      if (ratio !== 0.75) return Promise.resolve(true);
+      return new Promise<boolean>((resolve) => {
+        resolvePointer = resolve;
+      });
+    });
+    const props = terminalPaneProps(onSetSplitRatio);
+    const { getByRole } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
+    const divider = getByRole("separator");
+    const group = divider.parentElement as HTMLDivElement;
+    group.getBoundingClientRect = () => ({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 400,
+      bottom: 200,
+      width: 400,
+      height: 200,
+      toJSON: () => ({}),
+    });
+    Object.defineProperties(divider, {
+      setPointerCapture: { value: vi.fn() },
+      hasPointerCapture: { value: vi.fn(() => false) },
+    });
+
+    fireEvent.pointerDown(divider, { pointerId: 13, pointerType: "mouse", button: 0, clientX: 200 });
+    fireEvent.pointerUp(divider, { pointerId: 13, pointerType: "mouse", button: 0, clientX: 300 });
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledWith(42, 0.75));
+
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(2));
+    expect(onSetSplitRatio.mock.calls[1]?.[1]).toBeCloseTo(0.8);
+    resolvePointer(true);
+  });
+
   it("rolls the preview back when set-ratio fails", async () => {
-    const onSetRatio = vi.fn(async () => false);
-    const props = terminalPaneProps(onSetRatio);
+    const onSetSplitRatio = vi.fn(async () => false);
+    const props = terminalPaneProps(onSetSplitRatio);
     const { getByRole, container } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
     const divider = getByRole("separator");
     const group = divider.parentElement as HTMLDivElement;
@@ -181,9 +379,116 @@ describe("TerminalPane split dividers", () => {
     fireEvent.pointerUp(divider, { pointerId: 8, pointerType: "mouse", button: 0, clientX: 300 });
 
     await waitFor(() => {
-      expect(onSetRatio).toHaveBeenCalledTimes(1);
+      expect(onSetSplitRatio).toHaveBeenCalledTimes(1);
       expect(container.querySelector<HTMLElement>(".pane-leaf")?.style.flex).toContain("50%");
     });
+  });
+
+  it("cancels an active drag when the authoritative split is replaced", () => {
+    const onSetSplitRatio = vi.fn(async () => true);
+    const props = terminalPaneProps(onSetSplitRatio);
+    const { getByRole, rerender } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
+    const divider = getByRole("separator");
+    const group = divider.parentElement as HTMLDivElement;
+    group.getBoundingClientRect = () => ({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 400,
+      bottom: 200,
+      width: 400,
+      height: 200,
+      toJSON: () => ({}),
+    });
+    Object.defineProperties(divider, {
+      setPointerCapture: { value: vi.fn() },
+      hasPointerCapture: { value: vi.fn(() => false) },
+    });
+
+    fireEvent.pointerDown(divider, { pointerId: 9, pointerType: "touch", clientX: 200 });
+    const replacement = screenView(0.5);
+    if (replacement.layout?.type !== "split") throw new Error("expected split layout");
+    replacement.layout.split = 43;
+    rerender(<TerminalPane {...props} screen={replacement} />);
+    fireEvent.pointerUp(getByRole("separator"), {
+      pointerId: 9,
+      pointerType: "touch",
+      clientX: 300,
+    });
+
+    expect(onSetSplitRatio).not.toHaveBeenCalled();
+  });
+});
+
+describe("TerminalPane stacks", () => {
+  it("renders collapsed title rows around the expanded pane", () => {
+    const props = terminalPaneProps(vi.fn(async () => true));
+    props.client = { protocol: 9 } as CmuxClient;
+    const screen: ScreenView = {
+      ...screenView(0.5),
+      layout: { type: "stack", panes: [1, 2, 3], expanded: 2 },
+      activePane: 2,
+      panes: [1, 2, 3].map((id) => ({
+        id,
+        name: null,
+        active_tab: 0,
+        tabs: [{
+          surface: id + 10,
+          kind: "pty" as const,
+          browser_source: null,
+          name: null,
+          title: `shell ${id}`,
+          size: { cols: 80, rows: 24 },
+          dead: false,
+        }],
+      })),
+    };
+
+    const { container, queryByRole, rerender } = render(<TerminalPane {...props} screen={screen} />);
+    const stack = container.querySelector(".pane-stack");
+    expect(stack).toBeInTheDocument();
+    expect(stack?.querySelectorAll(".pane-leaf.collapsed")).toHaveLength(2);
+    expect(stack?.querySelectorAll(":scope > .pane-leaf.expanded")).toHaveLength(1);
+    expect(stack?.querySelectorAll(":scope > .stack-pane-headers")).toHaveLength(2);
+    expect(stack?.children[0]).toHaveClass("stack-pane-headers", "before");
+    expect(stack?.children[1]).toHaveClass("expanded");
+    expect(stack?.children[2]).toHaveClass("stack-pane-headers", "after");
+    expect(attachedTerminal.renderHook).toHaveBeenCalledTimes(1);
+
+    const firstHeader = stack!.children[0]!.querySelector(".stack-pane-header")!;
+    fireEvent.click(firstHeader);
+    expect(props.onSelectPane).toHaveBeenCalledWith(1);
+
+    props.onSelectPane.mockClear();
+    fireEvent.contextMenu(firstHeader);
+    expect(props.onSelectPane).not.toHaveBeenCalled();
+
+    fireEvent.focusIn(stack!.children[2]!.querySelector(".stack-pane-header")!);
+    expect(props.onSelectPane).not.toHaveBeenCalled();
+
+    fireEvent.click(stack!.children[2]!.querySelector(".stack-pane-header")!);
+    expect(props.onSelectPane).toHaveBeenCalledWith(3);
+
+    fireEvent.contextMenu(stack!.querySelector(".pane-leaf.expanded .terminal-panel")!, {
+      clientX: 10,
+      clientY: 10,
+    });
+    expect(queryByRole("menu")).toBeInTheDocument();
+    rerender(
+      <TerminalPane
+        {...props}
+        screen={{
+          ...screen,
+          activePane: 3,
+          layout: { type: "stack", panes: [1, 2, 3], expanded: 3 },
+        }}
+      />,
+    );
+    expect(queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(
+      container.querySelector(".pane-leaf.expanded [data-render-input]"),
+    );
   });
 });
 
@@ -375,5 +680,45 @@ describe("TerminalPane renderer selection", () => {
     rerender(<TerminalPane {...props} screen={terminalScreenView()} />);
     expect(attachedTerminal.byteHook).toHaveBeenCalledTimes(1);
     expect(attachedTerminal.renderHook).not.toHaveBeenCalled();
+  });
+});
+
+describe("TerminalPane stack indexing", () => {
+  it("does not scan the full pane list for every stack row", () => {
+    const panes: ScreenView["panes"] = Array.from({ length: 13 }, (_, index) => ({
+      id: index + 1,
+      name: null,
+      active_tab: 0,
+      tabs: [{
+        surface: index + 100,
+        kind: "pty" as const,
+        browser_source: null,
+        name: null,
+        title: `pane ${index + 1}`,
+        size: { cols: 80, rows: 24 },
+        dead: false,
+      }],
+    }));
+    let findCalls = 0;
+    const trackedPanes = new Proxy(panes, {
+      get(target, property, receiver) {
+        if (property === "find") findCalls += 1;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const screen: ScreenView = {
+      ...screenView(0.5),
+      panes: trackedPanes,
+      layout: {
+        type: "stack",
+        panes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+        expanded: 7,
+      },
+      activePane: 7,
+    };
+
+    render(<TerminalPane {...terminalPaneProps(vi.fn(async () => true))} screen={screen} />);
+
+    expect(findCalls).toBe(0);
   });
 });

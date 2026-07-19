@@ -661,7 +661,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// `public` so the DEV feedback-submit affordance can ``DiagnosticLog/export()``
     /// it.
     public let diagnosticLog: DiagnosticLog?
-    var remoteClient: MobileCoreRPCClient? {
+    package var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
                 stopTerminalRefreshPolling()
@@ -1831,7 +1831,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 generation: generation,
                 excluding: Set(candidates.map {
                     MobilePairedMac.pairingID(
-                        macDeviceID: $0.macDeviceID.lowercased(),
+                        macDeviceID: $0.macDeviceID,
                         instanceTag: $0.instanceTag
                     )
                 })
@@ -2768,9 +2768,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         instanceTag: String?
     ) async {
         guard remoteClient === client,
-              let reportedID = deviceID?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !reportedID.isEmpty,
+              let rawReportedID = deviceID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawReportedID.isEmpty,
               let ticket = activeTicket else { return }
+        let reportedID = cmxCanonicalDeviceID(rawReportedID)
         let resolvedTicket: CmxAttachTicket
         if ticket.macDeviceID.isEmpty,
            let adopted = try? CmxAttachTicket(
@@ -3201,7 +3202,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectAttemptRegistry: connectAttemptRegistry,
             stackTokenGate: stackTokenGate,
             stackTokenForceRefreshGate: stackTokenForceRefreshGate,
-            transportConnectObserver: transportConnectDiagnosticObserver
+            transportConnectObserver: transportConnectDiagnosticObserver,
+            sessionPurpose: .backgroundControl
         )
         guard let status = await fetchSecondaryHostStatus(on: client),
               MobileMacInstanceTagAuthority.secondaryStatusMatches(
@@ -3438,32 +3440,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return secondaryAggregationCandidateMacs(from: visibleLoadedMacs).map(\.macDeviceID)
     }
 
-    private func secondaryAggregationCandidateMacs(from visibleLoadedMacs: [MobilePairedMac]) -> [MobilePairedMac] {
+    func secondaryAggregationCandidateMacs(from visibleLoadedMacs: [MobilePairedMac]) -> [MobilePairedMac] {
         let supportedRouteKinds = runtime?.supportedRouteKinds ?? []
+        let physicalMacs = Self.coalescePairedMacsByCanonicalDeviceID(visibleLoadedMacs)
         let endpointDistinctMacs = Self.coalescePairedMacsByDialEndpoint(
-            visibleLoadedMacs,
+            physicalMacs,
             supportedKinds: supportedRouteKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         )
-        var selectedByPhysicalMac: [String: MobilePairedMac] = [:]
-        var physicalMacOrder: [String] = []
-        for mac in endpointDistinctMacs where !mac.macDeviceID.isEmpty {
-            guard let selected = selectedByPhysicalMac[mac.macDeviceID] else {
-                selectedByPhysicalMac[mac.macDeviceID] = mac
-                physicalMacOrder.append(mac.macDeviceID)
-                continue
-            }
-            let shouldReplace = mac.isActive != selected.isActive
-                ? mac.isActive
-                : mac.lastSeenAt != selected.lastSeenAt
-                    ? mac.lastSeenAt > selected.lastSeenAt
-                    : mac.id < selected.id
-            if shouldReplace {
-                selectedByPhysicalMac[mac.macDeviceID] = mac
-            }
-        }
         let macs = Self.coalescePairedMacsByIrohEndpointAuthority(
-            physicalMacOrder.compactMap { selectedByPhysicalMac[$0] },
+            endpointDistinctMacs,
             supportedKinds: supportedRouteKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         )
@@ -3475,13 +3461,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let foregroundMacDeviceIDs = foregroundMacDeviceID.map {
             aliasIDsByMacID[$0] ?? [$0]
         } ?? []
-        let foregroundIDSet = Set(foregroundMacDeviceIDs)
+        let foregroundIDSet = Set(foregroundMacDeviceIDs.map(cmxCanonicalDeviceID))
         var foregroundIrohEndpointIDs = Set<String>()
         if case let .peer(identity, _)? = activeRoute?.endpoint {
             foregroundIrohEndpointIDs.insert(identity.endpointID)
         }
         if let foregroundMacDeviceID {
-            for mac in visibleLoadedMacs where mac.macDeviceID == foregroundMacDeviceID {
+            let canonicalForegroundID = cmxCanonicalDeviceID(foregroundMacDeviceID)
+            for mac in visibleLoadedMacs
+                where cmxCanonicalDeviceID(mac.macDeviceID) == canonicalForegroundID {
                 if let endpointID = Self.irohEndpointID(
                     for: mac,
                     supportedKinds: supportedRouteKinds,
@@ -3493,7 +3481,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         return macs.filter { mac in
             guard !mac.macDeviceID.isEmpty,
-                  !foregroundIDSet.contains(mac.macDeviceID) else { return false }
+                  !foregroundIDSet.contains(cmxCanonicalDeviceID(mac.macDeviceID)) else {
+                return false
+            }
             guard let endpointID = Self.irohEndpointID(
                 for: mac,
                 supportedKinds: supportedRouteKinds,
