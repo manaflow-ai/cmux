@@ -579,7 +579,7 @@ impl CmuxClient {
             Some(protocol) => protocol,
             None => self.identify()?.protocol,
         };
-        if protocol > 8 || (protocol > 5 && !self.config.allow_protocol_v6_attach) {
+        if protocol > 5 && !self.config.allow_protocol_v6_attach {
             return Err(CmuxError::ProtocolVersion(format!(
                 "unsupported attach protocol {protocol}"
             )));

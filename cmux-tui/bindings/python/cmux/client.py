@@ -548,8 +548,6 @@ class CmuxClient:
 
     def attach_surface(self, surface: int) -> AttachStream:
         protocol = self._protocol if self._protocol is not None else self.identify().protocol
-        if protocol > 8:
-            raise ProtocolError(f"unsupported protocol {protocol}; maximum supported is 8")
         if protocol > 5 and not self.allow_protocol_v6_attach:
             raise ProtocolError("protocol v6+ attach streams require resized replay handling")
         return AttachStream(self, {"cmd": "attach-surface", "surface": surface})

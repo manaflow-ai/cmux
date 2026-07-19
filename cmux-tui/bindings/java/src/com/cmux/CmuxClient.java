@@ -307,7 +307,7 @@ public final class CmuxClient implements AutoCloseable {
 
     public CmuxStream attachSurface(long surface) throws CmuxException {
         int negotiated = protocol != null ? protocol : identify().protocol();
-        if (negotiated > 8 || (negotiated > 5 && !allowProtocolV6Attach)) {
+        if (negotiated > 5 && !allowProtocolV6Attach) {
             throw new CmuxProtocolMismatchException("unsupported attach protocol " + negotiated);
         }
         Map<String, Object> params = new LinkedHashMap<>();

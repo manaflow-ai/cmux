@@ -380,7 +380,7 @@ func (c *Client) AttachSurface(ctx context.Context, surface uint64) (*Stream, er
 		}
 		protocol = &info.Protocol
 	}
-	if *protocol > 8 || (*protocol > 5 && !c.allowProtocolV6Attach) {
+	if *protocol > 5 && !c.allowProtocolV6Attach {
 		return nil, &protocolError{msg: fmt.Sprintf("unsupported attach protocol %d", *protocol)}
 	}
 	return c.openStream(ctx, map[string]any{"id": c.nextRequestID(), "cmd": "attach-surface", "surface": surface})

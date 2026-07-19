@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from cmux import CmuxClient, ProtocolError
 from cmux.client import Layout
@@ -17,13 +18,15 @@ class ProtocolTests(unittest.TestCase):
 
         self.assertEqual(client.resize_surface(7, 80, 24).reservation_id, 41)
 
-    def test_attach_rejects_protocols_newer_than_eight_even_with_opt_in(self) -> None:
+    def test_attach_accepts_newer_additive_protocols_with_opt_in(self) -> None:
         client = CmuxClient.__new__(CmuxClient)
         client._protocol = 9
         client.allow_protocol_v6_attach = True
 
-        with self.assertRaisesRegex(ProtocolError, "maximum supported is 8"):
+        with patch("cmux.client.AttachStream", return_value=object()) as attach:
             client.attach_surface(1)
+
+        attach.assert_called_once_with(client, {"cmd": "attach-surface", "surface": 1})
 
     def test_set_split_ratio_rejects_servers_older_than_protocol_eight(self) -> None:
         client = CmuxClient.__new__(CmuxClient)
