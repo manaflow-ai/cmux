@@ -39,7 +39,6 @@ use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::protocol::{Role, WebSocketConfig};
 use tungstenite::{Message, WebSocket, accept_with_config};
 
-use crate::event_bus::MuxEventReceiver;
 use crate::model::{Screen, State, Workspace};
 use crate::mux::clamp_terminal_size;
 use crate::platform::{self, transport};
@@ -2427,6 +2426,7 @@ struct MarkedClientAttach {
     size_rollback: Option<crate::mux::ClientSizeRollback>,
     client_changed: Option<(Option<String>, Option<String>)>,
     resize_reservation: Option<u64>,
+    resize_completion: Option<std::sync::mpsc::Receiver<Result<(), Arc<str>>>>,
 }
 
 fn mark_client_attached(
@@ -2440,8 +2440,16 @@ fn mark_client_attached(
     if let Some((cols, rows)) = initial_size {
         let cols = cols.max(1);
         let rows = rows.max(1);
+        let is_browser = mux.surface(surface).is_some_and(|surface| surface.as_browser().is_some());
+        let (completion_tx, completion_rx) = std::sync::mpsc::sync_channel(1);
         let resize = mux
-            .resize_surface_for_control_client_with_reservation(surface, client, cols, rows)
+            .resize_surface_for_control_client_with_completion(
+                surface,
+                client,
+                cols,
+                rows,
+                is_browser.then_some(completion_tx),
+            )
             .inspect_err(|_| {
                 cleanup_failed_attach(mux, client, surface, stream.id);
             })?;
@@ -2450,6 +2458,7 @@ fn mark_client_attached(
             anyhow::bail!("client {client} is not attached to surface {surface}");
         };
         let mut resize_reservation = resize.reservation_id;
+        let mut resize_completion = is_browser.then_some(completion_rx);
         let effective_size = resize.effective_size;
         let rollback = resize.rollback;
         if resize_reservation.is_none()
@@ -2459,58 +2468,52 @@ fn mark_client_attached(
                 rollback_failed_attach(mux, client, surface, stream.id, Some(rollback));
                 anyhow::bail!("surface {surface} disappeared while sizing before attach");
             };
-            resize_reservation =
-                match attached_surface.pending_resize_reservation(effective_cols, effective_rows) {
-                    Ok(reservation) => reservation,
-                    Err(error) => {
-                        rollback_failed_attach(mux, client, surface, stream.id, Some(rollback));
-                        return Err(error);
-                    }
-                };
+            match attached_surface.pending_resize_completion(effective_cols, effective_rows) {
+                Ok(Some(pending)) => {
+                    resize_reservation = Some(pending.reservation);
+                    resize_completion = Some(pending.completion);
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    rollback_failed_attach(mux, client, surface, stream.id, Some(rollback));
+                    return Err(error);
+                }
+            }
         }
         return Ok(MarkedClientAttach {
             size_rollback: Some(rollback),
             client_changed: changed.then_some((name, kind)),
             resize_reservation,
+            resize_completion,
         });
     }
-    Ok(MarkedClientAttach { size_rollback: None, client_changed: None, resize_reservation: None })
+    Ok(MarkedClientAttach {
+        size_rollback: None,
+        client_changed: None,
+        resize_reservation: None,
+        resize_completion: None,
+    })
 }
 
 fn wait_for_initial_browser_resize(
-    events: &MuxEventReceiver,
+    completion: &std::sync::mpsc::Receiver<Result<(), Arc<str>>>,
     surface: SurfaceId,
     reservation: u64,
 ) -> anyhow::Result<()> {
-    let deadline = Instant::now() + INITIAL_BROWSER_RESIZE_TIMEOUT;
-    loop {
-        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+    match completion.recv_timeout(INITIAL_BROWSER_RESIZE_TIMEOUT) {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => {
+            anyhow::bail!(
+                "failed to size browser surface {surface} before attach (reservation {reservation}): {error}"
+            )
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
             anyhow::bail!("timed out sizing browser surface {surface} before attach");
-        };
-        match events.recv_timeout(remaining) {
-            Ok(MuxEvent::SurfaceResized {
-                surface: resized_surface,
-                reservation_id: Some(resized_reservation),
-                ..
-            }) if resized_surface == surface && resized_reservation == reservation => return Ok(()),
-            Ok(MuxEvent::SurfaceResizeFailed {
-                surface: resized_surface,
-                error,
-                reservation_id: Some(resized_reservation),
-                ..
-            }) if resized_surface == surface && resized_reservation == reservation => {
-                anyhow::bail!("failed to size browser surface {surface} before attach: {error}");
-            }
-            Ok(MuxEvent::SurfaceExited(exited_surface)) if exited_surface == surface => {
-                anyhow::bail!("browser surface {surface} exited while sizing before attach");
-            }
-            Ok(_) => continue,
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                anyhow::bail!("timed out sizing browser surface {surface} before attach");
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                anyhow::bail!("browser resize events disconnected before attach");
-            }
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            anyhow::bail!(
+                "browser resize completion disconnected before attach (surface {surface}, reservation {reservation})"
+            )
         }
     }
 }
@@ -2534,6 +2537,33 @@ fn commit_client_attach(
     let newly_announced = announce_client_attached(mux, client)?;
     if !newly_announced && let Some((name, kind)) = changed {
         mux.emit(MuxEvent::ClientChanged { client, name, kind });
+    }
+    Ok(())
+}
+
+struct AttachWorkerCommit {
+    start: std::sync::mpsc::SyncSender<()>,
+    lifecycle: AttachLifecycle,
+    changed: Option<(Option<String>, Option<String>)>,
+    size_rollback: Option<crate::mux::ClientSizeRollback>,
+}
+
+fn commit_client_attach_and_start_worker(
+    mux: &Mux,
+    client: u64,
+    surface: SurfaceId,
+    stream: u64,
+    worker: AttachWorkerCommit,
+) -> anyhow::Result<()> {
+    if let Err(error) = commit_client_attach(mux, client, surface, stream, worker.changed) {
+        worker.lifecycle.cancel();
+        rollback_failed_attach(mux, client, surface, stream, worker.size_rollback);
+        return Err(error);
+    }
+    if worker.start.send(()).is_err() {
+        worker.lifecycle.cancel();
+        rollback_failed_attach(mux, client, surface, stream, worker.size_rollback);
+        anyhow::bail!("attach output worker exited before stream {stream} was committed");
     }
     Ok(())
 }
@@ -3381,6 +3411,7 @@ fn handle_command(
                 let worker_mux = mux.clone();
                 let worker_lifecycle = lifecycle.clone();
                 let worker_stream = outbound_stream.clone();
+                let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
                 let spawned = std::thread::Builder::new()
                     .name("mux-render-attach-out".into())
                     .spawn(move || {
@@ -3388,6 +3419,9 @@ fn handle_command(
                         let mux = worker_mux;
                         let lifecycle = worker_lifecycle;
                         let outbound_stream = worker_stream;
+                        if worker_committed.recv().is_err() {
+                            return;
+                        }
                         let mut state = RenderClientState::new(&attach.initial);
                         while writer.is_open()
                             && outbound_stream.is_open()
@@ -3439,22 +3473,38 @@ fn handle_command(
                     );
                     return Err(error.into());
                 }
-                commit_client_attach(mux, client, surface_id, outbound_stream.id, client_changed)?;
+                commit_client_attach_and_start_worker(
+                    mux,
+                    client,
+                    surface_id,
+                    outbound_stream.id,
+                    AttachWorkerCommit {
+                        start: worker_start,
+                        lifecycle,
+                        changed: client_changed,
+                        size_rollback,
+                    },
+                )?;
                 return Ok(json!({}));
             }
             if surface.kind() == SurfaceKind::Browser {
-                let resize_events = initial_size.map(|_| mux.subscribe());
-                let MarkedClientAttach { size_rollback, client_changed, resize_reservation } =
-                    mark_client_attached(
-                        mux,
-                        client,
-                        surface_id,
-                        outbound_stream.clone(),
-                        initial_size,
-                    )?;
+                let MarkedClientAttach {
+                    size_rollback,
+                    client_changed,
+                    resize_reservation,
+                    resize_completion,
+                } = mark_client_attached(
+                    mux,
+                    client,
+                    surface_id,
+                    outbound_stream.clone(),
+                    initial_size,
+                )?;
                 if let Some(reservation) = resize_reservation
                     && let Err(error) = wait_for_initial_browser_resize(
-                        resize_events.as_ref().expect("sized attach subscribed before resize"),
+                        resize_completion
+                            .as_ref()
+                            .expect("sized browser attach has a completion receiver"),
                         surface_id,
                         reservation,
                     )
@@ -3517,12 +3567,16 @@ fn handle_command(
                 let worker_mux = mux.clone();
                 let worker_lifecycle = lifecycle.clone();
                 let worker_stream = outbound_stream.clone();
+                let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
                 let spawned =
                     std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
                         let writer = worker_writer;
                         let mux = worker_mux;
                         let lifecycle = worker_lifecycle;
                         let outbound_stream = worker_stream;
+                        if worker_committed.recv().is_err() {
+                            return;
+                        }
                         while writer.is_open()
                             && outbound_stream.is_open()
                             && !lifecycle.is_canceled()
@@ -3584,7 +3638,18 @@ fn handle_command(
                     );
                     return Err(error.into());
                 }
-                commit_client_attach(mux, client, surface_id, outbound_stream.id, client_changed)?;
+                commit_client_attach_and_start_worker(
+                    mux,
+                    client,
+                    surface_id,
+                    outbound_stream.id,
+                    AttachWorkerCommit {
+                        start: worker_start,
+                        lifecycle,
+                        changed: client_changed,
+                        size_rollback,
+                    },
+                )?;
                 return Ok(json!({}));
             }
             let MarkedClientAttach { size_rollback, client_changed, .. } = mark_client_attached(
@@ -3637,11 +3702,15 @@ fn handle_command(
             let worker_writer = writer.clone();
             let worker_mux = mux.clone();
             let worker_stream = outbound_stream.clone();
+            let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
             let spawned =
                 std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
                     let writer = worker_writer;
                     let mux = worker_mux;
                     let outbound_stream = worker_stream;
+                    if worker_committed.recv().is_err() {
+                        return;
+                    }
                     while writer.is_open()
                         && outbound_stream.is_open()
                         && !attach.lifecycle.is_canceled()
@@ -3700,7 +3769,18 @@ fn handle_command(
                 rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
                 return Err(error.into());
             }
-            commit_client_attach(mux, client, surface_id, outbound_stream.id, client_changed)?;
+            commit_client_attach_and_start_worker(
+                mux,
+                client,
+                surface_id,
+                outbound_stream.id,
+                AttachWorkerCommit {
+                    start: worker_start,
+                    lifecycle,
+                    changed: client_changed,
+                    size_rollback,
+                },
+            )?;
             Ok(json!({}))
         }
     }
@@ -4899,6 +4979,48 @@ mod tests {
             events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::ClientAttached { client: attached, .. }) if attached == client
         ));
+    }
+
+    #[test]
+    fn attach_worker_cleanup_starts_after_stream_commit() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+        let stream_id = stream.id;
+        let surface_id = surface.id;
+        let marked = mark_client_attached(&mux, client, surface_id, stream, None).unwrap();
+        let lifecycle = AttachLifecycle::default();
+        let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
+        let (observed_tx, observed_rx) = std::sync::mpsc::sync_channel(1);
+        let worker_mux = mux.clone();
+        let worker = std::thread::spawn(move || {
+            worker_committed.recv().unwrap();
+            let clients = worker_mux.control_clients.list_json(client);
+            let attached = clients[0]["attached"]
+                .as_array()
+                .is_some_and(|surfaces| surfaces.contains(&json!(surface_id)));
+            observed_tx.send(attached).unwrap();
+            cleanup_failed_attach(&worker_mux, client, surface_id, stream_id);
+        });
+
+        commit_client_attach_and_start_worker(
+            &mux,
+            client,
+            surface_id,
+            stream_id,
+            AttachWorkerCommit {
+                start: worker_start,
+                lifecycle,
+                changed: marked.client_changed,
+                size_rollback: marked.size_rollback,
+            },
+        )
+        .unwrap();
+
+        assert!(observed_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        worker.join().unwrap();
     }
 
     #[test]

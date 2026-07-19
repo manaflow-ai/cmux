@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 #[cfg(test)]
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -360,6 +360,7 @@ enum BrowserSurfaceAttach {
 type ClientSurfaceSizes = HashMap<SurfaceId, HashMap<u64, (u16, u16)>>;
 type SurfaceResizeAcceptance = (bool, Option<u64>);
 type AppliedClientSize = (SurfaceResizeAcceptance, Option<(u16, u16)>, ClientSizeRollback);
+type SurfaceResizeCompletion = SyncSender<Result<(), Arc<str>>>;
 
 #[derive(Clone, Copy)]
 pub(crate) struct ClientSizeRollback {
@@ -868,6 +869,7 @@ impl Mux {
             id,
             client,
             requested,
+            None,
         )?;
         self.reconcile_latest_client_size(&sizing, &attached_clients);
         drop(sizing);
@@ -880,6 +882,17 @@ impl Mux {
         client: u64,
         cols: u16,
         rows: u16,
+    ) -> anyhow::Result<ControlClientResize> {
+        self.resize_surface_for_control_client_with_completion(id, client, cols, rows, None)
+    }
+
+    pub(crate) fn resize_surface_for_control_client_with_completion(
+        &self,
+        id: SurfaceId,
+        client: u64,
+        cols: u16,
+        rows: u16,
+        completion: Option<SurfaceResizeCompletion>,
     ) -> anyhow::Result<ControlClientResize> {
         let requested = clamp_terminal_size(cols, rows);
         // Keep registration, report insertion, and reducer insertion in one
@@ -894,6 +907,7 @@ impl Mux {
             id,
             client,
             requested,
+            completion,
         );
         if result.is_err()
             && let Some((_, _, _, previous)) = attached.as_ref()
@@ -919,6 +933,7 @@ impl Mux {
         id: SurfaceId,
         client: u64,
         requested: (u16, u16),
+        completion: Option<SurfaceResizeCompletion>,
     ) -> anyhow::Result<AppliedClientSize> {
         if sizing.exclusive_client.is_some_and(|exclusive| exclusive != client) {
             sizing.excluded_clients.insert(client);
@@ -948,7 +963,7 @@ impl Mux {
         if let Some(hook) = before_apply {
             hook();
         }
-        match self.resize_surface_with_reservation(id, effective.0, effective.1) {
+        match self.resize_surface_with_completion(id, effective.0, effective.1, completion) {
             Ok(changed) => Ok((
                 changed,
                 Some(effective),
@@ -1654,6 +1669,16 @@ impl Mux {
         cols: u16,
         rows: u16,
     ) -> anyhow::Result<(bool, Option<u64>)> {
+        self.resize_surface_with_completion(id, cols, rows, None)
+    }
+
+    fn resize_surface_with_completion(
+        &self,
+        id: SurfaceId,
+        cols: u16,
+        rows: u16,
+        completion: Option<SurfaceResizeCompletion>,
+    ) -> anyhow::Result<(bool, Option<u64>)> {
         let Some(surface) = self.surface(id) else {
             anyhow::bail!("unknown surface {id}");
         };
@@ -1664,11 +1689,17 @@ impl Mux {
         let (cols, rows) = clamp_terminal_size(cols, rows);
         if surface.as_browser().is_some() {
             let reservation_id =
-                surface.resize_reporting_acceptance(cols, rows, Box::new(|_| {}))?;
+                surface.resize_reporting_completion(cols, rows, Box::new(|_| {}), completion)?;
             return Ok((reservation_id.is_some(), reservation_id));
         }
         if !surface.resize(cols, rows)? {
+            if let Some(completion) = completion {
+                let _ = completion.send(Ok(()));
+            }
             return Ok((false, None));
+        }
+        if let Some(completion) = completion {
+            let _ = completion.send(Ok(()));
         }
         let (cols, rows) = surface.size();
         self.emit(MuxEvent::SurfaceResized { surface: id, cols, rows, reservation_id: None });
