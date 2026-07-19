@@ -4601,7 +4601,7 @@ impl App {
         let Some(pane) = self.active_pane() else {
             return Ok(());
         };
-        let hint = self.tree.active_screen().and_then(|screen| {
+        let Some(hint) = self.tree.active_screen().and_then(|screen| {
             let mut panes = Vec::new();
             screen.layout.pane_ids(&mut panes);
             panes.push(PaneId::MAX);
@@ -4609,11 +4609,13 @@ impl App {
             let rect = layout_screen(&layout, self.content_area, Some(PaneId::MAX))
                 .rect_of(PaneId::MAX)?;
             self.size_of_rect(rect)
-        });
+        }) else {
+            return Ok(());
+        };
         if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
-        self.session.new_pane(pane, hint)
+        self.session.new_pane(pane, Some(hint))
     }
 
     fn new_workspace(&mut self) -> anyhow::Result<()> {
