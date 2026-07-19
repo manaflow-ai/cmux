@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -442,6 +443,77 @@ func TestWebSocketPTYReconnectKeepsForegroundProcessAfterHangup(t *testing.T) {
 		t.Fatalf("exit reattached shell: %v", err)
 	}
 	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
+func TestWebSocketPTYAnonymousSessionExitsOnHangup(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("foreground PTY hangup delivery is a Linux terminal-session regression")
+	}
+	hangupWasIgnored := signal.Ignored(syscall.SIGHUP)
+	signal.Reset(syscall.SIGHUP)
+	t.Cleanup(func() {
+		if hangupWasIgnored {
+			signal.Ignore(syscall.SIGHUP)
+		}
+	})
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	server, _ := newTestWebSocketPTYServer(t, leasePath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "anonymous-token", "anonymous-hangup", true, time.Now().Add(time.Minute))
+	conn := dialPTY(t, ctx, server.URL)
+	defer conn.Close(websocket.StatusNormalClosure, "done")
+	sendAuth(t, ctx, conn, "anonymous-token", "anonymous-hangup", 80, 24)
+	readReady(t, ctx, conn)
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve test executable: %v", err)
+	}
+	command := "CMUX_ANON_HUP_HELPER=1 exec " + strconv.Quote(executable) + " -test.run '^TestWebSocketPTYAnonymousHangupHelper$'\r"
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte(command)); err != nil {
+		t.Fatalf("launch anonymous foreground process: %v", err)
+	}
+	const pidMarker = "CMUX_ANON_HUP_HELPER pid="
+	output := waitForBinaryContains(t, ctx, conn, pidMarker, 5*time.Second)
+	markerIndex := strings.LastIndex(output, pidMarker)
+	pidStart := markerIndex + len(pidMarker)
+	pidEnd := pidStart
+	for pidEnd < len(output) && output[pidEnd] >= '0' && output[pidEnd] <= '9' {
+		pidEnd++
+	}
+	childPID, err := strconv.Atoi(output[pidStart:pidEnd])
+	if err != nil || childPID <= 0 {
+		t.Fatalf("parse anonymous foreground process pid from output %q: pid=%d err=%v", output, childPID, err)
+	}
+	if !strings.Contains(output[markerIndex:], "ignored=false") {
+		t.Fatalf("anonymous foreground process inherited ignored SIGHUP: %q", output[markerIndex:])
+	}
+	t.Cleanup(func() { _ = syscall.Kill(-childPID, syscall.SIGKILL) })
+
+	if err := syscall.Kill(-childPID, syscall.SIGHUP); err != nil {
+		t.Fatalf("deliver hangup to anonymous foreground process group: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := syscall.Kill(-childPID, 0); errors.Is(err, syscall.ESRCH) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("anonymous foreground process group %d ignored SIGHUP", childPID)
+}
+
+func TestWebSocketPTYAnonymousHangupHelper(t *testing.T) {
+	if os.Getenv("CMUX_ANON_HUP_HELPER") != "1" {
+		return
+	}
+	_, _ = os.Stdout.WriteString(
+		"CMUX_ANON_HUP_HELPER pid=" + strconv.Itoa(os.Getpid()) +
+			" ignored=" + strconv.FormatBool(signal.Ignored(syscall.SIGHUP)) + "\n",
+	)
+	select {}
 }
 
 func TestTerminateProcessesSerializesPTYClose(t *testing.T) {
