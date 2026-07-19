@@ -15,15 +15,18 @@ struct CmxIrohDeferredByteTransportTests {
 
         try await transport.connect()
 
-        let continuity = transport as? any CmxByteTransportContinuityIdentifying
+        let erased: any CmxByteTransport = transport
+        let continuity = erased as? any CmxByteTransportContinuityIdentifying
         #expect(await continuity?.transportContinuityID() == 47)
-        let closureObserver = transport as? any CmxByteTransportClosureObserving
+        let closureObserver = erased as? any CmxByteTransportClosureObserving
         let observation = await closureObserver?.transportClosureObservation()
         #expect(observation != nil)
 
-        await transport.close()
+        await underlying.close()
         await observation?.waitUntilClosed()
         #expect(await underlying.didClose())
+        #expect(await continuity?.transportContinuityID() == nil)
+        await transport.close()
     }
 
     private func request() throws -> CmxByteTransportRequest {
