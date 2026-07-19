@@ -114,9 +114,20 @@ struct AgentSessionRunReconciler: Sendable {
         let incomingDurableEvidence = lineage.authorityEvidence.flatMap {
             $0.isDurableChild ? $0 : nil
         }
-        let replacesProcessGeneration = run.processStartedAt.flatMap { previousStartedAt in
+        let replacesKnownProcessGeneration = run.processStartedAt.flatMap { previousStartedAt in
             lineage.processStartedAt.map { abs(previousStartedAt - $0) > 0.001 }
         } == true
+        // Older rows may have recorded a PID without its kernel start time. A
+        // different PID plus a verified incoming start is still definitive
+        // replacement evidence. Same-PID enrichment stays within the existing
+        // generation so a late hook cannot revive revoked authority.
+        let replacesLegacyProcessGeneration = run.processStartedAt == nil
+            && lineage.processStartedAt != nil
+            && run.pid != nil
+            && lineage.pid != nil
+            && run.pid != lineage.pid
+        let replacesProcessGeneration = replacesKnownProcessGeneration
+            || replacesLegacyProcessGeneration
         if replacesProcessGeneration {
             let previous = run
             run = Self.newRun(lineage: lineage, now: now)
