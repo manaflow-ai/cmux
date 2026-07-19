@@ -557,7 +557,7 @@ func writeRemoteHookOutput(encoded string, destination *os.File) {
 }
 
 func snapshotRemoteHookPaths(paths, recursivePaths []string) ([]remoteHookSnapshotEntry, error) {
-	var entries []remoteHookSnapshotEntry
+	entries := make([]remoteHookSnapshotEntry, 0)
 	total := 0
 	for _, root := range paths {
 		root = filepath.Clean(root)
