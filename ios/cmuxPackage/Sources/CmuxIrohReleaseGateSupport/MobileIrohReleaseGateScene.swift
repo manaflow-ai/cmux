@@ -1,7 +1,8 @@
 #if os(iOS) && DEBUG
+import CMUXMobileCore
 import CmuxIrohTransport
 import SwiftUI
-package import cmuxFeature
+public import cmuxFeature
 
 /// Debug-only wrapper that substitutes the isolated Iroh release gate while
 /// preserving the production root scene and environment for ordinary launches.
