@@ -386,19 +386,37 @@ enum PaletteTrackState {
     },
 }
 
-struct PaletteOsc {
+enum PaletteOsc {
+    Operation { bytes: [u8; 3], len: u8, invalid: bool },
+    Palette(Box<PaletteCommand>),
+    Ignore,
+}
+
+impl Default for PaletteOsc {
+    fn default() -> Self {
+        Self::Operation { bytes: [0; 3], len: 0, invalid: false }
+    }
+}
+
+struct PaletteCommand {
     mode: PaletteOscMode,
-    token: Vec<u8>,
+    token: [u8; Self::MAX_CAPTURE_BYTES],
+    token_len: usize,
+    captured: usize,
     pending: [u8; 256],
     request_count: usize,
     stopped: bool,
 }
 
-impl Default for PaletteOsc {
-    fn default() -> Self {
+impl PaletteCommand {
+    const MAX_CAPTURE_BYTES: usize = 2048;
+
+    fn new(mode: PaletteOscMode) -> Self {
         Self {
-            mode: PaletteOscMode::Operation,
-            token: Vec::new(),
+            mode,
+            token: [0; Self::MAX_CAPTURE_BYTES],
+            token_len: 0,
+            captured: 0,
             pending: [0; 256],
             request_count: 0,
             stopped: false,
@@ -409,12 +427,11 @@ impl Default for PaletteOsc {
 #[derive(Default)]
 enum PaletteOscMode {
     #[default]
-    Operation,
+    Ignore,
     SetIndex,
     SetColor(PaletteTarget),
     Reset,
     Kitty,
-    Ignore,
 }
 
 #[derive(Clone, Copy)]
@@ -489,40 +506,79 @@ impl PaletteOverrideTracker {
 }
 
 impl PaletteOsc {
-    const MAX_TOKEN_BYTES: usize = 4096;
-
     fn feed(&mut self, byte: u8) {
-        if self.stopped || matches!(self.mode, PaletteOscMode::Ignore) {
+        match self {
+            Self::Operation { bytes, len, invalid } => {
+                if byte == b';' {
+                    let mode = if *invalid {
+                        None
+                    } else {
+                        match &bytes[..usize::from(*len)] {
+                            b"4" => Some(PaletteOscMode::SetIndex),
+                            b"104" => Some(PaletteOscMode::Reset),
+                            b"21" => Some(PaletteOscMode::Kitty),
+                            _ => None,
+                        }
+                    };
+                    *self = mode
+                        .map(|mode| Self::Palette(Box::new(PaletteCommand::new(mode))))
+                        .unwrap_or(Self::Ignore);
+                } else if usize::from(*len) < bytes.len() {
+                    bytes[usize::from(*len)] = byte;
+                    *len += 1;
+                } else {
+                    *invalid = true;
+                }
+            }
+            Self::Palette(command) => command.feed(byte),
+            Self::Ignore => {}
+        }
+    }
+
+    fn commit(self, active: &mut [bool; 256]) {
+        match self {
+            Self::Operation { bytes, len, invalid: false }
+                if &bytes[..usize::from(len)] == b"104" =>
+            {
+                active.fill(false);
+            }
+            Self::Palette(command) => command.commit(active),
+            Self::Operation { .. } | Self::Ignore => {}
+        }
+    }
+}
+
+impl PaletteCommand {
+    fn feed(&mut self, byte: u8) {
+        if self.stopped {
             return;
         }
+        if self.captured == Self::MAX_CAPTURE_BYTES {
+            self.stopped = true;
+            self.token_len = 0;
+            return;
+        }
+        self.captured += 1;
         if byte == b';' {
             self.finish_token();
-        } else if self.token.len() < Self::MAX_TOKEN_BYTES {
-            self.token.push(byte);
         } else {
-            self.stopped = true;
-            self.token.clear();
+            self.token[self.token_len] = byte;
+            self.token_len += 1;
         }
     }
 
     fn finish_token(&mut self) {
-        if self.stopped || matches!(self.mode, PaletteOscMode::Ignore) {
-            self.token.clear();
+        if self.stopped {
+            self.token_len = 0;
             return;
         }
-        let token = self.token.as_slice();
+        let token = &self.token[..self.token_len];
         // Ghostty tokenizes OSC color arguments with `tokenizeScalar`, which
         // skips empty parameters without advancing the index/color pairing.
-        if token.is_empty() && !matches!(self.mode, PaletteOscMode::Operation) {
+        if token.is_empty() {
             return;
         }
         self.mode = match std::mem::take(&mut self.mode) {
-            PaletteOscMode::Operation => match token {
-                b"4" => PaletteOscMode::SetIndex,
-                b"104" => PaletteOscMode::Reset,
-                b"21" => PaletteOscMode::Kitty,
-                _ => PaletteOscMode::Ignore,
-            },
             PaletteOscMode::SetIndex => {
                 let target = Self::parse_target(token);
                 if matches!(target, PaletteTarget::Invalid) {
@@ -572,7 +628,7 @@ impl PaletteOsc {
             }
             PaletteOscMode::Ignore => PaletteOscMode::Ignore,
         };
-        self.token.clear();
+        self.token_len = 0;
     }
 
     fn parse_target(token: &[u8]) -> PaletteTarget {
@@ -588,7 +644,10 @@ impl PaletteOsc {
         }
     }
 
-    fn commit(mut self, active: &mut [bool; 256]) {
+    fn commit(mut self: Box<Self>, active: &mut [bool; 256]) {
+        if self.stopped {
+            return;
+        }
         self.finish_token();
         if matches!(self.mode, PaletteOscMode::Reset) && self.request_count == 0 {
             active.fill(false);
@@ -1337,7 +1396,12 @@ impl Drop for Terminal {
 
 #[cfg(test)]
 mod tests {
-    use super::{Callbacks, MouseModeScan, Terminal, vt_replay_row_window};
+    use super::{Callbacks, MouseModeScan, PaletteOsc, Terminal, vt_replay_row_window};
+
+    #[test]
+    fn unrelated_osc_tracking_keeps_palette_state_out_of_line() {
+        assert!(size_of::<PaletteOsc>() <= 16);
+    }
 
     #[test]
     fn mouse_mode_scan_tracks_split_private_mode_sequences() {
