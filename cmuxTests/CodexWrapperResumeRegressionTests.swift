@@ -175,7 +175,6 @@ struct CodexWrapperResumeRegressionTests {
             #expect(waitForFile(cwdCapture, containing: project.path, timeout: 1))
             #expect(try String(contentsOf: cwdCapture, encoding: .utf8) == project.path)
         } else {
-            Thread.sleep(forTimeInterval: 0.1)
             #expect(!FileManager.default.fileExists(atPath: payload.path), "\(invocation.arguments)")
             let cliInvocations = (try? String(contentsOf: cliCapture, encoding: .utf8)) ?? ""
             #expect(
@@ -233,7 +232,6 @@ struct CodexWrapperResumeRegressionTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(waitForFile(cliCapture, containing: "hooks codex install --yes", timeout: 1))
-        Thread.sleep(forTimeInterval: 0.1)
         #expect(!FileManager.default.fileExists(atPath: syntheticPayload.path))
     }
 }

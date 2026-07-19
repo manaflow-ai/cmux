@@ -536,16 +536,22 @@ struct AgentHibernationRestoreMonitorTests {
         let protected = #"{"type":"user","message":{"content":"protected"}}"# + "\n"
         try protected.write(to: live, atomically: true, encoding: .utf8)
         try protected.write(to: snapshot, atomically: true, encoding: .utf8)
+        let (armedEvents, armedContinuation) = AsyncStream<Void>.makeStream()
 
         let monitor = Task {
             await AgentHibernationTranscriptGuard.runPostTeardownRestoreChecks(
                 snapshot: .init(transcriptPath: live.path, snapshotPath: snapshot.path),
                 processIDs: [],
                 initialRetryDelaysNanoseconds: [5_000_000_000],
-                backstopDelaysSeconds: []
+                backstopDelaysSeconds: [],
+                onMutationWaitArmed: {
+                    armedContinuation.yield()
+                    armedContinuation.finish()
+                }
             )
         }
-        try await Task.sleep(for: .milliseconds(100))
+        var armedIterator = armedEvents.makeAsyncIterator()
+        _ = await armedIterator.next()
         let descriptor = open(live.path, O_WRONLY | O_TRUNC | O_CLOEXEC)
         #expect(descriptor >= 0)
         if descriptor >= 0 {

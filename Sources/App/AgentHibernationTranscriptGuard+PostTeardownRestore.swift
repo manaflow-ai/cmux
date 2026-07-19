@@ -104,7 +104,10 @@ actor AgentHibernationRestoreDispatchWait {
     private var sources: [any DispatchSourceProtocol] = []
     private var didFinish = false
 
-    func wait(for sources: [any DispatchSourceProtocol]) async {
+    func wait(
+        for sources: [any DispatchSourceProtocol],
+        onArmed: @Sendable () -> Void = {}
+    ) async {
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 if didFinish {
@@ -112,12 +115,14 @@ actor AgentHibernationRestoreDispatchWait {
                         source.cancel()
                         source.activate()
                     }
+                    onArmed()
                     continuation.resume()
                     return
                 }
                 self.continuation = continuation
                 self.sources = sources
                 for source in sources { source.activate() }
+                onArmed()
             }
         } onCancel: {
             Task { await self.finish() }
@@ -204,7 +209,8 @@ extension AgentHibernationTranscriptGuard {
     private static func waitForTranscriptMutationOrBackstop(
         transcriptPath: String,
         delayNanoseconds: UInt64,
-        observesMutations: Bool
+        observesMutations: Bool,
+        onArmed: @Sendable () -> Void
     ) async {
         guard delayNanoseconds > 0 else { return }
         let waiter = AgentHibernationRestoreDispatchWait()
@@ -249,7 +255,7 @@ extension AgentHibernationTranscriptGuard {
         )
         timer.setEventHandler { Task { await waiter.finish() } }
         sources.append(timer)
-        await waiter.wait(for: sources)
+        await waiter.wait(for: sources, onArmed: onArmed)
     }
 
     private static func nanoseconds(
@@ -273,7 +279,8 @@ extension AgentHibernationTranscriptGuard {
         stopIfNoLongerCurrent: () async -> Bool,
         restoreBeforeStoppedReturn: () async -> Void,
         refreshSnapshotCommitProof: () -> Void,
-        maximumMutationChecks: Int
+        maximumMutationChecks: Int,
+        onMutationWaitArmed: @Sendable () -> Void
     ) async -> (completed: Bool, consumedMutationChecks: Int) {
         let deadline = clock.now.advanced(
             by: .nanoseconds(Int64(clamping: delayNanoseconds))
@@ -288,7 +295,8 @@ extension AgentHibernationTranscriptGuard {
                     await waitForTranscriptMutationOrBackstop(
                         transcriptPath: transcriptPath,
                         delayNanoseconds: remainingNanoseconds,
-                        observesMutations: observedMutations
+                        observesMutations: observedMutations,
+                        onArmed: onMutationWaitArmed
                     )
                 }
             }
@@ -315,7 +323,8 @@ extension AgentHibernationTranscriptGuard {
         shouldRestoreOnCancellation: @Sendable () async -> Bool = { true },
         recoveryAuthorityRetired: @Sendable () async -> Void = {},
         processExitBackstopSeconds: Int = 30,
-        maximumMutationChecksPerMonitor: Int = 4
+        maximumMutationChecksPerMonitor: Int = 4,
+        onMutationWaitArmed: @Sendable () -> Void = {}
     ) async {
         var snapshotIsCommitted = false
         var retainSnapshot = false
@@ -435,7 +444,8 @@ extension AgentHibernationTranscriptGuard {
                 stopIfNoLongerCurrent: stopIfNoLongerCurrent,
                 restoreBeforeStoppedReturn: restoreBeforeStoppedReturn,
                 refreshSnapshotCommitProof: refreshSnapshotCommitProof,
-                maximumMutationChecks: remainingMutationChecks
+                maximumMutationChecks: remainingMutationChecks,
+                onMutationWaitArmed: onMutationWaitArmed
             )
             remainingMutationChecks = max(
                 0,
@@ -455,7 +465,8 @@ extension AgentHibernationTranscriptGuard {
                 stopIfNoLongerCurrent: stopIfNoLongerCurrent,
                 restoreBeforeStoppedReturn: restoreBeforeStoppedReturn,
                 refreshSnapshotCommitProof: refreshSnapshotCommitProof,
-                maximumMutationChecks: remainingMutationChecks
+                maximumMutationChecks: remainingMutationChecks,
+                onMutationWaitArmed: onMutationWaitArmed
             )
             remainingMutationChecks = max(
                 0,

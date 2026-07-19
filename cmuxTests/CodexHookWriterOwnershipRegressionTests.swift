@@ -155,7 +155,6 @@ struct CodexHookWriterOwnershipRegressionTests {
                 "\(classification.arguments)"
             )
         } else {
-            Thread.sleep(forTimeInterval: 0.1)
             let cliInvocations = (try? String(contentsOf: cliCapture, encoding: .utf8)) ?? ""
             #expect(
                 !cliInvocations.contains("hooks codex install --yes"),
@@ -230,7 +229,6 @@ struct CodexHookWriterOwnershipRegressionTests {
         if replay.expectsSyntheticSessionStart {
             #expect(waitForFile(cliCapture, containing: "hooks codex session-start", timeout: 1))
         } else {
-            Thread.sleep(forTimeInterval: 0.1)
             let cliInvocations = try String(contentsOf: cliCapture, encoding: .utf8)
             #expect(!cliInvocations.contains("hooks codex session-start"), Comment(rawValue: cliInvocations))
         }

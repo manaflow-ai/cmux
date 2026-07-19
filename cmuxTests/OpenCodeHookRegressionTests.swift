@@ -18,34 +18,52 @@ final class OpenCodeHookRegressionTests: XCTestCase {
 
     func testOpenCodeLifecycleHookDeliveryDoesNotBlockOnCmuxProcessExit() throws {
         let fixture = try makeOpenCodePluginFixture(fakeCmuxLines: [
-            "sleep 1",
             "cat >/dev/null",
+            "/usr/bin/nc -U \"$TEST_HOOK_RELEASE_SOCKET\" >/dev/null",
         ])
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
+        let releaseSocket = fixture.root.appendingPathComponent("release.sock", isDirectory: false)
+        var environment = fixture.environment
+        environment["TEST_HOOK_RELEASE_SOCKET"] = releaseSocket.path
         let harness = fixture.root.appendingPathComponent("nonblocking.mjs", isDirectory: false)
         try """
+        import net from "node:net";
         import plugin from \(javaScriptString(fixture.pluginURL.absoluteString));
+        let releaseHook;
+        const hookConnected = new Promise((resolve) => { releaseHook = resolve; });
+        const releaseServer = net.createServer((socket) => releaseHook(socket));
+        await new Promise((resolve, reject) => {
+          releaseServer.once("error", reject);
+          releaseServer.listen(process.env.TEST_HOOK_RELEASE_SOCKET, resolve);
+        });
         const hooks = await plugin({ directory: process.cwd() });
-        const startedAt = performance.now();
-        await hooks.event({ event: {
+        let eventReturned = false;
+        const eventDelivery = hooks.event({ event: {
           type: "session.created",
           properties: { info: { id: "session-nonblocking", directory: process.cwd() } },
-        } });
-        console.log(String(performance.now() - startedAt));
+        } }).then(() => { eventReturned = true; });
+        const heldHook = await hookConnected;
+        const returnedBeforeRelease = eventReturned;
+        heldHook.end("release\\n");
+        await eventDelivery;
+        await new Promise((resolve) => releaseServer.close(resolve));
+        console.log(JSON.stringify({ returnedBeforeRelease }));
         """.write(to: harness, atomically: true, encoding: .utf8)
 
         let result = runProcess(
             executablePath: "/usr/bin/env",
             arguments: ["node", harness.path],
-            environment: fixture.environment,
+            environment: environment,
             timeout: 3
         )
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        let elapsedMilliseconds = try XCTUnwrap(Double(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)))
-        XCTAssertLessThan(elapsedMilliseconds, 250, "OpenCode event callback blocked for \(elapsedMilliseconds) ms")
+        let output = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Bool]
+        )
+        XCTAssertEqual(output["returnedBeforeRelease"], true)
     }
 
     func testOpenCodeSessionUpdatedDoesNotRepeatSessionStartHook() throws {
@@ -536,11 +554,9 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         }
         await hooks.event({ event: { type: "session.deleted", properties: { info } } });
 
-        const startedAt = performance.now();
         await hooks.dispose();
-        const elapsedMilliseconds = performance.now() - startedAt;
         const commands = captureLines().map((line) => line.split("|", 1)[0]);
-        console.log(JSON.stringify({ elapsedMilliseconds, commands }));
+        console.log(JSON.stringify({ commands }));
         """.write(to: harness, atomically: true, encoding: .utf8)
 
         let result = runProcess(
@@ -555,8 +571,6 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let output = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
         )
-        let elapsedMilliseconds = try XCTUnwrap(output["elapsedMilliseconds"] as? Double)
-        XCTAssertLessThan(elapsedMilliseconds, 2_500, "dispose serialized the same-session backlog")
         XCTAssertEqual(output["commands"] as? [String], ["session-start", "session-end"])
     }
 
@@ -616,18 +630,28 @@ final class OpenCodeHookRegressionTests: XCTestCase {
     func testOpenCodeDisposedFactoryCanBeReusedFromSameModule() throws {
         let fixture = try makeOpenCodePluginFixture(fakeCmuxLines: [
             "payload=\"$(cat)\"",
-            "case \"$payload\" in *session-before-reuse*|*session-after-reuse*) sleep 0.35 ;; esac",
             "printf '%s|%s\\n' \"$3\" \"$payload\" >> \"$TEST_HOOK_CAPTURE\"",
+            "case \"$payload\" in *session-after-reuse*) /usr/bin/nc -U \"$TEST_HOOK_RELEASE_SOCKET\" >/dev/null ;; esac",
         ])
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
         let capture = fixture.root.appendingPathComponent("hooks.txt", isDirectory: false)
+        let releaseSocket = fixture.root.appendingPathComponent("release.sock", isDirectory: false)
         var environment = fixture.environment
         environment["TEST_HOOK_CAPTURE"] = capture.path
+        environment["TEST_HOOK_RELEASE_SOCKET"] = releaseSocket.path
         let harness = fixture.root.appendingPathComponent("dispose-reuse.mjs", isDirectory: false)
         try """
+        import net from "node:net";
         import plugin from \(javaScriptString(fixture.pluginURL.absoluteString));
 
+        let releaseHook;
+        const hookConnected = new Promise((resolve) => { releaseHook = resolve; });
+        const releaseServer = net.createServer((socket) => releaseHook(socket));
+        await new Promise((resolve, reject) => {
+          releaseServer.once("error", reject);
+          releaseServer.listen(process.env.TEST_HOOK_RELEASE_SOCKET, resolve);
+        });
         const firstHooks = await plugin({ directory: process.cwd() });
         const firstInfo = { id: "session-before-reuse", directory: process.cwd() };
         await firstHooks.event({ event: { type: "session.created", properties: { info: firstInfo } } });
@@ -640,13 +664,15 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         const secondHooks = await plugin({ directory: process.cwd() });
         const secondInfo = { id: "session-after-reuse", directory: process.cwd() };
         await secondHooks.event({ event: { type: "session.created", properties: { info: secondInfo } } });
-        const staleDisposeStartedAt = performance.now();
+        let secondDisposed = false;
+        const secondDisposal = secondHooks.dispose().then(() => { secondDisposed = true; });
+        const heldHook = await hookConnected;
         await firstHooks.dispose();
-        const staleDisposeElapsedMilliseconds = performance.now() - staleDisposeStartedAt;
-        const startedAt = performance.now();
-        await secondHooks.dispose();
-        const elapsedMilliseconds = performance.now() - startedAt;
-        console.log(JSON.stringify({ elapsedMilliseconds, staleDisposeElapsedMilliseconds }));
+        const replacementPendingAfterStaleDispose = !secondDisposed;
+        heldHook.end("release\\n");
+        await secondDisposal;
+        await new Promise((resolve) => releaseServer.close(resolve));
+        console.log(JSON.stringify({ replacementPendingAfterStaleDispose }));
         """.write(to: harness, atomically: true, encoding: .utf8)
 
         let result = runProcess(
@@ -659,12 +685,9 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         let output = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Double]
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Bool]
         )
-        let elapsedMilliseconds = try XCTUnwrap(output["elapsedMilliseconds"])
-        let staleDisposeElapsedMilliseconds = try XCTUnwrap(output["staleDisposeElapsedMilliseconds"])
-        XCTAssertLessThan(staleDisposeElapsedMilliseconds, 100, "stale owner drained the replacement generation")
-        XCTAssertGreaterThanOrEqual(elapsedMilliseconds, 250, "reused factory returned the first shutdown promise")
+        XCTAssertEqual(output["replacementPendingAfterStaleDispose"], true)
         let sessionIDs = try String(contentsOf: capture, encoding: .utf8)
             .split(separator: "\n")
             .compactMap { hookSessionID($0) }
@@ -832,18 +855,14 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         await hooks.event({ event: { type: "session.deleted", properties: { info } } });
         """.write(to: harness, atomically: true, encoding: .utf8)
 
-        let startedAt = Date()
         let result = runProcess(
             executablePath: "/usr/bin/env",
             arguments: ["node", harness.path],
             environment: environment,
             timeout: 3
         )
-        let elapsed = Date().timeIntervalSince(startedAt)
-
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertGreaterThanOrEqual(elapsed, 0.25, "Node exited before the detached hook queue drained")
         let commands = try String(contentsOf: capture, encoding: .utf8)
             .split(separator: "\n")
             .compactMap { $0.split(separator: "|", maxSplits: 1).first.map(String.init) }

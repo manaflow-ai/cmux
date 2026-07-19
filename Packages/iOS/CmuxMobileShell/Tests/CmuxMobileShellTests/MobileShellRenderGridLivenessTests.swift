@@ -473,7 +473,13 @@ import Testing
     clock.advance(by: 10)
     store.debugRunRenderGridLivenessCheckForTesting()
     #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 2))
-    try await Task.sleep(for: .milliseconds(300))
+    await router.releaseAllHeld()
+
+    let firstFailureSettled = try await pollUntil {
+        store.debugRunRenderGridLivenessCheckForTesting()
+        return await router.count(of: "mobile.events.subscribe") >= 3
+    }
+    #expect(firstFailureSettled, "a released held probe must settle before its follow-up starts")
 
     #expect(store.remoteClient === originalClient)
     #expect(store.connectionGeneration == originalGeneration)
@@ -484,9 +490,10 @@ import Testing
     )
 
     // The second independent probe succeeds and resets the liveness window.
-    store.debugRunRenderGridLivenessCheckForTesting()
-    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 3))
-    try await Task.sleep(for: .milliseconds(50))
+    let followUpSettled = try await pollUntil {
+        store.lastTerminalEventAt == clock.now
+    }
+    #expect(followUpSettled, "the successful follow-up probe must stamp stream liveness")
 
     #expect(store.remoteClient === originalClient)
     #expect(store.connectionGeneration == originalGeneration)
@@ -582,17 +589,22 @@ import Testing
     // The host stops answering two independent mobile.events.subscribe probes,
     // confirming a dead push path rather than a transient stall.
     await router.holdSubscribeRequest(number: 2)
-    await router.holdSubscribeRequest(number: 3)
     clock.advance(by: 10)
     store.debugRunRenderGridLivenessCheckForTesting()
     #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 2))
-    try await Task.sleep(for: .milliseconds(300))
+    await router.releaseAllHeld()
     #expect(
         await router.count(of: "mobile.host.status") == hostStatusCountBeforeFailure,
         "the first ambiguous probe failure must preserve the current listener"
     )
 
-    store.debugRunRenderGridLivenessCheckForTesting()
+    await router.holdSubscribeRequest(number: 3)
+    let secondProbeStarted = try await pollUntil {
+        store.debugRunRenderGridLivenessCheckForTesting()
+        return await router.count(of: "mobile.events.subscribe") >= 3
+    }
+    #expect(secondProbeStarted, "the first failed probe must release the single-flight slot")
+    await router.releaseAllHeld()
 
     // Recovery restarts the listener, which re-resolves capabilities. A new
     // mobile.host.status request is the teardown-and-restart proof.

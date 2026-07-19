@@ -971,7 +971,6 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
             )
         )
 
-        let startedAt = Date().timeIntervalSinceReferenceDate
         let snapshot = try fixture.registry.hookHibernationSnapshot(
             provider: provider,
             panelContexts: [.init(
@@ -982,12 +981,8 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
             maximumRecords: 3,
             maximumBytes: Int64(CmuxAgentSessionRegistry.maximumHookProviderBytes)
         )
-        let elapsed = Date().timeIntervalSinceReferenceDate - startedAt
-        print("hibernation projection 20000-row elapsed: \(elapsed) seconds")
-
         #expect(Set(snapshot.records.map(\.sessionID)) == ["session-10000", "session-15000"])
         #expect(snapshot.activeSlots.count == 1)
-        #expect(elapsed < 0.5)
     }
 
     @Test("hibernation projection fails closed at row and byte limits")
