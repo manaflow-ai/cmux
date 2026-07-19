@@ -43,6 +43,24 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
                 from: payload(id: "Codex")
             )
         )
+        for id in ["Pi", "Grok", "Antigravity", "Ollama", "OMP", "Campfire"] {
+            XCTAssertThrowsError(
+                try JSONDecoder().decode(
+                    CmuxVaultAgentRegistration.self,
+                    from: payload(id: id)
+                ),
+                id
+            )
+        }
+        for id in ["pi", "grok", "antigravity", "ollama", "omp", "campfire"] {
+            XCTAssertEqual(
+                try JSONDecoder().decode(
+                    CmuxVaultAgentRegistration.self,
+                    from: payload(id: id)
+                ).id,
+                id
+            )
+        }
     }
 
     func testRestorableAgentKindRejectsNativeCaseVariantsWithoutBreakingCanonicalRegistryKinds() throws {
@@ -104,6 +122,184 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             environment: [:]
         )
         XCTAssertEqual(exactRegistry.registration(id: "pi")?.name, "Project Pi")
+    }
+
+    func testVaultRegistryKeepsEveryCanonicalRegistryOwnedOverride() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-registry-owned-overrides-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let ids = ["pi", "grok", "antigravity", "ollama", "omp", "campfire"]
+        try writeVaultConfig(
+            ids.map { makeVaultRegistration(id: $0, name: "Project \($0)") },
+            to: root.appendingPathComponent(".config/cmux/cmux.json")
+        )
+
+        let registry = CmuxVaultAgentRegistry.load(
+            homeDirectory: root.path,
+            workingDirectory: nil,
+            environment: [:]
+        )
+
+        for id in ids {
+            XCTAssertEqual(registry.registration(id: id)?.name, "Project \(id)", id)
+        }
+    }
+
+    func testVaultConfigRejectsOversizedFilesAndRegistrationCatalogs() throws {
+        let oversizedRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-oversized-config-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: oversizedRoot) }
+        let oversizedURL = oversizedRoot.appendingPathComponent(".config/cmux/cmux.json")
+        try FileManager.default.createDirectory(
+            at: oversizedURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let oversizedObject: [String: Any] = [
+            "padding": String(repeating: "x", count: 1_024 * 1_024),
+            "vault": ["agents": [[
+                "id": "oversized-agent",
+                "name": "Oversized Agent",
+                "detect": ["processName": "oversized-agent"],
+                "sessionIdSource": ["type": "argvOption", "argvOption": "--session"],
+                "resumeCommand": "oversized-agent --session {{sessionId}}",
+            ]]],
+        ]
+        let oversizedData = try JSONSerialization.data(withJSONObject: oversizedObject)
+        XCTAssertGreaterThan(oversizedData.count, 1_024 * 1_024)
+        try oversizedData.write(to: oversizedURL)
+        XCTAssertNil(CmuxVaultAgentRegistry.load(
+            homeDirectory: oversizedRoot.path,
+            environment: [:]
+        ).registration(id: "oversized-agent"))
+
+        let catalogRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-oversized-catalog-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: catalogRoot) }
+        try writeVaultConfig(
+            (0...CmuxAgentSessionRegistry.maximumProviderEnumerationCount).map {
+                makeVaultRegistration(id: "catalog-\($0)", name: "Catalog \($0)")
+            },
+            to: catalogRoot.appendingPathComponent(".config/cmux/cmux.json")
+        )
+        let catalog = CmuxVaultAgentRegistry.load(
+            homeDirectory: catalogRoot.path,
+            environment: [:]
+        )
+        XCTAssertNil(catalog.registration(id: "catalog-0"))
+        XCTAssertNil(catalog.registration(id: "catalog-256"))
+    }
+
+    func testVaultProcessDetectionIndexBoundsNamedAndArgvOnlyCandidates() {
+        let named = (0..<CmuxAgentSessionRegistry.maximumProviderEnumerationCount).map {
+            makeVaultRegistration(id: "named-\($0)", name: "Named \($0)")
+        }
+        let registry = CmuxVaultAgentRegistry(registrations: named)
+        let observed = VaultObservedAgentProcess(
+            processName: "named-200",
+            processPath: "/opt/bin/named-200",
+            arguments: ["/opt/bin/named-200", "--session", "session"],
+            environment: [:]
+        )
+
+        XCTAssertEqual(registry.matchingRegistration(for: observed)?.id, "named-200")
+        XCTAssertEqual(registry.detectionCandidateCount(for: observed), 1)
+        XCTAssertEqual(
+            (0..<1_000).reduce(into: 0) { count, _ in
+                count += registry.detectionCandidateCount(for: observed)
+            },
+            1_000
+        )
+
+        let argvOnly = (0..<300).map { index in
+            CmuxVaultAgentRegistration(
+                id: "argv-only-\(index)",
+                name: "Argv Only \(index)",
+                detect: CmuxVaultAgentDetectRule(argvContains: ["needle-\(index)"]),
+                sessionIdSource: .argvOption("--session"),
+                resumeCommand: "argv-only-\(index) --session {{sessionId}}"
+            )
+        }
+        let fallbackRegistry = CmuxVaultAgentRegistry(registrations: argvOnly)
+        let unmatched = VaultObservedAgentProcess(
+            processName: "node",
+            processPath: "/usr/bin/node",
+            arguments: ["/usr/bin/node", "unrelated"],
+            environment: [:]
+        )
+        XCTAssertEqual(
+            fallbackRegistry.detectionCandidateCount(for: unmatched),
+            CmuxAgentSessionRegistry.maximumProviderEnumerationCount
+        )
+    }
+
+    func testKnownProcessOnlySnapshotsRejectOneShotAndNonSessionLaunches() {
+        func registration(_ id: String) -> CmuxVaultAgentRegistration {
+            CmuxVaultAgentRegistration(
+                id: id,
+                name: id,
+                detect: CmuxVaultAgentDetectRule(processName: id),
+                sessionIdSource: .argvOption("--session"),
+                resumeCommand: "\(id) --session {{sessionId}}"
+            )
+        }
+        func observed(
+            _ processName: String,
+            _ arguments: [String],
+            environment: [String: String] = [:]
+        ) -> VaultObservedAgentProcess {
+            VaultObservedAgentProcess(
+                processName: processName,
+                processPath: "/opt/bin/\(processName)",
+                arguments: arguments,
+                environment: environment
+            )
+        }
+        func capturedEnvironment(kind: String, arguments: [String]) -> [String: String] {
+            var bytes = Data()
+            for argument in arguments {
+                bytes.append(contentsOf: argument.utf8)
+                bytes.append(0)
+            }
+            return [
+                "CMUX_AGENT_LAUNCH_KIND": kind,
+                "CMUX_AGENT_LAUNCH_EXECUTABLE": arguments.first ?? kind,
+                "CMUX_AGENT_LAUNCH_ARGV_B64": bytes.base64EncodedString(),
+            ]
+        }
+
+        XCTAssertFalse(registration("codex").processDetectedSnapshotIsRestorable(
+            for: observed("codex", ["/opt/bin/codex", "exec", "fix this"])
+        ))
+        XCTAssertFalse(registration("claude").processDetectedSnapshotIsRestorable(
+            for: observed("claude", ["/opt/bin/claude", "--print", "fix this"])
+        ))
+        XCTAssertFalse(registration("opencode").processDetectedSnapshotIsRestorable(
+            for: observed("opencode", ["/opt/bin/opencode", "run", "fix this"])
+        ))
+        for kind in ["pi", "omp", "campfire"] {
+            let captured = ["/opt/bin/\(kind)", "--print", "fix this"]
+            var environment = capturedEnvironment(kind: kind, arguments: captured)
+            if kind == "campfire" { environment["CAMPFIRE_SESSION_ROLE"] = "host" }
+            XCTAssertFalse(
+                registration(kind).processDetectedSnapshotIsRestorable(
+                    for: observed("node", ["/usr/bin/node"], environment: environment)
+                ),
+                kind
+            )
+        }
+        XCTAssertFalse(registration("campfire").processDetectedSnapshotIsRestorable(
+            for: observed(
+                "campfire",
+                ["/opt/bin/campfire", "--session", "session"],
+                environment: ["CAMPFIRE_SESSION_ROLE": "joiner"]
+            )
+        ))
+        XCTAssertTrue(registration("codex").processDetectedSnapshotIsRestorable(
+            for: observed("codex", ["/opt/bin/codex"])
+        ))
+        XCTAssertTrue(registration("future-agent").processDetectedSnapshotIsRestorable(
+            for: observed("future-agent", ["/opt/bin/future-agent", "--print", "fix this"])
+        ))
     }
 
     func testVaultRegistryRejectsGlobalProjectCaseCollisionButKeepsExactProjectOverride() throws {
