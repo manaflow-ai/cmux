@@ -101,13 +101,13 @@ public struct MoshTerminalCommandBuilder: Sendable {
         ] + remoteCommandArguments)
             .map(shellQuote)
             .joined(separator: " ")
-        let fallback = "exec /bin/sh -c \(shellQuote(sshFallbackCommand))"
         var script = [
+            "cmux_mosh_fallback() { exec /bin/sh -c \(shellQuote(sshFallbackCommand)); }",
             "cmux_mosh=\"$(\(localMoshResolver.resolutionProbeShellCommand) 2>/dev/null)\"",
             "cmux_mosh_resolve_status=$?",
             "if [ \"$cmux_mosh_resolve_status\" -ne 0 ] || [ -z \"$cmux_mosh\" ]; then",
             "  printf '%s\\n' \(shellQuote(localMoshMissingMessage)) >&2",
-            "  \(fallback)",
+            "  cmux_mosh_fallback",
             "fi",
             "unset cmux_mosh_resolve_status",
             "cmux_mosh_help=$(\"$cmux_mosh\" --help 2>&1 || true)",
@@ -115,7 +115,7 @@ public struct MoshTerminalCommandBuilder: Sendable {
             "  *--experimental-remote-ip=*) ;;",
             "  *)",
             "    printf '%s\\n' \(shellQuote(localMoshUnsupportedMessage)) >&2",
-            "    \(fallback)",
+            "    cmux_mosh_fallback",
             "    ;;",
             "esac",
             "unset cmux_mosh_help",
@@ -123,11 +123,11 @@ public struct MoshTerminalCommandBuilder: Sendable {
             "cmux_mosh_probe_status=$?",
             "if [ \"$cmux_mosh_probe_status\" -eq 127 ]; then",
             "  printf '%s\\n' \(shellQuote(remoteMoshMissingMessage)) >&2",
-            "  \(fallback)",
+            "  cmux_mosh_fallback",
             "fi",
             "if [ \"$cmux_mosh_probe_status\" -ne 0 ]; then",
             "  printf '%s\\n' \(shellQuote(remoteMoshProbeFailedMessage)) >&2",
-            "  \(fallback)",
+            "  cmux_mosh_fallback",
             "fi",
             "unset cmux_mosh_probe_status",
         ]
@@ -139,7 +139,7 @@ public struct MoshTerminalCommandBuilder: Sendable {
                 "cmux_mosh_prepare_status=$?",
                 "if [ \"$cmux_mosh_prepare_status\" -ne 0 ]; then",
                 "  printf '%s\\n' \(shellQuote(remoteMoshProbeFailedMessage)) >&2",
-                "  \(fallback)",
+                "  cmux_mosh_fallback",
                 "fi",
                 "unset cmux_mosh_prepare_status cmux_remote_install_status",
             ]
