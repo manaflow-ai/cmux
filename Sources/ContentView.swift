@@ -12019,7 +12019,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 ? AppDelegate.shared?.remoteTmuxController.hostDestination(forWorkspaceId: workspace.id)
                 : nil)
         guard let destination, !destination.isEmpty else { return nil }
-        return RemoteHostColorRegistry.shared.colorHex(for: destination)
+        return AppDelegate.shared?.remoteTmuxController.hostColorRegistry.colorHex(for: destination)
     }
 
     private func clearExtensionSidebarObservationPublishers() {
