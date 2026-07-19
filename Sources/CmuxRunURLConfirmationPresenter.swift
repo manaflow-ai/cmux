@@ -36,7 +36,7 @@ final class CmuxRunURLConfirmationPresenter {
         let gate = CmuxRunURLConfirmationGate(runButton: alert.buttons[1])
         alert.accessoryView = accessoryView(for: plan, gate: gate)
         let response = withExtendedLifetime(gate) {
-            runCmuxModalAlert(alert, presentingWindow: presentingWindow)
+            alert.runCmuxModal(presentingWindow: presentingWindow)
         }
         cmuxDebugLog("runURL.confirm response=\(response.rawValue)")
         return response == .alertSecondButtonReturn
@@ -250,7 +250,7 @@ final class CmuxRunURLConfirmationPresenter {
         )
         alert.informativeText = message
         alert.addButton(withTitle: String(localized: "dialog.runURL.failure.ok", defaultValue: "OK"))
-        _ = runCmuxModalAlert(alert, presentingWindow: presentingWindow)
+        _ = alert.runCmuxModal(presentingWindow: presentingWindow)
     }
 
     private func showNonModalFailureMessage(_ message: String) {
