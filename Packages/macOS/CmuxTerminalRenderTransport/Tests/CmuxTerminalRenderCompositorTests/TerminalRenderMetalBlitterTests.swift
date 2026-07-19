@@ -260,6 +260,41 @@ struct TerminalRenderMetalBlitterTests {
     }
 
     @Test
+    func newerFrameCannotBeRegressedByLatePresentedCallbackOnSameLayer() async throws {
+        let fence = try makeFence(generation: 7)
+        let frame1 = try makeFrame(fence: fence, frameSequence: 1)
+        let frame2 = try makeFrame(fence: fence, frameSequence: 2)
+        let executor = TerminalRenderMetalExecutor(
+            label: "test.cmux.metal.presented-sequence-fence"
+        )
+        let backend = RecordingMetalSubmissionBackend(
+            executor: executor,
+            results: [.submitted, .submitted]
+        )
+        let releases = ReleaseRecorder()
+        let presented = PresentedRecorder()
+        let layer = TerminalRenderMetalLayerHandle(CAMetalLayer())
+        let blitter = makeBlitter(
+            executor: executor,
+            backend: backend,
+            releases: releases,
+            layer: layer,
+            presented: presented
+        )
+
+        #expect(await blitter.enqueue(frame1, epoch: 1, layer: layer) == .submitted)
+        #expect(await blitter.enqueue(frame2, epoch: 1, layer: layer) == .coalesced)
+        backend.complete(frameSequence: 1)
+        await backend.waitForSubmissionCount(2)
+
+        backend.present(frameSequence: 2)
+        backend.present(frameSequence: 1)
+
+        #expect(presented.snapshot() == [2])
+        backend.complete(frameSequence: 2)
+    }
+
+    @Test
     func sourceTextureCacheUsesCompleteProvenanceKeyAndThreeEntryLRUBound() throws {
         let fence = try makeFence(generation: 7)
         let frame1 = try makeFrame(fence: fence, frameSequence: 1)
