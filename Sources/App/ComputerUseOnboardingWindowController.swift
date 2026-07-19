@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Presents a fresh nonmodal computer-use onboarding window for each run.
 @MainActor
-final class ComputerUseOnboardingWindowController {
+final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     static let seenDefaultsKey = "cmux.computerUse.onboarding.seen"
     private static let systemSettingsBundleIdentifier = "com.apple.systempreferences"
 
@@ -13,10 +13,10 @@ final class ComputerUseOnboardingWindowController {
     private var systemSettingsActivationTask: Task<Void, Never>?
     private var systemSettingsPlacementRetryTask: Task<Void, Never>?
     private var awaitingSystemSettingsActivation = false
-    private var hasPositionedForPermissionSetup = false
 
     init(runtimeService: ComputerUseRuntimeService) {
         self.runtimeService = runtimeService
+        super.init()
     }
 
     static func shouldPresentAutomatically(
@@ -33,13 +33,11 @@ final class ComputerUseOnboardingWindowController {
     var isVisible: Bool { window?.isVisible ?? false }
 
     func present() {
-        systemSettingsActivationTask?.cancel()
-        systemSettingsPlacementRetryTask?.cancel()
+        stopSystemSettingsObservation()
         window?.close()
-        awaitingSystemSettingsActivation = false
-        hasPositionedForPermissionSetup = false
         let window = makeWindow()
         self.window = window
+        window.delegate = self
         observeSystemSettingsActivation()
         window.level = .floating
         window.collectionBehavior = [.canJoinAllSpaces]
@@ -72,11 +70,25 @@ final class ComputerUseOnboardingWindowController {
     }
 
     private func close() {
+        stopSystemSettingsObservation()
+        window?.close()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let closingWindow = notification.object as? NSWindow,
+              closingWindow === window
+        else { return }
+        stopSystemSettingsObservation()
+        closingWindow.delegate = nil
+        window = nil
+    }
+
+    private func stopSystemSettingsObservation() {
         systemSettingsActivationTask?.cancel()
         systemSettingsActivationTask = nil
         systemSettingsPlacementRetryTask?.cancel()
         systemSettingsPlacementRetryTask = nil
-        window?.close()
+        awaitingSystemSettingsActivation = false
     }
 
     private func observeSystemSettingsActivation() {
@@ -92,11 +104,9 @@ final class ComputerUseOnboardingWindowController {
 
     private func permissionSettingsWillOpen() {
         systemSettingsPlacementRetryTask?.cancel()
-        hasPositionedForPermissionSetup = false
         awaitingSystemSettingsActivation = true
-        if positionBesideSystemSettingsIfNeeded() {
-            awaitingSystemSettingsActivation = false
-        }
+        // This is provisional; activation retries against the post-request window frame.
+        _ = positionBesideSystemSettingsIfNeeded()
     }
 
     private func systemSettingsDidActivate() {
@@ -131,7 +141,6 @@ final class ComputerUseOnboardingWindowController {
 
     @discardableResult
     private func positionBesideSystemSettingsIfNeeded() -> Bool {
-        guard !hasPositionedForPermissionSetup else { return true }
         guard let window, let systemSettingsFrame = systemSettingsWindowFrame() else { return false }
         let visibleFrames = NSScreen.screens.map(\.visibleFrame)
         guard let permissionDisplay = permissionWindowPlacement.visibleFrame(
@@ -145,7 +154,6 @@ final class ComputerUseOnboardingWindowController {
             in: permissionDisplay
         )
         window.setFrame(frame, display: true, animate: false)
-        hasPositionedForPermissionSetup = true
         return true
     }
 
