@@ -205,6 +205,12 @@ extension WindowGlassEffect {
                 return
             }
 
+            if !changesTintWithWindowKeyState {
+                tintOverlay.layer?.backgroundColor = tintColor.cgColor
+                tintOverlay.alphaValue = 1
+                return
+            }
+
             tintOverlay.layer?.backgroundColor = tintColor.withAdjustedSaturation(by: 1.2).cgColor
             tintOverlay.alphaValue = isKeyWindow ? 0 : (tintColor.isLightColor ? 0.35 : 0.85)
         }

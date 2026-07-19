@@ -264,6 +264,23 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(settingsAction.displayName, KeyboardShortcutSettings.Action.newBrowserWorkspace.label)
     }
 
+    func testNewWorkspaceFloatingDockSettingsPackageActionStaysAligned() {
+        let action = KeyboardShortcutSettings.Action.newWorkspaceFloatingDock
+        guard let settingsAction = ShortcutAction(rawValue: action.rawValue) else {
+            XCTFail("Expected CmuxSettings.ShortcutAction for newWorkspaceFloatingDock")
+            return
+        }
+
+        XCTAssertTrue(KeyboardShortcutSettings.publicShortcutActions.contains(action))
+        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(action))
+        XCTAssertEqual(
+            action.defaultShortcut,
+            StoredShortcut(key: "n", command: true, shift: false, option: false, control: true)
+        )
+        XCTAssertEqual(settingsAction.defaultStroke, ShortcutStroke(key: "n", command: true, control: true))
+        XCTAssertEqual(settingsAction.displayName, action.label)
+    }
+
     func testSettingsPackageDefaultWhenClausesMatchRuntimeShortcutContexts() {
         for action in KeyboardShortcutSettings.Action.allCases {
             guard let settingsAction = ShortcutAction(rawValue: action.rawValue) else {

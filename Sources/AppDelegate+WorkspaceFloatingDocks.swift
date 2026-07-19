@@ -21,6 +21,16 @@ extension AppDelegate.MainWindowContext {
 }
 
 extension AppDelegate {
+    func contextForShortcutSourceWindow(_ window: NSWindow?) -> MainWindowContext? {
+        guard let window else { return nil }
+        if let context = contextForMainTerminalWindow(window) {
+            return context
+        }
+        return mainWindowContexts.values.first { context in
+            context.workspaceFloatingDockPresenter?.owns(window: window) == true
+        }
+    }
+
     @discardableResult
     func createWorkspaceFloatingDock(
         in tabManager: TabManager,

@@ -12,6 +12,8 @@ extension ContentView {
         switch commandId {
         case "palette.newWorkspace":
             return .newTab
+        case "palette.newWorkspaceFloatingDock":
+            return .newWorkspaceFloatingDock
         case "palette.newBrowserWorkspace":
             return .newBrowserWorkspace
         case "palette.newWindow":

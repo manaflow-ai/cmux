@@ -157,11 +157,14 @@ final class WindowGlassEffectTests: XCTestCase {
         }
 
         XCTAssertEqual(backgroundView.alphaValue, 0.42, accuracy: 0.001)
-        XCTAssertEqual(tintOverlay.alphaValue, 0, accuracy: 0.001)
+        XCTAssertEqual(tintOverlay.alphaValue, 1, accuracy: 0.001)
+        XCTAssertEqual(tintOverlay.layer?.backgroundColor, NSColor.black.cgColor)
         NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
-        XCTAssertEqual(tintOverlay.alphaValue, 0, accuracy: 0.001)
+        XCTAssertEqual(tintOverlay.alphaValue, 1, accuracy: 0.001)
+        XCTAssertEqual(tintOverlay.layer?.backgroundColor, NSColor.black.cgColor)
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
-        XCTAssertEqual(tintOverlay.alphaValue, 0, accuracy: 0.001)
+        XCTAssertEqual(tintOverlay.alphaValue, 1, accuracy: 0.001)
+        XCTAssertEqual(tintOverlay.layer?.backgroundColor, NSColor.black.cgColor)
     }
 
     private static func windowContainsGlassBackground(_ window: NSWindow) -> Bool {
@@ -3161,7 +3164,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             rootedAt: panel.contentView?.superview,
             containsClassNamed: "NSVisualEffectView"
         ))
-        XCTAssertEqual(WorkspaceFloatingDockTextureDebugStyle.allCases.count, 14)
+        XCTAssertEqual(WorkspaceFloatingDockTextureDebugStyle.allCases.count, 15)
 
         defaults.set(0.42, forKey: WorkspaceFloatingDockTextureDebugSettings.backdropOpacityKey)
         defaults.set(
@@ -3174,6 +3177,32 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             identifier: glass.backgroundViewIdentifier
         )
         XCTAssertEqual(glassBackground?.alphaValue ?? 0, 0.42, accuracy: 0.001)
+    }
+
+    func testWorkspaceFloatingDockRaycastBackdropIsNeutralAndStableByDefault() throws {
+        let dark = WorkspaceFloatingDockBackdropAppearance.raycast(isLightBackground: false)
+        let light = WorkspaceFloatingDockBackdropAppearance.raycast(isLightBackground: true)
+
+        XCTAssertEqual(dark.liquidGlassStyle, .regular)
+        XCTAssertNil(dark.compatibilityMaterial)
+        XCTAssertEqual(dark.opacity, 0.96, accuracy: 0.001)
+        XCTAssertEqual(light.opacity, dark.opacity, accuracy: 0.001)
+
+        for tint in [try XCTUnwrap(dark.tintColor), try XCTUnwrap(light.tintColor)] {
+            let rgb = try XCTUnwrap(tint.usingColorSpace(.sRGB))
+            XCTAssertEqual(rgb.redComponent, rgb.greenComponent, accuracy: 0.001)
+            XCTAssertEqual(rgb.greenComponent, rgb.blueComponent, accuracy: 0.001)
+        }
+
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "WorkspaceFloatingDockRaycastBackdropTests"))
+        defaults.removePersistentDomain(forName: "WorkspaceFloatingDockRaycastBackdropTests")
+        defer { defaults.removePersistentDomain(forName: "WorkspaceFloatingDockRaycastBackdropTests") }
+        XCTAssertEqual(WorkspaceFloatingDockTextureDebugSettings.currentStyle(defaults: defaults), .raycast)
+        XCTAssertEqual(
+            WorkspaceFloatingDockTextureDebugSettings.currentBackdropOpacity(defaults: defaults),
+            WorkspaceFloatingDockBackdropAppearance.raycastOpacity,
+            accuracy: 0.001
+        )
     }
 
     func testWorkspaceFloatingDockTitlebarIdentityAcceptsFirstMouseWithoutAppKitDragInterception() {

@@ -61,4 +61,8 @@ final class WorkspaceFloatingDockPresenter {
     func isAttached(to window: NSWindow) -> Bool {
         parentWindow === window
     }
+
+    func owns(window: NSWindow) -> Bool {
+        controllers.values.contains { $0.window === window }
+    }
 }

@@ -2,6 +2,20 @@
 
 Global app preferences live in `~/.config/cmux/cmux.json`.
 
+## `shortcuts.bindings.newWorkspaceFloatingDock`
+
+Creates a floating Dock in the current workspace. The default shortcut is `cmd+ctrl+n`. Rebind it in **Settings > Keyboard Shortcuts** or `cmux.json`:
+
+```json
+{
+  "shortcuts": {
+    "bindings": {
+      "newWorkspaceFloatingDock": "cmd+ctrl+n"
+    }
+  }
+}
+```
+
 ## `paneBorderColor` and `activePaneBorderColor`
 
 Customize split-workspace pane boundaries controlled by cmux.

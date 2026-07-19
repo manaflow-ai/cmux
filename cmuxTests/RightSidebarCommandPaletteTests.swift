@@ -71,6 +71,13 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         )
     }
 
+    func testFloatingDockCommandPaletteUsesConfigurableShortcutAction() {
+        XCTAssertEqual(
+            ContentView.commandPaletteShortcutAction(forCommandID: "palette.newWorkspaceFloatingDock"),
+            .newWorkspaceFloatingDock
+        )
+    }
+
     private func withSavedBetaFeatureDefaults(_ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
         let previousFeed = defaults.object(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)

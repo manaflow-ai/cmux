@@ -8367,7 +8367,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let event else { return nil }
 
         if let eventWindow = event.window,
-           let context = contextForMainTerminalWindow(eventWindow) {
+           let context = contextForShortcutSourceWindow(eventWindow) {
             #if DEBUG
             logWorkspaceCreationRouting(
                 phase: "choose",
@@ -8384,7 +8384,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if event.windowNumber > 0,
            let window = debugShortcutRoutingFocusedWindowOverrideForTesting.window,
            window.windowNumber == event.windowNumber,
-           let context = contextForMainTerminalWindow(window) {
+           let context = contextForShortcutSourceWindow(window) {
             logWorkspaceCreationRouting(
                 phase: "choose",
                 source: debugSource,
@@ -8398,7 +8398,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if event.windowNumber > 0,
            let numberedWindow = NSApp.window(withWindowNumber: event.windowNumber),
-           let context = contextForMainTerminalWindow(numberedWindow) {
+           let context = contextForShortcutSourceWindow(numberedWindow) {
             #if DEBUG
             logWorkspaceCreationRouting(
                 phase: "choose",
@@ -13386,6 +13386,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxDebugLog("shortcut.action name=newWorkspace \(debugShortcutRouteSnapshot(event: event))")
 #endif
             performNewWorkspaceAction(event: event, debugSource: "shortcut.cmdN")
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .newWorkspaceFloatingDock) {
+#if DEBUG
+            cmuxDebugLog("shortcut.action name=newWorkspaceFloatingDock \(debugShortcutRouteSnapshot(event: event))")
+#endif
+            if let manager = activeTabManagerForCommands(
+                preferredWindow: mainWindowForShortcutEvent(event)
+            ) {
+                _ = createWorkspaceFloatingDock(in: manager, focus: true)
+            }
             return true
         }
 

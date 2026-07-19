@@ -20,6 +20,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     // MARK: Workspace
     case toggleSidebar
     case newTab
+    case newWorkspaceFloatingDock
     case newBrowserWorkspace
     case saveLayoutTemplate
     case openFolder
@@ -179,7 +180,7 @@ extension ShortcutAction {
         case .openSettings, .reloadConfiguration, .showHideAllWindows, .globalSearch,
              .newWindow, .closeWindow, .toggleFullScreen, .quit:
             return .app
-        case .toggleSidebar, .newTab, .newBrowserWorkspace, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace,
+        case .toggleSidebar, .newTab, .newWorkspaceFloatingDock, .newBrowserWorkspace, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .commandPaletteNext, .commandPalettePrevious, .sendFeedback,
              .showNotifications, .jumpToUnread, .toggleUnread, .markOldestUnreadAndJumpNext,
              .focusRightSidebar, .switchRightSidebarToFiles, .switchRightSidebarToFind,
@@ -336,6 +337,8 @@ extension ShortcutAction {
         case .quit: return "Quit cmux"
         case .toggleSidebar: return "Toggle Left Sidebar"
         case .newTab: return "New Workspace"
+        case .newWorkspaceFloatingDock:
+            return String(localized: "command.newWorkspaceFloatingDock.title", defaultValue: "New Floating Dock")
         case .newBrowserWorkspace:
             return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
         case .saveLayoutTemplate:

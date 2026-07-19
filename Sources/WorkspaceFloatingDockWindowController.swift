@@ -1,7 +1,40 @@
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxFoundation
 import Observation
 import SwiftUI
+
+/// One window-root appearance for every floating Dock surface. Bonsplit,
+/// terminals, browsers, and note editors stay clear above this substrate.
+struct WorkspaceFloatingDockBackdropAppearance {
+    let liquidGlassStyle: WindowGlassEffectStyle?
+    let tintColor: NSColor?
+    let compatibilityMaterial: NSVisualEffectView.Material?
+    let opacity: CGFloat
+
+    static let raycastOpacity: CGFloat = 0.96
+
+    static func raycast(isLightBackground: Bool) -> Self {
+        let tint = isLightBackground
+            ? NSColor(calibratedWhite: 0.94, alpha: 0.78)
+            : NSColor(calibratedWhite: 0.12, alpha: 0.78)
+        return Self(
+            liquidGlassStyle: .regular,
+            tintColor: tint,
+            compatibilityMaterial: nil,
+            opacity: raycastOpacity
+        )
+    }
+
+    func overriding(tintColor: NSColor?, opacity: CGFloat) -> Self {
+        Self(
+            liquidGlassStyle: liquidGlassStyle,
+            tintColor: tintColor ?? self.tintColor,
+            compatibilityMaterial: compatibilityMaterial,
+            opacity: opacity
+        )
+    }
+}
 
 /// Owns the native child panel for one workspace floating Dock.
 @MainActor
@@ -209,25 +242,25 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         compatibilityBlurView?.removeFromSuperview()
 
 #if DEBUG
-        glassEffect.backgroundOpacity = WorkspaceFloatingDockTextureDebugSettings.currentBackdropOpacity()
-        let texture = WorkspaceFloatingDockTextureDebugSettings.currentStyle()
-        if let liquidGlass = texture.liquidGlass {
-            glassEffect.apply(
-                to: panel,
-                tintColor: WorkspaceFloatingDockTextureDebugSettings.currentTintColor() ?? liquidGlass.tint,
-                style: liquidGlass.style
-            )
-        } else if let material = texture.compatibilityMaterial {
-            applyCompatibilityBlur(
-                material: material,
-                to: panel,
-                opacity: WorkspaceFloatingDockTextureDebugSettings.currentBackdropOpacity()
-            )
-        }
+        let appearance = WorkspaceFloatingDockTextureDebugSettings.currentAppearance()
 #else
-        glassEffect.backgroundOpacity = 0.86
-        glassEffect.apply(to: panel, tintColor: nil, style: .regular)
+        let appearance = WorkspaceFloatingDockBackdropAppearance.raycast(
+            isLightBackground: GhosttyBackgroundTheme.currentColor().isLightColor
+        )
 #endif
+        applyBackdropAppearance(appearance, to: panel)
+    }
+
+    private func applyBackdropAppearance(
+        _ appearance: WorkspaceFloatingDockBackdropAppearance,
+        to panel: NSWindow
+    ) {
+        glassEffect.backgroundOpacity = appearance.opacity
+        if let style = appearance.liquidGlassStyle {
+            glassEffect.apply(to: panel, tintColor: appearance.tintColor, style: style)
+        } else if let material = appearance.compatibilityMaterial {
+            applyCompatibilityBlur(material: material, to: panel, opacity: appearance.opacity)
+        }
     }
 
     private func applyCompatibilityBlur(
@@ -329,6 +362,7 @@ extension NSWindow {
 
 #if DEBUG
 enum WorkspaceFloatingDockTextureDebugStyle: String, CaseIterable, Identifiable {
+    case raycast
     case regular
     case clear
     case smoke
@@ -348,6 +382,8 @@ enum WorkspaceFloatingDockTextureDebugStyle: String, CaseIterable, Identifiable 
 
     var title: LocalizedStringResource {
         switch self {
+        case .raycast:
+            "debug.floatingDockTexture.raycast"
         case .regular:
             "debug.floatingDockTexture.regular"
         case .clear:
@@ -381,20 +417,25 @@ enum WorkspaceFloatingDockTextureDebugStyle: String, CaseIterable, Identifiable 
 
     var liquidGlass: (style: WindowGlassEffectStyle, tint: NSColor?)? {
         switch self {
+        case .raycast:
+            let appearance = WorkspaceFloatingDockBackdropAppearance.raycast(
+                isLightBackground: GhosttyBackgroundTheme.currentColor().isLightColor
+            )
+            return (appearance.liquidGlassStyle ?? .regular, appearance.tintColor)
         case .regular:
-            (.regular, nil)
+            return (.regular, nil)
         case .clear:
-            (.clear, nil)
+            return (.clear, nil)
         case .smoke:
-            (.regular, NSColor.black.withAlphaComponent(0.12))
+            return (.regular, NSColor.black.withAlphaComponent(0.12))
         case .frosted:
-            (.regular, NSColor.white.withAlphaComponent(0.08))
+            return (.regular, NSColor.white.withAlphaComponent(0.08))
         case .warm:
-            (.regular, NSColor.systemOrange.withAlphaComponent(0.08))
+            return (.regular, NSColor.systemOrange.withAlphaComponent(0.08))
         case .cool:
-            (.regular, NSColor.systemBlue.withAlphaComponent(0.08))
+            return (.regular, NSColor.systemBlue.withAlphaComponent(0.08))
         case .underWindow, .hud, .sidebar, .popover, .menu, .titlebar, .contentBackground, .transparent:
-            nil
+            return nil
         }
     }
 
@@ -414,7 +455,7 @@ enum WorkspaceFloatingDockTextureDebugStyle: String, CaseIterable, Identifiable 
             .titlebar
         case .contentBackground:
             .contentBackground
-        case .regular, .clear, .smoke, .frosted, .warm, .cool, .transparent:
+        case .raycast, .regular, .clear, .smoke, .frosted, .warm, .cool, .transparent:
             nil
         }
     }
@@ -427,12 +468,12 @@ enum WorkspaceFloatingDockTextureDebugSettings {
     static let tintBlueKey = "debugWorkspaceFloatingDockTintBlue"
     static let tintStrengthKey = "debugWorkspaceFloatingDockTintStrength"
     static let backdropOpacityKey = "debugWorkspaceFloatingDockBackdropOpacity"
-    static let defaultStyle = WorkspaceFloatingDockTextureDebugStyle.regular
+    static let defaultStyle = WorkspaceFloatingDockTextureDebugStyle.raycast
     static let defaultTintRed = 0.5
     static let defaultTintGreen = 0.5
     static let defaultTintBlue = 0.5
     static let defaultTintStrength = 0.0
-    static let defaultBackdropOpacity = 0.86
+    static let defaultBackdropOpacity = Double(WorkspaceFloatingDockBackdropAppearance.raycastOpacity)
 
     static func currentStyle(defaults: UserDefaults = .standard) -> WorkspaceFloatingDockTextureDebugStyle {
         WorkspaceFloatingDockTextureDebugStyle(rawValue: defaults.string(forKey: styleKey) ?? "") ?? defaultStyle
@@ -454,6 +495,28 @@ enum WorkspaceFloatingDockTextureDebugSettings {
             value(forKey: backdropOpacityKey, defaultValue: defaultBackdropOpacity, defaults: defaults),
             0.15
         ), 1))
+    }
+
+    static func currentAppearance(defaults: UserDefaults = .standard) -> WorkspaceFloatingDockBackdropAppearance {
+        let style = currentStyle(defaults: defaults)
+        let opacity = currentBackdropOpacity(defaults: defaults)
+        if let liquidGlass = style.liquidGlass {
+            return WorkspaceFloatingDockBackdropAppearance(
+                liquidGlassStyle: liquidGlass.style,
+                tintColor: liquidGlass.tint,
+                compatibilityMaterial: nil,
+                opacity: opacity
+            ).overriding(
+                tintColor: currentTintColor(defaults: defaults),
+                opacity: opacity
+            )
+        }
+        return WorkspaceFloatingDockBackdropAppearance(
+            liquidGlassStyle: nil,
+            tintColor: nil,
+            compatibilityMaterial: style.compatibilityMaterial,
+            opacity: opacity
+        )
     }
 
     static func value(forKey key: String, defaultValue: Double, defaults: UserDefaults = .standard) -> Double {

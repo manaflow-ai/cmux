@@ -484,6 +484,99 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
+    func testControlCommandNDefaultShortcutCreatesFloatingDockInCurrentWorkspace() throws {
+#if DEBUG
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected test window, manager, and selected workspace")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let initialWorkspaceCount = manager.tabs.count
+        let initialDockCount = workspace.floatingDocks.count
+
+        withTemporaryShortcut(action: .newWorkspaceFloatingDock) {
+            guard let event = makeKeyDownEvent(
+                key: "n",
+                modifiers: [.command, .control],
+                keyCode: 45,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Control+Cmd+N event")
+                return
+            }
+
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+        }
+
+        XCTAssertEqual(manager.tabs.count, initialWorkspaceCount)
+        XCTAssertEqual(workspace.floatingDocks.count, initialDockCount + 1)
+#else
+        throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
+#endif
+    }
+
+    func testControlCommandNFromFloatingDockCreatesAnotherDockInOwningWorkspace() throws {
+#if DEBUG
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let firstDock = appDelegate.createWorkspaceFloatingDock(in: manager, focus: true) else {
+            XCTFail("Expected manager, workspace, and first floating Dock")
+            return
+        }
+        guard let dockWindow = NSApp.windows.first(where: {
+            $0.identifier?.rawValue == "cmux.workspace.float.\(firstDock.id.uuidString)"
+        }) else {
+            XCTFail("Expected first floating Dock window")
+            return
+        }
+
+        dockWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        let initialWorkspaceCount = manager.tabs.count
+        let initialDockCount = workspace.floatingDocks.count
+
+        withTemporaryShortcut(action: .newWorkspaceFloatingDock) {
+            guard let event = makeKeyDownEvent(
+                key: "n",
+                modifiers: [.command, .control],
+                keyCode: 45,
+                windowNumber: dockWindow.windowNumber
+            ) else {
+                XCTFail("Failed to construct floating Dock Control+Cmd+N event")
+                return
+            }
+
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+        }
+
+        XCTAssertEqual(manager.tabs.count, initialWorkspaceCount)
+        XCTAssertEqual(workspace.floatingDocks.count, initialDockCount + 1)
+#else
+        throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
+#endif
+    }
+
     func testNewBrowserWorkspaceShortcutIsBlockedWhileBrowserDisabled() throws {
 #if DEBUG
         guard let appDelegate = AppDelegate.shared else {
