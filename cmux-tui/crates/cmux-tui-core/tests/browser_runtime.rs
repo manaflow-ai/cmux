@@ -349,16 +349,46 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
         Ok(_) => panic!("browser attach state must wait for its requested resize: {premature}"),
     };
     assert!(matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut));
+
+    let mut joined_attach = UnixStream::connect(&socket_path).unwrap();
+    joined_attach
+        .write_all(
+            json!({
+                "id": 3,
+                "cmd": "attach-surface",
+                "surface": surface,
+                "cols": 12,
+                "rows": 6
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+    joined_attach.write_all(b"\n").unwrap();
+    joined_attach.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    let mut joined_reader = BufReader::new(joined_attach);
+    let mut premature = String::new();
+    let error = match joined_reader.read_line(&mut premature) {
+        Err(error) => error,
+        Ok(_) => panic!("joined browser attach must wait for the pending resize: {premature}"),
+    };
+    assert!(matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut));
+
     for _ in 0..4 {
         attach_resize_release_tx.send(()).unwrap();
     }
     attach_reader.get_ref().set_read_timeout(None).unwrap();
+    joined_reader.get_ref().set_read_timeout(None).unwrap();
     let state = recv_attach_event(&mut attach_reader, "browser-state");
     assert_eq!(state["surface"], surface);
     assert_eq!(state["cols"], 12);
     assert_eq!(state["rows"], 6);
     assert_eq!(state["url"], "https://example.test");
     assert!(state["frame"].is_null());
+    let joined_state = recv_attach_event(&mut joined_reader, "browser-state");
+    assert_eq!(joined_state["cols"], 12);
+    assert_eq!(joined_state["rows"], 6);
+    assert!(joined_state["frame"].is_null());
 
     let navigate = rpc(
         &socket_path,
