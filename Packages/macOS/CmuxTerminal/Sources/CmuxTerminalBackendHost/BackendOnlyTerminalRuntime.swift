@@ -123,6 +123,12 @@ private final class BackendOnlyPresentationLease: TerminalExternalPresentationLe
     }
 }
 
+private struct BackendOnlyRetiredFrameIngress: Sendable {
+    let receiveTask: Task<Void, Never>?
+    let compositorIngress: TerminalRenderCompositorIngress?
+    let releaseMetricsBeforeRetirement: BackendOnlyRendererFrameReleaseLaneMetrics
+}
+
 /// Visible-only terminal adapter for the backend-only experimental host.
 ///
 /// The adapter owns bounded mutation and interaction streams, one presentation,
@@ -132,6 +138,9 @@ private final class BackendOnlyPresentationLease: TerminalExternalPresentationLe
 @MainActor
 public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     private static let mutationCapacity = 64
+    private static let normalFrameReleaseCapacity = 128
+    private static let recoveryFrameReleaseCapacity = 16
+    nonisolated private static let frameReleaseDeadline: Duration = .seconds(2)
 
     private struct RendererOperationWaiter {
         let identifier: UUID
@@ -148,11 +157,15 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     private let workerMonitor = BackendOnlyRendererWorkerMonitor()
     private let mutationStream: AsyncStream<TerminalExternalRuntimeMutation>
     private let mutationContinuation: AsyncStream<TerminalExternalRuntimeMutation>.Continuation
+    private let frameReleaseLane: BackendOnlyRendererFrameReleaseLane
+    private let frameReleaseFailureContinuation:
+        AsyncStream<BackendOnlyRendererFrameReleaseLaneFailure>.Continuation
     private let presentedFrameState = BackendOnlyPresentedFrameState()
     private let rendererEventListener = BackendOnlyRendererEventListener()
     private let terminalInteractionModeListener = BackendOnlyTerminalInteractionModeListener()
     private var nextIngressSequence: UInt64 = 1
     private var mutationTask: Task<Void, Never>?
+    private var frameReleaseFailureTask: Task<Void, Never>?
     private var rendererEventSubscription: BackendRendererEventSubscription?
     private var terminalInteractionModeSubscription:
         BackendTerminalInteractionModeEventSubscription?
@@ -208,6 +221,23 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     ) {
         self.session = session
         self.selection = selection
+        let frameReleaseFailures = AsyncStream<
+            BackendOnlyRendererFrameReleaseLaneFailure
+        >.makeStream(bufferingPolicy: .bufferingNewest(1))
+        frameReleaseFailureContinuation = frameReleaseFailures.continuation
+        frameReleaseLane = BackendOnlyRendererFrameReleaseLane(
+            normalCapacity: Self.normalFrameReleaseCapacity,
+            recoveryCapacity: Self.recoveryFrameReleaseCapacity,
+            send: { release in
+                await Self.sendRendererFrameRelease(
+                    release,
+                    through: session
+                )
+            },
+            onFailure: { failure in
+                frameReleaseFailures.continuation.yield(failure)
+            }
+        )
         let pair = AsyncStream<TerminalExternalRuntimeMutation>.makeStream(
             bufferingPolicy: .bufferingOldest(Self.mutationCapacity)
         )
@@ -219,11 +249,20 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                 await self.apply(mutation)
             }
         }
+        frameReleaseFailureTask = Task {
+            [weak self, failures = frameReleaseFailures.stream] in
+            for await failure in failures {
+                guard let self else { return }
+                await self.handleFrameReleaseFailure(failure)
+            }
+        }
     }
 
     deinit {
         mutationContinuation.finish()
+        frameReleaseFailureContinuation.finish()
         mutationTask?.cancel()
+        frameReleaseFailureTask?.cancel()
         presentationTask?.cancel()
         receiveTask?.cancel()
         accessibilityRefreshTask?.cancel()
@@ -316,6 +355,10 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         if let task = accessibilityDemandTask {
             await task.value
         }
+        await frameReleaseLane.stop()
+        frameReleaseFailureContinuation.finish()
+        frameReleaseFailureTask?.cancel()
+        frameReleaseFailureTask = nil
         for continuation in accessibilityContinuations.values {
             continuation.finish()
         }
@@ -1183,16 +1226,18 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
             existing.updateFence(fence)
             compositor = existing
         } else {
-            let session = session
+            let frameReleaseLane = frameReleaseLane
+            let frameReleaseFailures = frameReleaseFailureContinuation
             let presentedFrameState = presentedFrameState
             let runtime = self
             compositor = try TerminalRenderCompositorView(
                 fence: fence,
                 frameReleaseHandler: { release in
-                    Task {
-                        _ = try? await session.releaseRendererFrame(
-                            Self.backendRelease(release)
-                        )
+                    if frameReleaseLane.enqueue(
+                        Self.backendRelease(release),
+                        priority: .normal
+                    ) == .stopped {
+                        frameReleaseFailures.yield(.stopped)
                     }
                 },
                 framePresentedHandler: { metadata in
@@ -1255,7 +1300,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         ingress: TerminalRenderCompositorIngress
     ) {
         guard receiveTask == nil else { return }
-        let session = session
+        let frameReleaseLane = frameReleaseLane
+        let frameReleaseFailures = frameReleaseFailureContinuation
         receiveTask = Task.detached {
             do {
                 while !Task.isCancelled {
@@ -1267,9 +1313,12 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                         _ = await ingress.enqueue(frame)
                     case .dropped(_, let release):
                         if let release {
-                            _ = try? await session.releaseRendererFrame(
-                                Self.backendRelease(release)
-                            )
+                            if frameReleaseLane.enqueue(
+                                Self.backendRelease(release),
+                                priority: .normal
+                            ) == .stopped {
+                                frameReleaseFailures.yield(.stopped)
+                            }
                         }
                     case .timedOut:
                         continue
@@ -1473,14 +1522,14 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
             guard try rendererConfigFloor.record(invalidation),
                   presentation != nil else { return }
             snapshot = TerminalExternalRuntimeSnapshot(lifecycle: .unavailable)
-            let priorReceiveTask = retireRendererFrameIngressNow()
+            let frameRetirement = retireRendererFrameIngressNow()
             let outcome = try await BackendOnlyRendererConfigRefresh.perform(
                 current: rendererConfigIdentity,
                 invalidation: invalidation,
                 retireIngress: {
-                    if let priorReceiveTask {
-                        await priorReceiveTask.value
-                    }
+                    try await self.finishRendererFrameIngressRetirement(
+                        frameRetirement
+                    )
                 },
                 configure: {
                     try await self.withRendererOperation {
@@ -1525,6 +1574,23 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         }
     }
 
+    private func handleFrameReleaseFailure(
+        _: BackendOnlyRendererFrameReleaseLaneFailure
+    ) async {
+        guard !retired, presentation != nil, !rendererRestarting else { return }
+        invalidateRendererOperations()
+        await withRendererOperationIgnoringCancellation {
+            guard self.presentation != nil, !self.rendererRestarting else { return }
+            self.snapshot = TerminalExternalRuntimeSnapshot(lifecycle: .unavailable)
+            self.rendererRestarting = true
+            await self.stopPresentation()
+            self.rendererRestarting = false
+            if self.visible, !self.retired {
+                _ = try? await self.startPresentationIfReady()
+            }
+        }
+    }
+
     private func rendererWorkerExited(
         _ identity: BackendOnlyRendererWorkerIdentity
     ) async {
@@ -1549,10 +1615,12 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         try await configureRenderer(viewport: viewport)
     }
 
-    private func retireRendererFrameIngressNow() -> Task<Void, Never>? {
+    private func retireRendererFrameIngressNow() -> BackendOnlyRetiredFrameIngress {
         // Retire the drawable synchronously before cancellation can suspend.
         // Frames already queued on the old generation can then only target a
         // detached layer, and later receives are fenced by the new generation.
+        let releaseMetricsBeforeRetirement = frameReleaseLane.metrics()
+        let compositorIngress = compositor?.frameIngress
         compositor?.retire()
         compositor?.removeFromSuperview()
         compositor = nil
@@ -1566,12 +1634,26 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         accessibilityRefreshRequested = false
         latestAccessibilityMetadata = nil
         clearAccessibilitySnapshot()
-        return priorReceiveTask
+        return BackendOnlyRetiredFrameIngress(
+            receiveTask: priorReceiveTask,
+            compositorIngress: compositorIngress,
+            releaseMetricsBeforeRetirement: releaseMetricsBeforeRetirement
+        )
     }
 
-    private func retireRendererFrameIngress() async {
-        if let priorReceiveTask = retireRendererFrameIngressNow() {
-            await priorReceiveTask.value
+    private func finishRendererFrameIngressRetirement(
+        _ retirement: BackendOnlyRetiredFrameIngress
+    ) async throws {
+        await retirement.receiveTask?.value
+        await retirement.compositorIngress?.stopAndWait()
+        await frameReleaseLane.waitUntilIdle()
+        let after = frameReleaseLane.metrics()
+        guard after.capacityFailures
+                == retirement.releaseMetricsBeforeRetirement.capacityFailures,
+              after.sendFailures
+                == retirement.releaseMetricsBeforeRetirement.sendFailures
+        else {
+            throw BackendOnlyHostConnectionError.backendUnavailable
         }
     }
 
@@ -1590,7 +1672,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         }
         presentationTask?.cancel()
         presentationTask = nil
-        await retireRendererFrameIngress()
+        let frameRetirement = retireRendererFrameIngressNow()
+        _ = try? await finishRendererFrameIngressRetirement(frameRetirement)
 
         if let presentation = presentationToStop {
             _ = try? await session.detachRendererPresentation(
@@ -1600,9 +1683,15 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
             if let receiver {
                 if let releases = try? await receiver.drainQuiescedFrames() {
                     for release in releases {
-                        _ = try? await session.releaseRendererFrame(Self.backendRelease(release))
+                        if frameReleaseLane.enqueue(
+                            Self.backendRelease(release),
+                            priority: .recovery
+                        ) == .stopped {
+                            frameReleaseFailureContinuation.yield(.stopped)
+                        }
                     }
                 }
+                await frameReleaseLane.waitUntilIdle()
                 await receiver.stop()
             }
             _ = try? await session.releaseTerminalControl(
@@ -2003,6 +2092,33 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
 }
 
 private extension BackendOnlyTerminalRuntime {
+    nonisolated static func sendRendererFrameRelease(
+        _ release: BackendRendererFrameRelease,
+        through session: BackendCanonicalSession
+    ) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                do {
+                    _ = try await session.releaseRendererFrame(release)
+                    return true
+                } catch {
+                    return false
+                }
+            }
+            group.addTask {
+                do {
+                    try await Task.sleep(for: frameReleaseDeadline)
+                } catch {
+                    return false
+                }
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+    }
+
     static func boundedVTTail(
         _ value: String,
         maximumRows: Int,
@@ -2025,7 +2141,7 @@ private extension BackendOnlyTerminalRuntime {
         return String(rowTail[start...])
     }
 
-    static func backendRelease(
+    nonisolated static func backendRelease(
         _ release: TerminalRenderFrameRelease
     ) -> BackendRendererFrameRelease {
         BackendRendererFrameRelease(

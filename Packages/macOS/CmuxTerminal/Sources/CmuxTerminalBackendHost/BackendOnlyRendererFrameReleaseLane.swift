@@ -15,6 +15,7 @@ enum BackendOnlyRendererFrameReleaseEnqueueResult: Equatable, Sendable {
 enum BackendOnlyRendererFrameReleaseLaneFailure: Equatable, Sendable {
     case capacityExceeded
     case sendFailed
+    case stopped
 }
 
 struct BackendOnlyRendererFrameReleaseLaneMetrics: Equatable, Sendable {
@@ -22,6 +23,7 @@ struct BackendOnlyRendererFrameReleaseLaneMetrics: Equatable, Sendable {
     var sent: UInt64 = 0
     var outstanding: Int = 0
     var maximumOutstanding: Int = 0
+    var capacityFailures: UInt64 = 0
     var sendFailures: UInt64 = 0
     var rejectedAfterStop: UInt64 = 0
 }
@@ -148,6 +150,7 @@ private extension BackendOnlyRendererFrameReleaseLane {
                 state.metrics.rejectedAfterStop += 1
                 result = .stopped
             } else if !hasCapacity(for: priority) {
+                state.metrics.capacityFailures += 1
                 result = .capacityExceeded
                 failure = .capacityExceeded
             } else if !state.queue.append(
@@ -156,6 +159,7 @@ private extension BackendOnlyRendererFrameReleaseLane {
                 // The per-priority outstanding quotas make this unreachable,
                 // including while one item is in flight. Keep the guard so a
                 // future quota change fails closed instead of losing a release.
+                state.metrics.capacityFailures += 1
                 result = .capacityExceeded
                 failure = .capacityExceeded
             } else {

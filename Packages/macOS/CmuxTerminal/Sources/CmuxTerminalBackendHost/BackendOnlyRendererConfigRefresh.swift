@@ -80,7 +80,7 @@ struct BackendOnlyRendererConfigRefresh {
     static func perform(
         current: BackendOnlyRendererConfigIdentity?,
         invalidation: BackendRendererConfigInvalidated,
-        retireIngress: @MainActor () async -> Void,
+        retireIngress: @MainActor () async throws -> Void,
         configure: @MainActor () async throws -> BackendOnlyRendererConfigIdentity
     ) async throws -> BackendOnlyRendererConfigRefreshOutcome {
         if let current {
@@ -98,7 +98,7 @@ struct BackendOnlyRendererConfigRefresh {
         // This closure must synchronously retire drawable ingress before its
         // first suspension. The old generation is then unable to present while
         // the daemon resolves and upserts the replacement configuration.
-        await retireIngress()
+        try await retireIngress()
         let configured = try await configure()
         guard configured.revision >= invalidation.revision else {
             throw BackendOnlyRendererConfigRefreshError.staleReceipt

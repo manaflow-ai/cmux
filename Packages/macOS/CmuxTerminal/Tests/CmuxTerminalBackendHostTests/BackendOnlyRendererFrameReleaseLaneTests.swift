@@ -54,6 +54,7 @@ struct BackendOnlyRendererFrameReleaseLaneTests {
         #expect(lane.enqueue(makeRelease(5), priority: .recovery) == .capacityExceeded)
         #expect(overflows.snapshot() == [.capacityExceeded, .capacityExceeded])
         #expect(lane.metrics().maximumOutstanding == 3)
+        #expect(lane.metrics().capacityFailures == 2)
 
         await sender.resumeNext(result: true)
         await sender.waitUntilStarted(count: 2)
