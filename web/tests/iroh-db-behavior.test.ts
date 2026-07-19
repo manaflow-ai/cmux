@@ -912,6 +912,37 @@ describe("Iroh trust broker database behavior", () => {
     expect(stored).toEqual({ directPortV4: 1, directPortV6: 65_535 });
   });
 
+  dbTest("scrubs direct ports when a binding is revoked", async () => {
+    const repo = requiredRepository();
+    const bindingId = await insertBinding({
+      userId: "user-revoked-direct-ports",
+      endpointId: "4d".repeat(32),
+    });
+    await requiredSql()`
+      update iroh_endpoint_bindings
+      set direct_port_v4 = 49_152, direct_port_v6 = 49_153
+      where id = ${bindingId}
+    `;
+
+    expect(await Effect.runPromise(repo.revokeBinding({
+      userId: "user-revoked-direct-ports",
+      bindingId,
+      now: NOW,
+    }))).toBe(true);
+
+    const [stored] = await requiredSql()<Array<{
+      directPortV4: number | null;
+      directPortV6: number | null;
+    }>>`
+      select
+        direct_port_v4 as "directPortV4",
+        direct_port_v6 as "directPortV6"
+      from iroh_endpoint_bindings
+      where id = ${bindingId}
+    `;
+    expect(stored).toEqual({ directPortV4: null, directPortV6: null });
+  });
+
   dbTest("keeps LAN discovery account-scoped and coherent across binding revocation", async () => {
     const repo = requiredRepository();
     const userId = "user-lan-revoke";
@@ -1313,10 +1344,22 @@ describe("Iroh trust broker database behavior", () => {
       userId: "user-retention",
       endpointId: "83".repeat(32),
     });
+    const legacyRevokedId = await insertBinding({
+      userId: "user-retention",
+      endpointId: "84".repeat(32),
+    });
     await requiredSql()`
       update iroh_endpoint_bindings
       set revoked_at = ${new Date(NOW.getTime() - 31 * 24 * 60 * 60 * 1_000)}
       where id = ${oldRevokedId}
+    `;
+    await requiredSql()`
+      update iroh_endpoint_bindings
+      set
+        revoked_at = ${NOW},
+        direct_port_v4 = 49_152,
+        direct_port_v6 = 49_153
+      where id = ${legacyRevokedId}
     `;
     const [untouchedBefore] = await requiredSql()<Array<{ updatedAt: Date }>>`
       select updated_at as "updatedAt" from iroh_endpoint_bindings where id = ${untouchedId}
@@ -1340,6 +1383,17 @@ describe("Iroh trust broker database behavior", () => {
     `;
     expect(rows.find((row) => row.id === activeId)?.pathHints).toHaveLength(1);
     expect(rows.find((row) => row.id === revokedId)?.pathHints).toEqual([]);
+    const [legacyRevoked] = await requiredSql()<Array<{
+      directPortV4: number | null;
+      directPortV6: number | null;
+    }>>`
+      select
+        direct_port_v4 as "directPortV4",
+        direct_port_v6 as "directPortV6"
+      from iroh_endpoint_bindings
+      where id = ${legacyRevokedId}
+    `;
+    expect(legacyRevoked).toEqual({ directPortV4: null, directPortV6: null });
     const [grant] = await requiredSql()<Array<{ revokedAt: Date | null }>>`
       select revoked_at as "revokedAt" from iroh_pair_grant_issuances where acceptor_binding_id = ${revokedId}
     `;
