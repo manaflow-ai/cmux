@@ -90,6 +90,26 @@ describe("signed relay policy", () => {
     }
   });
 
+  test("never logs unexpected relay policy error contents", async () => {
+    const originalConsoleError = console.error;
+    const calls: unknown[][] = [];
+    console.error = (...args: unknown[]) => { calls.push(args); };
+    try {
+      const response = relayErrorResponse(new Error(
+        "token=secret-token url=https://private-relay.example database=postgres://secret",
+      ));
+
+      expect(response.status).toBe(500);
+      expect(await response.json()).toEqual({ error: "internal_error" });
+      expect(calls).toEqual([[
+        "relay.policy.unexpected",
+        { failure: "unexpected" },
+      ]]);
+    } finally {
+      console.error = originalConsoleError;
+    }
+  });
+
   test("keeps signed policy, web publication, and Presence on one catalog digest", () => {
     const configured = configuredRelayCatalog();
     const presence = parseRelayCatalog(JSON.stringify(APPROVED_IROH_RELAY_CATALOG));
