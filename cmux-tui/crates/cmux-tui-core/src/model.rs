@@ -363,6 +363,24 @@ mod tests {
         let Node::Split { id, .. } = collapsed else { panic!("child split should survive") };
         assert_eq!(id, 11);
     }
+
+    #[test]
+    fn removing_an_unrelated_branch_preserves_a_singleton_stack() {
+        let root = Node::Split {
+            id: 10,
+            dir: SplitDir::Right,
+            ratio: 0.5,
+            a: Box::new(Node::stack_with_expanded(vec![1], 1).unwrap()),
+            b: Box::new(Node::Leaf(2)),
+        };
+
+        let remaining = root.remove_leaf(2).unwrap();
+
+        assert!(matches!(
+            remaining,
+            Node::Stack { ref panes, expanded: 1 } if panes.as_slice() == [1]
+        ));
+    }
 }
 
 /// A split-tree leaf: an ordered list of tabs (surfaces) with one active.
