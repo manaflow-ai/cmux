@@ -77,6 +77,11 @@ struct RemoteInitialCommandBootstrapTests {
             shellFeatures: "ssh-env,ssh-terminfo",
             initialCommand: #"printf '%s\n' "concurrent reattach" >> "$HOME/initial command.txt""#
         )
+        let execScript = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 0,
+            shellFeatures: "ssh-env,ssh-terminfo",
+            initialCommand: #"exec /bin/sh -c 'printf "%s\n" "exec command" >> "$HOME/initial command.txt"'"#
+        )
         let environment = ProcessInfo.processInfo.environment.merging([
             "HOME": home.path,
             "PATH": "\(bin.path):/usr/bin:/bin",
@@ -132,10 +137,12 @@ struct RemoteInitialCommandBootstrapTests {
             delayedResult.status == 0,
             "stdout: \(delayedResult.stdout)\nstderr: \(delayedResult.stderr)"
         )
+        let execResult = try runShell("umask 022\n" + execScript, environment: environment)
+        #expect(execResult.status == 0, "stdout: \(execResult.stdout)\nstderr: \(execResult.stderr)")
 
         let captured = try String(contentsOf: output, encoding: .utf8)
         #expect(
-            captured == "spaces 'single' \"double\" remote-only remote-substitution\nsecond workspace\nconcurrent reattach\n"
+            captured == "spaces 'single' \"double\" remote-only remote-substitution\nsecond workspace\nconcurrent reattach\nexec command\n"
         )
         let mode = try String(
             contentsOf: home.appendingPathComponent("initial command mode.txt"),
@@ -145,7 +152,7 @@ struct RemoteInitialCommandBootstrapTests {
 
         let shellState = home.appendingPathComponent(".cmux/relay/0.shell")
         let shellStateContents = try fileManager.contentsOfDirectory(atPath: shellState.path)
-        #expect(shellStateContents.filter { $0.hasPrefix(".initial-command.started.") }.count == 3)
+        #expect(shellStateContents.filter { $0.hasPrefix(".initial-command.started.") }.count == 4)
         #expect(!shellStateContents.contains { $0.hasPrefix("initial-command.") })
     }
 
