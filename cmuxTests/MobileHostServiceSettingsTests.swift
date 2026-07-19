@@ -96,6 +96,44 @@ struct MobileHostServiceSettingsTests {
         #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .stable))
     }
 
+    @Test func stablePreservesExplicitTailscaleCompatibilityRequest() throws {
+        let suiteName = "MobileHostServiceSettingsTests.StableOptIn.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
+
+        let enabled = MobileHostService.isListeningEnabled(
+            defaults: defaults,
+            buildFlavor: .stable
+        )
+        let plan = MobileHostService.startupPlan(
+            legacyListenerEnabled: enabled,
+            legacyListenerRunning: false
+        )
+
+        #expect(plan.activatesIroh)
+        #expect(plan.startsLegacyListener)
+    }
+
+    @Test func stablePreservesHistoricalTailscaleCompatibilityRequest() throws {
+        let suiteName = "MobileHostServiceSettingsTests.StableLegacyOptIn.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "cmuxMobilePairingHostEnabled")
+
+        let enabled = MobileHostService.isListeningEnabled(
+            defaults: defaults,
+            buildFlavor: .stable
+        )
+        let plan = MobileHostService.startupPlan(
+            legacyListenerEnabled: enabled,
+            legacyListenerRunning: false
+        )
+
+        #expect(plan.activatesIroh)
+        #expect(plan.startsLegacyListener)
+    }
+
     @Test func configuredPortDefaultsToCatalogDefaultWhenUnset() throws {
         let suiteName = "MobileHostServiceSettingsTests.Port.Default.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
