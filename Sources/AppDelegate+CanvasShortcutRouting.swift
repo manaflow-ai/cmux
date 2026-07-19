@@ -72,6 +72,35 @@ extension AppDelegate {
         }
     }
 
+    /// Matches `event` against a global zoom action, additionally accepting the
+    /// shifted variants (Cmd+Shift+= types "+" on many layouts, Cmd+Shift+-
+    /// types "_") while the factory default chord is bound — the same
+    /// plus/minus tolerance browsers apply to their zoom shortcuts. A custom
+    /// rebinding disables the tolerance and matches exactly.
+    func matchGlobalZoomShortcutEvent(_ event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
+        if matchConfiguredShortcut(event: event, action: action) { return true }
+        guard event.type == .keyDown else { return false }
+        let expectedZoomAction: BrowserZoomShortcutAction
+        switch action {
+        case .globalZoomIn:
+            expectedZoomAction = .zoomIn
+        case .globalZoomOut:
+            expectedZoomAction = .zoomOut
+        default:
+            return false
+        }
+        guard KeyboardShortcutSettings.shortcut(for: action) == action.defaultShortcut,
+              shortcutWhenClauseAllows(action: action, event: event) else {
+            return false
+        }
+        return browserZoomShortcutAction(
+            flags: event.modifierFlags,
+            chars: event.charactersIgnoringModifiers ?? "",
+            keyCode: event.keyCode,
+            literalChars: event.characters
+        ) == expectedZoomAction
+    }
+
     /// Steps the app-wide global font magnification from a keyboard shortcut.
     /// Shares the single mutation path with the Settings stepper and command
     /// palette: `GlobalFontMagnification` persists the percent and broadcasts

@@ -223,6 +223,41 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         super.tearDown()
     }
 
+    func testGlobalZoomAcceptsShiftedPlusAndMinusOnFactoryDefaultChord() throws {
+        let delegate = try XCTUnwrap(AppDelegate.shared)
+
+        // Cmd+Shift+= types "+" on US-style layouts. While the factory Cmd+=
+        // binding is active, "Cmd and the plus sign" must zoom the app in,
+        // exactly like browsers tolerate the shifted plus for their zoom.
+        let shiftedPlus = makeKeyEvent(
+            modifierFlags: [.command, .shift],
+            characters: "+",
+            charactersIgnoringModifiers: "+",
+            keyCode: 24
+        )
+        XCTAssertTrue(delegate.matchGlobalZoomShortcutEvent(shiftedPlus, action: .globalZoomIn))
+        XCTAssertFalse(delegate.matchGlobalZoomShortcutEvent(shiftedPlus, action: .globalZoomOut))
+
+        // Cmd+Shift+- types "_"; it must keep zooming out.
+        let shiftedMinus = makeKeyEvent(
+            modifierFlags: [.command, .shift],
+            characters: "_",
+            charactersIgnoringModifiers: "_",
+            keyCode: 27
+        )
+        XCTAssertTrue(delegate.matchGlobalZoomShortcutEvent(shiftedMinus, action: .globalZoomOut))
+        XCTAssertFalse(delegate.matchGlobalZoomShortcutEvent(shiftedMinus, action: .globalZoomIn))
+
+        // The tolerance is scoped to the factory default: a custom rebinding
+        // must match exactly, so the shifted variants stop matching.
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "=", command: true, shift: false, option: true, control: false),
+            for: .globalZoomIn
+        )
+        defer { KeyboardShortcutSettings.resetShortcut(for: .globalZoomIn) }
+        XCTAssertFalse(delegate.matchGlobalZoomShortcutEvent(shiftedPlus, action: .globalZoomIn))
+    }
+
     func testShortcutMonitorIgnoresSystemDefinedEvents() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
