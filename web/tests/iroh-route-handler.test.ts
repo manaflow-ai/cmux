@@ -186,6 +186,84 @@ describe("Iroh route boundary", () => {
     expect(admission.activeCount).toBe(0);
   });
 
+  test("partitions registration firewall limits by physical device and app instance", async () => {
+    const keys: string[] = [];
+    const firewall = {
+      id: "iroh-test-rule",
+      check: async (_id: string, options: { rateLimitKey: string }) => {
+        keys.push(options.rateLimitKey);
+        return { rateLimited: false };
+      },
+    };
+    const deviceId = "10000000-0000-4000-8000-000000000001";
+    const otherDeviceId = "10000000-0000-4000-8000-000000000002";
+    const appInstanceId = "20000000-0000-4000-8000-000000000001";
+    const otherAppInstanceId = "20000000-0000-4000-8000-000000000002";
+    const challenge = (device: string, instance: string) => handleIrohRoute(
+      authedPost("/api/devices/iroh/challenge", {
+        deviceId: device,
+        appInstanceId: instance,
+      }),
+      "challenge",
+      {
+        verify: async () => USER,
+        broker: broker({ issueChallenge: () => Effect.succeed({}) }),
+        firewall,
+      },
+    );
+    const register = (device: string, instance: string) => handleIrohRoute(
+      authedPost("/api/devices/iroh/register", {
+        payload: Buffer.from(JSON.stringify({
+          deviceId: device,
+          appInstanceId: instance,
+        })).toString("base64url"),
+      }),
+      "register",
+      {
+        verify: async () => USER,
+        broker: broker({ register: () => Effect.succeed({}) }),
+        firewall,
+      },
+    );
+
+    expect((await challenge(deviceId, appInstanceId)).status).toBe(201);
+    expect((await challenge(deviceId, appInstanceId)).status).toBe(201);
+    expect((await challenge(deviceId, otherAppInstanceId)).status).toBe(201);
+    expect((await challenge(otherDeviceId, appInstanceId)).status).toBe(201);
+    expect((await register(deviceId, appInstanceId)).status).toBe(201);
+    expect((await register(deviceId, otherAppInstanceId)).status).toBe(201);
+
+    expect(keys[0]).toBe(keys[1]);
+    expect(keys[0]).not.toBe(keys[2]);
+    expect(keys[0]).not.toBe(keys[3]);
+    expect(keys[4]).not.toBe(keys[5]);
+  });
+
+  test("keeps malformed registration identities in the account fallback partition", async () => {
+    const keys: string[] = [];
+    const firewall = {
+      id: "iroh-test-rule",
+      check: async (_id: string, options: { rateLimitKey: string }) => {
+        keys.push(options.rateLimitKey);
+        return { rateLimited: false };
+      },
+    };
+    const send = (deviceId: string, appInstanceId: string) => handleIrohRoute(
+      authedPost("/api/devices/iroh/challenge", { deviceId, appInstanceId }),
+      "challenge",
+      {
+        verify: async () => USER,
+        broker: broker({ issueChallenge: () => Effect.succeed({}) }),
+        firewall,
+      },
+    );
+
+    expect((await send("invalid-device-a", "invalid-instance-a")).status).toBe(201);
+    expect((await send("invalid-device-b", "invalid-instance-b")).status).toBe(201);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBe(keys[1]);
+  });
+
   test("authenticates before reading an oversized body", async () => {
     let called = false;
     const response = await handleIrohRoute(new Request("https://cmux.test/api/devices/iroh/challenge", {

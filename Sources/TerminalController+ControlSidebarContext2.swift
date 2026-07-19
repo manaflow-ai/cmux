@@ -38,7 +38,7 @@ extension TerminalController {
             let validSurfaceIds = Set(tab.panels.keys)
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
             guard validSurfaceIds.contains(scope.panelID) else { return }
-            guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
+            guard SidebarWorkspaceDetailDefaults.gitMetadataPollingEnabled(defaults: .standard) else {
                 tabManager.clearSurfaceGitBranch(tabId: scope.workspaceID, surfaceId: scope.panelID)
                 return
             }
@@ -55,7 +55,7 @@ extension TerminalController {
         guard let tab = controlSidebarResolveTabForReport(tabArg: tabArg) else {
             return false
         }
-        guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
+        guard SidebarWorkspaceDetailDefaults.gitMetadataPollingEnabled(defaults: .standard) else {
             tab.gitBranch = nil
             return true
         }

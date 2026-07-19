@@ -58,8 +58,22 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public typealias ClaudeCommandShim = TerminalSurfaceClaudeCommandShim
     public typealias CodexCommandShim = TerminalSurfaceCodexCommandShim
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
+    private var runtimeSurface: ghostty_surface_t?
     /// The live runtime surface pointer, or nil before creation/after teardown.
-    public internal(set) var surface: ghostty_surface_t?
+    public internal(set) var surface: ghostty_surface_t? {
+        get { runtimeSurface }
+        set {
+            guard runtimeSurface != newValue else { return }
+            runtimeSurface = newValue
+            runtimeSurfaceGeneration &+= 1
+        }
+    }
+    /// Monotonic lifetime identity for the native Ghostty surface.
+    ///
+    /// The generation advances whenever the runtime handle is installed or
+    /// removed, so clients can invalidate pointer-backed caches even when an
+    /// allocator later reuses the same address.
+    public private(set) var runtimeSurfaceGeneration: UInt64 = 0
     weak var attachedView: (any TerminalSurfaceNativeViewing)?
     // MARK: Injected collaborators (see TerminalSurfaceRuntimeDependencies)
     let registry: any TerminalSurfaceRegistering
@@ -294,6 +308,52 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var portalLifecycleState: PortalLifecycleState = .live
     var portalLifecycleGeneration: UInt64 = 1
     var activePortalHostLease: PortalHostLease?
+    var portalHostAuthority: TerminalPortalHostAuthority?
+    /// Wake-up retries for the owner-death edge, one per live candidate host.
+    ///
+    /// Every claim runs on a candidate's own edge (its SwiftUI update, window
+    /// entry, geometry change); the lease owner dying fires no edge on any
+    /// survivor, so a pane whose owner dismantled can wait a full settle
+    /// budget for an unrelated update before it re-anchors. The values are
+    /// weak trampolines into each candidate's coordinator — the surface holds
+    /// no view state and no strong reference back to itself, so a dead
+    /// coordinator turns its entry into a no-op and no retain cycle exists.
+    /// Entries drop when their own host vacates the lease, when the host
+    /// dismantles, when the runtime is hibernated, and when the portal
+    /// lifecycle leaves `.live`; parking is refused outside bindable runtime
+    /// states.
+    var portalHostVacancyRetries: [ObjectIdentifier: (instanceSerial: UInt64, generation: UInt64, retry: () -> Void)] = [:]
+    var portalHostVacancyWakeGeneration: UInt64?
+    var portalHostVacancyWakeScheduled: Bool {
+        portalHostVacancyWakeGeneration != nil
+    }
+
+    func clearPortalHostVacancyRetries() {
+        portalHostVacancyRetries.removeAll()
+        portalHostVacancyWakeGeneration = nil
+    }
+
+    /// Parks (or refreshes) a host's vacancy retry. See
+    /// `portalHostVacancyRetries` for lifetime rules.
+    public func parkPortalVacancyRetry(
+        hostId: ObjectIdentifier,
+        instanceSerial: UInt64,
+        _ retry: @escaping () -> Void
+    ) {
+        guard canAcceptPortalBinding(expectedSurfaceId: nil, expectedGeneration: nil) else { return }
+        let generation = portalLifecycleGeneration
+        portalHostVacancyRetries = portalHostVacancyRetries.filter { $0.value.generation == generation }
+        portalHostVacancyRetries[hostId] = (instanceSerial, generation, retry)
+    }
+
+    /// Drops a host's vacancy retry (dismantle, or the host stopped owning
+    /// its pane; the owner's own vacate paths drop theirs). Serial-matched
+    /// like every other identity check here: a recycled object address must
+    /// not remove a newer incarnation's park.
+    public func removePortalVacancyRetry(hostId: ObjectIdentifier, instanceSerial: UInt64) {
+        guard portalHostVacancyRetries[hostId]?.instanceSerial == instanceSerial else { return }
+        portalHostVacancyRetries.removeValue(forKey: hostId)
+    }
 
     /// The live find session, or nil when find is closed. Setting it arms the
     /// debounced needle pipeline; clearing it ends the runtime search.
@@ -491,6 +551,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Rebinds the surface (and its views) to a new owning workspace id.
     @MainActor
     public func updateWorkspaceId(_ newTabId: UUID) {
+        if tabId != newTabId {
+            portalLifecycleGeneration &+= 1
+        }
         tabId = newTabId
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId

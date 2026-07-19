@@ -64,6 +64,22 @@ struct TerminalSurfaceRegistryTests {
         #expect(!registry.isRightSidebarDockSurface(id: surface.id))
     }
 
+    @Test func topologyGenerationChangesOnlyForSurfaceTopologyMutations() {
+        let registry = TerminalSurfaceRegistry()
+        let surface = FakeSurface()
+        let initial = registry.topologyGeneration
+
+        registry.register(surface)
+        let registered = registry.topologyGeneration
+        #expect(registered > initial)
+
+        registry.updateFocusPlacement(id: surface.id, .rightSidebarDock)
+        #expect(registry.topologyGeneration == registered)
+
+        registry.unregister(surface)
+        #expect(registry.topologyGeneration > registered)
+    }
+
     @Test func placementSurvivesWhileAnotherSurfaceSharesTheId() {
         let registry = TerminalSurfaceRegistry()
         let sharedId = UUID()

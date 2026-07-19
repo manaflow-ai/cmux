@@ -114,6 +114,35 @@ extension RemoteTmuxSizingUITests {
         return Self.normalizeScreen(raw)
     }
 
+    /// Waits for the ruler to print at an exact PTY size, proving the remote
+    /// resize produced output before the next churn step. This is a real-state
+    /// predicate rather than fixed pacing, so loaded runners cannot skip the
+    /// intermediate state merely because a sleep expired.
+    func waitForRulerScreenSize(
+        window: Int,
+        columns: Int,
+        rows: Int,
+        within timeout: TimeInterval,
+        context: String
+    ) throws {
+        let pane = try XCTUnwrap(
+            tmux(["list-panes", "-t", "\(sessionName):@\(window)", "-F", "#{pane_id}"])?
+                .split(separator: "\n").first.map(String.init),
+            "no pane in @\(window) while waiting for ruler size \(context)"
+        )
+        let marker = String(format: "END %@ %03dx%03d", pane, columns, rows)
+        let deadline = Date().addingTimeInterval(timeout)
+        var last = "never captured"
+        while Date() < deadline {
+            if let screen = captureRemoteScreen(pane: pane) {
+                last = screen.split(separator: "\n").last.map(String.init) ?? "<empty>"
+                if screen.contains(marker) { return }
+            }
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        XCTFail("ruler never reached \(marker) \(context); last line: \(last)")
+    }
+
     /// The tmux pane id → cmux surface id map (on-screen panes only), from
     /// `remote.tmux.pane_surfaces`.
     ///
@@ -298,7 +327,13 @@ extension RemoteTmuxSizingUITests {
         try startRulers(window: solo)
         try assertWindowContentMatchesTmux(window: solo, context: "solo before churn")
         mustRunTmux(["resize-window", "-t", "\(sessionName):@\(solo)", "-x", "99", "-y", "35"], "shrinking solo from the tmux side")
-        Thread.sleep(forTimeInterval: 1.0)
+        try waitForRulerScreenSize(
+            window: solo,
+            columns: 99,
+            rows: 35,
+            within: 10,
+            context: "after visible shrink"
+        )
         mustRunTmux(["resize-window", "-t", "\(sessionName):@\(solo)", "-x", "140", "-y", "40"], "growing solo from the tmux side")
         try waitWindowSizeStable(window: solo, within: 10, context: "solo after churn")
         try assertWindowContentMatchesTmux(window: solo, context: "solo after churn")
@@ -386,7 +421,13 @@ extension RemoteTmuxSizingUITests {
         XCTAssertTrue(selectTab(named: "split"), "could not select split tab")
         try assertSettles(selectedWindow: split, within: 10, context: "split front")
         mustRunTmux(["resize-window", "-t", "\(sessionName):@\(solo)", "-x", "80", "-y", "24"], "shrinking solo while hidden")
-        Thread.sleep(forTimeInterval: 1.0)
+        try waitForRulerScreenSize(
+            window: solo,
+            columns: 80,
+            rows: 24,
+            within: 10,
+            context: "while solo is hidden"
+        )
         mustRunTmux(["resize-window", "-t", "\(sessionName):@\(solo)", "-x", "150", "-y", "42"], "growing solo while hidden")
         // Reveal and require parity.
         XCTAssertTrue(selectTab(named: "solo"), "could not select solo tab")

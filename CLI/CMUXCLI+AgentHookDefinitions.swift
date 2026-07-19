@@ -58,7 +58,7 @@ extension CMUXCLI {
             case antigravityJSON(timeoutSeconds: Int) // ~/.gemini/config/hooks.json named hook groups
             case rovoDevYAML
             case hermesAgentYAML
-            case tomlArrayTable // ~/.kimi-code/config.toml [[hooks]] array-of-tables
+            case tomlArrayTable // ~/.kimi/config.toml [[hooks]] array-of-tables
         }
 
         struct HookEvent {

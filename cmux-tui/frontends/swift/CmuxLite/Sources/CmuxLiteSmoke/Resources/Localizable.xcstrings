@@ -1,0 +1,30 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "smoke.benchmark.columns" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "metric | unix socket | websocket" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "指標 | Unix ソケット | WebSocket" } }
+      }
+    },
+    "smoke.benchmark.maximum" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "max    | %1$8.3f ms | %2$8.3f ms" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "最大   | %1$8.3f ms | %2$8.3f ms" } }
+      }
+    },
+    "smoke.benchmark.summary" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Echo RTT iterations=%1$lld unix-surface=%2$llu websocket-surface=%3$llu" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エコー RTT 反復=%1$lld Unixサーフェス=%2$llu WebSocketサーフェス=%3$llu" } }
+      }
+    },
+    "smoke.timeout" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Live transport smoke" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ライブトランスポートのスモークテスト" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}

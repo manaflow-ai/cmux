@@ -373,6 +373,8 @@ Hook subcommands:
 | `hooks feed --source <agent>` | Convert agent hook events into Feed context. |
 | `hooks <agent> <event>` | Generic hook surface for `grok`, `opencode`, `pi`, `amp`, `cursor`, `gemini`, `kimi`, `rovodev`, `copilot`, `codebuddy`, `factory`, and `qoder`. |
 
+Kimi hook setup targets `${KIMI_SHARE_DIR:-~/.kimi}/config.toml`. Setup and uninstall also remove only cmux's marker-delimited block from the legacy `${KIMI_CODE_HOME:-~/.kimi-code}/config.toml` path.
+
 Right sidebar commands:
 
 | Command | Contract |

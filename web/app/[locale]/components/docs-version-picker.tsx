@@ -25,7 +25,7 @@ export function DocsVersionPicker({
           const { pathname, search, hash } = window.location;
           window.location.assign(docsChannelUrl(value, pathname, search, hash));
         }}
-        className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-[13px] text-foreground"
+        className="h-[30px] w-full appearance-auto border-0 bg-transparent px-1 py-0 text-[13px] text-muted-foreground shadow-none outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       >
         <option value="release">{releaseLabel}</option>
         <option value="nightly">{nightlyLabel}</option>

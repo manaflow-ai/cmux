@@ -20,13 +20,16 @@ extension WorkspaceDetailView {
         // composer owns or intentionally withholds the keyboard.
         autoFocusOnWindowAttach: shouldAutoFocus,
         isComposerActive: store.isComposerPresented,
+        terminalTheme: store.activeTerminalTheme,
+        terminalConfigTheme: store.activeTerminalConfigTheme,
         // Drives the live recolor: when the synced theme changes the
         // shell bumps this, and the representable rebuilds the runtime
         // config + recolors the mounted surface in place (background,
         // letterbox, default cell colors) without a remount, so
         // scrollback survives a theme change.
-        themeGeneration: store.terminalThemeGeneration,
+        configThemeGeneration: store.terminalConfigThemeGeneration,
         artifactFilesEnabled: store.supportsTerminalArtifacts,
+        terminalFilesChipEnabled: terminalFilesChipEnabled,
         sessionArtifactCountEnabled: store.supportsChatArtifactGallery,
         visibleArtifactCount: visibleArtifactCount,
         onArtifactFilesRequested: { anchor in
@@ -40,12 +43,18 @@ extension WorkspaceDetailView {
             selectedTerminalArtifact = TerminalArtifactSelection(
                 workspaceID: workspace.id.rawValue,
                 surfaceID: terminalID,
-                path: path
+                path: path,
+                session: chosenChatSession
             )
         },
         onVisibleArtifactCountChanged: { count in
             if visibleArtifactCount != count {
                 visibleArtifactCount = count
+            }
+        },
+        onArtifactGalleryRefreshSignal: { signal in
+            if artifactGalleryRefreshSignal != signal {
+                artifactGalleryRefreshSignal = signal
             }
         }
     )
@@ -58,6 +67,7 @@ extension WorkspaceDetailView {
             workspaceID: context.workspaceID,
             surfaceID: context.surfaceID,
             source: store.makeChatEventSource(),
+            refreshSignal: artifactGalleryRefreshSignal,
             loader: terminalArtifactLoader(
                 workspaceID: context.workspaceID,
                 surfaceID: context.surfaceID
@@ -76,7 +86,7 @@ extension WorkspaceDetailView {
     //
     // The theme is NOT folded into the identity: a theme change recolors
     // the live surface in place (config rebuild + view recolor driven by
-    // `themeGeneration`), so remounting would only throw away scrollback
+    // `configThemeGeneration`), so remounting would only throw away scrollback
     // for no visual benefit.
     .id(terminalID)
     .onAppear {
@@ -86,7 +96,7 @@ extension WorkspaceDetailView {
         visibleArtifactCount = 0
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .background(TerminalPalette.background)
+    .background(store.activeTerminalTheme.terminalBackgroundColor)
     // The surface positions its grid + docked toolbar from
     // `keyboardHeight` directly, so opt out of SwiftUI keyboard
     // avoidance; otherwise the view ALSO shrinks for the keyboard

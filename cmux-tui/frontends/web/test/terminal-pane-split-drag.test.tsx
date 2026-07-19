@@ -1,23 +1,46 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ClientInfo } from "cmux/browser";
+import type { ClientInfo, CmuxClient } from "cmux/browser";
 import { TerminalPane } from "../src/components/TerminalPane";
 import type { ScreenView } from "../src/lib/tree";
 
 const attachedTerminal = vi.hoisted(() => ({
   foreignSize: null as { cols: number; rows: number } | null,
+  byteHook: vi.fn(),
+  renderHook: vi.fn(),
 }));
 
 vi.mock("../src/hooks/useAttachedTerminal", () => ({
-  useAttachedTerminal: () => ({
-    terminalRef: () => undefined,
-    focused: false,
-    foreignSize: attachedTerminal.foreignSize,
-  }),
+  useAttachedTerminal: () => {
+    attachedTerminal.byteHook();
+    return {
+      terminalRef: () => undefined,
+      focused: false,
+      foreignSize: attachedTerminal.foreignSize,
+    };
+  },
+}));
+
+vi.mock("../src/hooks/useRenderTerminal", () => ({
+  useRenderTerminal: () => {
+    attachedTerminal.renderHook();
+    return {
+      terminalRef: () => undefined,
+      focused: false,
+      foreignSize: attachedTerminal.foreignSize,
+      model: null,
+      history: { active: false, loading: false, total: 0, rows: [] },
+      backToLive: vi.fn(),
+      sendKey: vi.fn(),
+      sendText: vi.fn(),
+    };
+  },
 }));
 
 beforeEach(() => {
   attachedTerminal.foreignSize = null;
+  attachedTerminal.byteHook.mockClear();
+  attachedTerminal.renderHook.mockClear();
 });
 
 function screenView(ratio: number, zoomedPane: number | null = null): ScreenView {
@@ -44,8 +67,13 @@ function screenView(ratio: number, zoomedPane: number | null = null): ScreenView
 
 function terminalPaneProps(onSetRatio: (pane: number, dir: "right" | "down", ratio: number) => Promise<boolean>) {
   return {
-    client: null,
+    client: null as CmuxClient | null,
     clients: [] as ClientInfo[],
+    onRefreshClients: vi.fn(),
+    onSetClientSizing: vi.fn(),
+    onUseOnlyClientSizing: vi.fn(),
+    onUseAllClientSizing: vi.fn(),
+    onDetachClient: vi.fn(),
     onSelectTab: vi.fn(),
     onNewTab: vi.fn(),
     onSplit: vi.fn(),
@@ -159,8 +187,106 @@ describe("TerminalPane split dividers", () => {
   });
 });
 
-describe("TerminalPane foreign-size indicator", () => {
-  it("renders the true-size marker and names one matching foreign client", () => {
+describe("TerminalPane shared minimum size", () => {
+  it("shows the exact surface viewers in the bottom-left border", () => {
+    const props = terminalPaneProps(vi.fn(async () => true));
+    props.clients = [
+      {
+        client: 1,
+        transport: "ws",
+        name: "browser",
+        kind: "web",
+        connected_seconds: 10,
+        attached: [7],
+        sizes: [{ surface: 7, cols: 120, rows: 30 }],
+        self: true,
+        size_participating: true,
+      },
+      {
+        client: 2,
+        transport: "unix",
+        name: "small tui",
+        kind: "tui",
+        connected_seconds: 20,
+        attached: [7],
+        sizes: [{ surface: 7, cols: 80, rows: 40 }],
+        self: false,
+        size_participating: true,
+      },
+    ];
+
+    const { getByRole } = render(<TerminalPane {...props} screen={terminalScreenView()} />);
+    const trigger = getByRole("button", { name: "2 clients · 80×30 min" });
+    fireEvent.click(trigger);
+    fireEvent.click(getByRole("menuitem", { name: "Use all client sizes" }));
+
+    expect(props.onRefreshClients).toHaveBeenCalledOnce();
+    expect(props.onUseAllClientSizing).toHaveBeenCalledOnce();
+  });
+
+  it("uses the tmux fallback minimum when every attached viewer is excluded", () => {
+    const props = terminalPaneProps(vi.fn(async () => true));
+    props.clients = [
+      {
+        client: 1,
+        transport: "ws",
+        name: "browser",
+        kind: "web",
+        connected_seconds: 10,
+        attached: [7],
+        sizes: [{ surface: 7, cols: 120, rows: 30 }],
+        self: true,
+        size_participating: false,
+      },
+      {
+        client: 2,
+        transport: "unix",
+        name: "small tui",
+        kind: "tui",
+        connected_seconds: 20,
+        attached: [7],
+        sizes: [{ surface: 7, cols: 80, rows: 40 }],
+        self: false,
+        size_participating: false,
+      },
+    ];
+
+    const { getByRole } = render(<TerminalPane {...props} screen={terminalScreenView()} />);
+    expect(getByRole("button", { name: "2 clients · 80×30 min" })).toBeInTheDocument();
+  });
+
+  it("does not show clients viewing another surface on this pane", () => {
+    const props = terminalPaneProps(vi.fn(async () => true));
+    props.clients = [
+      {
+        client: 1,
+        transport: "ws",
+        name: "browser",
+        kind: "web",
+        connected_seconds: 10,
+        attached: [7],
+        sizes: [{ surface: 7, cols: 120, rows: 30 }],
+        self: true,
+        size_participating: true,
+      },
+      {
+        client: 2,
+        transport: "unix",
+        name: "other tab",
+        kind: "tui",
+        connected_seconds: 20,
+        attached: [8],
+        sizes: [{ surface: 8, cols: 80, rows: 40 }],
+        self: false,
+        size_participating: true,
+      },
+    ];
+
+    const { queryByRole } = render(<TerminalPane {...props} screen={terminalScreenView()} />);
+    expect(queryByRole("button", { name: /clients ·/ })).not.toBeInTheDocument();
+  });
+
+  it("does not present the shared size as foreign ownership", () => {
     attachedTerminal.foreignSize = { cols: 126, rows: 38 };
     const props = terminalPaneProps(vi.fn(async () => true));
     props.clients = [
@@ -173,6 +299,7 @@ describe("TerminalPane foreign-size indicator", () => {
         attached: [7],
         sizes: [{ surface: 7, cols: 126, rows: 38 }],
         self: true,
+        size_participating: true,
       },
       {
         client: 2,
@@ -183,13 +310,14 @@ describe("TerminalPane foreign-size indicator", () => {
         attached: [7],
         sizes: [{ surface: 7, cols: 126, rows: 38 }],
         self: false,
+        size_participating: true,
       },
     ];
 
-    const { container, getByText, rerender } = render(<TerminalPane {...props} screen={terminalScreenView()} />);
+    const { container, queryByText, rerender } = render(<TerminalPane {...props} screen={terminalScreenView()} />);
 
-    expect(container.querySelector(".terminal-host.foreign-sized")).toBeInTheDocument();
-    expect(getByText("sized by office tmux (126x38)")).toHaveClass("foreign-size-hint");
+    expect(container.querySelector(".terminal-host.foreign-sized")).not.toBeInTheDocument();
+    expect(queryByText("shared size 126x38, limited by office tmux")).not.toBeInTheDocument();
 
     attachedTerminal.foreignSize = null;
     rerender(<TerminalPane {...props} screen={terminalScreenView()} />);
@@ -197,7 +325,7 @@ describe("TerminalPane foreign-size indicator", () => {
     expect(container.querySelector(".foreign-size-hint")).not.toBeInTheDocument();
   });
 
-  it("uses the takeover hint when more than one foreign client matches", () => {
+  it("does not show an ownership hint for multiple limiting clients", () => {
     attachedTerminal.foreignSize = { cols: 126, rows: 38 };
     const props = terminalPaneProps(vi.fn(async () => true));
     props.clients = [2, 3].map((client) => ({
@@ -209,10 +337,43 @@ describe("TerminalPane foreign-size indicator", () => {
       attached: [7],
       sizes: [{ surface: 7, cols: 126, rows: 38 }],
       self: false,
+      size_participating: true,
     }));
 
-    const { getByText } = render(<TerminalPane {...props} screen={terminalScreenView()} />);
+    const { queryByText } = render(<TerminalPane {...props} screen={terminalScreenView()} />);
 
-    expect(getByText("sized by another client (126x38), type to take over")).toBeInTheDocument();
+    expect(queryByText("shared size 126x38 (smallest client)")).not.toBeInTheDocument();
+  });
+});
+
+describe("TerminalPane renderer selection", () => {
+  it("renders TUI cell chrome while keeping tabs as DOM buttons", () => {
+    const props = terminalPaneProps(vi.fn(async () => true));
+    props.client = { protocol: 7 } as CmuxClient;
+
+    const { container, getByRole } = render(<TerminalPane {...props} screen={terminalScreenView()} />);
+
+    expect(getByRole("button", { name: "1" })).toHaveClass("active");
+    expect(container.querySelector(".tab-rail")).toHaveTextContent("▎");
+    expect(container.querySelector(".tab-bar")?.textContent).toContain("┌");
+    expect(container.querySelector(".tab-bar")?.textContent).toContain("┐");
+    expect(container.querySelectorAll(".pane-side")).toHaveLength(2);
+    expect(container.querySelector(".pane-bottom")?.textContent).toBe("└┘");
+    expect(container.querySelector(".render-terminal-host")).toBeInTheDocument();
+  });
+
+  it("uses render mode only for the identified protocol 7 client", () => {
+    const props = terminalPaneProps(vi.fn(async () => true));
+    props.client = { protocol: 7 } as CmuxClient;
+
+    const { rerender } = render(<TerminalPane {...props} screen={terminalScreenView()} />);
+    expect(attachedTerminal.renderHook).toHaveBeenCalledTimes(1);
+    expect(attachedTerminal.byteHook).not.toHaveBeenCalled();
+
+    attachedTerminal.renderHook.mockClear();
+    props.client = { protocol: 6 } as CmuxClient;
+    rerender(<TerminalPane {...props} screen={terminalScreenView()} />);
+    expect(attachedTerminal.byteHook).toHaveBeenCalledTimes(1);
+    expect(attachedTerminal.renderHook).not.toHaveBeenCalled();
   });
 });

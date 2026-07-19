@@ -29,7 +29,9 @@ extension MobileShellComposite {
         return MobileChatEventSource(
             client: client,
             supportsArtifacts: supportsChatArtifacts,
-            supportsArtifactGallery: supportsChatArtifactGallery
+            supportsArtifactGallery: supportsChatArtifactGallery,
+            supportsArtifactFolders: supportsChatArtifactFolders,
+            supportsTerminalArtifactList: supportsTerminalArtifactList
         )
     }
 

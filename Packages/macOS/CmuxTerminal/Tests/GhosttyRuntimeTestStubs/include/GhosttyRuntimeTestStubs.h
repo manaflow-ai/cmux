@@ -17,7 +17,19 @@ typedef struct {
 
 bool ghostty_surface_clear_selection(void *surface);
 
-void ghostty_config_diagnostics_count(void);
+void *ghostty_config_new(void);
+void ghostty_config_free(void *config);
+void ghostty_config_load_string(
+    void *config,
+    const char *contents,
+    uintptr_t contents_len,
+    const char *path);
+bool ghostty_config_get(
+    void *config,
+    void *value,
+    const char *key,
+    uintptr_t key_len);
+uint32_t ghostty_config_diagnostics_count(void *config);
 void ghostty_config_get_diagnostic(void);
 void ghostty_string_free(ghostty_string_s string);
 void ghostty_surface_binding_action(void);
@@ -39,6 +51,7 @@ void ghostty_surface_read_screen_tail_vt(void);
 void ghostty_surface_read_text(void);
 void ghostty_surface_refresh(void);
 void ghostty_surface_render_grid_json(void);
+void ghostty_surface_render_grid_json_with_theme(void);
 void ghostty_surface_set_content_scale(void);
 void ghostty_surface_set_display_id(void);
 void ghostty_surface_set_focus(void);

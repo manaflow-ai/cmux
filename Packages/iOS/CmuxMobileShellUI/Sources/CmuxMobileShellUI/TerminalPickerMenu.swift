@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileSupport
 import SwiftUI
 
@@ -5,12 +6,13 @@ import SwiftUI
 struct TerminalPickerMenu: View, Equatable {
     let value: TerminalPickerMenuValue
     let actions: TerminalPickerMenuActions
+    let terminalTheme: TerminalTheme
     #if DEBUG
     private let diagnostics = TerminalPickerMenuDiagnostics()
     #endif
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.value == rhs.value
+        lhs.value == rhs.value && lhs.terminalTheme == rhs.terminalTheme
     }
 
     var body: some View {
@@ -23,7 +25,7 @@ struct TerminalPickerMenu: View, Equatable {
             )
             .labelStyle(.iconOnly)
         }
-        .foregroundStyle(TerminalPalette.foreground)
+        .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
         .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(value.selectedName ?? "")

@@ -65,6 +65,38 @@ import Testing
         #expect(store.workspaceGroups.isEmpty)
     }
 
+    @Test func networkChangeKeepsLegacyNoStoreConnectionAvailable() throws {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: CmxMobileDefaults.defaultHostPort
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-main",
+            macDeviceID: "legacy-mac",
+            macDisplayName: "Legacy Mac",
+            routes: [route],
+            expiresAt: Date(timeIntervalSince1970: 86_400)
+        )
+        store.remoteClient = MobileCoreRPCClient(
+            runtime: PairingDeadlineRuntime(),
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+
+        store.recoverMobileConnection(trigger: .networkChange)
+
+        #expect(store.connectionState == .connected)
+        #expect(store.macConnectionStatus == .reconnecting)
+        #expect(!store.connectionRecoveryFailed)
+    }
+
     @Test func currentTeamDidChangeKeepsForegroundWorkspacesLive() {
         let store = MobileShellComposite.preview()
         store.signIn()
@@ -131,6 +163,62 @@ import Testing
 
         #expect(store.pairedMacs.map(\.macDeviceID) == ["mac-b"])
         #expect(store.registryDevices.map(\.deviceId) == ["device-b"])
+    }
+
+    @Test func teamChangeRestartsDisconnectedStoredMacReconnectInNewScope() async throws {
+        let team = MutableTeamID("team-a")
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [try Self.pairedMac(id: "mac-a", teamID: "team-a")],
+                "team-b": [try Self.pairedMac(id: "mac-b", teamID: "team-b")],
+            ],
+            blockedTeams: ["team-a"]
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { await team.value },
+            forgottenMacStore: InMemoryPairedMacForgottenStore()
+        )
+
+        let staleReconnect = Task {
+            await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        await pairedStore.waitUntilLoadStarted(teamID: "team-a")
+
+        await team.set("team-b")
+        store.currentTeamDidChange()
+        await pairedStore.release(teamID: "team-a")
+        _ = await staleReconnect.value
+        for _ in 0..<10 { await Task.yield() }
+
+        #expect(await pairedStore.didStartLoad(teamID: "team-b"))
+    }
+
+    @Test func repeatedTeamChangeCancelsOwnedReconnectTask() async throws {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [:],
+            blockedTeams: []
+        )
+        await pairedStore.gateBackupCancellation(call: 1)
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            forgottenMacStore: InMemoryPairedMacForgottenStore()
+        )
+
+        store.currentTeamDidChange()
+        await pairedStore.waitUntilBackupCancellationStarted(call: 1)
+        store.currentTeamDidChange()
+        await pairedStore.waitUntilBackupCancellationStarted(call: 2)
+        await pairedStore.releaseBackupCancellation(call: 1)
+
+        #expect(try await pollUntil {
+            await pairedStore.backupCancellationWasCancelled(call: 1) != nil
+        })
+        #expect(await pairedStore.backupCancellationWasCancelled(call: 1) == true)
     }
 
     @Test func createWorkspaceSelectsNewWorkspaceAndTerminal() {

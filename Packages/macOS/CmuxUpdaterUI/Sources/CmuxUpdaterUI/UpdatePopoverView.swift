@@ -39,6 +39,9 @@ public struct UpdatePopoverView: View {
             case .permissionRequest(let request):
                 PermissionRequestView(request: request, dismiss: dismiss)
 
+            case .preparingCheck(let checking):
+                PreparingUpdateCheckView(checking: checking, dismiss: dismiss)
+
             case .checking(let checking):
                 CheckingView(checking: checking, dismiss: dismiss)
 
@@ -47,6 +50,9 @@ public struct UpdatePopoverView: View {
 
             case .downloading(let download):
                 DownloadingView(download: download, dismiss: dismiss)
+
+            case .startingDownload:
+                StartingUpdateDownloadView()
 
             case .extracting(let extracting):
                 ExtractingView(extracting: extracting)

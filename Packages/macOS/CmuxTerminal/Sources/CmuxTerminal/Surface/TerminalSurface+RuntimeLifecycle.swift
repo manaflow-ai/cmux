@@ -135,6 +135,7 @@ extension TerminalSurface {
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
             activePortalHostLease = nil
+            portalHostAuthority = nil
             recordTeardownRequest(reason: reason)
             markPortalLifecycleClosed(reason: reason)
 #if DEBUG
@@ -197,6 +198,9 @@ extension TerminalSurface {
         guard portalLifecycleState != .closing else { return }
         recordTeardownRequest(reason: reason)
         portalLifecycleState = .closing
+        // Parked wake-ups are for re-anchoring live content; a closing surface
+        // has none, and the park guard refuses new entries from here on.
+        clearPortalHostVacancyRetries()
         portalLifecycleGeneration &+= 1
 #if DEBUG
         logDebugEvent(
@@ -211,6 +215,7 @@ extension TerminalSurface {
         guard portalLifecycleState != .closed else { return }
         portalLifecycleState = .closed
         portalLifecycleGeneration &+= 1
+        clearPortalHostVacancyRetries()
 #if DEBUG
         logDebugEvent(
             "surface.lifecycle.close.sealed surface=\(id.uuidString.prefix(5)) " +
@@ -313,6 +318,9 @@ extension TerminalSurface {
         }
         surface = nil
         activePortalHostLease = nil
+        portalHostAuthority = nil
+        clearPortalHostVacancyRetries()
+        portalLifecycleGeneration &+= 1
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
         pendingSocketInputBytes = 0
         desiredFocusState = false

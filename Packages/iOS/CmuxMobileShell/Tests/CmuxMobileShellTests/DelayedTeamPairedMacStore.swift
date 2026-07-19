@@ -1,8 +1,9 @@
 import CMUXMobileCore
 import CmuxMobilePairedMac
 import Foundation
+@testable import CmuxMobileShell
 
-actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
+actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshing {
     private var recordsByTeam: [String: [MobilePairedMac]]
     private let blockedTeams: Set<String>
     private var startedTeams: Set<String> = []
@@ -10,6 +11,11 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
     private var blockers: [String: CheckedContinuation<Void, Never>] = [:]
     private var upsertCount = 0
     private var loadAllCount = 0
+    private var recordReplacement: (
+        afterLoadAllCount: Int,
+        teamKey: String,
+        records: [MobilePairedMac]
+    )?
     private var upsertWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private var gatedUpsertIDs: Set<String> = []
     private var upsertStartedIDs: Set<String> = []
@@ -20,6 +26,12 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
     private var removeStartedIDs: Set<String> = []
     private var removeStartWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var removeBlockers: [String: CheckedContinuation<Void, Never>] = [:]
+    private var backupCancellationCallCount = 0
+    private var gatedBackupCancellationCalls: Set<Int> = []
+    private var backupCancellationStartedCalls: Set<Int> = []
+    private var backupCancellationStartWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
+    private var backupCancellationBlockers: [Int: CheckedContinuation<Void, Never>] = [:]
+    private var backupCancellationObservedCancellation: [Int: Bool] = [:]
 
     init(recordsByTeam: [String: [MobilePairedMac]], blockedTeams: Set<String>) {
         self.recordsByTeam = recordsByTeam
@@ -142,12 +154,22 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
                 blockers[key] = continuation
             }
         }
-        let scoped = recordsByTeam[key] ?? []
-        guard key != "" else { return scoped }
-        let legacyTeamless = (recordsByTeam[""] ?? []).filter { mac in
-            mac.stackUserID == nil || mac.stackUserID == stackUserID
+        let result: [MobilePairedMac]
+        if key.isEmpty {
+            result = recordsByTeam[key] ?? []
+        } else {
+            let scoped = recordsByTeam[key] ?? []
+            let legacyTeamless = (recordsByTeam[""] ?? []).filter { mac in
+                mac.stackUserID == nil || mac.stackUserID == stackUserID
+            }
+            result = scoped + legacyTeamless
         }
-        return scoped + legacyTeamless
+        if let recordReplacement,
+           loadAllCount == recordReplacement.afterLoadAllCount {
+            recordsByTeam[recordReplacement.teamKey] = recordReplacement.records
+            self.recordReplacement = nil
+        }
+        return result
     }
 
     func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? { nil }
@@ -191,12 +213,51 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
     }
     func removeAll() async throws {}
 
+    func refreshFromBackup(stackUserID _: String?) async {}
+
+    func cancelInFlightRestores() async {
+        backupCancellationCallCount += 1
+        let call = backupCancellationCallCount
+        backupCancellationStartedCalls.insert(call)
+        let waiters = backupCancellationStartWaiters.removeValue(forKey: call) ?? []
+        for waiter in waiters { waiter.resume() }
+        if gatedBackupCancellationCalls.contains(call) {
+            await withCheckedContinuation { continuation in
+                backupCancellationBlockers[call] = continuation
+            }
+        }
+        backupCancellationObservedCancellation[call] = Task.isCancelled
+    }
+
+    func gateBackupCancellation(call: Int) {
+        gatedBackupCancellationCalls.insert(call)
+    }
+
+    func waitUntilBackupCancellationStarted(call: Int) async {
+        if backupCancellationStartedCalls.contains(call) { return }
+        await withCheckedContinuation { continuation in
+            backupCancellationStartWaiters[call, default: []].append(continuation)
+        }
+    }
+
+    func releaseBackupCancellation(call: Int) {
+        backupCancellationBlockers.removeValue(forKey: call)?.resume()
+    }
+
+    func backupCancellationWasCancelled(call: Int) -> Bool? {
+        backupCancellationObservedCancellation[call]
+    }
+
     func waitUntilLoadStarted(teamID: String?) async {
         let key = teamID ?? ""
         if startedTeams.contains(key) { return }
         await withCheckedContinuation { continuation in
             startWaiters[key, default: []].append(continuation)
         }
+    }
+
+    func didStartLoad(teamID: String?) -> Bool {
+        startedTeams.contains(teamID ?? "")
     }
 
     func release(teamID: String?) {
@@ -217,6 +278,14 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
 
     func resetLoadAllCount() {
         loadAllCount = 0
+    }
+
+    func replaceRecords(
+        afterLoadAllCount: Int,
+        teamID: String?,
+        with records: [MobilePairedMac]
+    ) {
+        recordReplacement = (afterLoadAllCount, teamID ?? "", records)
     }
 
     func currentLoadAllCount() -> Int {

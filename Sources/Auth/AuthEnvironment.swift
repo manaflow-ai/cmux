@@ -190,6 +190,62 @@ enum AuthEnvironment {
         return canonicalizedLoopbackURL(URL(string: defaultVMAPIOrigin)!)
     }
 
+    /// Authenticated route broker shared by matching tagged Mac and iOS builds.
+    ///
+    /// General tagged APIs remain on their isolated localhost origin. Iroh uses
+    /// shared staging in Debug so separately launched processes publish into one
+    /// account-scoped registry. Release keeps the production cmux origin.
+    static var irohBrokerBaseURL: URL? {
+        let environment = ProcessInfo.processInfo.environment
+        if let overridden = environment["CMUX_IROH_BROKER_BASE_URL"]?
+           .trimmingCharacters(in: .whitespacesAndNewlines),
+           !overridden.isEmpty {
+            return validatedIrohBrokerURL(overridden)
+        }
+        #if DEBUG
+        if let override = devOverride(key: "CMUX_IROH_BROKER_BASE_URL") {
+            return validatedIrohBrokerURL(override)
+        }
+        return resolvedIrohBrokerBaseURL(environment: environment, isDebugBuild: true)
+        #else
+        return resolvedIrohBrokerBaseURL(environment: environment, isDebugBuild: false)
+        #endif
+    }
+
+    static func resolvedIrohBrokerBaseURL(
+        environment: [String: String],
+        isDebugBuild: Bool
+    ) -> URL? {
+        if let explicit = environment["CMUX_IROH_BROKER_BASE_URL"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicit.isEmpty {
+            return validatedIrohBrokerURL(explicit)
+        }
+        let fallback = isDebugBuild
+            ? "https://cmux-staging.vercel.app"
+            : "https://cmux.com"
+        return validatedIrohBrokerURL(fallback)
+    }
+
+    private static func validatedIrohBrokerURL(_ rawValue: String) -> URL? {
+        guard let url = URL(string: rawValue),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let scheme = components.scheme?.lowercased(),
+              let host = components.host?.lowercased(),
+              components.user == nil,
+              components.password == nil,
+              components.query == nil,
+              components.fragment == nil else {
+            return nil
+        }
+        if scheme == "https" { return url }
+        guard scheme == "http",
+              ["127.0.0.1", "::1", "localhost"].contains(host) else {
+            return nil
+        }
+        return canonicalizedLoopbackURL(url)
+    }
+
     /// Look up `key=value` in `~/.cmux-dev.env` for the DEBUG build. Returns nil in Release.
     /// Kept tiny on purpose — this is a "drop a file, restart the app, it picks up" override,
     /// not a real config system.

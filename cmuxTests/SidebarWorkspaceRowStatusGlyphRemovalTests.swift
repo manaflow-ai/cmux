@@ -5,16 +5,17 @@ import Testing
 // so it fails red on any tree where the row glyph is present regardless of
 // how the app target compiles.
 
-/// Regression guard: sidebar workspace rows must NOT render the leading
-/// task-status circle glyph (the empty/half-filled "pie" circles).
+/// Regression guard: sidebar workspace rows may render a compact manual
+/// task-status glyph, but must not bring back automatic status circles or a
+/// row-anchored status popover.
 ///
 /// History this guards against repeating: the circles shipped with
 /// workspaces-as-todos (#7216), were removed by the full revert (#7761,
 /// commit 657248a17), and came back when the feature was restored (#7790,
 /// commit 998e7fb23) — pre-existing persisted workspaces restored to the
 /// visible/Auto state, so the circles reappeared on every old workspace row.
-/// The status feature itself (context-menu Status submenu, command palette,
-/// CLI, todo pane, checklist) stays; only the per-row circle is banned.
+/// Manual status is now restored intentionally, but automatic status must
+/// still stay out of old rows.
 ///
 /// The sidebar row is a SwiftUI shape subtree under a lazy list, so there is
 /// no NSView to walk for a mounted-hierarchy assertion; scanning the row's
@@ -36,12 +37,9 @@ struct SidebarWorkspaceRowStatusGlyphRemovalTests {
         "Sources/TabItemView+WorkspaceTodo.swift",
     ]
 
-    /// Identifiers that only exist while a status circle is wired into the
-    /// sidebar row: the glyph views, the row-anchored status popover, and the
-    /// container state that drove it.
+    /// Identifiers that only exist while the row owns a status popover. The
+    /// glyph view itself is allowed, but only through the manual-only policy.
     private static let bannedRowTokens = [
-        "SidebarWorkspaceTaskStatusGlyph",
-        "SidebarStatusPieShape",
         "SidebarWorkspaceStatusPopover",
         "statusPopoverWorkspaceId",
         "isStatusPopoverPresented",
@@ -55,7 +53,7 @@ struct SidebarWorkspaceRowStatusGlyphRemovalTests {
     }
 
     @Test
-    func workspaceRowSourcesRenderNoStatusCircleGlyph() throws {
+    func workspaceRowSourcesRenderNoRowAnchoredStatusPopover() throws {
         for relativePath in Self.rowRenderingSources {
             let source = try Self.sourceText(relativePath)
             for token in Self.bannedRowTokens {
@@ -63,11 +61,8 @@ struct SidebarWorkspaceRowStatusGlyphRemovalTests {
                     !source.contains(token),
                     """
                     \(relativePath) references \(token). Sidebar workspace rows must not \
-                    render the leading task-status circle glyph (removed by #7761, \
-                    resurrected by the #7790 feature restore, removed again here). If a \
-                    merge or feature restore reintroduced the glyph block on the row's \
-                    title line, delete it: status stays reachable through the context \
-                    menu, command palette, CLI, and the todo pane.
+                    own the status popover or status-popover state; manual row status \
+                    may draw only through the manual-only indicator policy.
                     """
                 )
             }
@@ -78,7 +73,7 @@ struct SidebarWorkspaceRowStatusGlyphRemovalTests {
     /// policy, hover reconcilers, …) must not grow a status-glyph reference
     /// either; they are all below the sidebar snapshot boundary.
     @Test
-    func sidebarRowSupportSourcesRenderNoStatusCircleGlyph() throws {
+    func sidebarRowSupportSourcesRenderNoRowAnchoredStatusPopover() throws {
         let sidebarDir = Self.repoRoot.appendingPathComponent("Sources/Sidebar")
         let files = try FileManager.default
             .contentsOfDirectory(at: sidebarDir, includingPropertiesForKeys: nil)
@@ -90,25 +85,36 @@ struct SidebarWorkspaceRowStatusGlyphRemovalTests {
             for token in Self.bannedRowTokens {
                 #expect(
                     !source.contains(token),
-                    "Sources/Sidebar/\(file.lastPathComponent) references \(token); sidebar rows must not render the status circle glyph."
+                    "Sources/Sidebar/\(file.lastPathComponent) references \(token); sidebar rows must not own row-anchored status popover state."
                 )
             }
         }
     }
 
-    /// The row snapshot must not carry glyph-only observation fields. Dead
+    /// The row snapshot must not carry automatic-status glyph fields. Dead
     /// per-row observation wiring is exactly the class of sidebar perf
-    /// incident tracked by #2586/#8004 — if status state beyond the done-dim
-    /// `taskStatus` reappears in the snapshot, something is rendering status
-    /// on rows again.
+    /// incident tracked by #2586/#8004; manual status is represented by a
+    /// single boolean and the resolved status.
     @Test
-    func workspaceSnapshotCarriesNoGlyphFeedingFields() throws {
+    func workspaceSnapshotCarriesNoAutomaticStatusGlyphFields() throws {
         let source = try Self.sourceText("Sources/SidebarWorkspaceSnapshotBuilder.swift")
         for field in ["taskStatusHasOverride", "taskStatusInferred"] {
             #expect(
                 !source.contains(field),
-                "SidebarWorkspaceSnapshotBuilder.Snapshot regained \(field), a status-glyph-only field; sidebar rows must not observe status-glyph state."
+                "SidebarWorkspaceSnapshotBuilder.Snapshot regained \(field), an automatic status-glyph field; row status must stay manual-only."
             )
         }
+    }
+
+    @Test
+    func workspaceRowIndicatorUsesManualOnlyPolicy() throws {
+        let contentViewSource = try Self.sourceText("Sources/ContentView.swift")
+        let snapshotSource = try Self.sourceText("Sources/SidebarWorkspaceSnapshotBuilder.swift")
+        #expect(contentViewSource.contains("manualTaskStatusIndicator.showsIndicator"))
+        #expect(contentViewSource.contains("SidebarWorkspaceManualStatusIndicatorMenu"))
+        #expect(contentViewSource.contains("workspaceSnapshot.hasManualTaskStatus"))
+        #expect(contentViewSource.contains("workspaceSnapshot.todoStatusMenuModel"))
+        #expect(snapshotSource.contains("hasManualTaskStatus"))
+        #expect(snapshotSource.contains("todoStatusMenuModel"))
     }
 }

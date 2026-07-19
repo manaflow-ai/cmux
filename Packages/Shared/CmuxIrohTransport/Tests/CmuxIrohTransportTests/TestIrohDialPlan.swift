@@ -2,9 +2,15 @@ import CMUXMobileCore
 import Foundation
 
 func testIrohDialPlan(
-    publicPaths: [CmxIrohPathHint] = [],
+    publicPaths requestedPublicPaths: [CmxIrohPathHint]? = nil,
     privateFallbackPaths: [CmxIrohPathHint] = []
 ) throws -> CmxIrohDialPlan {
+    let publicPaths = try requestedPublicPaths ?? [CmxIrohPathHint(
+        kind: .relayURL,
+        value: "https://relay.example.com/",
+        source: .native,
+        privacyScope: .publicInternet
+    )]
     let identity = try CmxIrohPeerIdentity(
         endpointID: String(repeating: "01", count: 32)
     )

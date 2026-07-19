@@ -1,3 +1,5 @@
+import Darwin
+import Foundation
 import XCTest
 
 final class WorkspaceSidebarScrollUITests: XCTestCase {
@@ -110,6 +112,101 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
         )
     }
 
+    /// Reporter-shaped recurrence harness for #6707. Status commands reply on
+    /// the socket worker before their main-actor mutation is applied, so each
+    /// real swipe overlaps the same deferred sidebar update produced by
+    /// `cmux set status` in the field. A main-hop watchdog after every gesture
+    /// turns the AttributeGraph spin into a bounded test failure.
+    func testOverflowingSidebarScrollRemainsResponsiveDuringStatusChurn() {
+        let app = XCUIApplication()
+        let token = UUID().uuidString
+        let socketPath = "/tmp/cmux-ui-sidebar-livelock-\(token).sock"
+        let diagnosticsPath = "/tmp/cmux-ui-sidebar-livelock-\(token).json"
+        defer {
+            app.terminate()
+            try? FileManager.default.removeItem(atPath: socketPath)
+            try? FileManager.default.removeItem(atPath: diagnosticsPath)
+        }
+
+        configureLaunch(app)
+        app.launchArguments += ["-socketControlMode", "allowAll", "-NSAppSleepDisabled", "YES"]
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
+        app.launchEnvironment["CMUX_TAG"] = "ui-sidebar-livelock-\(token.prefix(8))"
+
+        launchAndEnsureRunning(app)
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0), "Expected a main window")
+
+        XCTAssertTrue(
+            pollUntil(timeout: 10.0) { self.sendSocketLine("ping", to: socketPath) == "PONG" },
+            "Expected the isolated control socket to become ready"
+        )
+
+        let workspaceCount = 28
+        for index in 2...workspaceCount {
+            let reply = sendSocketLine("new_workspace issue-6707-\(index)", to: socketPath)
+            XCTAssertTrue(
+                reply?.hasPrefix("OK ") == true,
+                "Expected workspace \(index) creation to succeed; reply=\(reply ?? "nil")"
+            )
+        }
+
+        var workspaceIDs: [UUID] = []
+        XCTAssertTrue(
+            pollUntil(timeout: 12.0) {
+                workspaceIDs = self.workspaceIDs(from: self.sendSocketLine("list_workspaces", to: socketPath))
+                return workspaceIDs.count == workspaceCount
+            },
+            "Expected \(workspaceCount) workspaces; observed \(workspaceIDs.count)"
+        )
+
+        app.activate()
+        let sidebar = app.descendants(matching: .any)["Sidebar"].firstMatch
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 5.0), "Expected the workspace sidebar to exist")
+        XCTAssertTrue(
+            revealSidebarVerticalScroller(app: app, sidebar: sidebar, timeout: 3.0),
+            "Expected \(workspaceCount) workspaces to overflow the sidebar"
+        )
+
+        for iteration in 0..<48 {
+            // Exercise a real height transition at every lazy realization
+            // boundary: add the status, then remove it from the same row on
+            // the following gesture.
+            let target = workspaceIDs[(iteration / 2) % workspaceIDs.count]
+            let command = iteration.isMultiple(of: 2)
+                ? "set_status issue-6707 churn-\(iteration) --icon=bolt.fill --tab=\(target.uuidString)"
+                : "clear_status issue-6707 --tab=\(target.uuidString)"
+            XCTAssertEqual(
+                sendSocketLine(command, to: socketPath),
+                "OK",
+                "Expected CLI-equivalent sidebar mutation \(iteration) to be accepted"
+            )
+
+            if (iteration / 6).isMultiple(of: 2) {
+                sidebar.swipeUp()
+            } else {
+                sidebar.swipeDown()
+            }
+
+            let currentWorkspace = sendSocketLine("current_workspace", to: socketPath)
+            XCTAssertNotNil(
+                currentWorkspace.flatMap(UUID.init(uuidString:)),
+                "Main-hop watchdog did not respond after scroll/status iteration \(iteration)"
+            )
+            XCTAssertNotEqual(app.state, .notRunning, "cmux exited during scroll/status iteration \(iteration)")
+        }
+
+        app.typeKey("1", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForWorkspaceRowHittable(index: 1, count: workspaceCount, app: app, timeout: 8.0),
+            "Expected the sidebar to accept input and converge back to the first workspace after stress"
+        )
+    }
+
     private func configureLaunch(_ app: XCUIApplication) {
         app.launchArguments += ["-newWorkspacePlacement", "end"]
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -148,6 +245,15 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
         return app.descendants(matching: .other)
             .matching(NSPredicate(format: "label ENDSWITH %@", position))
             .firstMatch
+    }
+
+    private func workspaceIDs(from listWorkspacesReply: String?) -> [UUID] {
+        guard let listWorkspacesReply else { return [] }
+        return listWorkspacesReply.split(separator: "\n").compactMap { line in
+            line.split(whereSeparator: \.isWhitespace).lazy
+                .compactMap { UUID(uuidString: String($0)) }
+                .first
+        }
     }
 
     private func sidebarOverflowProbeStartCount(app: XCUIApplication, sidebar: XCUIElement) -> Int {
@@ -274,5 +380,92 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
             }
             RunLoop.current.run(until: Date().addingTimeInterval(interval))
         }
+    }
+
+    private func sendSocketLine(
+        _ line: String,
+        to path: String,
+        responseTimeout: TimeInterval = 2.0
+    ) -> String? {
+        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard descriptor >= 0 else { return nil }
+        defer { close(descriptor) }
+
+        var noSigPipe: Int32 = 1
+        _ = withUnsafePointer(to: &noSigPipe) { pointer in
+            setsockopt(
+                descriptor,
+                SOL_SOCKET,
+                SO_NOSIGPIPE,
+                pointer,
+                socklen_t(MemoryLayout<Int32>.size)
+            )
+        }
+        var timeout = timeval(
+            tv_sec: Int(responseTimeout),
+            tv_usec: Int32((responseTimeout - floor(responseTimeout)) * 1_000_000)
+        )
+        withUnsafePointer(to: &timeout) { pointer in
+            _ = setsockopt(
+                descriptor,
+                SOL_SOCKET,
+                SO_RCVTIMEO,
+                pointer,
+                socklen_t(MemoryLayout<timeval>.size)
+            )
+            _ = setsockopt(
+                descriptor,
+                SOL_SOCKET,
+                SO_SNDTIMEO,
+                pointer,
+                socklen_t(MemoryLayout<timeval>.size)
+            )
+        }
+
+        var address = sockaddr_un()
+        memset(&address, 0, MemoryLayout<sockaddr_un>.size)
+        address.sun_family = sa_family_t(AF_UNIX)
+
+        let pathBytes = Array(path.utf8CString)
+        let maximumPathLength = MemoryLayout.size(ofValue: address.sun_path)
+        guard pathBytes.count <= maximumPathLength else { return nil }
+        withUnsafeMutablePointer(to: &address.sun_path) { pointer in
+            let raw = UnsafeMutableRawPointer(pointer).assumingMemoryBound(to: CChar.self)
+            for index in pathBytes.indices {
+                raw[index] = pathBytes[index]
+            }
+        }
+
+        let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
+        let addressLength = socklen_t(pathOffset + pathBytes.count)
+        address.sun_len = UInt8(min(Int(addressLength), 255))
+        let connected = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+                Darwin.connect(descriptor, socketAddress, addressLength)
+            }
+        }
+        guard connected == 0 else { return nil }
+
+        let payload = Array((line + "\n").utf8)
+        let wrotePayload = payload.withUnsafeBytes { buffer in
+            guard let baseAddress = buffer.baseAddress else { return false }
+            return Darwin.write(descriptor, baseAddress, buffer.count) == buffer.count
+        }
+        guard wrotePayload else { return nil }
+        _ = shutdown(descriptor, SHUT_WR)
+
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        var response = ""
+        while true {
+            let count = Darwin.read(descriptor, &buffer, buffer.count)
+            if count < 0 {
+                guard errno == EAGAIN || errno == EWOULDBLOCK else { return nil }
+                break
+            }
+            guard count > 0 else { break }
+            response += String(decoding: buffer[0..<count], as: UTF8.self)
+        }
+        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

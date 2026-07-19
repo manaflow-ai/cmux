@@ -51,6 +51,39 @@ struct MobileWorkspaceListFidelityTests {
         return (workspace, orderedIds)
     }
 
+    @Test func observerPipelinesFollowSubscriberPresence() throws {
+        let previousOverride = MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting
+        defer { MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = previousOverride }
+
+        // With no mobile client subscribed to workspace.updated, the observer
+        // must not build its publisher graph: every agent-driven workspace
+        // mutation would otherwise run throttled deliveries plus a full-list
+        // summary hash on the main thread for nobody.
+        MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = false
+        let manager = TabManager()
+        let observer = MobileWorkspaceListObserver(tabManager: manager)
+        #expect(!observer.pipelinesAttachedForTesting)
+
+        // First subscriber arrives: the graph attaches (with its forced
+        // initial emit) off the subscription-change notification.
+        MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = true
+        NotificationCenter.default.post(
+            name: .mobileHostEventSubscriptionsDidChange,
+            object: nil,
+            userInfo: ["topics": ["workspace.updated"]]
+        )
+        #expect(observer.pipelinesAttachedForTesting)
+
+        // Last subscriber leaves: the graph detaches again.
+        MobileWorkspaceListObserver.subscriberPresenceOverrideForTesting = false
+        NotificationCenter.default.post(
+            name: .mobileHostEventSubscriptionsDidChange,
+            object: nil,
+            userInfo: ["topics": ["workspace.updated"]]
+        )
+        #expect(!observer.pipelinesAttachedForTesting)
+    }
+
     @Test func orderedPanelIdsMatchesBonsplitSpatialOrder() throws {
         let (workspace, createdOrder) = try makeWorkspaceWithSplitTerminals(count: 3)
 

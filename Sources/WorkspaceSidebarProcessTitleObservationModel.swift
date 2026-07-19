@@ -70,7 +70,7 @@ final class WorkspaceSidebarProcessTitleObservationModel {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let id = UUID()
             changeObservers[id] = continuation
-            // A row's onAppear snapshot and this subscription are not atomic:
+            // A row's first pure snapshot and this subscription are not atomic:
             // an automatic title change in that gap found no observers and was
             // not scheduled. Replay it so the first subscriber refreshes once;
             // rows refresh by re-reading current state, so the replay is

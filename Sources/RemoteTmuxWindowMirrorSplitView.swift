@@ -70,6 +70,9 @@ struct RemoteTmuxWindowMirrorSplitView: View {
                     paneId: paneId,
                     isFocused: isOuterFocused && mirror.isFocused(tabId: tab.id),
                     isVisibleInUI: isVisibleInUI,
+                    portalPaneOwnershipResolver: {
+                        mirror.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
+                    },
                     portalPriority: portalPriority,
                     isSplit: true,
                     appearance: appearance,

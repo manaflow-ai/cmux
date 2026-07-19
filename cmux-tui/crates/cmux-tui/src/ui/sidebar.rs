@@ -76,10 +76,11 @@ fn draw_plugin(app: &mut App, frame: &mut Frame) {
             .render_states
             .entry(surface_id)
             .or_insert_with(|| ghostty_vt::RenderState::new().expect("render state alloc"));
-        if surface.snapshot(rs).is_ok() {
-            rs.set_clean();
+        if let Ok(render) = surface.render_frame(rs) {
             let _ =
-                super::terminal_grid::draw_render_state(frame, content, rs, &theme, |_, _| false);
+                super::terminal_grid::draw_render_frame(frame, content, &render, &theme, |_, _| {
+                    false
+                });
             {
                 let buf = frame.buffer_mut();
                 for y in 0..height {

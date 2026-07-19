@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CmuxClient } from "../src/client.js";
+import { CmuxClient, CmuxStream } from "../src/client.js";
+import { CmuxCommandError, CmuxProtocolError } from "../src/errors.js";
+import type { TreeDeltaEvent } from "../src/protocol/index.js";
 import type { Transport, Unsubscribe } from "../src/transport.js";
 
 class ScriptedTransport implements Transport {
@@ -18,6 +20,124 @@ class ScriptedTransport implements Transport {
     for (const handler of this.messageHandlers) handler(json);
   }
 }
+
+test("stream fails closed at the default buffered-event cap", async () => {
+  let cleanups = 0;
+  const stream = new CmuxStream<{ event: string }>(100, () => { cleanups += 1; });
+
+  for (let index = 0; index <= 256; index += 1) {
+    stream.push({ event: `event-${index}` });
+  }
+
+  await assert.rejects(() => stream.next(), /stream event buffer overflow/);
+  assert.equal(cleanups, 1);
+});
+
+test("async iteration reports buffered-event overflow before the first pull", async () => {
+  const stream = new CmuxStream<{ event: string }>(100, () => undefined, 1);
+  stream.push({ event: "first" });
+  stream.push({ event: "overflow" });
+
+  const iterator = stream[Symbol.asyncIterator]();
+  await assert.rejects(() => iterator.next(), /stream event buffer overflow/);
+});
+
+test("attachSurface rejects oversized encoded data before decoding", async () => {
+  const main = new ScriptedTransport((request, transport) => {
+    transport.emit({
+      id: request.id,
+      ok: true,
+      data: { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 },
+    });
+  });
+  const attach = new ScriptedTransport((request, transport) => {
+    transport.emit({ event: "vt-state", surface: 7, cols: 80, rows: 24, data: "A".repeat(9) });
+    transport.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({
+    transport: main,
+    streamTransportFactory: () => attach,
+    timeoutMs: 100,
+    maxAttachEncodedChars: 8,
+  } as CmuxClientOptionsWithSecurityLimits);
+
+  await assert.rejects(
+    () => client.attachSurface(7),
+    /vt-state data exceeds 8 encoded characters/,
+  );
+  await client.close();
+});
+
+test("shared attach rejects buffered overflow before its success response", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 },
+      });
+      return;
+    }
+    assert.equal(request.cmd, "attach-surface");
+    connection.emit({ event: "output", surface: 7, data: "YQ==" });
+    connection.emit({ event: "output", surface: 7, data: "Yg==" });
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({
+    transport,
+    timeoutMs: 100,
+    maxBufferedEvents: 1,
+  } as ConstructorParameters<typeof CmuxClient>[0] & { maxBufferedEvents: number });
+
+  await assert.rejects(() => client.attachSurface(7), /stream event buffer overflow/);
+  await client.close();
+});
+
+test("attach buffering enforces aggregate bytes and browser-frame limits", async () => {
+  for (const events of [
+    [
+      { event: "output", surface: 7, data: "YWJj" },
+      { event: "output", surface: 7, data: "ZGVm" },
+    ],
+    [{ event: "frame", surface: 7, data: "AAAAA" }],
+    [{
+      event: "browser-state",
+      surface: 7,
+      frame: { seq: 1, width: 80, height: 24, data: "AAAAA" },
+    }],
+    [{
+      event: "browser-state",
+      surface: 7,
+      title: "A".repeat(5),
+      frame: null,
+    }],
+  ]) {
+    const transport = new ScriptedTransport((request, connection) => {
+      if (request.cmd === "identify") {
+        connection.emit({
+          id: request.id,
+          ok: true,
+          data: { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 },
+        });
+        return;
+      }
+      for (const event of events) connection.emit(event);
+      connection.emit({ id: request.id, ok: true, data: {} });
+    });
+    const client = new CmuxClient({
+      transport,
+      timeoutMs: 100,
+      maxAttachEncodedChars: 4,
+    } as CmuxClientOptionsWithSecurityLimits);
+
+    await assert.rejects(() => client.attachSurface(7), /exceeds 4/);
+    await client.close();
+  }
+});
+
+type CmuxClientOptionsWithSecurityLimits = ConstructorParameters<typeof CmuxClient>[0] & {
+  maxAttachEncodedChars: number;
+};
 
 test("legacy resize response defaults to accepted", async () => {
   const transport = new ScriptedTransport((request, connection) => {
@@ -43,7 +163,7 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
     transport.emit({ id: request.id, ok: true, data: { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 } });
   });
   const attach = new ScriptedTransport((request, transport) => {
-    assert.equal(request.cmd, "attach-surface");
+    assert.deepEqual(request, { id: 2, cmd: "attach-surface", surface: 7 });
     transport.emit({
       event: "vt-state",
       surface: 7,
@@ -177,6 +297,123 @@ test("attachSurface routes colors-changed events without a surface field", async
   await client.close();
 });
 
+test("attachSurface render mode yields render-state and render-delta from cached protocol v7", async () => {
+  let identifyRequests = 0;
+  const main = new ScriptedTransport((request, transport) => {
+    assert.equal(request.cmd, "identify");
+    identifyRequests += 1;
+    transport.emit({
+      id: request.id,
+      ok: true,
+      data: { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 },
+    });
+  });
+  const attach = new ScriptedTransport((request, transport) => {
+    assert.deepEqual(request, { id: 2, cmd: "attach-surface", surface: 7, mode: "render" });
+    transport.emit({
+      event: "render-state",
+      surface: 7,
+      size: { cols: 3, rows: 1 },
+      cursor: { x: 2, y: 0, style: "block", blink: true, visible: true, color: null },
+      default_fg: "#d8d9da",
+      default_bg: "#131415",
+      scrollback_rows: 42,
+      rows: [{
+        row: 0,
+        runs: [{
+          text: "$ x",
+          fg: null,
+          bg: null,
+          attrs: 1,
+          underline: "single",
+          width_hint: 3,
+        }],
+      }],
+    });
+    transport.emit({ id: request.id, ok: true, data: {} });
+    transport.emit({
+      event: "render-delta",
+      surface: 7,
+      cursor: { x: 0, y: 0, style: "bar", blink: false, visible: false, color: "#ffffff" },
+      full: false,
+      scrollback_rows: 43,
+      rows: [{ row: 0, runs: [{ text: "ok ", fg: "#00ff00", bg: null, attrs: 0 }] }],
+    });
+  });
+  const client = new CmuxClient({
+    transport: main,
+    streamTransportFactory: () => attach,
+    timeoutMs: 100,
+  });
+
+  assert.equal((await client.identify()).protocol, 7);
+  assert.equal(client.protocol, 7);
+  const stream = await client.attachSurface(7, { mode: "render" });
+  assert.equal(identifyRequests, 1);
+  assert.deepEqual(await stream.next(), {
+    event: "render-state",
+    surface: 7,
+    size: { cols: 3, rows: 1 },
+    cursor: { x: 2, y: 0, style: "block", blink: true, visible: true, color: null },
+    default_fg: "#d8d9da",
+    default_bg: "#131415",
+    scrollback_rows: 42,
+    rows: [{
+      row: 0,
+      runs: [{
+        text: "$ x",
+        fg: null,
+        bg: null,
+        attrs: 1,
+        underline: "single",
+        width_hint: 3,
+      }],
+    }],
+  });
+  assert.deepEqual(await stream.next(), {
+    event: "render-delta",
+    surface: 7,
+    cursor: { x: 0, y: 0, style: "bar", blink: false, visible: false, color: "#ffffff" },
+    full: false,
+    scrollback_rows: 43,
+    rows: [{ row: 0, runs: [{ text: "ok ", fg: "#00ff00", bg: null, attrs: 0 }] }],
+  });
+  stream.close();
+  await client.close();
+});
+
+test("protocol v6 keeps byte attach working and refuses render mode client-side", async () => {
+  let attachRequests = 0;
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 },
+      });
+      return;
+    }
+    attachRequests += 1;
+    assert.deepEqual(request, { id: 2, cmd: "attach-surface", surface: 7 });
+    connection.emit({ event: "vt-state", surface: 7, cols: 80, rows: 24, data: "" });
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  await client.identify();
+  await assert.rejects(
+    client.attachSurface(7, { mode: "render" }),
+    (error: unknown) => error instanceof CmuxProtocolError
+      && error.message === "render attach requires protocol 7 or newer; server reported protocol 6",
+  );
+  assert.equal(attachRequests, 0);
+  const bytes = await client.attachSurface(7);
+  assert.equal((await bytes.next()).event, "vt-state");
+  assert.equal(attachRequests, 1);
+  bytes.close();
+  await client.close();
+});
+
 test("generic request preserves exact wire command and typed result", async () => {
   let sent: Record<string, unknown> | undefined;
   const transport = new ScriptedTransport((request, connection) => {
@@ -200,6 +437,7 @@ test("listClients returns the exact client presence response shape", async () =>
     attached: [31],
     sizes: [{ surface: 31, cols: 126, rows: 38 }],
     self: true,
+    size_participating: true,
   }];
   const transport = new ScriptedTransport((request, connection) => {
     assert.deepEqual(request, { id: 1, cmd: "list-clients" });
@@ -211,9 +449,92 @@ test("listClients returns the exact client presence response shape", async () =>
   await client.close();
 });
 
+test("setClientSizing serializes client participation", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    assert.deepEqual(request, {
+      id: 1,
+      cmd: "set-client-sizing",
+      client: 7,
+      enabled: false,
+    });
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport });
+
+  await client.setClientSizing(7, false);
+  await client.close();
+});
+
+test("client sizing modes serialize as one atomic command", async () => {
+  const expected = [
+    { id: 1, cmd: "set-client-sizing", client: 7, enabled: true, exclusive: true },
+    { id: 2, cmd: "set-client-sizing", enabled: true },
+  ];
+  const transport = new ScriptedTransport((request, connection) => {
+    assert.deepEqual(request, expected.shift());
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport });
+
+  await client.useOnlyClientSizing(7);
+  await client.useAllClientSizing();
+  assert.equal(expected.length, 0);
+  await client.close();
+});
+
+test("readScrollback serializes the request and returns styled rows", async () => {
+  const response = {
+    rows: [{ row: 0, runs: [{ text: "cargo test", fg: null, bg: null, attrs: 0 }] }],
+    start: 40,
+    total: 83,
+  };
+  const transport = new ScriptedTransport((request, connection) => {
+    assert.deepEqual(request, { id: 1, cmd: "read-scrollback", surface: 7, start: 40, count: 1 });
+    connection.emit({ id: request.id, ok: true, data: response });
+  });
+  const client = new CmuxClient({ transport });
+
+  assert.deepEqual(await client.readScrollback(7, 40, 1), response);
+  await client.close();
+});
+
+test("send serializes base64 input and the protocol v7 paste flag", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    assert.deepEqual(request, {
+      id: 1,
+      cmd: "send",
+      surface: 7,
+      text: "hello",
+      bytes: "AAEC",
+      paste: true,
+    });
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport });
+
+  await client.send(7, { text: "hello", base64: "AAEC", paste: true });
+  await client.close();
+});
+
+test("protocol v7 commands preserve protocol v6 server failures as command errors", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    connection.emit({
+      id: request.id,
+      ok: false,
+      error: `protocol 6 rejected ${String(request.cmd)}`,
+    });
+  });
+  const client = new CmuxClient({ transport });
+
+  await assert.rejects(client.readScrollback(7, 0, 1), CmuxCommandError);
+  await assert.rejects(client.send(7, { text: "hello", paste: true }), CmuxCommandError);
+  await assert.rejects(client.subscribe({ treeEvents: "deltas" }), CmuxCommandError);
+  await client.close();
+});
+
 test("subscribe yields client attached, changed, and detached events", async () => {
   const transport = new ScriptedTransport((request, connection) => {
-    assert.equal(request.cmd, "subscribe");
+    assert.deepEqual(request, { id: 1, cmd: "subscribe" });
     connection.emit({ event: "client-attached", client: 2, transport: "ws", name: "phone", kind: "web" });
     connection.emit({ id: request.id, ok: true, data: {} });
     connection.emit({ event: "client-changed", client: 2, name: "tablet", kind: "web" });
@@ -251,5 +572,52 @@ test("concurrent shared subscriptions require dedicated transports", async () =>
   first.close();
   const replacement = await client.subscribe();
   replacement.close();
+  await client.close();
+});
+
+test("subscribe deltas mode yields all protocol v7 tree lifecycle events", async () => {
+  const tab = {
+    surface: 4,
+    kind: "pty" as const,
+    browser_source: null,
+    name: "shell",
+    title: "shell",
+    size: { cols: 80, rows: 24 },
+    dead: false,
+  };
+  const pane = { id: 3, name: null, active_tab: 0, tabs: [tab] };
+  const screen = {
+    id: 2,
+    name: null,
+    active: true,
+    active_pane: 3,
+    zoomed_pane: null,
+    layout: { type: "leaf" as const, pane: 3 },
+    panes: [pane],
+  };
+  const workspace = { id: 1, name: "sdk", active: true, screens: [screen] };
+  const deltas: TreeDeltaEvent[] = [
+    { event: "workspace-added", workspace: 1, index: 0, entity: workspace },
+    { event: "workspace-closed", workspace: 1, index: 0, entity: workspace },
+    { event: "workspace-renamed", workspace: 1, entity: workspace },
+    { event: "screen-added", workspace: 1, screen: 2, index: 0, entity: screen },
+    { event: "screen-closed", workspace: 1, screen: 2, index: 0, entity: screen },
+    { event: "screen-renamed", workspace: 1, screen: 2, entity: screen },
+    { event: "pane-added", workspace: 1, screen: 2, pane: 3, index: 0, entity: pane },
+    { event: "pane-closed", workspace: 1, screen: 2, pane: 3, index: 0, entity: pane },
+    { event: "tab-added", workspace: 1, screen: 2, pane: 3, surface: 4, index: 0, entity: tab },
+    { event: "tab-closed", workspace: 1, screen: 2, pane: 3, surface: 4, index: 0, entity: tab },
+    { event: "tab-renamed", workspace: 1, screen: 2, pane: 3, surface: 4, entity: tab },
+  ];
+  const transport = new ScriptedTransport((request, connection) => {
+    assert.deepEqual(request, { id: 1, cmd: "subscribe", tree_events: "deltas" });
+    for (const event of deltas) connection.emit(event as unknown as Record<string, unknown>);
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  const events = await client.subscribe({ treeEvents: "deltas" });
+  for (const expected of deltas) assert.deepEqual(await events.next(), expected);
+  events.close();
   await client.close();
 });

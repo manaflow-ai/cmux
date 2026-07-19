@@ -4,6 +4,7 @@ import CmuxTerminalCore
 @testable import CmuxTerminal
 
 final class FakeSurfaceRegistry: TerminalSurfaceRegistering {
+    var topologyGeneration: UInt64 { 0 }
     func register(_ surface: any TerminalSurfacing) {}
     func unregister(_ surface: any TerminalSurfacing) {}
     func registerRuntimeSurface(_ surface: ghostty_surface_t, ownerId: UUID) {}

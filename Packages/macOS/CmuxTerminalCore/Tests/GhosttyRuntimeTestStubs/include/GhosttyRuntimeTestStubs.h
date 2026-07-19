@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #if defined(__APPLE__)
 #define GHOSTTY_RUNTIME_TEST_STUB_WEAK __attribute__((weak))
@@ -24,5 +25,19 @@ GHOSTTY_RUNTIME_TEST_STUB_WEAK void *ghostty_surface_new_with_scrollback_limit(
 GHOSTTY_RUNTIME_TEST_STUB_WEAK bool ghostty_surface_clear_selection(void *surface);
 
 GHOSTTY_RUNTIME_TEST_STUB_WEAK void *ghostty_surface_quicklook_font(void *surface);
+
+GHOSTTY_RUNTIME_TEST_STUB_WEAK void *ghostty_config_new(void);
+GHOSTTY_RUNTIME_TEST_STUB_WEAK void ghostty_config_free(void *config);
+GHOSTTY_RUNTIME_TEST_STUB_WEAK void ghostty_config_load_string(
+    void *config,
+    const char *contents,
+    uintptr_t contents_len,
+    const char *path);
+GHOSTTY_RUNTIME_TEST_STUB_WEAK bool ghostty_config_get(
+    void *config,
+    void *value,
+    const char *key,
+    uintptr_t key_len);
+GHOSTTY_RUNTIME_TEST_STUB_WEAK uint32_t ghostty_config_diagnostics_count(void *config);
 
 #endif

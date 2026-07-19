@@ -82,6 +82,11 @@ extension CmxIrohHostRuntime {
         registrationRefreshPending = false
         registrationRefreshEnabled = false
         registrationRefreshFailureCount = 0
+        relayActivationTask?.cancel()
+        relayActivationTask = nil
+        lanPublicationGeneration &+= 1
+        lanPublicationTask?.cancel()
+        lanPublicationTask = nil
         await endpointServer?.stop()
         endpointServer = nil
         activePathConnections.removeAll(keepingCapacity: false)

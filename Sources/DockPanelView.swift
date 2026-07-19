@@ -132,6 +132,10 @@ private struct DockSplitContentView: View {
                 hasUnreadNotification: false,
                 terminalAgentContext: "",
                 paneOwnershipOverride: isVisibleInUI,
+                terminalPaneOwnershipResolver: {
+                    guard store.paneId(forPanelId: panel.id)?.id == paneId.id else { return false }
+                    return store.panelIsSelectedInVisibleDockPane(panel.id)
+                },
                 onFocus: {
                     store.bonsplitController.focusPane(paneId)
                     store.noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)

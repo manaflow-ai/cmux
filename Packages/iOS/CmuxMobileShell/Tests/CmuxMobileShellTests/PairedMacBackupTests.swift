@@ -37,7 +37,7 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
         case .upsert(let record, _), .upsertPreservingCustomizations(let record, _),
              .revive(let record, _), .revivePreservingCustomizations(let record, _):
             return record
-        case .delete:
+        case .delete, .deleteInstance:
             return nil
         }
     }
