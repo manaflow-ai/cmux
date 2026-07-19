@@ -1,6 +1,13 @@
 import Foundation
 import Testing
 
+private let shellIntegrationFishExecutablePath = [
+    "/opt/homebrew/bin/fish",
+    "/usr/local/bin/fish",
+    "/usr/bin/fish",
+    "/bin/fish",
+].first { FileManager.default.isExecutableFile(atPath: $0) }
+
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -24,6 +31,82 @@ struct ShellIntegrationSendTransportTests {
             integrationName: "cmux-bash-integration.bash",
             shellArguments: ["--noprofile", "--norc", "-c"]
         )
+    }
+
+    @Test("remote tmux zsh reports Git metadata through the workspace relay")
+    func remoteTmuxZshReportsWorkspaceScopedGitMetadataThroughRelay() throws {
+        try assertRemoteShellReportsGitMetadataThroughRelay(
+            shell: "/bin/zsh",
+            integrationName: "cmux-zsh-integration.zsh",
+            shellArguments: ["-f", "-c"],
+            surfaceID: nil
+        )
+    }
+
+    @Test("remote tmux bash reports Git metadata through the workspace relay")
+    func remoteTmuxBashReportsWorkspaceScopedGitMetadataThroughRelay() throws {
+        try assertRemoteShellReportsGitMetadataThroughRelay(
+            shell: "/bin/bash",
+            integrationName: "cmux-bash-integration.bash",
+            shellArguments: ["--noprofile", "--norc", "-c"],
+            surfaceID: nil
+        )
+    }
+
+    @Test(
+        "fish publishes remote workspace relay metadata before tmux attach",
+        .enabled(if: shellIntegrationFishExecutablePath != nil)
+    )
+    func fishPublishesRemoteWorkspaceRelayMetadataBeforeTmuxAttach() throws {
+        let fish = try #require(shellIntegrationFishExecutablePath)
+        let integration = try #require(
+            RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
+                named: "fish/config.fish"
+            )
+        )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-fish-tmux-publish-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let integrationFile = directory.appendingPathComponent("config.fish")
+        try integration.write(to: integrationFile, atomically: true, encoding: .utf8)
+
+        let process = Process()
+        let standardOutput = Pipe()
+        let standardError = Pipe()
+        process.executableURL = URL(fileURLWithPath: fish)
+        process.arguments = [
+            "-c",
+            """
+            source '\(integrationFile.path)'
+            function tmux
+                string join ' ' -- $argv
+            end
+            _cmux_tmux_sync_cmux_environment
+            """,
+        ]
+        process.environment = [
+            "CMUX_PANEL_ID": "stale-surface",
+            "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+            "CMUX_SURFACE_ID": "stale-surface",
+            "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+            "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+            "HOME": directory.path,
+            "PATH": "/usr/bin:/bin",
+            "TERM": "xterm-256color",
+        ]
+        process.standardOutput = standardOutput
+        process.standardError = standardError
+        try process.run()
+        process.waitUntilExit()
+        let output = String(decoding: standardOutput.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let error = String(decoding: standardError.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+
+        #expect(process.terminationStatus == 0, "\(error)\n\(output)")
+        #expect(output.contains("set-environment -g CMUX_SOCKET_PATH 127.0.0.1:64011"), output)
+        #expect(output.contains("set-environment -g CMUX_WORKSPACE_ID 11111111-1111-1111-1111-111111111111"), output)
+        #expect(output.contains("set-environment -gu CMUX_SURFACE_ID"), output)
+        #expect(output.contains("set-environment -gu CMUX_PANEL_ID"), output)
     }
 
     @Test("reattached tmux zsh adopts the named session workspace binding")
@@ -92,7 +175,8 @@ struct ShellIntegrationSendTransportTests {
     private func assertRemoteShellReportsGitMetadataThroughRelay(
         shell: String,
         integrationName: String,
-        shellArguments: [String]
+        shellArguments: [String],
+        surfaceID: String? = "22222222-2222-2222-2222-222222222222"
     ) throws {
         let integration = try #require(
             RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(named: integrationName)
@@ -130,17 +214,20 @@ struct ShellIntegrationSendTransportTests {
             "source '\(integrationFile.path)'; _cmux_report_git_branch_for_path \"$PWD\"; cat '\(logFile.path)'"
         ]
         process.currentDirectoryURL = repository
-        process.environment = [
+        var environment = [
             "CMUX_BUNDLED_CLI_PATH": cmuxFile.path,
-            "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
             "CMUX_SOCKET_PATH": "127.0.0.1:64011",
-            "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
             "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
             "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
             "HOME": directory.path,
             "PATH": "\(binDirectory.path):/usr/bin:/bin",
             "TERM": "xterm-256color",
         ]
+        if let surfaceID {
+            environment["CMUX_PANEL_ID"] = surfaceID
+            environment["CMUX_SURFACE_ID"] = surfaceID
+        }
+        process.environment = environment
         process.standardOutput = standardOutput
         process.standardError = standardError
         try process.run()
@@ -149,12 +236,10 @@ struct ShellIntegrationSendTransportTests {
         let error = String(decoding: standardError.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
 
         #expect(process.terminationStatus == 0, "\(error)\n\(output)")
-        #expect(
-            output.contains(
-                #"rpc surface.report_git_branch {"workspace_id":"11111111-1111-1111-1111-111111111111","branch":"feature/mosh-parity","surface_id":"22222222-2222-2222-2222-222222222222"}"#
-            ),
-            output
-        )
+        let surfaceField = surfaceID.map { ",\"surface_id\":\"\($0)\"" } ?? ""
+        #expect(output.contains(
+            #"rpc surface.report_git_branch {"workspace_id":"11111111-1111-1111-1111-111111111111","branch":"feature/mosh-parity"\#(surfaceField)}"#
+        ), output)
     }
 
     /// End-to-end contract for `_cmux_send`: sourcing the bundled integration
