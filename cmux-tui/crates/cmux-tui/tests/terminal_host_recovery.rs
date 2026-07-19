@@ -12,7 +12,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::terminal_host::{
-    CapabilityRights, CapabilityToken, ClientHello, ClientRole, TerminalId,
+    CAPABILITY_TOKEN_LEN, CapabilityRights, CapabilityToken, ClientHello, ClientRole, TerminalId,
 };
 use cmux_tui_core::terminal_host_protocol::{
     FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD, MessageKind,
@@ -434,6 +434,111 @@ fn exit_follows_all_final_pty_bytes_on_the_live_stream() {
         }
     }
     assert!(contains_bytes(&output, b"FINAL-PTY-BYTE-MARKER"), "Exit overtook the final PTY bytes");
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
+fn mint_capability_fences_prior_admin_input_before_renderer_input() {
+    let harness = RecoveryHarness::start("mint-input-barrier");
+    let prior_fragments = (0..32).map(|index| format!("a{index:02}")).collect::<Vec<_>>();
+    let expected = format!("{}renderer", prior_fragments.concat());
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": [
+                "/bin/sh",
+                "-c",
+                concat!(
+                    "stty -echo; printf 'INPUT-BARRIER-READY\\n'; ",
+                    "IFS= read -r line; ",
+                    "if [ \"$line\" = \"$1\" ]; then ",
+                    "printf 'INPUT-BARRIER-RESULT:OK\\n'; ",
+                    "else printf 'INPUT-BARRIER-RESULT:BAD\\n'; fi; ",
+                    "sleep 30",
+                ),
+                "cmux-input-barrier",
+                &expected,
+            ],
+            "new_workspace": true,
+            "name": "mint-input-barrier",
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    assert!(
+        wait_for_screen(&harness.socket, surface, "INPUT-BARRIER-READY")
+            .contains("INPUT-BARRIER-READY")
+    );
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let mut admin = connect_host_detailed(
+        &record.endpoint,
+        &record.terminal_id,
+        &record.owner_token,
+        ClientRole::Admin,
+        CapabilityRights::ADMIN,
+    )
+    .unwrap();
+
+    // These compatibility-route writes and the mint request share one admin
+    // stream. Receiving Capability is the cutover fence: the host cannot
+    // process MintCapability until every preceding Input frame has completed
+    // its PTY write and flush.
+    for fragment in &prior_fragments {
+        write_frame(
+            &mut admin.stream,
+            &Frame::new(MessageKind::Input, fragment.as_bytes().to_vec()),
+        )
+        .unwrap();
+    }
+    let request_id = 0x6261_7272_6965_7201;
+    let mut mint_payload = Vec::with_capacity(8);
+    mint_payload.extend_from_slice(&CapabilityRights::RENDERER.bits().to_le_bytes());
+    mint_payload.extend_from_slice(&10_000u32.to_le_bytes());
+    let mut mint = Frame::new(MessageKind::MintCapability, mint_payload);
+    mint.request_id = request_id;
+    write_frame(&mut admin.stream, &mint).unwrap();
+
+    admin.stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let token = loop {
+        let frame = read_frame(&mut admin.stream, MAX_FRAME_PAYLOAD)
+            .expect("read admin terminal-host frame")
+            .expect("admin terminal-host closed before Capability fence");
+        if frame.request_id == request_id {
+            assert_eq!(frame.kind, MessageKind::Capability);
+            assert_eq!(frame.flags, 0);
+            assert_eq!(frame.sequence, 0);
+            assert_eq!(frame.payload.len(), CAPABILITY_TOKEN_LEN);
+            break frame.payload.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+        }
+        assert_eq!(frame.request_id, 0, "unexpected targeted admin response");
+        assert_eq!(frame.sequence, admin.next_sequence, "admin live sequence was not contiguous");
+        admin.next_sequence = admin.next_sequence.wrapping_add(1);
+    };
+
+    let mut renderer = connect_host_detailed(
+        &record.endpoint,
+        &record.terminal_id,
+        &token,
+        ClientRole::Renderer,
+        CapabilityRights::RENDERER,
+    )
+    .unwrap();
+    write_frame(&mut renderer.stream, &Frame::new(MessageKind::Input, b"renderer\n".to_vec()))
+        .unwrap();
+
+    let screen = wait_for_screen(&harness.socket, surface, "INPUT-BARRIER-RESULT:");
+    assert!(
+        screen.contains("INPUT-BARRIER-RESULT:OK"),
+        "renderer input overtook pre-mint admin input: {screen:?}"
+    );
+
+    drop(renderer);
+    drop(admin);
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 2, "cmd": "close-surface", "surface": surface}),
+    );
     wait_for_no_host_records(&harness.host_root());
 }
 
