@@ -25,6 +25,10 @@ final class RemoteTmuxController {
     /// owned by ``RemoteTmuxController`` and delegated to for discovery + master teardown.
     let transportRegistry = RemoteTmuxTransportRegistry()
 
+    /// Per-host sidebar origin colors, owned here (not an ambient global) so every
+    /// window resolves a destination to the same palette slot for the app session.
+    let hostColorRegistry = RemoteHostColorRegistry()
+
     /// Live `tmux -CC` control connections keyed by `connectionHash\u{1}session`
     /// (see ``connectionKey(host:sessionName:)``), so repeated attach requests for
     /// the same endpoint+session reuse the existing connection.
