@@ -314,14 +314,55 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
     ? { left: `${firstPercent}%` }
     : { top: `${firstPercent}%` };
 
+  const commitRatio = (previousRatio: number, nextRatio: number) => {
+    const ratio = splitRatioToCommit(previousRatio, nextRatio);
+    if (ratio === null) {
+      setPreviewRatio(null);
+      return;
+    }
+    const requestId = ++nextRequestId.current;
+    activeRequestId.current = requestId;
+    setPreviewRatio(null);
+    setPendingRatio({
+      requestId,
+      previousRatio,
+      ratio,
+      split: target.split,
+    });
+    void actions.onSetSplitRatio(target.split, ratio).then((succeeded) => {
+      if (succeeded || activeRequestId.current !== requestId) return;
+      activeRequestId.current = null;
+      setPendingRatio(null);
+      setPreviewRatio(null);
+    });
+  };
+
   return (
     <div className={`pane-group ${node.direction}`} style={style}>
       <LayoutNode {...actions} node={node.first} screen={screen} basis={firstPercent} />
       <div
+          aria-valuemax={95}
+          aria-valuemin={5}
+          aria-valuenow={Math.round(firstPercent)}
           aria-orientation={node.direction === "row" ? "vertical" : "horizontal"}
           className="split-divider"
           role="separator"
           style={dividerStyle}
+          tabIndex={0}
+          onKeyDown={(event) => {
+            const delta = node.direction === "row"
+              ? event.key === "ArrowLeft" ? -0.05 : event.key === "ArrowRight" ? 0.05 : null
+              : event.key === "ArrowUp" ? -0.05 : event.key === "ArrowDown" ? 0.05 : null;
+            if (delta === null) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (pendingRatio && pendingValid) return;
+            if (pendingRatio) {
+              activeRequestId.current = null;
+              setPendingRatio(null);
+            }
+            commitRatio(authoritativeRatio, Math.max(0.05, Math.min(0.95, authoritativeRatio + delta)));
+          }}
           onPointerDown={(event) => {
             if (event.pointerType === "mouse" && event.button !== 0) return;
             if (pendingRatio && pendingValid) return;
@@ -360,26 +401,7 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
             if (event.currentTarget.hasPointerCapture(event.pointerId)) {
               event.currentTarget.releasePointerCapture(event.pointerId);
             }
-            const ratio = splitRatioToCommit(currentDrag.initialRatio, nextRatio);
-            if (ratio === null) {
-              setPreviewRatio(null);
-              return;
-            }
-            const requestId = ++nextRequestId.current;
-            activeRequestId.current = requestId;
-            setPreviewRatio(null);
-            setPendingRatio({
-              requestId,
-              previousRatio: currentDrag.initialRatio,
-              ratio,
-              split: target.split,
-            });
-            void actions.onSetSplitRatio(target.split, ratio).then((succeeded) => {
-              if (succeeded || activeRequestId.current !== requestId) return;
-              activeRequestId.current = null;
-              setPendingRatio(null);
-              setPreviewRatio(null);
-            });
+            commitRatio(currentDrag.initialRatio, nextRatio);
           }}
           onPointerCancel={(event) => {
             if (!drag.current || drag.current.pointerId !== event.pointerId) return;

@@ -2365,7 +2365,6 @@ impl Mux {
                 )
             };
         if let Some(screen) = changed_screen {
-            self.emit(MuxEvent::TreeChanged);
             self.emit(MuxEvent::LayoutChanged(screen));
             true
         } else {
