@@ -31,6 +31,9 @@
 #   --agent    sign in with the shared agent account instead of the dogfood one.
 #   --detach   simulator only: launch without attaching stdio, so the app keeps
 #              running after this script exits.
+#   --iroh-release-gate <automatic|relayOnly|directOnly>
+#              simulator only: run the credential-free Iroh release-gate probe
+#              after sign-in and attach.
 
 set -euo pipefail
 
@@ -43,6 +46,7 @@ ATTACH=0
 ENSURE_MAC=0
 AGENT=0
 DETACH=0
+IROH_RELEASE_GATE_MODE=""
 ATTACH_TTL_SECONDS="${CMUX_ATTACH_TTL_SECONDS:-600}"
 
 usage() { sed -n '2,30p' "$0"; }
@@ -64,6 +68,7 @@ while [[ $# -gt 0 ]]; do
     --ensure-mac) ENSURE_MAC=1; ATTACH=1; shift ;;
     --agent) AGENT=1; shift ;;
     --detach) DETACH=1; shift ;;
+    --iroh-release-gate) IROH_RELEASE_GATE_MODE="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown arg $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -74,6 +79,19 @@ if [[ "$DETACH" -eq 1 && "$TARGET" != "simulator" ]]; then
   echo "error: --detach is supported only with simulator launches" >&2
   usage >&2
   exit 2
+fi
+if [[ -n "$IROH_RELEASE_GATE_MODE" ]]; then
+  if [[ "$TARGET" != "simulator" ]]; then
+    echo "error: --iroh-release-gate is simulator-only" >&2
+    exit 2
+  fi
+  case "$IROH_RELEASE_GATE_MODE" in
+    automatic|relayOnly|directOnly) ;;
+    *)
+      echo "error: invalid --iroh-release-gate mode '$IROH_RELEASE_GATE_MODE'" >&2
+      exit 2
+      ;;
+  esac
 fi
 
 # --- credentials ------------------------------------------------------------
@@ -99,7 +117,10 @@ fi
 # --- bundle id (matches ios/scripts/reload.sh sanitize_tag) ------------------
 slug="$(cmux_attach__slug "$TAG")"
 BUNDLE_ID="dev.cmux.ios.$slug"
-if [[ "$TARGET" == "device" ]]; then
+if [[ "$TARGET" == "device" || -n "$IROH_RELEASE_GATE_MODE" ]]; then
+  # The release gate runs in a simulator but must fail closed until the Mac can
+  # mint an identity-only Iroh route. Reuse the physical-device ticket policy,
+  # which polls for Iroh and never falls back to loopback.
   ATTACH_TARGET="physical_device"
 else
   ATTACH_TARGET="simulator_injection"
@@ -175,6 +196,7 @@ if [[ "$TARGET" == "simulator" ]]; then
   SIMCTL_CHILD_CMUX_UITEST_STACK_PASSWORD="$CMUX_UITEST_STACK_PASSWORD" \
   SIMCTL_CHILD_CMUX_UITEST_MOCK_DATA="0" \
   SIMCTL_CHILD_CMUX_DOGFOOD_ATTACH_URL="$ATTACH_URL" \
+  SIMCTL_CHILD_CMUX_IROH_RELEASE_GATE_MODE="$IROH_RELEASE_GATE_MODE" \
     xcrun simctl "${launch_args[@]}" "$SIM_UDID" "$BUNDLE_ID"
 else
   if [[ -z "$DEVICE_ID" ]]; then
