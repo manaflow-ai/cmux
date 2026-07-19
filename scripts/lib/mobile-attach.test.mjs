@@ -500,11 +500,12 @@ test("release gate grants asynchronous Iroh publication a bounded startup window
   );
 });
 
-test("release gate assigns direct-only to the Simulator transport proof", () => {
+test("release gate assigns each mode to its transport proof", () => {
   const cases = [
     ["automatic", "app-rpc"],
     ["relay-only", "app-rpc"],
     ["direct-only", "simulator-direct-transport"],
+    ["private-path", "host-private-path-transport"],
   ];
 
   for (const [mode, expectedPlan] of cases) {
@@ -519,6 +520,21 @@ test("release gate assigns direct-only to the Simulator transport proof", () => 
     assert.equal(result.status, 0, `${mode}: ${result.stderr}`);
     assert.equal(result.stdout.trim(), expectedPlan);
   }
+});
+
+test("private-path plan ignores the unrelated staging base URL", () => {
+  const result = run("bash", [
+    "scripts/run-iroh-release-gate.sh",
+    "--mode",
+    "private-path",
+    "--tag",
+    "plan-private",
+    "--staging-base-url",
+    "not-a-network-url",
+    "--print-plan",
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), "host-private-path-transport");
 });
 
 test("mobile launch accepts an explicit no-attach override", () => {
