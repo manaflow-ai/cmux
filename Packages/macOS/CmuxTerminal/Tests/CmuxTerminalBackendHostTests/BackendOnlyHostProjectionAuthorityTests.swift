@@ -267,6 +267,42 @@ struct BackendOnlyHostProjectionAuthorityTests {
         #expect(model.runtimeSnapshot?.fence == secondPublication.fence)
     }
 
+    @Test("disconnect clears the atomic runtime snapshot before retirement or invalidation")
+    func disconnectClearsPublicationSynchronously() async throws {
+        let topology = try HostProjectionFixture.topology()
+        let connection = try HostProjectionFixture.connection(number: 1, topology: topology)
+        let rpc = HostProjectionFakeRPC(
+            snapshot: connection.initialSnapshot,
+            processInstanceID: connection.processInstanceID
+        )
+        let controller = HostProjectionFakeController([
+            .init(connection: connection, rpc: rpc),
+        ])
+        let factory = HostProjectionRuntimeFactory(blockShutdown: true)
+        let model = BackendOnlyHostModel(
+            controller: controller,
+            defaults: isolatedDefaults(),
+            logicalPresentationID: HostProjectionFixture.uuid(906),
+            maximumConnectionAttempts: 1,
+            runtimeFactory: factory.makeRuntime
+        )
+        model.start()
+        await model.awaitCurrentConnectionCycle()
+        _ = try #require(model.runtimeSnapshot)
+
+        await controller.disconnect(connectionNumber: 1)
+        await factory.waitUntilShutdownStarts()
+
+        #expect(model.runtimeSnapshot == nil)
+        #expect(model.activeRuntime == nil)
+        #expect(model.phase == .connecting)
+        #expect(await controller.invalidationCount == 0)
+
+        factory.releaseShutdown()
+        await controller.waitForConnectAttempt(2)
+        #expect(await controller.invalidationCount == 1)
+    }
+
     @Test("rapid topology and actions share one latest-only refresh lane")
     func rapidTopologyAndActionsAreBounded() async throws {
         let topology = try HostProjectionFixture.topology()
@@ -350,14 +386,29 @@ private final class HostProjectionRuntimeFactory {
     private final class Runtime: BackendOnlyHostRuntimeLifecycle {
         let selection: BackendOnlyTerminalSelection
 
-        init(selection: BackendOnlyTerminalSelection) {
+        private unowned let owner: HostProjectionRuntimeFactory
+
+        init(
+            selection: BackendOnlyTerminalSelection,
+            owner: HostProjectionRuntimeFactory
+        ) {
             self.selection = selection
+            self.owner = owner
         }
 
-        func shutdown() async {}
+        func shutdown() async { await owner.shutdown() }
     }
 
+    private let blockShutdown: Bool
     private(set) var creationCount = 0
+    private var shutdownStarted = false
+    private var shutdownReleased = false
+    private var shutdownStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var shutdownContinuation: CheckedContinuation<Void, Never>?
+
+    init(blockShutdown: Bool = false) {
+        self.blockShutdown = blockShutdown
+    }
 
     func makeRuntime(
         session: BackendCanonicalSession,
@@ -365,7 +416,31 @@ private final class HostProjectionRuntimeFactory {
     ) -> any BackendOnlyHostRuntimeLifecycle {
         _ = session
         creationCount += 1
-        return Runtime(selection: selection)
+        return Runtime(selection: selection, owner: self)
+    }
+
+    func waitUntilShutdownStarts() async {
+        guard !shutdownStarted else { return }
+        await withCheckedContinuation { continuation in
+            shutdownStartWaiters.append(continuation)
+        }
+    }
+
+    func releaseShutdown() {
+        shutdownReleased = true
+        shutdownContinuation?.resume()
+        shutdownContinuation = nil
+    }
+
+    private func shutdown() async {
+        shutdownStarted = true
+        let waiters = shutdownStartWaiters
+        shutdownStartWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        guard blockShutdown, !shutdownReleased else { return }
+        await withCheckedContinuation { continuation in
+            shutdownContinuation = continuation
+        }
     }
 }
 
@@ -379,6 +454,7 @@ private actor HostProjectionFakeController: BackendOnlyHostSessionControlling {
 
     private var candidates: [Candidate]
     private var attempts = 0
+    private(set) var invalidationCount = 0
     private var rpcBySession: [ObjectIdentifier: HostProjectionFakeRPC] = [:]
     private var snapshots: [Int: TopologySnapshot] = [:]
     private var eventContinuations: [
@@ -433,7 +509,10 @@ private actor HostProjectionFakeController: BackendOnlyHostSessionControlling {
         return snapshots[number]
     }
 
-    func invalidate(_ connection: BackendOnlyHostConnection) async {}
+    func invalidate(_ connection: BackendOnlyHostConnection) async {
+        _ = connection
+        invalidationCount += 1
+    }
 
     func disconnect(connectionNumber: Int) {
         eventContinuations[connectionNumber]?.yield(
