@@ -278,7 +278,7 @@ interface LayoutGroupNodeProps extends Omit<LayoutNodeProps, "node"> {
   node: Extract<PaneLayoutView, { type: "group" }>;
 }
 
-const KEYBOARD_RESIZE_INTERVAL_MS = 50;
+const KEYBOARD_RESIZE_DEBOUNCE_MS = 100;
 
 function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodeProps) {
   const style = basis === undefined ? undefined : { flex: `0 0 ${basis}%` };
@@ -298,7 +298,6 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
     desiredRatio: number;
     generation: number;
     inFlightRatio: number | null;
-    lastSentAt: number;
     scheduled: ReturnType<typeof setTimeout> | null;
     split: Id;
   } | null>(null);
@@ -368,19 +367,19 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
     });
   };
 
-  const pumpKeyboardResize = (resize: NonNullable<typeof keyboardResize.current>) => {
-    if (keyboardResize.current !== resize || resize.inFlightRatio !== null || resize.scheduled !== null) return;
-    const wait = KEYBOARD_RESIZE_INTERVAL_MS - (performance.now() - resize.lastSentAt);
-    if (wait > 0) {
-      resize.scheduled = setTimeout(() => {
-        if (keyboardResize.current !== resize || keyboardGeneration.current !== resize.generation) return;
-        resize.scheduled = null;
-        pumpKeyboardResize(resize);
-      }, wait);
-      return;
-    }
+  function scheduleKeyboardResize(resize: NonNullable<typeof keyboardResize.current>) {
+    if (keyboardResize.current !== resize || keyboardGeneration.current !== resize.generation) return;
+    if (resize.scheduled !== null) clearTimeout(resize.scheduled);
+    resize.scheduled = setTimeout(() => {
+      if (keyboardResize.current !== resize || keyboardGeneration.current !== resize.generation) return;
+      resize.scheduled = null;
+      pumpKeyboardResize(resize);
+    }, KEYBOARD_RESIZE_DEBOUNCE_MS);
+  }
+
+  function pumpKeyboardResize(resize: NonNullable<typeof keyboardResize.current>) {
+    if (keyboardResize.current !== resize || resize.inFlightRatio !== null) return;
     const ratio = resize.desiredRatio;
-    resize.lastSentAt = performance.now();
     resize.inFlightRatio = ratio;
     void actions.onSetSplitRatio(resize.split, ratio).catch(() => false).then((succeeded) => {
       if (keyboardResize.current !== resize || keyboardGeneration.current !== resize.generation) return;
@@ -394,12 +393,12 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
         return;
       }
       if (Math.abs(resize.desiredRatio - ratio) > 1e-6) {
-        pumpKeyboardResize(resize);
+        if (resize.scheduled === null) scheduleKeyboardResize(resize);
       } else {
         setPendingRatio((current) => current === null ? current : { ...current });
       }
     });
-  };
+  }
 
   return (
     <div className={`pane-group ${node.direction}`} style={style}>
@@ -442,7 +441,6 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
                   desiredRatio: baseRatio,
                   generation: ++keyboardGeneration.current,
                   inFlightRatio: null,
-                  lastSentAt: Number.NEGATIVE_INFINITY,
                   scheduled: null,
                   split: target.split,
                 };
@@ -454,7 +452,7 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
             if (resize.inFlightRatio !== null) validRatios.push(resize.inFlightRatio);
             setPendingRatio({ requestId, validRatios, ratio, split: target.split });
             setPreviewRatio(null);
-            pumpKeyboardResize(resize);
+            scheduleKeyboardResize(resize);
           }}
           onPointerDown={(event) => {
             if (event.pointerType === "mouse" && event.button !== 0) return;

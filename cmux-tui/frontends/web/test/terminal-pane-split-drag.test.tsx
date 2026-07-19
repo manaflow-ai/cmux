@@ -135,15 +135,7 @@ describe("TerminalPane split dividers", () => {
   });
 
   it("queues repeated arrow-key adjustments without dropping input", async () => {
-    let resolveFirst: (succeeded: boolean) => void = (_succeeded) => {
-      throw new Error("first request was not started");
-    };
-    const onSetSplitRatio = vi.fn((_split: number, ratio: number) => {
-      if (ratio !== 0.55) return Promise.resolve(true);
-      return new Promise<boolean>((resolve) => {
-        resolveFirst = resolve;
-      });
-    });
+    const onSetSplitRatio = vi.fn(async (_split: number, _ratio: number) => true);
     const props = terminalPaneProps(onSetSplitRatio);
     const { getByRole } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
     const divider = getByRole("separator");
@@ -153,15 +145,11 @@ describe("TerminalPane split dividers", () => {
     fireEvent.keyDown(divider, { key: "ArrowRight" });
 
     await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(1));
-    expect(onSetSplitRatio).toHaveBeenNthCalledWith(1, 42, 0.55);
-
-    resolveFirst(true);
-    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(2));
-    expect(onSetSplitRatio.mock.calls[1]?.[0]).toBe(42);
-    expect(onSetSplitRatio.mock.calls[1]?.[1]).toBeCloseTo(0.65);
+    expect(onSetSplitRatio.mock.calls[0]?.[0]).toBe(42);
+    expect(onSetSplitRatio.mock.calls[0]?.[1]).toBeCloseTo(0.65);
   });
 
-  it("coalesces locally completed key repeats at a fixed cadence", async () => {
+  it("debounces locally completed key repeats into one authoritative commit", async () => {
     vi.useFakeTimers();
     try {
       const onSetSplitRatio = vi.fn(async (_split: number, _ratio: number) => true);
@@ -176,16 +164,19 @@ describe("TerminalPane split dividers", () => {
       fireEvent.keyDown(divider, { key: "ArrowRight" });
       await act(async () => Promise.resolve());
 
+      expect(onSetSplitRatio).not.toHaveBeenCalled();
+      await act(async () => vi.advanceTimersByTimeAsync(99));
+      expect(onSetSplitRatio).not.toHaveBeenCalled();
+      await act(async () => vi.advanceTimersByTimeAsync(1));
       expect(onSetSplitRatio).toHaveBeenCalledTimes(1);
-      await act(async () => vi.advanceTimersByTimeAsync(50));
-      expect(onSetSplitRatio).toHaveBeenCalledTimes(2);
-      expect(onSetSplitRatio.mock.calls[1]?.[1]).toBeCloseTo(0.65);
+      expect(onSetSplitRatio.mock.calls[0]?.[1]).toBeCloseTo(0.65);
     } finally {
       vi.useRealTimers();
     }
   });
 
   it("preserves a reversal queued behind an in-flight keyboard adjustment", async () => {
+    vi.useFakeTimers();
     let resolveFirst: (succeeded: boolean) => void = (_succeeded) => {
       throw new Error("first request was not started");
     };
@@ -195,18 +186,26 @@ describe("TerminalPane split dividers", () => {
         resolveFirst = resolve;
       });
     });
-    const props = terminalPaneProps(onSetSplitRatio);
-    const { getByRole } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
-    const divider = getByRole("separator");
+    try {
+      const props = terminalPaneProps(onSetSplitRatio);
+      const { getByRole } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
+      const divider = getByRole("separator");
 
-    fireEvent.keyDown(divider, { key: "ArrowRight" });
-    fireEvent.keyDown(divider, { key: "ArrowLeft" });
+      fireEvent.keyDown(divider, { key: "ArrowRight" });
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      expect(onSetSplitRatio).toHaveBeenCalledTimes(1);
+      fireEvent.keyDown(divider, { key: "ArrowLeft" });
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      expect(onSetSplitRatio).toHaveBeenCalledTimes(1);
+      await act(async () => resolveFirst(true));
+      await act(async () => vi.advanceTimersByTimeAsync(100));
 
-    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(1));
-    resolveFirst(true);
-    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(2));
-    expect(onSetSplitRatio.mock.calls[1]?.[0]).toBe(42);
-    expect(onSetSplitRatio.mock.calls[1]?.[1]).toBeCloseTo(0.5);
+      expect(onSetSplitRatio).toHaveBeenCalledTimes(2);
+      expect(onSetSplitRatio.mock.calls[1]?.[0]).toBe(42);
+      expect(onSetSplitRatio.mock.calls[1]?.[1]).toBeCloseTo(0.5);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("unlocks pointer dragging after the server confirms a keyboard adjustment", async () => {
@@ -255,15 +254,7 @@ describe("TerminalPane split dividers", () => {
   });
 
   it("uses a later authoritative ratio after a keyboard transaction settles", async () => {
-    let resolveFirst: (succeeded: boolean) => void = (_succeeded) => {
-      throw new Error("first request was not started");
-    };
-    const onSetSplitRatio = vi.fn((_split: number, ratio: number) => {
-      if (ratio !== 0.55) return Promise.resolve(true);
-      return new Promise<boolean>((resolve) => {
-        resolveFirst = resolve;
-      });
-    });
+    const onSetSplitRatio = vi.fn(async (_split: number, _ratio: number) => true);
     const props = terminalPaneProps(onSetSplitRatio);
     const { getByRole, rerender } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
     const divider = getByRole("separator");
@@ -272,8 +263,7 @@ describe("TerminalPane split dividers", () => {
     fireEvent.keyDown(divider, { key: "ArrowRight" });
     fireEvent.keyDown(divider, { key: "ArrowRight" });
     await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(1));
-    resolveFirst(true);
-    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(2));
+    expect(onSetSplitRatio.mock.calls[0]?.[1]).toBeCloseTo(0.65);
 
     rerender(<TerminalPane {...props} screen={screenView(0.65)} />);
     rerender(<TerminalPane {...props} screen={screenView(0.55)} />);
@@ -281,8 +271,8 @@ describe("TerminalPane split dividers", () => {
     expect(updatedDivider).toHaveAttribute("aria-valuenow", "55");
 
     fireEvent.keyDown(updatedDivider, { key: "ArrowRight" });
-    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(3));
-    expect(onSetSplitRatio.mock.calls[2]?.[1]).toBeCloseTo(0.6);
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(2));
+    expect(onSetSplitRatio.mock.calls[1]?.[1]).toBeCloseTo(0.6);
   });
 
   it("previews pointer movement, commits once, and reconciles to server layout", async () => {
