@@ -214,16 +214,16 @@ struct FileExplorerPanelView: NSViewRepresentable {
                     let isCurrentlyExpanded = outlineView.isItemExpanded(node)
                     let shouldBeExpanded = store.expandedPaths.contains(node.path)
 
-                    if shouldBeExpanded && !isCurrentlyExpanded && node.children != nil {
+                    if shouldBeExpanded, node.children != nil {
                         outlineView.reloadItem(node, reloadChildren: true)
                         outlineView.expandItem(node)
                     } else if !shouldBeExpanded && isCurrentlyExpanded {
                         outlineView.collapseItem(node)
                     } else if node.children != nil {
-                        outlineView.reloadItem(node, reloadChildren: shouldBeExpanded)
-                        if shouldBeExpanded {
-                            outlineView.expandItem(node)
-                        }
+                        outlineView.reloadData(
+                            forRowIndexes: IndexSet(integer: row),
+                            columnIndexes: IndexSet(integersIn: 0..<outlineView.numberOfColumns)
+                        )
                     }
                 }
             }
