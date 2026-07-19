@@ -25,6 +25,9 @@ use crate::{
 pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) + Send + Sync>;
 
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
+const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
+const WORKSPACE_KEY_MAX_BYTES: usize = 256;
+const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 
 pub(crate) fn clamp_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
     (cols.clamp(1, TERMINAL_DIMENSION_MAX), rows.clamp(1, TERMINAL_DIMENSION_MAX))
@@ -628,6 +631,23 @@ impl Mux {
             bytes[14],
             bytes[15]
         ))
+    }
+
+    fn validate_workspace_key(key: &str) -> anyhow::Result<()> {
+        if key.trim().is_empty() {
+            anyhow::bail!("workspace key cannot be empty");
+        }
+        if key.len() > WORKSPACE_KEY_MAX_BYTES {
+            anyhow::bail!("workspace key exceeds {WORKSPACE_KEY_MAX_BYTES} bytes");
+        }
+        Ok(())
+    }
+
+    fn validate_workspace_name(name: &str) -> anyhow::Result<()> {
+        if name.len() > WORKSPACE_NAME_MAX_BYTES {
+            anyhow::bail!("workspace name exceeds {WORKSPACE_NAME_MAX_BYTES} bytes");
+        }
+        Ok(())
     }
 
     fn require_workspace_revision(state: &State, expected: Option<u64>) -> anyhow::Result<()> {
@@ -1890,19 +1910,22 @@ impl Mux {
         key: Option<String>,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<WorkspacePlacement> {
-        let key = match key {
-            Some(key) if key.trim().is_empty() => anyhow::bail!("workspace key cannot be empty"),
-            Some(key) => key,
-            None => Self::new_workspace_key()?,
-        };
-        let ws_id = self.next_id();
+        if let Some(name) = name.as_deref() {
+            Self::validate_workspace_name(name)?;
+        }
+        let key = key.map_or_else(Self::new_workspace_key, Ok)?;
+        Self::validate_workspace_key(&key)?;
         let notifications = self.surface_notifications();
         let (placement, delta, selection_resync) = {
             let mut state = self.state.lock().unwrap();
             Self::require_workspace_revision(&state, expected_revision)?;
+            if state.workspaces.len() >= WORKSPACE_REGISTRY_LIMIT {
+                anyhow::bail!("workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})");
+            }
             if state.workspace_by_key(&key).is_some() {
                 anyhow::bail!("workspace key already exists: {key}");
             }
+            let ws_id = self.next_id();
             let name = name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
             let selection_resync = !state.workspaces.is_empty();
             state.push_workspace(Workspace {
@@ -3165,6 +3188,7 @@ impl Mux {
         name: String,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<Option<(WorkspaceId, String, u64)>> {
+        Self::validate_workspace_name(&name)?;
         let notifications = self.surface_notifications();
         let (target, key, renamed) = {
             let mut state = self.state.lock().unwrap();
@@ -6065,6 +6089,71 @@ mod tests {
         assert_eq!(closed.kind, TreeDeltaKind::WorkspaceClosed);
         assert_eq!(closed.workspace_revision, Some(3));
         assert!(matches!(events.recv().expect("empty event"), MuxEvent::Empty));
+    }
+
+    #[test]
+    fn empty_workspace_registry_enforces_count_and_string_limits() {
+        let mux = test_mux();
+        let key = "k".repeat(WORKSPACE_KEY_MAX_BYTES);
+        let name = "n".repeat(WORKSPACE_NAME_MAX_BYTES);
+        let placement = mux
+            .create_empty_workspace(Some(name.clone()), Some(key.clone()), None)
+            .expect("boundary-sized workspace fields");
+        mux.with_state(|state| {
+            let workspace = state.workspace_by_id(placement.workspace).unwrap();
+            assert_eq!(workspace.key, key);
+            assert_eq!(workspace.name, name);
+        });
+
+        let oversized_key = "k".repeat(WORKSPACE_KEY_MAX_BYTES + 1);
+        assert_eq!(
+            mux.create_empty_workspace(None, Some(oversized_key), None)
+                .expect_err("oversized key must fail")
+                .to_string(),
+            format!("workspace key exceeds {WORKSPACE_KEY_MAX_BYTES} bytes")
+        );
+        let oversized_name = "n".repeat(WORKSPACE_NAME_MAX_BYTES + 1);
+        assert_eq!(
+            mux.create_empty_workspace(Some(oversized_name.clone()), None, None)
+                .expect_err("oversized name must fail")
+                .to_string(),
+            format!("workspace name exceeds {WORKSPACE_NAME_MAX_BYTES} bytes")
+        );
+        assert_eq!(
+            mux.rename_workspace_at_revision(placement.workspace, oversized_name, Some(1))
+                .expect_err("oversized rename must fail")
+                .to_string(),
+            format!("workspace name exceeds {WORKSPACE_NAME_MAX_BYTES} bytes")
+        );
+        mux.with_state(|state| {
+            assert_eq!(state.workspace_revision, 1);
+            assert_eq!(state.workspace_by_id(placement.workspace).unwrap().name, name);
+        });
+
+        let full_mux = test_mux();
+        {
+            let mut state = full_mux.state.lock().unwrap();
+            for index in 0..WORKSPACE_REGISTRY_LIMIT {
+                state.push_workspace(Workspace {
+                    id: index as u64 + 1,
+                    key: format!("key-{index}"),
+                    name: format!("workspace-{index}"),
+                    screens: Vec::new(),
+                    active_screen: 0,
+                });
+            }
+        }
+        assert_eq!(
+            full_mux
+                .create_empty_workspace(None, None, None)
+                .expect_err("full registry must reject another workspace")
+                .to_string(),
+            format!("workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})")
+        );
+        full_mux.with_state(|state| {
+            assert_eq!(state.workspaces.len(), WORKSPACE_REGISTRY_LIMIT);
+            assert_eq!(state.workspace_revision, 0);
+        });
     }
 
     #[test]
