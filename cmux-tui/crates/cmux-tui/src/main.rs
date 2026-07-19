@@ -266,7 +266,6 @@ fn run_server(args: Args) -> anyhow::Result<()> {
         surface_options.term = term;
     }
     // Compute the socket path up front so surface children inherit it.
-    let explicit_socket = args.socket.is_some();
     let socket_path =
         args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
     surface_options.extra_env.push(("CMUX_TUI_SOCKET".into(), socket_path.display().to_string()));
@@ -277,7 +276,6 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     } else {
         Some(match args.state {
             Some(path) => path,
-            None if explicit_socket => socket_path.with_extension("state"),
             None => cmux_tui_core::platform::workspace_state_dir()
                 .ok_or_else(|| anyhow::anyhow!("cannot determine durable state directory"))?,
         })

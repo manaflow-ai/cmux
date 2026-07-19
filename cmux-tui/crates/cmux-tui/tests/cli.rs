@@ -10,6 +10,7 @@ use cmux_tui_core::platform::transport;
 struct HeadlessServer {
     child: Child,
     socket: PathBuf,
+    state: PathBuf,
     dir: PathBuf,
 }
 
@@ -18,14 +19,17 @@ impl HeadlessServer {
         let dir = unique_temp_dir(name);
         fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("mux.sock");
+        let state = dir.join("state");
         let child = Command::new(bin())
             .args(["--headless", "--socket"])
             .arg(&socket)
+            .arg("--state")
+            .arg(&state)
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        let server = Self { child, socket, dir };
+        let server = Self { child, socket, state, dir };
         server.wait_for_socket();
         server
     }
@@ -42,9 +46,8 @@ impl HeadlessServer {
     }
 
     fn close_all_surfaces(&self) -> bool {
-        let state_root = self.socket.with_extension("state");
         let host_root =
-            cmux_tui_core::terminal_host_runtime::terminal_host_root(&state_root, "main");
+            cmux_tui_core::terminal_host_runtime::terminal_host_root(&self.state, "main");
         // Capture exact host PIDs before close can remove their discovery
         // records. Waiting on both proves teardown did not merely unlink the
         // record while leaving its process behind.
@@ -210,6 +213,42 @@ fn json_socket_request(path: &std::path::Path, request: serde_json::Value) -> se
     let response: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(response["ok"], true, "request failed: {response}");
     response["data"].clone()
+}
+
+#[test]
+fn explicit_socket_keeps_state_in_platform_root() {
+    let dir = unique_temp_dir("explicit-socket-durable-state");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let state = dir.join("platform-state");
+    let child = Command::new(bin())
+        .args(["--headless", "--socket"])
+        .arg(&socket)
+        .env("CMUX_TUI_STATE_DIR", &state)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let server = HeadlessServer { child, socket, state, dir };
+    server.wait_for_socket();
+
+    let registry_exists = || {
+        fs::read_dir(&server.state)
+            .ok()
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .any(|entry| entry.path().join("workspace-registry.sqlite3").is_file())
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !registry_exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(registry_exists(), "explicit transport socket did not use platform state root");
+    assert!(
+        !server.socket.with_extension("state").exists(),
+        "explicit transport socket unexpectedly relocated durable state"
+    );
 }
 
 #[test]
