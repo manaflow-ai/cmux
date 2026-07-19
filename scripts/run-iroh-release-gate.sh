@@ -191,10 +191,14 @@ while pids:
         raise SystemExit("Mac app did not signal process exit")
 PY
 fi
-[[ ! -S "$(cmux_attach_socket_path "$TAG")" ]] || {
-  echo "error: tagged Mac socket remained after process exit" >&2
+if pgrep -f "$MAC_PROCESS_PATTERN" >/dev/null 2>&1; then
+  echo "error: tagged Mac process remained after verified exit wait" >&2
   exit 1
-}
+fi
+# Unix-domain socket inodes can outlive a cleanly observed process exit. The
+# tag is uniquely owned by this driver, and the exact executable is now absent,
+# so remove only this validated tag's socket before relaunching.
+cmux_attach_remove_stale_socket "$TAG"
 CMUX_ATTACH_ALLOW_RELAUNCH=1 cmux_attach_ensure_mac \
   "$TAG" "$REPO_ROOT" simulator_injection
 
