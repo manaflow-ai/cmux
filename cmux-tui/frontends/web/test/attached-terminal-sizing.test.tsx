@@ -227,4 +227,37 @@ describe("attached terminal sizing", () => {
     });
     view.unmount();
   });
+
+  it("preserves replay palette when a protocol-v6 server omits sparse metadata", async () => {
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+    const client = {
+      attachSurface: vi.fn(async () => new TestStream([
+        {
+          event: "vt-state",
+          surface: 7,
+          cols: 80,
+          rows: 24,
+          data: new Uint8Array([1]),
+          colors: { fg: "#eeeeee" },
+        },
+      ])),
+      resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
+      releaseSurfaceSize: vi.fn(async () => ({})),
+      send: vi.fn(async () => ({})),
+    } as unknown as CmuxClient;
+
+    const view = render(<Harness client={client} />);
+
+    await waitFor(() => {
+      expect(terminalMocks.instances[0]?.writes).toEqual([new Uint8Array([1])]);
+      const theme = terminalMocks.instances[0]?.options.theme as Record<string, unknown>;
+      expect(theme.foreground).toBe("#eeeeee");
+      expect(theme.red).toBe("#replay-red");
+    });
+    view.unmount();
+  });
 });

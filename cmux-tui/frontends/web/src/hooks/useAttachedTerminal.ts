@@ -89,7 +89,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     const writeTerminal = (data: string | Uint8Array) =>
       new Promise<void>((resolve) => terminal.write(data, resolve));
     const applyColors = async (
-      colors: DecodedVtStateEvent["colors"] | DecodedColorsChangedEvent,
+      colors: DecodedVtStateEvent["colors"] | DecodedColorsChangedEvent | undefined,
     ) => {
       const themePatch = colorsToThemePatch(colors);
       if (themePatch !== null) {
@@ -104,6 +104,17 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       if (cursorPatch !== null) Object.assign(terminal.options, cursorPatch);
       const paletteSequence = colorsToPaletteSequence(colors);
       if (paletteSequence !== null) await writeTerminal(paletteSequence);
+    };
+    const writeReplay = async (
+      data: Uint8Array,
+      colors: DecodedVtStateEvent["colors"] | DecodedResizedEvent["colors"],
+    ) => {
+      const hasSparsePalette = colors?.palette !== undefined;
+      // Protocol-v6 servers omit sparse palette metadata, so preserve the
+      // replay-authored OSC palette by applying special colors first.
+      if (!hasSparsePalette) await applyColors(colors);
+      await writeTerminal(data);
+      if (!cancelled && hasSparsePalette) await applyColors(colors);
     };
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let stableTimer: ReturnType<typeof setTimeout> | undefined;
@@ -149,9 +160,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
               const replay = event as DecodedVtStateEvent;
               terminal.reset();
               terminal.resize(replay.cols, replay.rows);
-              await writeTerminal(replay.data);
-              if (cancelled) return;
-              await applyColors(replay.colors);
+              await writeReplay(replay.data, replay.colors);
               if (cancelled) return;
               // Publish this viewport once attached. The server combines it
               // with every other viewer and returns the shared minimum size.
@@ -168,9 +177,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
               const resized = event as DecodedResizedEvent;
               terminal.reset();
               terminal.resize(resized.cols, resized.rows);
-              await writeTerminal(resized.data);
-              if (cancelled) return;
-              await applyColors(resized.colors);
+              await writeReplay(resized.data, resized.colors);
               if (cancelled) return;
             } else if (event.event === "colors-changed") {
               await applyColors(event as DecodedColorsChangedEvent);

@@ -397,6 +397,13 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     term.vt_write(b"\x1b]21;7=;8=?\x1b\\");
     assert!(!term.palette_overridden(7));
     assert!(term.palette_overridden(8), "query must not alter authored state");
+    let original_nine = state.palette_color(9);
+    term.vt_write(b"\x9d4;9;#090909\x07");
+    assert!(!term.palette_overridden(9), "raw C1 is not dispatched by Ghostty's VT stream");
+    term.vt_write(b"\xc2\x9d4;9;#090909\x07");
+    assert!(!term.palette_overridden(9), "UTF-8 C1 is printable text, not an OSC opener");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(9), original_nine);
 
     term.vt_write(b"\x1b]104;1\x1b\\");
     assert!(!term.palette_overridden(1));
