@@ -137,9 +137,8 @@ import Testing
             _ = view.accessibilityValue()
         }
         #expect(runtime.accessibilityStreamSubscriptionCount == 2)
-        window?.contentView = nil
-        view = nil
         window = nil
+        view = nil
         for _ in 0 ..< 4 where runtime.accessibilityStreamTerminationCount < 2 {
             await Task.yield()
         }

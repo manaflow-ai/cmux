@@ -14,6 +14,7 @@ public actor BackendCanonicalSession {
     private static let ensureTerminalsCapability = "ensure-terminals-v1"
     private static let canonicalTopologyMutationsCapability = "canonical-topology-mutations-v1"
     private static let projectionNavigationV2Capability = "projection-navigation-v2"
+    private static let terminalAccessibilityCapability = "terminal-accessibility-v1"
     private static let canonicalTopologyReadCapabilities: Set<String> = [
         "canonical-topology-snapshot-v1",
         "topology-resume-v1",
@@ -1839,6 +1840,67 @@ public actor BackendCanonicalSession {
             expectedGeneration: expectedGeneration,
             expectedContentSequence: expectedContentSequence
         )
+    }
+
+    /// Acquires semantic retention for one exact presentation generation.
+    ///
+    /// Retrying an ambiguous call with the same request identity is safe and
+    /// returns the daemon's original demand generation.
+    public func acquireTerminalAccessibilityDemand(
+        requestID: UUID,
+        presentationID: PresentationID,
+        expectedGeneration: UInt64,
+        expectedDemandGeneration: UInt64? = nil
+    ) async throws -> BackendTerminalAccessibilityDemandReceipt {
+        try requireConnected()
+        try requireMutationAccess(command: "acquire-terminal-accessibility-demand")
+        try requireCapability(Self.terminalAccessibilityCapability)
+        try requireNonNil(requestID)
+        guard expectedGeneration > 0,
+              expectedDemandGeneration.map({ $0 > 0 }) ?? true else {
+            throw BackendProtocolError.malformedMessage
+        }
+        let response = try await client.acquireTerminalAccessibilityDemand(
+            requestID: requestID,
+            presentationID: presentationID,
+            expectedGeneration: expectedGeneration,
+            expectedDemandGeneration: expectedDemandGeneration
+        )
+        try requireConnected()
+        guard response.requestID == requestID,
+              response.presentationID == presentationID,
+              response.presentationGeneration == expectedGeneration,
+              response.demandGeneration > 0,
+              expectedDemandGeneration.map({ response.demandGeneration > $0 }) ?? true else {
+            throw BackendProtocolError.malformedMessage
+        }
+        return response
+    }
+
+    /// Releases only the exact demand generation supplied by the daemon.
+    public func releaseTerminalAccessibilityDemand(
+        presentationID: PresentationID,
+        expectedGeneration: UInt64,
+        demandGeneration: UInt64
+    ) async throws -> BackendTerminalAccessibilityDemandRelease {
+        try requireConnected()
+        try requireMutationAccess(command: "release-terminal-accessibility-demand")
+        try requireCapability(Self.terminalAccessibilityCapability)
+        guard expectedGeneration > 0, demandGeneration > 0 else {
+            throw BackendProtocolError.malformedMessage
+        }
+        let response = try await client.releaseTerminalAccessibilityDemand(
+            presentationID: presentationID,
+            expectedGeneration: expectedGeneration,
+            demandGeneration: demandGeneration
+        )
+        try requireConnected()
+        guard response.presentationID == presentationID,
+              response.presentationGeneration == expectedGeneration,
+              response.demandGeneration == demandGeneration else {
+            throw BackendProtocolError.malformedMessage
+        }
+        return response
     }
 
     public func activateTerminalAccessibilityLink(

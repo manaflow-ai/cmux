@@ -289,6 +289,10 @@ final class TerminalFrontendInteractionAdapter {
         runtime.enableAccessibility()
     }
 
+    func disableTerminalAccessibility() {
+        runtime.disableAccessibility()
+    }
+
     func terminalAccessibilitySnapshots()
         -> AsyncStream<TerminalAccessibilitySnapshot> {
         runtime.accessibilitySnapshots()

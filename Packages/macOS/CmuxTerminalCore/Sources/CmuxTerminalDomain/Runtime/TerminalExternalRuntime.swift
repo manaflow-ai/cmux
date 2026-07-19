@@ -691,6 +691,9 @@ public protocol TerminalExternalRuntime: AnyObject {
     /// Enables demand-driven semantic accessibility reads for this presentation.
     func enableAccessibility()
 
+    /// Releases one explicit semantic accessibility observer.
+    func disableAccessibility()
+
     /// Streams only snapshots whose revision tuple changed.
     func accessibilitySnapshots() -> AsyncStream<TerminalAccessibilitySnapshot>
 
@@ -711,6 +714,8 @@ public extension TerminalExternalRuntime {
     }
 
     func enableAccessibility() {}
+
+    func disableAccessibility() {}
 
     func accessibilitySnapshots() -> AsyncStream<TerminalAccessibilitySnapshot> {
         AsyncStream { $0.finish() }

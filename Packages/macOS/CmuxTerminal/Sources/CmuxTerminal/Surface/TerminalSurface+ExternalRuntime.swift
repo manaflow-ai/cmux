@@ -78,6 +78,12 @@ extension TerminalSurface {
         externalRuntime?.enableAccessibility()
     }
 
+    /// Releases one explicit accessibility observer.
+    @MainActor
+    public func disableExternalAccessibility() {
+        externalRuntime?.disableAccessibility()
+    }
+
     /// Streams revision changes for the daemon-owned accessibility projection.
     @MainActor
     public func externalAccessibilitySnapshots() -> AsyncStream<TerminalAccessibilitySnapshot> {

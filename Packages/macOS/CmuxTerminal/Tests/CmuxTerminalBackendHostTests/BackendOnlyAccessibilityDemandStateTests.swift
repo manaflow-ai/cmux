@@ -97,6 +97,35 @@ struct BackendOnlyAccessibilityDemandStateTests {
         #expect(retry == first)
     }
 
+    @Test("re-enable waits for an in-flight release before acquiring again")
+    func releaseInFlightReenableIsSerialized() throws {
+        var state = BackendOnlyAccessibilityDemandState()
+        state.attach(presentationID: presentationID, generation: 7)
+        state.addExplicitObserver()
+        let firstAcquire = try #require(
+            state.beginNextOperation(requestID: firstRequestID)
+        )
+        state.completeAcquire(firstAcquire, demandGeneration: 11)
+        state.removeExplicitObserver()
+        let release = try #require(
+            state.beginNextOperation(requestID: secondRequestID)
+        )
+
+        state.addExplicitObserver()
+        #expect(!state.isDemandAdmitted)
+        #expect(state.beginNextOperation(requestID: UUID()) == nil)
+        state.completeRelease(release, released: true)
+        let reacquire = try #require(state.beginNextOperation(requestID: secondRequestID))
+        #expect(reacquire == .acquire(
+            requestID: secondRequestID,
+            presentationID: presentationID,
+            expectedGeneration: 7,
+            expectedDemandGeneration: nil
+        ))
+        state.completeAcquire(reacquire, demandGeneration: 12)
+        #expect(state.isDemandAdmitted)
+    }
+
     @Test("stale release completion cannot erase a later admitted generation")
     func staleReleaseDoesNotEraseLaterAcquire() throws {
         var state = BackendOnlyAccessibilityDemandState()

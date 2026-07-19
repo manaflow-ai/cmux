@@ -80,6 +80,13 @@ final class BackendOnlyPresentedFrameState: @unchecked Sendable {
         return latestWithoutScheduledDrain
     }
 
+    func releaseAccessibilityDemand() {
+        lock.lock()
+        accessibilityDemanded = false
+        drainScheduled = false
+        lock.unlock()
+    }
+
     func reset() {
         lock.lock()
         metadata = nil
@@ -153,8 +160,12 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     private var presentationTask: Task<Void, any Error>?
     private var receiveTask: Task<Void, Never>?
     private var accessibilityRefreshTask: Task<Void, Never>?
+    private var accessibilityRefreshTaskID: UUID?
     private var accessibilityRefreshRequested = false
     private var latestAccessibilityMetadata: TerminalRenderFrameMetadata?
+    private var accessibilityDemandState = BackendOnlyAccessibilityDemandState()
+    private var accessibilityDemandTask: Task<Void, Never>?
+    private var accessibilityDemandReconcileRequested = false
     private var hostControlState = BackendOnlyHostControlDrainState()
     private var hostControlTask: Task<Void, Never>?
     private var hostViewportTask: Task<Void, Never>?
@@ -216,6 +227,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         presentationTask?.cancel()
         receiveTask?.cancel()
         accessibilityRefreshTask?.cancel()
+        accessibilityDemandTask?.cancel()
         terminalInteractionModeListener.cancel()
         hostControlTask?.cancel()
         hostViewportTask?.cancel()
@@ -289,13 +301,20 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         mutationContinuation.finish()
         mutationTask?.cancel()
         mutationTask = nil
+        accessibilityDemandState.removeAllObservers()
+        synchronizeLocalAccessibilityDemand()
+        requestAccessibilityDemandReconciliation()
         accessibilityRefreshTask?.cancel()
         accessibilityRefreshTask = nil
+        accessibilityRefreshTaskID = nil
         hostViewportTask?.cancel()
         hostViewportTask = nil
         pendingHostViewport = nil
         await withRendererOperationIgnoringCancellation {
             await self.stopPresentation()
+        }
+        if let task = accessibilityDemandTask {
+            await task.value
         }
         for continuation in accessibilityContinuations.values {
             continuation.finish()
@@ -430,23 +449,34 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     }
 
     public func enableAccessibility() {
-        guard let metadata = presentedFrameState.demandAccessibility() else { return }
-        requestAccessibility(metadata)
+        guard !retired else { return }
+        accessibilityDemandState.addExplicitObserver()
+        accessibilityDemandDidChange()
+    }
+
+    public func disableAccessibility() {
+        accessibilityDemandState.removeExplicitObserver()
+        accessibilityDemandDidChange()
     }
 
     public func accessibilitySnapshots() -> AsyncStream<TerminalAccessibilitySnapshot> {
-        enableAccessibility()
         let identifier = UUID()
         let pair = AsyncStream<TerminalAccessibilitySnapshot>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
         )
+        guard !retired else {
+            pair.continuation.finish()
+            return pair.stream
+        }
         accessibilityContinuations[identifier] = pair.continuation
+        accessibilityDemandState.addStreamObserver(identifier)
+        accessibilityDemandDidChange()
         if let value = snapshot.accessibility {
             pair.continuation.yield(value)
         }
         pair.continuation.onTermination = { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.accessibilityContinuations.removeValue(forKey: identifier)
+                self?.removeAccessibilityContinuation(identifier)
             }
         }
         return pair.stream
@@ -748,6 +778,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         try await startRendererEventListener(for: opened)
         try validateRendererOperation(operationGeneration)
         try await configureRenderer(viewport: viewport)
+        try validateRendererOperation(operationGeneration)
+        await attachAccessibilityDemand(to: opened)
         try validateRendererOperation(operationGeneration)
         try await startTerminalInteractionModeListener()
         try validateRendererOperation(operationGeneration)
@@ -1530,6 +1562,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         presentedFrameState.reset()
         accessibilityRefreshTask?.cancel()
         accessibilityRefreshTask = nil
+        accessibilityRefreshTaskID = nil
         accessibilityRefreshRequested = false
         latestAccessibilityMetadata = nil
         clearAccessibilitySnapshot()
@@ -1543,6 +1576,10 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     }
 
     private func stopPresentation() async {
+        let presentationToStop = presentation
+        if let presentationToStop {
+            await detachAccessibilityDemand(from: presentationToStop)
+        }
         await stopTerminalInteractionModeListener()
         await stopRendererEventListener()
         let priorWorkerIdentity = workerIdentity
@@ -1555,7 +1592,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         presentationTask = nil
         await retireRendererFrameIngress()
 
-        if let presentation {
+        if let presentation = presentationToStop {
             _ = try? await session.detachRendererPresentation(
                 id: presentation.id,
                 expectedGeneration: presentation.generation
@@ -1707,6 +1744,126 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         )
     }
 
+    private func attachAccessibilityDemand(to presentation: BackendPresentation) async {
+        accessibilityDemandState.attach(
+            presentationID: presentation.id,
+            generation: presentation.generation
+        )
+        accessibilityDemandDidChange()
+        if let task = accessibilityDemandTask {
+            await task.value
+        }
+    }
+
+    private func detachAccessibilityDemand(from presentation: BackendPresentation) async {
+        accessibilityDemandState.detach(
+            presentationID: presentation.id,
+            generation: presentation.generation
+        )
+        accessibilityDemandDidChange()
+        if let task = accessibilityDemandTask {
+            await task.value
+        }
+    }
+
+    private func removeAccessibilityContinuation(_ identifier: UUID) {
+        guard accessibilityContinuations.removeValue(forKey: identifier) != nil else {
+            return
+        }
+        accessibilityDemandState.removeStreamObserver(identifier)
+        accessibilityDemandDidChange()
+    }
+
+    private func accessibilityDemandDidChange() {
+        synchronizeLocalAccessibilityDemand()
+        requestAccessibilityDemandReconciliation()
+    }
+
+    private func synchronizeLocalAccessibilityDemand() {
+        guard accessibilityDemandState.isDemandAdmitted else {
+            presentedFrameState.releaseAccessibilityDemand()
+            accessibilityRefreshTask?.cancel()
+            accessibilityRefreshTask = nil
+            accessibilityRefreshTaskID = nil
+            accessibilityRefreshRequested = false
+            latestAccessibilityMetadata = nil
+            clearAccessibilitySnapshot()
+            return
+        }
+        guard let metadata = presentedFrameState.demandAccessibility() else { return }
+        requestAccessibility(metadata)
+    }
+
+    private func requestAccessibilityDemandReconciliation() {
+        accessibilityDemandReconcileRequested = true
+        guard accessibilityDemandTask == nil else { return }
+        accessibilityDemandTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.drainAccessibilityDemand()
+        }
+    }
+
+    private func drainAccessibilityDemand() async {
+        defer {
+            accessibilityDemandTask = nil
+            if accessibilityDemandReconcileRequested {
+                requestAccessibilityDemandReconciliation()
+            }
+        }
+        while accessibilityDemandReconcileRequested, !Task.isCancelled {
+            accessibilityDemandReconcileRequested = false
+            guard let operation = accessibilityDemandState.beginNextOperation(
+                requestID: UUID()
+            ) else {
+                synchronizeLocalAccessibilityDemand()
+                continue
+            }
+            do {
+                switch operation {
+                case let .acquire(
+                    requestID,
+                    presentationID,
+                    expectedGeneration,
+                    expectedDemandGeneration
+                ):
+                    let receipt = try await session.acquireTerminalAccessibilityDemand(
+                        requestID: requestID,
+                        presentationID: presentationID,
+                        expectedGeneration: expectedGeneration,
+                        expectedDemandGeneration: expectedDemandGeneration
+                    )
+                    accessibilityDemandState.completeAcquire(
+                        operation,
+                        demandGeneration: receipt.demandGeneration
+                    )
+                case let .release(
+                    presentationID,
+                    expectedGeneration,
+                    demandGeneration
+                ):
+                    let release = try await session.releaseTerminalAccessibilityDemand(
+                        presentationID: presentationID,
+                        expectedGeneration: expectedGeneration,
+                        demandGeneration: demandGeneration
+                    )
+                    accessibilityDemandState.completeRelease(
+                        operation,
+                        released: release.released
+                    )
+                }
+                synchronizeLocalAccessibilityDemand()
+                accessibilityDemandReconcileRequested = true
+            } catch {
+                accessibilityDemandState.fail(operation)
+                synchronizeLocalAccessibilityDemand()
+                // A state transition received while the RPC was suspended is
+                // the retry signal. Acquire planning retains its exact request
+                // identity; an idle transport failure waits for the next signal.
+                guard accessibilityDemandReconcileRequested else { return }
+            }
+        }
+    }
+
     private func didPresentFrame(
         _ metadata: TerminalRenderFrameMetadata,
         accessibilityDemanded: Bool
@@ -1721,6 +1878,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
 
     private func requestAccessibility(_ metadata: TerminalRenderFrameMetadata) {
         guard let presentation,
+              accessibilityDemandState.isDemandAdmitted,
               presentation.id.rawValue == metadata.presentationID,
               rendererGeneration == metadata.presentationGeneration else { return }
         let priorMetadata = latestAccessibilityMetadata
@@ -1734,18 +1892,25 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
             return
         }
         accessibilityRefreshRequested = false
+        let refreshTaskID = UUID()
+        accessibilityRefreshTaskID = refreshTaskID
         accessibilityRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
-                self.accessibilityRefreshTask = nil
-                if self.accessibilityRefreshRequested {
-                    self.requestAccessibilityFromLatestFrame()
+                if self.accessibilityRefreshTaskID == refreshTaskID {
+                    self.accessibilityRefreshTask = nil
+                    self.accessibilityRefreshTaskID = nil
+                    if self.accessibilityRefreshRequested {
+                        self.requestAccessibilityFromLatestFrame()
+                    }
                 }
             }
             repeat {
+                guard self.accessibilityRefreshTaskID == refreshTaskID else { return }
                 self.accessibilityRefreshRequested = false
                 guard let expected = self.latestAccessibilityMetadata,
                       let presentation = self.presentation,
+                      self.accessibilityDemandState.isDemandAdmitted,
                       presentation.id.rawValue == expected.presentationID,
                       self.rendererGeneration == expected.presentationGeneration else { return }
                 do {
@@ -1755,6 +1920,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                         expectedContentSequence: expected.terminalSequence
                     )
                     guard !Task.isCancelled,
+                          self.accessibilityRefreshTaskID == refreshTaskID,
+                          self.accessibilityDemandState.isDemandAdmitted,
                           self.presentation?.id == presentation.id,
                           self.presentation?.generation == presentation.generation,
                           self.rendererGeneration == expected.presentationGeneration,
@@ -1767,6 +1934,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                 } catch is CancellationError {
                     return
                 } catch {
+                    guard self.accessibilityRefreshTaskID == refreshTaskID else { return }
                     if self.latestAccessibilityMetadata?.terminalSequence
                         != expected.terminalSequence {
                         self.accessibilityRefreshRequested = true

@@ -20,9 +20,14 @@ final class TerminalFrontendAccessibilityBridge {
 
     deinit {
         observationTask?.cancel()
+        observationTask = nil
+        demandStarted = false
+        observedSnapshot = nil
         for gate in linkActionGates {
             gate.invalidate()
         }
+        linkActionGates.removeAll(keepingCapacity: false)
+        linkElements.removeAll(keepingCapacity: false)
     }
 
     func bind(to owner: TerminalFrontendInteractionView) {
@@ -123,7 +128,6 @@ final class TerminalFrontendAccessibilityBridge {
     private func ensureDemand() {
         guard !demandStarted, let owner, owner.window != nil else { return }
         demandStarted = true
-        owner.enableTerminalAccessibility()
         let snapshots = owner.terminalAccessibilitySnapshots()
         observationTask = Task { @MainActor [weak self, weak owner] in
             for await snapshot in snapshots {

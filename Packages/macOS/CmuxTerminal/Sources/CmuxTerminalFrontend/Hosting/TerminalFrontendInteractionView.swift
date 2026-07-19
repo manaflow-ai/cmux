@@ -592,6 +592,11 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
         interactionAdapter.enableTerminalAccessibility()
     }
 
+    /// Releases one explicit accessibility observer.
+    public func disableTerminalAccessibility() {
+        interactionAdapter.disableTerminalAccessibility()
+    }
+
     /// Forwards the runtime's bounded newest-only accessibility stream.
     public func terminalAccessibilitySnapshots()
         -> AsyncStream<TerminalAccessibilitySnapshot> {

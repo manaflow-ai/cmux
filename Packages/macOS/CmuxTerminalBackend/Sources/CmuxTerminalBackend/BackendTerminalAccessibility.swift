@@ -1,5 +1,35 @@
 public import Foundation
 
+/// Idempotent receipt for one presentation-scoped semantic-retention demand.
+public struct BackendTerminalAccessibilityDemandReceipt: Decodable, Equatable, Sendable {
+    public let requestID: UUID
+    public let presentationID: PresentationID
+    public let presentationGeneration: UInt64
+    public let demandGeneration: UInt64
+
+    private enum CodingKeys: String, CodingKey {
+        case requestID = "request_id"
+        case presentationID = "presentation_id"
+        case presentationGeneration = "presentation_generation"
+        case demandGeneration = "demand_generation"
+    }
+}
+
+/// Generation-fenced result for releasing semantic-retention demand.
+public struct BackendTerminalAccessibilityDemandRelease: Decodable, Equatable, Sendable {
+    public let presentationID: PresentationID
+    public let presentationGeneration: UInt64
+    public let demandGeneration: UInt64
+    public let released: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case presentationID = "presentation_id"
+        case presentationGeneration = "presentation_generation"
+        case demandGeneration = "demand_generation"
+        case released
+    }
+}
+
 /// A UTF-16 range suitable for AppKit accessibility APIs.
 public struct BackendTerminalAccessibilityRange: Decodable, Equatable, Sendable {
     public let location: UInt32

@@ -106,6 +106,11 @@ public final class TerminalFrontendPanel: TerminalExternalRuntime {
         runtime.enableAccessibility()
     }
 
+    /// Releases one explicit accessibility observer in the canonical runtime.
+    public func disableAccessibility() {
+        runtime.disableAccessibility()
+    }
+
     /// Streams changed accessibility snapshots from the canonical runtime.
     public func accessibilitySnapshots() -> AsyncStream<TerminalAccessibilitySnapshot> {
         runtime.accessibilitySnapshots()

@@ -145,6 +145,17 @@ struct TerminalSurfaceExternalRuntimeTests {
         #expect(fixture.runtime.mutations.isEmpty)
     }
 
+    @Test func accessibilityDemandForwardsBothEdgesToExternalRuntime() {
+        let fixture = makeFixture()
+        defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
+
+        fixture.surface.enableExternalAccessibility()
+        fixture.surface.disableExternalAccessibility()
+
+        #expect(fixture.runtime.accessibilityEnableCount == 1)
+        #expect(fixture.runtime.accessibilityDisableCount == 1)
+    }
+
     private static let liveSnapshot = TerminalExternalRuntimeSnapshot(
         lifecycle: .live,
         visibleText: "visible",
@@ -208,6 +219,8 @@ private final class FakeExternalTerminalRuntime: TerminalExternalRuntime {
     private(set) var mutations: [TerminalExternalRuntimeMutation] = []
     private(set) var acceptedSequences: [UInt64] = []
     private(set) var screenRequests: [TerminalExternalScreenTextRequest] = []
+    private(set) var accessibilityEnableCount = 0
+    private(set) var accessibilityDisableCount = 0
     private var nextSequence: UInt64 = 1
 
     init(snapshot: TerminalExternalRuntimeSnapshot) {
@@ -238,6 +251,14 @@ private final class FakeExternalTerminalRuntime: TerminalExternalRuntime {
 
     func readSelection() async -> TerminalExternalSelection? {
         snapshot.selection
+    }
+
+    func enableAccessibility() {
+        accessibilityEnableCount += 1
+    }
+
+    func disableAccessibility() {
+        accessibilityDisableCount += 1
     }
 }
 
