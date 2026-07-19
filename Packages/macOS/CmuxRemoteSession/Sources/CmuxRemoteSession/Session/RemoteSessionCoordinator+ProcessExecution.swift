@@ -23,10 +23,14 @@ extension RemoteSessionCoordinator {
         stdinFile: URL,
         timeout: TimeInterval = 15
     ) throws -> RemoteCommandResult {
-        try processRunner.run(
+        // A host or caller can configure StdinNull=yes; OpenSSH would then
+        // discard this file while `cat` still exits successfully. Its first
+        // option value wins, so pin file-backed execs before caller options.
+        let fileInputArguments = ["-o", "StdinNull=no"] + arguments
+        return try processRunner.run(
             RemoteProcessRequest(
                 executable: "/usr/bin/ssh",
-                arguments: arguments,
+                arguments: fileInputArguments,
                 environment: configuration.sshProcessEnvironment,
                 stdinFile: stdinFile,
                 timeout: timeout
