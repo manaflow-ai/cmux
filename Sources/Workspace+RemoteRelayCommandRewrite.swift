@@ -50,16 +50,31 @@ extension Workspace {
         surfaceAliases: [UUID: UUID],
         remoteWorkspaceID: UUID? = nil
     ) -> Data {
+        rewriteRemoteRelayCommandLineAndExtractMethod(
+            commandLine,
+            workspaceAliases: workspaceAliases,
+            surfaceAliases: surfaceAliases,
+            remoteWorkspaceID: remoteWorkspaceID
+        ).commandLine
+    }
+
+    nonisolated static func rewriteRemoteRelayCommandLineAndExtractMethod(
+        _ commandLine: Data,
+        workspaceAliases: [UUID: UUID],
+        surfaceAliases: [UUID: UUID],
+        remoteWorkspaceID: UUID? = nil
+    ) -> (commandLine: Data, method: String?) {
         guard !workspaceAliases.isEmpty || !surfaceAliases.isEmpty || remoteWorkspaceID != nil,
               let line = String(data: commandLine, encoding: .utf8) else {
-            return commandLine
+            return (commandLine, nil)
         }
         let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedLine.hasPrefix("{"),
               let requestData = trimmedLine.data(using: .utf8),
               var request = try? JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
-            return commandLine
+            return (commandLine, nil)
         }
+        let method = request["method"] as? String
 
         var didRewrite = false
         if var params = request["params"] as? [String: Any] {
@@ -70,7 +85,7 @@ extension Workspace {
                 surfaceAliases: surfaceAliases,
                 didRewrite: &didRewrite
             ) as? [String: Any] ?? params
-            if request["method"] as? String == "surface.resume.set",
+            if method == "surface.resume.set",
                let remoteWorkspaceID {
                 params["_cmux_remote_workspace_id"] = remoteWorkspaceID.uuidString
                 didRewrite = true
@@ -81,12 +96,12 @@ extension Workspace {
         guard didRewrite,
               JSONSerialization.isValidJSONObject(request),
               let rewritten = try? JSONSerialization.data(withJSONObject: request, options: []) else {
-            return commandLine
+            return (commandLine, method)
         }
         if commandLine.last == 0x0A {
-            return rewritten + Data([0x0A])
+            return (rewritten + Data([0x0A]), method)
         }
-        return rewritten
+        return (rewritten, method)
     }
 
     private nonisolated static func remappedRemoteRelayValue(

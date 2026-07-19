@@ -7,7 +7,6 @@ import Foundation
 /// `Workspace`.
 struct WorkspaceRemoteRelayCommandRewriter: RemoteRelayCommandRewriting {
     private static let authenticationCodeKey = "_cmux_remote_relay_authentication_code"
-    private static let remoteResumeMethodNeedle = Data(#""surface.resume.set""#.utf8)
 
     let remoteWorkspaceID: UUID
     let remoteRelayTokenHex: String
@@ -17,15 +16,15 @@ struct WorkspaceRemoteRelayCommandRewriter: RemoteRelayCommandRewriting {
         workspaceAliases: [UUID: UUID],
         surfaceAliases: [UUID: UUID]
     ) -> Data {
-        let authenticatesRemoteResume = commandLine.range(of: Self.remoteResumeMethodNeedle) != nil
-        let rewritten = Workspace.rewriteRemoteRelayCommandLine(
+        let rewritten = Workspace.rewriteRemoteRelayCommandLineAndExtractMethod(
             commandLine,
             workspaceAliases: workspaceAliases,
             surfaceAliases: surfaceAliases,
-            remoteWorkspaceID: authenticatesRemoteResume ? remoteWorkspaceID : nil
+            remoteWorkspaceID: remoteWorkspaceID
         )
-        guard authenticatesRemoteResume else { return rewritten }
-        return authenticatedRemoteResumeCommandLine(rewritten)
+        // Method classification is a trust boundary; decoded JSON honors escapes that raw bytes do not.
+        guard rewritten.method == "surface.resume.set" else { return rewritten.commandLine }
+        return authenticatedRemoteResumeCommandLine(rewritten.commandLine)
     }
 
     static func authenticatesRemoteResumeParameters(
