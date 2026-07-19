@@ -183,7 +183,11 @@ extension RemoteCLIRelayServer {
             let forwardedCommandLine = commandRewriter(commandLine)
             DispatchQueue.global(qos: .utility).async { [localSocketPath, forwardedCommandLine, queue] in
                 let result = Result {
-                    try Self.roundTripUnixSocket(socketPath: localSocketPath, request: forwardedCommandLine)
+                    try Self.roundTripUnixSocket(
+                        socketPath: localSocketPath,
+                        request: forwardedCommandLine,
+                        timeoutSeconds: Self.isHookInvocation(forwardedCommandLine) ? 135 : 15
+                    )
                 }
                 queue.async { [weak self] in
                     guard let self else { return }
@@ -285,7 +289,13 @@ extension RemoteCLIRelayServer {
             return bytes.map { String(format: "%02x", $0) }.joined()
         }
 
-        private static func roundTripUnixSocket(socketPath: String, request: Data) throws -> Data {
+        private static func isHookInvocation(_ request: Data) -> Bool {
+            guard let object = try? JSONSerialization.jsonObject(with: request) as? [String: Any],
+                  let method = object["method"] as? String else { return false }
+            return method == "hooks.invoke" || method == "hooks.invoke.execute"
+        }
+
+        private static func roundTripUnixSocket(socketPath: String, request: Data, timeoutSeconds: Int = 15) throws -> Data {
             let fd = socket(AF_UNIX, SOCK_STREAM, 0)
             guard fd >= 0 else {
                 throw NSError(domain: "cmux.remote.relay", code: 1, userInfo: [
@@ -294,7 +304,7 @@ extension RemoteCLIRelayServer {
             }
             defer { Darwin.close(fd) }
 
-            var timeout = timeval(tv_sec: 15, tv_usec: 0)
+            var timeout = timeval(tv_sec: timeoutSeconds, tv_usec: 0)
             withUnsafePointer(to: &timeout) { pointer in
                 _ = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, pointer, socklen_t(MemoryLayout<timeval>.size))
                 _ = setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, pointer, socklen_t(MemoryLayout<timeval>.size))

@@ -322,6 +322,8 @@ extension CMUXCLI {
         env: [String: String] = ProcessInfo.processInfo.environment,
         arguments: [String] = ProcessInfo.processInfo.arguments
     ) -> String? {
+        if env["CMUX_HOOK_RELAY_BRIDGE_CHILD"] == "1", let remotePath = normalizedHookInstallValue(env["CMUX_HOOK_INSTALL_CLI_PATH"]) {
+            return NSString(string: remotePath).expandingTildeInPath }
         if let bundledPath = normalizedHookInstallValue(env["CMUX_BUNDLED_CLI_PATH"]) {
             let expanded = NSString(string: bundledPath).expandingTildeInPath
             if isExecutableFilePath(expanded) {
@@ -330,9 +332,7 @@ extension CMUXCLI {
         }
         if let arg0 = normalizedHookInstallValue(arguments.first) {
             let expanded = NSString(string: arg0).expandingTildeInPath
-            if expanded.hasPrefix("/"), isExecutableFilePath(expanded) {
-                return expanded
-            }
+            if expanded.hasPrefix("/"), isExecutableFilePath(expanded) { return expanded }
         }
         if let executablePath = Bundle.main.executableURL?.path,
            !executablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -351,10 +351,10 @@ extension CMUXCLI {
         }
         return FileManager.default.isExecutableFile(atPath: path)
     }
-
     private static func pinnedAgentHookSocketPath(
         env: [String: String] = ProcessInfo.processInfo.environment
     ) -> String? {
+        guard env["CMUX_HOOK_RELAY_BRIDGE_CHILD"] != "1" else { return nil } // Remote wrapper follows socket_addr.
         if let socketPath = normalizedHookInstallValue(env["CMUX_SOCKET_PATH"]) {
             return NSString(string: socketPath).expandingTildeInPath
         }
