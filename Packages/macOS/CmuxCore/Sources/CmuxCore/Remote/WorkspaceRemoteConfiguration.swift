@@ -57,9 +57,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     /// identifies one broker lease, not a user-visible connection setting.
     public let sshControlMasterLeaseGeneration: UUID?
 
-    /// Creates a configuration, normalizing the agent socket path and gating
-    /// the persistent daemon slot on `preserveAfterTerminalExit` exactly like
-    /// the original app-target initializer.
+    /// Creates a configuration, normalizing the agent socket path and allowing
+    /// persistent daemon state only for SSH-backed interactive terminals.
     public init(
         transport: WorkspaceRemoteTransport = .ssh,
         terminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
@@ -100,8 +99,9 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         self.foregroundAuthToken = foregroundAuthToken
         self.agentSocketPath = Self.normalizedAgentSocketPath(agentSocketPath)
         self.daemonWebSocketEndpoint = daemonWebSocketEndpoint
-        self.preserveAfterTerminalExit = preserveAfterTerminalExit
-        self.persistentDaemonSlot = preserveAfterTerminalExit
+        let preservesPersistentPTY = terminalTransport == .ssh && preserveAfterTerminalExit
+        self.preserveAfterTerminalExit = preservesPersistentPTY
+        self.persistentDaemonSlot = preservesPersistentPTY
             ? Self.normalizedPersistentDaemonSlot(persistentDaemonSlot)
             : nil
         self.skipDaemonBootstrap = skipDaemonBootstrap
