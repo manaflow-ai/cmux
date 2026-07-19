@@ -723,6 +723,8 @@ export const irohEndpointBindings = pgTable(
     identityGeneration: integer("identity_generation").notNull(),
     pairingEnabled: boolean("pairing_enabled").notNull().default(false),
     capabilities: jsonb("capabilities").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    directPortV4: integer("direct_port_v4"),
+    directPortV6: integer("direct_port_v6"),
     pathHints: jsonb("path_hints").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
     pathHintsNextExpiry: timestamp("path_hints_next_expiry", { withTimezone: true }),
     deviceLimitOverrideUsed: boolean("device_limit_override_used").notNull().default(false),
@@ -739,6 +741,8 @@ export const irohEndpointBindings = pgTable(
     check("iroh_endpoint_bindings_platform_check", sql`${table.platform} in ('mac', 'ios')`),
     check("iroh_endpoint_bindings_display_name_check", sql`${table.displayName} is null or ${table.displayName} !~ '[[:cntrl:]]'`),
     check("iroh_endpoint_bindings_capabilities_check", sql`jsonb_typeof(${table.capabilities}) = 'array' and jsonb_array_length(${table.capabilities}) <= 32`),
+    check("iroh_endpoint_bindings_direct_port_v4_check", sql`${table.directPortV4} is null or ${table.directPortV4} between 1 and 65535`),
+    check("iroh_endpoint_bindings_direct_port_v6_check", sql`${table.directPortV6} is null or ${table.directPortV6} between 1 and 65535`),
     check("iroh_endpoint_bindings_path_hints_check", sql`jsonb_typeof(${table.pathHints}) = 'array' and jsonb_array_length(${table.pathHints}) <= 16`),
     uniqueIndex("iroh_endpoint_bindings_active_endpoint_unique")
       .on(table.endpointId)

@@ -10,6 +10,13 @@ persists and publishes only exact managed relay URLs. Endpoint or
 identity-generation replacement requires explicit revocation and reapproval; a
 signature from only the proposed new key cannot replace an active binding.
 
+A signed registration may publish `directPorts` with independent IPv4 and IPv6
+UDP ports. The broker stores only those bounded ports, never a private address,
+and returns them as `direct_ports` only inside the authenticated same-account
+binding catalog. Clients combine a family-matching port with locally known
+addresses after EndpointID authentication. Legacy registrations omit the field
+and clear any previously published ports on their next signed refresh.
+
 `relay_fleet` is the server-configured connection preset/allowlist. It is not a
 peer address. Each peer's published `relay_url` comes from its signed
 `watch_addr` payload and must match that allowlist. Discovery defensively
