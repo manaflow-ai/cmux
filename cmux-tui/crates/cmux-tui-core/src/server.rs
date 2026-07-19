@@ -1692,6 +1692,18 @@ fn optional_surface_size(cols: Option<u16>, rows: Option<u16>) -> Option<(u16, u
     cols.zip(rows).map(|(cols, rows)| (cols.max(1), rows.max(1)))
 }
 
+fn paired_surface_size(
+    command: &str,
+    cols: Option<u16>,
+    rows: Option<u16>,
+) -> anyhow::Result<Option<(u16, u16)>> {
+    match (cols, rows) {
+        (Some(cols), Some(rows)) => Ok(Some((cols.max(1), rows.max(1)))),
+        (None, None) => Ok(None),
+        _ => anyhow::bail!("{command} cols and rows must be supplied together"),
+    }
+}
+
 fn parse_direction(dir: &str) -> anyhow::Result<Direction> {
     match dir {
         "left" => Ok(Direction::Left),
@@ -2343,12 +2355,12 @@ fn mark_client_attached(
     surface: SurfaceId,
     stream: OutboundStream,
     initial_size: Option<(u16, u16)>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<crate::mux::ClientSizeRollback>> {
     mux.control_clients.attach_surface(client, surface, stream.clone())?;
     if let Some((cols, rows)) = initial_size {
         let cols = cols.max(1);
         let rows = rows.max(1);
-        let (_, _, attached) = mux
+        let (_, _, attached, rollback) = mux
             .resize_surface_for_control_client_with_reservation(surface, client, cols, rows)
             .inspect_err(|_| {
                 cleanup_failed_attach(mux, client, surface, stream.id);
@@ -2360,8 +2372,9 @@ fn mark_client_attached(
         if changed {
             mux.emit(MuxEvent::ClientChanged { client, name, kind });
         }
+        return Ok(Some(rollback));
     }
-    Ok(())
+    Ok(None)
 }
 
 fn announce_client_attached(mux: &Mux, client: u64) -> anyhow::Result<()> {
@@ -2377,9 +2390,17 @@ fn cleanup_failed_attach(mux: &Mux, client: u64, surface: SurfaceId, stream: u64
     }
 }
 
-fn unmark_client_attached(mux: &Mux, client: u64, surface: SurfaceId, stream: &OutboundStream) {
-    if mux.control_clients.detach_surface(client, surface, stream.id) {
+fn rollback_failed_attach(
+    mux: &Mux,
+    client: u64,
+    surface: SurfaceId,
+    stream: u64,
+    size_rollback: Option<crate::mux::ClientSizeRollback>,
+) {
+    if mux.control_clients.detach_surface(client, surface, stream) {
         mux.remove_surface_size_client(surface, client);
+    } else if let Some(size_rollback) = size_rollback {
+        mux.rollback_surface_size_client(surface, client, size_rollback);
     }
 }
 
@@ -2847,13 +2868,8 @@ fn handle_command(
                 _ => anyhow::bail!("argv or command must be non-empty when provided"),
             };
             let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
-            let placement = mux.create_terminal_in_workspace(
-                workspace,
-                argv,
-                cwd,
-                name,
-                optional_surface_size(cols, rows),
-            )?;
+            let size = paired_surface_size("create-terminal", cols, rows)?;
+            let placement = mux.create_terminal_in_workspace(workspace, argv, cwd, name, size)?;
             Ok(json!({
                 "surface": placement.surface,
                 "pane": placement.pane,
@@ -3018,7 +3034,7 @@ fn handle_command(
             // when its connection closes, so it cannot bypass visible viewers.
             // Recording and reducing happen under the sizing lock so a
             // concurrent detach cannot finish cleanup before this lease exists.
-            let (accepted, reservation_id, attached) = mux
+            let (accepted, reservation_id, attached, _) = mux
                 .resize_surface_for_control_client_with_reservation(surface, client, cols, rows)?;
             if let Some((true, name, kind, _)) = attached {
                 mux.emit(MuxEvent::ClientChanged { client, name, kind });
@@ -3146,7 +3162,7 @@ fn handle_command(
             };
             if render_mode {
                 require_pty(&surface)?;
-                mark_client_attached(
+                let size_rollback = mark_client_attached(
                     mux,
                     client,
                     surface_id,
@@ -3156,7 +3172,13 @@ fn handle_command(
                 let attach = match surface.attach_render_stream() {
                     Ok(attach) => attach,
                     Err(error) => {
-                        unmark_client_attached(mux, client, surface_id, &outbound_stream);
+                        rollback_failed_attach(
+                            mux,
+                            client,
+                            surface_id,
+                            outbound_stream.id,
+                            size_rollback,
+                        );
                         return Err(error.into());
                     }
                 };
@@ -3164,7 +3186,13 @@ fn handle_command(
                     .send_initial(&render_state_json(surface_id, &attach.initial), &outbound_stream)
                 {
                     handle_attach_send_error(&lifecycle, &error);
-                    unmark_client_attached(mux, client, surface_id, &outbound_stream);
+                    rollback_failed_attach(
+                        mux,
+                        client,
+                        surface_id,
+                        outbound_stream.id,
+                        size_rollback,
+                    );
                     return Err(error.into());
                 }
                 let worker_writer = writer.clone();
@@ -3220,14 +3248,20 @@ fn handle_command(
                     });
                 if let Err(error) = spawned {
                     lifecycle.cancel();
-                    unmark_client_attached(mux, client, surface_id, &outbound_stream);
+                    rollback_failed_attach(
+                        mux,
+                        client,
+                        surface_id,
+                        outbound_stream.id,
+                        size_rollback,
+                    );
                     return Err(error.into());
                 }
                 announce_client_attached(mux, client)?;
                 return Ok(json!({}));
             }
             if surface.kind() == SurfaceKind::Browser {
-                mark_client_attached(
+                let size_rollback = mark_client_attached(
                     mux,
                     client,
                     surface_id,
@@ -3238,7 +3272,13 @@ fn handle_command(
                     Ok(attach) => attach,
                     Err(error) => {
                         lifecycle.cancel();
-                        unmark_client_attached(mux, client, surface_id, &outbound_stream);
+                        rollback_failed_attach(
+                            mux,
+                            client,
+                            surface_id,
+                            outbound_stream.id,
+                            size_rollback,
+                        );
                         return Err(error);
                     }
                 };
@@ -3246,7 +3286,13 @@ fn handle_command(
                     .send_initial(&browser_state_json(surface_id, &state, true), &outbound_stream)
                 {
                     handle_attach_send_error(&lifecycle, &error);
-                    unmark_client_attached(mux, client, surface_id, &outbound_stream);
+                    rollback_failed_attach(
+                        mux,
+                        client,
+                        surface_id,
+                        outbound_stream.id,
+                        size_rollback,
+                    );
                     return Err(error.into());
                 }
                 if let Err(error) = spawn_attach_notification_stream(
@@ -3257,7 +3303,13 @@ fn handle_command(
                     outbound_stream.clone(),
                 ) {
                     lifecycle.cancel();
-                    unmark_client_attached(mux, client, surface_id, &outbound_stream);
+                    rollback_failed_attach(
+                        mux,
+                        client,
+                        surface_id,
+                        outbound_stream.id,
+                        size_rollback,
+                    );
                     return Err(error.into());
                 }
                 let worker_writer = writer.clone();
@@ -3322,18 +3374,36 @@ fn handle_command(
                     });
                 if let Err(error) = spawned {
                     lifecycle.cancel();
-                    unmark_client_attached(mux, client, surface_id, &outbound_stream);
+                    rollback_failed_attach(
+                        mux,
+                        client,
+                        surface_id,
+                        outbound_stream.id,
+                        size_rollback,
+                    );
                     return Err(error.into());
                 }
                 announce_client_attached(mux, client)?;
                 return Ok(json!({}));
             }
-            mark_client_attached(mux, client, surface_id, outbound_stream.clone(), initial_size)?;
+            let size_rollback = mark_client_attached(
+                mux,
+                client,
+                surface_id,
+                outbound_stream.clone(),
+                initial_size,
+            )?;
             let attach = match surface.attach_stream_with_lifecycle(lifecycle.clone()) {
                 Ok(attach) => attach,
                 Err(error) => {
                     lifecycle.cancel();
-                    unmark_client_attached(mux, client, surface_id, &outbound_stream);
+                    rollback_failed_attach(
+                        mux,
+                        client,
+                        surface_id,
+                        outbound_stream.id,
+                        size_rollback,
+                    );
                     return Err(error.into());
                 }
             };
@@ -3349,7 +3419,7 @@ fn handle_command(
                 &outbound_stream,
             ) {
                 handle_attach_send_error(&lifecycle, &error);
-                unmark_client_attached(mux, client, surface_id, &outbound_stream);
+                rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
                 return Err(error.into());
             }
             if let Err(error) = spawn_attach_notification_stream(
@@ -3360,7 +3430,7 @@ fn handle_command(
                 outbound_stream.clone(),
             ) {
                 lifecycle.cancel();
-                unmark_client_attached(mux, client, surface_id, &outbound_stream);
+                rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
                 return Err(error.into());
             }
             let worker_writer = writer.clone();
@@ -3426,7 +3496,7 @@ fn handle_command(
                 });
             if let Err(error) = spawned {
                 lifecycle.cancel();
-                unmark_client_attached(mux, client, surface_id, &outbound_stream);
+                rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
                 return Err(error.into());
             }
             announce_client_attached(mux, client)?;
@@ -3871,6 +3941,36 @@ mod tests {
         assert_eq!(data["ok"].as_bool(), Some(true));
         assert_eq!(data["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
+    }
+
+    #[test]
+    fn create_terminal_rejects_partial_dimensions() {
+        let mux = test_mux();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap().workspace;
+
+        for (cols, rows) in [(Some(80), None), (None, Some(24))] {
+            let error = handle_command(
+                &mux,
+                0,
+                Command::CreateTerminal {
+                    workspace: Some(workspace),
+                    key: None,
+                    argv: None,
+                    command: None,
+                    cwd: None,
+                    name: None,
+                    cols,
+                    rows,
+                },
+                &test_writer(),
+            )
+            .unwrap_err();
+
+            assert_eq!(
+                error.to_string(),
+                "create-terminal cols and rows must be supplied together"
+            );
+        }
     }
 
     #[test]
@@ -4362,11 +4462,11 @@ mod tests {
         assert_eq!(mux.client_surface_size(surface.id, second), Some((80, 35)));
         assert_eq!(surface.size(), (80, 30));
 
-        unmark_client_attached(&mux, first, surface.id, &first_stream);
+        cleanup_failed_attach(&mux, first, surface.id, first_stream.id);
         assert_eq!(mux.client_surface_size(surface.id, first), None);
         assert_eq!(surface.size(), (80, 35));
 
-        unmark_client_attached(&mux, second, surface.id, &second_stream);
+        cleanup_failed_attach(&mux, second, surface.id, second_stream.id);
         assert_eq!(mux.client_surface_size(surface.id, second), None);
         assert!(mux.surface(surface.id).is_some());
     }
@@ -4396,13 +4496,16 @@ mod tests {
         let first = writer.start_stream(&json!({"event": "test"})).unwrap();
         let failed = writer.start_stream(&json!({"event": "test"})).unwrap();
 
-        mux.control_clients.attach_surface(client, surface.id, first).unwrap();
-        mux.resize_surface_for_control_client_with_reservation(surface.id, client, 80, 24).unwrap();
-        mux.control_clients.attach_surface(client, surface.id, failed.clone()).unwrap();
-        cleanup_failed_attach(&mux, client, surface.id, failed.id);
+        mark_client_attached(&mux, client, surface.id, first, Some((80, 24))).unwrap();
+        let rollback =
+            mark_client_attached(&mux, client, surface.id, failed.clone(), Some((60, 20))).unwrap();
+        assert_eq!(mux.client_surface_size(surface.id, client), Some((60, 20)));
+        assert_eq!(surface.size(), (60, 20));
+        rollback_failed_attach(&mux, client, surface.id, failed.id, rollback);
 
         assert!(mux.control_clients.attached_client_ids().contains(&client));
         assert_eq!(mux.client_surface_size(surface.id, client), Some((80, 24)));
+        assert_eq!(surface.size(), (80, 24));
     }
 
     #[test]

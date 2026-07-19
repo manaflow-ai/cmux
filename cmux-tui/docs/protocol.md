@@ -81,7 +81,9 @@ scroll-surface
 {"id":10,"cmd":"move-tab","surface":4,"pane":2,"index":0}
 ```
 
-`move-workspace` moves a workspace to its final zero-based root index.
+`move-workspace` moves a workspace to a zero-based insertion index. When moving
+right, the final index is one less than the requested insertion index because
+the source workspace is removed first.
 
 ```json
 {"id":11,"cmd":"move-workspace","workspace":3,"index":0}

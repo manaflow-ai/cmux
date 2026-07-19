@@ -350,7 +350,13 @@ enum BrowserSurfaceAttach {
 
 type ClientSurfaceSizes = HashMap<SurfaceId, HashMap<u64, (u16, u16)>>;
 type SurfaceResizeAcceptance = (bool, Option<u64>);
-type AppliedClientSize = (SurfaceResizeAcceptance, Option<(u16, u16)>);
+type AppliedClientSize = (SurfaceResizeAcceptance, Option<(u16, u16)>, ClientSizeRollback);
+
+#[derive(Clone, Copy)]
+pub(crate) struct ClientSizeRollback {
+    previous_size: Option<(u16, u16)>,
+    previous_report_order: Option<u64>,
+}
 
 #[derive(Default)]
 struct LatestClientSize {
@@ -785,7 +791,12 @@ impl Mux {
         client: u64,
         cols: u16,
         rows: u16,
-    ) -> anyhow::Result<(bool, Option<u64>, Option<crate::server::ClientSizeUpdate>)> {
+    ) -> anyhow::Result<(
+        bool,
+        Option<u64>,
+        Option<crate::server::ClientSizeUpdate>,
+        ClientSizeRollback,
+    )> {
         let requested = clamp_terminal_size(cols, rows);
         // Keep registration, report insertion, and reducer insertion in one
         // critical section. Disconnect and final stream detach remove their
@@ -808,7 +819,7 @@ impl Mux {
         let result = result?;
         self.reconcile_latest_client_size(&sizing, &attached_clients);
         drop(sizing);
-        Ok((result.0.0, result.0.1, attached))
+        Ok((result.0.0, result.0.1, attached, result.2))
     }
 
     fn resize_surface_for_client_locked(
@@ -832,7 +843,14 @@ impl Mux {
         let use_excluded = sizing.uses_excluded_fallback(attached_clients);
         let effective = sizing.effective_size(id, use_excluded);
         let Some(effective) = effective else {
-            return Ok(((false, None), None));
+            return Ok((
+                (false, None),
+                None,
+                ClientSizeRollback {
+                    previous_size: previous,
+                    previous_report_order: previous_order,
+                },
+            ));
         };
         #[cfg(test)]
         let before_apply = self.client_resize_before_apply.lock().unwrap().clone();
@@ -841,7 +859,14 @@ impl Mux {
             hook();
         }
         match self.resize_surface_with_reservation(id, effective.0, effective.1) {
-            Ok(changed) => Ok((changed, Some(effective))),
+            Ok(changed) => Ok((
+                changed,
+                Some(effective),
+                ClientSizeRollback {
+                    previous_size: previous,
+                    previous_report_order: previous_order,
+                },
+            )),
             Err(error) => {
                 if let Some(viewers) = sizing.surfaces.get_mut(&id) {
                     if let Some(previous) = previous {
@@ -861,6 +886,43 @@ impl Mux {
                 Err(error)
             }
         }
+    }
+
+    pub(crate) fn rollback_surface_size_client(
+        &self,
+        id: SurfaceId,
+        client: u64,
+        rollback: ClientSizeRollback,
+    ) {
+        let mut sizing = self.client_sizing.lock().unwrap();
+        self.control_clients.restore_size(client, id, rollback.previous_size);
+        match rollback.previous_size {
+            Some(size) => {
+                sizing.surfaces.entry(id).or_default().insert(client, size);
+            }
+            None => {
+                if let Some(viewers) = sizing.surfaces.get_mut(&id) {
+                    viewers.remove(&client);
+                    if viewers.is_empty() {
+                        sizing.surfaces.remove(&id);
+                    }
+                }
+            }
+        }
+        match rollback.previous_report_order {
+            Some(order) => {
+                sizing.report_order.insert((id, client), order);
+            }
+            None => {
+                sizing.report_order.remove(&(id, client));
+            }
+        }
+        let attached_clients = self.control_clients.attached_client_ids();
+        let use_excluded = sizing.uses_excluded_fallback(&attached_clients);
+        if let Some((cols, rows)) = sizing.effective_size(id, use_excluded) {
+            let _ = self.resize_surface(id, cols, rows);
+        }
+        self.reconcile_latest_client_size(&sizing, &attached_clients);
     }
 
     pub fn remove_surface_size_client(&self, id: SurfaceId, client: u64) {
@@ -2853,6 +2915,10 @@ impl Mux {
             }
         }
 
+        // Generate the only fallible workspace metadata before spawning any
+        // layout surfaces. A concurrently emptied registry may still need it.
+        let new_workspace_key = workspace.is_none().then(Self::new_workspace_key).transpose()?;
+
         let mut created = Vec::new();
         let mut panes = Vec::new();
         let mut spawned = Vec::new();
@@ -2886,11 +2952,10 @@ impl Mux {
                     id
                 }
                 None if state.workspaces.is_empty() => {
-                    let new_workspace_key = Self::new_workspace_key()?;
                     let ws_id = self.next_id();
                     state.push_workspace(Workspace {
                         id: ws_id,
-                        key: new_workspace_key,
+                        key: new_workspace_key.expect("workspace key generated before spawning"),
                         name: "1".into(),
                         screens: vec![screen],
                         active_screen: 0,
@@ -3050,7 +3115,10 @@ impl Mux {
             let Some(old_idx) = state.workspace_index(workspace) else {
                 return Ok(None);
             };
-            let new_idx = index.min(state.workspaces.len().saturating_sub(1));
+            // Protocol v7 retains insertion-index semantics: after removing the
+            // source, insertion points to its right shift left by one.
+            let new_idx = if index > old_idx { index.saturating_sub(1) } else { index };
+            let new_idx = new_idx.min(state.workspaces.len().saturating_sub(1));
             if new_idx == old_idx {
                 return Ok(Some((state.workspace_revision, false)));
             }
@@ -4811,7 +4879,7 @@ mod tests {
     }
 
     #[test]
-    fn move_workspace_right_uses_final_destination_index() {
+    fn move_workspace_right_uses_insertion_index() {
         let mux = test_mux();
         mux.new_workspace(Some("one".into()), None).unwrap();
         mux.new_workspace(Some("two".into()), None).unwrap();
@@ -4820,7 +4888,15 @@ mod tests {
             (state.workspaces[0].id, state.workspaces[1].id, state.workspaces[2].id)
         });
 
-        assert_eq!(mux.move_workspace_at_revision(ws1, 1, Some(3)).unwrap(), Some((4, true)));
+        assert_eq!(mux.move_workspace_at_revision(ws1, 1, Some(3)).unwrap(), Some((3, false)));
+        mux.with_state(|state| {
+            assert_eq!(
+                state.workspaces.iter().map(|workspace| workspace.id).collect::<Vec<_>>(),
+                vec![ws1, ws2, ws3]
+            );
+        });
+
+        assert_eq!(mux.move_workspace_at_revision(ws1, 2, Some(3)).unwrap(), Some((4, true)));
         mux.with_state(|state| {
             assert_eq!(
                 state.workspaces.iter().map(|workspace| workspace.id).collect::<Vec<_>>(),
@@ -4828,7 +4904,7 @@ mod tests {
             );
         });
 
-        assert_eq!(mux.move_workspace_at_revision(ws1, 2, Some(4)).unwrap(), Some((5, true)));
+        assert_eq!(mux.move_workspace_at_revision(ws1, 3, Some(4)).unwrap(), Some((5, true)));
         mux.with_state(|state| {
             assert_eq!(
                 state.workspaces.iter().map(|workspace| workspace.id).collect::<Vec<_>>(),

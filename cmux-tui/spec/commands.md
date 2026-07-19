@@ -1930,7 +1930,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Moves an existing workspace to zero-based `index`. The workspace may be selected by stable key or numeric id. The destination is clamped to the last workspace. Moving a workspace to its current index is an `ok:true` no-op that preserves the current revision. `expected_revision` provides compare-and-swap protection against concurrent registry mutations.
+Moves an existing workspace to zero-based insertion `index`. The workspace may be selected by stable key or numeric id. The destination is clamped to the last workspace after removing the source, so moving right produces a final index one less than the requested insertion index. Moving a workspace to its current position is an `ok:true` no-op that preserves the current revision. `expected_revision` provides compare-and-swap protection against concurrent registry mutations.
 
 Params:
 
@@ -1938,7 +1938,7 @@ Params:
 | --- | --- | --- | --- |
 | `workspace` | `Id` | required unless `key` is supplied | Workspace to move |
 | `key` | `string` | required unless `workspace` is supplied | Must match `workspace` when both are supplied |
-| `index` | `usize` | required | Zero-based destination index |
+| `index` | `usize` | required | Zero-based insertion index |
 | `expected_revision` | `uint64` | default null | Must equal the current registry revision when supplied |
 
 Result:
