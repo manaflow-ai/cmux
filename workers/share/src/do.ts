@@ -22,6 +22,7 @@ interface Attachment {
   connId: string;
   user: string;
   email: string;
+  host: boolean;
 }
 
 export interface ShareWorkerEnv {
@@ -62,11 +63,18 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
-    const attachment: Attachment = { connId: crypto.randomUUID(), user, email };
+    const attachment: Attachment = {
+      connId: crypto.randomUUID(),
+      user,
+      email,
+      host: isHost,
+    };
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment(attachment);
     this.sockets.set(attachment.connId, server);
-    this.apply(core.connect(attachment.connId, { user, email }, Date.now()));
+    this.apply(
+      core.connect(attachment.connId, { user, email, hostToken: isHost }, Date.now()),
+    );
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -77,7 +85,7 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
       ws.close(1011, "session unavailable");
       return;
     }
-    const isHost = core.persisted.host.user === attachment.user;
+    const isHost = attachment.host && core.persisted.host.user === attachment.user;
     if (typeof message !== "string") {
       if (!isHost) return; // guests never send binary
       const bytes = new Uint8Array(message);
@@ -133,7 +141,8 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
     }
     if (!this.restored) {
       this.restored = true;
-      const survivors: Array<{ id: string; user: string; email: string }> = [];
+      const survivors: Array<{ id: string; user: string; email: string; hostToken: boolean }> =
+        [];
       for (const ws of this.ctx.getWebSockets()) {
         const attachment = ws.deserializeAttachment() as Attachment | null;
         if (!attachment) {
@@ -143,7 +152,12 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
         // Sockets accepted in this instance's lifetime are already registered.
         if (this.sockets.has(attachment.connId)) continue;
         this.sockets.set(attachment.connId, ws);
-        survivors.push({ id: attachment.connId, user: attachment.user, email: attachment.email });
+        survivors.push({
+          id: attachment.connId,
+          user: attachment.user,
+          email: attachment.email,
+          hostToken: attachment.host,
+        });
       }
       if (survivors.length > 0) {
         this.apply(this.core.restore(survivors, Date.now()));

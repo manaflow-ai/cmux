@@ -14,12 +14,14 @@ import {
 import type { Effect } from "../src/session";
 
 const T0 = 1_700_000_000_000;
-const HOST = { user: "u-host", email: "host@cmux.com" };
-const ALICE = { user: "u-alice", email: "alice@example.com" };
-const BOB = { user: "u-bob", email: "bob@example.com" };
+const HOST = { user: "u-host", email: "host@cmux.com", hostToken: true };
+const ALICE = { user: "u-alice", email: "alice@example.com", hostToken: false };
+const BOB = { user: "u-bob", email: "bob@example.com", hostToken: false };
 
 function newCore(): ShareSessionCore {
-  return new ShareSessionCore(ShareSessionCore.create("code123", HOST, T0));
+  return new ShareSessionCore(
+    ShareSessionCore.create("code123", { user: HOST.user, email: HOST.email }, T0),
+  );
 }
 
 /** Boot a session with a connected host that shared one workspace. */
@@ -43,7 +45,7 @@ function bootedCore(): ShareSessionCore {
 function approveGuest(
   core: ShareSessionCore,
   connId: string,
-  who: { user: string; email: string },
+  who: { user: string; email: string; hostToken: boolean },
   role: "editor" | "viewer" = "editor",
 ): void {
   core.connect(connId, who, T0);
@@ -125,6 +127,36 @@ describe("join and approval flow", () => {
     const effects = core.connect("c-host2", HOST, T0 + 1000);
     expect(closes(effects)).toContainEqual({ to: "c-host", code: 4000 });
     expect(sends(effects, "c-host2").some((m) => m.t === "session-state")).toBe(true);
+  });
+
+  it("the host user with a guest token joins as a guest without superseding the Mac socket", () => {
+    const core = bootedCore();
+    const effects = core.connect(
+      "c-host-web",
+      { user: HOST.user, email: HOST.email, hostToken: false },
+      T0,
+    );
+    // No approval needed, no host socket closed.
+    expect(closes(effects)).toEqual([]);
+    const snapshot = sends(effects, "c-host-web").find((m) => m.t === "session-state");
+    if (snapshot?.t === "session-state") {
+      expect(snapshot.you.isHost).toBe(false);
+      expect(snapshot.you.role).toBe("editor");
+      expect(snapshot.you.color).toBe(0);
+    } else {
+      throw new Error("expected snapshot");
+    }
+    // Its input relays to the real host socket like any editor guest.
+    const relayed = core.handleGuest("c-host-web", {
+      t: "input",
+      ws: "workspace:1",
+      pane: "surface:1",
+      data: "w",
+    });
+    expect(sends(relayed, "c-host").some((m) => m.t === "guest-input")).toBe(true);
+    // And it cannot exercise host moderation verbs.
+    core.connect("c-alice", ALICE, T0);
+    expect(core.handleHost("c-host-web", { t: "approve", user: ALICE.user, role: "editor" })).toEqual([]);
   });
 
   it("pending requests are re-surfaced to a reconnecting host", () => {
