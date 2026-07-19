@@ -17,6 +17,121 @@ import Testing
 /// after the capture block must be replayed exactly once before pane state.
 @MainActor
 @Suite struct RemoteTmuxPaneSeedTransportTests {
+    @Test func laggingControlOutputCursorCannotReplayCapturedReconnectOutput() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        var rendered = Data()
+        let token = fixture.connection.addObserver(onPaneOutput: { paneID, data in
+            guard paneID == 7 else { return }
+            rendered.append(data)
+        })
+        defer { fixture.connection.removeObserver(token) }
+
+        fixture.connection.capturePane(paneId: 7)
+        let commands = String(decoding: fixture.pipe.fileHandleForReading.availableData, as: UTF8.self)
+
+        // Model tmux's pane grid and this control client's output cursor as
+        // separate authorities. On reconnect the grid may already contain a
+        // record while the client's cursor still owes its `%output`. Without a
+        // server-side cursor reset, transport latency can deliver that stale
+        // notification after capture even though capture already painted it.
+        let resetOutputCursor = commands.contains(
+            "refresh-client -A %7:off -A %7:on"
+        )
+        let marker = "AUTORECONNECT_STREAM_29"
+        var stream = Data()
+        var commandNumber = 20
+        for kind in fixture.connection.pendingCommandKindsForTesting {
+            let lines: [String]
+            switch kind {
+            case .paneAltScreen:
+                lines = ["0"]
+            case .capturePane:
+                lines = ["before", marker, "after"]
+            case .paneState:
+                lines = [Self.paneStateLine(cursorX: 5, cursorY: 2)]
+            default:
+                lines = []
+            }
+            stream.append(Self.commandResultBlock(number: commandNumber, lines: lines))
+            commandNumber += 1
+            if case .capturePane = kind, !resetOutputCursor {
+                stream.append(Data("%output %7 \\015\\012\(marker)\r\n".utf8))
+            }
+        }
+        deliverRechunked(stream, to: fixture.connection)
+
+        #expect(Self.occurrences(of: marker, in: rendered) == 1)
+    }
+
+    @Test func reconnectReadyWaitsForEveryPaneSeedToFinish() {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        fixture.connection.pendingAttachRedrawKick = false
+        fixture.connection.windowsByID = [
+            1: RemoteTmuxWindow(
+                id: 1,
+                width: 80,
+                height: 24,
+                layout: RemoteTmuxLayoutNode(
+                    width: 80, height: 24, x: 0, y: 0, content: .pane(7)
+                )
+            ),
+            2: RemoteTmuxWindow(
+                id: 2,
+                width: 80,
+                height: 24,
+                layout: RemoteTmuxLayoutNode(
+                    width: 80, height: 24, x: 0, y: 0, content: .pane(8)
+                )
+            ),
+        ]
+
+        var reconnectReadyCount = 0
+        let token = fixture.connection.addObserver(
+            onReconnectReady: { reconnectReadyCount += 1 }
+        )
+        defer { fixture.connection.removeObserver(token) }
+
+        fixture.connection.reseedAfterReconnect()
+        #expect(reconnectReadyCount == 0)
+
+        var finishedPaneSeeds = 0
+        var commandNumber = 30
+        while let kind = fixture.connection.pendingCommandKindsForTesting.first {
+            let lines: [String]
+            switch kind {
+            case .paneReflow:
+                lines = ["0|zsh"]
+            case .paneAltScreen:
+                lines = ["0"]
+            case .capturePane:
+                lines = ["prompt", "❯"]
+            case .paneState:
+                lines = [Self.paneStateLine(cursorX: 1, cursorY: 1)]
+            case .panePath:
+                lines = ["/tmp"]
+            default:
+                lines = []
+            }
+            fixture.connection.handleMessageForTesting(
+                .commandResult(commandNumber: commandNumber, lines: lines, isError: false)
+            )
+            commandNumber += 1
+            if case .paneState = kind {
+                finishedPaneSeeds += 1
+                if finishedPaneSeeds < 2 {
+                    #expect(reconnectReadyCount == 0)
+                }
+            }
+        }
+
+        #expect(finishedPaneSeeds == 2)
+        #expect(reconnectReadyCount == 1)
+    }
+
     @Test func rechunkedLiveEchoCutsOverAtomicallyAtCaptureReply() throws {
         let fixture = attachedConnection()
         defer { fixture.close() }
@@ -169,6 +284,19 @@ import Testing
             + "mouse_sgr_flag=0,mouse_utf8_flag=0"
     }
 
+    private static func commandResultBlock(number: Int, lines: [String]) -> Data {
+        let body = lines.isEmpty ? "" : lines.joined(separator: "\r\n") + "\r\n"
+        return Data(
+            ("%begin 1700000000 \(number) 0\r\n"
+                + body
+                + "%end 1700000000 \(number) 0\r\n").utf8
+        )
+    }
+
+    private static func occurrences(of needle: String, in data: Data) -> Int {
+        String(decoding: data, as: UTF8.self).components(separatedBy: needle).count - 1
+    }
+
     /// Simulates a lumpy userspace SSH transport without clocks: tmux protocol
     /// bytes remain ordered, but lines and escape payloads cross read boundaries.
     private func deliverRechunked(_ bytes: Data, to connection: RemoteTmuxControlConnection) {
@@ -210,6 +338,7 @@ import Testing
         connection.handleMessageForTesting(
             .commandResult(commandNumber: 1, lines: [], isError: false)
         )
+        _ = pipe.fileHandleForReading.availableData
         return Fixture(connection: connection, writer: writer, pipe: pipe)
     }
 
