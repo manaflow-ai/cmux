@@ -7741,7 +7741,7 @@ mod tests {
         canonical_terminal_content, client_menu_item, forward_mux_event, forward_mux_events,
         outer_cursor_escape, outer_cursor_escape_if_changed, pane_context_menu_groups,
         pane_parts_for_rect, preserve_client_view, record_surface_resize_dispatch_result,
-        sidebar_plugin_status_settles_passive_claim,
+        sidebar_plugin_status_settles_passive_claim, sidebar_width_for,
     };
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -7778,6 +7778,12 @@ mod tests {
 
     fn settled(outcome: super::SessionMutationOutcome) -> AppEvent {
         AppEvent::SessionMutationSettled { outcome, routing: false }
+    }
+
+    #[test]
+    fn zero_width_startup_hides_sidebar_without_panicking() {
+        let config = Config::default();
+        assert_eq!(sidebar_width_for(&config, true, 0, None), 0);
     }
 
     #[test]
