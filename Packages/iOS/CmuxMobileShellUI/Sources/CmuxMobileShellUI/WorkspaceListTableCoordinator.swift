@@ -135,7 +135,6 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         animatingDifferences: Bool? = nil
     ) {
         let previous = previousConfiguration
-        let hasStructuralChanges = previous?.items != next.items
         configuration = next
         tableView.dragInteractionEnabled = next.enablesReorder
         updateRefreshControl(in: tableView)
@@ -161,7 +160,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
         previousConfiguration = next
         let animatesSnapshot = animatingDifferences
-            ?? (tableView.window != nil && hasStructuralChanges && !dropJustCompleted)
+            ?? (tableView.window != nil && !dropJustCompleted)
         dropJustCompleted = false
         dataSource?.apply(snapshot, animatingDifferences: animatesSnapshot)
     }
