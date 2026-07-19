@@ -1897,7 +1897,7 @@ impl Mux {
             };
             (placement, delta)
         };
-        self.emit(MuxEvent::TreeDelta(delta));
+        self.emit_tree_delta(delta, true);
         self.reap_if_dead(&surface);
         Ok(placement)
     }
@@ -1984,7 +1984,7 @@ impl Mux {
             surface.kill();
             anyhow::bail!("workspace disappeared while creating screen");
         };
-        self.emit(MuxEvent::TreeDelta(delta));
+        self.emit_tree_delta(delta, true);
         self.reap_if_dead(&surface);
         Ok(surface)
     }
@@ -2071,7 +2071,7 @@ impl Mux {
             surface.kill();
             anyhow::bail!("pane disappeared while creating tab");
         };
-        self.emit(MuxEvent::TreeDelta(delta));
+        self.emit_tree_delta(delta, true);
         self.reap_if_dead(&surface);
         Ok(surface)
     }
@@ -2330,7 +2330,7 @@ impl Mux {
             surface.kill();
             anyhow::bail!("pane disappeared while creating browser tab");
         };
-        self.emit(MuxEvent::TreeDelta(delta));
+        self.emit_tree_delta(delta, true);
         self.reap_if_dead(&surface);
         Ok(surface)
     }
@@ -2344,7 +2344,7 @@ impl Mux {
         let surface = self.spawn_browser_surface(url, size);
         let notifications = self.surface_notifications();
         let active_at = self.next_active_at();
-        let delta = {
+        let (delta, selection_resync) = {
             let mut state = self.state.lock().unwrap();
             let Some(wi) = state.workspace_index(workspace) else {
                 state.surfaces.remove(&surface.id);
@@ -2375,16 +2375,19 @@ impl Mux {
                     surface.id,
                 )
                 .expect("new browser tab is present in tree snapshot");
-                TreeDelta {
-                    kind: TreeDeltaKind::TabAdded,
-                    workspace,
-                    screen: Some(screen),
-                    pane: Some(target),
-                    surface: Some(surface.id),
-                    index: Some(index),
-                    entity,
-                    workspace_revision: None,
-                }
+                (
+                    TreeDelta {
+                        kind: TreeDeltaKind::TabAdded,
+                        workspace,
+                        screen: Some(screen),
+                        pane: Some(target),
+                        surface: Some(surface.id),
+                        index: Some(index),
+                        entity,
+                        workspace_revision: None,
+                    },
+                    true,
+                )
             } else {
                 let (pane_id, pane) = self.make_pane(surface.id);
                 let screen_id = self.next_id();
@@ -2404,19 +2407,22 @@ impl Mux {
                     screen_id,
                 )
                 .expect("first browser screen is present in tree snapshot");
-                TreeDelta {
-                    kind: TreeDeltaKind::ScreenAdded,
-                    workspace,
-                    screen: Some(screen_id),
-                    pane: None,
-                    surface: None,
-                    index: Some(0),
-                    entity,
-                    workspace_revision: None,
-                }
+                (
+                    TreeDelta {
+                        kind: TreeDeltaKind::ScreenAdded,
+                        workspace,
+                        screen: Some(screen_id),
+                        pane: None,
+                        surface: None,
+                        index: Some(0),
+                        entity,
+                        workspace_revision: None,
+                    },
+                    false,
+                )
             }
         };
-        self.emit(MuxEvent::TreeDelta(delta));
+        self.emit_tree_delta(delta, selection_resync);
         self.reap_if_dead(&surface);
         Ok(surface)
     }
@@ -2445,7 +2451,7 @@ impl Mux {
         let active_at = self.next_active_at();
         match self.attach_browser_surface_to_pane_or_kill(pane_id, &surface, active_at) {
             BrowserSurfaceAttach::MissingPane => return false,
-            BrowserSurfaceAttach::Attached(Some(delta)) => self.emit(MuxEvent::TreeDelta(delta)),
+            BrowserSurfaceAttach::Attached(Some(delta)) => self.emit_tree_delta(delta, true),
             BrowserSurfaceAttach::Attached(None) => self.emit(MuxEvent::TreeChanged),
         }
         self.start_browser_bootstrap(
@@ -5446,6 +5452,40 @@ mod tests {
             assert_eq!(state.panes[&pane].tabs.len(), surfaces.len());
         });
         mux.shutdown();
+    }
+
+    #[test]
+    fn browser_tab_in_existing_workspace_pane_emits_selection_resync() {
+        let mux = test_mux();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let first = mux
+            .create_browser_surface_in_workspace(
+                workspace.workspace,
+                "about:blank#first".into(),
+                Some((80, 24)),
+            )
+            .unwrap();
+        let events = mux.subscribe();
+
+        let second = mux
+            .create_browser_surface_in_workspace(
+                workspace.workspace,
+                "about:blank#second".into(),
+                Some((80, 24)),
+            )
+            .unwrap();
+
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::TreeDelta(TreeDelta { kind: TreeDeltaKind::TabAdded, surface, .. }))
+                if surface == Some(second.id)
+        ));
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::TreeSelectionChanged)
+        ));
+        first.kill();
+        second.kill();
     }
 
     #[test]
