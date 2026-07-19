@@ -166,8 +166,8 @@ enum RemoteInteractiveShellBootstrapBuilder {
         guard let resumeInvocation = resumeInvocation(initialCommand) else {
             return "exec \"$CMUX_LOGIN_SHELL\" -i"
         }
-        let command = resumeInvocation + "\nexec \"$CMUX_LOGIN_SHELL\" -i"
-        return "exec /bin/sh -c \(shellQuote(command))"
+        let command = resumeInvocation + "\nexec \"$1\" -i"
+        return "exec /bin/sh -c \(shellQuote(command)) cmux-resume \"$CMUX_LOGIN_SHELL\""
     }
 
     static func shellFeatures(
