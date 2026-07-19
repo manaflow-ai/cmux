@@ -585,6 +585,97 @@ describe("Iroh trust broker database behavior", () => {
     expect(stored?.nextExpiry).toEqual(directExpiry);
   });
 
+  dbTest("persists, updates, and clears family-specific direct ports", async () => {
+    const repo = requiredRepository();
+    const userId = "user-direct-ports";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "4f".repeat(32);
+    type DirectPorts = { readonly ipv4?: number; readonly ipv6?: number };
+
+    const register = async (
+      directPorts: DirectPorts | undefined,
+      sequence: number,
+    ): Promise<void> => {
+      const now = new Date(NOW.getTime() + sequence * 1_000);
+      const nonceHash = sequence.toString(16).padStart(64, "0");
+      const challenge = await Effect.runPromise(repo.issueChallenge({
+        userId,
+        deviceUuid: deviceId,
+        appInstanceId,
+        tag: "stable",
+        endpointId,
+        identityGeneration: 1,
+        payloadSha256: (sequence + 10).toString(16).padStart(64, "0"),
+        nonceHash,
+        now,
+        expiresAt: new Date(now.getTime() + 5 * 60 * 1_000),
+      }));
+      const payload: Parameters<
+        IrohRepositoryShape["consumeChallengeAndRegister"]
+      >[0]["payload"] & { readonly directPorts?: DirectPorts } = {
+        route_contract_version: 1,
+        deviceId,
+        appInstanceId,
+        tag: "stable",
+        platform: "mac",
+        endpointId,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: [],
+        ...(directPorts ? { directPorts } : {}),
+        pathHints: [],
+      };
+      await Effect.runPromise(repo.consumeChallengeAndRegister({
+        userId,
+        challengeId: challenge.id,
+        nonceHash,
+        payload,
+        now,
+        bindingQuota: { account: 32, device: 8, baselineDevice: 8, staleAfterMs: null },
+      }));
+    };
+
+    await register({ ipv4: 49_152, ipv6: 49_153 }, 1);
+    let [stored] = await requiredSql()<Array<{
+      directPortV4: number | null;
+      directPortV6: number | null;
+    }>>`
+      select
+        direct_port_v4 as "directPortV4",
+        direct_port_v6 as "directPortV6"
+      from iroh_endpoint_bindings
+      where app_instance_id = ${appInstanceId}
+    `;
+    expect(stored).toEqual({ directPortV4: 49_152, directPortV6: 49_153 });
+
+    await register({ ipv6: 50_000 }, 2);
+    [stored] = await requiredSql()<Array<{
+      directPortV4: number | null;
+      directPortV6: number | null;
+    }>>`
+      select
+        direct_port_v4 as "directPortV4",
+        direct_port_v6 as "directPortV6"
+      from iroh_endpoint_bindings
+      where app_instance_id = ${appInstanceId}
+    `;
+    expect(stored).toEqual({ directPortV4: null, directPortV6: 50_000 });
+
+    await register(undefined, 3);
+    [stored] = await requiredSql()<Array<{
+      directPortV4: number | null;
+      directPortV6: number | null;
+    }>>`
+      select
+        direct_port_v4 as "directPortV4",
+        direct_port_v6 as "directPortV6"
+      from iroh_endpoint_bindings
+      where app_instance_id = ${appInstanceId}
+    `;
+    expect(stored).toEqual({ directPortV4: null, directPortV6: null });
+  });
+
   dbTest("requires revocation before changing an active binding platform", async () => {
     const repo = requiredRepository();
     const userId = "user-platform-change";
@@ -783,6 +874,42 @@ describe("Iroh trust broker database behavior", () => {
         'user-a', ${randomUUID()}, ${randomUUID()}, 'stable', 'mac', ${"43".repeat(32)}, 2147483648
       )
     `, "22003");
+  });
+
+  dbTest("enforces the UDP port range for each direct-address family", async () => {
+    const bindingId = await insertBinding({
+      userId: "user-direct-port-checks",
+      endpointId: "4e".repeat(32),
+    });
+    await expectPostgresError(requiredSql()`
+      update iroh_endpoint_bindings set direct_port_v4 = 0 where id = ${bindingId}
+    `, "23514");
+    await expectPostgresError(requiredSql()`
+      update iroh_endpoint_bindings set direct_port_v4 = 65536 where id = ${bindingId}
+    `, "23514");
+    await expectPostgresError(requiredSql()`
+      update iroh_endpoint_bindings set direct_port_v6 = 0 where id = ${bindingId}
+    `, "23514");
+    await expectPostgresError(requiredSql()`
+      update iroh_endpoint_bindings set direct_port_v6 = 65536 where id = ${bindingId}
+    `, "23514");
+
+    await requiredSql()`
+      update iroh_endpoint_bindings
+      set direct_port_v4 = 1, direct_port_v6 = 65535
+      where id = ${bindingId}
+    `;
+    const [stored] = await requiredSql()<Array<{
+      directPortV4: number | null;
+      directPortV6: number | null;
+    }>>`
+      select
+        direct_port_v4 as "directPortV4",
+        direct_port_v6 as "directPortV6"
+      from iroh_endpoint_bindings
+      where id = ${bindingId}
+    `;
+    expect(stored).toEqual({ directPortV4: 1, directPortV6: 65_535 });
   });
 
   dbTest("keeps LAN discovery account-scoped and coherent across binding revocation", async () => {
