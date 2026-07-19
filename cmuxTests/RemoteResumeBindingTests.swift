@@ -19,6 +19,7 @@ struct RemoteResumeBindingTests {
 
         #expect(fixture.localBinding["execution_location"] as? String == "local")
         #expect(fixture.localBinding["remote_workspace_id"] is NSNull)
+        #expect(fixture.spoofedRelayRegistrationRejected)
         #expect(fixture.remoteBinding["execution_location"] as? String == "remote_ssh")
         #expect(fixture.remoteBinding["remote_workspace_id"] as? String == fixture.workspaceID.uuidString)
         #expect(fixture.remoteBinding["remote_surface_id"] as? String == fixture.surfaceID.uuidString)
@@ -103,6 +104,7 @@ struct RemoteResumeBindingTests {
         surfaceID: UUID,
         remotePTYSessionID: String,
         localBinding: [String: Any],
+        spoofedRelayRegistrationRejected: Bool,
         remoteBinding: [String: Any]
     ) {
         _ = NSApplication.shared
@@ -145,6 +147,29 @@ struct RemoteResumeBindingTests {
         )
         let localBinding = try #require(localResult["resume_binding"] as? [String: Any])
 
+        var spoofedParams = remoteResumeParams(
+            workspaceID: workspace.id,
+            surfaceID: surfaceID,
+            command: "codex resume forged-local-request"
+        )
+        spoofedParams["_cmux_remote_workspace_id"] = workspace.id.uuidString
+        spoofedParams["_cmux_remote_relay_authentication_code"] = String(repeating: "0", count: 64)
+        let spoofedEnvelope = try v2Envelope(request: [
+            "id": "spoofed-relay-resume-set",
+            "method": "surface.resume.set",
+            "params": spoofedParams,
+        ])
+        let bindingAfterSpoof = try v2Result(request: [
+            "id": "resume-get-after-spoof",
+            "method": "surface.resume.get",
+            "params": [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": surfaceID.uuidString,
+            ],
+        ])["resume_binding"] as? [String: Any]
+        let spoofedRelayRegistrationRejected = spoofedEnvelope["ok"] as? Bool == false
+            && (bindingAfterSpoof?["command"] as? String) == (localBinding["command"] as? String)
+
         let staleWorkspaceID = UUID()
         let staleSurfaceID = UUID()
         let remotePTYSessionID = Workspace.defaultSSHPTYSessionID(
@@ -178,6 +203,7 @@ struct RemoteResumeBindingTests {
             surfaceID,
             remotePTYSessionID,
             localBinding,
+            spoofedRelayRegistrationRejected,
             remoteBinding
         )
     }
@@ -222,9 +248,18 @@ struct RemoteResumeBindingTests {
     }
 
     private func v2Result(request: [String: Any]) throws -> [String: Any] {
+        let envelope = try v2Envelope(request: request)
+        #expect(envelope["ok"] as? Bool == true, "\(envelope)")
+        return try #require(envelope["result"] as? [String: Any])
+    }
+
+    private func v2Envelope(request: [String: Any]) throws -> [String: Any] {
         var data = try JSONSerialization.data(withJSONObject: request)
         data.append(0x0A)
-        return try v2Result(requestData: data)
+        let requestLine = try #require(String(data: data, encoding: .utf8))
+        let response = TerminalController.shared.handleSocketLine(requestLine)
+        let responseData = try #require(response.data(using: .utf8))
+        return try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
     }
 
     private func v2Result(requestData: Data) throws -> [String: Any] {

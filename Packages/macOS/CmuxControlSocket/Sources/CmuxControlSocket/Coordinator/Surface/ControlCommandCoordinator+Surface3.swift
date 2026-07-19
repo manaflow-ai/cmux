@@ -67,7 +67,8 @@ extension ControlCommandCoordinator {
             source: source,
             environment: stringMap(params, "environment"),
             autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false,
-            remoteWorkspaceID: remoteWorkspaceID
+            remoteWorkspaceID: remoteWorkspaceID,
+            remoteRelayParameters: remoteWorkspaceID == nil ? nil : params
         )
         return surfaceResumeResult(
             context?.controlSurfaceResumeSet(

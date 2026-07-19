@@ -191,6 +191,11 @@ extension TerminalController {
         let locatedBinding: SurfaceResumeBindingSnapshot
         if let remoteWorkspaceID = inputs.remoteWorkspaceID {
             guard remoteWorkspaceID == target.workspace.id,
+                  let relayParameters = inputs.remoteRelayParameters,
+                  WorkspaceRemoteRelayCommandRewriter.authenticatesRemoteResumeParameters(
+                      relayParameters.mapValues(\.foundationObject),
+                      remoteRelayTokenHex: target.workspace.remoteConfiguration?.relayToken
+                  ),
                   let context = target.workspace.persistentSSHResumeContext(panelID: target.surfaceId) else {
                 return .setFailed
             }

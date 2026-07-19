@@ -25,9 +25,10 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
     /// Whether automatic resume is requested (already gated: `true` only for the
     /// `agent-hook` source with `auto_resume == true`).
     public let autoResume: Bool
-    /// The authenticated relay's owning remote workspace, when the request
-    /// entered through an SSH workspace relay.
+    /// The relay-claimed remote workspace, authenticated by the app context.
     public let remoteWorkspaceID: UUID?
+    /// Raw relay parameters retained to authenticate their provenance.
+    public let remoteRelayParameters: [String: JSONValue]?
 
     /// Creates resume-set inputs.
     ///
@@ -41,6 +42,7 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
     ///   - environment: The environment overrides.
     ///   - autoResume: Whether automatic resume is requested.
     ///   - remoteWorkspaceID: The authenticated relay's owning workspace.
+    ///   - remoteRelayParameters: Raw parameters carrying relay authentication.
     public init(
         name: String?,
         kind: String?,
@@ -50,7 +52,8 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
         source: String?,
         environment: [String: String]?,
         autoResume: Bool,
-        remoteWorkspaceID: UUID?
+        remoteWorkspaceID: UUID?,
+        remoteRelayParameters: [String: JSONValue]?
     ) {
         self.name = name
         self.kind = kind
@@ -61,5 +64,6 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
         self.environment = environment
         self.autoResume = autoResume
         self.remoteWorkspaceID = remoteWorkspaceID
+        self.remoteRelayParameters = remoteRelayParameters
     }
 }
