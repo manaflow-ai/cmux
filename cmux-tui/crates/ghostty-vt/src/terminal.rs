@@ -457,12 +457,18 @@ impl PaletteOverrideTracker {
                         self.active.fill(false);
                         PaletteTrackState::Ground
                     }
+                    0x18 | 0x1a => PaletteTrackState::Ground,
                     0x1b => PaletteTrackState::Escape,
+                    0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => PaletteTrackState::Escape,
                     0x20..=0x2f => PaletteTrackState::EscapeIntermediate,
                     _ => PaletteTrackState::Ground,
                 },
                 PaletteTrackState::EscapeIntermediate => match byte {
+                    0x18 | 0x1a => PaletteTrackState::Ground,
                     0x1b => PaletteTrackState::Escape,
+                    0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => {
+                        PaletteTrackState::EscapeIntermediate
+                    }
                     0x20..=0x2f => PaletteTrackState::EscapeIntermediate,
                     _ => PaletteTrackState::Ground,
                 },

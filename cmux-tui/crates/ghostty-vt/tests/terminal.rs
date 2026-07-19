@@ -424,13 +424,18 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     state.update(&mut term).unwrap();
     assert_eq!(state.palette_color(13), Rgb { r: 13, g: 13, b: 13 });
 
-    let mut oversized = b"\x1b]4;14;#0e0e0e".to_vec();
+    term.vt_write(b"\x1b\x07]4;14;#0e0e0e\x07");
+    assert!(term.palette_overridden(14), "C0 controls must preserve Ghostty's ESC state");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(14), Rgb { r: 14, g: 14, b: 14 });
+
+    let mut oversized = b"\x1b]4;16;#101010".to_vec();
     oversized.extend(std::iter::repeat(b';').take(2048));
     oversized.push(0x07);
     term.vt_write(&oversized);
-    assert!(!term.palette_overridden(14), "Ghostty rejects fixed OSC capture overflow");
+    assert!(!term.palette_overridden(16), "Ghostty rejects fixed OSC capture overflow");
     state.update(&mut term).unwrap();
-    assert_ne!(state.palette_color(14), Rgb { r: 14, g: 14, b: 14 });
+    assert_ne!(state.palette_color(16), Rgb { r: 16, g: 16, b: 16 });
 
     term.vt_write(b"\x1b]4;15;#0f0f0f;bad;#010101\x07");
     assert!(term.palette_overridden(15), "valid OSC 4 prefix must survive a malformed pair");

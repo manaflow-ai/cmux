@@ -1256,16 +1256,18 @@ impl ChildKiller for TestChildKiller {
 
 impl PtySurface {
     /// Snapshot colors from the terminal and the owning shared render state.
-    /// Building the generation before reading cursor metadata keeps Ghostty
-    /// damage owned by the same state that serves render clients.
+    /// Updating that state keeps Ghostty damage owned by the renderer without
+    /// inventing a generation, building a viewport, or notifying subscribers.
     fn terminal_colors_locked(
         &self,
         term: &mut Terminal,
         defaults: DefaultColors,
     ) -> TerminalColors {
-        let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
-        let _ = self.build_frame_locked(term, generation, false);
-        let cursor_visual = self.render.lock().unwrap().state.cursor_visual().ok();
+        let cursor_visual = {
+            let mut render = self.render.lock().unwrap();
+            let _ = render.state.update(term);
+            render.state.cursor_visual().ok()
+        };
         TerminalColors::from_terminal(term, defaults, cursor_visual)
     }
 
@@ -1353,10 +1355,10 @@ impl PtySurface {
         let _ = term.resize(cols, rows, 8, 16);
         let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES).unwrap_or_default();
         let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
-        let colors = Box::new(self.terminal_colors_locked(&mut term, defaults));
-        self.broadcast_attach_frame(AttachFrame::Resized { cols, rows, replay, colors });
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let _ = self.build_frame_locked(&mut term, generation, false);
+        let colors = Box::new(self.terminal_colors_locked(&mut term, defaults));
+        self.broadcast_attach_frame(AttachFrame::Resized { cols, rows, replay, colors });
         true
     }
 }

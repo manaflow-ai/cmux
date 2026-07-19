@@ -1,6 +1,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::TryRecvError;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -945,6 +946,18 @@ fn attach_stream_replays_then_streams_without_duplication() {
     let text = mirror.plain_text().unwrap();
     assert_eq!(text.matches("before-attach").count(), 1, "duplicated replay: {text}");
 
+    mux.close_surface(surface.id);
+}
+
+#[test]
+fn byte_attach_cursor_snapshot_does_not_fan_out_a_render_frame() {
+    let mux = Mux::new(unique_session("test-attach-no-render-fanout"), shell_opts("cat"));
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+    let render = surface.attach_render_stream().unwrap();
+
+    let _byte_attach = surface.attach_stream().unwrap();
+
+    assert!(matches!(render.stream.try_recv(), Err(TryRecvError::Empty)));
     mux.close_surface(surface.id);
 }
 
