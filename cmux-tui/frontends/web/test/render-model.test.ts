@@ -40,6 +40,15 @@ function delta(overrides: Partial<RenderDeltaEvent> = {}): RenderDeltaEvent {
 }
 
 describe("render model", () => {
+  it("preserves the Ghostty font family from the initial render state", () => {
+    const initial = applySnapshot({
+      ...snapshot(),
+      font_family: "Berkeley Mono",
+    } as RenderStateEvent & { font_family: string });
+
+    expect(initial).toMatchObject({ fontFamily: "Berkeley Mono" });
+  });
+
   it("indexes snapshot and dirty rows by row number even when events list them out of order", () => {
     const initial = applySnapshot(snapshot([row(1, "two"), row(0, "one")]));
     const updated = applyDelta(initial, delta({ rows: [row(1, "TWO"), row(0, "ONE")] }));
