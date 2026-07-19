@@ -83,6 +83,8 @@ pub(crate) fn client_border_labels(clients: &[ClientInfo]) -> HashMap<u64, Strin
 pub fn draw_all(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
     let active_pane = app.tree.active_screen().map(|screen| screen.active_pane);
     let areas = app.pane_areas.clone();
+    app.rendered_terminal_bounds
+        .retain(|surface, _| areas.iter().any(|area| area.surface == *surface));
     let mut cursor = None;
     for area in &areas {
         let focused = Some(area.pane) == active_pane;
@@ -332,11 +334,13 @@ fn draw_content(
 ) -> Option<(u16, u16)> {
     let rect = area.content;
     if rect.width == 0 || rect.height == 0 {
+        app.rendered_terminal_bounds.remove(&area.surface);
         return None;
     }
     let surface = app.session.surface(area.surface)?;
     surface.take_dirty();
     if surface.kind() == SurfaceKind::Browser {
+        app.rendered_terminal_bounds.remove(&area.surface);
         super::omnibar::draw(app, frame, area);
         draw_browser_content(app, frame, area, &surface);
         return None;
@@ -352,6 +356,8 @@ fn draw_content(
         .entry(area.surface)
         .or_insert_with(|| RenderState::new().expect("render state alloc"));
     let render = surface.render_frame(rs).ok()?;
+    let live = super::terminal_grid::rendered_viewport_rect(rect, frame.area(), &render);
+    app.rendered_terminal_bounds.insert(area.surface, live);
 
     let cursor = super::terminal_grid::draw_render_frame(
         frame,

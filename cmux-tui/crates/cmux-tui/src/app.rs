@@ -2429,6 +2429,9 @@ pub struct App {
     pub graphics_supported: bool,
     stdout_lock: Arc<Mutex<()>>,
     pub pane_areas: Vec<PaneArea>,
+    /// Terminal cells actually represented by the last rendered snapshot.
+    /// Foreign-viewer padding outside these bounds is display-only.
+    pub(crate) rendered_terminal_bounds: HashMap<SurfaceId, Rect>,
     /// Surfaces whose active tabs were visible in the previous layout pass.
     /// Attach streams may outlive this set, but only members hold size leases.
     visible_size_surfaces: HashSet<SurfaceId>,
@@ -2804,6 +2807,7 @@ pub fn run(
         graphics_supported,
         stdout_lock: stdout_lock.clone(),
         pane_areas: Vec::new(),
+        rendered_terminal_bounds: HashMap::new(),
         visible_size_surfaces: HashSet::new(),
         pending_size_releases: HashSet::new(),
         prefix_armed: false,
@@ -5862,12 +5866,16 @@ impl App {
         {
             return PtyMousePressResult::NotOwned;
         }
+        let content = self.terminal_input_rect(&area);
+        if !content.contains(x, y) {
+            return PtyMousePressResult::Consumed;
+        }
         let Some(handle) = self.session.surface(area.surface) else {
             return PtyMousePressResult::Consumed;
         };
         let (release_capture, forwarded) = self.prepare_pty_mouse_press(
             (area.surface, handle.clone()),
-            area.content,
+            content,
             x,
             y,
             button,
@@ -5899,7 +5907,7 @@ impl App {
             handle: Some(handle),
             reservation_id,
             release_bytes,
-            content: area.content,
+            content,
             button,
             position: (x, y),
             modifiers,
@@ -6170,10 +6178,14 @@ impl App {
         {
             return false;
         }
+        let content = self.terminal_input_rect(&area);
+        if !content.contains(x, y) {
+            return false;
+        }
         if action == MouseAction::Motion {
             return self.forward_pty_mouse_motion_if_uncontended(
                 area.surface,
-                area.content,
+                content,
                 (x, y),
                 None,
                 modifiers,
@@ -6182,7 +6194,7 @@ impl App {
         }
         self.forward_pty_mouse_to_surface(
             area.surface,
-            area.content,
+            content,
             x,
             y,
             action,
@@ -6458,8 +6470,15 @@ impl App {
         }
     }
 
+    fn terminal_input_rect(&self, area: &PaneArea) -> Rect {
+        self.rendered_terminal_bounds.get(&area.surface).copied().unwrap_or(area.content)
+    }
+
     fn current_pty_content(&self, surface: SurfaceId) -> Option<Rect> {
-        self.pane_areas.iter().find(|area| area.surface == surface).map(|area| area.content)
+        self.pane_areas
+            .iter()
+            .find(|area| area.surface == surface)
+            .map(|area| self.terminal_input_rect(area))
     }
 
     fn cancel_pty_release_reservation(&self) {
@@ -7276,6 +7295,9 @@ impl App {
             }
             return Ok(RenderAction::None);
         }
+        if area.content.contains(x, y) && !self.terminal_input_rect(&area).contains(x, y) {
+            return Ok(RenderAction::None);
+        }
         if area.content.contains(x, y)
             && self.forward_pty_mouse_at(
                 x,
@@ -7329,6 +7351,12 @@ impl App {
         };
         if self.active_pane() != Some(area.pane) {
             self.focus_pane_after_input(area.pane);
+        }
+        if self.surface_kind(area.surface) == Some(SurfaceKind::Pty)
+            && area.content.contains(x, y)
+            && !self.terminal_input_rect(&area).contains(x, y)
+        {
+            return Ok(RenderAction::None);
         }
         if area.content.contains(x, y)
             && self.forward_pty_mouse_at(
@@ -10889,6 +10917,7 @@ mod tests {
             graphics_supported: false,
             stdout_lock: Arc::new(Mutex::new(())),
             pane_areas: Vec::new(),
+            rendered_terminal_bounds: HashMap::new(),
             visible_size_surfaces: HashSet::new(),
             pending_size_releases: HashSet::new(),
             prefix_armed: false,

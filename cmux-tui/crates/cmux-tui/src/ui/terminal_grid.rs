@@ -2,6 +2,7 @@ use cmux_tui_core::{Rect, SurfaceRenderFrame};
 use ghostty_vt::{Cell as VtCell, ColorSpec, Rgb};
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
+use ratatui::layout::Rect as RatatuiRect;
 use ratatui::style::{Color, Modifier, Style};
 
 use crate::config::{ChromeTheme, Theme};
@@ -16,6 +17,17 @@ pub fn draw_render_frame(
     selected: impl Fn(u16, u16) -> bool,
 ) -> Option<(u16, u16)> {
     draw_render_frame_with_catalog(frame, rect, render, theme, chrome, catalog(), selected)
+}
+
+pub(crate) fn rendered_viewport_rect(
+    rect: Rect,
+    screen: RatatuiRect,
+    render: &SurfaceRenderFrame,
+) -> Rect {
+    let max_cols = rect.width.min(screen.width.saturating_sub(rect.x));
+    let max_rows = rect.height.min(screen.height.saturating_sub(rect.y));
+    let (snap_cols, snap_rows) = render.frame.size;
+    Rect { x: rect.x, y: rect.y, width: snap_cols.min(max_cols), height: snap_rows.min(max_rows) }
 }
 
 fn draw_render_frame_with_catalog(
@@ -34,8 +46,9 @@ fn draw_render_frame_with_catalog(
     let max_cols = rect.width.min(screen.width.saturating_sub(rect.x)) as usize;
     let max_rows = rect.height.min(screen.height.saturating_sub(rect.y)) as usize;
     let (snap_cols, snap_rows) = render.frame.size;
-    let live_cols = usize::from(snap_cols).min(max_cols);
-    let live_rows = usize::from(snap_rows).min(max_rows);
+    let live = rendered_viewport_rect(rect, screen, render);
+    let live_cols = usize::from(live.width);
+    let live_rows = usize::from(live.height);
     let colors = PaletteResolver::from_frame(render);
     let buf = frame.buffer_mut();
 
