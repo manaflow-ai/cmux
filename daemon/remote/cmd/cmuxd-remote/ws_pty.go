@@ -968,7 +968,18 @@ func persistentPTYCommand(command *exec.Cmd) (*exec.Cmd, error) {
 	arguments := []string{persistentPTYExecHelperArgument, command.Path}
 	arguments = append(arguments, command.Args...)
 	wrapped := exec.Command(helperPath, arguments...)
-	wrapped.Env = command.Env
+	environment := command.Env
+	if environment == nil {
+		environment = os.Environ()
+	}
+	helperEnvironmentPrefix := persistentPTYExecHelperEnvironment + "="
+	wrapped.Env = make([]string, 0, len(environment)+1)
+	for _, value := range environment {
+		if !strings.HasPrefix(value, helperEnvironmentPrefix) {
+			wrapped.Env = append(wrapped.Env, value)
+		}
+	}
+	wrapped.Env = append(wrapped.Env, helperEnvironmentPrefix+helperPath)
 	wrapped.Dir = command.Dir
 	return wrapped, nil
 }

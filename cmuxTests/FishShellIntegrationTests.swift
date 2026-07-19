@@ -243,6 +243,21 @@ struct FishShellIntegrationTests {
             } > "$CMUX_CAPTURE_FISH"
             """
         )
+        let persistentPTYExecHelper = bin.appendingPathComponent("persistent-pty-exec-helper")
+        try writeExecutableShellFile(
+            at: persistentPTYExecHelper,
+            body: """
+            #!/bin/sh
+            [ "${1:-}" = "--internal-persistent-pty-exec" ] || exit 2
+            shift
+            executable="${1:-}"
+            [ -n "$executable" ] || exit 2
+            shift
+            [ "${1:-}" = "$executable" ] || exit 2
+            shift
+            exec "$executable" "$@"
+            """
+        )
 
         let script = RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: 0,
@@ -259,6 +274,7 @@ struct FishShellIntegrationTests {
                 "USER=\(NSUserName())",
                 "XDG_CONFIG_HOME=\(userConfigHome.path)",
                 "CMUX_CAPTURE_FISH=\(capturePath.path)",
+                "CMUX_PERSISTENT_PTY_EXEC_HELPER=\(persistentPTYExecHelper.path)",
                 "/bin/sh",
                 "-c",
                 script,

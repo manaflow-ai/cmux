@@ -549,8 +549,10 @@ func TestWebSocketPTYPersistentInteractiveBashChildSurvivesHangup(t *testing.T) 
 	conn = dialPTY(t, ctx, server.URL)
 	sendAuthWithAttachment(t, ctx, conn, "reattach-token", sessionID, "same", 80, 24)
 	readReady(t, ctx, conn)
-	waitForBinaryContains(t, ctx, conn, "CMUX_FOREGROUND_HUP_HELPER alive", 5*time.Second)
-	waitForBinaryContains(t, ctx, conn, "CMUX_BACKGROUND_HUP_HELPER alive", 5*time.Second)
+	waitForBinaryContainsAll(t, ctx, conn, []string{
+		"CMUX_FOREGROUND_HUP_HELPER alive",
+		"CMUX_BACKGROUND_HUP_HELPER alive",
+	}, 5*time.Second)
 	if !strings.Contains(foregroundProtection, "blocked=true ignored=false protected=true") {
 		t.Fatalf("interactive Bash foreground child did not inherit blocked SIGHUP: %q", foregroundProtection)
 	}
@@ -598,6 +600,25 @@ func TestPersistentPTYExecHelperKeepsHangupBlockedAcrossExec(t *testing.T) {
 	}
 	if !bytes.Contains(output, []byte("CMUX_PERSISTENT_PTY_EXEC_SURVIVED")) {
 		t.Fatalf("persistent PTY exec helper child did not survive SIGHUP: %q", output)
+	}
+}
+
+func TestPersistentPTYCommandOverridesStaleExecHelperEnvironment(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve test executable: %v", err)
+	}
+	cmd := exec.Command("/bin/sh", "-c", `test "$CMUX_PERSISTENT_PTY_EXEC_HELPER" = "$CMUX_EXPECTED_PTY_EXEC_HELPER"`)
+	cmd.Env = append(os.Environ(),
+		persistentPTYExecHelperEnvironment+"=/missing/cmuxd-remote",
+		"CMUX_EXPECTED_PTY_EXEC_HELPER="+executable,
+	)
+	wrapped, err := persistentPTYCommand(cmd)
+	if err != nil {
+		t.Fatalf("wrap persistent PTY command: %v", err)
+	}
+	if output, err := wrapped.CombinedOutput(); err != nil {
+		t.Fatalf("wrapped command did not receive authoritative helper path: %v output=%q", err, output)
 	}
 }
 
@@ -1737,6 +1758,40 @@ func readReady(t *testing.T, ctx context.Context, conn *websocket.Conn) {
 func waitForBinaryContains(t *testing.T, ctx context.Context, conn *websocket.Conn, needle string, timeout time.Duration) string {
 	t.Helper()
 	return waitForBinaryContainsLabel(t, ctx, conn, needle, needle, timeout)
+}
+
+func waitForBinaryContainsAll(t *testing.T, ctx context.Context, conn *websocket.Conn, needles []string, timeout time.Duration) string {
+	t.Helper()
+	var output strings.Builder
+	deadline := time.Now().Add(timeout)
+	closeOnTimeout := time.AfterFunc(timeout, func() {
+		_ = conn.Close(websocket.StatusNormalClosure, "test read timeout")
+	})
+	defer closeOnTimeout.Stop()
+	for time.Now().Before(deadline) {
+		readCtx, cancelRead := context.WithTimeout(ctx, time.Until(deadline))
+		msgType, payload, err := conn.Read(readCtx)
+		cancelRead()
+		if err != nil {
+			t.Fatalf("read terminal output while waiting for %q: %v output=%q", needles, err, output.String())
+		}
+		if msgType != websocket.MessageBinary {
+			continue
+		}
+		output.Write(payload)
+		matchedAll := true
+		for _, needle := range needles {
+			if !strings.Contains(output.String(), needle) {
+				matchedAll = false
+				break
+			}
+		}
+		if matchedAll {
+			return output.String()
+		}
+	}
+	t.Fatalf("timed out waiting for %q, got %q", needles, output.String())
+	return output.String()
 }
 
 func waitForBinaryContainsLabel(t *testing.T, ctx context.Context, conn *websocket.Conn, label string, needle string, timeout time.Duration) string {

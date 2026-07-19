@@ -158,6 +158,7 @@ struct ShellStartupMatrixTests {
         expectTrue(result.capture.contains("PATH=\(result.home.path)/.cmux/bin:"), result.capture)
         expectTrue(result.capture.contains("CMUX_SOCKET_PATH=127.0.0.1:64123"), result.capture)
         expectTrue(result.capture.contains("GHOSTTY_SHELL_FEATURES=existing-feature,ssh-env,ssh-terminfo"), result.capture)
+        expectTrue(result.capture.contains("PERSISTENT_PTY_EXEC_USED=yes"), result.capture)
 
         switch shellCase.name {
         case "zsh":
@@ -174,6 +175,36 @@ struct ShellStartupMatrixTests {
             expectTrue(result.capture.contains("CMUX_FISH_INTEGRATION_FILE=\n"), result.capture)
             expectTrue(result.capture.contains("CMUX_REAL_ZDOTDIR=\n"), result.capture)
         }
+    }
+
+    @Test
+    func generatedSshBootstrapFailsClosedWithoutPersistentPTYExecHelper() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-shell-missing-exec-helper-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 0,
+            shellFeatures: ""
+        )
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "-i",
+                "HOME=\(home.path)",
+                "SHELL=/bin/sh",
+                "PATH=/usr/bin:/bin",
+                "USER=\(NSUserName())",
+                "/bin/sh",
+                "-c",
+                script,
+            ],
+            timeout: 5
+        )
+
+        expectFalse(result.timedOut, result.stderr)
+        expectEqual(result.status, 126, result.stderr)
     }
 
     @Test(arguments: ["zsh", "bash", "fish", "sh", "dash", "ksh", "tcsh", "csh"])
@@ -310,6 +341,8 @@ struct ShellStartupMatrixTests {
         defer { try? fileManager.removeItem(at: root) }
 
         try writeExecutableShellFile(at: bin.appendingPathComponent(shellName), capturePath: capturePath)
+        let persistentPTYExecHelper = bin.appendingPathComponent("persistent-pty-exec-helper")
+        try writePersistentPTYExecHelper(at: persistentPTYExecHelper)
         if let fakeCmuxDelay {
             try writeExecutableCmuxFile(at: bin.appendingPathComponent("cmux"), delay: fakeCmuxDelay)
         }
@@ -336,6 +369,7 @@ struct ShellStartupMatrixTests {
             "USER=\(NSUserName())",
             "ZDOTDIR=\(home.path)/user-zdotdir",
             "CMUX_CAPTURE_PATH=\(capturePath.path)",
+            "CMUX_PERSISTENT_PTY_EXEC_HELPER=\(persistentPTYExecHelper.path)",
         ]
         if let bootstrapTTY {
             arguments.append("CMUX_BOOTSTRAP_TTY=\(bootstrapTTY)")
@@ -367,6 +401,7 @@ struct ShellStartupMatrixTests {
           printf 'CMUX_REAL_ZDOTDIR=%s\\n' "$CMUX_REAL_ZDOTDIR"
           printf 'CMUX_FISH_INTEGRATION_FILE=%s\\n' "$CMUX_FISH_INTEGRATION_FILE"
           printf 'CMUX_FISH_USER_CONFIG_ALREADY_LOADED=%s\\n' "$CMUX_FISH_USER_CONFIG_ALREADY_LOADED"
+          printf 'PERSISTENT_PTY_EXEC_USED=%s\\n' "$CMUX_TEST_PERSISTENT_PTY_EXEC_USED"
           if [ -r "$CMUX_SHELL_INTEGRATION_DIR/cmux-zsh-integration.zsh" ] && grep -q 'cmux_zsh_marker=1' "$CMUX_SHELL_INTEGRATION_DIR/cmux-zsh-integration.zsh"; then
             printf 'ZSH_INTEGRATION_HAS_MARKER=yes\\n'
           fi
@@ -377,6 +412,23 @@ struct ShellStartupMatrixTests {
             printf 'FISH_HAS_MARKER=yes\\n'
           fi
         } > "\(capturePath.path)"
+        """
+        .write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    private func writePersistentPTYExecHelper(at url: URL) throws {
+        try """
+        #!/bin/sh
+        [ "${1:-}" = "--internal-persistent-pty-exec" ] || exit 2
+        shift
+        executable="${1:-}"
+        [ -n "$executable" ] || exit 2
+        shift
+        [ "${1:-}" = "$executable" ] || exit 2
+        shift
+        export CMUX_TEST_PERSISTENT_PTY_EXEC_USED=yes
+        exec "$executable" "$@"
         """
         .write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)

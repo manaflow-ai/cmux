@@ -9,7 +9,10 @@ import (
 	"syscall"
 )
 
-const persistentPTYExecHelperArgument = "--internal-persistent-pty-exec"
+const (
+	persistentPTYExecHelperArgument    = "--internal-persistent-pty-exec"
+	persistentPTYExecHelperEnvironment = "CMUX_PERSISTENT_PTY_EXEC_HELPER"
+)
 
 func init() {
 	if len(os.Args) < 2 || os.Args[1] != persistentPTYExecHelperArgument {
