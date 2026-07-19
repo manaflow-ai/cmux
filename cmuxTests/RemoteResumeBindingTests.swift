@@ -324,7 +324,7 @@ struct RemoteResumeBindingTests {
             script.range(of: #"--command-b64 [A-Za-z0-9+/=]+"#, options: .regularExpression)
         )
         let encoded = String(script[range]).split(separator: " ", maxSplits: 1).last.map(String.init)
-        let data = try #require(encoded.flatMap(Data.init(base64Encoded:)))
+        let data = try #require(encoded.flatMap { Data(base64Encoded: $0) })
         return try #require(String(data: data, encoding: .utf8))
     }
 
