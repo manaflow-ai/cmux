@@ -164,10 +164,12 @@ export interface WorkspacePlacement {
   workspace_revision: number;
 }
 
-export interface CreateTerminalRequest extends CmuxRequestBase {
+export type WorkspaceSelector =
+  | { workspace: Id; key?: string | null }
+  | { key: string; workspace?: Id | null };
+
+interface CreateTerminalRequestBase extends CmuxRequestBase {
   cmd: "create-terminal";
-  workspace?: Id | null;
-  key?: string | null;
   argv?: string[] | null;
   command?: string | null;
   cwd?: string | null;
@@ -175,6 +177,7 @@ export interface CreateTerminalRequest extends CmuxRequestBase {
   cols?: number | null;
   rows?: number | null;
 }
+export type CreateTerminalRequest = CreateTerminalRequestBase & WorkspaceSelector;
 
 export interface TerminalPlacement {
   surface: Id;
@@ -255,23 +258,21 @@ export interface WorkspaceMutation {
   key: string;
   workspace_revision: number;
 }
-export interface CloseWorkspaceRequest extends CmuxRequestBase {
+interface CloseWorkspaceRequestBase extends CmuxRequestBase {
   cmd: "close-workspace";
-  workspace?: Id | null;
-  key?: string | null;
   expected_revision?: number | null;
 }
+export type CloseWorkspaceRequest = CloseWorkspaceRequestBase & WorkspaceSelector;
 
 export interface RenamePaneRequest extends CmuxRequestBase { cmd: "rename-pane"; pane: Id; name: string }
 export interface RenameSurfaceRequest extends CmuxRequestBase { cmd: "rename-surface"; surface: Id; name: string }
 export interface RenameScreenRequest extends CmuxRequestBase { cmd: "rename-screen"; screen: Id; name: string }
-export interface RenameWorkspaceRequest extends CmuxRequestBase {
+interface RenameWorkspaceRequestBase extends CmuxRequestBase {
   cmd: "rename-workspace";
-  workspace?: Id | null;
-  key?: string | null;
   name: string;
   expected_revision?: number | null;
 }
+export type RenameWorkspaceRequest = RenameWorkspaceRequestBase & WorkspaceSelector;
 
 export interface ResizeSurfaceRequest extends CmuxRequestBase {
   cmd: "resize-surface";
@@ -310,13 +311,12 @@ export interface SelectWorkspaceRequest extends CmuxRequestBase {
 }
 
 export interface MoveTabRequest extends CmuxRequestBase { cmd: "move-tab"; surface: Id; pane: Id; index: number }
-export interface MoveWorkspaceRequest extends CmuxRequestBase {
+interface MoveWorkspaceRequestBase extends CmuxRequestBase {
   cmd: "move-workspace";
-  workspace?: Id | null;
-  key?: string | null;
   index: number;
   expected_revision?: number | null;
 }
+export type MoveWorkspaceRequest = MoveWorkspaceRequestBase & WorkspaceSelector;
 export interface ScrollSurfaceRequest extends CmuxRequestBase { cmd: "scroll-surface"; surface: Id; delta: number }
 
 export interface SubscribeRequest extends CmuxRequestBase {

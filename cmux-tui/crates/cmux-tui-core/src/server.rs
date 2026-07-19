@@ -3207,6 +3207,10 @@ fn handle_command(
                         }),
                         MuxEvent::TreeDelta(delta) if tree_deltas => tree_delta_json(delta),
                         MuxEvent::TreeDelta(_) => json!({"event": "tree-changed"}),
+                        MuxEvent::TreeSelectionChanged if tree_deltas => {
+                            json!({"event": "tree-changed"})
+                        }
+                        MuxEvent::TreeSelectionChanged => continue,
                         _ => subscribed_event_json(&event),
                     };
                     if let Err(error) = writer.send_stream(&value, &outbound_stream) {
@@ -3650,6 +3654,7 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "at_bottom": at_bottom,
         }),
         MuxEvent::TreeChanged => json!({"event": "tree-changed"}),
+        MuxEvent::TreeSelectionChanged => json!({"event": "tree-changed"}),
         MuxEvent::TreeDelta(_) => json!({"event": "tree-changed"}),
         MuxEvent::LayoutChanged(screen) => json!({"event": "layout-changed", "screen": screen}),
         MuxEvent::ClientAttached { client, transport, name, kind } => json!({

@@ -86,6 +86,8 @@ pub enum MuxEvent {
     /// The workspace/screen/pane/tab tree changed (from any frontend or
     /// the control socket).
     TreeChanged,
+    /// Delta subscribers need a coarse snapshot resync for a selection-only change.
+    TreeSelectionChanged,
     /// One protocol-v7 lifecycle mutation. Coarse subscribers project this
     /// back to the legacy `tree-changed` event.
     TreeDelta(TreeDelta),
@@ -590,7 +592,7 @@ impl Mux {
     fn emit_tree_delta(&self, delta: TreeDelta, selection_resync: bool) {
         self.emit(MuxEvent::TreeDelta(delta));
         if selection_resync {
-            self.emit(MuxEvent::TreeChanged);
+            self.emit(MuxEvent::TreeSelectionChanged);
         }
     }
 
@@ -5061,14 +5063,14 @@ mod tests {
             events.recv().unwrap(),
             MuxEvent::TreeDelta(TreeDelta { kind: TreeDeltaKind::WorkspaceAdded, .. })
         ));
-        assert!(matches!(events.recv().unwrap(), MuxEvent::TreeChanged));
+        assert!(matches!(events.recv().unwrap(), MuxEvent::TreeSelectionChanged));
 
         mux.close_workspace_at_revision(second.workspace, Some(2)).unwrap();
         assert!(matches!(
             events.recv().unwrap(),
             MuxEvent::TreeDelta(TreeDelta { kind: TreeDeltaKind::WorkspaceClosed, .. })
         ));
-        assert!(matches!(events.recv().unwrap(), MuxEvent::TreeChanged));
+        assert!(matches!(events.recv().unwrap(), MuxEvent::TreeSelectionChanged));
         mux.with_state(|state| {
             assert_eq!(state.workspaces[state.active_workspace].id, first.workspace);
         });
