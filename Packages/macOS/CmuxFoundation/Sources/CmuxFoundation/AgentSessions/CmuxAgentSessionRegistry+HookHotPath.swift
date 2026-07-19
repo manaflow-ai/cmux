@@ -176,10 +176,32 @@ extension CmuxAgentSessionRegistry {
 
     /// Reads provider allocation metadata without selecting any JSON blobs.
     public func hookStorageMetrics(provider: String) throws -> HookStorageMetrics {
-        try withDatabase { database in
+        guard let metrics = try hookStorageMetrics(providers: [provider])[provider] else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        return metrics
+    }
+
+    /// Reads allocation metadata for every requested provider through one
+    /// SQLite connection and one consistent read transaction. Duplicate
+    /// provider IDs are collapsed; providers without rows receive zero metrics.
+    public func hookStorageMetrics(
+        providers requestedProviders: [String]
+    ) throws -> [String: HookStorageMetrics] {
+        let providers = Set(requestedProviders).sorted()
+        guard !providers.isEmpty else { return [:] }
+        return try withDatabase { database in
             try ensureHookHotPathSchema(database)
             return try readTransaction(database) {
-                try hookStorageMetrics(database: database, provider: provider)
+                var metricsByProvider: [String: HookStorageMetrics] = [:]
+                metricsByProvider.reserveCapacity(providers.count)
+                for provider in providers {
+                    metricsByProvider[provider] = try hookStorageMetrics(
+                        database: database,
+                        provider: provider
+                    )
+                }
+                return metricsByProvider
             }
         }
     }

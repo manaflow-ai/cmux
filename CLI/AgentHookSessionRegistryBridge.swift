@@ -963,8 +963,13 @@ struct AgentHookSessionRegistryBridge {
                 maximumRecordBytes: max(0, limits.recordBytes)
             )
         }
+        let storageMetricsByProvider = try registry.hookStorageMetrics(
+            providers: sources.map(\.provider)
+        )
         for source in sources {
-            let storageMetrics = try registry.hookStorageMetrics(provider: source.provider)
+            guard let storageMetrics = storageMetricsByProvider[source.provider] else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
             let initialStamp = CmuxAgentSessionRegistry.LegacyStamp.read(
                 path: source.url.path,
                 fileManager: fileManager
