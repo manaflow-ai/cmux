@@ -3325,6 +3325,16 @@ mod tests {
     }
 
     #[test]
+    fn swapping_within_a_stack_keeps_the_same_pane_expanded() {
+        let mut stack = Node::stack_with_expanded(vec![1, 2, 3], 2).unwrap();
+
+        assert!(stack.swap_leaves(2, 3));
+        let exported = node_json(&stack, 9);
+        assert_eq!(exported["panes"], json!([1, 3, 2]));
+        assert_eq!(exported["expanded"], 2);
+    }
+
+    #[test]
     fn bounded_writer_reserves_a_control_lane_for_responses_and_overflow() {
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });

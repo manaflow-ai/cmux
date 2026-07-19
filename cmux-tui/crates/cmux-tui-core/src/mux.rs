@@ -2482,9 +2482,10 @@ impl Mux {
         };
         if found {
             self.clear_viewed_notification(viewed);
-            self.emit(MuxEvent::TreeChanged);
             if let Some(screen) = layout_changed {
                 self.emit(MuxEvent::LayoutChanged(screen));
+            } else {
+                self.emit(MuxEvent::TreeChanged);
             }
         }
         found

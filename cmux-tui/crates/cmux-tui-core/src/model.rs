@@ -144,12 +144,21 @@ impl Node {
                 a.swap_leaf_ids(first, second);
                 b.swap_leaf_ids(first, second);
             }
-            Node::Stack { panes, .. } => {
+            Node::Stack { panes, expanded } => {
+                let first_in_stack = panes.contains(&first);
+                let second_in_stack = panes.contains(&second);
                 for pane in panes.iter_mut() {
                     if *pane == first {
                         *pane = second;
                     } else if *pane == second {
                         *pane = first;
+                    }
+                }
+                if first_in_stack != second_in_stack {
+                    if *expanded == first {
+                        *expanded = second;
+                    } else if *expanded == second {
+                        *expanded = first;
                     }
                 }
             }
