@@ -999,6 +999,7 @@ pub struct Config {
     pub theme: Theme,
     pub theme_overrides: ThemeOverrides,
     pub terminal_defaults: DefaultColors,
+    pub terminal_font_family: Option<String>,
     pub cursor_style: Option<CursorShape>,
     pub cursor_blink: Option<bool>,
     pub chrome: ChromeMode,
@@ -1045,8 +1046,10 @@ pub struct SidebarPluginConfig {
 pub fn load() -> Config {
     let mut config = Config::default();
 
-    let defaults = ghostty_defaults();
+    let ghostty = ghostty_defaults();
+    let defaults = ghostty.colors;
     config.terminal_defaults = defaults;
+    config.terminal_font_family = ghostty.font_family;
     if let Some(bg) = defaults.selection_bg {
         config.theme.selection_bg = Color::Rgb(bg.r, bg.g, bg.b);
         config.theme_overrides.selection = true;
@@ -1352,16 +1355,28 @@ fn parse_color(s: &str) -> Option<Color> {
 
 /// The user's relevant Ghostty settings with Ghostty's application defaults
 /// resolved for values that the low-level terminal otherwise leaves unset.
-fn ghostty_defaults() -> DefaultColors {
+#[derive(Default)]
+struct GhosttyDefaults {
+    colors: DefaultColors,
+    font_family: Option<String>,
+}
+
+fn ghostty_defaults() -> GhosttyDefaults {
     let parsed = resolved_ghostty_defaults()
         .or_else(|| {
             let text = platform::ghostty_config_paths()
                 .iter()
                 .find_map(|path| std::fs::read_to_string(path).ok())?;
-            Some(parse_ghostty_defaults(&text))
+            Some(GhosttyDefaults {
+                colors: parse_ghostty_defaults(&text),
+                font_family: parse_ghostty_font_family(&text),
+            })
         })
         .unwrap_or_default();
-    resolve_ghostty_application_defaults(parsed)
+    GhosttyDefaults {
+        colors: resolve_ghostty_application_defaults(parsed.colors),
+        font_family: parsed.font_family,
+    }
 }
 
 fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultColors {
@@ -1373,11 +1388,13 @@ fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultC
 /// Ask Ghostty to resolve its configuration so cmux-tui inherits precisely the
 /// same theme-loading behavior as the graphical terminal. A failed or slow
 /// invocation is deliberately ignored; startup then uses the file fallback.
-fn resolved_ghostty_defaults() -> Option<DefaultColors> {
-    platform::ghostty_binary_paths()
-        .iter()
-        .find_map(|path| run_ghostty_show_config(path))
-        .map(|text| parse_resolved_ghostty_defaults(&text))
+fn resolved_ghostty_defaults() -> Option<GhosttyDefaults> {
+    platform::ghostty_binary_paths().iter().find_map(|path| run_ghostty_show_config(path)).map(
+        |text| GhosttyDefaults {
+            colors: parse_resolved_ghostty_defaults(&text),
+            font_family: parse_ghostty_font_family(&text),
+        },
+    )
 }
 
 fn run_ghostty_show_config(path: &Path) -> Option<String> {
@@ -1451,6 +1468,22 @@ fn parse_resolved_ghostty_defaults(text: &str) -> DefaultColors {
         apply_ghostty_default(&mut defaults, key.trim(), value.trim());
     }
     defaults
+}
+
+fn parse_ghostty_font_family(text: &str) -> Option<String> {
+    text.lines().find_map(|line| {
+        let (key, value) = line.trim().split_once('=')?;
+        if key.trim() != "font-family" {
+            return None;
+        }
+        let value = value.trim();
+        let value = value
+            .strip_prefix('"')
+            .and_then(|value| value.strip_suffix('"'))
+            .unwrap_or(value)
+            .trim();
+        (!value.is_empty()).then(|| value.to_string())
+    })
 }
 
 fn apply_ghostty_default(defaults: &mut DefaultColors, key: &str, value: &str) {
@@ -1604,6 +1637,17 @@ mod tests {
     }
 
     #[test]
+    fn parses_first_nonempty_ghostty_font_family_as_primary_face() {
+        assert_eq!(
+            parse_ghostty_font_family(
+                "font-family = \"Berkeley Mono\"\nfont-family = Symbols Nerd Font\n",
+            ),
+            Some("Berkeley Mono".to_string())
+        );
+        assert_eq!(parse_ghostty_font_family("font-family = \"\"\n"), None);
+    }
+
+    #[test]
     fn parses_ghostty_terminal_colors_and_palette_with_later_valid_entry_wins() {
         let defaults = parse_ghostty_defaults(
             "foreground = #010203\n\
@@ -1718,6 +1762,7 @@ mod tests {
             SurfaceOptions { command: Some(vec!["/bin/cat".to_string()]), ..Default::default() },
         );
         mux.set_default_colors(defaults);
+        mux.set_terminal_font_family(Some("Berkeley Mono".to_string()));
         let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
         surface.try_with_terminal(|term| term.vt_write(b"\x1b[31mR")).unwrap();
         // Re-applying through the mux exercises the existing-surface path and
@@ -1742,6 +1787,7 @@ mod tests {
         assert_eq!(state["event"], "render-state");
         assert_eq!(state["default_fg"], "#010203");
         assert_eq!(state["default_bg"], "#131415");
+        assert_eq!(state["font_family"], "Berkeley Mono");
         assert_eq!(state["cursor"]["color"], "#c0c1b5");
         assert_eq!(state["cursor"]["style"], "bar");
         assert_eq!(state["cursor"]["blink"], false);

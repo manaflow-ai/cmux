@@ -184,6 +184,8 @@ export interface TerminalColors {
   cursor_style?: "block" | "underline" | "bar" | null;
   /** Protocol v6 additive extension. Older servers omit this field. */
   cursor_blink?: boolean | null;
+  /** Protocol v7 additive extension inherited from Ghostty. */
+  font_family?: string | null;
 }
 
 /** Initial base64 VT replay for an attached PTY surface. */

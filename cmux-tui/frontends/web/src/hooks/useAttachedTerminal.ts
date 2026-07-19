@@ -21,6 +21,7 @@ import {
   colorsToPaletteSequence,
   colorsToSelectionThemePatch,
 } from "../lib/terminalColors";
+import { fallbackTerminalFontStack, terminalFontStack } from "../lib/terminalFont";
 import { terminalTheme } from "../lib/terminalTheme";
 import { tryLoadWebglRenderer } from "../lib/webglRenderer";
 
@@ -50,7 +51,7 @@ export function useAttachedTerminal({
       allowProposedApi: true,
       convertEol: false,
       disableStdin: true,
-      fontFamily: 'Menlo, "SFMono-Regular", Consolas, "Liberation Mono", monospace',
+      fontFamily: fallbackTerminalFontStack,
       fontSize: 13,
       lineHeight: 1.15,
       theme: baseTheme,
@@ -107,6 +108,9 @@ export function useAttachedTerminal({
         stage?.style.setProperty("--surface-background", colors.bg);
       } else {
         stage?.style.removeProperty("--surface-background");
+      }
+      if (colors?.font_family !== undefined) {
+        terminal.options.fontFamily = terminalFontStack(colors.font_family);
       }
       const dynamicSequence = colorsToDynamicColorSequence(colors);
       if (dynamicSequence !== null) await writeTerminal(dynamicSequence);

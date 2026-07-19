@@ -537,6 +537,7 @@ pub struct Mux {
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
+    terminal_font_family: Mutex<Option<String>>,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<SurfaceId, AgentRecord>>,
     surface_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
@@ -600,6 +601,7 @@ impl Mux {
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(DefaultColors::default()),
+            terminal_font_family: Mutex::new(None),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(HashMap::new()),
             surface_notifications: Mutex::new(HashMap::new()),
@@ -1906,6 +1908,18 @@ impl Mux {
             surface.set_default_colors(colors);
             self.emit(MuxEvent::SurfaceOutput(surface.id));
         }
+    }
+
+    pub fn terminal_font_family(&self) -> Option<String> {
+        self.terminal_font_family.lock().unwrap().clone()
+    }
+
+    pub fn set_terminal_font_family(&self, font_family: Option<String>) {
+        let font_family = font_family.and_then(|value| {
+            let value = value.trim();
+            (!value.is_empty()).then(|| value.to_string())
+        });
+        *self.terminal_font_family.lock().unwrap() = font_family;
     }
 
     /// Resize a surface and broadcast the final clamped size when it actually

@@ -632,6 +632,7 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
             "palette": {"4": "#112233"},
             "cursor_style": "bar",
             "cursor_blink": false,
+            "font_family": null,
         })
     );
 
@@ -767,6 +768,7 @@ fn control_socket_attach_stream_receives_merged_colors_changed() {
             "palette": {},
             "cursor_style": "bar",
             "cursor_blink": false,
+            "font_family": null,
         })
     );
 

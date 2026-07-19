@@ -664,6 +664,7 @@ object{
   cursor:Cursor,
   default_fg:ColorHex,
   default_bg:ColorHex,
+  font_family:string|null,
   scrollback_rows:uint32,
   rows:array<Row>
 }
@@ -723,12 +724,13 @@ object{
     selection_fg:ColorHex|null,
     palette?:object{[index:string]:ColorHex},
     cursor_style:"block"|"underline"|"bar"|null,
-    cursor_blink:boolean|null
+    cursor_blink:boolean|null,
+    font_family:string|null
   }
 }
 ```
 
-Meaning: Initial VT replay for an attached PTY surface. Replaying `data` into a fresh Ghostty VT terminal with the supplied cell size reproduces current state. `colors` is captured with the replay and reports the surface's effective foreground, background, and cursor colors, including active OSC 10/11/12 overrides. Protocol v7 adds sparse `palette`, whose decimal string keys identify authored OSC 4 overrides; omitted indexes retain the frontend theme palette, and older servers omit the field. The additive protocol-v6 `cursor_style` and `cursor_blink` fields report the surface's current DECSCUSR-derived cursor state when available, then fall back to the session's Ghostty `cursor-style` and `cursor-style-blink` defaults. A field is `null` when the server cannot determine it; the current server does not track selection colors, so `selection_bg` and `selection_fg` are `null`. Ghostty's VT replay formatter does not emit DECSCUSR, so attach clients must apply the cursor metadata instead of inferring shape or blink from `data`.
+Meaning: Initial VT replay for an attached PTY surface. Replaying `data` into a fresh Ghostty VT terminal with the supplied cell size reproduces current state. `colors` is captured with the replay and reports the surface's effective foreground, background, cursor colors, and resolved primary Ghostty font family. Protocol v7 adds sparse `palette`, whose decimal string keys identify authored OSC 4 overrides; omitted indexes retain the frontend theme palette, and older servers omit the field. The additive protocol-v6 `cursor_style` and `cursor_blink` fields report the surface's current DECSCUSR-derived cursor state when available, then fall back to the session's Ghostty `cursor-style` and `cursor-style-blink` defaults. A field is `null` when the server cannot determine it; the current server does not track selection colors, so `selection_bg` and `selection_fg` are `null`. Ghostty's VT replay formatter does not emit DECSCUSR, so attach clients must apply the cursor metadata instead of inferring shape or blink from `data`.
 
 Example:
 
@@ -802,11 +804,12 @@ object{
   selection_fg:ColorHex|null,
   palette?:object{[index:string]:ColorHex},
   cursor_style:"block"|"underline"|"bar"|null,
-  cursor_blink:boolean|null
+  cursor_blink:boolean|null,
+  font_family:string|null
 }
 ```
 
-Meaning: The session defaults or a surface's live OSC palette state changed. Each live PTY byte-attach stream receives the effective colors for its surface. Active per-surface OSC 10/11/12 overrides remain authoritative; protocol-v7 sparse `palette` entries replace authored OSC 4 indexes while omitted indexes retain the frontend theme palette. Live palette events omit cursor metadata so the frontend preserves its current cursor; default-color events include authoritative cursor state. Protocol v7 requires the explicit `surface` subject id so multiple attach streams on one connection can be routed without implicit stream state. Protocol-v6 payloads omit `surface` and `palette`; v6 clients remain compatible because the new fields are additive. The current server emits `null` for both selection fields because it cannot query the terminal's OSC 17/19 selection-color state.
+Meaning: The session defaults or a surface's live OSC palette state changed. Each live PTY byte-attach stream receives the effective colors and primary Ghostty font family for its surface. Active per-surface OSC 10/11/12 overrides remain authoritative; protocol-v7 sparse `palette` entries replace authored OSC 4 indexes while omitted indexes retain the frontend theme palette. Live palette events omit cursor metadata so the frontend preserves its current cursor; default-color events include authoritative cursor state. Protocol v7 requires the explicit `surface` subject id so multiple attach streams on one connection can be routed without implicit stream state. Protocol-v6 payloads omit `surface` and `palette`; v6 clients remain compatible because the new fields are additive. The current server emits `null` for both selection fields because it cannot query the terminal's OSC 17/19 selection-color state.
 
 Example:
 

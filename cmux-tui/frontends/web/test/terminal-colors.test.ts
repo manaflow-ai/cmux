@@ -5,6 +5,16 @@ import {
   colorsToPaletteSequence,
   colorsToSelectionThemePatch,
 } from "../src/lib/terminalColors";
+import { fallbackTerminalFontStack, terminalFontStack } from "../src/lib/terminalFont";
+
+describe("terminal font family", () => {
+  it("quotes arbitrary family names and rejects control characters", () => {
+    expect(terminalFontStack('Berkeley Mono "Retina"')).toBe(
+      '"Berkeley Mono \\"Retina\\"", Menlo, "SFMono-Regular", Consolas, "Liberation Mono", monospace',
+    );
+    expect(terminalFontStack("bad\nfont")).toBe(fallbackTerminalFontStack);
+  });
+});
 
 describe("effective terminal colors", () => {
   it("returns no patch when an older server omits colors", () => {

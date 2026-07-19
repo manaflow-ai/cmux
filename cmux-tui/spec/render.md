@@ -109,12 +109,13 @@ object{
   cursor:Cursor,
   default_fg:ColorHex,
   default_bg:ColorHex,
+  font_family:string|null,
   scrollback_rows:uint32,
   rows:array<Row>
 }
 ```
 
-`rows` is a complete snapshot of the current viewport and contains exactly `size.rows` entries. This draft uses `size.rows` for the numeric height because a JSON object cannot also use `rows` as the row-array key. `scrollback_rows` is the current number of retained rows above the live screen; the initial event does not inline scrollback.
+`rows` is a complete snapshot of the current viewport and contains exactly `size.rows` entries. This draft uses `size.rows` for the numeric height because a JSON object cannot also use `rows` as the row-array key. `scrollback_rows` is the current number of retained rows above the live screen; the initial event does not inline scrollback. `font_family` is the session's primary resolved Ghostty `font-family`, or `null` when unavailable.
 
 Example:
 

@@ -27,6 +27,7 @@
   --terminal-background: #272822;
   --terminal-foreground: #d0d0d0;
   --terminal-cursor: #87afd7;
+  --terminal-font-family: Menlo, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --ansi-black: #000000;
   --ansi-red: #cd0000;
   --ansi-green: #00cd00;
@@ -45,7 +46,7 @@
   --ansi-bright-white: #ffffff;
   color: var(--terminal-foreground);
   background: var(--terminal-background);
-  font-family: Menlo, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-family: var(--terminal-font-family);
   font-size: 12px;
   line-height: var(--tui-cell-height);
   font-synthesis: none;
@@ -79,7 +80,7 @@ button { color: inherit; touch-action: manipulation; }
 .pairing-code span, .pairing-code small { color: var(--status-dim); font-size: 12px; }
 .pairing-code strong { color: var(--border-active); font-size: 28px; letter-spacing: .12em; }
 
-.app-shell { display: grid; grid-template: minmax(0, 1fr) var(--tui-cell-height) / var(--tui-sidebar-width) minmax(0, 1fr); width: 100%; height: 100%; background: var(--terminal-background); }
+.app-shell { display: grid; grid-template: minmax(0, 1fr) var(--tui-cell-height) / var(--tui-sidebar-width) minmax(0, 1fr); width: 100%; height: 100%; background: var(--terminal-background); font-family: var(--terminal-font-family); }
 .mobile-toolbar, .drawer-backdrop, .extra-keys { display: none; }
 .sidebar, .mobile-toolbar, .tab-bar, .status-bar, .extra-keys,
 .pane-side, .pane-bottom, .pane-corner, .pane-rule { user-select: none; -webkit-user-select: none; }
@@ -147,7 +148,7 @@ button { color: inherit; touch-action: manipulation; }
 .terminal-stage { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; padding: 0; background: var(--surface-background, var(--terminal-background)); overflow: hidden; user-select: none; -webkit-user-select: none; }
 .terminal-host { width: 100%; height: 100%; }
 .terminal-host .xterm { height: 100%; }
-.render-terminal-host { position: relative; overflow: hidden; background: var(--surface-background, var(--terminal-background)); font-family: Menlo, "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 12px; line-height: var(--tui-cell-height); }
+.render-terminal-host { position: relative; overflow: hidden; background: var(--surface-background, var(--terminal-background)); font-family: var(--terminal-font-family); font-size: 12px; line-height: var(--tui-cell-height); }
 .render-scroll { position: absolute; inset: 0; overscroll-behavior: contain; scrollbar-color: var(--status-dim) transparent; }
 .render-scroll.live { overflow: hidden; }
 .render-scroll.history { overflow: auto; }

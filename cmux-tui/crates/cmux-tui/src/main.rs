@@ -240,6 +240,7 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     // Headless sessions have no host terminal to query, so seed the mux from
     // Ghostty's config before any protocol client can create a surface.
     mux.set_default_colors(config.terminal_defaults);
+    mux.set_terminal_font_family(config.terminal_font_family.clone());
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
     let websocket_server = match ws_addr {
         Some(addr) => {
