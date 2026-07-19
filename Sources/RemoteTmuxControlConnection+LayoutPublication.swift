@@ -358,6 +358,7 @@ extension RemoteTmuxControlConnection {
 
 
     func prunePaneState(keeping livePanes: Set<Int>) {
+        discardPendingPaneSeeds(keeping: livePanes)
         paneHeaderLabels = paneHeaderLabels.filter { livePanes.contains($0.key) }
         paneOutputByteCounts = paneOutputByteCounts.filter { livePanes.contains($0.key) }
         paneForegroundStates = paneForegroundStates.filter { livePanes.contains($0.key) }

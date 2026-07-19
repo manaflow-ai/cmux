@@ -129,7 +129,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     var cwdByPane: [Int: String] = [:]
     /// Per-pane filter that strips the screen/tmux `ESC k <title> ST` window-title
     /// escape from `%output` (stateful across chunk boundaries).
-    private var titleFilters: [Int: RemoteTmuxScreenTitleFilter] = [:]
+    var titleFilters: [Int: RemoteTmuxScreenTitleFilter] = [:]
     /// Per-window multi-pane renderers (present once a window has >1 pane).
     var windowMirrorByWindowId: [Int: RemoteTmuxWindowMirror] = [:]
     private var pendingExplicitFocusWindowId: Int?
@@ -161,6 +161,9 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         self.observerToken = connection.addObserver(
             onPaneOutput: { [weak self] paneId, data in
                 self?.routeOutput(paneId: paneId, data: data)
+            },
+            onPaneSeed: { [weak self] paneId, seed in
+                self?.routeSeed(paneId: paneId, seed: seed)
             },
             onPaneCwd: { [weak self] paneId, path in
                 self?.handlePaneCwd(paneId: paneId, path: path)
@@ -252,7 +255,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     }
 
     /// The tmux window id (if any) whose layout currently contains `paneId`.
-    private func windowIdContaining(pane paneId: Int) -> Int? {
+    func windowIdContaining(pane paneId: Int) -> Int? {
         windowIdByPane[paneId]
     }
 
@@ -464,28 +467,6 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         windowMirrorByWindowId[windowId]?.activePaneId
             ?? connection.activePaneByWindow[windowId]
             ?? connection.windowsByID[windowId]?.paneIDsInOrder.first
-    }
-
-    private func routeOutput(paneId: Int, data: Data) {
-        // Strip the screen/tmux `ESC k <title> ST` window-title escape that a remote
-        // shell (TERM=screen*/tmux*) emits — the mirror's xterm-style surface would
-        // otherwise print the title text onto the screen (see
-        // ``RemoteTmuxScreenTitleFilter``). Per-pane state survives chunk splits.
-        var filter = titleFilters[paneId] ?? RemoteTmuxScreenTitleFilter()
-        let cleaned = filter.filter(data)
-        titleFilters[paneId] = filter
-
-        // Multi-pane window: its in-tab renderer owns the pane's surface.
-        if let windowId = windowIdContaining(pane: paneId),
-           let mirror = windowMirrorByWindowId[windowId] {
-            mirror.routeOutput(paneId: paneId, data: cleaned)
-            return
-        }
-        // Single-pane window: route to the window-tab's panel surface.
-        guard let workspace,
-              let panelId = panelIdByPane[paneId],
-              let panel = workspace.panels[panelId] as? TerminalPanel else { return }
-        panel.surface.processRemoteOutput(cleaned)
     }
 
     /// Applies a pane's reflow classification to its mirror surface (suppress

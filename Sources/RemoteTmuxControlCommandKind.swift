@@ -6,11 +6,11 @@ enum RemoteTmuxControlCommandKind: Equatable {
     case listWindows(reorderGeneration: UInt64, retainedPaneIDs: Set<Int>)
     /// An order-only snapshot used to verify a successful swap batch cheaply.
     case listWindowOrder(reorderGeneration: UInt64)
-    case capturePane(Int)
-    case paneState(Int)
+    case capturePane(Int, UUID)
+    case paneState(Int, UUID)
     case panePath(Int)
     case paneReflow(Int)
-    case paneAltScreen(Int)
+    case paneAltScreen(Int, UUID)
     case activityQuery(UUID)
     case newWindow(UUID)
     /// A per-window `refresh-client -C '@id:WxH'` — an %error reply means

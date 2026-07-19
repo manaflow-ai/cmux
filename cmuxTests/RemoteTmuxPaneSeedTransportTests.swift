@@ -93,6 +93,52 @@ import Testing
         #expect(String(decoding: rendered, as: UTF8.self).contains("dir git:main"))
     }
 
+    @Test func seedAwareObserverReceivesTypedCutoverWithoutCompatibilityWrite() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        var liveWrites: [Data] = []
+        var seeds: [RemoteTmuxPaneSeed] = []
+        let token = fixture.connection.addObserver(
+            onPaneOutput: { paneID, data in
+                guard paneID == 5 else { return }
+                liveWrites.append(data)
+            },
+            onPaneSeed: { paneID, seed in
+                guard paneID == 5 else { return }
+                seeds.append(seed)
+            }
+        )
+        defer { fixture.connection.removeObserver(token) }
+
+        fixture.connection.capturePane(paneId: 5)
+        let paneState = Self.paneStateLine(cursorX: 3, cursorY: 2)
+        deliverRechunked(
+            Self.seedRaceStream(
+                preCaptureOutput: "before-capture",
+                capturedRows: ["authoritative"],
+                postCaptureOutput: "after-capture",
+                paneState: paneState,
+                paneID: 5
+            ),
+            to: fixture.connection
+        )
+
+        let seed = try #require(seeds.first)
+        #expect(seeds.count == 1)
+        #expect(liveWrites.isEmpty)
+        #expect(seed.discardedOutput == [Data("before-capture".utf8)])
+        #expect(seed.catchUpOutput == [Data("after-capture".utf8)])
+
+        var snapshot = RemoteTmuxControlConnection.altScreenExitSequence
+        snapshot.append(Data("\u{1b}[H\u{1b}[2Jauthoritative".utf8))
+        #expect(seed.snapshot == snapshot)
+        #expect(
+            seed.state
+                == RemoteTmuxControlMessageDecoding().paneStateSeedSequence(from: paneState)
+        )
+    }
+
     private static func seedRaceStream(
         preCaptureOutput: String,
         capturedRows: [String],

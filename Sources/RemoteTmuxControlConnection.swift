@@ -56,6 +56,8 @@ final class RemoteTmuxControlConnection {
     var activePaneByWindow: [Int: Int] = [:]
     var paneOutputByteCounts: [Int: Int] = [:]
     var totalOutputBytes = 0
+    /// Per-pane capture/state transactions owning the snapshot-to-live cutover.
+    var pendingPaneSeeds: [Int: [RemoteTmuxPendingPaneSeed]] = [:]
     /// Per-pane header-strip labels: the pane's EXPANDED `pane-border-format`
     /// (style tokens stripped) — exactly the text a native tmux client draws
     /// in that pane's header, custom formats included. Seeded by the
@@ -371,10 +373,7 @@ final class RemoteTmuxControlConnection {
         initialBatchStaged.removeAll()
         // Normally already flushed by beginReconnecting; kept here so a future
         // caller of spawnProcess can't strand command decisions.
-        failPendingActivityQueries()
-        failPendingNewWindowRequests()
-        failPendingWindowReorderVerifications()
-        failPendingTrackedSends()
+        failPendingCommandTransactions()
         attachBlockDrained = false
         stderrBuffer = ""
         preControlOutputBuffer = ""
@@ -502,10 +501,7 @@ final class RemoteTmuxControlConnection {
     /// kick) and the deferred post-attach work. Shared by deliberate teardown
     /// (``stop()``) and a genuine remote end (`%exit`).
     private func cancelScheduledWork() {
-        failPendingActivityQueries()
-        failPendingNewWindowRequests()
-        failPendingWindowReorderVerifications()
-        failPendingTrackedSends()
+        failPendingCommandTransactions()
         reconnectTask?.cancel()
         reconnectTask = nil
         resetWindowListRequestCoalescing()
@@ -678,10 +674,7 @@ final class RemoteTmuxControlConnection {
         record("reconnecting")
         // The stream is dead: a close decision awaiting an activity query must
         // not hang for the whole backoff window — fail it onto the cache now.
-        failPendingActivityQueries()
-        failPendingNewWindowRequests()
-        failPendingWindowReorderVerifications()
-        failPendingTrackedSends()
+        failPendingCommandTransactions()
         resetWindowListRequestCoalescing()
         cancelSizingFollowUps()
         // Subscriptions belong to the dying client, so forget them HERE, not in
@@ -777,7 +770,7 @@ final class RemoteTmuxControlConnection {
         case let .output(paneId, data):
             paneOutputByteCounts[paneId, default: 0] += data.count
             totalOutputBytes += data.count
-            observers.emitPaneOutput(paneId, data)
+            routePaneOutput(paneId: paneId, data: data)
         case let .sessionChanged(id, name):
             // An attached-session SWITCH: the window set changes with it, so
             // re-fetch the topology.
@@ -819,6 +812,7 @@ final class RemoteTmuxControlConnection {
             // it doesn't accumulate across window churn.
             if let closing = windowsByID[id] {
                 for pane in closing.paneIDsInOrder {
+                    pendingPaneSeeds[pane] = nil
                     paneOutputByteCounts[pane] = nil
                     paneForegroundStates[pane] = nil
                     paneHeaderLabels[pane] = nil

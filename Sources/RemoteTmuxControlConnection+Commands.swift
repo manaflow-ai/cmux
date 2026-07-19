@@ -154,7 +154,8 @@ extension RemoteTmuxControlConnection {
     /// and drag in the mirror are forwarded to the remote app — so drag-to-select
     /// becomes the app's own selection/OSC 52 copy, and **Shift+drag** does a native
     /// cmux copy (exactly as a local terminal behaves with a mouse-mode app).
-    func capturePane(paneId: Int) {
+    func capturePane(paneId: Int, clearScrollback: Bool = false) {
+        let seedID = beginPaneSeed(paneId: paneId, clearScrollback: clearScrollback)
         // Match the remote pane's screen (primary vs alternate) BEFORE seeding the
         // captured rows. An alt-screen TUI (e.g. claude) must render on the mirror's
         // alternate screen so resize matches the remote (the alternate screen does
@@ -162,10 +163,7 @@ extension RemoteTmuxControlConnection {
         // pane was already on the alt screen before cmux attached, so its 1049h is
         // not in the live %output — query `#{alternate_on}` and enter alt ourselves.
         // Ordered first so the enter lands before the capture paint in the FIFO.
-        sendInternal(
-            "display-message -p -t %\(paneId) -F \"#{alternate_on}\"",
-            kind: .paneAltScreen(paneId)
-        )
+        let altScreenCommand = "display-message -p -t %\(paneId) -F \"#{alternate_on}\""
         // `-S -<N>` seeds scrollback history (not just the visible screen) so the
         // mirrored tab is scrollable immediately on attach/reconnect. On an
         // alternate-screen pane there is no history, so tmux clamps to the visible
@@ -179,12 +177,22 @@ extension RemoteTmuxControlConnection {
         // comes from LIVE %output (which already carries real soft-wraps), not from
         // the seed — so `-J`'s only upside (pre-attach rejoin-on-grow) isn't worth
         // corrupting every TUI seed. Capture faithful visual rows instead.
-        sendInternal("capture-pane -p -e -S -\(Self.scrollbackCaptureLines) -t %\(paneId)", kind: .capturePane(paneId))
+        let captureCommand = "capture-pane -p -e -S -\(Self.scrollbackCaptureLines) -t %\(paneId)"
         // Query the pane's terminal STATE; tmux exposes it all as formats. Sent
         // after capture-pane so it applies on top of the painted rows (the seed
         // escapes are built in `paneStateSeedSequence`). See the doc comment for why
         // restoring this matters.
-        sendInternal(Self.paneStateQueryCommand(paneId: paneId), kind: .paneState(paneId))
+        guard sendBatchInternal(
+            [altScreenCommand, captureCommand, Self.paneStateQueryCommand(paneId: paneId)],
+            kinds: [
+                .paneAltScreen(paneId, seedID),
+                .capturePane(paneId, seedID),
+                .paneState(paneId, seedID),
+            ]
+        ) else {
+            cancelPaneSeed(paneId: paneId, seedID: seedID)
+            return
+        }
     }
 
     /// Repaints ONE mirrored pane from tmux's current visible screen, for cells a
@@ -209,8 +217,17 @@ extension RemoteTmuxControlConnection {
     /// visible screen rather than appending, and the `.paneState` seed that follows
     /// restores the cursor and scroll region on top.
     func repaintPaneVisibleScreen(paneId: Int) {
-        sendInternal("capture-pane -p -e -t %\(paneId)", kind: .capturePane(paneId))
-        sendInternal(Self.paneStateQueryCommand(paneId: paneId), kind: .paneState(paneId))
+        let seedID = beginPaneSeed(paneId: paneId, clearScrollback: false)
+        guard sendBatchInternal(
+            [
+                "capture-pane -p -e -t %\(paneId)",
+                Self.paneStateQueryCommand(paneId: paneId),
+            ],
+            kinds: [.capturePane(paneId, seedID), .paneState(paneId, seedID)]
+        ) else {
+            cancelPaneSeed(paneId: paneId, seedID: seedID)
+            return
+        }
     }
 
     /// The `display-message` line that reads a pane's terminal state (cursor,
@@ -235,9 +252,9 @@ extension RemoteTmuxControlConnection {
     /// queued before the (3-command) capture because it only matters at the next
     /// resize — the earlier it lands, the smaller the window in which a resize
     /// hits the conservative no-reflow default on a slow link.
-    func seedPane(paneId: Int) {
+    func seedPane(paneId: Int, clearScrollback: Bool = false) {
         requestPaneReflow(paneId: paneId)
-        capturePane(paneId: paneId)
+        capturePane(paneId: paneId, clearScrollback: clearScrollback)
         requestPanePath(paneId: paneId)
         // One batched refresh-client for all three live subscriptions
         // instead of three separate sends — see subscribePaneAll. Under
@@ -277,8 +294,7 @@ extension RemoteTmuxControlConnection {
         scheduleAttachRedrawKickIfNeeded()
         for window in windowsByID.values {
             for paneId in window.paneIDsInOrder {
-                observers.emitPaneOutput(paneId, Data("\u{1b}[H\u{1b}[2J\u{1b}[3J".utf8))
-                seedPane(paneId: paneId)
+                seedPane(paneId: paneId, clearScrollback: true)
             }
         }
         observers.notifyReconnectReady()
