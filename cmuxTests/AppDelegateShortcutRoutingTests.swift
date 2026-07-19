@@ -248,13 +248,21 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(delegate.matchGlobalZoomShortcutEvent(shiftedMinus, action: .globalZoomOut))
         XCTAssertFalse(delegate.matchGlobalZoomShortcutEvent(shiftedMinus, action: .globalZoomIn))
 
+        // Re-recording the identical default chord persists an event keyCode
+        // the factory default lacks; the tolerance must survive that.
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "=", command: true, shift: false, option: false, control: false, keyCode: 24),
+            for: .globalZoomIn
+        )
+        defer { KeyboardShortcutSettings.resetShortcut(for: .globalZoomIn) }
+        XCTAssertTrue(delegate.matchGlobalZoomShortcutEvent(shiftedPlus, action: .globalZoomIn))
+
         // The tolerance is scoped to the factory default: a custom rebinding
         // must match exactly, so the shifted variants stop matching.
         KeyboardShortcutSettings.setShortcut(
             StoredShortcut(key: "=", command: true, shift: false, option: true, control: false),
             for: .globalZoomIn
         )
-        defer { KeyboardShortcutSettings.resetShortcut(for: .globalZoomIn) }
         XCTAssertFalse(delegate.matchGlobalZoomShortcutEvent(shiftedPlus, action: .globalZoomIn))
     }
 

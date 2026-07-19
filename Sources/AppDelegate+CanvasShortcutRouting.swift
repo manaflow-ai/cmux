@@ -89,7 +89,18 @@ extension AppDelegate {
         default:
             return false
         }
-        guard KeyboardShortcutSettings.shortcut(for: action) == action.defaultShortcut,
+        // Compare the chord semantically (key + modifiers, no second stroke)
+        // rather than by struct equality: re-recording the identical default
+        // chord persists an `event.keyCode` the factory default lacks, and
+        // that must not silently disable the tolerance.
+        let configured = KeyboardShortcutSettings.shortcut(for: action)
+        let factory = action.defaultShortcut
+        guard !configured.hasChord,
+              configured.key.lowercased() == factory.key.lowercased(),
+              configured.command == factory.command,
+              configured.shift == factory.shift,
+              configured.option == factory.option,
+              configured.control == factory.control,
               shortcutWhenClauseAllows(action: action, event: event) else {
             return false
         }
