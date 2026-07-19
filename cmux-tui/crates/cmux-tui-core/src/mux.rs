@@ -366,6 +366,14 @@ pub(crate) struct ClientSizeRollback {
     previous_report_order: Option<u64>,
 }
 
+pub(crate) struct ControlClientResize {
+    pub accepted: bool,
+    pub reservation_id: Option<u64>,
+    pub effective_size: Option<(u16, u16)>,
+    pub attached: Option<crate::server::ClientSizeUpdate>,
+    pub rollback: ClientSizeRollback,
+}
+
 #[derive(Default)]
 struct LatestClientSize {
     size: Option<(u16, u16)>,
@@ -831,12 +839,7 @@ impl Mux {
         client: u64,
         cols: u16,
         rows: u16,
-    ) -> anyhow::Result<(
-        bool,
-        Option<u64>,
-        Option<crate::server::ClientSizeUpdate>,
-        ClientSizeRollback,
-    )> {
+    ) -> anyhow::Result<ControlClientResize> {
         let requested = clamp_terminal_size(cols, rows);
         // Keep registration, report insertion, and reducer insertion in one
         // critical section. Disconnect and final stream detach remove their
@@ -859,7 +862,13 @@ impl Mux {
         let result = result?;
         self.reconcile_latest_client_size(&sizing, &attached_clients);
         drop(sizing);
-        Ok((result.0.0, result.0.1, attached, result.2))
+        Ok(ControlClientResize {
+            accepted: result.0.0,
+            reservation_id: result.0.1,
+            effective_size: result.1,
+            attached,
+            rollback: result.2,
+        })
     }
 
     fn resize_surface_for_client_locked(

@@ -2375,27 +2375,33 @@ fn mark_client_attached(
     if let Some((cols, rows)) = initial_size {
         let cols = cols.max(1);
         let rows = rows.max(1);
-        let (_, mut resize_reservation, attached, rollback) = mux
+        let resize = mux
             .resize_surface_for_control_client_with_reservation(surface, client, cols, rows)
             .inspect_err(|_| {
                 cleanup_failed_attach(mux, client, surface, stream.id);
             })?;
-        let Some((changed, name, kind, _)) = attached else {
+        let Some((changed, name, kind, _)) = resize.attached else {
             cleanup_failed_attach(mux, client, surface, stream.id);
             anyhow::bail!("client {client} is not attached to surface {surface}");
         };
-        if resize_reservation.is_none() {
+        let mut resize_reservation = resize.reservation_id;
+        let effective_size = resize.effective_size;
+        let rollback = resize.rollback;
+        if resize_reservation.is_none()
+            && let Some((effective_cols, effective_rows)) = effective_size
+        {
             let Some(attached_surface) = mux.surface(surface) else {
                 rollback_failed_attach(mux, client, surface, stream.id, Some(rollback));
                 anyhow::bail!("surface {surface} disappeared while sizing before attach");
             };
-            resize_reservation = match attached_surface.pending_resize_reservation(cols, rows) {
-                Ok(reservation) => reservation,
-                Err(error) => {
-                    rollback_failed_attach(mux, client, surface, stream.id, Some(rollback));
-                    return Err(error);
-                }
-            };
+            resize_reservation =
+                match attached_surface.pending_resize_reservation(effective_cols, effective_rows) {
+                    Ok(reservation) => reservation,
+                    Err(error) => {
+                        rollback_failed_attach(mux, client, surface, stream.id, Some(rollback));
+                        return Err(error);
+                    }
+                };
         }
         return Ok(MarkedClientAttach {
             size_rollback: Some(rollback),
@@ -3121,12 +3127,15 @@ fn handle_command(
             // when its connection closes, so it cannot bypass visible viewers.
             // Recording and reducing happen under the sizing lock so a
             // concurrent detach cannot finish cleanup before this lease exists.
-            let (accepted, reservation_id, attached, _) = mux
+            let resize = mux
                 .resize_surface_for_control_client_with_reservation(surface, client, cols, rows)?;
-            if let Some((true, name, kind, _)) = attached {
+            if let Some((true, name, kind, _)) = resize.attached {
                 mux.emit(MuxEvent::ClientChanged { client, name, kind });
             }
-            Ok(json!({"accepted": accepted, "reservation_id": reservation_id}))
+            Ok(json!({
+                "accepted": resize.accepted,
+                "reservation_id": resize.reservation_id,
+            }))
         }
         Command::ReleaseSurfaceSize { surface } => {
             let attached = mux.control_clients.clear_size(client, surface);
