@@ -2581,10 +2581,12 @@ fn rollback_failed_attach(
     stream: u64,
     size_rollback: Option<crate::mux::ClientSizeRollback>,
 ) {
-    if mux.control_clients.detach_surface(client, surface, stream) {
-        mux.remove_surface_size_client(surface, client);
-    } else if let Some(size_rollback) = size_rollback {
+    let final_stream = mux.control_clients.detach_surface(client, surface, stream);
+    if let Some(size_rollback) = size_rollback {
         mux.rollback_surface_size_client(surface, client, size_rollback);
+    }
+    if final_stream {
+        mux.remove_surface_size_client(surface, client);
     }
 }
 
@@ -4924,6 +4926,25 @@ mod tests {
 
         assert!(!mux.control_clients.attached_client_ids().contains(&client));
         assert_eq!(mux.client_surface_size(surface.id, client), None);
+    }
+
+    #[test]
+    fn failed_first_attach_restores_pre_attach_surface_geometry() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+
+        let marked =
+            mark_client_attached(&mux, client, surface.id, stream.clone(), Some((80, 24))).unwrap();
+        assert_eq!(surface.size(), (80, 24));
+
+        rollback_failed_attach(&mux, client, surface.id, stream.id, marked.size_rollback);
+
+        assert_eq!(surface.size(), (120, 40));
+        assert_eq!(mux.client_surface_size(surface.id, client), None);
+        assert!(!mux.control_clients.attached_client_ids().contains(&client));
     }
 
     #[test]

@@ -366,6 +366,7 @@ type SurfaceResizeCompletion = SyncSender<Result<(), Arc<str>>>;
 pub(crate) struct ClientSizeRollback {
     previous_size: Option<(u16, u16)>,
     previous_report_order: Option<u64>,
+    previous_geometry: Option<(u16, u16)>,
 }
 
 pub(crate) struct ControlClientResize {
@@ -935,6 +936,7 @@ impl Mux {
         requested: (u16, u16),
         completion: Option<SurfaceResizeCompletion>,
     ) -> anyhow::Result<AppliedClientSize> {
+        let previous_geometry = self.surface(id).map(|surface| surface.size());
         if sizing.exclusive_client.is_some_and(|exclusive| exclusive != client) {
             sizing.excluded_clients.insert(client);
         }
@@ -954,6 +956,7 @@ impl Mux {
                 ClientSizeRollback {
                     previous_size: previous,
                     previous_report_order: previous_order,
+                    previous_geometry,
                 },
             ));
         };
@@ -970,6 +973,7 @@ impl Mux {
                 ClientSizeRollback {
                     previous_size: previous,
                     previous_report_order: previous_order,
+                    previous_geometry,
                 },
             )),
             Err(error) => {
@@ -1031,16 +1035,29 @@ impl Mux {
         }
         let attached_clients = self.control_clients.attached_client_ids();
         let use_excluded = sizing.uses_excluded_fallback(&attached_clients);
-        let restored =
-            sizing.effective_size(id, use_excluded).is_none_or(|(cols, rows)| {
-                match self.resize_surface(id, cols, rows) {
-                    Ok(true) => true,
-                    Ok(false) => {
-                        self.surface(id).is_some_and(|surface| surface.size() == (cols, rows))
-                    }
-                    Err(_) => false,
+        let desired_geometry =
+            sizing.effective_size(id, use_excluded).or(rollback.previous_geometry);
+        let restored = desired_geometry.is_none_or(|(cols, rows)| {
+            let (completion, completed) = std::sync::mpsc::sync_channel(1);
+            match self.resize_surface_with_completion(id, cols, rows, Some(completion)) {
+                Ok((true, Some(_))) => {
+                    matches!(completed.recv_timeout(Duration::from_secs(10)), Ok(Ok(())))
                 }
-            });
+                Ok((_, _)) => self.surface(id).is_some_and(|surface| {
+                    if surface.size() == (cols, rows) {
+                        return true;
+                    }
+                    match surface.pending_resize_completion(cols, rows) {
+                        Ok(Some(pending)) => matches!(
+                            pending.completion.recv_timeout(Duration::from_secs(10)),
+                            Ok(Ok(()))
+                        ),
+                        Ok(None) | Err(_) => false,
+                    }
+                }),
+                Err(_) => false,
+            }
+        });
         if !restored {
             // The failed attach already changed the real surface geometry. If
             // the browser rejects restoring the old effective grid, retain

@@ -371,6 +371,7 @@ pub const TRANSPORT_SAFE_CAPTURE_MEGAPIXELS: f64 = 2.0;
 const DEFAULT_CAPTURE_MEGAPIXELS: f64 = TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 const STALL_THRESHOLD: Duration = Duration::from_secs(2);
 const BROWSER_COMMAND_QUEUE_CAPACITY: usize = 64;
+const MAX_RECONFIGURE_WAITERS_PER_RESERVATION: usize = 64;
 const BROWSER_NOT_RESPONDING_MESSAGE: &str = "browser is not responding";
 const BROWSER_RECONFIGURE_RETRY_DELAYS: [Duration; 2] =
     [Duration::from_millis(250), Duration::from_millis(500)];
@@ -1274,6 +1275,13 @@ impl BrowserSurface {
             state.pending_reconfigures.iter().rev().find(|pending| pending.geometry == geometry)
         {
             let reservation = pending.id;
+            if state
+                .reconfigure_waiters
+                .get(&reservation)
+                .is_some_and(|waiters| waiters.len() >= MAX_RECONFIGURE_WAITERS_PER_RESERVATION)
+            {
+                anyhow::bail!("browser resize reservation {reservation} has too many waiters");
+            }
             let (completion, completed) = sync_channel(1);
             state.reconfigure_waiters.entry(reservation).or_default().push(completion);
             return Ok(Some(PendingBrowserResize { reservation, completion: completed }));
@@ -2041,9 +2049,9 @@ fn percent_encode_query(input: &str) -> String {
 mod tests {
     use super::{
         BROWSER_COMMAND_QUEUE_CAPACITY, BrowserCaptureOptions, BrowserCommand, BrowserFrame,
-        BrowserSession, BrowserSource, BrowserStatus, capture_scale_for, new_surface,
-        normalize_url, runtime_endpoint, scaled_pixels, start_surface_thread,
-        take_latest_worker_commands,
+        BrowserSession, BrowserSource, BrowserStatus, MAX_RECONFIGURE_WAITERS_PER_RESERVATION,
+        capture_scale_for, new_surface, normalize_url, runtime_endpoint, scaled_pixels,
+        start_surface_thread, take_latest_worker_commands,
     };
     use crate::{Mux, MuxEvent, Surface, SurfaceOptions};
     use serde_json::{Value, json};
@@ -3308,6 +3316,11 @@ mod tests {
             pending.completion.recv_timeout(Duration::from_millis(10)),
             Err(mpsc::RecvTimeoutError::Timeout)
         ));
+        for _ in 1..MAX_RECONFIGURE_WAITERS_PER_RESERVATION {
+            drop(browser.pending_resize_completion(11, 5).unwrap().unwrap());
+        }
+        let error = browser.pending_resize_completion(11, 5).err().expect("waiter cap error");
+        assert!(error.to_string().contains("too many waiters"));
         let (duplicate_tx, duplicate_rx) = mpsc::channel();
         assert!(
             browser
