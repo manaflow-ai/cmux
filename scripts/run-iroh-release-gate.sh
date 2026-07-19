@@ -368,8 +368,9 @@ fi
 # tag is uniquely owned by this driver, and the exact executable is now absent,
 # so remove only this validated tag's socket before relaunching.
 cmux_attach_remove_stale_socket "$TAG"
-CMUX_ATTACH_ALLOW_RELAUNCH=1 cmux_attach_ensure_mac \
-  "$TAG" "$REPO_ROOT" simulator_injection
+CMUX_ATTACH_ALLOW_RELAUNCH=1 \
+CMUX_ATTACH_MINT_MAX_ATTEMPTS=120 \
+cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" physical_device
 
 # Wait for the app's atomic report-write signal. Python owns the simulator
 # notifyutil child so its timeout is bounded without polling the filesystem.
