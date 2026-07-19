@@ -13,6 +13,7 @@ public actor BackendCanonicalSession {
     private static let terminalLeaseRefreshMarginMilliseconds: UInt64 = 1_000
     private static let ensureTerminalsCapability = "ensure-terminals-v1"
     private static let canonicalTopologyMutationsCapability = "canonical-topology-mutations-v1"
+    private static let projectionNavigationV2Capability = "projection-navigation-v2"
     private static let canonicalTopologyReadCapabilities: Set<String> = [
         "canonical-topology-snapshot-v1",
         "topology-resume-v1",
@@ -654,6 +655,107 @@ public actor BackendCanonicalSession {
     public func listProjectionStates() async throws -> [BackendProjectionState] {
         try requireConnected()
         return try await client.listProjectionStates()
+    }
+
+    /// Claims or reclaims one v2 logical-window navigation record.
+    ///
+    /// - Parameters:
+    ///   - logicalPresentationID: The stable logical Swift-window identifier.
+    ///   - authority: The exact daemon and persisted-session authority.
+    ///   - expectedTopologyRevision: The exact canonical topology revision.
+    /// - Returns: A typed applied response or structured conflict.
+    /// - Throws: A connection, compatibility, capability, or protocol error.
+    public func claimProjectionNavigationV2(
+        logicalPresentationID: UUID,
+        authority: BackendAuthority,
+        expectedTopologyRevision: UInt64
+    ) async throws -> BackendProjectionNavigationResponse {
+        try requireConnected()
+        try requireMutationAccess(command: "claim-projection-navigation-v2")
+        try requireCapability(Self.projectionNavigationV2Capability)
+        return try await client.claimProjectionNavigationV2(
+            logicalPresentationID: logicalPresentationID,
+            authority: authority,
+            expectedTopologyRevision: expectedTopologyRevision
+        )
+    }
+
+    /// Lists every retained v2 logical-window record through bounded pagination.
+    ///
+    /// - Parameters:
+    ///   - authority: The exact daemon and persisted-session authority.
+    ///   - expectedTopologyRevision: The exact canonical topology revision.
+    /// - Returns: One consolidated applied response or structured conflict.
+    /// - Throws: A connection, compatibility, capability, or protocol error.
+    public func listAllProjectionNavigationV2(
+        authority: BackendAuthority,
+        expectedTopologyRevision: UInt64
+    ) async throws -> BackendProjectionNavigationResponse {
+        try requireConnected()
+        try requireMutationAccess(command: "list-projection-navigation-v2")
+        try requireCapability(Self.projectionNavigationV2Capability)
+        return try await client.listAllProjectionNavigationV2(
+            authority: authority,
+            expectedTopologyRevision: expectedTopologyRevision
+        )
+    }
+
+    /// Applies one idempotent atomic v2 mutation batch.
+    ///
+    /// - Parameters:
+    ///   - requestID: The UUID identifying this exact retryable request body.
+    ///   - authority: The exact daemon and persisted-session authority.
+    ///   - expectedTopologyRevision: The exact canonical topology revision.
+    ///   - projections: Unique claimed logical-window mutations.
+    /// - Returns: A typed applied response or structured conflict.
+    /// - Throws: A connection, compatibility, capability, or protocol error.
+    public func mutateProjectionNavigationV2(
+        requestID: UUID,
+        authority: BackendAuthority,
+        expectedTopologyRevision: UInt64,
+        projections: [BackendProjectionNavigationMutation]
+    ) async throws -> BackendProjectionNavigationResponse {
+        try requireConnected()
+        try requireMutationAccess(command: "mutate-projection-navigation-v2")
+        try requireCapability(Self.projectionNavigationV2Capability)
+        return try await client.mutateProjectionNavigationV2(
+            requestID: requestID,
+            authority: authority,
+            expectedTopologyRevision: expectedTopologyRevision,
+            projections: projections
+        )
+    }
+
+    /// Explicitly releases one retained v2 logical-window record.
+    ///
+    /// - Parameters:
+    ///   - requestID: The UUID identifying this exact retryable release body.
+    ///   - logicalPresentationID: The stable logical-window identifier.
+    ///   - claimID: The exact connection-owned claim.
+    ///   - expectedGeneration: The record generation the caller observed.
+    ///   - authority: The exact daemon and persisted-session authority.
+    ///   - expectedTopologyRevision: The exact canonical topology revision.
+    /// - Returns: A typed empty applied response or structured conflict.
+    /// - Throws: A connection, compatibility, capability, or protocol error.
+    public func releaseProjectionNavigationV2(
+        requestID: UUID,
+        logicalPresentationID: UUID,
+        claimID: UUID,
+        expectedGeneration: UInt64,
+        authority: BackendAuthority,
+        expectedTopologyRevision: UInt64
+    ) async throws -> BackendProjectionNavigationResponse {
+        try requireConnected()
+        try requireMutationAccess(command: "release-projection-navigation-v2")
+        try requireCapability(Self.projectionNavigationV2Capability)
+        return try await client.releaseProjectionNavigationV2(
+            requestID: requestID,
+            logicalPresentationID: logicalPresentationID,
+            claimID: claimID,
+            expectedGeneration: expectedGeneration,
+            authority: authority,
+            expectedTopologyRevision: expectedTopologyRevision
+        )
     }
 
     /// Returns the terminal-mutation protocol selected during this connection's handshake.
