@@ -1,0 +1,15 @@
+Cloud Mac provisioning diagnostic
+
+Run: https://github.com/manaflow-ai/cmux-loader/actions/runs/29668689611
+Requested host: cmux-loader-29668689611
+Local tailnet: manaflow.ai (tail137216.ts.net)
+
+The loader completed its runner setup, simulator preparation, Tailscale OAuth
+join, SSH enablement, and GUI helper preparation, then entered the VM hold step.
+The provisioning wrapper timed out because the host never appeared in local
+Tailscale status or DNS. A direct lookup of
+cmux-loader-29668689611.tail137216.ts.net also returned no such host, and the
+optional macfleet Admin API fallback had no configured token.
+
+The workflow was canceled after the bounded diagnostic pass. SSH/CUA bootstrap
+never became possible, so no full-screen recording could be captured.
