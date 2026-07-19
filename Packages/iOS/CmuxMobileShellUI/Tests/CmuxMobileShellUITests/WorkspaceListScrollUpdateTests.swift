@@ -31,10 +31,41 @@ import UIKit
             "Grabbing a decelerating list to reverse direction must keep the pending snapshot staged."
         )
 
+        let latestUpdate = configuration(
+            workspaceIDs: ["workspace-1", "workspace-2", "workspace-3"]
+        )
+        coordinator.update(configuration: latestUpdate, in: tableView)
+        #expect(
+            tableView.numberOfRows(inSection: 0) == 1,
+            "Updates received during the reverse drag must remain staged."
+        )
+
         scrollDelegate.scrollViewDidEndDragging?(tableView, willDecelerate: false)
         #expect(
-            tableView.numberOfRows(inSection: 0) == 2,
+            tableView.numberOfRows(inSection: 0) == 3,
             "The newest staged snapshot must apply when the reversing gesture finishes without momentum."
+        )
+    }
+
+    @Test func liveSnapshotAppliesAfterDecelerationEnds() {
+        let initial = configuration(workspaceIDs: ["workspace-1"])
+        let coordinator = WorkspaceListTableCoordinator(configuration: initial)
+        let tableView = WorkspaceListUITableView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        coordinator.attach(to: tableView)
+        coordinator.update(configuration: initial, in: tableView)
+
+        let scrollDelegate: any UIScrollViewDelegate = coordinator
+        scrollDelegate.scrollViewWillBeginDragging?(tableView)
+        scrollDelegate.scrollViewDidEndDragging?(tableView, willDecelerate: true)
+        coordinator.update(
+            configuration: configuration(workspaceIDs: ["workspace-1", "workspace-2"]),
+            in: tableView
+        )
+
+        scrollDelegate.scrollViewDidEndDecelerating?(tableView)
+        #expect(
+            tableView.numberOfRows(inSection: 0) == 2,
+            "The staged snapshot must apply after uninterrupted momentum ends."
         )
     }
 

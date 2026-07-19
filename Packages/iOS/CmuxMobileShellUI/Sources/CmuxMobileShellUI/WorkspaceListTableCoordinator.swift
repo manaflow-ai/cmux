@@ -9,6 +9,12 @@ import UIKit
 final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     UITableViewDragDelegate, UITableViewDropDelegate
 {
+    private enum ScrollPhase {
+        case idle
+        case dragging
+        case decelerating
+    }
+
     private enum HeightKind: Hashable {
         case workspaceUniform
         case workspaceWrapped(id: MobileWorkspacePreview.ID, name: String, isSelected: Bool)
@@ -36,6 +42,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private let sizingCell = UITableViewCell(style: .default, reuseIdentifier: nil)
     private var heightCache: [HeightCacheKey: CGFloat] = [:]
     private var dropJustCompleted = false
+    private var scrollPhase = ScrollPhase.idle
+    private var pendingConfiguration: WorkspaceListTable?
 
     init(configuration: WorkspaceListTable) {
         self.configuration = configuration
@@ -70,7 +78,64 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     }
 
     func update(configuration next: WorkspaceListTable, in tableView: UITableView) {
+        guard !shouldStageConfiguration(in: tableView) else {
+            pendingConfiguration = next
+            return
+        }
+
+        pendingConfiguration = nil
+        apply(configuration: next, in: tableView)
+    }
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        scrollPhase = .dragging
+    }
+
+    func scrollViewDidEndDragging(
+        _ scrollView: UIScrollView,
+        willDecelerate decelerate: Bool
+    ) {
+        if decelerate {
+            scrollPhase = .decelerating
+        } else {
+            finishScrollInteraction(in: scrollView)
+        }
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        // UIKit can finish the old deceleration after a new finger has already
+        // grabbed the list. Keep the snapshot staged through that reversal.
+        guard scrollPhase != .dragging else { return }
+        finishScrollInteraction(in: scrollView)
+    }
+
+    private func shouldStageConfiguration(in tableView: UITableView) -> Bool {
+        scrollPhase != .idle
+            || tableView.isDragging
+            || tableView.isDecelerating
+    }
+
+    private func finishScrollInteraction(in scrollView: UIScrollView) {
+        scrollPhase = .idle
+        guard
+            let tableView = scrollView as? UITableView,
+            let pendingConfiguration
+        else { return }
+        self.pendingConfiguration = nil
+        apply(
+            configuration: pendingConfiguration,
+            in: tableView,
+            animatingDifferences: false
+        )
+    }
+
+    private func apply(
+        configuration next: WorkspaceListTable,
+        in tableView: UITableView,
+        animatingDifferences: Bool? = nil
+    ) {
         let previous = previousConfiguration
+        let hasStructuralChanges = previous?.items != next.items
         configuration = next
         tableView.dragInteractionEnabled = next.enablesReorder
         updateRefreshControl(in: tableView)
@@ -95,7 +160,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             snapshot.reconfigureItems(changed)
         }
         previousConfiguration = next
-        let animatesSnapshot = tableView.window != nil && !dropJustCompleted
+        let animatesSnapshot = animatingDifferences
+            ?? (tableView.window != nil && hasStructuralChanges && !dropJustCompleted)
         dropJustCompleted = false
         dataSource?.apply(snapshot, animatingDifferences: animatesSnapshot)
     }

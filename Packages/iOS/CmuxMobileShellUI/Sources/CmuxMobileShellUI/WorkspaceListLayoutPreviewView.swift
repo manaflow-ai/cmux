@@ -71,6 +71,12 @@ public struct WorkspaceListLayoutPreviewView: View {
         ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_SWEEP"] == "1"
     }
 
+    private var liveUpdatesEnabled: Bool {
+        ProcessInfo.processInfo.environment[
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_LIVE_UPDATES"
+        ] == "1"
+    }
+
     private let groups: [MobileWorkspaceGroupPreview]
     private let reorderEnabled: Bool
 
@@ -257,6 +263,18 @@ public struct WorkspaceListLayoutPreviewView: View {
             // renders the genuine banner over this workspace list.
             if showNotificationBanner {
                 notificationPresenter.fire()
+            }
+
+            guard liveUpdatesEnabled else { return }
+            var updateLane = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(80))
+                guard !Task.isCancelled else { return }
+                for index in workspaces.indices where index % 10 == updateLane {
+                    workspaces[index].hasUnread.toggle()
+                    workspaces[index].previewAt = Date()
+                }
+                updateLane = (updateLane + 1) % 10
             }
         }
     }
