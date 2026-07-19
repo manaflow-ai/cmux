@@ -49,6 +49,19 @@ import Testing
         #expect(response.terminalThemeRevisionEpoch == "boot-one")
     }
 
+    @Test func hostStatusCanonicalizesOnlyUUIDDeviceIDs() throws {
+        let uppercaseUUID = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"
+        let uuidResponse = try MobileHostStatusResponse.decode(Data(
+            #"{"mac_device_id":"\#(uppercaseUUID)"}"#.utf8
+        ))
+        let opaqueResponse = try MobileHostStatusResponse.decode(Data(
+            #"{"mac_device_id":"Legacy-Mac-ID"}"#.utf8
+        ))
+
+        #expect(uuidResponse.macDeviceID == uppercaseUUID.lowercased())
+        #expect(opaqueResponse.macDeviceID == "Legacy-Mac-ID")
+    }
+
     /// A theme nested in the host-status payload, serialized with the Mac
     /// producer's `[String: Any]` key shape, round-trips back into the exact
     /// `TerminalTheme` the Mac sent. This pins the producer/consumer wire
