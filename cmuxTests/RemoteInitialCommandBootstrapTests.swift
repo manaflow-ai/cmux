@@ -37,6 +37,10 @@ struct RemoteInitialCommandBootstrapTests {
             *) shift ;;
           esac
         done
+        cmux_test_command_file="${cmux_test_rcfile%/*}/initial-command"
+        if [ -f "$cmux_test_command_file" ]; then
+          stat -f '%Lp' "$cmux_test_command_file" > "$HOME/initial command mode.txt"
+        fi
         [ -n "$cmux_test_rcfile" ] && . "$cmux_test_rcfile"
         """.write(to: fakeBash, atomically: true, encoding: .utf8)
         try fileManager.setAttributes(
@@ -57,13 +61,18 @@ struct RemoteInitialCommandBootstrapTests {
             "CMUX_REMOTE_VALUE": "remote-only",
         ]) { _, new in new }
 
-        let first = try runShell(script, environment: environment)
+        let first = try runShell("umask 022\n" + script, environment: environment)
         #expect(first.status == 0, "stdout: \(first.stdout)\nstderr: \(first.stderr)")
-        let second = try runShell(script, environment: environment)
+        let second = try runShell("umask 022\n" + script, environment: environment)
         #expect(second.status == 0, "stdout: \(second.stdout)\nstderr: \(second.stderr)")
 
         let captured = try String(contentsOf: output, encoding: .utf8)
         #expect(captured == "spaces 'single' \"double\" remote-only remote-substitution\n")
+        let mode = try String(
+            contentsOf: home.appendingPathComponent("initial command mode.txt"),
+            encoding: .utf8
+        )
+        #expect(mode == "600\n")
 
         let shellState = home.appendingPathComponent(".cmux/relay/0.shell")
         var isDirectory = ObjCBool(false)
