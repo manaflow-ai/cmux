@@ -864,7 +864,13 @@ struct AgentHookSessionRegistryBridge {
             snapshot.activeSlots = projectedSlots
             return (result, state)
         }
-        try projectLegacy(including: mutation.revision)
+        do {
+            try projectLegacy(including: mutation.revision)
+        } catch let error as POSIXError
+            where error.code == .EWOULDBLOCK || error.code == .EAGAIN {
+            // The canonical mutation is durable. A later hook or app read will
+            // converge the compatibility projection after the lock is released.
+        }
         return (
             mutation.result.0,
             mutation.result.1,

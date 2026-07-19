@@ -32,7 +32,7 @@ public enum AgentLaunchCaptureTrust {
         "grok": ["grok", "grok-macos-aarch64", "grok-macos-aarch"],
         "hermes-agent": ["hermes", "hermes-agent"],
         "kiro": ["kiro", "kiro-cli"],
-        "kimi": ["kimi"],
+        "kimi": ["kimi", "kimi-cli", "kimi-code"],
         "omp": ["omp"],
         "opencode": ["opencode", "omo", "omx", "omc"],
         "pi": ["pi", "omp"],

@@ -4,8 +4,19 @@ import Foundation
 public struct AgentTerminalStateClassifier: Sendable {
     private let catalog: AgentTerminalProfileCatalog
     private static let argumentWrapperBasenames: Set<String> = [
-        "bun", "deno", "node", "npm", "npx", "pnpm", "python", "python3",
+        "acli", "bun", "deno", "node", "npm", "npx", "pnpm", "python", "python3",
         "sandbox-exec", "ts-node", "tsx", "uv", "uvx", "yarn",
+    ]
+    private static let wrapperFlagOptionsByBasename: [String: Set<String>] = [
+        "npx": [
+            "-q", "--ignore-existing", "--no-install", "--offline",
+            "--prefer-offline", "--quiet", "--yes", "-y",
+        ],
+        "uvx": ["--isolated", "--no-cache", "--offline"],
+    ]
+    private static let wrapperValueOptionsByBasename: [String: Set<String>] = [
+        "npx": ["--cache", "--package", "--prefix", "--registry", "--userconfig"],
+        "uvx": ["--from", "--python", "--with"],
     ]
     private static let shellBasenames: Set<String> = ["bash", "fish", "nu", "sh", "zsh"]
 
@@ -49,38 +60,81 @@ public struct AgentTerminalStateClassifier: Sendable {
     /// Later arguments may be subcommands, file paths, or user prompt text.
     private func wrappedExecutableProfile(
         wrapperExecutable: String,
-        arguments: [String]
+        arguments: [String],
+        depth: Int = 0
     ) -> AgentTerminalFamilyProfile? {
+        guard depth < 4 else { return nil }
         guard let argvZero = arguments.first?.trimmingCharacters(in: .whitespacesAndNewlines),
               !argvZero.isEmpty else { return nil }
 
         // Some Python agents replace argv[0] with a process title such as
         // "Kimi Code". That title is the launch identity, not a prompt.
         let rawTarget: String
+        let remainingArguments: ArraySlice<String>
         if URL(fileURLWithPath: argvZero).lastPathComponent.lowercased() != wrapperExecutable {
             rawTarget = argvZero
+            remainingArguments = arguments.dropFirst()
         } else {
             let launcherArguments = arguments.dropFirst()
-            guard let first = launcherArguments.first else { return nil }
-            if first == "--" {
-                guard launcherArguments.count > 1 else { return nil }
-                rawTarget = launcherArguments[launcherArguments.index(after: launcherArguments.startIndex)]
-            } else {
-                guard !first.hasPrefix("-") else { return nil }
-                rawTarget = first
-            }
+            guard let targetIndex = Self.wrapperTargetIndex(
+                wrapperExecutable: wrapperExecutable,
+                in: launcherArguments
+            ) else { return nil }
+            rawTarget = launcherArguments[targetIndex]
+            remainingArguments = launcherArguments[launcherArguments.index(after: targetIndex)...]
         }
         let target = rawTarget.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !target.isEmpty else { return nil }
+        let targetBasename = URL(fileURLWithPath: target).lastPathComponent.lowercased()
         if let exact = catalog.profile(
-            executableBasename: URL(fileURLWithPath: target).lastPathComponent.lowercased()
+            executableBasename: targetBasename
         ) {
             return exact
         }
         let normalizedTarget = target.lowercased()
-        return catalog.profiles.first { profile in
+        if let argumentMatch = catalog.profiles.first(where: { profile in
             profile.argumentNeedles.contains { normalizedTarget.contains($0.lowercased()) }
+        }) {
+            return argumentMatch
         }
+        guard Self.isArgumentWrapperBasename(targetBasename) else { return nil }
+        return wrappedExecutableProfile(
+            wrapperExecutable: targetBasename,
+            arguments: [target] + Array(remainingArguments),
+            depth: depth + 1
+        )
+    }
+
+    private static func wrapperTargetIndex(
+        wrapperExecutable: String,
+        in arguments: ArraySlice<String>
+    ) -> ArraySlice<String>.Index? {
+        let flagOptions = wrapperFlagOptionsByBasename[wrapperExecutable] ?? []
+        let valueOptions = wrapperValueOptionsByBasename[wrapperExecutable] ?? []
+        var index = arguments.startIndex
+        while index < arguments.endIndex {
+            let argument = arguments[index]
+            if argument == "--" {
+                let targetIndex = arguments.index(after: index)
+                return targetIndex < arguments.endIndex ? targetIndex : nil
+            }
+            if flagOptions.contains(argument) {
+                index = arguments.index(after: index)
+                continue
+            }
+            if valueOptions.contains(argument) {
+                index = arguments.index(after: index)
+                guard index < arguments.endIndex else { return nil }
+                index = arguments.index(after: index)
+                continue
+            }
+            if valueOptions.contains(where: { argument.hasPrefix("\($0)=") }) {
+                index = arguments.index(after: index)
+                continue
+            }
+            return argument.hasPrefix("-") ? nil : index
+        }
+        return nil
     }
 
     private static func isArgumentWrapperBasename(_ executable: String) -> Bool {
