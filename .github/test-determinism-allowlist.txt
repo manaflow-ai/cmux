@@ -4,3 +4,4 @@
 # Remove a line once the underlying test is determinized.
 cmuxTests/WorkspaceForkConversationContextMenuTests.swift	assert-on-duration	grandfathered
 cmuxTests/WorkspaceForkConversationContextMenuTests.swift	sleep-then-assert	grandfathered
+Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridLivenessTests.swift	sleep-then-assert	pre-existing main debt; real DispatchSourceTimer has no completion signal
