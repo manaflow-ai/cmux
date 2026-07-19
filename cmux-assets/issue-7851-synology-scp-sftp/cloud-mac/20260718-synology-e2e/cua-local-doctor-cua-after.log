@@ -1,0 +1,11 @@
+cua-driver daemon ready
+doctor local provider=cua
+check                        status detail
+transport                    pass   local host, SSH bypassed
+remote-home                  pass   /Users/austinwang
+windows                      pass   13 visible normal windows
+screen-recording-preflight   warn   direct local Screen Recording denied
+gui-recording-helper         pass   /Users/austinwang/Applications/CuaSshScreenCapture.app
+cua-driver                   pass   /Users/austinwang/.local/bin/cua-driver
+cua-daemon                   pass   ready
+cua-permissions              pass   (empty tool result)

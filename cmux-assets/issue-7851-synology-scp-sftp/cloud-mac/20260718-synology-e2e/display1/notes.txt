@@ -1,0 +1,10 @@
+id=display-1-20260718-225749-2edb65
+host=local
+mode=display
+target=display-1
+method=gui-helper-service
+local_file=/Users/austinwang/manaflow/term/cmux145/cmux-assets/issue-7851-synology-scp-sftp/cloud-mac/20260718-synology-e2e/display1/screenshot.png
+image=1512x982 display=1512x982
+warning=inspect screenshot.png to confirm app windows are visible; macOS can redact helper captures to wallpaper-only frames
+warning=verified helper display screenshot against visible window: Messages window 5061 visible by titlebar controls
+warning=GUI helper screenshot cursor visibility depends on the helper and active overlay state

@@ -1,0 +1,8 @@
+[cloud-mac] leasing cloud Mac
+[cloud-mac] run 29675182096: https://github.com/manaflow-ai/cmux-loader/actions/runs/29675182096
+[cloud-mac] waiting for Tailscale device cmux-loader-29675182096
+[cloud-mac] tailnet DNS suffix tail137216.ts.net
+timed out waiting for Tailscale device: cmux-loader-29675182096
+Tried local tailnet DNS/status first. macfleet Admin API fallback is optional; configure it with:
+  ./skills/macfleet/macfleet use manaflow && ./skills/macfleet/macfleet login
+If local DNS needs an explicit suffix, retry with CLOUD_MAC_TAILNET_DNS_SUFFIX=<tailnet>.ts.net.

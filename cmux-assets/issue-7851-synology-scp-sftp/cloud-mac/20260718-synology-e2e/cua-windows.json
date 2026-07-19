@@ -1,0 +1,4323 @@
+{
+  "current_space_id": null,
+  "windows": [
+    {
+      "app_name": "cmux DEV issue-7851-synology-sc",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 5707,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5602,
+      "z_index": 322
+    },
+    {
+      "app_name": "cmux DEV issue-7851-synology-sc",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 5707,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5601,
+      "z_index": 321
+    },
+    {
+      "app_name": "CursorUIViewService",
+      "bounds": {
+        "height": 64.0,
+        "width": 64.0,
+        "x": 0.0,
+        "y": 918.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 927,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5597,
+      "z_index": 320
+    },
+    {
+      "app_name": "CursorUIViewService",
+      "bounds": {
+        "height": 64.0,
+        "width": 64.0,
+        "x": 0.0,
+        "y": 482.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 927,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5595,
+      "z_index": 319
+    },
+    {
+      "app_name": "CursorUIViewService",
+      "bounds": {
+        "height": 64.0,
+        "width": 64.0,
+        "x": 344.0,
+        "y": 917.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 927,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5588,
+      "z_index": 318
+    },
+    {
+      "app_name": "Google Chrome",
+      "bounds": {
+        "height": 22.0,
+        "width": 13.0,
+        "x": -576.0,
+        "y": -21.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49037,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5530,
+      "z_index": 317
+    },
+    {
+      "app_name": "CursorUIViewService",
+      "bounds": {
+        "height": 64.0,
+        "width": 64.0,
+        "x": 0.0,
+        "y": 482.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 927,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5529,
+      "z_index": 316
+    },
+    {
+      "app_name": "CursorUIViewService",
+      "bounds": {
+        "height": 64.0,
+        "width": 64.0,
+        "x": 0.0,
+        "y": 918.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 927,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5485,
+      "z_index": 315
+    },
+    {
+      "app_name": "CursorUIViewService",
+      "bounds": {
+        "height": 64.0,
+        "width": 64.0,
+        "x": 0.0,
+        "y": 482.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 927,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4947,
+      "z_index": 314
+    },
+    {
+      "app_name": "Calculator",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 65948,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4930,
+      "z_index": 313
+    },
+    {
+      "app_name": "Calculator",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 65948,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4928,
+      "z_index": 312
+    },
+    {
+      "app_name": "Calculator",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 65948,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4923,
+      "z_index": 311
+    },
+    {
+      "app_name": "cmux DEV issue-7990-tailscale-m",
+      "bounds": {
+        "height": 700.0,
+        "width": 1000.0,
+        "x": 417.0,
+        "y": 103.0
+      },
+      "is_on_screen": true,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 58733,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4903,
+      "z_index": 310
+    },
+    {
+      "app_name": "cmux DEV issue-7990-tailscale-m",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 58733,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4899,
+      "z_index": 308
+    },
+    {
+      "app_name": "cmux DEV issue-7990-tailscale-m",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 58733,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4898,
+      "z_index": 307
+    },
+    {
+      "app_name": "cmux DEV issue-8315-agent-sighu",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 20447,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4886,
+      "z_index": 306
+    },
+    {
+      "app_name": "OrbStack",
+      "bounds": {
+        "height": 948.0,
+        "width": 1281.0,
+        "x": 131.0,
+        "y": 34.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 78168,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4834,
+      "z_index": 305
+    },
+    {
+      "app_name": "OrbStack",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 78168,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4833,
+      "z_index": 304
+    },
+    {
+      "app_name": "OrbStack",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 78168,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4832,
+      "z_index": 303
+    },
+    {
+      "app_name": "OrbStack",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 78168,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4831,
+      "z_index": 302
+    },
+    {
+      "app_name": "OrbStack",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 78168,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4828,
+      "z_index": 301
+    },
+    {
+      "app_name": "OrbStack",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 78168,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4826,
+      "z_index": 300
+    },
+    {
+      "app_name": "Privacy & Security",
+      "bounds": {
+        "height": 220.0,
+        "width": 260.0,
+        "x": 457.0,
+        "y": -726.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 67395,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4649,
+      "z_index": 299
+    },
+    {
+      "app_name": "cmux NIGHTLY",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 72982,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4467,
+      "z_index": 298
+    },
+    {
+      "app_name": "cmux NIGHTLY",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 72982,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4466,
+      "z_index": 297
+    },
+    {
+      "app_name": "cmux NIGHTLY",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 72982,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4465,
+      "z_index": 296
+    },
+    {
+      "app_name": "cmux NIGHTLY",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 72982,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4461,
+      "z_index": 295
+    },
+    {
+      "app_name": "Music",
+      "bounds": {
+        "height": 500.0,
+        "width": 500.0,
+        "x": 0.0,
+        "y": 482.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 90090,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3886,
+      "z_index": 294
+    },
+    {
+      "app_name": "Music",
+      "bounds": {
+        "height": 600.0,
+        "width": 980.0,
+        "x": -105.0,
+        "y": -932.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 90090,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3884,
+      "z_index": 293
+    },
+    {
+      "app_name": "Music",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 90090,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3883,
+      "z_index": 292
+    },
+    {
+      "app_name": "Music",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 90090,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3882,
+      "z_index": 291
+    },
+    {
+      "app_name": "Music",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 90090,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3881,
+      "z_index": 290
+    },
+    {
+      "app_name": "Music",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 90090,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3880,
+      "z_index": 289
+    },
+    {
+      "app_name": "Music",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 90090,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3879,
+      "z_index": 288
+    },
+    {
+      "app_name": "Music",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 90090,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3878,
+      "z_index": 287
+    },
+    {
+      "app_name": "Music",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 90090,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3877,
+      "z_index": 286
+    },
+    {
+      "app_name": "Music",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 90090,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3876,
+      "z_index": 285
+    },
+    {
+      "app_name": "AutoFill",
+      "bounds": {
+        "height": 237.0,
+        "width": 312.0,
+        "x": 0.0,
+        "y": 745.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49311,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3819,
+      "z_index": 283
+    },
+    {
+      "app_name": "Google Chrome",
+      "bounds": {
+        "height": 41.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": -73.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49037,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3816,
+      "z_index": 281
+    },
+    {
+      "app_name": "Google Chrome",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49037,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3805,
+      "z_index": 280
+    },
+    {
+      "app_name": "Google Chrome",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49037,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3804,
+      "z_index": 279
+    },
+    {
+      "app_name": "AutoFill",
+      "bounds": {
+        "height": 237.0,
+        "width": 312.0,
+        "x": 0.0,
+        "y": 745.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 48289,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3800,
+      "z_index": 278
+    },
+    {
+      "app_name": "Finder",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 814,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3750,
+      "z_index": 276
+    },
+    {
+      "app_name": "Finder",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 814,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3747,
+      "z_index": 275
+    },
+    {
+      "app_name": "Finder",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 814,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3744,
+      "z_index": 274
+    },
+    {
+      "app_name": "Calculator",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 65948,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4927,
+      "z_index": 273
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3736,
+      "z_index": 272
+    },
+    {
+      "app_name": "Calculator",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 65948,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4925,
+      "z_index": 271
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3734,
+      "z_index": 270
+    },
+    {
+      "app_name": "Calculator",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 65948,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4924,
+      "z_index": 269
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3733,
+      "z_index": 268
+    },
+    {
+      "app_name": "AutoFill",
+      "bounds": {
+        "height": 237.0,
+        "width": 312.0,
+        "x": 256.0,
+        "y": 559.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 60634,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4915,
+      "z_index": 263
+    },
+    {
+      "app_name": "cmux DEV issue-7990-tailscale-m",
+      "bounds": {
+        "height": 64.0,
+        "width": 64.0,
+        "x": 0.0,
+        "y": 482.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 58733,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4904,
+      "z_index": 258
+    },
+    {
+      "app_name": "cmux DEV issue-7990-tailscale-m",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 58733,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4897,
+      "z_index": 254
+    },
+    {
+      "app_name": "System Settings",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 67347,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3706,
+      "z_index": 253
+    },
+    {
+      "app_name": "cmux DEV issue-7990-tailscale-m",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 58733,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4896,
+      "z_index": 252
+    },
+    {
+      "app_name": "cmux DEV issue-7990-tailscale-m",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 58733,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4895,
+      "z_index": 250
+    },
+    {
+      "app_name": "Find My",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 33689,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3704,
+      "z_index": 249
+    },
+    {
+      "app_name": "cmux DEV issue-7990-tailscale-m",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 58733,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4894,
+      "z_index": 248
+    },
+    {
+      "app_name": "Find My",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 33689,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3703,
+      "z_index": 246
+    },
+    {
+      "app_name": "cmux DEV issue-7990-tailscale-m",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 58733,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4893,
+      "z_index": 245
+    },
+    {
+      "app_name": "System Settings",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 67347,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3702,
+      "z_index": 244
+    },
+    {
+      "app_name": "cmux DEV issue-7990-tailscale-m",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 58733,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4892,
+      "z_index": 243
+    },
+    {
+      "app_name": "Find My",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 33689,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3701,
+      "z_index": 242
+    },
+    {
+      "app_name": "AutoFill",
+      "bounds": {
+        "height": 237.0,
+        "width": 312.0,
+        "x": 256.0,
+        "y": 559.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 57054,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4888,
+      "z_index": 241
+    },
+    {
+      "app_name": "System Settings",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 67347,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3697,
+      "z_index": 240
+    },
+    {
+      "app_name": "cmux DEV issue-8315-agent-sighu",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 20447,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4885,
+      "z_index": 239
+    },
+    {
+      "app_name": "cmux DEV hive-host-sim",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 29202,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3694,
+      "z_index": 238
+    },
+    {
+      "app_name": "cmux DEV issue-8315-agent-sighu",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 20447,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4879,
+      "z_index": 237
+    },
+    {
+      "app_name": "Messages",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49635,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3688,
+      "z_index": 236
+    },
+    {
+      "app_name": "cmux DEV feat-subrouter-account",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 31968,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3686,
+      "z_index": 235
+    },
+    {
+      "app_name": "cmux NIGHTLY",
+      "bounds": {
+        "height": 64.0,
+        "width": 64.0,
+        "x": 0.0,
+        "y": 482.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 72982,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4473,
+      "z_index": 234
+    },
+    {
+      "app_name": "Messages",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49635,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3679,
+      "z_index": 233
+    },
+    {
+      "app_name": "cmux DEV feat-subrouter-account",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 31968,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3678,
+      "z_index": 232
+    },
+    {
+      "app_name": "cmux NIGHTLY",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 72982,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4463,
+      "z_index": 231
+    },
+    {
+      "app_name": "AutoFill",
+      "bounds": {
+        "height": 237.0,
+        "width": 312.0,
+        "x": 0.0,
+        "y": 496.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 9324,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3659,
+      "z_index": 229
+    },
+    {
+      "app_name": "cmux DEV issue-8001-hive-viewer",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 34200,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3515,
+      "z_index": 228
+    },
+    {
+      "app_name": "cmux DEV issue-8001-hive-viewer",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 34200,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3513,
+      "z_index": 227
+    },
+    {
+      "app_name": "cmux DEV feat-subrouter-account",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 31968,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3511,
+      "z_index": 226
+    },
+    {
+      "app_name": "cmux DEV feat-subrouter-account",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 31968,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3509,
+      "z_index": 225
+    },
+    {
+      "app_name": "cmux DEV feat-subrouter-account",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 31968,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3507,
+      "z_index": 224
+    },
+    {
+      "app_name": "cmux DEV feat-subrouter-account",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 31968,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3505,
+      "z_index": 223
+    },
+    {
+      "app_name": "Calculator",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 65948,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4926,
+      "z_index": 220
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3735,
+      "z_index": 219
+    },
+    {
+      "app_name": "System Settings",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 67347,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3700,
+      "z_index": 215
+    },
+    {
+      "app_name": "CursorUIViewService",
+      "bounds": {
+        "height": 64.0,
+        "width": 64.0,
+        "x": 0.0,
+        "y": 918.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 927,
+      "space_ids": null,
+      "title": "",
+      "window_id": 2509,
+      "z_index": 214
+    },
+    {
+      "app_name": "Find My",
+      "bounds": {
+        "height": 949.0,
+        "width": 1512.0,
+        "x": -371.0,
+        "y": -1000.0
+      },
+      "is_on_screen": true,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 33689,
+      "space_ids": null,
+      "title": "",
+      "window_id": 2507,
+      "z_index": 212
+    },
+    {
+      "app_name": "cmux DEV issue-8315-agent-sighu",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 20447,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4880,
+      "z_index": 211
+    },
+    {
+      "app_name": "AutoFill",
+      "bounds": {
+        "height": 251.0,
+        "width": 322.0,
+        "x": 668.0,
+        "y": -964.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 73267,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4483,
+      "z_index": 210
+    },
+    {
+      "app_name": "cmux DEV issue-8001-hive-viewer",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 34200,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3689,
+      "z_index": 209
+    },
+    {
+      "app_name": "Find My",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 33689,
+      "space_ids": null,
+      "title": "",
+      "window_id": 2498,
+      "z_index": 208
+    },
+    {
+      "app_name": "Messages",
+      "bounds": {
+        "height": 949.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 33.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49635,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5061,
+      "z_index": 207
+    },
+    {
+      "app_name": "loginwindow",
+      "bounds": {
+        "height": 500.0,
+        "width": 500.0,
+        "x": 0.0,
+        "y": 482.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 531,
+      "space_ids": null,
+      "title": "",
+      "window_id": 1384,
+      "z_index": 205
+    },
+    {
+      "app_name": "Find My",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 33689,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3699,
+      "z_index": 204
+    },
+    {
+      "app_name": "Find My",
+      "bounds": {
+        "height": 500.0,
+        "width": 500.0,
+        "x": 0.0,
+        "y": 482.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 33689,
+      "space_ids": null,
+      "title": "",
+      "window_id": 2508,
+      "z_index": 203
+    },
+    {
+      "app_name": "cmux DEV hive-host-sim",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 29202,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3681,
+      "z_index": 202
+    },
+    {
+      "app_name": "cmux DEV hive-host-sim",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 29202,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3522,
+      "z_index": 200
+    },
+    {
+      "app_name": "cmux DEV hive-host-sim",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 29202,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3521,
+      "z_index": 199
+    },
+    {
+      "app_name": "cmux DEV issue-8001-hive-viewer",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 34200,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3520,
+      "z_index": 198
+    },
+    {
+      "app_name": "Messages",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49635,
+      "space_ids": null,
+      "title": "",
+      "window_id": 1138,
+      "z_index": 197
+    },
+    {
+      "app_name": "cmux DEV hive-host-sim",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 29202,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3519,
+      "z_index": 196
+    },
+    {
+      "app_name": "Messages",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49635,
+      "space_ids": null,
+      "title": "",
+      "window_id": 1137,
+      "z_index": 195
+    },
+    {
+      "app_name": "cmux DEV issue-8001-hive-viewer",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 34200,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3518,
+      "z_index": 194
+    },
+    {
+      "app_name": "Messages",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49635,
+      "space_ids": null,
+      "title": "",
+      "window_id": 1136,
+      "z_index": 193
+    },
+    {
+      "app_name": "cmux DEV hive-host-sim",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 29202,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3517,
+      "z_index": 192
+    },
+    {
+      "app_name": "Messages",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49635,
+      "space_ids": null,
+      "title": "",
+      "window_id": 1135,
+      "z_index": 191
+    },
+    {
+      "app_name": "Calculator",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 65948,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4929,
+      "z_index": 190
+    },
+    {
+      "app_name": "Privacy & Security",
+      "bounds": {
+        "height": 220.0,
+        "width": 260.0,
+        "x": 304.0,
+        "y": -959.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 67395,
+      "space_ids": null,
+      "title": "",
+      "window_id": 959,
+      "z_index": 189
+    },
+    {
+      "app_name": "Privacy & Security",
+      "bounds": {
+        "height": 389.0,
+        "width": 260.0,
+        "x": 309.0,
+        "y": -1222.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 67395,
+      "space_ids": null,
+      "title": "",
+      "window_id": 948,
+      "z_index": 188
+    },
+    {
+      "app_name": "UserNotificationCenter",
+      "bounds": {
+        "height": 500.0,
+        "width": 500.0,
+        "x": 0.0,
+        "y": 482.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 64945,
+      "space_ids": null,
+      "title": "",
+      "window_id": 935,
+      "z_index": 186
+    },
+    {
+      "app_name": "System Settings",
+      "bounds": {
+        "height": 762.0,
+        "width": 723.0,
+        "x": 225.0,
+        "y": -997.0
+      },
+      "is_on_screen": true,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 67347,
+      "space_ids": null,
+      "title": "",
+      "window_id": 584,
+      "z_index": 185
+    },
+    {
+      "app_name": "Privacy & Security",
+      "bounds": {
+        "height": 236.0,
+        "width": 260.0,
+        "x": 304.0,
+        "y": -967.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 67395,
+      "space_ids": null,
+      "title": "",
+      "window_id": 973,
+      "z_index": 184
+    },
+    {
+      "app_name": "System Settings",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 67347,
+      "space_ids": null,
+      "title": "",
+      "window_id": 576,
+      "z_index": 183
+    },
+    {
+      "app_name": "AuthenticationServicesHelper",
+      "bounds": {
+        "height": 479.0,
+        "width": 486.0,
+        "x": 142.0,
+        "y": -765.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 70279,
+      "space_ids": null,
+      "title": "",
+      "window_id": 1511,
+      "z_index": 182
+    },
+    {
+      "app_name": "AuthenticationServicesHelper",
+      "bounds": {
+        "height": 0.0,
+        "width": 0.0,
+        "x": 385.0,
+        "y": 307.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 70279,
+      "space_ids": null,
+      "title": "",
+      "window_id": 1509,
+      "z_index": 181
+    },
+    {
+      "app_name": "cmux DEV issue-8001-hive-viewer",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 34200,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3452,
+      "z_index": 180
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 276,
+      "z_index": 179
+    },
+    {
+      "app_name": "cmux DEV issue-8001-hive-viewer",
+      "bounds": {
+        "height": 700.0,
+        "width": 1000.0,
+        "x": -91.0,
+        "y": -938.0
+      },
+      "is_on_screen": true,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 34200,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3450,
+      "z_index": 178
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 274,
+      "z_index": 177
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 273,
+      "z_index": 176
+    },
+    {
+      "app_name": "CursorUIViewService",
+      "bounds": {
+        "height": 54.0,
+        "width": 54.0,
+        "x": -115.0,
+        "y": -316.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 927,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3845,
+      "z_index": 175
+    },
+    {
+      "app_name": "cmux DEV issue-8001-hive-viewer",
+      "bounds": {
+        "height": 633.0,
+        "width": 788.0,
+        "x": 362.0,
+        "y": 113.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 34200,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3448,
+      "z_index": 174
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 272,
+      "z_index": 173
+    },
+    {
+      "app_name": "cmux DEV issue-8001-hive-viewer",
+      "bounds": {
+        "height": 633.0,
+        "width": 788.0,
+        "x": 386.0,
+        "y": 137.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 34200,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3447,
+      "z_index": 172
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 271,
+      "z_index": 171
+    },
+    {
+      "app_name": "cmux DEV issue-8001-hive-viewer",
+      "bounds": {
+        "height": 633.0,
+        "width": 788.0,
+        "x": 386.0,
+        "y": 137.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 34200,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3446,
+      "z_index": 170
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 270,
+      "z_index": 169
+    },
+    {
+      "app_name": "cmux DEV issue-8001-hive-viewer",
+      "bounds": {
+        "height": 700.0,
+        "width": 1000.0,
+        "x": -91.0,
+        "y": -938.0
+      },
+      "is_on_screen": true,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 34200,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3445,
+      "z_index": 168
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 269,
+      "z_index": 167
+    },
+    {
+      "app_name": "cmux DEV issue-8001-hive-viewer",
+      "bounds": {
+        "height": 500.0,
+        "width": 500.0,
+        "x": 0.0,
+        "y": 482.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 34200,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3444,
+      "z_index": 166
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 268,
+      "z_index": 165
+    },
+    {
+      "app_name": "cmux DEV issue-8001-hive-viewer",
+      "bounds": {
+        "height": 700.0,
+        "width": 1000.0,
+        "x": 191.0,
+        "y": 100.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 34200,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3443,
+      "z_index": 164
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 267,
+      "z_index": 163
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 266,
+      "z_index": 162
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 265,
+      "z_index": 160
+    },
+    {
+      "app_name": "cmux DEV hive-host-sim",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 29202,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3437,
+      "z_index": 159
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 261,
+      "z_index": 158
+    },
+    {
+      "app_name": "Google Chrome",
+      "bounds": {
+        "height": 89.0,
+        "width": 1704.0,
+        "x": -476.0,
+        "y": -1025.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49037,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3814,
+      "z_index": 157
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 241,
+      "z_index": 156
+    },
+    {
+      "app_name": "Google Chrome",
+      "bounds": {
+        "height": 112.0,
+        "width": 1704.0,
+        "x": -476.0,
+        "y": -1025.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49037,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3813,
+      "z_index": 155
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 240,
+      "z_index": 154
+    },
+    {
+      "app_name": "Google Chrome",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49037,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3809,
+      "z_index": 153
+    },
+    {
+      "app_name": "Privacy & Security",
+      "bounds": {
+        "height": 762.0,
+        "width": 723.0,
+        "x": 225.0,
+        "y": -997.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 67395,
+      "space_ids": null,
+      "title": "",
+      "window_id": 585,
+      "z_index": 151
+    },
+    {
+      "app_name": "BetterDisplay",
+      "bounds": {
+        "height": 1.0,
+        "width": 1.0,
+        "x": 0.0,
+        "y": 981.0
+      },
+      "is_on_screen": true,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 896,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3757,
+      "z_index": 150
+    },
+    {
+      "app_name": "System Settings",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 67347,
+      "space_ids": null,
+      "title": "",
+      "window_id": 579,
+      "z_index": 149
+    },
+    {
+      "app_name": "Privacy & Security",
+      "bounds": {
+        "height": 236.0,
+        "width": 260.0,
+        "x": 304.0,
+        "y": -967.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 67395,
+      "space_ids": null,
+      "title": "",
+      "window_id": 975,
+      "z_index": 148
+    },
+    {
+      "app_name": "System Settings",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 67347,
+      "space_ids": null,
+      "title": "",
+      "window_id": 578,
+      "z_index": 147
+    },
+    {
+      "app_name": "System Settings",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 67347,
+      "space_ids": null,
+      "title": "",
+      "window_id": 577,
+      "z_index": 146
+    },
+    {
+      "app_name": "Finder",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 814,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3743,
+      "z_index": 145
+    },
+    {
+      "app_name": "Calculator",
+      "bounds": {
+        "height": 408.0,
+        "width": 230.0,
+        "x": 653.0,
+        "y": -675.0
+      },
+      "is_on_screen": true,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 65948,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4931,
+      "z_index": 144
+    },
+    {
+      "app_name": "CursorUIViewService",
+      "bounds": {
+        "height": 54.0,
+        "width": 54.0,
+        "x": -491.0,
+        "y": -74.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 927,
+      "space_ids": null,
+      "title": "",
+      "window_id": 167,
+      "z_index": 143
+    },
+    {
+      "app_name": "cmux DEV issue-8315-agent-sighu",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 20447,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4884,
+      "z_index": 142
+    },
+    {
+      "app_name": "cmux DEV issue-8001-hive-viewer",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 34200,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3693,
+      "z_index": 141
+    },
+    {
+      "app_name": "cmux DEV issue-8315-agent-sighu",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 20447,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4883,
+      "z_index": 140
+    },
+    {
+      "app_name": "Messages",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49635,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3692,
+      "z_index": 139
+    },
+    {
+      "app_name": "Find My",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 33689,
+      "space_ids": null,
+      "title": "",
+      "window_id": 2501,
+      "z_index": 138
+    },
+    {
+      "app_name": "cmux DEV issue-8315-agent-sighu",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 20447,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4882,
+      "z_index": 137
+    },
+    {
+      "app_name": "Find My",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 33689,
+      "space_ids": null,
+      "title": "",
+      "window_id": 2500,
+      "z_index": 136
+    },
+    {
+      "app_name": "cmux DEV issue-8315-agent-sighu",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 20447,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4881,
+      "z_index": 135
+    },
+    {
+      "app_name": "cmux DEV feat-subrouter-account",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 31968,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3690,
+      "z_index": 134
+    },
+    {
+      "app_name": "Find My",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 33689,
+      "space_ids": null,
+      "title": "",
+      "window_id": 2499,
+      "z_index": 133
+    },
+    {
+      "app_name": "cmux DEV hive-host-sim",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 29202,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3685,
+      "z_index": 132
+    },
+    {
+      "app_name": "Messages",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49635,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3684,
+      "z_index": 131
+    },
+    {
+      "app_name": "cmux NIGHTLY",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 72982,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4477,
+      "z_index": 129
+    },
+    {
+      "app_name": "cmux DEV feat-subrouter-account",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 31968,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3683,
+      "z_index": 128
+    },
+    {
+      "app_name": "cmux NIGHTLY",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 72982,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4476,
+      "z_index": 127
+    },
+    {
+      "app_name": "cmux DEV issue-8001-hive-viewer",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 34200,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3682,
+      "z_index": 126
+    },
+    {
+      "app_name": "cmux NIGHTLY",
+      "bounds": {
+        "height": 1050.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1050.0
+      },
+      "is_on_screen": true,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 72982,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4471,
+      "z_index": 125
+    },
+    {
+      "app_name": "cmux DEV issue-8001-hive-viewer",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 34200,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3677,
+      "z_index": 124
+    },
+    {
+      "app_name": "AutoFill",
+      "bounds": {
+        "height": 293.0,
+        "width": 352.0,
+        "x": 105.0,
+        "y": -950.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 16353,
+      "space_ids": null,
+      "title": "",
+      "window_id": 294,
+      "z_index": 119
+    },
+    {
+      "app_name": "cmux NIGHTLY",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 72982,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4464,
+      "z_index": 118
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 292,
+      "z_index": 116
+    },
+    {
+      "app_name": "cmux NIGHTLY",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 72982,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4462,
+      "z_index": 115
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 290,
+      "z_index": 113
+    },
+    {
+      "app_name": "cmux NIGHTLY",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 72982,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4460,
+      "z_index": 112
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 289,
+      "z_index": 110
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 288,
+      "z_index": 108
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 287,
+      "z_index": 105
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 286,
+      "z_index": 103
+    },
+    {
+      "app_name": "CursorUIViewService",
+      "bounds": {
+        "height": 64.0,
+        "width": 64.0,
+        "x": 974.0,
+        "y": -150.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 927,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5049,
+      "z_index": 102
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 285,
+      "z_index": 101
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 284,
+      "z_index": 100
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 283,
+      "z_index": 99
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 281,
+      "z_index": 97
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 280,
+      "z_index": 95
+    },
+    {
+      "app_name": "CursorUIViewService",
+      "bounds": {
+        "height": 64.0,
+        "width": 64.0,
+        "x": -332.0,
+        "y": -63.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 927,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5043,
+      "z_index": 93
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 279,
+      "z_index": 92
+    },
+    {
+      "app_name": "cmux DEV issue-8001-hive-viewer",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 34200,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3454,
+      "z_index": 90
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 278,
+      "z_index": 89
+    },
+    {
+      "app_name": "cmux DEV issue-8001-hive-viewer",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 34200,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3453,
+      "z_index": 88
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 277,
+      "z_index": 87
+    },
+    {
+      "app_name": "cmux DEV issue-8001-hive-viewer",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 34200,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3451,
+      "z_index": 86
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 275,
+      "z_index": 85
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 264,
+      "z_index": 84
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 263,
+      "z_index": 83
+    },
+    {
+      "app_name": "OrbStack",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 78168,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4830,
+      "z_index": 82
+    },
+    {
+      "app_name": "Raycast",
+      "bounds": {
+        "height": 500.0,
+        "width": 500.0,
+        "x": 0.0,
+        "y": 482.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 875,
+      "space_ids": null,
+      "title": "",
+      "window_id": 66,
+      "z_index": 81
+    },
+    {
+      "app_name": "cmux DEV hive-host-sim",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 29202,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3438,
+      "z_index": 80
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 262,
+      "z_index": 79
+    },
+    {
+      "app_name": "OrbStack",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 78168,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4829,
+      "z_index": 78
+    },
+    {
+      "app_name": "Finder",
+      "bounds": {
+        "height": 436.0,
+        "width": 920.0,
+        "x": -519.0,
+        "y": -898.0
+      },
+      "is_on_screen": true,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 814,
+      "space_ids": null,
+      "title": "",
+      "window_id": 65,
+      "z_index": 77
+    },
+    {
+      "app_name": "cmux DEV hive-host-sim",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 29202,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3436,
+      "z_index": 76
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 260,
+      "z_index": 75
+    },
+    {
+      "app_name": "OrbStack",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 78168,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4827,
+      "z_index": 74
+    },
+    {
+      "app_name": "cmux DEV hive-host-sim",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 29202,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3435,
+      "z_index": 72
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 259,
+      "z_index": 71
+    },
+    {
+      "app_name": "cmux DEV hive-host-sim",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 29202,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3434,
+      "z_index": 70
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 258,
+      "z_index": 69
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 257,
+      "z_index": 68
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 256,
+      "z_index": 67
+    },
+    {
+      "app_name": "CursorUIViewService",
+      "bounds": {
+        "height": 64.0,
+        "width": 64.0,
+        "x": 0.0,
+        "y": 918.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 927,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5617,
+      "z_index": 66
+    },
+    {
+      "app_name": "cmux DEV feat-subrouter-account",
+      "bounds": {
+        "height": 64.0,
+        "width": 64.0,
+        "x": 0.0,
+        "y": 482.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 31968,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3431,
+      "z_index": 64
+    },
+    {
+      "app_name": "cmux DEV issue-8315-agent-sighu",
+      "bounds": {
+        "height": 673.0,
+        "width": 987.0,
+        "x": 344.0,
+        "y": 170.0
+      },
+      "is_on_screen": true,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 20447,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4822,
+      "z_index": 63
+    },
+    {
+      "app_name": "cmux DEV feat-subrouter-account",
+      "bounds": {
+        "height": 700.0,
+        "width": 1000.0,
+        "x": 416.0,
+        "y": 257.0
+      },
+      "is_on_screen": true,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 31968,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3430,
+      "z_index": 62
+    },
+    {
+      "app_name": "CursorUIViewService",
+      "bounds": {
+        "height": 64.0,
+        "width": 64.0,
+        "x": 0.0,
+        "y": 482.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 927,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5615,
+      "z_index": 61
+    },
+    {
+      "app_name": "cmux DEV issue-8315-agent-sighu",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 20447,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4821,
+      "z_index": 60
+    },
+    {
+      "app_name": "AutoFill",
+      "bounds": {
+        "height": 237.0,
+        "width": 312.0,
+        "x": -115.0,
+        "y": -499.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 6168,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5614,
+      "z_index": 58
+    },
+    {
+      "app_name": "cmux DEV issue-8315-agent-sighu",
+      "bounds": {
+        "height": 64.0,
+        "width": 64.0,
+        "x": 0.0,
+        "y": 482.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 20447,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4819,
+      "z_index": 55
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 251,
+      "z_index": 53
+    },
+    {
+      "app_name": "cmux DEV issue-7851-synology-sc",
+      "bounds": {
+        "height": 500.0,
+        "width": 500.0,
+        "x": 0.0,
+        "y": 482.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 5707,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5612,
+      "z_index": 52
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 600.0,
+        "width": 800.0,
+        "x": 0.0,
+        "y": 382.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 250,
+      "z_index": 50
+    },
+    {
+      "app_name": "cmux DEV issue-7851-synology-sc",
+      "bounds": {
+        "height": 700.0,
+        "width": 1000.0,
+        "x": -115.0,
+        "y": -962.0
+      },
+      "is_on_screen": true,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 5707,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5611,
+      "z_index": 49
+    },
+    {
+      "app_name": "cmux DEV issue-7851-synology-sc",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 5707,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5606,
+      "z_index": 45
+    },
+    {
+      "app_name": "cmux DEV issue-7851-synology-sc",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 5707,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5605,
+      "z_index": 44
+    },
+    {
+      "app_name": "cmux DEV issue-7851-synology-sc",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 5707,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5604,
+      "z_index": 42
+    },
+    {
+      "app_name": "Google Chrome",
+      "bounds": {
+        "height": 46.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": -79.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49037,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3815,
+      "z_index": 41
+    },
+    {
+      "app_name": "cmux DEV issue-7851-synology-sc",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 5707,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5603,
+      "z_index": 40
+    },
+    {
+      "app_name": "Google Chrome",
+      "bounds": {
+        "height": 1050.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1050.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49037,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3812,
+      "z_index": 38
+    },
+    {
+      "app_name": "cmux DEV hive-host-sim",
+      "bounds": {
+        "height": 500.0,
+        "width": 500.0,
+        "x": 0.0,
+        "y": 482.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 29202,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3415,
+      "z_index": 37
+    },
+    {
+      "app_name": "cmux DEV issue-7851-synology-sc",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 5707,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5600,
+      "z_index": 36
+    },
+    {
+      "app_name": "CursorUIViewService",
+      "bounds": {
+        "height": 54.0,
+        "width": 54.0,
+        "x": -575.0,
+        "y": -54.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 927,
+      "space_ids": null,
+      "title": "",
+      "window_id": 4409,
+      "z_index": 35
+    },
+    {
+      "app_name": "CursorUIViewService",
+      "bounds": {
+        "height": 64.0,
+        "width": 64.0,
+        "x": 0.0,
+        "y": 482.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 927,
+      "space_ids": null,
+      "title": "",
+      "window_id": 42,
+      "z_index": 34
+    },
+    {
+      "app_name": "Google Chrome",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49037,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3811,
+      "z_index": 33
+    },
+    {
+      "app_name": "cmux DEV hive-host-sim",
+      "bounds": {
+        "height": 700.0,
+        "width": 1000.0,
+        "x": -115.0,
+        "y": -962.0
+      },
+      "is_on_screen": true,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 29202,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3414,
+      "z_index": 32
+    },
+    {
+      "app_name": "Spotlight",
+      "bounds": {
+        "height": 64.0,
+        "width": 64.0,
+        "x": 0.0,
+        "y": 482.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 923,
+      "space_ids": null,
+      "title": "",
+      "window_id": 41,
+      "z_index": 31
+    },
+    {
+      "app_name": "Google Chrome",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49037,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3810,
+      "z_index": 30
+    },
+    {
+      "app_name": "Google Chrome",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49037,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3808,
+      "z_index": 28
+    },
+    {
+      "app_name": "Google Chrome",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49037,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3807,
+      "z_index": 27
+    },
+    {
+      "app_name": "Google Chrome",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 49037,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3806,
+      "z_index": 26
+    },
+    {
+      "app_name": "CursorUIViewService",
+      "bounds": {
+        "height": 64.0,
+        "width": 64.0,
+        "x": 0.0,
+        "y": 482.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 927,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5594,
+      "z_index": 25
+    },
+    {
+      "app_name": "Finder",
+      "bounds": {
+        "height": 64.0,
+        "width": 64.0,
+        "x": 0.0,
+        "y": 482.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 814,
+      "space_ids": null,
+      "title": "",
+      "window_id": 35,
+      "z_index": 23
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 1050.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1050.0
+      },
+      "is_on_screen": true,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 224,
+      "z_index": 19
+    },
+    {
+      "app_name": "Finder",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 814,
+      "space_ids": null,
+      "title": "",
+      "window_id": 27,
+      "z_index": 18
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 216,
+      "z_index": 17
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 215,
+      "z_index": 16
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 214,
+      "z_index": 15
+    },
+    {
+      "app_name": "cmux",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 15942,
+      "space_ids": null,
+      "title": "",
+      "window_id": 213,
+      "z_index": 14
+    },
+    {
+      "app_name": "Finder",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 814,
+      "space_ids": null,
+      "title": "",
+      "window_id": 28,
+      "z_index": 12
+    },
+    {
+      "app_name": "cmux DEV hive-host-sim",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 29202,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3675,
+      "z_index": 9
+    },
+    {
+      "app_name": "ThemeWidgetControlViewService",
+      "bounds": {
+        "height": 14.0,
+        "width": 14.0,
+        "x": 290.0,
+        "y": -978.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 46000,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5187,
+      "z_index": 7
+    },
+    {
+      "app_name": "Finder",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 814,
+      "space_ids": null,
+      "title": "",
+      "window_id": 26,
+      "z_index": 6
+    },
+    {
+      "app_name": "Universal Control",
+      "bounds": {
+        "height": 0.0,
+        "width": 0.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 46686,
+      "space_ids": null,
+      "title": "",
+      "window_id": 3795,
+      "z_index": 5
+    },
+    {
+      "app_name": "Finder",
+      "bounds": {
+        "height": 33.0,
+        "width": 1512.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 814,
+      "space_ids": null,
+      "title": "",
+      "window_id": 25,
+      "z_index": 3
+    },
+    {
+      "app_name": "cmux DEV issue-7851-synology-sc",
+      "bounds": {
+        "height": 30.0,
+        "width": 1920.0,
+        "x": -575.0,
+        "y": -1080.0
+      },
+      "is_on_screen": false,
+      "layer": 0,
+      "on_current_space": null,
+      "pid": 5707,
+      "space_ids": null,
+      "title": "",
+      "window_id": 5607,
+      "z_index": 2
+    }
+  ]
+}

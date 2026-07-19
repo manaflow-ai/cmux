@@ -1,0 +1,753 @@
+22:57:05.492 #1 surface.attach surface=C5350 view=0x00000001028fc3b0 attached=0 hasSurface=0 inWindow=0
+22:57:05.493 #2 surface.attach.defer surface=C5350 reason=noWindow bounds=800.0x600.0
+22:57:05.495 #3 surface.size.defer surface=C5350 reason=noWindow size=800.0x600.0
+22:57:05.499 #4 focus.bonsplit pane=02F84
+22:57:05.499 #5 focus.split.apply.begin workspace=9BBAD pane=02F84 tab=C6E7C focusedPane=02F84 selectedTab=C6E7C reassert=1
+22:57:05.500 #6 find.preparePanelFocusIntent surface=C5350 target=terminal
+22:57:05.500 #7 find.preparePanelFocusIntent surface=C5350 target=terminal
+22:57:05.500 #8 focus.split.moveFocus workspace=9BBAD panel=C5350 previousExists=0 to=C5350
+22:57:05.500 #9 find.moveFocus to=C5350 from=nil searchState=nil delayMs=0
+22:57:05.501 #10 focus.split.ensureFocus workspace=9BBAD panel=C5350 pane=02F84 tab=C6E7C intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:05.503 #11 focus.split.apply.end workspace=9BBAD panel=C5350 type=TerminalPanel focusedPane=02F84 selectedTab=C6E7C prevPanel=C5350
+22:57:05.503 #12 focus.bonsplit pane=02F84
+22:57:05.503 #13 focus.split.apply.begin workspace=9BBAD pane=02F84 tab=C6E7C focusedPane=02F84 selectedTab=C6E7C reassert=1
+22:57:05.504 #14 find.preparePanelFocusIntent surface=C5350 target=terminal
+22:57:05.504 #15 find.preparePanelFocusIntent surface=C5350 target=terminal
+22:57:05.504 #16 focus.split.moveFocus workspace=9BBAD panel=C5350 previousExists=0 to=C5350
+22:57:05.504 #17 find.moveFocus to=C5350 from=nil searchState=nil delayMs=0
+22:57:05.504 #18 focus.split.ensureFocus workspace=9BBAD panel=C5350 pane=02F84 tab=C6E7C intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:05.504 #19 focus.split.apply.end workspace=9BBAD panel=C5350 type=TerminalPanel focusedPane=02F84 selectedTab=C6E7C prevPanel=C5350
+22:57:05.506 #20 workspace.gitProbe.schedule workspace=9BBAD panel=C5350 dir=<redacted:17b> reason=initial
+22:57:05.507 #21 ws.switch.begin id=1 trigger=create from=nil to=9BBAD hot=0 tabs=1
+22:57:05.507 #22 ws.select.didSet id=1 from=nil to=9BBAD dt=0.62ms
+22:57:05.511 #23 mobile.observer init tabs=1
+22:57:05.520 #24 cmdclick.ui.setup skip reason=env_missing tag=issue-7851-synology-scp-sftp
+22:57:05.521 #25 surface.lifecycle.close.sealed surface=C5350 workspace=9BBAD reason=deinit generation=2
+22:57:05.521 #26 surface.lifecycle.deinit.skip surface=C5350 workspace=9BBAD reason=noRuntimeSurface
+22:57:05.534 #27 surface.attach surface=D3E60 view=0x00000001028f8c30 attached=0 hasSurface=0 inWindow=0
+22:57:05.534 #28 surface.attach.defer surface=D3E60 reason=noWindow bounds=800.0x600.0
+22:57:05.534 #29 surface.size.defer surface=D3E60 reason=noWindow size=800.0x600.0
+22:57:05.535 #30 focus.bonsplit pane=C581F
+22:57:05.535 #31 focus.split.apply.begin workspace=223EB pane=C581F tab=A6CEE focusedPane=C581F selectedTab=A6CEE reassert=1
+22:57:05.535 #32 find.preparePanelFocusIntent surface=D3E60 target=terminal
+22:57:05.535 #33 find.preparePanelFocusIntent surface=D3E60 target=terminal
+22:57:05.535 #34 focus.split.moveFocus workspace=223EB panel=D3E60 previousExists=0 to=D3E60
+22:57:05.535 #35 find.moveFocus to=D3E60 from=nil searchState=nil delayMs=0
+22:57:05.535 #36 focus.split.ensureFocus workspace=223EB panel=D3E60 pane=C581F tab=A6CEE intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:05.536 #37 focus.split.apply.end workspace=223EB panel=D3E60 type=TerminalPanel focusedPane=C581F selectedTab=A6CEE prevPanel=D3E60
+22:57:05.536 #38 focus.bonsplit pane=C581F
+22:57:05.536 #39 focus.split.apply.begin workspace=223EB pane=C581F tab=A6CEE focusedPane=C581F selectedTab=A6CEE reassert=1
+22:57:05.536 #40 find.preparePanelFocusIntent surface=D3E60 target=terminal
+22:57:05.536 #41 find.preparePanelFocusIntent surface=D3E60 target=terminal
+22:57:05.536 #42 focus.split.moveFocus workspace=223EB panel=D3E60 previousExists=0 to=D3E60
+22:57:05.536 #43 find.moveFocus to=D3E60 from=nil searchState=nil delayMs=0
+22:57:05.536 #44 focus.split.ensureFocus workspace=223EB panel=D3E60 pane=C581F tab=A6CEE intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:05.536 #45 focus.split.apply.end workspace=223EB panel=D3E60 type=TerminalPanel focusedPane=C581F selectedTab=A6CEE prevPanel=D3E60
+22:57:05.537 #46 workspace.gitProbe.schedule workspace=223EB panel=D3E60 dir=<redacted:17b> reason=initial
+22:57:05.537 #47 ws.switch.begin id=1 trigger=create from=nil to=223EB hot=0 tabs=1
+22:57:05.538 #48 ws.select.didSet id=1 from=nil to=223EB dt=0.39ms
+22:57:05.699 #49 workspace.title.applyProcess workspace=223EB from="Terminal 1" to="Terminal"
+22:57:05.702 #50 notification.auth refresh status=notDetermined mapped=Not Requested
+22:57:05.703 #51 focus.panel panel=D3E60 pane=C581F trigger=standard
+22:57:05.704 #52 focus.panel.begin workspace=223EB panel=D3E60 trigger=standard targetPane=C581F focusedPane=C581F selectedTab=A6CEE converged=1 currentPanel=D3E60
+22:57:05.704 #53 focus.split.apply.begin workspace=223EB pane=C581F tab=A6CEE focusedPane=C581F selectedTab=A6CEE reassert=1
+22:57:05.704 #54 find.preparePanelFocusIntent surface=D3E60 target=terminal
+22:57:05.704 #55 find.preparePanelFocusIntent surface=D3E60 target=terminal
+22:57:05.704 #56 focus.split.moveFocus workspace=223EB panel=D3E60 previousExists=1 to=D3E60
+22:57:05.704 #57 find.moveFocus to=D3E60 from=D3E60 searchState=nil delayMs=0
+22:57:05.704 #58 focus.split.ensureFocus workspace=223EB panel=D3E60 pane=C581F tab=A6CEE intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:05.704 #59 focus.split.apply.end workspace=223EB panel=D3E60 type=TerminalPanel focusedPane=C581F selectedTab=A6CEE prevPanel=D3E60
+22:57:05.705 #60 ws.select.asyncDone id=1 dt=167.32ms selected=223EB
+22:57:05.920 #61 globalHotkey.register success action=globalSearch shortcut=⌥⌘F keyCode=3 modifiers=2304
+22:57:05.924 #62 mainWindow.visibility.reveal.empty reason=applicationWillBecomeActive windows=[]
+22:57:05.925 #63 mainWindow.visibility.reveal.empty reason=applicationDidBecomeActive windows=[]
+22:57:05.925 #64 notification.auth app became active deferred=false
+22:57:05.994 #65 surface.attach surface=A696B view=0x0000000b247ed800 attached=0 hasSurface=0 inWindow=0
+22:57:05.994 #66 surface.attach.defer surface=A696B reason=noWindow bounds=800.0x600.0
+22:57:05.994 #67 surface.size.defer surface=A696B reason=noWindow size=800.0x600.0
+22:57:05.995 #68 focus.bonsplit pane=47C4C
+22:57:05.995 #69 focus.split.apply.begin workspace=5B6BC pane=47C4C tab=86B88 focusedPane=47C4C selectedTab=86B88 reassert=1
+22:57:05.995 #70 find.preparePanelFocusIntent surface=A696B target=terminal
+22:57:05.995 #71 find.preparePanelFocusIntent surface=A696B target=terminal
+22:57:05.995 #72 focus.split.moveFocus workspace=5B6BC panel=A696B previousExists=0 to=A696B
+22:57:05.995 #73 find.moveFocus to=A696B from=nil searchState=nil delayMs=0
+22:57:05.995 #74 focus.split.ensureFocus workspace=5B6BC panel=A696B pane=47C4C tab=86B88 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:05.996 #75 focus.split.apply.end workspace=5B6BC panel=A696B type=TerminalPanel focusedPane=47C4C selectedTab=86B88 prevPanel=A696B
+22:57:05.996 #76 focus.split.apply.begin workspace=5B6BC pane=47C4C tab=86B88 focusedPane=47C4C selectedTab=86B88 reassert=1
+22:57:05.996 #77 find.preparePanelFocusIntent surface=A696B target=terminal
+22:57:05.996 #78 find.preparePanelFocusIntent surface=A696B target=terminal
+22:57:05.996 #79 focus.split.moveFocus workspace=5B6BC panel=A696B previousExists=0 to=A696B
+22:57:05.996 #80 find.moveFocus to=A696B from=nil searchState=nil delayMs=0
+22:57:05.996 #81 focus.split.ensureFocus workspace=5B6BC panel=A696B pane=47C4C tab=86B88 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:05.996 #82 focus.split.apply.end workspace=5B6BC panel=A696B type=TerminalPanel focusedPane=47C4C selectedTab=86B88 prevPanel=A696B
+22:57:05.996 #83 workspace.gitProbe.schedule workspace=5B6BC panel=A696B dir=<redacted:17b> reason=initial
+22:57:05.996 #84 focus.bonsplit pane=47C4C
+22:57:05.997 #85 ws.switch.begin id=1 trigger=create from=nil to=5B6BC hot=0 tabs=1
+22:57:05.997 #86 ws.select.didSet id=1 from=nil to=5B6BC dt=0.62ms
+22:57:06.186 #87 mainWindow.register windowId=D0D43AE4 window={num=5611 id=D0D43AE4 ident=nil key=0 main=0} manager=0x0000000b259b7800 priorActiveMgr=nil eventWinNum=nil eventWin={nil} keyWin={nil} mainWin={nil} activeMgr=nil activeWinId=nil activeSelected=nil contexts=[-D0D43AE4{mgr=0x0000000b259b7800,win=5611,key=0,main=0,tabs=1,selected=5B6BC}]
+22:57:06.198 #88 mobile.observer init tabs=1
+22:57:06.198 #89 session.restore.start windows=1 primaryFrame={x=-115.0 y=1244.0 w=1000.0 h=700.0} primaryDisplay={id=5 frame={x=-575.0 y=982.0 w=1920.0 h=1080.0} visible={x=-575.0 y=982.0 w=1920.0 h=1050.0}}
+22:57:06.199 #90 session.restore.apply window=D0D43AE4 liveWin=5611 snapshotFrame={x=-115.0 y=1244.0 w=1000.0 h=700.0} snapshotDisplay={id=5 frame={x=-575.0 y=982.0 w=1920.0 h=1080.0} visible={x=-575.0 y=982.0 w=1920.0 h=1050.0}}
+22:57:06.201 #91 surface.attach surface=E8A9D view=0x0000000b247ecc00 attached=0 hasSurface=0 inWindow=0
+22:57:06.201 #92 surface.attach.defer surface=E8A9D reason=noWindow bounds=800.0x600.0
+22:57:06.201 #93 surface.size.defer surface=E8A9D reason=noWindow size=800.0x600.0
+22:57:06.201 #94 focus.bonsplit pane=28040
+22:57:06.201 #95 focus.split.apply.begin workspace=1C606 pane=28040 tab=EC1B8 focusedPane=28040 selectedTab=EC1B8 reassert=1
+22:57:06.201 #96 find.preparePanelFocusIntent surface=E8A9D target=terminal
+22:57:06.201 #97 find.preparePanelFocusIntent surface=E8A9D target=terminal
+22:57:06.201 #98 focus.split.moveFocus workspace=1C606 panel=E8A9D previousExists=0 to=E8A9D
+22:57:06.201 #99 find.moveFocus to=E8A9D from=nil searchState=nil delayMs=0
+22:57:06.201 #100 focus.split.ensureFocus workspace=1C606 panel=E8A9D pane=28040 tab=EC1B8 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:06.203 #101 focus.split.apply.end workspace=1C606 panel=E8A9D type=TerminalPanel focusedPane=28040 selectedTab=EC1B8 prevPanel=E8A9D
+22:57:06.203 #102 focus.split.apply.begin workspace=1C606 pane=28040 tab=EC1B8 focusedPane=28040 selectedTab=EC1B8 reassert=1
+22:57:06.203 #103 focus.bonsplit pane=28040
+22:57:06.203 #104 find.preparePanelFocusIntent surface=E8A9D target=terminal
+22:57:06.203 #105 find.preparePanelFocusIntent surface=E8A9D target=terminal
+22:57:06.203 #106 focus.split.moveFocus workspace=1C606 panel=E8A9D previousExists=0 to=E8A9D
+22:57:06.203 #107 find.moveFocus to=E8A9D from=nil searchState=nil delayMs=0
+22:57:06.203 #108 focus.split.ensureFocus workspace=1C606 panel=E8A9D pane=28040 tab=EC1B8 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:06.203 #109 focus.split.apply.end workspace=1C606 panel=E8A9D type=TerminalPanel focusedPane=28040 selectedTab=EC1B8 prevPanel=E8A9D
+22:57:06.206 #110 surface.attach surface=5F7E7 view=0x0000000b247ede00 attached=0 hasSurface=0 inWindow=0
+22:57:06.206 #111 surface.attach.defer surface=5F7E7 reason=noWindow bounds=800.0x600.0
+22:57:06.206 #112 surface.size.defer surface=5F7E7 reason=noWindow size=800.0x600.0
+22:57:06.206 #113 focus.panel panel=E8A9D pane=28040 trigger=standard
+22:57:06.206 #114 focus.panel.begin workspace=1C606 panel=E8A9D trigger=standard targetPane=28040 focusedPane=28040 selectedTab=9D3E2 converged=0 currentPanel=5F7E7
+22:57:06.206 #115 focus.panel.focusPane workspace=1C606 panel=E8A9D pane=28040
+22:57:06.206 #116 focus.bonsplit pane=28040
+22:57:06.206 #117 focus.split.apply.begin workspace=1C606 pane=28040 tab=9D3E2 focusedPane=28040 selectedTab=9D3E2 reassert=1
+22:57:06.206 #118 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:06.206 #119 ws.term.active id=none surface=E8A9D transition=1->0 active=0 visibleFlag=1 hostHidden=0 surfaceHidden=0 hiddenHierarchy=0 inWindow=0 hasSuperview=0 bounds=0.0x0.0 frame=0.0x0.0 firstResponder=nil
+22:57:06.207 #120 ws.term.visible id=none surface=E8A9D transition=1->0 active=0 visibleFlag=0 hostHidden=1 surfaceHidden=0 hiddenHierarchy=1 inWindow=0 hasSuperview=0 bounds=0.0x0.0 frame=0.0x0.0 firstResponder=nil
+22:57:06.207 #121 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:06.207 #122 focus.split.moveFocus workspace=1C606 panel=5F7E7 previousExists=0 to=5F7E7
+22:57:06.207 #123 find.moveFocus to=5F7E7 from=nil searchState=nil delayMs=0
+22:57:06.207 #124 focus.split.ensureFocus workspace=1C606 panel=5F7E7 pane=28040 tab=9D3E2 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:06.207 #125 focus.split.apply.end workspace=1C606 panel=5F7E7 type=TerminalPanel focusedPane=28040 selectedTab=9D3E2 prevPanel=5F7E7
+22:57:06.207 #126 focus.panel.selectTab workspace=1C606 panel=E8A9D tab=EC1B8
+22:57:06.207 #127 focus.bonsplit pane=28040
+22:57:06.207 #128 focus.split.apply.begin workspace=1C606 pane=28040 tab=EC1B8 focusedPane=28040 selectedTab=EC1B8 reassert=1
+22:57:06.207 #129 find.preparePanelFocusIntent surface=E8A9D target=terminal
+22:57:06.208 #130 ws.term.active id=none surface=5F7E7 transition=1->0 active=0 visibleFlag=1 hostHidden=0 surfaceHidden=0 hiddenHierarchy=0 inWindow=0 hasSuperview=0 bounds=0.0x0.0 frame=0.0x0.0 firstResponder=nil
+22:57:06.208 #131 ws.term.visible id=none surface=5F7E7 transition=1->0 active=0 visibleFlag=0 hostHidden=1 surfaceHidden=0 hiddenHierarchy=1 inWindow=0 hasSuperview=0 bounds=0.0x0.0 frame=0.0x0.0 firstResponder=nil
+22:57:06.208 #132 ws.term.visible id=none surface=E8A9D transition=0->1 active=0 visibleFlag=1 hostHidden=0 surfaceHidden=0 hiddenHierarchy=0 inWindow=0 hasSuperview=0 bounds=0.0x0.0 frame=0.0x0.0 firstResponder=nil
+22:57:06.208 #133 ws.term.active id=none surface=E8A9D transition=0->1 active=1 visibleFlag=1 hostHidden=0 surfaceHidden=0 hiddenHierarchy=0 inWindow=0 hasSuperview=0 bounds=0.0x0.0 frame=0.0x0.0 firstResponder=nil
+22:57:06.208 #134 find.preparePanelFocusIntent surface=E8A9D target=terminal
+22:57:06.208 #135 focus.split.moveFocus workspace=1C606 panel=E8A9D previousExists=0 to=E8A9D
+22:57:06.208 #136 find.moveFocus to=E8A9D from=nil searchState=nil delayMs=0
+22:57:06.208 #137 focus.split.ensureFocus workspace=1C606 panel=E8A9D pane=28040 tab=EC1B8 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:06.208 #138 focus.split.apply.end workspace=1C606 panel=E8A9D type=TerminalPanel focusedPane=28040 selectedTab=EC1B8 prevPanel=E8A9D
+22:57:06.209 #139 focus.split.apply.begin workspace=1C606 pane=28040 tab=EC1B8 focusedPane=28040 selectedTab=EC1B8 reassert=1
+22:57:06.209 #140 find.preparePanelFocusIntent surface=E8A9D target=terminal
+22:57:06.209 #141 find.preparePanelFocusIntent surface=E8A9D target=terminal
+22:57:06.209 #142 focus.split.moveFocus workspace=1C606 panel=E8A9D previousExists=1 to=E8A9D
+22:57:06.209 #143 find.moveFocus to=E8A9D from=E8A9D searchState=nil delayMs=0
+22:57:06.209 #144 focus.split.ensureFocus workspace=1C606 panel=E8A9D pane=28040 tab=EC1B8 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:06.209 #145 focus.split.apply.end workspace=1C606 panel=E8A9D type=TerminalPanel focusedPane=28040 selectedTab=EC1B8 prevPanel=E8A9D
+22:57:06.210 #146 surface.lifecycle.close.begin surface=E8A9D workspace=1C606 reason=panel.close generation=2
+22:57:06.210 #147 surface.panel.close.begin panel=E8A9D workspace=1C606 runtimeSurface=0 inWindow=0 hasSuperview=0 hidden=0 frame=0.0x0.0 bounds=0.0x0.0
+22:57:06.210 #148 ws.term.active id=none surface=E8A9D transition=1->0 active=0 visibleFlag=1 hostHidden=0 surfaceHidden=0 hiddenHierarchy=0 inWindow=0 hasSuperview=0 bounds=0.0x0.0 frame=0.0x0.0 firstResponder=nil
+22:57:06.210 #149 ws.term.visible id=none surface=E8A9D transition=1->0 active=0 visibleFlag=0 hostHidden=1 surfaceHidden=0 hiddenHierarchy=1 inWindow=0 hasSuperview=0 bounds=0.0x0.0 frame=0.0x0.0 firstResponder=nil
+22:57:06.210 #150 surface.panel.close.end panel=E8A9D inWindow=0 hasSuperview=0 hidden=1
+22:57:06.210 #151 surface.lifecycle.close.sealed surface=E8A9D workspace=1C606 reason=teardown generation=3
+22:57:06.211 #152 focus.bonsplit pane=28040
+22:57:06.211 #153 focus.split.apply.begin workspace=1C606 pane=28040 tab=9D3E2 focusedPane=28040 selectedTab=9D3E2 reassert=1
+22:57:06.211 #154 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:06.211 #155 ws.term.visible id=none surface=5F7E7 transition=0->1 active=0 visibleFlag=1 hostHidden=0 surfaceHidden=0 hiddenHierarchy=0 inWindow=0 hasSuperview=0 bounds=0.0x0.0 frame=0.0x0.0 firstResponder=nil
+22:57:06.211 #156 ws.term.active id=none surface=5F7E7 transition=0->1 active=1 visibleFlag=1 hostHidden=0 surfaceHidden=0 hiddenHierarchy=0 inWindow=0 hasSuperview=0 bounds=0.0x0.0 frame=0.0x0.0 firstResponder=nil
+22:57:06.211 #157 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:06.211 #158 focus.split.moveFocus workspace=1C606 panel=5F7E7 previousExists=0 to=5F7E7
+22:57:06.211 #159 find.moveFocus to=5F7E7 from=nil searchState=nil delayMs=0
+22:57:06.211 #160 focus.split.ensureFocus workspace=1C606 panel=5F7E7 pane=28040 tab=9D3E2 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:06.212 #161 focus.split.apply.end workspace=1C606 panel=5F7E7 type=TerminalPanel focusedPane=28040 selectedTab=9D3E2 prevPanel=5F7E7
+22:57:06.212 #162 focus.split.apply.begin workspace=1C606 pane=28040 tab=9D3E2 focusedPane=28040 selectedTab=9D3E2 reassert=1
+22:57:06.212 #163 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:06.212 #164 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:06.212 #165 focus.split.moveFocus workspace=1C606 panel=5F7E7 previousExists=0 to=5F7E7
+22:57:06.212 #166 find.moveFocus to=5F7E7 from=nil searchState=nil delayMs=0
+22:57:06.212 #167 focus.split.ensureFocus workspace=1C606 panel=5F7E7 pane=28040 tab=9D3E2 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:06.212 #168 focus.split.apply.end workspace=1C606 panel=5F7E7 type=TerminalPanel focusedPane=28040 selectedTab=9D3E2 prevPanel=5F7E7
+22:57:06.212 #169 focus.bonsplit pane=28040
+22:57:06.212 #170 focus.split.apply.begin workspace=1C606 pane=28040 tab=9D3E2 focusedPane=28040 selectedTab=9D3E2 reassert=1
+22:57:06.212 #171 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:06.212 #172 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:06.212 #173 focus.split.moveFocus workspace=1C606 panel=5F7E7 previousExists=0 to=5F7E7
+22:57:06.213 #174 find.moveFocus to=5F7E7 from=nil searchState=nil delayMs=0
+22:57:06.213 #175 focus.split.ensureFocus workspace=1C606 panel=5F7E7 pane=28040 tab=9D3E2 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:06.213 #176 focus.split.apply.end workspace=1C606 panel=5F7E7 type=TerminalPanel focusedPane=28040 selectedTab=9D3E2 prevPanel=5F7E7
+22:57:06.213 #177 focus.split.apply.begin workspace=1C606 pane=28040 tab=9D3E2 focusedPane=28040 selectedTab=9D3E2 reassert=1
+22:57:06.213 #178 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:06.213 #179 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:06.213 #180 focus.split.moveFocus workspace=1C606 panel=5F7E7 previousExists=0 to=5F7E7
+22:57:06.213 #181 find.moveFocus to=5F7E7 from=nil searchState=nil delayMs=0
+22:57:06.213 #182 focus.split.ensureFocus workspace=1C606 panel=5F7E7 pane=28040 tab=9D3E2 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:06.213 #183 focus.split.apply.end workspace=1C606 panel=5F7E7 type=TerminalPanel focusedPane=28040 selectedTab=9D3E2 prevPanel=5F7E7
+22:57:06.213 #184 focus.bonsplit pane=28040
+22:57:06.213 #185 focus.split.apply.begin workspace=1C606 pane=28040 tab=9D3E2 focusedPane=28040 selectedTab=9D3E2 reassert=1
+22:57:06.213 #186 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:06.213 #187 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:06.213 #188 focus.split.moveFocus workspace=1C606 panel=5F7E7 previousExists=0 to=5F7E7
+22:57:06.213 #189 find.moveFocus to=5F7E7 from=nil searchState=nil delayMs=0
+22:57:06.213 #190 focus.split.ensureFocus workspace=1C606 panel=5F7E7 pane=28040 tab=9D3E2 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:06.213 #191 focus.split.apply.end workspace=1C606 panel=5F7E7 type=TerminalPanel focusedPane=28040 selectedTab=9D3E2 prevPanel=5F7E7
+22:57:06.213 #192 focus.bonsplit pane=28040
+22:57:06.213 #193 focus.split.apply.begin workspace=1C606 pane=28040 tab=9D3E2 focusedPane=28040 selectedTab=9D3E2 reassert=1
+22:57:06.213 #194 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:06.213 #195 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:06.213 #196 focus.split.moveFocus workspace=1C606 panel=5F7E7 previousExists=0 to=5F7E7
+22:57:06.213 #197 find.moveFocus to=5F7E7 from=nil searchState=nil delayMs=0
+22:57:06.213 #198 focus.split.ensureFocus workspace=1C606 panel=5F7E7 pane=28040 tab=9D3E2 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:06.213 #199 focus.split.apply.end workspace=1C606 panel=5F7E7 type=TerminalPanel focusedPane=28040 selectedTab=9D3E2 prevPanel=5F7E7
+22:57:06.214 #200 workspace.customTitle.write workspace=1C60666F source=user title=<redacted:2b>
+22:57:06.214 #201 workspace.customDescription.update workspace=1C60666F inputLen=0 inputNewlines=0 normalizedLen=0 normalizedNewlines=0 input=<redacted:22b>
+22:57:06.214 #202 focus.panel panel=5F7E7 pane=28040 trigger=standard
+22:57:06.214 #203 focus.panel.begin workspace=1C606 panel=5F7E7 trigger=standard targetPane=28040 focusedPane=28040 selectedTab=9D3E2 converged=1 currentPanel=5F7E7
+22:57:06.214 #204 focus.split.apply.begin workspace=1C606 pane=28040 tab=9D3E2 focusedPane=28040 selectedTab=9D3E2 reassert=1
+22:57:06.214 #205 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:06.214 #206 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:06.214 #207 focus.split.moveFocus workspace=1C606 panel=5F7E7 previousExists=1 to=5F7E7
+22:57:06.214 #208 find.moveFocus to=5F7E7 from=5F7E7 searchState=nil delayMs=0
+22:57:06.214 #209 focus.split.ensureFocus workspace=1C606 panel=5F7E7 pane=28040 tab=9D3E2 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:06.214 #210 focus.split.apply.end workspace=1C606 panel=5F7E7 type=TerminalPanel focusedPane=28040 selectedTab=9D3E2 prevPanel=5F7E7
+22:57:06.215 #211 ws.switch.begin id=2 trigger=direct from=5B6BC to=1C606 hot=0 tabs=1
+22:57:06.215 #212 ws.select.didSet id=2 from=5B6BC to=1C606 dt=0.75ms
+22:57:06.215 #213 ws.term.visible id=none surface=A696B transition=1->0 active=1 visibleFlag=0 hostHidden=1 surfaceHidden=0 hiddenHierarchy=1 inWindow=0 hasSuperview=0 bounds=0.0x0.0 frame=0.0x0.0 firstResponder=nil
+22:57:06.216 #214 surface.lifecycle.close.begin surface=A696B workspace=5B6BC reason=panel.close generation=2
+22:57:06.216 #215 surface.panel.close.begin panel=A696B workspace=5B6BC runtimeSurface=0 inWindow=0 hasSuperview=0 hidden=1 frame=0.0x0.0 bounds=0.0x0.0
+22:57:06.216 #216 ws.term.active id=none surface=A696B transition=1->0 active=0 visibleFlag=0 hostHidden=1 surfaceHidden=0 hiddenHierarchy=1 inWindow=0 hasSuperview=0 bounds=0.0x0.0 frame=0.0x0.0 firstResponder=nil
+22:57:06.216 #217 surface.panel.close.end panel=A696B inWindow=0 hasSuperview=0 hidden=1
+22:57:06.216 #218 surface.lifecycle.close.sealed surface=A696B workspace=5B6BC reason=teardown generation=3
+22:57:06.216 #219 workspace.gitProbe.schedule workspace=1C606 panel=5F7E7 dir=<redacted:17b> reason=initial
+22:57:06.217 #220 session.restore.frameApplied window=D0D43AE4 applied={x=-115.0 y=1244.0 w=1000.0 h=700.0}
+22:57:06.387 #221 monitorMemory.capture window=D0D43AE4 reason=sessionSnapshot sig=[2d …E@-575,982,1920x1080] frame={x=-115.0 y=1244.0 w=1000.0 h=700.0} rememberedConfigs=1
+22:57:06.388 #222 session.save includeScrollback=0 windows=1
+22:57:06.388 #223 session.save.window idx=0 frame={x=-115.0 y=1244.0 w=1000.0 h=700.0} display={id=5 frame={x=-575.0 y=982.0 w=1920.0 h=1080.0} visible={x=-575.0 y=982.0 w=1920.0 h=1050.0}} workspaces=1 selected=0
+22:57:06.429 #224 mainWindow.active window={num=5611 id=D0D43AE4 ident=nil key=0 main=0} context=<redacted:330b>
+22:57:06.429 #225 mainWindow.visibility.focus.orderFront.begin reason=createMainWindow windows=[<nil>:visible=0:mini=0:key=0]
+22:57:06.429 #226 mainWindow.active window={num=5611 id=D0D43AE4 ident=nil key=1 main=0} context=<redacted:175b> id=D0D43AE4 ident=nil key=1 main=0} mainWin={nil} activeMgr=0x0000000b259b7800 activeWinId=D0D43AE4 activeSelected=1C606 contexts=[*D0D43AE4{mgr=0x0000000b259b7800,win=5611,key=1,main=0,tabs=1,selected=1C606}]
+22:57:06.430 #227 mainWindow.delegate.didBecomeKey window=<nil> visible=1 mini=0 key=1 main=0
+22:57:06.430 #228 mainWindow.delegate.didBecomeMain window=<nil> visible=1 mini=0 key=1 main=1
+22:57:06.497 #229 ws.mount.reconcile id=2 dt=282.02ms hot=0 selected=1C606 mounted=[1C606] added=[1C606] removed=[]
+22:57:06.561 #230 sidebar.dragState.content tab=nil reason=sidebar_appear
+22:57:06.625 #231 mainWindow.register windowId=D0D43AE4 window={num=5611 id=D0D43AE4 ident=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E key=1 main=1} manager=0x0000000b259b7800 priorActiveMgr=0x0000000b259b7800 eventWinNum=nil eventWin={nil} keyWin={num=5611 id=D0D43AE4 ident=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E key=1 main=1} mainWin={num=5611 id=D0D43AE4 ident=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E key=1 main=1} activeMgr=0x0000000b259b7800 activeWinId=D0D43AE4 activeSelected=1C606 contexts=[*D0D43AE4{mgr=0x0000000b259b7800,win=5611,key=1,main=1,tabs=1,selected=1C606}]
+22:57:06.631 #232 mainWindow.active window={num=5611 id=D0D43AE4 ident=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E key=1 main=1} context=<redacted:175b> id=D0D43AE4 ident=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E key=1 main=1} mainWin={num=5611 id=D0D43AE4 ident=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E key=1 main=1} activeMgr=0x0000000b259b7800 activeWinId=D0D43AE4 activeSelected=1C606 contexts=[*D0D43AE4{mgr=0x0000000b259b7800,win=5611,key=1,main=1,tabs=1,selected=1C606}]
+22:57:06.633 #233 palette.overlay.install container=NSThemeFrame reference=MainWindowHostingView<ModifiedContent<ModifiedContent<ModifiedContent<ModifiedContent<ModifiedContent<ModifiedContent<ModifiedContent<ModifiedContent<ModifiedContent<ContentView, _EnvironmentKeyWritingModifier<Optional<TabManager>>>, _EnvironmentKeyWritingModifier<Optional<TerminalNotificationStore>>>, _EnvironmentKeyWritingModifier<Optional<SidebarUnreadModel>>>, _EnvironmentKeyWritingModifier<Optional<SidebarState>>>, _EnvironmentKeyWritingModifier<Optional<SidebarSelectionState>>>, _EnvironmentKeyWritingModifier<Optional<FileExplorerState>>>, _EnvironmentKeyWritingModifier<Optional<CmuxConfigStore>>>, _EnvironmentKeyWritingModifier<Optional<SettingsRuntime>>>, CmuxFontMagnificationEnvironmentModifier>> glass=0
+22:57:06.670 #234 ws.swiftui.update id=2 dt=455.45ms surface=5F7E7 visible=1 active=1 z=2 hostWindow=0 hostedWindow=0 hostedSuperview=0
+22:57:06.670 #235 terminal.portal.host.claim surface=5F7E7 reason=update host=ObjectIdentifier(0x0000000b27b71b00) pane=28040 inWin=0 size=0.0x0.0 replacingHost=nil
+22:57:06.670 #236 surface.attach surface=5F7E7 view=0x0000000b247ede00 attached=1 hasSurface=0 inWindow=0
+22:57:06.670 #237 surface.attach.defer surface=5F7E7 reason=noWindow bounds=800.0x600.0
+22:57:06.670 #238 ws.hostState.deferBind surface=5F7E7 reason=hostNoWindow visible=1 active=1 z=2 hostedWindow=0 hostedSuperview=0
+22:57:06.788 #239 portal.hostFrame.update host=0x0000000b28b38900 frame=0.0,0.0 1000.0x700.0
+22:57:06.788 #240 portal.bind hosted=0x0000000b25993700 anchor=0x0000000b27b71b00 prevAnchor=nil visible=1 prevVisible=0 z=2 prevZ=-9223372036854775808
+22:57:06.789 #241 surface.size.defer surface=5F7E7 reason=noWindow size=760.0x644.0
+22:57:06.796 #242 portal.reparent hosted=0x0000000b25993700 reason=attach super=nil
+22:57:06.797 #243 surface.view.windowMove surface=5F7E7 inWindow=1 bounds=760.0x644.0 pending=760.0x644.0
+22:57:06.797 #244 surface.attach surface=5F7E7 view=0x0000000b247ede00 attached=1 hasSurface=0 inWindow=1
+22:57:06.797 #245 surface.attach.create surface=5F7E7 inWindow=1
+22:57:06.797 #246 surface.attach.create.done surface=5F7E7 hasSurface=0
+22:57:06.798 #247 surface.size.resume surface=5F7E7 size=760.0x644.0 backing=1520.0x1288.0
+22:57:06.799 #248 portal.bonsplit.container hosted=0x0000000b25993700 class=_TtGC7SwiftUI13NSHostingViewGV8Bonsplit17PaneContainerViewGVS_19_ConditionalContentGS3_GVS_15ModifiedContentV8cmux_DEV31RemoteTmuxWindowMirrorSplitViewVS_P10$22f482d3018TapGestureModifier_GS4_VS5_P10$11f6a826c29WorkspacePanelContentHostViewS7___VS5_14EmptyPanelView_GS4_S9_S7____ frame=240.0,0.0 760.0x672.0 host=0.0,0.0 1000.0x700.0 anchor=240.0,0.0 760.0x644.0
+22:57:06.806 #249 rs.focus.host.attach win=5611 canAccept=0 fr=CmuxMainWindow
+22:57:06.865 #250 surface.attach surface=5F7E7 view=0x0000000b247ede00 attached=1 hasSurface=0 inWindow=1
+22:57:06.865 #251 surface.attach.create surface=5F7E7 inWindow=1
+22:57:06.865 #252 surface.attach.create.done surface=5F7E7 hasSurface=0
+22:57:06.933 #253 mainWindow.visibility.focus.orderFront.end reason=createMainWindow windows=[cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E:visible=1:mini=0:key=1]
+22:57:06.933 #254 mainWindow.visibility.focus.activate.begin reason=createMainWindow windows=[cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E:visible=1:mini=0:key=1]
+22:57:06.934 #255 mainWindow.visibility.focus.activate.end reason=createMainWindow windows=[cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E:visible=1:mini=0:key=1]
+22:57:06.934 #256 mainWindow.visibility.focus reason=createMainWindow windows=[cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E:visible=1:mini=0:key=1]
+22:57:06.935 #257 mainWindow.initialFrameApplied source=persistedGeometry window=D0D43AE4 applied={x=-115.0 y=1244.0 w=1000.0 h=700.0}
+22:57:06.949 #258 notification.auth refresh status=notDetermined mapped=Not Requested
+22:57:06.951 #259 surface.lifecycle.deinit.skip surface=E8A9D workspace=1C606 reason=noRuntimeSurface
+22:57:06.951 #260 surface.lifecycle.deinit.skip surface=A696B workspace=5B6BC reason=noRuntimeSurface
+22:57:06.952 #261 surface.hosted.deinit surface=nil inWindow=0 hasSuperview=0 hidden=1 frame=0.0x0.0
+22:57:06.953 #262 surface.view.deinit view=0x0000000b247ed800 surface=nil inWindow=0 hasSuperview=0
+22:57:07.001 #263 surface.attach surface=5F7E7 view=0x0000000b247ede00 attached=1 hasSurface=0 inWindow=1
+22:57:07.001 #264 surface.attach.create surface=5F7E7 inWindow=1
+22:57:07.001 #265 surface.attach.create.done surface=5F7E7 hasSurface=0
+22:57:07.079 #266 workspace.gitProbe.apply workspace=223EB panel=D3E60 branch=none dirty=0 pr=none
+22:57:07.084 #267 find.applyFirstResponder.defer surface=nil reason=setVisibleInUI
+22:57:07.089 #268 surface.attach surface=5F7E7 view=0x0000000b247ede00 attached=1 hasSurface=0 inWindow=1
+22:57:07.089 #269 surface.attach.create surface=5F7E7 inWindow=1
+22:57:07.089 #270 surface.attach.create.done surface=5F7E7 hasSurface=0
+22:57:07.094 #271 forceRefresh: 5F7E76EB-03E2-4D1D-844A-17DF62BCEE6D reason=setVisibleInUI.deferred inWindow=true bounds=(0.0, 0.0, 760.0, 644.0) metalOK=true hasSurface=false
+22:57:07.094 #272 find.applyFirstResponder.defer surface=5F7E7 reason=setVisibleInUI
+22:57:07.095 #273 find.applyFirstResponder APPLY surface=5F7E7 prevFirstResponder=Optional(<SwiftUI.KeyViewProxy: 0xb28b3b900>)
+22:57:07.100 #274 focus.panel panel=5F7E7 pane=28040 trigger=firstResponder
+22:57:07.101 #275 focus.panel.begin workspace=1C606 panel=5F7E7 trigger=terminalFirstResponder targetPane=28040 focusedPane=28040 selectedTab=9D3E2 converged=1 currentPanel=5F7E7
+22:57:07.101 #276 focus.split.apply.begin workspace=1C606 pane=28040 tab=9D3E2 focusedPane=28040 selectedTab=9D3E2 reassert=1
+22:57:07.101 #277 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:07.101 #278 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:07.101 #279 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:07.101 #280 focus.surface.refresh surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:07.101 #281 forceRefresh: 5F7E76EB-03E2-4D1D-844A-17DF62BCEE6D reason=focus.surface.ensureFocus.alreadyFirstResponder inWindow=true bounds=(0.0, 0.0, 760.0, 644.0) metalOK=true hasSurface=false
+22:57:07.101 #282 focus.split.ensureFocus workspace=1C606 panel=5F7E7 pane=28040 tab=9D3E2 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:07.101 #283 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:07.101 #284 focus.split.apply.end workspace=1C606 panel=5F7E7 type=TerminalPanel focusedPane=28040 selectedTab=9D3E2 prevPanel=5F7E7
+22:57:07.101 #285 focus.surface.reassert surface=5F7E7 reason=applyFirstResponder.afterMakeFirstResponder
+22:57:07.101 #286 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:07.101 #287 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:07.102 #288 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:07.102 #289 focus.panel panel=5F7E7 pane=28040 trigger=standard
+22:57:07.102 #290 focus.panel.begin workspace=1C606 panel=5F7E7 trigger=standard targetPane=28040 focusedPane=28040 selectedTab=9D3E2 converged=1 currentPanel=5F7E7
+22:57:07.102 #291 focus.split.apply.begin workspace=1C606 pane=28040 tab=9D3E2 focusedPane=28040 selectedTab=9D3E2 reassert=1
+22:57:07.102 #292 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:07.102 #293 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:07.102 #294 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:07.102 #295 focus.split.ensureFocus workspace=1C606 panel=5F7E7 pane=28040 tab=9D3E2 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:07.102 #296 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:07.102 #297 focus.split.apply.end workspace=1C606 panel=5F7E7 type=TerminalPanel focusedPane=28040 selectedTab=9D3E2 prevPanel=5F7E7
+22:57:07.102 #298 ws.select.asyncDone id=2 dt=887.56ms selected=1C606
+22:57:07.164 #299 surface.attach surface=5F7E7 view=0x0000000b247ede00 attached=1 hasSurface=0 inWindow=1
+22:57:07.164 #300 surface.attach.create surface=5F7E7 inWindow=1
+22:57:07.164 #301 surface.attach.create.done surface=5F7E7 hasSurface=0
+22:57:07.171 #302 zoom.create surface=5F7E7 context=<redacted:40b>
+22:57:07.190 #303 zoom.create.done surface=5F7E7 context=<redacted:23b>
+22:57:07.268 #304 surface.hosted.deinit surface=nil inWindow=0 hasSuperview=0 hidden=1 frame=0.0x0.0
+22:57:07.270 #305 find.applyFirstResponder.defer surface=5F7E7 reason=surfaceDidBecomeReady
+22:57:07.270 #306 focus.surface.reassert surface=5F7E7 reason=applyFirstResponder.alreadyFirstResponder
+22:57:07.270 #307 focus.surface.refresh surface=5F7E7 reason=applyFirstResponder.alreadyFirstResponder
+22:57:07.270 #308 forceRefresh: 5F7E76EB-03E2-4D1D-844A-17DF62BCEE6D reason=focus.surface.applyFirstResponder.alreadyFirstResponder inWindow=true bounds=(0.0, 0.0, 760.0, 644.0) metalOK=false hasSurface=true
+22:57:07.306 #309 forceRefresh: 5F7E76EB-03E2-4D1D-844A-17DF62BCEE6D reason=unspecified inWindow=true bounds=(0.0, 0.0, 760.0, 644.0) metalOK=false hasSurface=true
+22:57:07.306 #310 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:07.308 #311 surface.view.deinit view=0x0000000b247ecc00 surface=nil inWindow=0 hasSuperview=0
+22:57:07.318 #312 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:07.318 #313 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:07.318 #314 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:07.462 #315 workspace.gitProbe.apply workspace=1C606 panel=5F7E7 branch=none dirty=0 pr=none
+22:57:07.676 #316 monitorMemory.capture window=D0D43AE4 reason=sessionSnapshot sig=[2d …E@-575,982,1920x1080] frame={x=-115.0 y=1244.0 w=1000.0 h=700.0} rememberedConfigs=1
+22:57:07.676 #317 session.save includeScrollback=0 windows=1
+22:57:07.676 #318 session.save.window idx=0 frame={x=-115.0 y=1244.0 w=1000.0 h=700.0} display={id=5 frame={x=-575.0 y=982.0 w=1920.0 h=1080.0} visible={x=-575.0 y=982.0 w=1920.0 h=1050.0}} workspaces=1 selected=0
+22:57:09.552 #319 paneMemGuard.scan panes=1 maxMB=0 thresholdMB=8192 warned=0 scope=1
+22:57:09.816 #320 workspace.title.updatePanel workspace=1C606 panel=5F7E7 panels=1 custom=0 panelChanged=1 workspaceChanged=1 title=<redacted:19b>
+22:57:09.894 #321 notification.queue.drain batch=1 remaining=0 firstSeq=1 lastSeq=1
+22:57:09.894 #322 surface.shellState workspace=1C606 panel=5F7E7 from=unknown to=promptIdle
+22:57:09.894 #323 workspace.prRefresh.schedule workspace=1C606 panel=5F7E7 reason=shellPrompt
+22:57:09.911 #324 notification.queue.drain batch=1 remaining=0 firstSeq=2 lastSeq=2
+22:57:09.945 #325 workspace.title.updatePanel workspace=1C606 panel=5F7E7 panels=1 custom=0 panelChanged=1 workspaceChanged=1 title=<redacted:3b>
+22:57:10.070 #326 notification.queue.drain batch=1 remaining=0 firstSeq=3 lastSeq=3
+22:57:10.257 #327 notification.queue.drain batch=1 remaining=0 firstSeq=4 lastSeq=4
+22:57:10.358 #328 notification.queue.drain batch=1 remaining=0 firstSeq=5 lastSeq=5
+22:57:13.410 #329 mainWindow.delegate.didResignKey window=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E visible=1 mini=0 key=0 main=0
+22:57:13.410 #330 find.window.didResignKey surface=5F7E7 searchActive=false resigningFirstResponder
+22:57:13.411 #331 mainWindow.delegate.didResignMain window=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E visible=1 mini=0 key=0 main=0
+22:57:13.777 #332 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=1
+22:57:14.018 #333 monitorMemory.capture window=D0D43AE4 reason=sessionSnapshot sig=[2d …E@-575,982,1920x1080] frame={x=-115.0 y=1244.0 w=1000.0 h=700.0} rememberedConfigs=1
+22:57:14.018 #334 session.save includeScrollback=0 windows=1
+22:57:14.018 #335 session.save.window idx=0 frame={x=-115.0 y=1244.0 w=1000.0 h=700.0} display={id=5 frame={x=-575.0 y=982.0 w=1920.0 h=1080.0} visible={x=-575.0 y=982.0 w=1920.0 h=1050.0}} workspaces=1 selected=0
+22:57:18.803 #336 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=0
+22:57:21.578 #337 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=0
+22:57:22.119 #338 session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0 source=timer
+22:57:23.118 #339 notification.auth app became active deferred=false
+22:57:23.123 #340 mainWindow.delegate.didBecomeMain window=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E visible=1 mini=0 key=0 main=1
+22:57:23.124 #341 mainWindow.active window={num=5611 id=D0D43AE4 ident=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E key=1 main=1} context=<redacted:345b>
+22:57:23.125 #342 focus.panel panel=5F7E7 pane=28040 trigger=standard
+22:57:23.126 #343 focus.panel.begin workspace=1C606 panel=5F7E7 trigger=standard targetPane=28040 focusedPane=28040 selectedTab=9D3E2 converged=1 currentPanel=5F7E7
+22:57:23.126 #344 focus.split.apply.begin workspace=1C606 pane=28040 tab=9D3E2 focusedPane=28040 selectedTab=9D3E2 reassert=1
+22:57:23.126 #345 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:23.126 #346 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:23.126 #347 focus.guard allowPointerTerminalFirstResponder window=ObjectIdentifier(0x0000000b23d51680) workspace=1C606 panel=5F7E7 eventType=NSEventType(rawValue: 1)
+22:57:23.127 #348 focus.panel panel=5F7E7 pane=28040 trigger=firstResponder
+22:57:23.127 #349 focus.panel.begin workspace=1C606 panel=5F7E7 trigger=terminalFirstResponder targetPane=28040 focusedPane=28040 selectedTab=9D3E2 converged=1 currentPanel=5F7E7
+22:57:23.127 #350 focus.firstResponder surface=5F7E7
+22:57:23.127 #351 forceRefresh: 5F7E76EB-03E2-4D1D-844A-17DF62BCEE6D reason=focus.firstResponder inWindow=true bounds=(0.0, 0.0, 760.0, 644.0) metalOK=false hasSurface=true
+22:57:23.128 #352 focus.ensure.apply surface=5F7E7 tab=1C606 panel=5F7E7 result=1 firstResponder=Optional(<cmux_DEV.GhosttyNSView: 0xb247ede00>)
+22:57:23.128 #353 focus.surface.reassert surface=5F7E7 reason=ensureFocus.afterMakeFirstResponder
+22:57:23.128 #354 focus.surface.refresh surface=5F7E7 reason=ensureFocus.afterMakeFirstResponder
+22:57:23.128 #355 forceRefresh: 5F7E76EB-03E2-4D1D-844A-17DF62BCEE6D reason=focus.surface.ensureFocus.afterMakeFirstResponder inWindow=true bounds=(0.0, 0.0, 760.0, 644.0) metalOK=false hasSurface=true
+22:57:23.128 #356 focus.split.ensureFocus workspace=1C606 panel=5F7E7 pane=28040 tab=9D3E2 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:23.128 #357 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:23.128 #358 focus.split.apply.end workspace=1C606 panel=5F7E7 type=TerminalPanel focusedPane=28040 selectedTab=9D3E2 prevPanel=5F7E7
+22:57:23.129 #359 focus.split.apply.begin workspace=1C606 pane=28040 tab=9D3E2 focusedPane=28040 selectedTab=9D3E2 reassert=1
+22:57:23.129 #360 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:23.129 #361 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:23.129 #362 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:23.129 #363 focus.split.ensureFocus workspace=1C606 panel=5F7E7 pane=28040 tab=9D3E2 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:23.129 #364 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:23.129 #365 focus.split.apply.end workspace=1C606 panel=5F7E7 type=TerminalPanel focusedPane=28040 selectedTab=9D3E2 prevPanel=5F7E7
+22:57:23.129 #366 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:23.129 #367 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:23.129 #368 mainWindow.delegate.didBecomeKey window=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E visible=1 mini=0 key=1 main=1
+22:57:23.129 #369 find.window.didBecomeKey surface=5F7E7 searchActive=false focusTarget=terminal firstResponder=Optional(<cmux_DEV.GhosttyNSView: 0xb247ede00>)
+22:57:23.216 #370 notification.auth refresh status=notDetermined mapped=Not Requested
+22:57:23.223 #371 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:23.223 #372 focus.surface.refresh surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:23.223 #373 forceRefresh: 5F7E76EB-03E2-4D1D-844A-17DF62BCEE6D reason=focus.surface.ensureFocus.alreadyFirstResponder inWindow=true bounds=(0.0, 0.0, 760.0, 644.0) metalOK=false hasSurface=true
+22:57:23.224 #374 find.applyFirstResponder.defer surface=5F7E7 reason=didBecomeKey
+22:57:23.224 #375 focus.surface.reassert surface=5F7E7 reason=applyFirstResponder.alreadyFirstResponder
+22:57:23.779 #376 mainWindow.delegate.didResignKey window=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E visible=1 mini=0 key=0 main=0
+22:57:23.779 #377 find.window.didResignKey surface=5F7E7 searchActive=false resigningFirstResponder
+22:57:23.779 #378 mainWindow.delegate.didResignMain window=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E visible=1 mini=0 key=0 main=0
+22:57:24.384 #379 notification.auth app became active deferred=false
+22:57:24.386 #380 mainWindow.delegate.didBecomeMain window=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E visible=1 mini=0 key=0 main=1
+22:57:24.386 #381 mainWindow.active window={num=5611 id=D0D43AE4 ident=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E key=1 main=1} context=<redacted:345b>
+22:57:24.387 #382 focus.panel panel=5F7E7 pane=28040 trigger=standard
+22:57:24.387 #383 focus.panel.begin workspace=1C606 panel=5F7E7 trigger=standard targetPane=28040 focusedPane=28040 selectedTab=9D3E2 converged=1 currentPanel=5F7E7
+22:57:24.387 #384 focus.split.apply.begin workspace=1C606 pane=28040 tab=9D3E2 focusedPane=28040 selectedTab=9D3E2 reassert=1
+22:57:24.387 #385 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:24.387 #386 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:24.387 #387 focus.guard allowPointerTerminalFirstResponder window=ObjectIdentifier(0x0000000b23d51680) workspace=1C606 panel=5F7E7 eventType=NSEventType(rawValue: 1)
+22:57:24.388 #388 focus.panel panel=5F7E7 pane=28040 trigger=firstResponder
+22:57:24.388 #389 focus.panel.begin workspace=1C606 panel=5F7E7 trigger=terminalFirstResponder targetPane=28040 focusedPane=28040 selectedTab=9D3E2 converged=1 currentPanel=5F7E7
+22:57:24.388 #390 focus.firstResponder surface=5F7E7
+22:57:24.388 #391 forceRefresh: 5F7E76EB-03E2-4D1D-844A-17DF62BCEE6D reason=focus.firstResponder inWindow=true bounds=(0.0, 0.0, 760.0, 644.0) metalOK=false hasSurface=true
+22:57:24.388 #392 focus.ensure.apply surface=5F7E7 tab=1C606 panel=5F7E7 result=1 firstResponder=Optional(<cmux_DEV.GhosttyNSView: 0xb247ede00>)
+22:57:24.388 #393 focus.surface.reassert surface=5F7E7 reason=ensureFocus.afterMakeFirstResponder
+22:57:24.388 #394 focus.surface.refresh surface=5F7E7 reason=ensureFocus.afterMakeFirstResponder
+22:57:24.389 #395 forceRefresh: 5F7E76EB-03E2-4D1D-844A-17DF62BCEE6D reason=focus.surface.ensureFocus.afterMakeFirstResponder inWindow=true bounds=(0.0, 0.0, 760.0, 644.0) metalOK=false hasSurface=true
+22:57:24.389 #396 focus.split.ensureFocus workspace=1C606 panel=5F7E7 pane=28040 tab=9D3E2 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:24.389 #397 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:24.389 #398 focus.split.apply.end workspace=1C606 panel=5F7E7 type=TerminalPanel focusedPane=28040 selectedTab=9D3E2 prevPanel=5F7E7
+22:57:24.389 #399 focus.split.apply.begin workspace=1C606 pane=28040 tab=9D3E2 focusedPane=28040 selectedTab=9D3E2 reassert=1
+22:57:24.389 #400 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:24.390 #401 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:24.390 #402 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:24.390 #403 focus.split.ensureFocus workspace=1C606 panel=5F7E7 pane=28040 tab=9D3E2 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:24.390 #404 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:24.390 #405 focus.split.apply.end workspace=1C606 panel=5F7E7 type=TerminalPanel focusedPane=28040 selectedTab=9D3E2 prevPanel=5F7E7
+22:57:24.390 #406 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:24.390 #407 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:24.390 #408 mainWindow.delegate.didBecomeKey window=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E visible=1 mini=0 key=1 main=1
+22:57:24.390 #409 find.window.didBecomeKey surface=5F7E7 searchActive=false focusTarget=terminal firstResponder=Optional(<cmux_DEV.GhosttyNSView: 0xb247ede00>)
+22:57:24.449 #410 notification.auth refresh status=notDetermined mapped=Not Requested
+22:57:24.454 #411 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:24.454 #412 focus.surface.refresh surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:24.454 #413 forceRefresh: 5F7E76EB-03E2-4D1D-844A-17DF62BCEE6D reason=focus.surface.ensureFocus.alreadyFirstResponder inWindow=true bounds=(0.0, 0.0, 760.0, 644.0) metalOK=false hasSurface=true
+22:57:24.454 #414 find.applyFirstResponder.defer surface=5F7E7 reason=didBecomeKey
+22:57:24.455 #415 focus.surface.reassert surface=5F7E7 reason=applyFirstResponder.alreadyFirstResponder
+22:57:25.572 #416 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=1
+22:57:25.887 #417 mainWindow.delegate.didResignKey window=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E visible=1 mini=0 key=0 main=0
+22:57:25.887 #418 find.window.didResignKey surface=5F7E7 searchActive=false resigningFirstResponder
+22:57:25.887 #419 mainWindow.delegate.didResignMain window=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E visible=1 mini=0 key=0 main=0
+22:57:26.483 #420 notification.auth app became active deferred=false
+22:57:26.487 #421 mainWindow.delegate.didBecomeMain window=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E visible=1 mini=0 key=0 main=1
+22:57:26.487 #422 mainWindow.active window={num=5611 id=D0D43AE4 ident=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E key=1 main=1} context=<redacted:345b>
+22:57:26.488 #423 focus.panel panel=5F7E7 pane=28040 trigger=standard
+22:57:26.488 #424 focus.panel.begin workspace=1C606 panel=5F7E7 trigger=standard targetPane=28040 focusedPane=28040 selectedTab=9D3E2 converged=1 currentPanel=5F7E7
+22:57:26.488 #425 focus.split.apply.begin workspace=1C606 pane=28040 tab=9D3E2 focusedPane=28040 selectedTab=9D3E2 reassert=1
+22:57:26.488 #426 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:26.489 #427 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:26.489 #428 focus.guard allowPointerTerminalFirstResponder window=ObjectIdentifier(0x0000000b23d51680) workspace=1C606 panel=5F7E7 eventType=NSEventType(rawValue: 1)
+22:57:26.489 #429 focus.panel panel=5F7E7 pane=28040 trigger=firstResponder
+22:57:26.489 #430 focus.panel.begin workspace=1C606 panel=5F7E7 trigger=terminalFirstResponder targetPane=28040 focusedPane=28040 selectedTab=9D3E2 converged=1 currentPanel=5F7E7
+22:57:26.489 #431 focus.firstResponder surface=5F7E7
+22:57:26.490 #432 forceRefresh: 5F7E76EB-03E2-4D1D-844A-17DF62BCEE6D reason=focus.firstResponder inWindow=true bounds=(0.0, 0.0, 760.0, 644.0) metalOK=false hasSurface=true
+22:57:26.490 #433 focus.ensure.apply surface=5F7E7 tab=1C606 panel=5F7E7 result=1 firstResponder=Optional(<cmux_DEV.GhosttyNSView: 0xb247ede00>)
+22:57:26.490 #434 focus.surface.reassert surface=5F7E7 reason=ensureFocus.afterMakeFirstResponder
+22:57:26.490 #435 focus.surface.refresh surface=5F7E7 reason=ensureFocus.afterMakeFirstResponder
+22:57:26.490 #436 forceRefresh: 5F7E76EB-03E2-4D1D-844A-17DF62BCEE6D reason=focus.surface.ensureFocus.afterMakeFirstResponder inWindow=true bounds=(0.0, 0.0, 760.0, 644.0) metalOK=false hasSurface=true
+22:57:26.491 #437 focus.split.ensureFocus workspace=1C606 panel=5F7E7 pane=28040 tab=9D3E2 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:26.491 #438 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:26.491 #439 focus.split.apply.end workspace=1C606 panel=5F7E7 type=TerminalPanel focusedPane=28040 selectedTab=9D3E2 prevPanel=5F7E7
+22:57:26.491 #440 focus.split.apply.begin workspace=1C606 pane=28040 tab=9D3E2 focusedPane=28040 selectedTab=9D3E2 reassert=1
+22:57:26.491 #441 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:26.491 #442 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:26.491 #443 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:26.491 #444 focus.split.ensureFocus workspace=1C606 panel=5F7E7 pane=28040 tab=9D3E2 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:26.491 #445 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:26.492 #446 focus.split.apply.end workspace=1C606 panel=5F7E7 type=TerminalPanel focusedPane=28040 selectedTab=9D3E2 prevPanel=5F7E7
+22:57:26.492 #447 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:26.492 #448 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:26.492 #449 mainWindow.delegate.didBecomeKey window=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E visible=1 mini=0 key=1 main=1
+22:57:26.492 #450 find.window.didBecomeKey surface=5F7E7 searchActive=false focusTarget=terminal firstResponder=Optional(<cmux_DEV.GhosttyNSView: 0xb247ede00>)
+22:57:26.550 #451 notification.auth refresh status=notDetermined mapped=Not Requested
+22:57:26.559 #452 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:26.559 #453 focus.surface.refresh surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:26.559 #454 forceRefresh: 5F7E76EB-03E2-4D1D-844A-17DF62BCEE6D reason=focus.surface.ensureFocus.alreadyFirstResponder inWindow=true bounds=(0.0, 0.0, 760.0, 644.0) metalOK=false hasSurface=true
+22:57:26.560 #455 find.applyFirstResponder.defer surface=5F7E7 reason=didBecomeKey
+22:57:26.560 #456 focus.surface.reassert surface=5F7E7 reason=applyFirstResponder.alreadyFirstResponder
+22:57:27.379 #457 mainWindow.delegate.didResignKey window=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E visible=1 mini=0 key=0 main=0
+22:57:27.379 #458 find.window.didResignKey surface=5F7E7 searchActive=false resigningFirstResponder
+22:57:27.379 #459 mainWindow.delegate.didResignMain window=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E visible=1 mini=0 key=0 main=0
+22:57:29.808 #460 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=1
+22:57:29.834 #461 notification.auth app became active deferred=false
+22:57:29.839 #462 mainWindow.delegate.didBecomeMain window=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E visible=1 mini=0 key=0 main=1
+22:57:29.839 #463 mainWindow.active window={num=5611 id=D0D43AE4 ident=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E key=1 main=1} context=<redacted:345b>
+22:57:29.840 #464 focus.panel panel=5F7E7 pane=28040 trigger=standard
+22:57:29.840 #465 focus.panel.begin workspace=1C606 panel=5F7E7 trigger=standard targetPane=28040 focusedPane=28040 selectedTab=9D3E2 converged=1 currentPanel=5F7E7
+22:57:29.840 #466 focus.split.apply.begin workspace=1C606 pane=28040 tab=9D3E2 focusedPane=28040 selectedTab=9D3E2 reassert=1
+22:57:29.840 #467 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:29.840 #468 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:29.840 #469 focus.guard allowPointerTerminalFirstResponder window=ObjectIdentifier(0x0000000b23d51680) workspace=1C606 panel=5F7E7 eventType=NSEventType(rawValue: 1)
+22:57:29.841 #470 focus.panel panel=5F7E7 pane=28040 trigger=firstResponder
+22:57:29.841 #471 focus.panel.begin workspace=1C606 panel=5F7E7 trigger=terminalFirstResponder targetPane=28040 focusedPane=28040 selectedTab=9D3E2 converged=1 currentPanel=5F7E7
+22:57:29.841 #472 focus.firstResponder surface=5F7E7
+22:57:29.841 #473 forceRefresh: 5F7E76EB-03E2-4D1D-844A-17DF62BCEE6D reason=focus.firstResponder inWindow=true bounds=(0.0, 0.0, 760.0, 644.0) metalOK=false hasSurface=true
+22:57:29.841 #474 focus.ensure.apply surface=5F7E7 tab=1C606 panel=5F7E7 result=1 firstResponder=Optional(<cmux_DEV.GhosttyNSView: 0xb247ede00>)
+22:57:29.841 #475 focus.surface.reassert surface=5F7E7 reason=ensureFocus.afterMakeFirstResponder
+22:57:29.841 #476 focus.surface.refresh surface=5F7E7 reason=ensureFocus.afterMakeFirstResponder
+22:57:29.842 #477 forceRefresh: 5F7E76EB-03E2-4D1D-844A-17DF62BCEE6D reason=focus.surface.ensureFocus.afterMakeFirstResponder inWindow=true bounds=(0.0, 0.0, 760.0, 644.0) metalOK=false hasSurface=true
+22:57:29.842 #478 focus.split.ensureFocus workspace=1C606 panel=5F7E7 pane=28040 tab=9D3E2 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:29.842 #479 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:29.842 #480 focus.split.apply.end workspace=1C606 panel=5F7E7 type=TerminalPanel focusedPane=28040 selectedTab=9D3E2 prevPanel=5F7E7
+22:57:29.842 #481 focus.split.apply.begin workspace=1C606 pane=28040 tab=9D3E2 focusedPane=28040 selectedTab=9D3E2 reassert=1
+22:57:29.842 #482 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:29.842 #483 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:29.842 #484 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:29.842 #485 focus.split.ensureFocus workspace=1C606 panel=5F7E7 pane=28040 tab=9D3E2 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:29.842 #486 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:29.843 #487 focus.split.apply.end workspace=1C606 panel=5F7E7 type=TerminalPanel focusedPane=28040 selectedTab=9D3E2 prevPanel=5F7E7
+22:57:29.843 #488 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:29.843 #489 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:29.843 #490 mainWindow.delegate.didBecomeKey window=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E visible=1 mini=0 key=1 main=1
+22:57:29.843 #491 find.window.didBecomeKey surface=5F7E7 searchActive=false focusTarget=terminal firstResponder=Optional(<cmux_DEV.GhosttyNSView: 0xb247ede00>)
+22:57:29.902 #492 notification.auth refresh status=notDetermined mapped=Not Requested
+22:57:29.908 #493 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:29.908 #494 focus.surface.refresh surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:29.908 #495 forceRefresh: 5F7E76EB-03E2-4D1D-844A-17DF62BCEE6D reason=focus.surface.ensureFocus.alreadyFirstResponder inWindow=true bounds=(0.0, 0.0, 760.0, 644.0) metalOK=false hasSurface=true
+22:57:29.909 #496 find.applyFirstResponder.defer surface=5F7E7 reason=didBecomeKey
+22:57:29.909 #497 focus.surface.reassert surface=5F7E7 reason=applyFirstResponder.alreadyFirstResponder
+22:57:30.163 #498 session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0 source=timer
+22:57:31.391 #499 mainWindow.delegate.didResignKey window=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E visible=1 mini=0 key=0 main=0
+22:57:31.391 #500 find.window.didResignKey surface=5F7E7 searchActive=false resigningFirstResponder
+22:57:31.392 #501 mainWindow.delegate.didResignMain window=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E visible=1 mini=0 key=0 main=0
+22:57:34.813 #502 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=0
+22:57:37.968 #503 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=1
+22:57:38.138 #504 session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0 source=timer
+22:57:39.352 #505 notification.auth app became active deferred=false
+22:57:39.354 #506 mainWindow.delegate.didBecomeMain window=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E visible=1 mini=0 key=0 main=1
+22:57:39.354 #507 mainWindow.active window={num=5611 id=D0D43AE4 ident=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E key=1 main=1} context=<redacted:345b>
+22:57:39.355 #508 focus.panel panel=5F7E7 pane=28040 trigger=standard
+22:57:39.356 #509 focus.panel.begin workspace=1C606 panel=5F7E7 trigger=standard targetPane=28040 focusedPane=28040 selectedTab=9D3E2 converged=1 currentPanel=5F7E7
+22:57:39.356 #510 focus.split.apply.begin workspace=1C606 pane=28040 tab=9D3E2 focusedPane=28040 selectedTab=9D3E2 reassert=1
+22:57:39.356 #511 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:39.356 #512 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:39.356 #513 focus.guard allowPointerTerminalFirstResponder window=ObjectIdentifier(0x0000000b23d51680) workspace=1C606 panel=5F7E7 eventType=NSEventType(rawValue: 1)
+22:57:39.356 #514 focus.panel panel=5F7E7 pane=28040 trigger=firstResponder
+22:57:39.356 #515 focus.panel.begin workspace=1C606 panel=5F7E7 trigger=terminalFirstResponder targetPane=28040 focusedPane=28040 selectedTab=9D3E2 converged=1 currentPanel=5F7E7
+22:57:39.356 #516 focus.firstResponder surface=5F7E7
+22:57:39.357 #517 forceRefresh: 5F7E76EB-03E2-4D1D-844A-17DF62BCEE6D reason=focus.firstResponder inWindow=true bounds=(0.0, 0.0, 760.0, 644.0) metalOK=false hasSurface=true
+22:57:39.357 #518 focus.ensure.apply surface=5F7E7 tab=1C606 panel=5F7E7 result=1 firstResponder=Optional(<cmux_DEV.GhosttyNSView: 0xb247ede00>)
+22:57:39.357 #519 focus.surface.reassert surface=5F7E7 reason=ensureFocus.afterMakeFirstResponder
+22:57:39.357 #520 focus.surface.refresh surface=5F7E7 reason=ensureFocus.afterMakeFirstResponder
+22:57:39.357 #521 forceRefresh: 5F7E76EB-03E2-4D1D-844A-17DF62BCEE6D reason=focus.surface.ensureFocus.afterMakeFirstResponder inWindow=true bounds=(0.0, 0.0, 760.0, 644.0) metalOK=false hasSurface=true
+22:57:39.358 #522 focus.split.ensureFocus workspace=1C606 panel=5F7E7 pane=28040 tab=9D3E2 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:39.358 #523 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:39.358 #524 focus.split.apply.end workspace=1C606 panel=5F7E7 type=TerminalPanel focusedPane=28040 selectedTab=9D3E2 prevPanel=5F7E7
+22:57:39.358 #525 focus.split.apply.begin workspace=1C606 pane=28040 tab=9D3E2 focusedPane=28040 selectedTab=9D3E2 reassert=1
+22:57:39.358 #526 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:39.358 #527 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:39.358 #528 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:39.358 #529 focus.split.ensureFocus workspace=1C606 panel=5F7E7 pane=28040 tab=9D3E2 intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:57:39.359 #530 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:39.359 #531 focus.split.apply.end workspace=1C606 panel=5F7E7 type=TerminalPanel focusedPane=28040 selectedTab=9D3E2 prevPanel=5F7E7
+22:57:39.359 #532 find.preparePanelFocusIntent surface=5F7E7 target=terminal
+22:57:39.359 #533 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:39.359 #534 mainWindow.delegate.didBecomeKey window=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E visible=1 mini=0 key=1 main=1
+22:57:39.359 #535 find.window.didBecomeKey surface=5F7E7 searchActive=false focusTarget=terminal firstResponder=Optional(<cmux_DEV.GhosttyNSView: 0xb247ede00>)
+22:57:39.409 #536 surface.size.defer surface=5F7E7 reason=tabDrag size=760.0x644.0 inWindow=1
+22:57:39.426 #537 notification.auth refresh status=notDetermined mapped=Not Requested
+22:57:39.431 #538 focus.surface.reassert surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:39.432 #539 focus.surface.refresh surface=5F7E7 reason=ensureFocus.alreadyFirstResponder
+22:57:39.432 #540 forceRefresh: 5F7E76EB-03E2-4D1D-844A-17DF62BCEE6D reason=focus.surface.ensureFocus.alreadyFirstResponder inWindow=true bounds=(0.0, 0.0, 760.0, 644.0) metalOK=false hasSurface=true
+22:57:39.432 #541 find.applyFirstResponder.defer surface=5F7E7 reason=didBecomeKey
+22:57:39.432 #542 focus.surface.reassert surface=5F7E7 reason=applyFirstResponder.alreadyFirstResponder
+22:57:39.446 #543 surface.size.resume surface=5F7E7 size=760.0x644.0 backing=1520.0x1288.0
+22:57:41.556 #544 mainWindow.delegate.didResignKey window=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E visible=1 mini=0 key=0 main=0
+22:57:41.556 #545 find.window.didResignKey surface=5F7E7 searchActive=false resigningFirstResponder
+22:57:41.557 #546 mainWindow.delegate.didResignMain window=cmux.main.D0D43AE4-370E-45EE-9DBC-B0F7AC92374E visible=1 mini=0 key=0 main=0
+22:57:41.585 #547 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=1
+22:57:45.859 #548 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=1
+22:57:46.102 #549 session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0 source=timer
+22:57:49.916 #550 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=0
+22:57:53.835 #551 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=1
+22:57:54.075 #552 session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0 source=timer
+22:57:57.621 #553 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=1
+22:58:01.774 #554 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=1
+22:58:02.109 #555 session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0 source=timer
+22:58:05.626 #556 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=0
+22:58:09.657 #557 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=0
+22:58:10.115 #558 session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0 source=timer
+22:58:13.639 #559 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=1
+22:58:17.703 #560 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=1
+22:58:18.084 #561 monitorMemory.capture window=D0D43AE4 reason=sessionSnapshot sig=[2d …E@-575,982,1920x1080] frame={x=-115.0 y=1244.0 w=1000.0 h=700.0} rememberedConfigs=1
+22:58:18.085 #562 session.save includeScrollback=0 windows=1
+22:58:18.085 #563 session.save.window idx=0 frame={x=-115.0 y=1244.0 w=1000.0 h=700.0} display={id=5 frame={x=-575.0 y=982.0 w=1920.0 h=1080.0} visible={x=-575.0 y=982.0 w=1920.0 h=1050.0}} workspaces=1 selected=0
+22:58:21.727 #564 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=0
+22:58:26.145 #565 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=1
+22:58:26.429 #566 session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0 source=timer
+22:58:29.931 #567 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=1
+22:58:34.216 #568 session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0 source=timer
+22:58:34.219 #569 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=1
+22:58:37.668 #570 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=0
+22:58:48.016 #571 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=0
+22:58:50.730 #572 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=1
+22:58:59.255 #573 session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0 source=timer
+22:58:59.351 #574 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=0
+22:59:02.944 #575 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=0
+22:59:07.250 #576 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=1
+22:59:07.678 #577 session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0 source=timer
+22:59:10.793 #578 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=0
+22:59:14.361 #579 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=1
+22:59:14.575 #580 session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0 source=timer
+22:59:18.609 #581 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=0
+22:59:22.059 #582 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=1
+22:59:22.438 #583 monitorMemory.capture window=D0D43AE4 reason=sessionSnapshot sig=[2d …E@-575,982,1920x1080] frame={x=-115.0 y=1244.0 w=1000.0 h=700.0} rememberedConfigs=1
+22:59:22.439 #584 session.save includeScrollback=0 windows=1
+22:59:22.439 #585 session.save.window idx=0 frame={x=-115.0 y=1244.0 w=1000.0 h=700.0} display={id=5 frame={x=-575.0 y=982.0 w=1920.0 h=1080.0} visible={x=-575.0 y=982.0 w=1920.0 h=1050.0}} workspaces=1 selected=0
+22:59:26.043 #586 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=0
+22:59:30.059 #587 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=1
+22:59:30.238 #588 session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0 source=timer
+22:59:34.698 #589 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=0
+22:59:38.894 #590 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=1
+22:59:39.098 #591 session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0 source=timer
+22:59:42.883 #592 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=0
+22:59:46.886 #593 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=1
+22:59:47.118 #594 session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0 source=timer
+22:59:51.283 #595 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=0
+22:59:53.840 #596 paneMemGuard.scan panes=1 maxMB=4 thresholdMB=8192 warned=0 scope=1
+22:59:53.925 #597 surface.attach surface=4FFFC view=0x0000000b247ecc00 attached=0 hasSurface=0 inWindow=0
+22:59:53.925 #598 surface.attach.defer surface=4FFFC reason=noWindow bounds=800.0x600.0
+22:59:53.925 #599 surface.size.defer surface=4FFFC reason=noWindow size=800.0x600.0
+22:59:53.932 #600 surface.view.windowMove surface=4FFFC inWindow=1 bounds=800.0x600.0 pending=800.0x600.0
+22:59:53.932 #601 surface.attach surface=4FFFC view=0x0000000b247ecc00 attached=1 hasSurface=0 inWindow=1
+22:59:53.932 #602 surface.attach.create surface=4FFFC inWindow=1
+22:59:53.932 #603 surface.attach.create.done surface=4FFFC hasSurface=0
+22:59:53.933 #604 surface.size.resume surface=4FFFC size=800.0x600.0 backing=1600.0x1200.0
+22:59:53.934 #605 ws.term.visible id=2 dt=167718.21ms surface=4FFFC transition=1->0 active=1 visibleFlag=0 hostHidden=1 surfaceHidden=0 hiddenHierarchy=1 inWindow=0 hasSuperview=1 bounds=800.0x600.0 frame=800.0x600.0 firstResponder=nil
+22:59:53.934 #606 ws.term.active id=2 dt=167718.29ms surface=4FFFC transition=1->0 active=0 visibleFlag=0 hostHidden=1 surfaceHidden=0 hiddenHierarchy=1 inWindow=0 hasSuperview=1 bounds=800.0x600.0 frame=800.0x600.0 firstResponder=nil
+22:59:53.934 #607 surface.headless_window.create surface=4FFFCFBA reason=startup window=ObjectIdentifier(0x0000000b23eda300)
+22:59:53.934 #608 surface.attach surface=4FFFC view=0x0000000b247ecc00 attached=1 hasSurface=0 inWindow=1
+22:59:53.934 #609 surface.attach.create surface=4FFFC inWindow=1
+22:59:53.934 #610 surface.attach.create.done surface=4FFFC hasSurface=0
+22:59:53.935 #611 focus.bonsplit pane=9E095
+22:59:53.935 #612 focus.split.apply.begin workspace=C1F63 pane=9E095 tab=E879D focusedPane=9E095 selectedTab=E879D reassert=1
+22:59:53.935 #613 find.preparePanelFocusIntent surface=4FFFC target=terminal
+22:59:53.935 #614 ws.term.visible id=2 dt=167719.59ms surface=4FFFC transition=0->1 active=0 visibleFlag=1 hostHidden=0 surfaceHidden=0 hiddenHierarchy=0 inWindow=0 hasSuperview=1 bounds=800.0x600.0 frame=800.0x600.0 firstResponder=nil
+22:59:53.935 #615 ws.term.active id=2 dt=167719.66ms surface=4FFFC transition=0->1 active=1 visibleFlag=1 hostHidden=0 surfaceHidden=0 hiddenHierarchy=0 inWindow=0 hasSuperview=1 bounds=800.0x600.0 frame=800.0x600.0 firstResponder=nil
+22:59:53.935 #616 find.preparePanelFocusIntent surface=4FFFC target=terminal
+22:59:53.935 #617 focus.split.moveFocus workspace=C1F63 panel=4FFFC previousExists=0 to=4FFFC
+22:59:53.935 #618 find.moveFocus to=4FFFC from=nil searchState=nil delayMs=0
+22:59:53.935 #619 focus.split.ensureFocus workspace=C1F63 panel=4FFFC pane=9E095 tab=E879D intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:59:53.936 #620 focus.split.apply.end workspace=C1F63 panel=4FFFC type=TerminalPanel focusedPane=9E095 selectedTab=E879D prevPanel=4FFFC
+22:59:53.936 #621 focus.bonsplit pane=9E095
+22:59:53.936 #622 focus.split.apply.begin workspace=C1F63 pane=9E095 tab=E879D focusedPane=9E095 selectedTab=E879D reassert=1
+22:59:53.936 #623 find.preparePanelFocusIntent surface=4FFFC target=terminal
+22:59:53.936 #624 find.preparePanelFocusIntent surface=4FFFC target=terminal
+22:59:53.936 #625 focus.split.moveFocus workspace=C1F63 panel=4FFFC previousExists=0 to=4FFFC
+22:59:53.936 #626 find.moveFocus to=4FFFC from=nil searchState=nil delayMs=0
+22:59:53.936 #627 focus.split.ensureFocus workspace=C1F63 panel=4FFFC pane=9E095 tab=E879D intent=terminal(cmux_DEV.TerminalPanelFocusIntent.surface)
+22:59:53.936 #628 focus.split.apply.end workspace=C1F63 panel=4FFFC type=TerminalPanel focusedPane=9E095 selectedTab=E879D prevPanel=4FFFC
+22:59:53.937 #629 ws.term.visible id=2 dt=167721.70ms surface=4FFFC transition=1->0 active=1 visibleFlag=0 hostHidden=1 surfaceHidden=0 hiddenHierarchy=1 inWindow=0 hasSuperview=1 bounds=800.0x600.0 frame=800.0x600.0 firstResponder=nil
+22:59:53.937 #630 workspace.gitProbe.schedule workspace=C1F63 panel=4FFFC dir=<redacted:17b> reason=initial
+22:59:53.938 #631 workspace.customDescription.update workspace=C1F634BC inputLen=0 inputNewlines=0 normalizedLen=0 normalizedNewlines=0 input=<redacted:22b>
+22:59:53.996 #632 workspace.backgroundPrime.start workspace=C1F63
+22:59:53.998 #633 ws.mount.reconcile id=2 dt=167782.25ms hot=0 selected=1C606 mounted=[1C606,C1F63] added=[C1F63] removed=[]
+22:59:54.034 #634 find.applyFirstResponder.defer surface=4FFFC reason=setVisibleInUI
+22:59:54.034 #635 workspace.title.applyProcess workspace=C1F63 from="Terminal 2" to="Terminal"
+22:59:54.035 #636 workspace.customTitle.write workspace=C1F634BC source=user title=<redacted:20b>
+22:59:54.035 #637 surface.background_start surface=4FFFCFBA inWindow=1 ready=0 source=normal ms=0.08
+22:59:54.059 #638 ws.swiftui.update id=2 dt=167843.66ms surface=4FFFC visible=0 active=0 z=0 hostWindow=0 hostedWindow=1 hostedSuperview=1
+22:59:54.059 #639 terminal.portal.host.claim surface=4FFFC reason=update host=ObjectIdentifier(0x0000000b2647aa00) pane=9E095 inWin=0 size=0.0x0.0 replacingHost=nil
+22:59:54.059 #640 surface.attach surface=4FFFC view=0x0000000b247ecc00 attached=1 hasSurface=0 inWindow=1
+22:59:54.059 #641 surface.attach.create surface=4FFFC inWindow=1
+22:59:54.059 #642 surface.attach.create.done surface=4FFFC hasSurface=0
+22:59:54.060 #643 ws.hostState.deferBind surface=4FFFC reason=hostNoWindow visible=0 active=0 z=0 hostedWindow=1 hostedSuperview=1
+22:59:54.060 #644 ws.term.active id=2 dt=167844.55ms surface=4FFFC transition=1->0 active=0 visibleFlag=0 hostHidden=1 surfaceHidden=0 hiddenHierarchy=1 inWindow=0 hasSuperview=1 bounds=800.0x600.0 frame=800.0x600.0 firstResponder=nil
+22:59:54.077 #645 portal.bind hosted=0x0000000b27a2cf00 anchor=0x0000000b2647aa00 prevAnchor=nil visible=0 prevVisible=0 z=0 prevZ=-9223372036854775808
+22:59:54.078 #646 portal.reparent hosted=0x0000000b27a2cf00 reason=attach super=0x0000000b23d51b80
+22:59:54.079 #647 surface.view.windowMove surface=4FFFC inWindow=1 bounds=760.0x644.0 pending=760.0x644.0
+22:59:54.079 #648 surface.attach surface=4FFFC view=0x0000000b247ecc00 attached=1 hasSurface=0 inWindow=1
+22:59:54.079 #649 surface.headless_window.release surface=4FFFCFBA realWindow=ObjectIdentifier(0x0000000b23d51680)
+22:59:54.079 #650 surface.attach.create surface=4FFFC inWindow=1
+22:59:54.079 #651 surface.attach.create.done surface=4FFFC hasSurface=0
+22:59:54.080 #652 portal.bonsplit.container hosted=0x0000000b27a2cf00 class=_TtGC7SwiftUI13NSHostingViewGV8Bonsplit17PaneContainerViewGVS_19_ConditionalContentGS3_GVS_15ModifiedContentV8cmux_DEV31RemoteTmuxWindowMirrorSplitViewVS_P10$22f482d3018TapGestureModifier_GS4_VS5_P10$11f6a826c29WorkspacePanelContentHostViewS7___VS5_14EmptyPanelView_GS4_S9_S7____ frame=240.0,0.0 760.0x672.0 host=0.0,0.0 1000.0x700.0 anchor=240.0,0.0 760.0x644.0
+22:59:54.093 #653 ws.term.visible id=2 dt=167877.30ms surface=4FFFC transition=0->1 active=0 visibleFlag=1 hostHidden=0 surfaceHidden=0 hiddenHierarchy=0 inWindow=1 hasSuperview=1 bounds=760.0x644.0 frame=760.0x644.0 firstResponder=CmuxMainWindow
+22:59:54.093 #654 ws.term.active id=2 dt=167877.42ms surface=4FFFC transition=0->1 active=1 visibleFlag=1 hostHidden=0 surfaceHidden=0 hiddenHierarchy=0 inWindow=1 hasSuperview=1 bounds=760.0x644.0 frame=760.0x644.0 firstResponder=CmuxMainWindow
+22:59:54.093 #655 find.preparePanelFocusIntent surface=4FFFC target=terminal
+22:59:54.094 #656 surface.attach surface=4FFFC view=0x0000000b247ecc00 attached=1 hasSurface=0 inWindow=1
+22:59:54.094 #657 surface.attach.create surface=4FFFC inWindow=1
+22:59:54.094 #658 surface.attach.create.done surface=4FFFC hasSurface=0
+22:59:54.095 #659 ws.term.visible id=2 dt=167879.07ms surface=4FFFC transition=1->0 active=1 visibleFlag=0 hostHidden=1 surfaceHidden=0 hiddenHierarchy=1 inWindow=1 hasSuperview=1 bounds=760.0x644.0 frame=760.0x644.0 firstResponder=CmuxMainWindow
+22:59:54.095 #660 ws.term.active id=2 dt=167879.15ms surface=4FFFC transition=1->0 active=0 visibleFlag=0 hostHidden=1 surfaceHidden=0 hiddenHierarchy=1 inWindow=1 hasSuperview=1 bounds=760.0x644.0 frame=760.0x644.0 firstResponder=CmuxMainWindow
+22:59:54.107 #661 portal.bonsplit.container hosted=0x0000000b25993700 class=_TtGC7SwiftUI13NSHostingViewGV8Bonsplit17PaneContainerViewGVS_19_ConditionalContentGS3_GVS_15ModifiedContentV8cmux_DEV31RemoteTmuxWindowMirrorSplitViewVS_P10$22f482d3018TapGestureModifier_GS4_VS5_P10$11f6a826c29WorkspacePanelContentHostViewS7___VS5_14EmptyPanelView_GS4_S9_S7____ frame=240.0,0.0 760.0x672.0 host=0.0,0.0 1000.0x700.0 anchor=240.0,0.0 760.0x644.0
+22:59:54.107 #662 portal.bonsplit.container hosted=0x0000000b27a2cf00 class=_TtGC7SwiftUI13NSHostingViewGV8Bonsplit17PaneContainerViewGVS_19_ConditionalContentGS3_GVS_15ModifiedContentV8cmux_DEV31RemoteTmuxWindowMirrorSplitViewVS_P10$22f482d3018TapGestureModifier_GS4_VS5_P10$11f6a826c29WorkspacePanelContentHostViewS7___VS5_14EmptyPanelView_GS4_S9_S7____ frame=240.0,0.0 760.0x672.0 host=0.0,0.0 1000.0x700.0 anchor=240.0,0.0 760.0x644.0
+22:59:54.108 #663 zoom.create surface=4FFFC context=<redacted:40b>
+22:59:54.123 #664 zoom.create.done surface=4FFFC context=<redacted:21b>
+22:59:54.124 #665 workspace.remote.configure.request workspace=C1F634BC target=austinwang@127.0.0.1 transport=ssh port=27851 autoConnect=0 relayPort=60566 localSocket=<redacted:345b>
+22:59:54.139 #666 portal.bonsplit.container hosted=0x0000000b25993700 class=_TtGC7SwiftUI13NSHostingViewGV8Bonsplit17PaneContainerViewGVS_19_ConditionalContentGS3_GVS_15ModifiedContentV8cmux_DEV31RemoteTmuxWindowMirrorSplitViewVS_P10$22f482d3018TapGestureModifier_GS4_VS5_P10$11f6a826c29WorkspacePanelContentHostViewS7___VS5_14EmptyPanelView_GS4_S9_S7____ frame=240.0,0.0 760.0x672.0 host=0.0,0.0 1000.0x700.0 anchor=240.0,0.0 760.0x644.0
+22:59:54.139 #667 portal.bonsplit.container hosted=0x0000000b27a2cf00 class=_TtGC7SwiftUI13NSHostingViewGV8Bonsplit17PaneContainerViewGVS_19_ConditionalContentGS3_GVS_15ModifiedContentV8cmux_DEV31RemoteTmuxWindowMirrorSplitViewVS_P10$22f482d3018TapGestureModifier_GS4_VS5_P10$11f6a826c29WorkspacePanelContentHostViewS7___VS5_14EmptyPanelView_GS4_S9_S7____ frame=240.0,0.0 760.0x672.0 host=0.0,0.0 1000.0x700.0 anchor=240.0,0.0 760.0x644.0
+22:59:54.139 #668 find.applyFirstResponder.defer surface=4FFFC reason=setVisibleInUI
+22:59:54.140 #669 sidebar.snapshot.refresh requested=2
+22:59:54.197 #670 forceRefresh: 4FFFCFBA-7113-4895-8965-0A83C3C08C2A reason=unspecified inWindow=true bounds=(0.0, 0.0, 760.0, 644.0) metalOK=false hasSurface=true
+22:59:54.198 #671 ws.term.visible id=2 dt=167982.30ms surface=4FFFC transition=0->1 active=0 visibleFlag=1 hostHidden=0 surfaceHidden=0 hiddenHierarchy=0 inWindow=1 hasSuperview=1 bounds=760.0x644.0 frame=760.0x644.0 firstResponder=CmuxMainWindow
+22:59:54.198 #672 ws.term.active id=2 dt=167982.50ms surface=4FFFC transition=0->1 active=1 visibleFlag=1 hostHidden=0 surfaceHidden=0 hiddenHierarchy=0 inWindow=1 hasSuperview=1 bounds=760.0x644.0 frame=760.0x644.0 firstResponder=CmuxMainWindow
+22:59:54.199 #673 workspace.backgroundPrime.finish workspace=C1F63 reason=surface_ready ms=202.73
+22:59:54.201 #674 portal.bonsplit.container hosted=0x0000000b25993700 class=_TtGC7SwiftUI13NSHostingViewGV8Bonsplit17PaneContainerViewGVS_19_ConditionalContentGS3_GVS_15ModifiedContentV8cmux_DEV31RemoteTmuxWindowMirrorSplitViewVS_P10$22f482d3018TapGestureModifier_GS4_VS5_P10$11f6a826c29WorkspacePanelContentHostViewS7___VS5_14EmptyPanelView_GS4_S9_S7____ frame=240.0,0.0 760.0x672.0 host=0.0,0.0 1000.0x700.0 anchor=240.0,0.0 760.0x644.0
+22:59:54.201 #675 portal.bonsplit.container hosted=0x0000000b27a2cf00 class=_TtGC7SwiftUI13NSHostingViewGV8Bonsplit17PaneContainerViewGVS_19_ConditionalContentGS3_GVS_15ModifiedContentV8cmux_DEV31RemoteTmuxWindowMirrorSplitViewVS_P10$22f482d3018TapGestureModifier_GS4_VS5_P10$11f6a826c29WorkspacePanelContentHostViewS7___VS5_14EmptyPanelView_GS4_S9_S7____ frame=240.0,0.0 760.0x672.0 host=0.0,0.0 1000.0x700.0 anchor=240.0,0.0 760.0x644.0
+22:59:54.201 #676 portal.hidden hosted=0x0000000b27a2cf00 value=1 visibleInUI=1 anchorHidden=1 tiny=0 revealReady=1 finite=1 outside=0 frame=240.0,0.0 760.0x644.0 host=0.0,0.0 1000.0x700.0
+22:59:54.202 #677 forceRefresh: 4FFFCFBA-7113-4895-8965-0A83C3C08C2A reason=setVisibleInUI.deferred inWindow=true bounds=(0.0, 0.0, 760.0, 644.0) metalOK=false hasSurface=true
+22:59:54.202 #678 find.applyFirstResponder.defer surface=4FFFC reason=setVisibleInUI
+22:59:54.202 #679 focus.apply.skip surface=4FFFC reason=hidden_or_tiny hidden=1 frame=760.0x644.0 surfaceFrame=760.0x644.0
+22:59:54.206 #680 portal.bonsplit.container hosted=0x0000000b25993700 class=_TtGC7SwiftUI13NSHostingViewGV8Bonsplit17PaneContainerViewGVS_19_ConditionalContentGS3_GVS_15ModifiedContentV8cmux_DEV31RemoteTmuxWindowMirrorSplitViewVS_P10$22f482d3018TapGestureModifier_GS4_VS5_P10$11f6a826c29WorkspacePanelContentHostViewS7___VS5_14EmptyPanelView_GS4_S9_S7____ frame=240.0,0.0 760.0x672.0 host=0.0,0.0 1000.0x700.0 anchor=240.0,0.0 760.0x644.0
+22:59:54.206 #681 portal.bonsplit.container hosted=0x0000000b27a2cf00 class=_TtGC7SwiftUI13NSHostingViewGV8Bonsplit17PaneContainerViewGVS_19_ConditionalContentGS3_GVS_15ModifiedContentV8cmux_DEV31RemoteTmuxWindowMirrorSplitViewVS_P10$22f482d3018TapGestureModifier_GS4_VS5_P10$11f6a826c29WorkspacePanelContentHostViewS7___VS5_14EmptyPanelView_GS4_S9_S7____ frame=240.0,0.0 760.0x672.0 host=0.0,0.0 1000.0x700.0 anchor=240.0,0.0 760.0x644.0
+22:59:54.259 #682 monitorMemory.capture window=D0D43AE4 reason=sessionSnapshot sig=[2d …E@-575,982,1920x1080] frame={x=-115.0 y=1244.0 w=1000.0 h=700.0} rememberedConfigs=1
+22:59:54.259 #683 session.save includeScrollback=0 windows=1
+22:59:54.259 #684 session.save.window idx=0 frame={x=-115.0 y=1244.0 w=1000.0 h=700.0} display={id=5 frame={x=-575.0 y=982.0 w=1920.0 h=1080.0} visible={x=-575.0 y=982.0 w=1920.0 h=1050.0}} workspaces=2 selected=0
+22:59:54.275 #685 portal.bonsplit.container hosted=0x0000000b25993700 class=_TtGC7SwiftUI13NSHostingViewGV8Bonsplit17PaneContainerViewGVS_19_ConditionalContentGS3_GVS_15ModifiedContentV8cmux_DEV31RemoteTmuxWindowMirrorSplitViewVS_P10$22f482d3018TapGestureModifier_GS4_VS5_P10$11f6a826c29WorkspacePanelContentHostViewS7___VS5_14EmptyPanelView_GS4_S9_S7____ frame=240.0,0.0 760.0x672.0 host=0.0,0.0 1000.0x700.0 anchor=240.0,0.0 760.0x644.0
+22:59:54.275 #686 portal.bonsplit.container hosted=0x0000000b27a2cf00 class=_TtGC7SwiftUI13NSHostingViewGV8Bonsplit17PaneContainerViewGVS_19_ConditionalContentGS3_GVS_15ModifiedContentV8cmux_DEV31RemoteTmuxWindowMirrorSplitViewVS_P10$22f482d3018TapGestureModifier_GS4_VS5_P10$11f6a826c29WorkspacePanelContentHostViewS7___VS5_14EmptyPanelView_GS4_S9_S7____ frame=240.0,0.0 760.0x672.0 host=0.0,0.0 1000.0x700.0 anchor=240.0,0.0 760.0x644.0
+22:59:54.305 #687 ws.term.visible id=2 dt=168089.99ms surface=4FFFC transition=1->0 active=1 visibleFlag=0 hostHidden=1 surfaceHidden=0 hiddenHierarchy=1 inWindow=1 hasSuperview=1 bounds=760.0x644.0 frame=760.0x644.0 firstResponder=CmuxMainWindow
+22:59:54.306 #688 ws.term.active id=2 dt=168090.10ms surface=4FFFC transition=1->0 active=0 visibleFlag=0 hostHidden=1 surfaceHidden=0 hiddenHierarchy=1 inWindow=1 hasSuperview=1 bounds=760.0x644.0 frame=760.0x644.0 firstResponder=CmuxMainWindow
+22:59:54.387 #689 portal.bonsplit.container hosted=0x0000000b25993700 class=_TtGC7SwiftUI13NSHostingViewGV8Bonsplit17PaneContainerViewGVS_19_ConditionalContentGS3_GVS_15ModifiedContentV8cmux_DEV31RemoteTmuxWindowMirrorSplitViewVS_P10$22f482d3018TapGestureModifier_GS4_VS5_P10$11f6a826c29WorkspacePanelContentHostViewS7___VS5_14EmptyPanelView_GS4_S9_S7____ frame=240.0,0.0 760.0x672.0 host=0.0,0.0 1000.0x700.0 anchor=240.0,0.0 760.0x644.0
+22:59:54.387 #690 portal.bonsplit.container hosted=0x0000000b27a2cf00 class=_TtGC7SwiftUI13NSHostingViewGV8Bonsplit17PaneContainerViewGVS_19_ConditionalContentGS3_GVS_15ModifiedContentV8cmux_DEV31RemoteTmuxWindowMirrorSplitViewVS_P10$22f482d3018TapGestureModifier_GS4_VS5_P10$11f6a826c29WorkspacePanelContentHostViewS7___VS5_14EmptyPanelView_GS4_S9_S7____ frame=240.0,0.0 760.0x672.0 host=0.0,0.0 1000.0x700.0 anchor=240.0,0.0 760.0x644.0
+22:59:54.449 #691 portal.bonsplit.container hosted=0x0000000b25993700 class=_TtGC7SwiftUI13NSHostingViewGV8Bonsplit17PaneContainerViewGVS_19_ConditionalContentGS3_GVS_15ModifiedContentV8cmux_DEV31RemoteTmuxWindowMirrorSplitViewVS_P10$22f482d3018TapGestureModifier_GS4_VS5_P10$11f6a826c29WorkspacePanelContentHostViewS7___VS5_14EmptyPanelView_GS4_S9_S7____ frame=240.0,0.0 760.0x672.0 host=0.0,0.0 1000.0x700.0 anchor=240.0,0.0 760.0x644.0
+22:59:54.449 #692 portal.bonsplit.container hosted=0x0000000b27a2cf00 class=_TtGC7SwiftUI13NSHostingViewGV8Bonsplit17PaneContainerViewGVS_19_ConditionalContentGS3_GVS_15ModifiedContentV8cmux_DEV31RemoteTmuxWindowMirrorSplitViewVS_P10$22f482d3018TapGestureModifier_GS4_VS5_P10$11f6a826c29WorkspacePanelContentHostViewS7___VS5_14EmptyPanelView_GS4_S9_S7____ frame=240.0,0.0 760.0x672.0 host=0.0,0.0 1000.0x700.0 anchor=240.0,0.0 760.0x644.0
+22:59:55.154 #693 remote.session.start target=austinwang@127.0.0.1:27851 port=27851 relayPort=60566 localSocket=<redacted:49b> controlPath=<redacted:58b>
+22:59:57.243 #694 remote.session.connect.begin retry=0 target=austinwang@127.0.0.1:27851 port=27851 relayPort=60566 localSocket=<redacted:49b> controlPath=<redacted:58b>
+22:59:57.246 #695 remote.bootstrap.begin target=austinwang@127.0.0.1:27851 port=27851 relayPort=60566 localSocket=<redacted:49b> controlPath=<redacted:58b>
+22:59:57.254 #696 remote.proc.start exec=<redacted:1765b>
+22:59:57.976 #697 remote.proc.end exec=<redacted:193b>
+22:59:57.976 #698 remote.bootstrap.platform os=darwin arch=amd64 version=0.64.19 remotePath=<redacted:140b> relativePath=<redacted:101b>
+22:59:57.976 #699 remote.bootstrap.binaryExists remotePath=<redacted:149b>
+22:59:58.022 #700 notification.store.add workspace=C1F634BC surface=nil titleLen=16 subtitleLen=26 bodyLen=117 cooldown=1
+22:59:58.023 #701 ws.mount.reconcile id=2 dt=171807.81ms hot=0 selected=1C606 mounted=[1C606] added=[] removed=[C1F63]
+22:59:58.024 #702 portal.hideEntry hosted=0x0000000b27a2cf00 reason=workspaceUnmount
+22:59:58.031 #703 notification.store.record workspace=C1F634BC surface=nil removed=0 unread=1 paneFlash=1 suppressExternal=0 total=1
+22:59:58.031 #704 notification.store.sideEffects workspace=C1F634BC surface=nil desktop=1 sound=1 command=<redacted:20b>
+22:59:58.082 #705 notification.sound.focusGate suppressed=0 storeReadable=0
+22:59:58.165 #706 ws.swiftui.dismantle id=2 dt=171949.98ms surface=4FFFC inWindow=1
+22:59:58.166 #707 terminal.portal.host.authorityCleared surface=4FFFC host=ObjectIdentifier(0x0000000b2647aa00) pane=9E095 generation=2 serial=2
+22:59:58.166 #708 terminal.portal.host.rearm surface=4FFFC reason=dismantle host=ObjectIdentifier(0x0000000b2647aa00) pane=9E095 area=489440.0
+22:59:58.210 #709 portal.detach hosted=0x0000000b27a2cf00 anchor=nil hadSuperview=1
+22:59:58.210 #710 surface.view.windowMove surface=4FFFC inWindow=0 bounds=760.0x644.0 pending=760.0x644.0
+22:59:58.211 #711 portal.bonsplit.container hosted=0x0000000b25993700 class=_TtGC7SwiftUI13NSHostingViewGV8Bonsplit17PaneContainerViewGVS_19_ConditionalContentGS3_GVS_15ModifiedContentV8cmux_DEV31RemoteTmuxWindowMirrorSplitViewVS_P10$22f482d3018TapGestureModifier_GS4_VS5_P10$11f6a826c29WorkspacePanelContentHostViewS7___VS5_14EmptyPanelView_GS4_S9_S7____ frame=240.0,0.0 760.0x672.0 host=0.0,0.0 1000.0x700.0 anchor=240.0,0.0 760.0x644.0
+22:59:58.246 #712 remote.session.reachability outcome=reachable streak=0 decision=retry target=austinwang@127.0.0.1:27851 port=27851 relayPort=60566 localSocket=<redacted:49b> controlPath=<redacted:58b>
+22:59:58.423 #713 paneMemGuard.scan panes=2 maxMB=17 thresholdMB=8192 warned=0 scope=0
+23:00:02.815 #714 paneMemGuard.scan panes=2 maxMB=16 thresholdMB=8192 warned=0 scope=1
+23:00:03.161 #715 monitorMemory.capture window=D0D43AE4 reason=sessionSnapshot sig=[2d …E@-575,982,1920x1080] frame={x=-115.0 y=1244.0 w=1000.0 h=700.0} rememberedConfigs=1
+23:00:03.161 #716 session.save includeScrollback=0 windows=1
+23:00:03.161 #717 session.save.window idx=0 frame={x=-115.0 y=1244.0 w=1000.0 h=700.0} display={id=5 frame={x=-575.0 y=982.0 w=1920.0 h=1080.0} visible={x=-575.0 y=982.0 w=1920.0 h=1050.0}} workspaces=2 selected=1
+23:00:05.224 #718 remote.session.connect.begin retry=1 target=austinwang@127.0.0.1:27851 port=27851 relayPort=60566 localSocket=<redacted:49b> controlPath=<redacted:58b>
+23:00:05.224 #719 remote.bootstrap.begin target=austinwang@127.0.0.1:27851 port=27851 relayPort=60566 localSocket=<redacted:49b> controlPath=<redacted:58b>
+23:00:05.237 #720 remote.proc.start exec=<redacted:1765b>
+23:00:05.266 #721 sidebar.snapshot.refresh requested=1
+23:00:05.568 #722 paneMemGuard.scan panes=2 maxMB=16 thresholdMB=8192 warned=0 scope=1
+23:00:05.817 #723 remote.proc.end exec=<redacted:193b>
+23:00:05.817 #724 remote.bootstrap.platform os=darwin arch=amd64 version=0.64.19 remotePath=<redacted:140b> relativePath=<redacted:101b>
+23:00:05.818 #725 remote.bootstrap.binaryExists remotePath=<redacted:149b>
+23:00:05.880 #726 notification.store.add workspace=C1F634BC surface=nil titleLen=16 subtitleLen=26 bodyLen=117 cooldown=1
+23:00:05.881 #727 notification.store.add.skip workspace=C1F634BC surface=nil reason=cooldown
+23:00:05.905 #728 remote.session.reachability outcome=reachable streak=0 decision=retry target=austinwang@127.0.0.1:27851 port=27851 relayPort=60566 localSocket=<redacted:49b> controlPath=<redacted:58b>
+23:00:05.922 #729 sidebar.snapshot.refresh requested=1
+23:00:12.955 #730 socket.command.end proto=v2 method=workspace.list status=ok ms=1633.21 main_hops=1 main_wait_ms=1328.64 main_body_ms=302.20 bytes=2440
+23:00:20.455 #731 socket.command.end proto=v2 method=workspace.list status=ok ms=1207.86 main_hops=1 main_wait_ms=0.05 main_body_ms=739.83 bytes=2440
+23:00:30.912 #732 socket.command.end proto=v2 method=workspace.list status=ok ms=3159.19 main_hops=1 main_wait_ms=0.07 main_body_ms=2105.72 bytes=2440
+23:00:41.336 #733 socket.command.end proto=v2 method=workspace.list status=ok ms=4121.33 main_hops=1 main_wait_ms=1357.86 main_body_ms=2205.70 bytes=2440
+23:00:50.917 #734 socket.command.end proto=v2 method=workspace.list status=ok ms=1220.05 main_hops=1 main_wait_ms=0.05 main_body_ms=943.61 bytes=2440
+23:01:00.688 #735 remote.session.connect.begin retry=2 target=austinwang@127.0.0.1:27851 port=27851 relayPort=60566 localSocket=<redacted:49b> controlPath=<redacted:58b>
+23:01:00.757 #736 remote.bootstrap.begin target=austinwang@127.0.0.1:27851 port=27851 relayPort=60566 localSocket=<redacted:49b> controlPath=<redacted:58b>
+23:01:00.766 #737 remote.proc.start exec=<redacted:1765b>
+23:01:00.784 #738 socket.command.end proto=v2 method=workspace.list status=ok ms=932.36 main_hops=1 main_wait_ms=698.38 main_body_ms=215.48 bytes=2440
+23:01:01.353 #739 remote.proc.end exec=<redacted:193b>
+23:01:01.357 #740 remote.bootstrap.platform os=darwin arch=amd64 version=0.64.19 remotePath=<redacted:140b> relativePath=<redacted:101b>
+23:01:01.362 #741 remote.bootstrap.binaryExists remotePath=<redacted:149b>
+23:01:01.429 #742 sidebar.snapshot.refresh requested=1
+23:01:02.773 #743 remote.session.reachability outcome=reachable streak=0 decision=retry target=austinwang@127.0.0.1:27851 port=27851 relayPort=60566 localSocket=<redacted:49b> controlPath=<redacted:58b>
+23:01:03.782 #744 notification.store.add workspace=C1F634BC surface=nil titleLen=16 subtitleLen=26 bodyLen=118 cooldown=1
+23:01:03.782 #745 notification.store.add.skip workspace=C1F634BC surface=nil reason=cooldown
+23:01:03.786 #746 socket.command.end proto=v2 method=workspace.list status=ok ms=1760.61 main_hops=1 main_wait_ms=1752.94 main_body_ms=1.71 bytes=2442
+23:01:03.823 #747 sidebar.snapshot.refresh requested=1
+23:01:04.177 #748 monitorMemory.capture window=D0D43AE4 reason=sessionSnapshot sig=[2d …E@-575,982,1920x1080] frame={x=-115.0 y=1244.0 w=1000.0 h=700.0} rememberedConfigs=1
+23:01:04.177 #749 session.save includeScrollback=0 windows=1
+23:01:04.177 #750 session.save.window idx=0 frame={x=-115.0 y=1244.0 w=1000.0 h=700.0} display={id=5 frame={x=-575.0 y=982.0 w=1920.0 h=1080.0} visible={x=-575.0 y=982.0 w=1920.0 h=1050.0}} workspaces=2 selected=1
+23:01:04.345 #751 paneMemGuard.scan panes=2 maxMB=15 thresholdMB=8192 warned=0 scope=1
+23:01:05.614 #752 paneMemGuard.scan panes=2 maxMB=15 thresholdMB=8192 warned=0 scope=1
+23:01:14.843 #753 paneMemGuard.scan panes=2 maxMB=15 thresholdMB=8192 warned=0 scope=0

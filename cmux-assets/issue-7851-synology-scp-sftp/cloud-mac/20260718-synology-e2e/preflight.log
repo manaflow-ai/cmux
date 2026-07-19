@@ -1,0 +1,11 @@
+== local CUA tool preflight ==
+local commands: ok
+cloud-mac provision wrapper: ok
+cloud-mac CUA SSH bootstrap: ok
+macfleet admin lookup: unavailable (optional, account=manaflow)
+tailnet DNS/SSH lookup will be used during provisioning
+cua-vnc: ok
+cua-ssh: ok
+cloud Mac backend checkout: ok
+gh repo access: ok
+preflight complete

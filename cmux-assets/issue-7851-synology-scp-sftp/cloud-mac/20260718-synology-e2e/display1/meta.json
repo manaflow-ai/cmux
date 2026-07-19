@@ -1,0 +1,39 @@
+{
+  "id": "display-1-20260718-225749-2edb65",
+  "status": "complete",
+  "mode": "display",
+  "host": "local",
+  "target": "display-1",
+  "capturedAt": "2026-07-19T05:58:24Z",
+  "remoteFile": "/tmp/cua-ssh-screenshot-display-1-20260718-225749-2edb65.png",
+  "remoteLog": "/tmp/cua-ssh-screenshot-display-1-20260718-225749-2edb65.log",
+  "method": "gui-helper-service",
+  "localDir": "/Users/austinwang/manaflow/term/cmux145/cmux-assets/issue-7851-synology-scp-sftp/cloud-mac/20260718-synology-e2e/display1",
+  "localFile": "/Users/austinwang/manaflow/term/cmux145/cmux-assets/issue-7851-synology-scp-sftp/cloud-mac/20260718-synology-e2e/display1/screenshot.png",
+  "display": 1,
+  "command": [
+    "/usr/bin/open",
+    "-g",
+    "-n",
+    "-W",
+    "/Users/austinwang/Applications/CuaSshScreenCapture.app",
+    "--args",
+    "desktop",
+    "\u003cframe.png\u003e"
+  ],
+  "artifacts": {
+    "localFile": "/Users/austinwang/manaflow/term/cmux145/cmux-assets/issue-7851-synology-scp-sftp/cloud-mac/20260718-synology-e2e/display1/screenshot.png",
+    "metaPath": "/Users/austinwang/manaflow/term/cmux145/cmux-assets/issue-7851-synology-scp-sftp/cloud-mac/20260718-synology-e2e/display1/meta.json",
+    "artifactsPath": "/Users/austinwang/manaflow/term/cmux145/cmux-assets/issue-7851-synology-scp-sftp/cloud-mac/20260718-synology-e2e/display1/artifacts.json",
+    "notesPath": "/Users/austinwang/manaflow/term/cmux145/cmux-assets/issue-7851-synology-scp-sftp/cloud-mac/20260718-synology-e2e/display1/notes.txt",
+    "imageWidth": 1512,
+    "imageHeight": 982,
+    "displayWidth": 1512,
+    "displayHeight": 982,
+    "warnings": [
+      "inspect screenshot.png to confirm app windows are visible; macOS can redact helper captures to wallpaper-only frames",
+      "verified helper display screenshot against visible window: Messages window 5061 visible by titlebar controls",
+      "GUI helper screenshot cursor visibility depends on the helper and active overlay state"
+    ]
+  }
+}

@@ -1,0 +1,97 @@
+Server listening on 127.0.0.1 port 27851.
+Connection from 127.0.0.1 port 51188 on 127.0.0.1 port 27851
+Failed publickey for austinwang from 127.0.0.1 port 51188 ssh2: ED25519 SHA256:p++Dck3aztxbpL9cH8p4XmA8S1m5Zuu7EP1qXhFvccM
+Accepted key ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ found at /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/authorized_keys:1
+Postponed publickey for austinwang from 127.0.0.1 port 51188 ssh2 [preauth]
+Accepted key ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ found at /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/authorized_keys:1
+Accepted publickey for austinwang from 127.0.0.1 port 51188 ssh2: ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+User child is on pid 77535
+Starting session: forced-command (key-option) '/Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/wrap.sh' for austinwang from 127.0.0.1 port 51188 id 0
+Received disconnect from 127.0.0.1 port 51188:11: disconnected by user
+Disconnected from user austinwang 127.0.0.1 port 51188
+Connection from 127.0.0.1 port 51328 on 127.0.0.1 port 27851
+Failed publickey for austinwang from 127.0.0.1 port 51328 ssh2: ED25519 SHA256:p++Dck3aztxbpL9cH8p4XmA8S1m5Zuu7EP1qXhFvccM
+Accepted key ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ found at /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/authorized_keys:1
+Postponed publickey for austinwang from 127.0.0.1 port 51328 ssh2 [preauth]
+Accepted key ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ found at /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/authorized_keys:1
+Accepted publickey for austinwang from 127.0.0.1 port 51328 ssh2: ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+User child is on pid 79534
+Starting session: forced-command (key-option) '/Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/wrap.sh' for austinwang from 127.0.0.1 port 51328 id 0
+Received disconnect from 127.0.0.1 port 51328:11: disconnected by user
+Disconnected from user austinwang 127.0.0.1 port 51328
+Connection from 127.0.0.1 port 51330 on 127.0.0.1 port 27851
+Failed publickey for austinwang from 127.0.0.1 port 51330 ssh2: ED25519 SHA256:p++Dck3aztxbpL9cH8p4XmA8S1m5Zuu7EP1qXhFvccM
+Accepted key ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ found at /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/authorized_keys:1
+Postponed publickey for austinwang from 127.0.0.1 port 51330 ssh2 [preauth]
+Accepted key ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ found at /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/authorized_keys:1
+Accepted publickey for austinwang from 127.0.0.1 port 51330 ssh2: ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+User child is on pid 79584
+subsystem request for sftp by user austinwang failed, subsystem not found
+Connection closed by 127.0.0.1 port 51330
+Close session: user austinwang from 127.0.0.1 port 51330 id 0
+Transferred: sent 3488, received 3776 bytes
+Closing connection to 127.0.0.1 port 51330
+Connection from 127.0.0.1 port 51333 on 127.0.0.1 port 27851
+Failed publickey for austinwang from 127.0.0.1 port 51333 ssh2: ED25519 SHA256:p++Dck3aztxbpL9cH8p4XmA8S1m5Zuu7EP1qXhFvccM
+Accepted key ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ found at /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/authorized_keys:1
+Postponed publickey for austinwang from 127.0.0.1 port 51333 ssh2 [preauth]
+Accepted key ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ found at /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/authorized_keys:1
+Accepted publickey for austinwang from 127.0.0.1 port 51333 ssh2: ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+User child is on pid 79618
+Starting session: forced-command (key-option) '/Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/wrap.sh' for austinwang from 127.0.0.1 port 51333 id 0
+Received disconnect from 127.0.0.1 port 51333:11: disconnected by user
+Disconnected from user austinwang 127.0.0.1 port 51333
+Connection from 127.0.0.1 port 51336 on 127.0.0.1 port 27851
+Failed publickey for austinwang from 127.0.0.1 port 51336 ssh2: ED25519 SHA256:p++Dck3aztxbpL9cH8p4XmA8S1m5Zuu7EP1qXhFvccM
+Accepted key ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ found at /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/authorized_keys:1
+Postponed publickey for austinwang from 127.0.0.1 port 51336 ssh2 [preauth]
+Accepted key ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ found at /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/authorized_keys:1
+Accepted publickey for austinwang from 127.0.0.1 port 51336 ssh2: ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+User child is on pid 79644
+Starting session: forced-command (key-option) '/Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/wrap.sh' for austinwang from 127.0.0.1 port 51336 id 0
+Received disconnect from 127.0.0.1 port 51336:11: disconnected by user
+Disconnected from user austinwang 127.0.0.1 port 51336
+Connection from 127.0.0.1 port 53975 on 127.0.0.1 port 27851
+Failed publickey for austinwang from 127.0.0.1 port 53975 ssh2: ED25519 SHA256:p++Dck3aztxbpL9cH8p4XmA8S1m5Zuu7EP1qXhFvccM
+Accepted key ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ found at /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/authorized_keys:1
+Postponed publickey for austinwang from 127.0.0.1 port 53975 ssh2 [preauth]
+Accepted key ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ found at /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/authorized_keys:1
+Accepted publickey for austinwang from 127.0.0.1 port 53975 ssh2: ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+User child is on pid 19110
+Starting session: forced-command (key-option) '/Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/wrap.sh' for austinwang from 127.0.0.1 port 53975 id 0
+Received disconnect from 127.0.0.1 port 53975:11: disconnected by user
+Disconnected from user austinwang 127.0.0.1 port 53975
+Connection from 127.0.0.1 port 54047 on 127.0.0.1 port 27851
+Failed publickey for austinwang from 127.0.0.1 port 54047 ssh2: ED25519 SHA256:p++Dck3aztxbpL9cH8p4XmA8S1m5Zuu7EP1qXhFvccM
+Accepted key ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ found at /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/authorized_keys:1
+Postponed publickey for austinwang from 127.0.0.1 port 54047 ssh2 [preauth]
+Accepted key ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ found at /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/authorized_keys:1
+Accepted publickey for austinwang from 127.0.0.1 port 54047 ssh2: ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ
+BSM audit: bsm_audit_session_setup: setaudit_addr failed: Operation not permitted
+User child is on pid 20211
+Starting session: forced-command (key-option) '/Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/wrap.sh' for austinwang from 127.0.0.1 port 54047 id 0
+Close session: user austinwang from 127.0.0.1 port 54047 id 0
+Starting session: forced-command (key-option) '/Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/wrap.sh' for austinwang from 127.0.0.1 port 54047 id 0
+Close session: user austinwang from 127.0.0.1 port 54047 id 0
+Connection from 127.0.0.1 port 54057 on 127.0.0.1 port 27851
+kex_exchange_identification: Connection closed by remote host
+Connection closed by 127.0.0.1 port 54057
+srclimit_penalise: ipv4: new 127.0.0.1/32 deferred penalty of 1 seconds for penalty: connections without attempting authentication
+Starting session: forced-command (key-option) '/Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/wrap.sh' for austinwang from 127.0.0.1 port 54047 id 0
+Close session: user austinwang from 127.0.0.1 port 54047 id 0
+Connection from 127.0.0.1 port 54167 on 127.0.0.1 port 27851
+kex_exchange_identification: Connection closed by remote host
+Connection closed by 127.0.0.1 port 54167
+srclimit_penalise: ipv4: new 127.0.0.1/32 deferred penalty of 1 seconds for penalty: connections without attempting authentication
+Starting session: forced-command (key-option) '/Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/wrap.sh' for austinwang from 127.0.0.1 port 54047 id 0
+Close session: user austinwang from 127.0.0.1 port 54047 id 0
+Connection from 127.0.0.1 port 54440 on 127.0.0.1 port 27851
+kex_exchange_identification: read: Connection reset by peer
+Connection reset by 127.0.0.1 port 54440
+srclimit_penalise: ipv4: new 127.0.0.1/32 deferred penalty of 1 seconds for penalty: connections without attempting authentication

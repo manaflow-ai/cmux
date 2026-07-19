@@ -1,0 +1,175 @@
+OpenSSH_10.2p1, LibreSSL 3.3.6
+--- exec probe ---
+EXEC_CHANNEL_OK
+exec_rc=0
+--- default scp (SFTP) expected failure ---
+Executing: program /usr/bin/ssh host 127.0.0.1, user austinwang, command sftp
+debug1: OpenSSH_10.2p1, LibreSSL 3.3.6
+debug1: Reading configuration data /Users/austinwang/.ssh/config
+debug1: Reading configuration data /Users/austinwang/.ssh/cloud-mac/config
+debug1: Reading configuration data /Users/austinwang/.cmux/ssh_config
+debug1: Reading configuration data /Users/austinwang/.orbstack/ssh/config
+debug1: /Users/austinwang/.ssh/config line 26: Applying options for *
+debug1: Reading configuration data /etc/ssh/ssh_config
+debug1: /etc/ssh/ssh_config line 21: include /etc/ssh/ssh_config.d/* matched no files
+debug1: /etc/ssh/ssh_config line 54: Applying options for *
+debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+debug1: Connecting to 127.0.0.1 [127.0.0.1] port 27851.
+debug1: Connection established.
+debug1: loaded pubkey from /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/clientkey: ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ
+debug1: identity file /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/clientkey type 2
+debug1: no identity pubkey loaded from /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/clientkey
+debug1: loaded pubkey from /Users/austinwang/.ssh/id_ed25519: ED25519 SHA256:p++Dck3aztxbpL9cH8p4XmA8S1m5Zuu7EP1qXhFvccM
+debug1: identity file /Users/austinwang/.ssh/id_ed25519 type 2
+debug1: no identity pubkey loaded from /Users/austinwang/.ssh/id_ed25519
+debug1: Local version string SSH-2.0-OpenSSH_10.2
+debug1: Remote protocol version 2.0, remote software version OpenSSH_10.2
+debug1: compat_banner: match: OpenSSH_10.2 pat OpenSSH* compat 0x04000000
+debug1: Authenticating to 127.0.0.1:27851 as 'austinwang'
+debug1: load_hostkeys: fopen /etc/ssh/ssh_known_hosts: No such file or directory
+debug1: load_hostkeys: fopen /etc/ssh/ssh_known_hosts2: No such file or directory
+debug1: SSH2_MSG_KEXINIT sent
+debug1: SSH2_MSG_KEXINIT received
+debug1: kex: algorithm: mlkem768x25519-sha256
+debug1: kex: host key algorithm: ssh-ed25519
+debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+debug1: SSH2_MSG_KEX_ECDH_REPLY received
+debug1: Server host key: ssh-ed25519 SHA256:FqA7OAm3tXD6BayIBVEcuYaAMZdKktPkUuuxXTefcJ0
+debug1: load_hostkeys: fopen /etc/ssh/ssh_known_hosts: No such file or directory
+debug1: load_hostkeys: fopen /etc/ssh/ssh_known_hosts2: No such file or directory
+debug1: Host '[127.0.0.1]:27851' is known and matches the ED25519 host key.
+debug1: Found key in /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/known_hosts:1
+debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+debug1: rekey out after 134217728 blocks
+debug1: SSH2_MSG_NEWKEYS sent
+debug1: Sending SSH2_MSG_EXT_INFO
+debug1: expecting SSH2_MSG_NEWKEYS
+debug1: ssh_packet_read_poll2: resetting read seqnr 3
+debug1: SSH2_MSG_NEWKEYS received
+debug1: rekey in after 134217728 blocks
+debug1: SSH2_MSG_EXT_INFO received
+debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+debug1: SSH2_MSG_SERVICE_ACCEPT received
+debug1: SSH2_MSG_EXT_INFO received
+debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+debug1: Authentications that can continue: publickey
+debug1: Next authentication method: publickey
+debug1: get_agent_identities: bound agent to hostkey
+debug1: get_agent_identities: agent returned 4 keys
+debug1: Will attempt key: /Users/austinwang/.ssh/id_ed25519 ED25519 SHA256:p++Dck3aztxbpL9cH8p4XmA8S1m5Zuu7EP1qXhFvccM explicit agent
+debug1: Will attempt key: /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/clientkey ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ explicit agent
+debug1: Offering public key: /Users/austinwang/.ssh/id_ed25519 ED25519 SHA256:p++Dck3aztxbpL9cH8p4XmA8S1m5Zuu7EP1qXhFvccM explicit agent
+debug1: Authentications that can continue: publickey
+debug1: Offering public key: /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/clientkey ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ explicit agent
+debug1: Server accepts key: /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/clientkey ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ explicit agent
+Authenticated to 127.0.0.1 ([127.0.0.1]:27851) using "publickey".
+debug1: channel 0: new session [client-session] (inactive timeout: 0)
+debug1: Requesting no-more-sessions@openssh.com
+debug1: Entering interactive session.
+debug1: pledge: network
+debug1: client_input_global_request: rtype hostkeys-00@openssh.com want_reply 0
+debug1: Remote: /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/authorized_keys:1: key options: agent-forwarding command port-forwarding pty user-rc x11-forwarding
+debug1: Remote: /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/authorized_keys:1: key options: agent-forwarding command port-forwarding pty user-rc x11-forwarding
+debug1: Sending environment.
+debug1: channel 0: setting env LANG = "en_US.UTF-8"
+debug1: channel 0: setting env LC_ALL = "C.UTF-8"
+debug1: channel 0: setting env LC_CTYPE = "C.UTF-8"
+debug1: Sending subsystem: sftp
+debug1: pledge: fork
+subsystem request failed on channel 0
+/usr/bin/scp: Connection closed
+default_scp_rc=255
+--- legacy scp -O expected success ---
+Executing: program /usr/bin/ssh host 127.0.0.1, user austinwang, command scp -v -t /tmp/issue7851-legacy-scp.txt
+debug1: OpenSSH_10.2p1, LibreSSL 3.3.6
+debug1: Reading configuration data /Users/austinwang/.ssh/config
+debug1: Reading configuration data /Users/austinwang/.ssh/cloud-mac/config
+debug1: Reading configuration data /Users/austinwang/.cmux/ssh_config
+debug1: Reading configuration data /Users/austinwang/.orbstack/ssh/config
+debug1: /Users/austinwang/.ssh/config line 26: Applying options for *
+debug1: Reading configuration data /etc/ssh/ssh_config
+debug1: /etc/ssh/ssh_config line 21: include /etc/ssh/ssh_config.d/* matched no files
+debug1: /etc/ssh/ssh_config line 54: Applying options for *
+debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+debug1: Connecting to 127.0.0.1 [127.0.0.1] port 27851.
+debug1: Connection established.
+debug1: loaded pubkey from /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/clientkey: ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ
+debug1: identity file /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/clientkey type 2
+debug1: no identity pubkey loaded from /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/clientkey
+debug1: loaded pubkey from /Users/austinwang/.ssh/id_ed25519: ED25519 SHA256:p++Dck3aztxbpL9cH8p4XmA8S1m5Zuu7EP1qXhFvccM
+debug1: identity file /Users/austinwang/.ssh/id_ed25519 type 2
+debug1: no identity pubkey loaded from /Users/austinwang/.ssh/id_ed25519
+debug1: Local version string SSH-2.0-OpenSSH_10.2
+debug1: Remote protocol version 2.0, remote software version OpenSSH_10.2
+debug1: compat_banner: match: OpenSSH_10.2 pat OpenSSH* compat 0x04000000
+debug1: Authenticating to 127.0.0.1:27851 as 'austinwang'
+debug1: load_hostkeys: fopen /etc/ssh/ssh_known_hosts: No such file or directory
+debug1: load_hostkeys: fopen /etc/ssh/ssh_known_hosts2: No such file or directory
+debug1: SSH2_MSG_KEXINIT sent
+debug1: SSH2_MSG_KEXINIT received
+debug1: kex: algorithm: mlkem768x25519-sha256
+debug1: kex: host key algorithm: ssh-ed25519
+debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+debug1: SSH2_MSG_KEX_ECDH_REPLY received
+debug1: Server host key: ssh-ed25519 SHA256:FqA7OAm3tXD6BayIBVEcuYaAMZdKktPkUuuxXTefcJ0
+debug1: load_hostkeys: fopen /etc/ssh/ssh_known_hosts: No such file or directory
+debug1: load_hostkeys: fopen /etc/ssh/ssh_known_hosts2: No such file or directory
+debug1: Host '[127.0.0.1]:27851' is known and matches the ED25519 host key.
+debug1: Found key in /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/known_hosts:1
+debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+debug1: rekey out after 134217728 blocks
+debug1: SSH2_MSG_NEWKEYS sent
+debug1: Sending SSH2_MSG_EXT_INFO
+debug1: expecting SSH2_MSG_NEWKEYS
+debug1: ssh_packet_read_poll2: resetting read seqnr 3
+debug1: SSH2_MSG_NEWKEYS received
+debug1: rekey in after 134217728 blocks
+debug1: SSH2_MSG_EXT_INFO received
+debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+debug1: SSH2_MSG_SERVICE_ACCEPT received
+debug1: SSH2_MSG_EXT_INFO received
+debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+debug1: Authentications that can continue: publickey
+debug1: Next authentication method: publickey
+debug1: get_agent_identities: bound agent to hostkey
+debug1: get_agent_identities: agent returned 4 keys
+debug1: Will attempt key: /Users/austinwang/.ssh/id_ed25519 ED25519 SHA256:p++Dck3aztxbpL9cH8p4XmA8S1m5Zuu7EP1qXhFvccM explicit agent
+debug1: Will attempt key: /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/clientkey ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ explicit agent
+debug1: Offering public key: /Users/austinwang/.ssh/id_ed25519 ED25519 SHA256:p++Dck3aztxbpL9cH8p4XmA8S1m5Zuu7EP1qXhFvccM explicit agent
+debug1: Authentications that can continue: publickey
+debug1: Offering public key: /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/clientkey ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ explicit agent
+debug1: Server accepts key: /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/clientkey ED25519 SHA256:MRFuQYtc3Qx6Pw5AtY+P8C03Mp6GQS2MnPg8QcOw2pQ explicit agent
+Authenticated to 127.0.0.1 ([127.0.0.1]:27851) using "publickey".
+debug1: channel 0: new session [client-session] (inactive timeout: 0)
+debug1: Requesting no-more-sessions@openssh.com
+debug1: Entering interactive session.
+debug1: pledge: network
+debug1: client_input_global_request: rtype hostkeys-00@openssh.com want_reply 0
+debug1: Remote: /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/authorized_keys:1: key options: agent-forwarding command port-forwarding pty user-rc x11-forwarding
+debug1: Remote: /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/authorized_keys:1: key options: agent-forwarding command port-forwarding pty user-rc x11-forwarding
+debug1: Sending environment.
+debug1: channel 0: setting env LANG = "en_US.UTF-8"
+debug1: channel 0: setting env LC_ALL = "C.UTF-8"
+debug1: channel 0: setting env LC_CTYPE = "C.UTF-8"
+debug1: Sending command: scp -v -t /tmp/issue7851-legacy-scp.txt
+debug1: pledge: fork
+/usr/bin/scp: debug1: fd 3 clearing O_NONBLOCK
+Sending file modes: C0644 31 scp-probe-payload.txt
+Sink: C0644 31 scp-probe-payload.txt
+/usr/bin/scp: debug1: fd 4 clearing O_NONBLOCK
+scp: debug1: fd 0 clearing O_NONBLOCK
+debug1: client_input_channel_req: channel 0 rtype exit-status reply 0
+debug1: channel 0: free: client-session, nchannels 1
+Transferred: sent 3996, received 3772 bytes, in 0.2 seconds
+Bytes per second: sent 24508.9, received 23135.0
+debug1: Exit status 0
+legacy_scp_rc=0
+issue-7851-sftp-disabled-probe

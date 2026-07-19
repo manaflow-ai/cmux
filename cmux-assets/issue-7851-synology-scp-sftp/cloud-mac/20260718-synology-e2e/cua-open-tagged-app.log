@@ -1,0 +1,3 @@
+cua-ssh: resolve bundle id for "/Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-7851-synology-scp-sftp/Build/Products/Debug/cmux DEV issue-7851-synology-scp-sftp.app": exit status 1: could not resolve app name to bundle id: /Users/austinwang/Library/Developer/Xcode/DerivedData/cmux-issue-7851-synology-scp-sftp/Build/Products/Debug/cmux DEV issue-7851-synology-scp-sftp.app
+cua-ssh: resolve bundle id for "cmux DEV issue-7851-synology-scp-sftp": exit status 1: could not resolve app name to bundle id: cmux DEV issue-7851-synology-scp-sftp
+cua-ssh: resolve bundle id for "cmux DEV issue-7851-synology-scp-sftp": exit status 1: could not resolve app name to bundle id: cmux DEV issue-7851-synology-scp-sftp

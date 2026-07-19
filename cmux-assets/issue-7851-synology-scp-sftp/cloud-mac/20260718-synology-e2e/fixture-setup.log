@@ -1,0 +1,11 @@
+Warning: Permanently added '[127.0.0.1]:27851' (ED25519) to the list of known hosts.
+probe: /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-tmux tmux 3.6a 
+ready. If ~/.ssh/config lacks it, add:
+
+Host issue7851-sftp-off
+    HostName 127.0.0.1
+    Port 27851
+    User austinwang
+    IdentityFile /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/clientkey
+    IdentitiesOnly yes
+    StrictHostKeyChecking accept-new

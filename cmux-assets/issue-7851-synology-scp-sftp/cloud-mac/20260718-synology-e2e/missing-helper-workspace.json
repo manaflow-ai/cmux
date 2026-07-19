@@ -1,0 +1,58 @@
+{
+  "current_directory": "",
+  "custom_color": null,
+  "custom_title": "issue7851-e2e-run1",
+  "description": null,
+  "has_custom_title": true,
+  "index": 0,
+  "latest_conversation_message": null,
+  "latest_submitted_at": null,
+  "latest_submitted_message": null,
+  "listening_ports": [],
+  "pinned": false,
+  "ref": "workspace:2",
+  "remote": {
+    "active_terminal_sessions": 1,
+    "conflicted_ports": [],
+    "connected": false,
+    "daemon": {
+      "capabilities": [],
+      "detail": "Remote daemon bootstrap failed: cannot locate cmux repo root for dev-only cmuxd-remote build fallback (retry 3 in 16s)",
+      "name": null,
+      "remote_path": null,
+      "state": "error",
+      "version": null
+    },
+    "destination": "austinwang@127.0.0.1",
+    "detail": "Remote daemon bootstrap failed: cannot locate cmux repo root for dev-only cmuxd-remote build fallback (retry 3 in 16s)",
+    "detected_ports": [],
+    "enabled": true,
+    "forwarded_ports": [],
+    "has_identity_file": true,
+    "has_ssh_options": true,
+    "heartbeat": {
+      "age_seconds": null,
+      "count": 0,
+      "last_seen_at": null
+    },
+    "local_proxy_port": null,
+    "managed_cloud_vm_id": null,
+    "persistent_daemon_slot": "ssh-c39a6697-f713-4cc8-9565-2751c9abcc19",
+    "port": 27851,
+    "proxy": {
+      "error_code": "proxy_unavailable",
+      "host": null,
+      "port": null,
+      "schemes": [
+        "socks5",
+        "http_connect"
+      ],
+      "state": "error",
+      "url": null
+    },
+    "state": "error",
+    "transport": "ssh"
+  },
+  "selected": false,
+  "title": "issue7851-e2e-run1"
+}

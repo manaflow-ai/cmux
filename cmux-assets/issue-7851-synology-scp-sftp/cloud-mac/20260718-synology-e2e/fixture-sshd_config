@@ -1,0 +1,12 @@
+Port 27851
+ListenAddress 127.0.0.1
+HostKey /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/hostkey
+PidFile /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/sshd.pid
+MaxSessions 1
+UsePAM no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+AuthorizedKeysFile /Users/austinwang/Library/Caches/cmux/remote-tmux-fuzz/issue7851-sftp-off-sshd/authorized_keys
+StrictModes no
+LogLevel VERBOSE

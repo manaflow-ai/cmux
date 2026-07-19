@@ -1,0 +1,15 @@
+{
+  "_note": "Prefer `elements` — `tree_markdown` will continue to work but new fields will only be added to the structured side. Issue #22865: use `max_elements` / `max_depth` to bound the AX walk on apps with very large trees.",
+  "degraded": true,
+  "degraded_reason": "ax_tree_empty: the AX walk returned no actionable elements. The window may be a non-AX surface (canvas/WebGL/custom-drawn) or its accessibility tree was not ready (Chromium/Electron require an AX-enable + settle). Do not treat element data as authoritative — re-snapshot if the app just launched, otherwise switch to the visual path.",
+  "element_count": 0,
+  "elements": [],
+  "escalation": {
+    "reason": "non-AX surface — act by pixel (x,y) off the screenshot in this response (an element px action).",
+    "recommended": "px"
+  },
+  "pid": 5707,
+  "snapshot_id": "s0001",
+  "tree_markdown": "",
+  "window_id": 5611
+}

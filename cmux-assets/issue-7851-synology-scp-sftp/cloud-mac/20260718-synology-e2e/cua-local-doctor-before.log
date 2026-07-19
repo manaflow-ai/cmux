@@ -1,0 +1,15 @@
+app-server ready on /Users/austinwang/cua-ssh-sockets/cua-ssh-app-server-39217.sock
+doctor local provider=sky
+check                        status detail
+transport                    pass   local host, SSH bypassed
+remote-home                  pass   /Users/austinwang
+windows                      pass   14 visible normal windows
+screen-recording-preflight   warn   direct local Screen Recording denied
+gui-recording-helper         pass   /Users/austinwang/Applications/CuaSshScreenCapture.app
+sky-bundle                   fail   missing Codex Computer Use.app/SkyComputerUse binaries; missing /Applications/Codex.app identity bridge; codex-cli 0.144.0-alpha.4
+sky-auth                     pass   ~/.codex/auth.json present
+sky-app-server               pass   ready on 39217
+sky-list-apps                fail   mcpServer/tool/call failed: unknown MCP server 'computer-use'
+sky-get-app-state            fail   mcpServer/tool/call failed: unknown MCP server 'computer-use'
+next: cua-ssh setup --provider sky --install-source <codex-bundle> local
+cua-ssh: doctor found failing checks
