@@ -93,6 +93,39 @@ struct MobileIrohReleaseGateRunnerTests {
     }
 
     @Test
+    func probeFailurePreservesTheVerifiedIrohRouteAndPath() async throws {
+        let configuration = try temporaryConfiguration(
+            mode: .relayOnly,
+            scenario: .relayRollover
+        )
+        var capturedReport: MobileIrohReleaseGateRunner.Report?
+        let runner = MobileIrohReleaseGateRunner(
+            configuration: configuration,
+            dependencies: .init(
+                readinessUpdates: { _ in Self.readyReadinessUpdates() },
+                runProbe: { _, _ in
+                    throw MobileIrohReleaseGateProbeFailure.artifactLaneFailed
+                },
+                settingsUpdates: { Self.managedRelaySettingsUpdates() },
+                writeReport: { report, url in
+                    capturedReport = report
+                    try Self.write(report: report, to: url)
+                },
+                postReportReady: {},
+                timeout: .seconds(1)
+            )
+        )
+
+        await runner.run(store: CMUXMobileShellStore.preview())
+
+        let report = try #require(capturedReport)
+        #expect(report.passed == false)
+        #expect(report.routeKind == CmxAttachTransportKind.iroh.rawValue)
+        #expect(report.selectedPath == "managed_relay")
+        #expect(report.failure == MobileIrohReleaseGateProbeFailure.artifactLaneFailed.rawValue)
+    }
+
+    @Test
     func pathMismatchPreservesCompletedProbeProofs() async throws {
         let report = try await runLatePathFailure(
             settingsUpdates: Self.finishedSettingsUpdates(),
