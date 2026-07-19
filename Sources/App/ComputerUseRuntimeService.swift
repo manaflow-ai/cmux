@@ -20,6 +20,13 @@ final class ComputerUseRuntimeService {
     private var installedHelperURL: URL?
     private var installationTask: Task<URL?, Never>?
     private var cachedStatus = ComputerUsePermissionStatus.missing
+    private var runningHelperApplication: NSRunningApplication?
+    private var helperTerminationTask: Task<Void, Never>?
+    private var monitoredHelperProcessIdentifier: pid_t?
+    private lazy var helperSupervisor = ComputerUseHelperSupervisor { [weak self] in
+        guard let self else { return }
+        await self.startIfNeeded()
+    }
 
     init(
         bundle: Bundle = .main,
@@ -53,6 +60,7 @@ final class ComputerUseRuntimeService {
 
     /// Reconciles the helper daemon with the live `computerUse.enabled` setting.
     func setEnabled(_ newValue: Bool) async {
+        helperSupervisor.setEnabled(newValue)
         if newValue {
             await startIfNeeded()
         } else {
@@ -144,12 +152,22 @@ final class ComputerUseRuntimeService {
 
     private func startIfNeeded() async {
         guard let helperURL = await ensureStandaloneHelperInstalled() else { return }
-        guard !(await Self.isDaemonListening(paths: paths, transport: transport)) else { return }
+        if await Self.isDaemonListening(paths: paths, transport: transport) {
+            if let application = Self.runningHelperApplication(at: helperURL) {
+                await monitorHelper(application)
+                return
+            }
+
+            // A listening daemon without the exact LaunchServices app instance
+            // is not lifecycle-owned by cmux. Replace it with a monitored helper.
+            await stopDaemon()
+        }
         await launchHelper(at: helperURL)
         _ = await Self.waitForDaemonStart(paths: paths, transport: transport)
     }
 
     private func stopDaemon() async {
+        cancelHelperMonitoring()
         guard await Self.isDaemonListening(paths: paths, transport: transport) else { return }
         _ = await Self.sendDaemonRequest(
             ["method": "shutdown"],
@@ -176,14 +194,58 @@ final class ComputerUseRuntimeService {
         configuration.createsNewApplicationInstance = true
         configuration.arguments = launch.arguments
         configuration.environment = launch.environment
-        await withCheckedContinuation { continuation in
+        let application = await withCheckedContinuation { continuation in
             NSWorkspace.shared.openApplication(
                 at: helperURL,
                 configuration: configuration
-            ) { _, _ in
-                continuation.resume()
+            ) { application, _ in
+                continuation.resume(returning: application)
             }
         }
+        guard let application else { return }
+        await monitorHelper(application)
+    }
+
+    private func monitorHelper(_ application: NSRunningApplication) async {
+        cancelHelperMonitoring()
+        let processIdentifier = application.processIdentifier
+        runningHelperApplication = application
+        monitoredHelperProcessIdentifier = processIdentifier
+
+        let notifications = NSWorkspace.shared.notificationCenter.notifications(
+            named: NSWorkspace.didTerminateApplicationNotification
+        )
+        helperTerminationTask = Task { @MainActor [weak self] in
+            for await notification in notifications {
+                guard !Task.isCancelled else { return }
+                guard
+                    let terminatedApplication = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+                        as? NSRunningApplication,
+                    terminatedApplication.processIdentifier == processIdentifier
+                else {
+                    continue
+                }
+                await self?.monitoredHelperDidTerminate(processIdentifier: processIdentifier)
+                return
+            }
+        }
+
+        if application.isTerminated {
+            await monitoredHelperDidTerminate(processIdentifier: processIdentifier)
+        }
+    }
+
+    private func monitoredHelperDidTerminate(processIdentifier: pid_t) async {
+        guard monitoredHelperProcessIdentifier == processIdentifier else { return }
+        cancelHelperMonitoring()
+        await helperSupervisor.helperDidTerminate()
+    }
+
+    private func cancelHelperMonitoring() {
+        helperTerminationTask?.cancel()
+        helperTerminationTask = nil
+        monitoredHelperProcessIdentifier = nil
+        runningHelperApplication = nil
     }
 
     private func openSystemSettings(_ deepLink: String) {
@@ -240,6 +302,15 @@ final class ComputerUseRuntimeService {
         }
         let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? helperAppName : trimmed
+    }
+
+    private static func runningHelperApplication(at helperAppURL: URL) -> NSRunningApplication? {
+        guard let bundleIdentifier = Bundle(url: helperAppURL)?.bundleIdentifier else { return nil }
+        let expectedURL = helperAppURL.resolvingSymlinksInPath().standardizedFileURL
+        return NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first { application in
+            guard !application.isTerminated, let bundleURL = application.bundleURL else { return false }
+            return bundleURL.resolvingSymlinksInPath().standardizedFileURL == expectedURL
+        }
     }
 
     nonisolated private static func isDaemonListening(
