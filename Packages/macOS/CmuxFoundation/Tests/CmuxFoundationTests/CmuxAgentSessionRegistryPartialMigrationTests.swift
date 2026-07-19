@@ -24,7 +24,7 @@ struct CmuxAgentSessionRegistryPartialMigrationTests {
 
             #expect(metrics.recordBytes == 2)
             #expect(metrics.activeSlotBytes == 2)
-            #expect(try fixture.userVersion() == 7)
+            #expect(try fixture.userVersion() == 8)
             #expect(try fixture.columnCount(table: "agent_provider_metadata", named: "record_bytes") == 1)
             #expect(try fixture.columnCount(table: "agent_provider_metadata", named: "slot_bytes") == 1)
             let triggers = try fixture.revisionTriggers()
@@ -45,7 +45,7 @@ struct CmuxAgentSessionRegistryPartialMigrationTests {
 
         _ = try fixture.registry.hookStorageMetrics(provider: "codex")
 
-        #expect(try fixture.userVersion() == 7)
+        #expect(try fixture.userVersion() == 8)
         #expect(try fixture.columnCount(table: "agent_legacy_sources", named: "quarantined") == 1)
     }
 
@@ -69,7 +69,7 @@ struct CmuxAgentSessionRegistryPartialMigrationTests {
 
             _ = try fixture.registry.hookStorageMetrics(provider: "codex")
 
-            #expect(try fixture.userVersion() == 7)
+            #expect(try fixture.userVersion() == 8)
             for column in identityColumns {
                 #expect(try fixture.columnCount(table: "agent_legacy_sources", named: column) == 1)
             }

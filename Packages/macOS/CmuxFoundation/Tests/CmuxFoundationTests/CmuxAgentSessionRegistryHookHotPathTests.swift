@@ -844,6 +844,54 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
         }
     }
 
+    @Test("batched hibernation ignores irrelevant providers and isolates malformed peers")
+    func batchedHibernationSelectsRelevantProviders() throws {
+        let fixture = try makeFixture()
+        let provider = "provider-255"
+        let sessionID = "active-owner"
+        let activeRecord = try record(
+            provider: provider,
+            sessionID: sessionID,
+            workspaceID: "workspace",
+            surfaceID: "surface",
+            updatedAt: 1
+        )
+        try fixture.registry.apply(
+            provider: provider,
+            records: [activeRecord],
+            activeSlots: try slots(
+                provider: provider,
+                sessionID: sessionID,
+                workspaceID: "workspace",
+                surfaceID: "surface",
+                updatedAt: 1
+            )
+        )
+        try fixture.registry.apply(provider: "malformed", records: [.init(
+            provider: "malformed",
+            sessionID: "broken",
+            updatedAt: 2,
+            json: Data("{}".utf8)
+        )])
+        let configuredProviders = Set((0..<256).map { "provider-\($0)" })
+            .union(["malformed"])
+
+        let result = try fixture.registry.hookHibernationSnapshots(
+            providers: configuredProviders,
+            panelContexts: [.init(workspaceID: "workspace", surfaceID: "surface")],
+            exactSessionIDsByProvider: ["malformed": ["broken"]],
+            maximumProviders: 64,
+            maximumRecords: 64,
+            maximumBytes: 1_024 * 1_024
+        )
+
+        #expect(result.snapshots[provider]?.records.map(\.sessionID) == [sessionID])
+        #expect(result.snapshots[provider]?.activeSlots.map(\.sessionID) == [sessionID])
+        #expect(result.failedProviders == ["malformed"])
+        #expect(result.snapshots["malformed"]?.records.isEmpty == true)
+        #expect(result.snapshots.count == 2)
+    }
+
     @Test("legacy reads reject oversized files before allocating their payload")
     func legacyReadHasDescriptorBound() throws {
         let fixture = try makeFixture()

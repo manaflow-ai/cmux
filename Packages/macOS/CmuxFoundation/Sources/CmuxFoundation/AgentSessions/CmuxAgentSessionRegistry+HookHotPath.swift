@@ -23,6 +23,21 @@ extension CmuxAgentSessionRegistry {
         }
     }
 
+    /// Provider-isolated hibernation projections selected through one SQLite
+    /// connection and one read transaction.
+    public struct HookHibernationSnapshotsResult: Sendable {
+        public var snapshots: [String: Snapshot]
+        public var failedProviders: Set<String>
+
+        public init(
+            snapshots: [String: Snapshot],
+            failedProviders: Set<String>
+        ) {
+            self.snapshots = snapshots
+            self.failedProviders = failedProviders
+        }
+    }
+
     /// A canonical hook write exceeded a durable storage boundary.
     public struct HookStorageLimitError: Error, Equatable, Sendable {
         /// Storage resource that exceeded its boundary.
@@ -868,79 +883,212 @@ extension CmuxAgentSessionRegistry {
         return try withDatabase { database in
             try ensureHookHotPathSchema(database)
             return try readTransaction(database) {
-                var materializedBytes: Int64 = 0
-                func include(_ data: Data, sessionID: String? = nil) throws {
-                    let next = materializedBytes.addingReportingOverflow(Int64(data.count))
-                    guard !next.overflow, next.partialValue <= maximumBytes else {
-                        throw HookSnapshotLimitError(
-                            scope: .providerBytes,
-                            provider: provider,
-                            sessionID: sessionID,
-                            observed: next.overflow ? .max : next.partialValue,
-                            maximum: maximumBytes
-                        )
-                    }
-                    materializedBytes = next.partialValue
-                }
-
-                var slotsByKey: [ActiveSlotKey: ActiveSlot] = [:]
-                var sessionIDs = exactSessionIDs
-                let orderedContexts = panelContexts.sorted {
-                    if $0.workspaceID != $1.workspaceID {
-                        return $0.workspaceID < $1.workspaceID
-                    }
-                    return $0.surfaceID < $1.surfaceID
-                }
-                for context in orderedContexts {
-                    let key = ActiveSlotKey(scope: .surface, scopeID: context.surfaceID)
-                    guard slotsByKey[key] == nil,
-                          let slot = try readSlot(
-                              database: database,
-                              provider: provider,
-                              scope: key.scope,
-                              scopeID: key.scopeID
-                          ) else {
-                        continue
-                    }
-                    try include(slot.json, sessionID: slot.sessionID)
-                    slotsByKey[key] = slot
-                    sessionIDs.insert(slot.sessionID)
-                }
-
-                guard sessionIDs.count <= maximumRecords else {
-                    throw HookSnapshotLimitError(
-                        scope: .records,
-                        provider: provider,
-                        observed: Int64(sessionIDs.count),
-                        maximum: Int64(maximumRecords)
-                    )
-                }
-                var records: [Record] = []
-                records.reserveCapacity(sessionIDs.count)
-                for sessionID in sessionIDs.sorted() {
-                    guard let record = try readRecord(
-                        database: database,
-                        provider: provider,
-                        sessionID: sessionID
-                    ) else {
-                        continue
-                    }
-                    try include(record.json, sessionID: sessionID)
-                    records.append(record)
-                }
-                records.sort {
-                    if $0.updatedAt != $1.updatedAt { return $0.updatedAt > $1.updatedAt }
-                    return $0.sessionID < $1.sessionID
-                }
-                let slots = slotsByKey.values.sorted {
-                    if $0.scope.rawValue != $1.scope.rawValue {
-                        return $0.scope.rawValue < $1.scope.rawValue
-                    }
-                    return $0.scopeID < $1.scopeID
-                }
-                return Snapshot(records: records, activeSlots: slots)
+                try hookHibernationSnapshot(
+                    database: database,
+                    provider: provider,
+                    panelContexts: panelContexts,
+                    exactSessionIDs: exactSessionIDs,
+                    maximumRecords: maximumRecords,
+                    maximumBytes: maximumBytes
+                )
             }
         }
+    }
+
+    /// Finds providers that own an open surface, unions exact process-detected
+    /// providers, then materializes only that relevant set. Configuring many
+    /// unused adapters therefore has constant registry materialization cost.
+    public func hookHibernationSnapshots(
+        providers requestedProviders: Set<String>,
+        panelContexts: Set<HookHibernationPanelContext>,
+        exactSessionIDsByProvider: [String: Set<String>],
+        maximumProviders: Int,
+        maximumRecords: Int,
+        maximumBytes: Int64
+    ) throws -> HookHibernationSnapshotsResult {
+        let maximumProviders = max(0, maximumProviders)
+        let maximumRecords = max(0, maximumRecords)
+        let maximumBytes = max(0, maximumBytes)
+        guard !requestedProviders.isEmpty else {
+            return HookHibernationSnapshotsResult(snapshots: [:], failedProviders: [])
+        }
+        return try withDatabase { database in
+            try ensureHookHotPathSchema(database)
+            return try readTransaction(database) {
+                let providerLookup = try prepare(
+                    database,
+                    """
+                    SELECT provider FROM agent_active_slots
+                    WHERE scope = 'surface' AND scope_id = ?1
+                    ORDER BY provider
+                    """
+                )
+                defer { sqlite3_finalize(providerLookup) }
+                var surfaceIDsByProvider: [String: Set<String>] = [:]
+                let surfaceIDs = Set(panelContexts.map(\.surfaceID)).sorted()
+                for surfaceID in surfaceIDs {
+                    sqlite3_reset(providerLookup)
+                    sqlite3_clear_bindings(providerLookup)
+                    try bind(surfaceID, to: 1, in: providerLookup)
+                    while try stepRow(
+                        providerLookup,
+                        database: database,
+                        operation: "discover hibernation providers"
+                    ) {
+                        guard let provider = text(providerLookup, column: 0) else {
+                            throw corruptRowError(operation: "discover hibernation providers")
+                        }
+                        guard requestedProviders.contains(provider) else { continue }
+                        surfaceIDsByProvider[provider, default: []].insert(surfaceID)
+                    }
+                }
+
+                var relevantProviders = Set(surfaceIDsByProvider.keys)
+                for (provider, sessionIDs) in exactSessionIDsByProvider
+                    where requestedProviders.contains(provider) && !sessionIDs.isEmpty {
+                    relevantProviders.insert(provider)
+                }
+                let orderedRelevantProviders = relevantProviders.sorted()
+                let selectedProviders = Array(orderedRelevantProviders.prefix(maximumProviders))
+                var failedProviders = Set(orderedRelevantProviders.dropFirst(maximumProviders))
+                var snapshots: [String: Snapshot] = Dictionary(
+                    uniqueKeysWithValues: failedProviders.map {
+                        ($0, Snapshot(records: [], activeSlots: []))
+                    }
+                )
+                var remainingRecords = maximumRecords
+                var remainingBytes = maximumBytes
+                for provider in selectedProviders {
+                    let providerSurfaces = surfaceIDsByProvider[provider] ?? []
+                    let providerContexts = Set(providerSurfaces.map {
+                        HookHibernationPanelContext(workspaceID: "", surfaceID: $0)
+                    })
+                    do {
+                        let snapshot = try hookHibernationSnapshot(
+                            database: database,
+                            provider: provider,
+                            panelContexts: providerContexts,
+                            exactSessionIDs: exactSessionIDsByProvider[provider] ?? [],
+                            maximumRecords: remainingRecords,
+                            maximumBytes: remainingBytes
+                        )
+                        let recordBytes = snapshot.records.reduce(into: Int64(0)) {
+                            $0 += Int64($1.json.count)
+                        }
+                        let slotBytes = snapshot.activeSlots.reduce(into: Int64(0)) {
+                            $0 += Int64($1.json.count)
+                        }
+                        remainingRecords -= snapshot.records.count
+                        remainingBytes -= recordBytes + slotBytes
+                        snapshots[provider] = snapshot
+                    } catch {
+                        snapshots[provider] = Snapshot(records: [], activeSlots: [])
+                        failedProviders.insert(provider)
+                    }
+                }
+                return HookHibernationSnapshotsResult(
+                    snapshots: snapshots,
+                    failedProviders: failedProviders
+                )
+            }
+        }
+    }
+
+    private func hookHibernationSnapshot(
+        database: OpaquePointer,
+        provider: String,
+        panelContexts: Set<HookHibernationPanelContext>,
+        exactSessionIDs: Set<String>,
+        maximumRecords: Int,
+        maximumBytes: Int64
+    ) throws -> Snapshot {
+        var materializedBytes: Int64 = 0
+        func include(_ data: Data, sessionID: String? = nil) throws {
+            let next = materializedBytes.addingReportingOverflow(Int64(data.count))
+            guard !next.overflow, next.partialValue <= maximumBytes else {
+                throw HookSnapshotLimitError(
+                    scope: .providerBytes,
+                    provider: provider,
+                    sessionID: sessionID,
+                    observed: next.overflow ? .max : next.partialValue,
+                    maximum: maximumBytes
+                )
+            }
+            materializedBytes = next.partialValue
+        }
+
+        var slotsByKey: [ActiveSlotKey: ActiveSlot] = [:]
+        var sessionIDs = exactSessionIDs
+        let orderedContexts = panelContexts.sorted {
+            if $0.workspaceID != $1.workspaceID {
+                return $0.workspaceID < $1.workspaceID
+            }
+            return $0.surfaceID < $1.surfaceID
+        }
+        for context in orderedContexts {
+            let key = ActiveSlotKey(scope: .surface, scopeID: context.surfaceID)
+            guard slotsByKey[key] == nil,
+                  let slot = try readSlot(
+                      database: database,
+                      provider: provider,
+                      scope: key.scope,
+                      scopeID: key.scopeID
+                  ) else {
+                continue
+            }
+            guard try hookHibernationJSONHasSessionID(slot.json, sessionID: slot.sessionID) else {
+                throw HookListProjectionValidationError(provider: provider)
+            }
+            try include(slot.json, sessionID: slot.sessionID)
+            slotsByKey[key] = slot
+            sessionIDs.insert(slot.sessionID)
+        }
+
+        guard sessionIDs.count <= maximumRecords else {
+            throw HookSnapshotLimitError(
+                scope: .records,
+                provider: provider,
+                observed: Int64(sessionIDs.count),
+                maximum: Int64(maximumRecords)
+            )
+        }
+        var records: [Record] = []
+        records.reserveCapacity(sessionIDs.count)
+        for sessionID in sessionIDs.sorted() {
+            guard let record = try readRecord(
+                database: database,
+                provider: provider,
+                sessionID: sessionID
+            ) else {
+                continue
+            }
+            guard try hookHibernationJSONHasSessionID(record.json, sessionID: sessionID) else {
+                throw HookListProjectionValidationError(provider: provider)
+            }
+            try include(record.json, sessionID: sessionID)
+            records.append(record)
+        }
+        records.sort {
+            if $0.updatedAt != $1.updatedAt { return $0.updatedAt > $1.updatedAt }
+            return $0.sessionID < $1.sessionID
+        }
+        let slots = slotsByKey.values.sorted {
+            if $0.scope.rawValue != $1.scope.rawValue {
+                return $0.scope.rawValue < $1.scope.rawValue
+            }
+            return $0.scopeID < $1.scopeID
+        }
+        return Snapshot(records: records, activeSlots: slots)
+    }
+
+    private func hookHibernationJSONHasSessionID(
+        _ data: Data,
+        sessionID: String
+    ) throws -> Bool {
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return false
+        }
+        return object["sessionId"] as? String == sessionID
     }
 
     /// Reads incomplete fallback candidates through the indexed panel columns.
@@ -1639,20 +1787,29 @@ extension CmuxAgentSessionRegistry {
                 try execute(database, sql: "PRAGMA user_version=7")
             }
         }
-        // Provider discovery ignores historical metadata rows whose canonical
-        // records and slots have both been removed. The partial index lets the
-        // bounded ORDER BY/LIMIT query visit only providers with current data.
-        try execute(
-            database,
-            sql: """
-            CREATE INDEX IF NOT EXISTS agent_provider_metadata_active
-            ON agent_provider_metadata(provider)
-            WHERE record_bytes > 0 OR slot_bytes > 0;
-            CREATE INDEX IF NOT EXISTS agent_provider_metadata_active_nocase
-            ON agent_provider_metadata(provider COLLATE NOCASE)
-            WHERE record_bytes > 0 OR slot_bytes > 0
-            """
-        )
+        if try schemaVersion(database) < 8 {
+            try transaction(database, retryBeginContention: false) {
+                guard try schemaVersion(database) < 8 else { return }
+                // Provider discovery ignores historical metadata rows whose
+                // canonical records and slots have both been removed. Open
+                // panel discovery reverses the active-slot primary-key order
+                // so it never scans every configured provider per surface.
+                try execute(
+                    database,
+                    sql: """
+                    CREATE INDEX IF NOT EXISTS agent_provider_metadata_active
+                    ON agent_provider_metadata(provider)
+                    WHERE record_bytes > 0 OR slot_bytes > 0;
+                    CREATE INDEX IF NOT EXISTS agent_provider_metadata_active_nocase
+                    ON agent_provider_metadata(provider COLLATE NOCASE)
+                    WHERE record_bytes > 0 OR slot_bytes > 0;
+                    CREATE INDEX IF NOT EXISTS agent_active_slots_hibernation_surface
+                    ON agent_active_slots(scope, scope_id, provider);
+                    PRAGMA user_version=8;
+                    """
+                )
+            }
+        }
     }
 
     private func hookSchemaColumns(

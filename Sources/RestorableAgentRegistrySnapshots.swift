@@ -600,8 +600,7 @@ extension RestorableAgentSessionIndex {
         guard !uniqueSources.isEmpty else {
             return AgentRegistryHibernationSnapshotResult(snapshots: [:], failedProviders: [])
         }
-        guard uniqueSources.count <= max(0, maximumProviders),
-              panelKeys.count <= max(0, maximumPanelContexts),
+        guard panelKeys.count <= max(0, maximumPanelContexts),
               maximumRecords >= 0,
               maximumBytes >= 0 else {
             return AgentRegistryHibernationSnapshotResult(
@@ -642,30 +641,23 @@ extension RestorableAgentSessionIndex {
         })
         var snapshots = emptySnapshots
         var failedProviders = refresh.failedProviders
-        var remainingRecords = maximumRecords
-        var remainingBytes = maximumBytes
-        for source in uniqueSources where !failedProviders.contains(source.kind.rawValue) {
-            let provider = source.kind.rawValue
-            do {
-                let snapshot = try registry.hookHibernationSnapshot(
-                    provider: provider,
-                    panelContexts: panelContexts,
-                    exactSessionIDs: exactSessionIDsByProvider[provider] ?? [],
-                    maximumRecords: remainingRecords,
-                    maximumBytes: remainingBytes
-                )
-                let bytes = snapshot.records.reduce(into: Int64(0)) {
-                    $0 += Int64($1.json.count)
-                } + snapshot.activeSlots.reduce(into: Int64(0)) {
-                    $0 += Int64($1.json.count)
-                }
-                remainingRecords -= snapshot.records.count
-                remainingBytes -= bytes
-                snapshots[provider] = snapshot
-            } catch {
-                snapshots[provider] = .init(records: [], activeSlots: [])
-                failedProviders.insert(provider)
-            }
+        do {
+            let availableProviders = allProviders.subtracting(failedProviders)
+            let selected = try registry.hookHibernationSnapshots(
+                providers: availableProviders,
+                panelContexts: panelContexts,
+                exactSessionIDsByProvider: exactSessionIDsByProvider,
+                maximumProviders: maximumProviders,
+                maximumRecords: maximumRecords,
+                maximumBytes: maximumBytes
+            )
+            snapshots.merge(selected.snapshots) { _, selected in selected }
+            failedProviders.formUnion(selected.failedProviders)
+        } catch {
+            return AgentRegistryHibernationSnapshotResult(
+                snapshots: emptySnapshots,
+                failedProviders: allProviders
+            )
         }
         return AgentRegistryHibernationSnapshotResult(
             snapshots: snapshots,
@@ -680,12 +672,11 @@ extension RestorableAgentSessionIndex {
         fileManager: FileManager,
         decoder: JSONDecoder
     ) -> RestorableAgentHookSessionStoreFile? {
-        if let snapshot = snapshots?[kind.rawValue],
-           let state = try? RestorableAgentHookSessionStoreFile.decode(
-               snapshot: snapshot,
-               decoder: decoder
-           ) {
-            return state
+        if let snapshot = snapshots?[kind.rawValue] {
+            return try? RestorableAgentHookSessionStoreFile.decode(
+                snapshot: snapshot,
+                decoder: decoder
+            )
         }
         return RestorableAgentHookSessionStoreFile.load(
             provider: kind.rawValue,

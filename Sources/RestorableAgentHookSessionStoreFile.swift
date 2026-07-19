@@ -53,13 +53,16 @@ extension RestorableAgentHookSessionStoreFile {
             )
             return try decode(snapshot: snapshot, decoder: decoder)
         } catch {
-            if let snapshot = try? registry.snapshot(provider: provider),
-               let state = try? decode(snapshot: snapshot, decoder: decoder) {
-                return state
+            do {
+                let snapshot = try registry.snapshot(provider: provider)
+                return try? decode(snapshot: snapshot, decoder: decoder)
+            } catch {
+                guard fileManager.fileExists(atPath: legacyURL.path),
+                      let data = try? registry.readHookLegacySourceData(at: legacyURL) else {
+                    return nil
+                }
+                return try? decoder.decode(Self.self, from: data)
             }
-            guard fileManager.fileExists(atPath: legacyURL.path),
-                  let data = try? registry.readHookLegacySourceData(at: legacyURL) else { return nil }
-            return try? decoder.decode(Self.self, from: data)
         }
     }
 }
