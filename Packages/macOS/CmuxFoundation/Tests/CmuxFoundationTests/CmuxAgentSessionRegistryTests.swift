@@ -380,6 +380,61 @@ struct CmuxAgentSessionRegistryTests {
         #expect(try fixture.registry.snapshot(provider: "claude").records.isEmpty)
     }
 
+    @Test("restore preflight bounds aggregate sidecar reads without starving fitting providers")
+    func restorePreflightBoundsAggregateSidecarReads() throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let relevantProvider = "zz-relevant"
+        let relevantSessionID = "relevant-session"
+        let relevantURL = fixture.directory.appendingPathComponent("relevant-hook-sessions.json")
+        let relevantData = try fixture.legacyStore(sessions: [
+            relevantSessionID: fixture.object(sessionID: relevantSessionID, updatedAt: 1),
+        ])
+        try relevantData.write(to: relevantURL, options: .atomic)
+
+        let noiseData = try fixture.legacyStore(sessions: [
+            "noise": fixture.object(sessionID: "noise", updatedAt: 1).merging([
+                "payload": String(repeating: "x", count: 4_096),
+            ]) { _, new in new },
+        ])
+        #expect(noiseData.count > relevantData.count)
+        var sources: [CmuxAgentSessionRegistry.LegacySource] = []
+        var noiseProviders = Set<String>()
+        for index in 0..<64 {
+            let provider = String(format: "noise-%02d", index)
+            let url = fixture.directory.appendingPathComponent("\(provider)-hook-sessions.json")
+            try noiseData.write(to: url, options: .atomic)
+            sources.append(.init(provider: provider, url: url))
+            noiseProviders.insert(provider)
+        }
+        sources.append(.init(provider: relevantProvider, url: relevantURL))
+
+        var openedProviders: [String] = []
+        let result = try fixture.registry.refreshLegacySources(
+            sources,
+            maximumReadBytes: Int64(relevantData.count),
+            legacyAdmissionLoader: { source, stamp in
+                openedProviders.append(source.provider)
+                return try fixture.registry.hookLegacySourceAdmission(
+                    source: source,
+                    expectedStamp: stamp,
+                    maximumBytes: stamp.size
+                )
+            }
+        )
+
+        #expect(openedProviders == [relevantProvider])
+        #expect(result.sourceReadBudgetUsed == Int64(relevantData.count))
+        #expect(result.readBudgetExceededProviders == noiseProviders)
+        #expect(result.failedProviders == noiseProviders)
+        #expect(result.refreshedProviders == [relevantProvider])
+        #expect(
+            try fixture.registry.snapshot(provider: relevantProvider).records.map(\.sessionID)
+                == [relevantSessionID]
+        )
+    }
+
     @Test("restore preflight retries one exact sidecar replacement")
     func restorePreflightRetriesOneExactSidecarReplacement() throws {
         let fixture = try Fixture()
