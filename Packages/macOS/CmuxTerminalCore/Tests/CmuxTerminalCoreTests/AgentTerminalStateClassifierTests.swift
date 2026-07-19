@@ -81,6 +81,27 @@ struct AgentTerminalStateClassifierTests {
     }
 
     @Test
+    func recognizesAgentsAfterPackageManagerSubcommands() throws {
+        let npmExec = process(
+            executable: "npm",
+            arguments: ["npm", "exec", "--", "@anthropic-ai/claude-code"]
+        )
+        #expect(try #require(classifier.recognize(npmExec)).id == "claude-code")
+
+        let npmX = process(
+            executable: "npm",
+            arguments: ["npm", "x", "--", "@openai/codex"]
+        )
+        #expect(try #require(classifier.recognize(npmX)).id == "codex")
+
+        let pnpmDlx = process(
+            executable: "pnpm",
+            arguments: ["pnpm", "dlx", "@anthropic-ai/claude-code"]
+        )
+        #expect(try #require(classifier.recognize(pnpmDlx)).id == "claude-code")
+    }
+
+    @Test
     func recognizesOnlyTheRovoDevAcliSubcommand() throws {
         let rovo = process(
             executable: "acli",

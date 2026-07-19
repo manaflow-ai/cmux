@@ -1,4 +1,5 @@
 import CmuxFoundation
+import Darwin
 import Foundation
 import SQLite3
 import Testing
@@ -2525,6 +2526,10 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(nodes.filter { $0["session_id"] as? String == "duplicate-session" }.count == 1)
         let childEdges = edges.filter { $0["to_run_id"] as? String == "duplicate-run" }
         #expect(childEdges.count == 1)
+        let winningParentNodeID = try #require(
+            nodes.first { $0["session_id"] as? String == "winning-parent" }?["node_id"] as? String
+        )
+        #expect(childEdges.first?["from_node_id"] as? String == winningParentNodeID)
         #expect(childEdges.first?["from_run_id"] as? String == "winning-parent-run")
         #expect(childEdges.first?["from_session_id"] as? String == "winning-parent")
         #expect(childEdges.first?["relationship"] as? String == "forked")
@@ -2610,6 +2615,80 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(first.cmuxRuntime?.socketPath == "/tmp/cmux-test.sock")
         #expect(first.cmuxRuntime?.bundleIdentifier == "com.cmux.test")
         #expect(first.identityConflict != true)
+    }
+
+    @Test func runningSessionRejectsReusedProcessIdentifierGeneration() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-pid-generation-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sessionID = "reused-pid-session"
+        let runID = "reused-pid-run"
+        let pid = Int(getpid())
+        let record = ClaudeHookSessionRecord(
+            sessionId: sessionID,
+            workspaceId: "workspace",
+            surfaceId: "surface",
+            pid: pid,
+            runtimeStatus: .running,
+            startedAt: 100,
+            updatedAt: 200,
+            runs: [AgentSessionRunRecord(
+                runId: runID,
+                pid: pid,
+                processStartedAt: 1,
+                parentRunId: nil,
+                parentSessionId: nil,
+                relationship: nil,
+                restoreAuthority: true,
+                startedAt: 100,
+                updatedAt: 200,
+                endedAt: nil
+            )],
+            activeRunId: runID,
+            runId: runID
+        )
+        let registry = CmuxAgentSessionRegistry(
+            url: root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        try registry.apply(provider: "claude", records: [
+            CmuxAgentSessionRegistry.Record(
+                provider: "claude",
+                sessionID: sessionID,
+                updatedAt: record.updatedAt,
+                json: try JSONEncoder().encode(record)
+            ),
+        ])
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": root
+                .appendingPathComponent("claude-hook-sessions.json").path,
+        ])
+
+        #expect(try !store.hasRunningSession(
+            workspaceId: "workspace",
+            surfaceId: "surface",
+            excludingSessionId: nil,
+            requireLiveProcess: true
+        ))
+        #expect(try store.lookup(sessionId: sessionID)?.runtimeStatus == nil)
+    }
+
+    @Test func hooksHelpUsesJapaneseLocalization() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["AppleLanguages"] = "(ja)"
+        environment["LANG"] = "ja_JP.UTF-8"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "help"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut)
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        #expect(result.stdout.contains("使い方: cmux hooks setup"), Comment(rawValue: result.stdout))
     }
 
     @Test func equalTimeEndedDuplicateCannotBeRevivedByLiveDuplicate() throws {
