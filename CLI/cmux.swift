@@ -138,6 +138,12 @@ struct ClaudeHookSessionRecord: Codable {
     /// on user-owned session restore (https://github.com/manaflow-ai/cmux/issues/8066).
     var lastPermissionMode: String?
     var isRestorable: Bool?
+    /// Optional lifecycle graph metadata written by newer agent integrations.
+    var runId: String? = nil
+    var parentRunId: String? = nil
+    var parentSessionId: String? = nil
+    var relationship: String? = nil
+    var restoreAuthority: Bool? = nil
     var agentLifecycle: AgentHibernationLifecycleState?
     var lastSubtitle: String?
     var lastBody: String?
@@ -3240,6 +3246,7 @@ struct CMUXCLI {
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
+        if command == "agents" { try runAgentsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
         if command == "sessions" || command == "session-debug" { try runSessionsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
         if command == "__sigpipe-probe" { try runSIGPIPEProbe(commandArgs: commandArgs); return }
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
@@ -15076,6 +15083,7 @@ struct CMUXCLI {
             If the app is already running, this restores the last saved session into the current app.
             If the app is not running, this launches cmux and lets startup restore reopen the saved session.
             """
+        case "agents": return agentsUsage()
         case "sessions", "session-debug": return sessionsUsage()
         case "feedback":
             return """
@@ -35064,6 +35072,8 @@ export default CMUXSessionRestore;
           hooks setup|uninstall [--agent <name>]
           hooks <agent> <install|uninstall|event> [options; opencode supports --project]
           hooks feed --source <agent> [--event <event>]
+          agents <list|tree> [options]
+          sessions [list] [options]                           (compatibility alias)
           ping
           version
           capabilities
