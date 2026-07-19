@@ -11,6 +11,7 @@ final class ComputerUseOnboardingWindowController {
     private let runtimeService: ComputerUseRuntimeService
     private let permissionWindowPlacement = ComputerUseOnboardingWindowPlacement()
     private var systemSettingsActivationTask: Task<Void, Never>?
+    private var systemSettingsPlacementRetryTask: Task<Void, Never>?
     private var awaitingSystemSettingsActivation = false
     private var hasPositionedForPermissionSetup = false
 
@@ -33,6 +34,7 @@ final class ComputerUseOnboardingWindowController {
 
     func present() {
         systemSettingsActivationTask?.cancel()
+        systemSettingsPlacementRetryTask?.cancel()
         window?.close()
         awaitingSystemSettingsActivation = false
         hasPositionedForPermissionSetup = false
@@ -72,6 +74,8 @@ final class ComputerUseOnboardingWindowController {
     private func close() {
         systemSettingsActivationTask?.cancel()
         systemSettingsActivationTask = nil
+        systemSettingsPlacementRetryTask?.cancel()
+        systemSettingsPlacementRetryTask = nil
         window?.close()
     }
 
@@ -98,8 +102,28 @@ final class ComputerUseOnboardingWindowController {
         guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier
             == Self.systemSettingsBundleIdentifier
         else { return }
-        if positionBesideSystemSettingsIfNeeded() {
-            awaitingSystemSettingsActivation = false
+        systemSettingsPlacementRetryTask?.cancel()
+        systemSettingsPlacementRetryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(3))
+            while !Task.isCancelled,
+                  awaitingSystemSettingsActivation,
+                  clock.now < deadline,
+                  NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+                    == Self.systemSettingsBundleIdentifier
+            {
+                if positionBesideSystemSettingsIfNeeded() {
+                    awaitingSystemSettingsActivation = false
+                    return
+                }
+                do {
+                    // CGWindowList has no window-created signal, so retry briefly after activation.
+                    try await clock.sleep(for: .milliseconds(100))
+                } catch {
+                    return
+                }
+            }
         }
     }
 
