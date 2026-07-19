@@ -448,9 +448,12 @@ describe("TerminalPane stacks", () => {
     const { container } = render(<TerminalPane {...props} screen={screen} />);
     const stack = container.querySelector(".pane-stack");
     expect(stack).toBeInTheDocument();
-    expect(stack?.querySelectorAll(":scope > .pane-leaf.collapsed")).toHaveLength(2);
+    expect(stack?.querySelectorAll(".pane-leaf.collapsed")).toHaveLength(2);
     expect(stack?.querySelectorAll(":scope > .pane-leaf.expanded")).toHaveLength(1);
+    expect(stack?.querySelectorAll(":scope > .stack-pane-headers")).toHaveLength(2);
+    expect(stack?.children[0]).toHaveClass("stack-pane-headers", "before");
     expect(stack?.children[1]).toHaveClass("expanded");
+    expect(stack?.children[2]).toHaveClass("stack-pane-headers", "after");
     expect(attachedTerminal.renderHook).toHaveBeenCalledTimes(1);
 
     const firstHeader = stack!.children[0]!.querySelector(".stack-pane-header")!;
