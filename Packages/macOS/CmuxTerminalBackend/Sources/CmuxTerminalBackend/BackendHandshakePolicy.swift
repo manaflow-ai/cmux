@@ -37,6 +37,7 @@ public struct BackendHandshakePolicy: Equatable, Sendable {
             "stable-entity-uuid-v1",
             "terminal-accessibility-v1",
             "terminal-interaction-v1",
+            "terminal-interaction-mode-subscription-v1",
             "terminal-link-hit-v1",
             "topology-resume-v1",
         ]).union(terminalControlV9Capabilities)

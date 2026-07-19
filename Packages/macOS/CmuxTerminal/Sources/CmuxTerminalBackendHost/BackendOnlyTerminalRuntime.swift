@@ -38,7 +38,7 @@ final class BackendOnlyPresentedFrameState: @unchecked Sendable {
             return false
         }
         semanticFrameKey = key
-        guard !drainScheduled else {
+        guard accessibilityDemanded, !drainScheduled else {
             lock.unlock()
             return false
         }
@@ -118,8 +118,8 @@ private final class BackendOnlyPresentationLease: TerminalExternalPresentationLe
 
 /// Visible-only terminal adapter for the backend-only experimental host.
 ///
-/// The adapter owns one bounded mutation stream, one presentation, one Mach
-/// frame receiver, and one single-blit compositor. It is created only for the
+/// The adapter owns bounded mutation and interaction streams, one presentation,
+/// one Mach frame receiver, and one single-blit compositor. It is created only for the
 /// selected workspace and releases every presentation resource when hidden.
 /// Canonical terminal state and the PTY remain in cmuxd throughout.
 @MainActor
@@ -143,17 +143,18 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     private let mutationContinuation: AsyncStream<TerminalExternalRuntimeMutation>.Continuation
     private let presentedFrameState = BackendOnlyPresentedFrameState()
     private let rendererEventListener = BackendOnlyRendererEventListener()
+    private let terminalInteractionModeListener = BackendOnlyTerminalInteractionModeListener()
     private var nextIngressSequence: UInt64 = 1
     private var mutationTask: Task<Void, Never>?
     private var rendererEventSubscription: BackendRendererEventSubscription?
+    private var terminalInteractionModeSubscription:
+        BackendTerminalInteractionModeEventSubscription?
+    private var terminalInteractionMode: BackendTerminalInteractionModeChanged?
     private var presentationTask: Task<Void, any Error>?
     private var receiveTask: Task<Void, Never>?
     private var accessibilityRefreshTask: Task<Void, Never>?
     private var accessibilityRefreshRequested = false
     private var latestAccessibilityMetadata: TerminalRenderFrameMetadata?
-    private var uxRefreshTask: Task<Void, Never>?
-    private var uxRefreshRequested = false
-    private var latestUXContentSequence: UInt64?
     private var hostControlState = BackendOnlyHostControlDrainState()
     private var hostControlTask: Task<Void, Never>?
     private var hostViewportTask: Task<Void, Never>?
@@ -215,7 +216,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         presentationTask?.cancel()
         receiveTask?.cancel()
         accessibilityRefreshTask?.cancel()
-        uxRefreshTask?.cancel()
+        terminalInteractionModeListener.cancel()
         hostControlTask?.cancel()
         hostViewportTask?.cancel()
     }
@@ -290,8 +291,6 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         mutationTask = nil
         accessibilityRefreshTask?.cancel()
         accessibilityRefreshTask = nil
-        uxRefreshTask?.cancel()
-        uxRefreshTask = nil
         hostViewportTask?.cancel()
         hostViewportTask = nil
         pendingHostViewport = nil
@@ -423,7 +422,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                 surfaceID: selection.surfaceID,
                 operation: .read
             )
-            installUXState(response.state)
+            try installUXState(response.state)
             return Self.externalSelection(response.selection)
         } catch {
             return nil
@@ -556,13 +555,13 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                     action: action,
                     repeatCount: repeatCount
                 )
-                install(response)
+                try install(response)
             case .selection(let operation):
                 let response = try await session.terminalSelection(
                     surfaceID: selection.surfaceID,
                     operation: Self.backendSelectionOperation(operation)
                 )
-                installUXState(response.state)
+                try installUXState(response.state)
             case .copyMode(let operation, let adjustment, let count):
                 let response = try await session.terminalCopyMode(
                     surfaceID: selection.surfaceID,
@@ -570,21 +569,21 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                     adjustment: adjustment.map(Self.backendCopyModeAdjustment),
                     count: count
                 )
-                install(response)
+                try install(response)
             case .search(let operation, let query):
                 let response = try await session.terminalSearch(
                     surfaceID: selection.surfaceID,
                     operation: Self.backendSearchOperation(operation),
                     query: query
                 )
-                install(response)
+                try install(response)
             case .scroll(let operation, let amount):
                 let response = try await session.terminalScroll(
                     surfaceID: selection.surfaceID,
                     operation: Self.backendScrollOperation(operation),
                     amount: amount
                 )
-                install(response)
+                try install(response)
             case .reparent(let workspaceID):
                 guard workspaceID == selection.workspaceID.rawValue else {
                     throw BackendOnlyHostConnectionError.backendUnavailable
@@ -750,9 +749,11 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         try validateRendererOperation(operationGeneration)
         try await configureRenderer(viewport: viewport)
         try validateRendererOperation(operationGeneration)
+        try await startTerminalInteractionModeListener()
+        try validateRendererOperation(operationGeneration)
         let state = try await session.terminalState(surfaceID: selection.surfaceID)
         try validateRendererOperation(operationGeneration)
-        installUXState(state.state)
+        try installUXState(state.state)
     }
 
     private func validateRendererOperation(_ generation: UInt64) throws {
@@ -1190,6 +1191,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         let backingScale = max(currentViewport?.xScale ?? 1, 1)
         snapshot = TerminalExternalRuntimeSnapshot(
             lifecycle: .live,
+            visibleText: snapshot.visibleText,
             cellMetrics: TerminalExternalCellMetrics(
                 columns: Int(metrics.columns),
                 rows: Int(metrics.rows),
@@ -1203,6 +1205,11 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                 paddingRightPixels: Int(metrics.padding.right),
                 paddingBottomPixels: Int(metrics.padding.bottom)
             ),
+            processMetadata: snapshot.processMetadata,
+            needsCloseConfirmation: snapshot.needsCloseConfirmation,
+            copyModeActive: snapshot.copyModeActive,
+            mouseTracking: snapshot.mouseTracking,
+            copyCursor: snapshot.copyCursor,
             cursor: snapshot.cursor,
             selection: snapshot.selection,
             search: snapshot.search,
@@ -1274,6 +1281,110 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                 await self.handleRendererEventStreamEnded()
             }
         )
+    }
+
+    private func startTerminalInteractionModeListener() async throws {
+        guard terminalInteractionModeSubscription == nil,
+              !terminalInteractionModeListener.isActive,
+              let presentation,
+              rendererTerminalEpoch != nil else {
+            throw BackendOnlyHostConnectionError.backendUnavailable
+        }
+        let subscription = try await session.terminalInteractionModeEventSubscription(
+            surfaceID: selection.surfaceID
+        )
+        guard !retired, !attachmentIDs.isEmpty, visible,
+              self.presentation?.id == presentation.id,
+              self.presentation?.generation == presentation.generation else {
+            await session.cancelTerminalInteractionModeEventSubscription(
+                subscription.identifier
+            )
+            throw CancellationError()
+        }
+        terminalInteractionModeSubscription = subscription
+        terminalInteractionModeListener.start(
+            events: subscription.events,
+            receive: { [weak self] event in
+                guard let self, !self.retired else { return }
+                await self.handleTerminalInteractionMode(event)
+            },
+            onEnd: { [weak self] in
+                guard let self else { return }
+                self.terminalInteractionModeSubscription = nil
+                await self.handleTerminalInteractionModeStreamEnded()
+            }
+        )
+    }
+
+    private func stopTerminalInteractionModeListener() async {
+        let subscription = terminalInteractionModeSubscription
+        terminalInteractionModeSubscription = nil
+        terminalInteractionModeListener.retire()
+        terminalInteractionMode = nil
+        if let subscription {
+            await session.cancelTerminalInteractionModeEventSubscription(
+                subscription.identifier
+            )
+        }
+    }
+
+    private func handleTerminalInteractionMode(
+        _ event: BackendTerminalInteractionModeChanged
+    ) async {
+        do {
+            try installTerminalInteractionMode(event)
+        } catch {
+            await handleTerminalInteractionModeStreamEnded()
+        }
+    }
+
+    private func installTerminalInteractionMode(
+        _ event: BackendTerminalInteractionModeChanged
+    ) throws {
+        guard event.surfaceID == selection.surfaceID,
+              event.terminalEpoch > 0,
+              event.interactionRevision > 0,
+              let rendererTerminalEpoch,
+              event.terminalEpoch == rendererTerminalEpoch else { return }
+        if let current = terminalInteractionMode {
+            guard current.terminalEpoch == event.terminalEpoch else { return }
+            if event.interactionRevision < current.interactionRevision { return }
+            if event.interactionRevision == current.interactionRevision {
+                guard event.mouseTracking == current.mouseTracking else {
+                    throw BackendOnlyHostConnectionError.backendUnavailable
+                }
+                return
+            }
+        }
+        terminalInteractionMode = event
+        guard snapshot.mouseTracking != event.mouseTracking else { return }
+        snapshot = TerminalExternalRuntimeSnapshot(
+            lifecycle: snapshot.lifecycle,
+            visibleText: snapshot.visibleText,
+            cellMetrics: snapshot.cellMetrics,
+            processMetadata: snapshot.processMetadata,
+            needsCloseConfirmation: snapshot.needsCloseConfirmation,
+            copyModeActive: snapshot.copyModeActive,
+            mouseTracking: event.mouseTracking,
+            copyCursor: snapshot.copyCursor,
+            cursor: snapshot.cursor,
+            selection: snapshot.selection,
+            search: snapshot.search,
+            viewportState: snapshot.viewportState,
+            accessibility: snapshot.accessibility
+        )
+    }
+
+    private func handleTerminalInteractionModeStreamEnded() async {
+        guard !retired else { return }
+        invalidateRendererOperations()
+        await withRendererOperationIgnoringCancellation {
+            self.snapshot = TerminalExternalRuntimeSnapshot(lifecycle: .unavailable)
+            await self.stopPresentation()
+            if self.visible, !self.retired {
+                _ = try? await self.startPresentationIfReady()
+            }
+        }
     }
 
     private func stopRendererEventListener() async {
@@ -1421,10 +1532,6 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         accessibilityRefreshTask = nil
         accessibilityRefreshRequested = false
         latestAccessibilityMetadata = nil
-        uxRefreshTask?.cancel()
-        uxRefreshTask = nil
-        uxRefreshRequested = false
-        latestUXContentSequence = nil
         clearAccessibilitySnapshot()
         return priorReceiveTask
     }
@@ -1436,6 +1543,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     }
 
     private func stopPresentation() async {
+        await stopTerminalInteractionModeListener()
         await stopRendererEventListener()
         let priorWorkerIdentity = workerIdentity
         workerIdentity = nil
@@ -1524,20 +1632,55 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         )
     }
 
-    private func install(_ response: BackendTerminalActionResponse) {
-        installUXState(response.state)
+    private func install(_ response: BackendTerminalActionResponse) throws {
+        try installUXState(response.state)
         if let clipboard = response.clipboardText, !clipboard.isEmpty {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(clipboard, forType: .string)
         }
     }
 
-    private func installUXState(_ state: BackendTerminalUXState) {
+    private func installUXState(_ state: BackendTerminalUXState) throws {
+        guard state.surfaceID == selection.surfaceID,
+              state.terminalEpoch > 0,
+              state.interactionRevision > 0,
+              !state.interactionRevisionExhausted,
+              rendererTerminalEpoch.map({ $0 == state.terminalEpoch }) ?? true else {
+            throw BackendOnlyHostConnectionError.backendUnavailable
+        }
+        let mouseTracking: Bool
+        if let current = terminalInteractionMode,
+           current.terminalEpoch == state.terminalEpoch {
+            if state.interactionRevision < current.interactionRevision {
+                mouseTracking = current.mouseTracking
+            } else if state.interactionRevision == current.interactionRevision {
+                guard state.mouseTracking == current.mouseTracking else {
+                    throw BackendOnlyHostConnectionError.backendUnavailable
+                }
+                mouseTracking = current.mouseTracking
+            } else {
+                terminalInteractionMode = BackendTerminalInteractionModeChanged(
+                    surfaceID: state.surfaceID,
+                    terminalEpoch: state.terminalEpoch,
+                    interactionRevision: state.interactionRevision,
+                    mouseTracking: state.mouseTracking
+                )
+                mouseTracking = state.mouseTracking
+            }
+        } else {
+            terminalInteractionMode = BackendTerminalInteractionModeChanged(
+                surfaceID: state.surfaceID,
+                terminalEpoch: state.terminalEpoch,
+                interactionRevision: state.interactionRevision,
+                mouseTracking: state.mouseTracking
+            )
+            mouseTracking = state.mouseTracking
+        }
         snapshot = TerminalExternalRuntimeSnapshot(
             lifecycle: presentation == nil ? .unavailable : .live,
             cellMetrics: snapshot.cellMetrics,
             copyModeActive: state.copyMode,
-            mouseTracking: state.mouseTracking,
+            mouseTracking: mouseTracking,
             copyCursor: state.copyCursor.map {
                 TerminalExternalCellPoint(column: $0.column, row: $0.row)
             },
@@ -1571,48 +1714,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         guard let presentation,
               presentation.id.rawValue == metadata.presentationID,
               rendererGeneration == metadata.presentationGeneration else { return }
-        if latestUXContentSequence != metadata.terminalSequence {
-            latestUXContentSequence = metadata.terminalSequence
-            requestUXRefresh()
-        }
         if accessibilityDemanded {
             requestAccessibility(metadata)
-        }
-    }
-
-    private func requestUXRefresh() {
-        guard presentation != nil, visible, !retired else { return }
-        if uxRefreshTask != nil {
-            uxRefreshRequested = true
-            return
-        }
-        uxRefreshRequested = false
-        uxRefreshTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer {
-                self.uxRefreshTask = nil
-                if self.uxRefreshRequested {
-                    self.requestUXRefresh()
-                }
-            }
-            repeat {
-                self.uxRefreshRequested = false
-                guard let presentation = self.presentation else { return }
-                do {
-                    let response = try await self.session.terminalState(
-                        surfaceID: self.selection.surfaceID
-                    )
-                    guard !Task.isCancelled,
-                          self.presentation?.id == presentation.id,
-                          self.presentation?.generation == presentation.generation,
-                          response.surfaceID == self.selection.surfaceID else { return }
-                    self.installUXState(response.state)
-                } catch is CancellationError {
-                    return
-                } catch {
-                    return
-                }
-            } while self.uxRefreshRequested && !Task.isCancelled
         }
     }
 

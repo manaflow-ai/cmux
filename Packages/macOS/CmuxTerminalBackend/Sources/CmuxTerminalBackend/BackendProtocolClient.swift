@@ -24,6 +24,7 @@ public actor BackendProtocolClient {
         "read-screen",
         "renderer-workers",
         "subscribe-renderer-lifecycle",
+        "subscribe-terminal-interaction-modes",
         "subscribe-topology",
         "terminal-accessibility-activate-link",
         "terminal-accessibility-snapshot",
@@ -162,6 +163,17 @@ public actor BackendProtocolClient {
             command: "subscribe-renderer-lifecycle",
             as: BackendEmptyResponse.self
         )
+    }
+
+    /// Registers the single connection-wide stream of parser interaction-mode changes.
+    public func subscribeTerminalInteractionModes() async throws {
+        let response: BackendTerminalInteractionModeSubscriptionResponse = try await call(
+            command: "subscribe-terminal-interaction-modes",
+            as: BackendTerminalInteractionModeSubscriptionResponse.self
+        )
+        guard response.status == "subscribed" else {
+            throw BackendProtocolError.malformedMessage
+        }
     }
 
     /// Registers a presentation for a client-visible terminal view.

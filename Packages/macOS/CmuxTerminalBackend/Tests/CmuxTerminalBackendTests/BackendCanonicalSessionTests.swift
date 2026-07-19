@@ -1722,6 +1722,11 @@ struct BackendCanonicalSessionTests {
             "interaction_revision": 4,
             "mouse_tracking": true,
         ]))
+        while await session.currentTerminalInteractionMode(
+            surfaceID: surfaceID
+        )?.interactionRevision != 4 {
+            await Task.yield()
+        }
         var slowEvents = slow.events.makeAsyncIterator()
         #expect(await slowEvents.next()?.interactionRevision == 3)
         #expect(await slowEvents.next() == nil)
@@ -1736,7 +1741,7 @@ struct BackendCanonicalSessionTests {
         await session.close()
     }
 
-    @Test("interaction overflow and revision exhaustion require connection replacement")
+    @Test("interaction overflow, invalidation, and unknown surfaces replace the connection")
     func terminalInteractionFatalEventsCloseConnection() async throws {
         for terminalEvent in [
             ["event": "terminal-interaction-mode-overflow"],
@@ -1745,6 +1750,13 @@ struct BackendCanonicalSessionTests {
                 "surface_uuid": SurfaceID(rawValue: UUID()).description,
                 "terminal_epoch": 19,
                 "reason": "revision-exhausted",
+            ],
+            [
+                "event": "terminal-interaction-mode-changed",
+                "surface_uuid": SurfaceID(rawValue: UUID()).description,
+                "terminal_epoch": 19,
+                "interaction_revision": 1,
+                "mouse_tracking": false,
             ],
         ] as [[String: Any]] {
             let authority = BackendAuthority(
@@ -2015,6 +2027,7 @@ struct BackendCanonicalSessionTests {
                     "terminal-input-idempotency-v1",
                     "terminal-input-receipt-ack-v1",
                     "terminal-interaction-v1",
+                    "terminal-interaction-mode-subscription-v1",
                     "terminal-link-hit-v1",
                     "terminal-ordered-input-v1",
                     "terminal-activity-v1",
