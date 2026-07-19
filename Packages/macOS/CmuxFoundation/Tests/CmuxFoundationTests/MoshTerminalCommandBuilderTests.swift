@@ -63,6 +63,21 @@ struct MoshTerminalCommandBuilderTests {
         }
     }
 
+    @Test("finds a remote mosh-server in a user-local bin directory outside PATH")
+    func remoteMoshServerOutsidePathIsResolved() throws {
+        try withFakeCommands(
+            sshStatus: 0,
+            executeRemoteCommand: true,
+            installRemoteMoshServerOutsidePath: true
+        ) { directory, environment in
+            let result = try run(builder(), environment: environment)
+
+            #expect(result.status == 0)
+            #expect(result.stderr.isEmpty)
+            #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent("mosh.args").path))
+        }
+    }
+
     @Test("preserves the Mosh SSH bootstrap and remote command argv")
     func supportedMoshPreservesArguments() throws {
         try withFakeCommands(sshStatus: 0) { directory, environment in
@@ -113,6 +128,8 @@ struct MoshTerminalCommandBuilderTests {
         sshStatus: Int32,
         installMosh: Bool = true,
         moshSupportsRemoteIP: Bool = true,
+        executeRemoteCommand: Bool = false,
+        installRemoteMoshServerOutsidePath: Bool = false,
         operation: (URL, [String: String]) throws -> Void
     ) throws {
         let directory = FileManager.default.temporaryDirectory
@@ -125,6 +142,12 @@ struct MoshTerminalCommandBuilderTests {
             script: """
             #!/bin/sh
             printf '%s\\n' "$@" > "$SSH_ARGS_FILE"
+            if [ "$FAKE_SSH_EXEC_REMOTE" = "1" ]; then
+              cmux_remote_command=
+              for cmux_arg in "$@"; do cmux_remote_command=$cmux_arg; done
+              HOME="$FAKE_REMOTE_HOME" PATH=/usr/bin:/bin /bin/sh -c "$cmux_remote_command"
+              exit $?
+            fi
             exit "$FAKE_SSH_STATUS"
             """,
             in: directory
@@ -145,9 +168,24 @@ struct MoshTerminalCommandBuilderTests {
                 in: directory
             )
         }
+        let remoteHome = directory.appendingPathComponent("remote-home", isDirectory: true)
+        if installRemoteMoshServerOutsidePath {
+            let remoteBin = remoteHome.appendingPathComponent(".local/bin", isDirectory: true)
+            try FileManager.default.createDirectory(at: remoteBin, withIntermediateDirectories: true)
+            try installExecutable(
+                named: "mosh-server",
+                script: """
+                #!/bin/sh
+                exit 0
+                """,
+                in: remoteBin
+            )
+        }
         try operation(directory, [
             "PATH": directory.path,
             "FAKE_SSH_STATUS": String(sshStatus),
+            "FAKE_SSH_EXEC_REMOTE": executeRemoteCommand ? "1" : "0",
+            "FAKE_REMOTE_HOME": remoteHome.path,
             "FAKE_MOSH_SUPPORTS_REMOTE_IP": moshSupportsRemoteIP ? "1" : "0",
             "SSH_ARGS_FILE": directory.appendingPathComponent("ssh.args").path,
             "MOSH_ARGS_FILE": directory.appendingPathComponent("mosh.args").path,
