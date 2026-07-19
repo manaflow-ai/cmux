@@ -207,6 +207,7 @@ func runCodexHookProcess(
     arguments: [String],
     environment: [String: String],
     standardInput: String? = nil,
+    currentDirectoryURL: URL? = nil,
     timeout: TimeInterval
 ) -> CodexHookProcessRunResult {
     let process = Process()
@@ -216,6 +217,7 @@ func runCodexHookProcess(
     process.executableURL = URL(fileURLWithPath: executablePath)
     process.arguments = arguments
     process.environment = environment
+    process.currentDirectoryURL = currentDirectoryURL
     process.standardInput = stdinPipe ?? FileHandle.nullDevice
     process.standardOutput = stdoutPipe
     process.standardError = stderrPipe

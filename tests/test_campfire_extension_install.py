@@ -19,7 +19,11 @@ import time
 import threading
 from pathlib import Path
 
-from claude_teams_test_utils import resolve_cmux_cli
+from claude_teams_test_utils import (
+    isolated_hook_environment,
+    resolve_cmux_cli,
+    run_root_hook_process,
+)
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -112,13 +116,21 @@ class MockCmuxSocket:
                     return
 
     def _response(self, line: str) -> str:
+        if line.startswith("_cmux_capability_v1 "):
+            line = line.split(" ", 2)[-1]
         try:
             payload = json.loads(line)
         except json.JSONDecodeError:
             return "OK"
         request_id = payload["id"] if "id" in payload else "unknown"
         method = payload.get("method")
-        if method == "surface.list":
+        if method == "system.capabilities":
+            result = {
+                "runtime_id": "33333333-3333-3333-3333-333333333333",
+                "socket_path": str(self.path),
+                "bundle_identifier": "com.cmuxterm.test.campfire",
+            }
+        elif method == "surface.list":
             result = {
                 "surfaces": [
                     {
@@ -140,6 +152,8 @@ class MockCmuxSocket:
 def json_rpc_messages(messages: list[str], method: str) -> list[dict[str, object]]:
     matches: list[dict[str, object]] = []
     for line in messages:
+        if line.startswith("_cmux_capability_v1 "):
+            line = line.split(" ", 2)[-1]
         try:
             payload = json.loads(line)
         except json.JSONDecodeError:
@@ -168,7 +182,7 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
         "anthropic/claude-sonnet-4-5",
         "initial prompt should not persist",
     ]
-    hook_env = base_env.copy()
+    hook_env = isolated_hook_environment(base_env)
     hook_env.pop("CAMPFIRE_CODING_AGENT_DIR", None)
     hook_env.update(
         {
@@ -199,13 +213,12 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
     )
 
     with MockCmuxSocket(socket_path, workspace_id=workspace_id, surface_id=surface_id) as server:
-        result = subprocess.run(
+        result = run_root_hook_process(
             [cli_path, "hooks", "campfire", "session-start"],
             input=hook_input,
-            capture_output=True,
-            text=True,
-            check=False,
             env=hook_env,
+            cwd=workspace,
+            root=root,
             timeout=20,
         )
         if result.returncode != 0 or result.stdout != "{}\n":
@@ -358,6 +371,9 @@ def main() -> int:
         fake_stdin_log = root / "fake-cmux-stdin.log"
         fake_env_log = root / "fake-cmux-env.log"
         fake_order_log = root / "fake-cmux-order.log"
+        fake_bin = root / "bin"
+        fake_bin.mkdir(exist_ok=True)
+        make_executable(fake_bin / "cmux", "#!/usr/bin/env bash\nexit 73\n")
         make_executable(
             fake_cmux,
             """#!/usr/bin/env bash
@@ -382,7 +398,8 @@ printf 'end %s\n' "$*" >> "$FAKE_CMUX_ORDER_LOG"
         check_env = env.copy()
         check_env["CMUX_TEST_CAMPFIRE_EXTENSION_PATH"] = str(extension_path)
         check_env["CMUX_SURFACE_ID"] = "surface-campfire-test"
-        check_env["CMUX_CAMPFIRE_CMUX_BIN"] = str(fake_cmux)
+        check_env["CMUX_BUNDLED_CLI_PATH"] = str(fake_cmux)
+        check_env["PATH"] = f"{fake_bin}{os.pathsep}{check_env.get('PATH', '')}"
         check_env["FAKE_CMUX_ARGS_LOG"] = str(fake_args_log)
         check_env["FAKE_CMUX_STDIN_LOG"] = str(fake_stdin_log)
         check_env["FAKE_CMUX_ENV_LOG"] = str(fake_env_log)

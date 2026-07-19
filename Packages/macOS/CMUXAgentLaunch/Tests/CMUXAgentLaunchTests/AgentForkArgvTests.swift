@@ -19,7 +19,7 @@ struct AgentForkArgvTests {
                 sessionId: "SID",
                 executablePath: "/opt/bin/codex",
                 arguments: ["/opt/bin/codex", "--model", "gpt-5"]
-            ) == ["/opt/bin/codex", "fork", "SID", "--model", "gpt-5"]
+            ) == ["env", "CMUX_CUSTOM_CODEX_PATH=/opt/bin/codex", "codex", "fork", "SID", "--model", "gpt-5"]
         )
         #expect(
             AgentForkArgv().builtInKind(
@@ -39,11 +39,59 @@ struct AgentForkArgvTests {
         )
         #expect(
             AgentForkArgv().builtInKind(
-                kind: "omp",
+                kind: "campfire",
                 sessionId: "SID",
-                executablePath: "/opt/bin/omp",
-                arguments: ["/opt/bin/omp", "--model", "anthropic/claude-sonnet-4-6"]
-            ) == ["/opt/bin/omp", "--fork", "SID", "--model", "anthropic/claude-sonnet-4-6"]
+                executablePath: "/opt/bin/campfire",
+                arguments: ["/opt/bin/campfire", "--model", "anthropic/claude-sonnet-4-6"]
+            ) == ["/opt/bin/campfire", "--fork", "SID", "--model", "anthropic/claude-sonnet-4-6"]
+        )
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "grok",
+                sessionId: "SID",
+                executablePath: "/opt/bin/grok",
+                arguments: ["/opt/bin/grok", "--resume", "OLD", "--fork-session", "--model", "grok-4"]
+            ) == ["/opt/bin/grok", "--resume", "SID", "--fork-session", "--model", "grok-4"]
+        )
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "amp",
+                sessionId: "SID",
+                executablePath: "/opt/bin/amp",
+                arguments: ["/opt/bin/amp", "threads", "continue", "OLD", "--mode", "smart"]
+            ) == nil
+        )
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "amp",
+                sessionId: "CHILD",
+                executablePath: "/opt/bin/amp",
+                arguments: ["/opt/bin/amp", "threads", "fork", "PARENT", "--mode", "smart"]
+            ) == nil
+        )
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "factory",
+                sessionId: "SID",
+                executablePath: "/opt/bin/droid",
+                arguments: ["/opt/bin/droid", "--resume", "OLD", "--settings", "/tmp/settings.json"]
+            ) == ["/opt/bin/droid", "--fork", "SID", "--settings", "/tmp/settings.json"]
+        )
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "codebuddy",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codebuddy",
+                arguments: ["/opt/bin/codebuddy", "--resume", "OLD", "--fork-session", "--model", "glm-5"]
+            ) == ["/opt/bin/codebuddy", "--resume", "SID", "--fork-session", "--model", "glm-5"]
+        )
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "qoder",
+                sessionId: "SID",
+                executablePath: "/opt/bin/qodercli",
+                arguments: ["/opt/bin/qodercli", "--resume", "OLD", "--fork-session", "--model", "qoder"]
+            ) == ["/opt/bin/qodercli", "--resume", "SID", "--fork-session", "--model", "qoder"]
         )
     }
 
@@ -75,7 +123,7 @@ struct AgentForkArgvTests {
                     "--model",
                     "gpt-5"
                 ]
-            ) == ["/opt/bin/codex", "fork", "CHILD", "tag-one", "tag two", "--model", "gpt-5"]
+            ) == ["env", "CMUX_CUSTOM_CODEX_PATH=/opt/bin/codex", "codex", "fork", "CHILD", "tag-one", "tag two", "--model", "gpt-5"]
         )
     }
 
@@ -98,7 +146,7 @@ struct AgentForkArgvTests {
                     "--model",
                     "gpt-5"
                 ]
-            ) == ["/opt/bin/codex", "fork", "CHILD", "exec", "review", "help", "fork", "resume", "--model", "gpt-5"]
+            ) == ["env", "CMUX_CUSTOM_CODEX_PATH=/opt/bin/codex", "codex", "fork", "CHILD", "exec", "review", "help", "fork", "resume", "--model", "gpt-5"]
         )
     }
 
@@ -115,7 +163,7 @@ struct AgentForkArgvTests {
                     "gpt-5",
                     "initial prompt should not replay",
                 ]
-            ) == ["/opt/bin/codex", "fork", "CHILD", "--model", "gpt-5"]
+            ) == ["env", "CMUX_CUSTOM_CODEX_PATH=/opt/bin/codex", "codex", "fork", "CHILD", "--model", "gpt-5"]
         )
     }
 
@@ -134,7 +182,7 @@ struct AgentForkArgvTests {
                     "--sandbox",
                     "danger-full-access",
                 ]
-            ) == ["/opt/bin/codex", "fork", "CHILD", "tag-one", "--sandbox", "danger-full-access"]
+            ) == ["env", "CMUX_CUSTOM_CODEX_PATH=/opt/bin/codex", "codex", "fork", "CHILD", "tag-one", "--sandbox", "danger-full-access"]
         )
     }
 
@@ -174,13 +222,64 @@ struct AgentForkArgvTests {
         )
     }
 
-    @Test("Unsupported agents stay unsupported")
+    @Test("Agents without a documented fork entrypoint stay unsupported")
     func unsupportedAgentsStayUnsupported() {
         #expect(
-            AgentForkArgv().builtInKind(kind: "grok", sessionId: "SID", executablePath: nil, arguments: ["grok"]) == nil
+            AgentForkArgv().builtInKind(kind: "gemini", sessionId: "SID", executablePath: nil, arguments: ["gemini"]) == nil
         )
         #expect(
-            AgentForkArgv().builtInKind(kind: "amp", sessionId: "SID", executablePath: nil, arguments: ["amp"]) == nil
+            AgentForkArgv().builtInKind(kind: "cursor", sessionId: "SID", executablePath: nil, arguments: ["cursor-agent"]) == nil
+        )
+        #expect(
+            AgentForkArgv().builtInKind(kind: "omp", sessionId: "SID", executablePath: nil, arguments: ["omp"]) == nil
+        )
+    }
+
+    @Test("OpenCode direct interactive run forks in direct interactive mode")
+    func opencodeInteractiveRunForksInInteractiveMode() {
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "opencode",
+                sessionId: "PARENT",
+                executablePath: "/opt/bin/opencode",
+                arguments: [
+                    "/opt/bin/opencode",
+                    "run",
+                    "-i",
+                    "--session", "OLD",
+                    "--model", "anthropic/claude-sonnet-4-6",
+                    "--auto",
+                    "do not replay this prompt",
+                ]
+            ) == [
+                "/opt/bin/opencode",
+                "run",
+                "--interactive",
+                "--session", "PARENT",
+                "--fork",
+                "--model", "anthropic/claude-sonnet-4-6",
+                "--auto",
+            ]
+        )
+    }
+
+    @Test("One-shot provider launches are not forkable")
+    func oneShotProviderLaunchesAreNotForkable() {
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "rovodev",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["acli", "rovodev", "run", "fix this"]
+            ) == nil
+        )
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "kimi",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["kimi", "--quiet", "fix this"]
+            ) == nil
         )
     }
 }

@@ -3,6 +3,30 @@ import Foundation
 
 /// Builds shell commands for agents whose upstream CLI can only start a fresh conversation.
 struct AgentRelaunchCommandBuilder {
+    func executionDescriptor(
+        kind: RestorableAgentKind,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?
+    ) -> AgentCommandExecutionDescriptor? {
+        guard kind.restoreMode == .relaunchCommand,
+              let launchCommand,
+              let argv = AgentResumeArgv().builtInRelaunchKind(
+                  kind: kind.rawValue,
+                  executablePath: launchCommand.executablePath,
+                  arguments: launchCommand.arguments
+              ),
+              !argv.isEmpty else {
+            return nil
+        }
+        return AgentResumeCommandBuilder.executionDescriptor(
+            argv: argv,
+            kind: kind,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            customRegistration: nil
+        )
+    }
+
     /// Returns a sanitized command-level restore in the captured working directory.
     ///
     /// Ollama has no session identifier or resume verb. Relaunch restores the

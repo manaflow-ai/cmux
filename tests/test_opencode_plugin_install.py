@@ -52,6 +52,8 @@ def main() -> int:
             encoding="utf-8",
         )
         env = os.environ.copy()
+        env["HOME"] = str(root)
+        env["XDG_CONFIG_HOME"] = str(root / ".config")
         env["OPENCODE_CONFIG_DIR"] = str(config_dir)
 
         install = subprocess.run(
@@ -106,6 +108,13 @@ def main() -> int:
             print(f"FAIL: installer did not preserve existing plugin entries: {plugins!r}")
             return 1
 
+        # Keep the real OpenCode autoload check hermetic. The preservation
+        # fixture above intentionally names external packages, but asking
+        # OpenCode to resolve them would make this test depend on the package
+        # registry and the installed OpenCode version's dependency policy.
+        config["plugin"] = ["./plugins/cmux-session.js"]
+        config_json.write_text(json.dumps(config), encoding="utf-8")
+
         opencode = shutil.which("opencode")
         if opencode is not None:
             debug = subprocess.run(
@@ -126,7 +135,8 @@ def main() -> int:
                 print("FAIL: opencode tried to resolve cmux-session as a package")
                 print(debug_output[-4000:])
                 return 1
-            if f"file://{plugin_path}" not in debug_output:
+            plugin_url = plugin_path.absolute().as_uri()
+            if plugin_url not in debug_output:
                 print("FAIL: opencode did not auto-load cmux session plugin file")
                 print(debug_output[-4000:])
                 return 1
@@ -135,6 +145,9 @@ def main() -> int:
         fake_args_log = root / "fake-cmux-args.log"
         fake_stdin_log = root / "fake-cmux-stdin.log"
         fake_env_log = root / "fake-cmux-env.log"
+        fake_bin = root / "bin"
+        fake_bin.mkdir()
+        make_executable(fake_bin / "cmux", "#!/usr/bin/env bash\nexit 73\n")
         plugin_copy_path = config_dir / "plugins" / "cmux-session-copy.js"
         shutil.copyfile(plugin_path, plugin_copy_path)
         make_executable(
@@ -156,7 +169,8 @@ printf '\\n---\\n' >> "$FAKE_CMUX_STDIN_LOG"
         check_env["CMUX_TEST_OPENCODE_PLUGIN_PATH"] = str(plugin_path)
         check_env["CMUX_TEST_OPENCODE_PLUGIN_COPY_PATH"] = str(plugin_copy_path)
         check_env["CMUX_SURFACE_ID"] = "surface-opencode-test"
-        check_env["CMUX_OPENCODE_CMUX_BIN"] = str(fake_cmux)
+        check_env["CMUX_BUNDLED_CLI_PATH"] = str(fake_cmux)
+        check_env["PATH"] = f"{fake_bin}{os.pathsep}{check_env.get('PATH', '')}"
         check_env["FAKE_CMUX_ARGS_LOG"] = str(fake_args_log)
         check_env["FAKE_CMUX_STDIN_LOG"] = str(fake_stdin_log)
         check_env["FAKE_CMUX_ENV_LOG"] = str(fake_env_log)

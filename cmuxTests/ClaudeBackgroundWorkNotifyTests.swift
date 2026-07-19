@@ -25,7 +25,7 @@ struct ClaudeBackgroundWorkNotifyTests {
         name: String,
         sessionId: String,
         stdin: String
-    ) throws -> (snapshot: [String], cachedPending: Bool?) {
+    ) throws -> (snapshot: [String], cachedPending: Bool?, workloads: [[String: Any]]) {
         let harness = ClaudeHookSurfaceResolutionSwiftTests()
         let context = try harness.makeClaudeHookContext(name: name)
         let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
@@ -53,8 +53,9 @@ struct ClaudeBackgroundWorkNotifyTests {
         let snapshot = context.state.snapshot()
         // Read the cached flag from the store BEFORE cleanup deletes the temp dir.
         let cached = cachedPending(storeURL, sessionId: sessionId)
+        let workloads = storedWorkloads(storeURL, sessionId: sessionId)
         context.cleanup()
-        return (snapshot, cached)
+        return (snapshot, cached, workloads)
     }
 
     private func cachedPending(_ storeURL: URL, sessionId: String) -> Bool? {
@@ -65,17 +66,30 @@ struct ClaudeBackgroundWorkNotifyTests {
         return record["hadPendingBackgroundWorkAtStop"] as? Bool
     }
 
+    private func storedWorkloads(_ storeURL: URL, sessionId: String) -> [[String: Any]] {
+        guard let data = try? Data(contentsOf: storeURL),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let sessions = obj["sessions"] as? [String: Any],
+              let record = sessions[sessionId] as? [String: Any] else { return [] }
+        return record["workloads"] as? [[String: Any]] ?? []
+    }
+
     @Test func stopWithRunningBackgroundTaskTagsPendingAndCaches() throws {
         let session = "bg-running-session"
         let stdin = #"""
         {"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[{"id":"t1","type":"shell","status":"running","description":"build","command":"sleep 1"}],"session_crons":[]}
         """#
-        let (snapshot, cached) = try runStopHook(name: "bg-run", sessionId: session, stdin: stdin)
+        let (snapshot, cached, workloads) = try runStopHook(name: "bg-run", sessionId: session, stdin: stdin)
         #expect(
             notifyLine(snapshot, containing: "c=turn-complete;p=1") != nil,
             "Stop with a running background task must tag the done-ping pending; saw \(snapshot)"
         )
         #expect(cached == true)
+        #expect(workloads.count == 1)
+        #expect(workloads[0]["id"] as? String == "t1")
+        #expect(workloads[0]["kind"] as? String == "background_terminal")
+        #expect(workloads[0]["phase"] as? String == "running")
+        #expect(workloads[0]["keepsSessionBusy"] as? Bool == true)
         // Sidebar pill must not say "Idle" while background work is live.
         #expect(statusLine(snapshot, value: "Running") != nil,
                 "Pending stop must show a Running pill, not Idle; saw \(snapshot)")
@@ -92,10 +106,11 @@ struct ClaudeBackgroundWorkNotifyTests {
         let stdin = #"""
         {"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[],"session_crons":[]}
         """#
-        let (snapshot, cached) = try runStopHook(name: "bg-empty", sessionId: session, stdin: stdin)
+        let (snapshot, cached, workloads) = try runStopHook(name: "bg-empty", sessionId: session, stdin: stdin)
         #expect(notifyLine(snapshot, containing: "c=turn-complete;p=0") != nil,
                 "Truly-idle stop must tag pending=0; saw \(snapshot)")
         #expect(cached == false)
+        #expect(workloads.isEmpty)
         // Truly-idle turn end keeps the "Idle" pill and the hibernatable lifecycle.
         #expect(statusLine(snapshot, value: "Idle") != nil,
                 "Truly-idle stop must show the Idle pill; saw \(snapshot)")
@@ -108,9 +123,13 @@ struct ClaudeBackgroundWorkNotifyTests {
         let stdin = #"""
         {"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[],"session_crons":[{"id":"c1"}]}
         """#
-        let (snapshot, _) = try runStopHook(name: "bg-cron", sessionId: session, stdin: stdin)
+        let (snapshot, _, workloads) = try runStopHook(name: "bg-cron", sessionId: session, stdin: stdin)
         #expect(notifyLine(snapshot, containing: "c=turn-complete;p=1") != nil,
                 "A pending scheduled wakeup must tag pending=1; saw \(snapshot)")
+        #expect(workloads.count == 1)
+        #expect(workloads[0]["kind"] as? String == "scheduled")
+        #expect(workloads[0]["phase"] as? String == "queued")
+        #expect(workloads[0]["keepsSessionBusy"] as? Bool == true)
     }
 
     @Test func stopWithoutBackgroundKeysOldClientTagsNotPending() throws {
@@ -119,10 +138,11 @@ struct ClaudeBackgroundWorkNotifyTests {
         let stdin = #"""
         {"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok"}
         """#
-        let (snapshot, cached) = try runStopHook(name: "bg-old", sessionId: session, stdin: stdin)
+        let (snapshot, cached, workloads) = try runStopHook(name: "bg-old", sessionId: session, stdin: stdin)
         #expect(notifyLine(snapshot, containing: "c=turn-complete;p=0") != nil,
                 "Absent arrays (old client) must behave as not-pending; saw \(snapshot)")
         #expect(cached == false)
+        #expect(workloads.isEmpty)
     }
 
     @Test func notificationPermissionPromptTagsNeedsPermission() throws {
@@ -183,6 +203,42 @@ struct ClaudeBackgroundWorkNotifyTests {
         harness.assertSuccessfulHook(result)
         #expect(notifyLine(context.state.snapshot(), containing: "c=needs-permission;p=0") != nil,
                 "Permission-cue notification without notification_type must tag needs-permission; saw \(context.state.snapshot())")
+    }
+
+    @Test func nestedNotificationPreferenceCanAllowDeliveryWithoutVisibleOwnership() throws {
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "notif-child-opt-in")
+        defer { context.cleanup() }
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-notif-child-opt-in",
+            ttySurfaceId: context.surfaceId
+        )
+        var environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-notif-child-opt-in",
+            storeURL: context.root.appendingPathComponent("claude-hook-sessions.json")
+        )
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        let result = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "notification"],
+            environment: environment,
+            standardInput: #"{"session_id":"notif-child-opt-in-session","cwd":"/tmp/x","hook_event_name":"Notification","message":"Child needs your permission","notification_type":"permission_prompt"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(result)
+        let snapshot = context.state.snapshot()
+        #expect(notifyLine(snapshot, containing: "c=needs-permission;p=0") != nil,
+                "Explicit opt-in must deliver nested notifications; saw \(snapshot)")
+        #expect(!snapshot.contains { $0.hasPrefix("set_status claude_code ") },
+                "Nested notification delivery must not claim the root status; saw \(snapshot)")
+        #expect(!snapshot.contains { $0.hasPrefix("set_agent_lifecycle claude_code ") },
+                "Nested notification delivery must not claim the root lifecycle; saw \(snapshot)")
     }
 
     @Test func idlePromptAfterPendingStopReadsCachedPending() throws {

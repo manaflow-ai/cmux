@@ -61,6 +61,57 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
+    func forkFromHibernatedParentLeavesParentRecoveryStateUnchanged() async throws {
+        let workspace = Workspace()
+        let parentPanelId = try #require(workspace.focusedPanelId)
+        let parentPanel = try #require(workspace.terminalPanel(for: parentPanelId))
+        let snapshot = makeForkableClaudeSnapshot(
+            sessionId: "hibernated-fork-parent"
+        )
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: parentPanelId)
+        let hibernatedAt = Date(timeIntervalSince1970: 200)
+        let lastActivityAt = Date(timeIntervalSince1970: 100)
+        #expect(parentPanel.enterAgentHibernation(
+            agent: snapshot,
+            lastActivityAt: lastActivityAt,
+            hibernatedAt: hibernatedAt
+        ))
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let beforeTerminal = try #require(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == parentPanelId }?.terminal
+        )
+        let beforeBytes = try encoder.encode(beforeTerminal)
+        let beforePendingInput = parentPanel.surface.debugPendingSocketInputForTesting()
+        let panelIdsBefore = Set(workspace.panels.keys)
+
+        #expect(await workspace.forkAgentConversationFromContextMenu(
+            fromPanelId: parentPanelId,
+            destination: .newTab
+        ))
+
+        let childPanelIds = Set(workspace.panels.keys).subtracting(panelIdsBefore)
+        #expect(childPanelIds.count == 1)
+        let afterState = try #require(parentPanel.agentHibernationState)
+        #expect(afterState.agent == snapshot)
+        #expect(afterState.hibernatedAt == hibernatedAt)
+        #expect(afterState.lastActivityAt == lastActivityAt)
+        #expect(parentPanel.isAgentHibernated)
+        #expect(parentPanel.surface.debugPendingSocketInputForTesting() == beforePendingInput)
+        let afterTerminal = try #require(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == parentPanelId }?.terminal
+        )
+        #expect(try encoder.encode(afterTerminal) == beforeBytes)
+        let childPanel = try #require(
+            childPanelIds.first.flatMap { workspace.terminalPanel(for: $0) }
+        )
+        #expect(childPanel.surface.debugInitialInputMetadata().hasInitialInput)
+    }
+
+    @Test
     func liveAgentIndexLoaderUsesProcessDetectedPanelWhenHookBindingIsStale() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -468,13 +519,13 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
-    func piFamilyCapabilityProbeUsesCoreVersionThresholds() {
+    func piCapabilityProbeUsesCoreVersionThreshold() {
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("0.60.0", agentID: "pi"))
         #expect(AgentForkSupport.piFamilyVersionSupportsFork("0.60.0", agentID: "pi", acceptsBareVersionOutput: true))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("0.59.9", agentID: "pi", acceptsBareVersionOutput: true))
         #expect(AgentForkSupport.piFamilyVersionSupportsFork("pi 0.60.0", agentID: "pi"))
         #expect(AgentForkSupport.piFamilyVersionSupportsFork("pi:v0.60.0", agentID: "pi"))
-        #expect(AgentForkSupport.piFamilyVersionSupportsFork("omp/13.15.0", agentID: "omp"))
+        #expect(!AgentForkSupport.piFamilyVersionSupportsFork("omp/13.15.0", agentID: "omp"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("0.60.0-beta.1", agentID: "pi", acceptsBareVersionOutput: true))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("pi 0.60.0-beta.1", agentID: "pi"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("omp/13.15.0-rc.1", agentID: "omp"))
@@ -485,7 +536,7 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(AgentForkSupport.piFamilyVersionSupportsFork("warning: node v22.1.0; pi 0.60.0", agentID: "pi"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("node v22.1.0\npi 0.59.9", agentID: "pi"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("node v22.1.0; omp/13.14.2", agentID: "omp"))
-        #expect(AgentForkSupport.piFamilyVersionSupportsFork("node v22.1.0; omp/13.15.0", agentID: "omp"))
+        #expect(!AgentForkSupport.piFamilyVersionSupportsFork("node v22.1.0; omp/13.15.0", agentID: "omp"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("node v22.1.0\nomp/13.14.2", agentID: "omp"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("16.5.2", agentID: "unknown"))
     }
@@ -1153,7 +1204,7 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
-    func sharedForkProbeCacheInvalidatesWhenPiFamilyLauncherChanges() async throws {
+    func sharedForkProbeDropsUnsupportedOmpAfterPi() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
             .appendingPathComponent("cmux-pi-family-shared-cache-\(UUID().uuidString)", isDirectory: true)
@@ -1240,17 +1291,17 @@ struct WorkspaceForkConversationContextMenuTests {
         await sharedIndex.refreshForkAvailabilityNow()
 
         #expect(
-            sharedIndex.snapshotForForkConversationCandidate(workspaceId: workspaceId, panelId: panelId)?
-                .launchCommand?.launcher == "omp"
+            sharedIndex.snapshotForForkConversationCandidate(workspaceId: workspaceId, panelId: panelId)
+                == nil
         )
         #expect(
             !sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId),
-            "A Pi probe result must not make an OMP snapshot fresh just because the rendered fork command is unchanged."
+            "A provider without a fork command must not inherit a prior Pi probe result."
         )
         #expect(sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) == nil)
 
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
-        #expect(probedLaunchers.withLock { $0 } == ["pi", "omp"])
+        #expect(probedLaunchers.withLock { $0 } == ["pi"])
         #expect(sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) == nil)
     }
 
@@ -3496,7 +3547,7 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
-    func sharedForkProbeValidationInvalidatesWhenEarlierPathExecutableAppearsForPiAndOmp() async throws {
+    func sharedForkProbeValidationInvalidatesWhenEarlierPathExecutableAppearsForPi() async throws {
         struct Scenario {
             let launcher: String
             let kind: RestorableAgentKind
@@ -3512,13 +3563,6 @@ struct WorkspaceForkConversationContextMenuTests {
                 registration: .builtInPi,
                 supportedOutput: "pi 0.80.6",
                 unsupportedOutput: "pi 0.59.0"
-            ),
-            Scenario(
-                launcher: "omp",
-                kind: .custom("omp"),
-                registration: .builtInOmp,
-                supportedOutput: "omp/13.15.0",
-                unsupportedOutput: "omp/13.14.2"
             ),
         ]
 
@@ -3720,7 +3764,7 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
-    func builtInOmpRequiresProbeButProjectForkOverrideDoesNot() {
+    func builtInOmpDoesNotForkButProjectForkOverrideDoes() {
         let builtIn = SessionRestorableAgentSnapshot(
             kind: .custom("omp"),
             sessionId: "omp-session",
@@ -3736,8 +3780,8 @@ struct WorkspaceForkConversationContextMenuTests {
             ),
             registration: .builtInOmp
         )
-        #expect(ContentView.commandPaletteSnapshotForkAvailability(builtIn) == .requiresProbe)
-        #expect(builtIn.forkCommand?.contains("'PATH=/custom/omp/bin:/usr/bin'") == true)
+        #expect(ContentView.commandPaletteSnapshotForkAvailability(builtIn) == .unsupported)
+        #expect(builtIn.forkCommand == nil)
 
         var metadataOverride = CmuxVaultAgentRegistration.builtInOmp
         metadataOverride.name = "Project OMP"
@@ -3749,7 +3793,7 @@ struct WorkspaceForkConversationContextMenuTests {
             launchCommand: builtIn.launchCommand,
             registration: metadataOverride
         )
-        #expect(ContentView.commandPaletteSnapshotForkAvailability(metadataOverridden) == .requiresProbe)
+        #expect(ContentView.commandPaletteSnapshotForkAvailability(metadataOverridden) == .unsupported)
 
         var projectOverride = CmuxVaultAgentRegistration.builtInOmp
         projectOverride.name = "Project OMP"
@@ -4045,7 +4089,7 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
-    func piFamilyCapabilityProbeCacheSharesExecutableIdentityAcrossSnapshots() async throws {
+    func piCapabilityProbeCacheSharesExecutableIdentityAcrossSnapshots() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-pi-executable-cache-\(UUID().uuidString)", isDirectory: true)
@@ -4093,11 +4137,11 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(probeCount() == 1)
 
         #expect(!(await supportsFork(snapshot(launcher: "omp", sessionId: "omp-one"))))
-        #expect(probeCount() == 2)
+        #expect(probeCount() == 1)
     }
 
     @Test
-    func piFamilyValidationExecutableResolutionWorkIdentityIgnoresSessionAndLauncher() async throws {
+    func piValidationExecutableResolutionWorkIdentityIgnoresSessionAndRejectsOmp() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-pi-resolution-work-key-\(UUID().uuidString)", isDirectory: true)
@@ -4124,14 +4168,11 @@ struct WorkspaceForkConversationContextMenuTests {
         let piTwoIdentity = try #require(AgentForkSupport.forkValidationExecutableResolutionWorkIdentity(
             snapshot: snapshot(launcher: "pi", sessionId: "pi-two")
         ))
-        let ompIdentity = try #require(AgentForkSupport.forkValidationExecutableResolutionWorkIdentity(
-            snapshot: snapshot(launcher: "omp", sessionId: "omp-one")
-        ))
-
         #expect(piOneIdentity == piTwoIdentity)
         #expect(
-            piOneIdentity == ompIdentity,
-            "Executable resolution work should key only the wrapper lookup inputs; capability results use a launcher-specific cache key separately."
+            AgentForkSupport.forkValidationExecutableResolutionWorkIdentity(
+                snapshot: snapshot(launcher: "omp", sessionId: "omp-one")
+            ) == nil
         )
     }
 
@@ -4308,10 +4349,11 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
-    func persistedBuiltInOmpSnapshotMigratesLegacyForkTemplate() throws {
+    func persistedBuiltInOmpSnapshotMigratesLegacyResumeAndForkTemplates() throws {
         let sessionId = "omp-session-123"
         var legacyRegistration = CmuxVaultAgentRegistration.builtInOmp
-        legacyRegistration.forkCommand = "{{executable}} --session {{sessionId}} --fork"
+        legacyRegistration.resumeCommand = "{{executable}} --session {{sessionId}}"
+        legacyRegistration.forkCommand = "{{executable}} --fork {{sessionId}}"
         let persisted = SessionRestorableAgentSnapshot(
             kind: .custom("omp"),
             sessionId: sessionId,
@@ -4334,7 +4376,24 @@ struct WorkspaceForkConversationContextMenuTests {
         )
 
         #expect(decoded.registration == .builtInOmp)
-        #expect(decoded.forkCommand?.contains("'--fork' '\(sessionId)'") == true)
+        #expect(decoded.resumeCommand?.contains("'--resume' '\(sessionId)'") == true)
+        #expect(decoded.forkCommand == nil)
+
+        var olderRegistration = legacyRegistration
+        olderRegistration.forkCommand = "{{executable}} --session {{sessionId}} --fork"
+        let decodedOlder = try JSONDecoder().decode(
+            SessionRestorableAgentSnapshot.self,
+            from: JSONEncoder().encode(SessionRestorableAgentSnapshot(
+                kind: .custom("omp"),
+                sessionId: sessionId,
+                workingDirectory: nil,
+                launchCommand: persisted.launchCommand,
+                registration: olderRegistration
+            ))
+        )
+        #expect(decodedOlder.registration == .builtInOmp)
+        #expect(decodedOlder.resumeCommand?.contains("'--resume' '\(sessionId)'") == true)
+        #expect(decodedOlder.forkCommand == nil)
 
         var projectOverride = legacyRegistration
         projectOverride.name = "Project OMP"
@@ -4353,6 +4412,7 @@ struct WorkspaceForkConversationContextMenuTests {
 
         var historicalRegistration = CmuxVaultAgentRegistration.builtInOmp
         historicalRegistration.iconAssetName = nil
+        historicalRegistration.resumeCommand = "{{executable}} --session {{sessionId}}"
         historicalRegistration.forkCommand = nil
         let historical = SessionRestorableAgentSnapshot(
             kind: .custom("omp"),
@@ -4365,7 +4425,8 @@ struct WorkspaceForkConversationContextMenuTests {
             SessionRestorableAgentSnapshot.self,
             from: JSONEncoder().encode(historical)
         )
-        #expect(decodedHistorical.registration == historicalRegistration)
+        #expect(decodedHistorical.registration == .builtInOmp)
+        #expect(decodedHistorical.resumeCommand?.contains("'--resume' '\(sessionId)'") == true)
         #expect(decodedHistorical.forkCommand == nil)
 
         var legacyWithoutIcon = legacyRegistration
@@ -4381,7 +4442,8 @@ struct WorkspaceForkConversationContextMenuTests {
             ))
         )
         #expect(decodedLegacyWithoutIcon.registration == .builtInOmp)
-        #expect(decodedLegacyWithoutIcon.forkCommand?.contains("'--fork' '\(sessionId)'") == true)
+        #expect(decodedLegacyWithoutIcon.resumeCommand?.contains("'--resume' '\(sessionId)'") == true)
+        #expect(decodedLegacyWithoutIcon.forkCommand == nil)
 
         var customForkRegistration = CmuxVaultAgentRegistration.builtInOmp
         customForkRegistration.forkCommand = "{{executable}} --branch {{sessionId}}"
@@ -4465,6 +4527,54 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(decodedHistorical.kind == .custom("pi"))
         #expect(decodedHistorical.registration == historicalBuiltIn)
         #expect(decodedHistorical.forkCommand == nil)
+    }
+
+    @Test
+    func persistedBuiltInRegistrationsGainNewForkTemplatesWithoutOverridingProjects() throws {
+        for current in [
+            CmuxVaultAgentRegistration.builtInGrok,
+            CmuxVaultAgentRegistration.builtInCampfire,
+        ] {
+            var historical = current
+            historical.forkCommand = nil
+            let persisted = SessionRestorableAgentSnapshot(
+                kind: .custom(current.id),
+                sessionId: "session-123",
+                workingDirectory: "/tmp/repo",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: current.id,
+                    executablePath: current.defaultExecutable,
+                    arguments: [current.defaultExecutable],
+                    workingDirectory: "/tmp/repo",
+                    environment: nil,
+                    capturedAt: 123,
+                    source: "process"
+                ),
+                registration: historical
+            )
+
+            let decoded = try JSONDecoder().decode(
+                SessionRestorableAgentSnapshot.self,
+                from: JSONEncoder().encode(persisted)
+            )
+            #expect(decoded.registration == current)
+            #expect(decoded.forkCommand != nil)
+
+            var projectOverride = historical
+            projectOverride.name = "Project \(current.name)"
+            let decodedOverride = try JSONDecoder().decode(
+                SessionRestorableAgentSnapshot.self,
+                from: JSONEncoder().encode(SessionRestorableAgentSnapshot(
+                    kind: .custom(current.id),
+                    sessionId: "session-123",
+                    workingDirectory: "/tmp/repo",
+                    launchCommand: persisted.launchCommand,
+                    registration: projectOverride
+                ))
+            )
+            #expect(decodedOverride.registration == projectOverride)
+            #expect(decodedOverride.forkCommand == nil)
+        }
     }
 
     @Test

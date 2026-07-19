@@ -150,7 +150,7 @@ struct CodexForkSanitizerTests {
                 sessionId: "CHILD",
                 executablePath: "/opt/bin/codex",
                 arguments: capturedArguments
-            ) == ["/opt/bin/codex", "fork", "CHILD", "tag-one", "--sandbox", "danger-full-access"]
+            ) == ["env", "CMUX_CUSTOM_CODEX_PATH=/opt/bin/codex", "codex", "fork", "CHILD", "tag-one", "--sandbox", "danger-full-access"]
         )
     }
 
@@ -164,7 +164,7 @@ struct CodexForkSanitizerTests {
                 sessionId: "CHILD",
                 executablePath: "/opt/bin/codex",
                 arguments: capturedArguments
-            ) == ["/opt/bin/codex", "resume", "CHILD", "-c", "check_for_update_on_startup=false", "--sandbox", "danger-full-access"]
+            ) == ["env", "CMUX_CUSTOM_CODEX_PATH=/opt/bin/codex", "codex", "resume", "CHILD", "-c", "check_for_update_on_startup=false", "--sandbox", "danger-full-access"]
         )
     }
 

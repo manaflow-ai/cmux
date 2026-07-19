@@ -3182,8 +3182,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         didPrepareStartupSessionSnapshot = true
         Self.removeLegacyPersistedWindowGeometry()
         syncManualRestoreSnapshotCachePruningCrashDiagnostics()
-        let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics()
+        var sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics()
         guard SessionRestorePolicy.shouldAttemptRestore() else { return }
+        if var snapshot = sanitizedStartupSnapshot {
+            RestorableAgentSessionIndex.prepareAgentRegistryForSessionRestore(&snapshot)
+            sanitizedStartupSnapshot = snapshot
+        }
         startupSessionSnapshot = sanitizedStartupSnapshot
     }
 
@@ -3387,9 +3391,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         flushPendingStartupNavigationURLRequests()
         if Self.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
-            // Auto-resume input can be queued before tmux has spawned; preserve
-            // restored process-detected bindings until a later live scan.
-            _ = saveSessionSnapshot(includeScrollback: false)
+            // Restored bindings already live in workspace state. A cold durable-agent
+            // scan here would block the main actor while the shared cache is filling.
+            let restorableAgentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+                ?? .empty
+            _ = saveSessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: restorableAgentIndex
+            )
         }
     }
 
@@ -3406,9 +3415,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ snapshot: AppSessionSnapshot,
         shouldActivate: Bool = true
     ) -> Bool {
-        guard let snapshot = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot).snapshot else {
+        guard var snapshot = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot).snapshot else {
             return false
         }
+        RestorableAgentSessionIndex.prepareAgentRegistryForSessionRestore(&snapshot)
         let snapshotWindows = Array(
             snapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
         )
@@ -16243,8 +16253,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               !isApplyingSessionRestore else {
             return
         }
+        // Window close is interactive, so let the shared cache refresh asynchronously
+        // instead of scanning durable agent state on the main actor when it is cold.
         let restorableAgentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-            ?? RestorableAgentSessionIndex.load()
+            ?? .empty
         guard let snapshot = closeWindowSnapshotPruningCrashDiagnostics(
             for: context,
             includeScrollback: true,

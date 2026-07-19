@@ -103,7 +103,7 @@ Default: `cloudFirst`.
 
 ## `terminal.agentHibernation`
 
-Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM and CPU, then resumes each one with its saved session when you visit its tab. See [agent-hooks.md](agent-hooks.md#agent-hibernation) for the full behavior, including the confirmation settle window and how resume works.
+Opt-in Agent Hibernation. cmux replaces a proven process-free background terminal with a lightweight placeholder, then resumes its saved agent session when you visit the tab. Live agent and child processes are never terminated. See [agent-hooks.md](agent-hooks.md#agent-hibernation) for the full safety checks and resume behavior.
 
 ```json
 {
@@ -118,8 +118,8 @@ Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM
 ```
 
 - `enabled`: turn Agent Hibernation on. Default: `false`.
-- `idleSeconds`: seconds a background idle agent terminal must be quiet before it can hibernate. A ~60s confirmation settle window still applies on top of this. Default: `5`. Range: `5`-`604800`.
-- `maxLiveTerminals`: how many live restorable agent terminals to keep before cmux hibernates the oldest idle background ones. Nothing hibernates while you are at or under this count. Default: `12`. Range: `1`-`256`.
+- `idleSeconds`: seconds a process-free background agent terminal must be quiet before it can hibernate. A ~60s confirmation settle window still applies on top of this. Default: `5`. Range: `5`-`604800`.
+- `maxLiveTerminals`: how many live restorable agent terminals to keep before cmux hibernates the oldest eligible process-free background ones. Nothing hibernates while you are at or under this count. Default: `12`. Range: `1`-`256`.
 
 Enable it from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
 

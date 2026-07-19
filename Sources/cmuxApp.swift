@@ -242,9 +242,11 @@ struct cmuxApp: App {
         NSLog("%@", message)
         Darwin.exit(64)
     }
-
     private static func configureGhosttyEnvironment() {
         let fileManager = FileManager.default
+        if !SessionRestorePolicy.isRunningUnderAutomatedTests() {
+            setenv("CMUX_RUNTIME_ID", TerminalSurface.managedCmuxRuntimeId, 1)
+        }
         let currentResourcesDir = getenv("GHOSTTY_RESOURCES_DIR").flatMap { String(cString: $0) }
         if let resolvedResourcesDir = resolvedGhosttyResourcesDirectory(
             currentValue: currentResourcesDir,

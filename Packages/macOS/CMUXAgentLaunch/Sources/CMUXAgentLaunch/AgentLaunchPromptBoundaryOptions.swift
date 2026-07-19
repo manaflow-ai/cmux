@@ -10,6 +10,14 @@ extension AgentLaunchSanitizer {
         result: inout [String]
     ) -> Bool? {
         guard promptBoundaryOption(arg, options: policy.promptBoundaryOptions) != nil else { return false }
+        // Claude 2.1.214 defines bare --tmux as a boolean. Preserve the legacy
+        // claude-teams prompt boundary only when a prompt-like token follows it;
+        // an adjacent option starts a new option and must remain visible.
+        if arg == "--tmux",
+           (index + 1 >= args.count || isOptionToken(args[index + 1])) {
+            index += 1
+            return true
+        }
         if let modeEnd = promptBoundaryLaunchModeEnd(args, index: index) {
             index = modeEnd
             return true

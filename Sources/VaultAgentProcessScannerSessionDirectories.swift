@@ -1,5 +1,213 @@
 import Foundation
 
+/// Per-process-snapshot index of Pi-family session files. A refresh sees a
+/// coherent directory snapshot and never walks the same project tree once per
+/// live agent process. The next refresh constructs a fresh index, so newly
+/// written sessions are visible without a TTL or invalidation timer.
+struct PiSessionDirectoryIndex {
+    private struct Candidate {
+        let url: URL
+    }
+
+    private enum CandidateResolution {
+        case none
+        case unique(Candidate)
+        case ambiguous
+
+        var candidate: Candidate? {
+            guard case .unique(let candidate) = self else { return nil }
+            return candidate
+        }
+
+        static func merging(_ lhs: CandidateResolution, _ rhs: CandidateResolution) -> CandidateResolution {
+            switch (lhs, rhs) {
+            case (.ambiguous, _), (_, .ambiguous):
+                return .ambiguous
+            case (.none, let resolution), (let resolution, .none):
+                return resolution
+            case (.unique(let lhs), .unique(let rhs)):
+                return lhs.url.path == rhs.url.path ? .unique(lhs) : .ambiguous
+            }
+        }
+    }
+
+    private struct DirectorySnapshot {
+        let exactByBasename: [String: CandidateResolution]
+        let prefixLookup: PrefixLookupIndex
+    }
+
+    /// Pi accepts a prefix of its UUID session ID. Session filenames add
+    /// a timestamp before that UUID, so both the basename and UUID suffix are
+    /// searchable keys. A segment tree resolves a prefix only when every
+    /// matching key names the same file, without scanning every candidate.
+    private struct PrefixLookupIndex {
+        private struct Entry {
+            let key: String
+            let candidate: Candidate
+        }
+
+        private let entries: [Entry]
+        private let leafBase: Int
+        private let resolutionByTreeNode: [CandidateResolution]
+
+        init(candidates: [Candidate]) {
+            var entries: [Entry] = []
+            entries.reserveCapacity(candidates.count * 2)
+            for candidate in candidates {
+                let basename = candidate.url.deletingPathExtension().lastPathComponent
+                entries.append(Entry(key: basename, candidate: candidate))
+                if let sessionID = Self.uuidSuffix(in: basename) {
+                    entries.append(Entry(key: sessionID, candidate: candidate))
+                }
+            }
+            entries.sort { lhs, rhs in
+                if lhs.key != rhs.key { return lhs.key < rhs.key }
+                return lhs.candidate.url.path < rhs.candidate.url.path
+            }
+            self.entries = entries
+
+            var leafBase = 1
+            while leafBase < entries.count { leafBase *= 2 }
+            self.leafBase = leafBase
+            var tree = [CandidateResolution](repeating: .none, count: leafBase * 2)
+            for (index, entry) in entries.enumerated() {
+                tree[leafBase + index] = .unique(entry.candidate)
+            }
+            if leafBase > 1 {
+                for index in stride(from: leafBase - 1, through: 1, by: -1) {
+                    tree[index] = CandidateResolution.merging(tree[index * 2], tree[index * 2 + 1])
+                }
+            }
+            self.resolutionByTreeNode = tree
+        }
+
+        func uniqueCandidate(forPrefix prefix: String) -> (candidate: Candidate?, visitCount: Int) {
+            var lower = 0
+            var upper = entries.count
+            while lower < upper {
+                let middle = lower + (upper - lower) / 2
+                if entries[middle].key < prefix {
+                    lower = middle + 1
+                } else {
+                    upper = middle
+                }
+            }
+            guard lower < entries.count, entries[lower].key.hasPrefix(prefix) else {
+                return (nil, 0)
+            }
+
+            let rangeStart = lower
+            upper = entries.count
+            while lower < upper {
+                let middle = lower + (upper - lower) / 2
+                if entries[middle].key.hasPrefix(prefix) {
+                    lower = middle + 1
+                } else {
+                    upper = middle
+                }
+            }
+
+            var left = leafBase + rangeStart
+            var right = leafBase + lower
+            var resolution = CandidateResolution.none
+            var visitCount = 0
+            while left < right {
+                if left % 2 == 1 {
+                    resolution = CandidateResolution.merging(resolution, resolutionByTreeNode[left])
+                    visitCount += 1
+                    left += 1
+                }
+                if right % 2 == 1 {
+                    right -= 1
+                    resolution = CandidateResolution.merging(resolution, resolutionByTreeNode[right])
+                    visitCount += 1
+                }
+                left /= 2
+                right /= 2
+            }
+            return (resolution.candidate, visitCount)
+        }
+
+        private static func uuidSuffix(in basename: String) -> String? {
+            guard let separator = basename.lastIndex(of: "_") else { return nil }
+            let suffix = String(basename[basename.index(after: separator)...])
+            return UUID(uuidString: suffix) == nil ? nil : suffix
+        }
+    }
+
+    private enum CachedDirectory {
+        case unavailable
+        case files(DirectorySnapshot)
+    }
+
+    private let fileManager: FileManager
+    private var cachedDirectories: [String: CachedDirectory] = [:]
+    private(set) var directoryEnumerationCount = 0
+    private(set) var candidateQueryVisitCount = 0
+
+    init(fileManager: FileManager) {
+        self.fileManager = fileManager
+    }
+
+    mutating func resolvedSessionPath(_ session: String, in directory: String) -> String? {
+        guard let snapshot = directorySnapshot(in: directory) else { return nil }
+        if let exact = snapshot.exactByBasename[session] {
+            return exact.candidate?.url.path
+        }
+
+        let lookup = snapshot.prefixLookup.uniqueCandidate(forPrefix: session)
+        candidateQueryVisitCount += lookup.visitCount
+        return lookup.candidate?.url.path
+    }
+
+    private mutating func directorySnapshot(in directory: String) -> DirectorySnapshot? {
+        let standardizedDirectory = (directory as NSString).standardizingPath
+        if let cached = cachedDirectories[standardizedDirectory] {
+            switch cached {
+            case .unavailable:
+                return nil
+            case .files(let snapshot):
+                return snapshot
+            }
+        }
+
+        directoryEnumerationCount += 1
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: standardizedDirectory, isDirectory: &isDirectory),
+              isDirectory.boolValue,
+              let enumerator = fileManager.enumerator(
+                  at: URL(fileURLWithPath: standardizedDirectory, isDirectory: true),
+                  includingPropertiesForKeys: [.isRegularFileKey],
+                  options: [.skipsHiddenFiles]
+              ) else {
+            cachedDirectories[standardizedDirectory] = .unavailable
+            return nil
+        }
+
+        var candidates: [Candidate] = []
+        var exactByBasename: [String: CandidateResolution] = [:]
+        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
+            let values = try? url.resourceValues(forKeys: [.isRegularFileKey])
+            guard values?.isRegularFile == true else {
+                continue
+            }
+            let candidate = Candidate(url: url)
+            candidates.append(candidate)
+            let basename = url.deletingPathExtension().lastPathComponent
+            exactByBasename[basename] = CandidateResolution.merging(
+                exactByBasename[basename] ?? .none,
+                .unique(candidate)
+            )
+        }
+        let snapshot = DirectorySnapshot(
+            exactByBasename: exactByBasename,
+            prefixLookup: PrefixLookupIndex(candidates: candidates)
+        )
+        cachedDirectories[standardizedDirectory] = .files(snapshot)
+        return snapshot
+    }
+}
+
 extension PiSessionLocator {
     static func candidateSessionDirectory(
         for process: VaultObservedAgentProcess,
@@ -94,28 +302,6 @@ extension PiSessionLocator {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    static func newestJSONLFile(in directory: String, fileManager: FileManager = .default) -> URL? {
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
-              isDirectory.boolValue,
-              let enumerator = fileManager.enumerator(
-                  at: URL(fileURLWithPath: directory, isDirectory: true),
-                  includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-                  options: [.skipsHiddenFiles]
-              ) else {
-            return nil
-        }
-
-        var newest: (url: URL, modified: Date)?
-        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
-            guard values?.isRegularFile == true, let modified = values?.contentModificationDate else { continue }
-            if newest == nil || modified > newest!.modified {
-                newest = (url, modified)
-            }
-        }
-        return newest?.url
-    }
 }
 
 private extension Array where Element == String {

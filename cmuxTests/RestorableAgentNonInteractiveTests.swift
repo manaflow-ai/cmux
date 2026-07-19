@@ -213,6 +213,34 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
                 source: nil
             )
         )
+        let kimiPrint = SessionRestorableAgentSnapshot(
+            kind: .kimi,
+            sessionId: "kimi-print-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "kimi",
+                executablePath: "kimi",
+                arguments: ["kimi", "--print", "fix this"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        let kimiPrompt = SessionRestorableAgentSnapshot(
+            kind: .kimi,
+            sessionId: "kimi-prompt-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "kimi",
+                executablePath: "kimi",
+                arguments: ["kimi", "--prompt", "fix this"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
 
         XCTAssertNil(claudePrint.resumeCommand)
         XCTAssertNil(claudePrintEquals.resumeCommand)
@@ -228,5 +256,7 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
         XCTAssertNil(codeBuddyPrint.resumeCommand)
         XCTAssertNil(factoryExec.resumeCommand)
         XCTAssertNil(qoderPrint.resumeCommand)
+        XCTAssertNil(kimiPrint.resumeCommand)
+        XCTAssertNotNil(kimiPrompt.resumeCommand)
     }
 }

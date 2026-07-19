@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 import CMUXAgentLaunch
-import Darwin
+import CmuxFoundation
 import os
 
 enum TerminalStartupShellQuoting {
@@ -314,6 +314,7 @@ enum AgentResumeCommandBuilder {
     static func resumeShellCommand(
         kind: RestorableAgentKind,
         sessionId: String,
+        transcriptPath: String? = nil,
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
         registrationOverride: CmuxVaultAgentRegistration? = nil,
@@ -325,6 +326,7 @@ enum AgentResumeCommandBuilder {
               let argv = resumeArguments(
                   kind: kind,
                   sessionId: sessionId,
+                  transcriptPath: transcriptPath,
                   launchCommand: launchCommand,
                   workingDirectory: workingDirectory,
                   customRegistration: customRegistration,
@@ -372,8 +374,136 @@ enum AgentResumeCommandBuilder {
             kind: kind,
             launchCommand: launchCommand,
             workingDirectory: workingDirectory,
-            customRegistration: customRegistration,
-            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
+            customRegistration: customRegistration, includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+            additionalEnvironment: ["CMUX_AGENT_PARENT_SESSION_ID": sessionId, "CMUX_AGENT_RELATIONSHIP": "forked"]
+        )
+    }
+
+    static func resumeExecutionDescriptor(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        transcriptPath: String? = nil,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        registrationOverride: CmuxVaultAgentRegistration? = nil,
+        observedPermissionMode: String? = nil
+    ) -> AgentCommandExecutionDescriptor? {
+        guard let argv = resumeArguments(
+            kind: kind,
+            sessionId: sessionId,
+            transcriptPath: transcriptPath,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            customRegistration: registrationOverride,
+            observedPermissionMode: observedPermissionMode
+        ) else {
+            return nil
+        }
+        return executionDescriptor(
+            argv: argv,
+            kind: kind,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            customRegistration: registrationOverride
+        )
+    }
+
+    static func forkExecutionDescriptor(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        registrationOverride: CmuxVaultAgentRegistration? = nil,
+        observedPermissionMode: String? = nil
+    ) -> AgentCommandExecutionDescriptor? {
+        guard let argv = forkArguments(
+            kind: kind,
+            sessionId: sessionId,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            customRegistration: registrationOverride,
+            observedPermissionMode: observedPermissionMode
+        ) else {
+            return nil
+        }
+        return executionDescriptor(
+            argv: argv,
+            kind: kind,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            customRegistration: registrationOverride
+        )
+    }
+
+    static func surfaceResumeBindingExecutionDescriptor(
+        command: String,
+        kind rawKind: String?,
+        environment: [String: String]?,
+        workingDirectory: String?
+    ) -> AgentCommandExecutionDescriptor? {
+        guard let rawKind = normalized(rawKind),
+              let kind = RestorableAgentKind(rawValue: rawKind) else {
+            return nil
+        }
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command)
+        guard let executableIndex = SurfaceResumeCommandCanonicalizer.commandExecutableWordIndex(
+            in: words,
+            command: command
+        ) else {
+            return nil
+        }
+        let commandStartIndex = words[..<executableIndex]
+            .lastIndex { $0.value == "&&" }
+            .map { words.index(after: $0) }
+            ?? words.startIndex
+        guard commandStartIndex <= executableIndex else { return nil }
+        var argv = Array(words[commandStartIndex...].map(\.value))
+        let relativeExecutableIndex = words.distance(
+            from: commandStartIndex,
+            to: executableIndex
+        )
+        guard argv.indices.contains(relativeExecutableIndex) else { return nil }
+
+        // Agent-hook bindings are repaired immediately before launch. Mirror
+        // that portable-wrapper decision here so stale managed Claude/Codex
+        // paths validate the binary the wrapper will actually execute.
+        let repairedCommand = SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
+            in: command,
+            kind: rawKind
+        )
+        if repairedCommand != command {
+            let capturedExecutable = argv[relativeExecutableIndex]
+            switch kind {
+            case .claude:
+                argv[relativeExecutableIndex] = "claude"
+            case .codex:
+                argv[relativeExecutableIndex] = "codex"
+                let assignment = "CMUX_CUSTOM_CODEX_PATH=\(capturedExecutable)"
+                if argv.first.map({ ($0 as NSString).lastPathComponent }) == "env" {
+                    argv.insert(assignment, at: relativeExecutableIndex)
+                } else {
+                    argv.insert(contentsOf: ["env", assignment], at: 0)
+                }
+            default:
+                break
+            }
+        }
+
+        return executionDescriptor(
+            argv: argv,
+            kind: kind,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: rawKind,
+                executablePath: nil,
+                arguments: argv,
+                workingDirectory: workingDirectory,
+                environment: environment,
+                capturedAt: 0,
+                source: "agent-hook"
+            ),
+            workingDirectory: workingDirectory,
+            customRegistration: nil,
+            baseSearchPath: environment?["PATH"]
         )
     }
 
@@ -382,16 +512,21 @@ enum AgentResumeCommandBuilder {
         kind: RestorableAgentKind,
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
-        customRegistration: CmuxVaultAgentRegistration?,
-        includeWorkingDirectoryPrefix: Bool
+        customRegistration: CmuxVaultAgentRegistration?, includeWorkingDirectoryPrefix: Bool,
+        additionalEnvironment: [String: String] = [:]
     ) -> String {
         var commandParts: [String] = []
-        let environmentParts = launchEnvironmentParts(kind: kind, environment: launchCommand?.environment)
+        var environmentParts = launchEnvironmentParts(kind: kind, environment: launchCommand?.environment)
+        environmentParts.append(contentsOf: additionalEnvironment.keys.sorted().compactMap { key in additionalEnvironment[key].map { "\(key)=\($0)" } })
         if !environmentParts.isEmpty {
             commandParts.append("env")
             commandParts.append(contentsOf: environmentParts)
         }
-        commandParts.append(contentsOf: argv)
+        if commandParts.first == "env", argv.first == "env" {
+            commandParts.append(contentsOf: argv.dropFirst())
+        } else {
+            commandParts.append(contentsOf: argv)
+        }
 
         let cwd = !includeWorkingDirectoryPrefix || customRegistration?.cwd == .ignore
             ? nil
@@ -462,21 +597,9 @@ enum AgentResumeCommandBuilder {
         kind: RestorableAgentKind,
         environment: [String: String]?
     ) -> [String] {
-        guard let environment, !environment.isEmpty else {
-            return []
-        }
-
         var environmentParts: [String] = []
         var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
-        var selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: environment, kind: kind.rawValue)
-        let piFamilyUsesCapturedPath = kind == .pi
-            || kind.customAgentID == "pi"
-            || kind.customAgentID == "omp"
-        if piFamilyUsesCapturedPath,
-           let path = environment["PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !path.isEmpty {
-            selectedEnvironment["PATH"] = path
-        }
+        let selectedEnvironment = launchEnvironment(kind: kind, environment: environment)
         for key in selectedEnvironment.keys.sorted() {
             guard let value = selectedEnvironment[key] else { continue }
             environmentParts.append("\(key)=\(value)")
@@ -494,9 +617,127 @@ enum AgentResumeCommandBuilder {
         return environmentParts
     }
 
+    private static func launchEnvironment(
+        kind: RestorableAgentKind,
+        environment: [String: String]?
+    ) -> [String: String] {
+        guard let environment, !environment.isEmpty else { return [:] }
+        var selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: environment,
+            kind: kind.rawValue
+        )
+        let piFamilyUsesCapturedPath = kind == .pi
+            || kind.customAgentID == "pi"
+            || kind.customAgentID == "omp"
+        if piFamilyUsesCapturedPath,
+           let path = normalized(environment["PATH"]) {
+            selectedEnvironment["PATH"] = path
+        }
+        return selectedEnvironment
+    }
+
+    static func executionDescriptor(
+        argv: [String],
+        kind: RestorableAgentKind,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        customRegistration: CmuxVaultAgentRegistration?,
+        baseSearchPath: String? = nil
+    ) -> AgentCommandExecutionDescriptor? {
+        guard !argv.isEmpty else { return nil }
+        var searchPath = baseSearchPath ?? launchEnvironment(
+            kind: kind,
+            environment: launchCommand?.environment
+        )["PATH"] ?? ProcessInfo.processInfo.environment["PATH"]
+        var customCodexPath: String?
+        var index = 0
+
+        func consumeAssignment(_ argument: String) -> Bool {
+            guard let equals = argument.firstIndex(of: "="),
+                  equals != argument.startIndex else {
+                return false
+            }
+            let key = argument[..<equals]
+            let value = String(argument[argument.index(after: equals)...])
+            if key == "PATH" {
+                searchPath = value
+            } else if key == "CMUX_CUSTOM_CODEX_PATH" {
+                customCodexPath = normalized(value)
+            }
+            return true
+        }
+
+        while index < argv.count, consumeAssignment(argv[index]) {
+            index += 1
+        }
+        if index < argv.count,
+           (argv[index] as NSString).lastPathComponent == "env" {
+            index += 1
+            while index < argv.count {
+                let argument = argv[index]
+                if argument == "--" {
+                    index += 1
+                    break
+                }
+                if argument == "-i" || argument == "--ignore-environment" {
+                    searchPath = nil
+                    index += 1
+                    continue
+                }
+                if argument == "-u", index + 1 < argv.count {
+                    if argv[index + 1] == "PATH" { searchPath = nil }
+                    index += 2
+                    continue
+                }
+                if argument.hasPrefix("--unset=") {
+                    if argument.dropFirst("--unset=".count) == "PATH" { searchPath = nil }
+                    index += 1
+                    continue
+                }
+                guard consumeAssignment(argument) else { break }
+                index += 1
+            }
+        }
+        while index < argv.count, (argv[index] == "command" || argv[index] == "exec") {
+            index += 1
+            if index < argv.count, argv[index] == "--" { index += 1 }
+        }
+        guard index < argv.count,
+              let executable = normalized(argv[index]) else {
+            return nil
+        }
+        let cwd = customRegistration?.cwd == .ignore
+            ? nil
+            : normalized(workingDirectory ?? launchCommand?.workingDirectory)
+        let preferredExecutable: String
+        let fallbackExecutables: [String]
+        if kind == .codex,
+           executable == "codex",
+           let customCodexPath {
+            preferredExecutable = customCodexPath
+            fallbackExecutables = [executable]
+        } else if kind == .claude,
+                  executable == "claude",
+                  let configuredClaudePath = AgentExecutableResolver
+                    .cmuxConfiguredExecutablePaths()[.claude] {
+            preferredExecutable = configuredClaudePath
+            fallbackExecutables = [executable]
+        } else {
+            preferredExecutable = executable
+            fallbackExecutables = []
+        }
+        return AgentCommandExecutionDescriptor(
+            executable: preferredExecutable,
+            searchPath: searchPath,
+            workingDirectory: cwd,
+            fallbackExecutables: fallbackExecutables
+        )
+    }
+
     private static func resumeArguments(
         kind: RestorableAgentKind,
         sessionId: String,
+        transcriptPath: String?,
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
         customRegistration: CmuxVaultAgentRegistration?,
@@ -515,14 +756,17 @@ enum AgentResumeCommandBuilder {
         }
         if case .custom = kind {
             guard let customRegistration else { return nil }
-            if let arguments = campfireBuiltInResumeArguments(customRegistration: customRegistration, sessionId: sessionId, launchCommand: launchCommand) { return arguments }
-            if customRegistration.id == CmuxVaultAgentRegistration.builtInAntigravity.id {
-                return resumeWithOption(
-                    kind: "antigravity",
-                    launchCommand: launchCommand,
-                    fallbackExecutable: customRegistration.defaultExecutable,
-                    option: "--conversation",
-                    sessionId: sessionId
+            if let builtInKind = matchingBuiltInResumeKind(registration: customRegistration) {
+                return AgentResumeArgv().builtInKind(
+                    kind: builtInKind,
+                    sessionId: sessionId,
+                    executablePath: capturedOrRegisteredExecutablePath(
+                        registration: customRegistration,
+                        launchCommand: launchCommand
+                    ),
+                    arguments: launchCommand?.arguments ?? [],
+                    observedPermissionMode: observedPermissionMode,
+                    transcriptPath: transcriptPath
                 )
             }
             let arguments = customResumeArguments(
@@ -539,7 +783,8 @@ enum AgentResumeCommandBuilder {
             sessionId: sessionId,
             executablePath: launchCommand?.executablePath,
             arguments: launchCommand?.arguments ?? [],
-            observedPermissionMode: observedPermissionMode
+            observedPermissionMode: observedPermissionMode,
+            transcriptPath: transcriptPath
         )
     }
 
@@ -566,6 +811,18 @@ enum AgentResumeCommandBuilder {
 
         if case .custom = kind {
             guard let customRegistration else { return nil }
+            if let builtInKind = matchingBuiltInForkKind(registration: customRegistration) {
+                return forkArgv.builtInKind(
+                    kind: builtInKind,
+                    sessionId: sessionId,
+                    executablePath: capturedOrRegisteredExecutablePath(
+                        registration: customRegistration,
+                        launchCommand: launchCommand
+                    ),
+                    arguments: launchCommand?.arguments ?? [],
+                    observedPermissionMode: observedPermissionMode
+                )
+            }
             let arguments = customForkArguments(
                 registration: customRegistration,
                 sessionId: sessionId,
@@ -757,11 +1014,12 @@ enum AgentResumeCommandBuilder {
     }
 }
 
-struct SessionRestorableAgentSnapshot: Codable, Sendable {
+struct SessionRestorableAgentSnapshot: Codable, Sendable, Equatable {
     static let maxInlineStartupInputBytes = 900
 
     var kind: RestorableAgentKind
     var sessionId: String
+    var transcriptPath: String? = nil
     var workingDirectory: String?
     var launchCommand: AgentLaunchCommandSnapshot?
     var registration: CmuxVaultAgentRegistration? = nil
@@ -773,15 +1031,32 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         allowLauncherScript: Bool = true,
-        allowOversizedInlineInput: Bool = false
+        allowOversizedInlineInput: Bool = false,
+        hibernationResumeAttemptId: UUID? = nil
     ) -> String? {
         startupInput(
-            command: resumeCommand,
+            command: resumeCommand.map {
+                commandWithHibernationResumeEvidence(
+                    $0,
+                    attemptId: hibernationResumeAttemptId
+                )
+            },
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
             allowLauncherScript: allowLauncherScript,
             allowOversizedInlineInput: allowOversizedInlineInput
         )
+    }
+
+    private func commandWithHibernationResumeEvidence(
+        _ command: String,
+        attemptId: UUID?
+    ) -> String {
+        guard let attemptId else { return command }
+        let assignment = shellSingleQuoted(
+            "\(AgentHibernationResumeEvidence.environmentKey)=\(attemptId.uuidString)"
+        )
+        return "/usr/bin/env \(assignment) /bin/zsh -c \(shellSingleQuoted(command))"
     }
 
     func resumeStartupCommand(
@@ -864,63 +1139,36 @@ private enum AgentResumeScriptStore {
         returnToLoginShell: Bool = false,
         workingDirectory: String? = nil
     ) -> URL? {
-        let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
-        do {
-            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-            try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directoryURL.path)
-            pruneOldScripts(in: directoryURL, fileManager: fileManager)
-
-            let safeSessionPrefix = sessionId
-                .prefix(12)
-                .map { character -> Character in
-                    character.isLetter || character.isNumber || character == "-" ? character : "_"
-                }
-            let scriptURL = directoryURL.appendingPathComponent(
-                "\(kind.rawValue)-\(String(safeSessionPrefix))-\(UUID().uuidString).zsh",
-                isDirectory: false
-            )
-            var lines = [
-                "#!/bin/zsh",
-                "rm -f -- \"$0\" 2>/dev/null || true"
-            ]
-            if returnToLoginShell {
-                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(
-                    command: command,
-                    workingDirectory: workingDirectory
-                ))
-            } else {
-                lines.append(command)
-            }
-            let contents = lines.joined(separator: "\n") + "\n"
-            try contents.write(to: scriptURL, atomically: true, encoding: .utf8)
-            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: scriptURL.path)
-            return scriptURL
-        } catch {
-            return nil
+        var lines = [
+            "#!/bin/zsh",
+            "rm -f -- \"$0\" 2>/dev/null || true"
+        ]
+        if returnToLoginShell {
+            lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(
+                command: command,
+                workingDirectory: workingDirectory
+            ))
+        } else {
+            lines.append(command)
         }
-    }
-
-    private static func pruneOldScripts(in directoryURL: URL, fileManager: FileManager) {
-        guard let scriptURLs = try? fileManager.contentsOfDirectory(
-            at: directoryURL,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return
-        }
-
-        let cutoff = Date().addingTimeInterval(-scriptTTL)
-        for scriptURL in scriptURLs where scriptURL.pathExtension == "zsh" {
-            let values = try? scriptURL.resourceValues(forKeys: [.contentModificationDateKey])
-            if let modified = values?.contentModificationDate, modified < cutoff {
-                try? fileManager.removeItem(at: scriptURL)
-            }
-        }
+        _ = fileManager
+        return PrivateLauncherScriptStore.write(
+            contents: lines.joined(separator: "\n") + "\n",
+            directoryName: directoryName,
+            filenamePrefix: "\(kind.rawValue)-\(sessionId)",
+            temporaryDirectory: temporaryDirectory,
+            scriptTTL: scriptTTL
+        )
     }
 }
 
 struct RestorableAgentSessionIndex: Sendable {
-    static let empty = RestorableAgentSessionIndex(entriesByPanel: [:])
+    static let empty = RestorableAgentSessionIndex(entriesByPanel: [:], processEvidenceByPanel: [:])
+
+    enum LoadMode: Sendable {
+        case standard
+        case hibernation(processSnapshot: CmuxTopProcessSnapshot)
+    }
 
     struct PanelKey: Hashable, Sendable {
         let workspaceId: UUID
@@ -938,7 +1186,6 @@ struct RestorableAgentSessionIndex: Sendable {
 
     enum ProcessDetectedSessionIDSource: Equatable, Sendable {
         case explicit
-        case inferredLatestSessionFile
         case forkParentFallback
         case relaunchOnly
     }
@@ -961,22 +1208,21 @@ struct RestorableAgentSessionIndex: Sendable {
         let kind: RestorableAgentKind
     }
 
-    private struct PanelIDKindKey: Hashable {
-        let panelId: UUID
-        let kind: RestorableAgentKind
-    }
-
-    private struct PanelIDKindCandidate {
-        let panelKey: PanelKey
-        let entry: Entry
-        let isAmbiguous: Bool
-    }
-
     private let entriesByPanel: [PanelKey: Entry]
     private let entriesByPanelId: [UUID: Entry]
+    private let processEvidenceByPanel: [PanelKey: AgentHibernationProcessEvidence]
 
     func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
         entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? entriesByPanelId[panelId]
+    }
+
+    func exactEntry(workspaceId: UUID, panelId: UUID) -> Entry? {
+        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
+    }
+
+    func processEvidence(workspaceId: UUID, panelId: UUID) -> AgentHibernationProcessEvidence {
+        processEvidenceByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
+            ?? .unverified(processIDs: [])
     }
 
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
@@ -1041,36 +1287,46 @@ struct RestorableAgentSessionIndex: Sendable {
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: registry,
-            detectedSnapshots: [:]
+            detectedSnapshots: [:],
+            mode: .standard
         )
     }
 
     static func loadIncludingProcessDetectedSnapshots(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        hibernationPanelKeys: Set<PanelKey>? = nil
     ) async -> RestorableAgentSessionIndex {
         await Task.detached(priority: .utility) {
             loadIncludingProcessDetectedSnapshotsSynchronously(
                 homeDirectory: homeDirectory,
-                fileManager: fileManager
+                fileManager: fileManager,
+                hibernationPanelKeys: hibernationPanelKeys
             )
         }.value
     }
 
-    static func loadIncludingProcessDetectedSnapshotsSynchronously(
+    private static func loadIncludingProcessDetectedSnapshotsSynchronously(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        hibernationPanelKeys: Set<PanelKey>? = nil
     ) -> RestorableAgentSessionIndex {
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+        let capturedAt = Date().timeIntervalSince1970
+        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         let detectedSnapshots = processDetectedSnapshots(
             registry: registry,
-            fileManager: fileManager
+            fileManager: fileManager,
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt
         )
         return load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: registry,
-            detectedSnapshots: detectedSnapshots
+            detectedSnapshots: detectedSnapshots,
+            mode: .hibernation(processSnapshot: processSnapshot),
+            hibernationPanelKeys: hibernationPanelKeys
         )
     }
 
@@ -1079,12 +1335,28 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager,
         registry: CmuxVaultAgentRegistry,
         detectedSnapshots: [PanelKey: ProcessDetectedSnapshotEntry],
+        mode: LoadMode = .standard,
+        hibernationPanelKeys: Set<PanelKey>? = nil,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         },
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
+        },
+        processExecutablePathProvider: (Int) -> String? = {
+            CmuxTopProcessSnapshot.processExecutablePath(for: $0)
+        },
+        processSessionIDProvider: (Int) -> pid_t? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            let value = getsid(pid_t($0))
+            return value > 0 ? value : nil
+        },
+        ttyProcessIDsProvider: (Int64) -> CmuxTopTargetedPIDEnumeration = {
+            CmuxTopProcessSnapshot.processIDs(forTTYDevice: $0)
+        },
+        childProcessIDsProvider: (Int) -> CmuxTopTargetedPIDEnumeration = {
+            CmuxTopProcessSnapshot.childProcessIDs(of: $0)
         }
     ) -> RestorableAgentSessionIndex {
         let decoder = JSONDecoder()
@@ -1104,24 +1376,41 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         var hookCandidatesBySession: [SessionKey: Entry] = [:]
         var hookCandidatesByPanelAndKind: [PanelKindKey: Entry] = [:]
-        var hookCandidatesByPanelIdAndKind: [PanelIDKindKey: PanelIDKindCandidate] = [:]
-
-        for (kind, registration) in hookKinds {
-            let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory)
-            guard fileManager.fileExists(atPath: fileURL.path),
-                  let data = try? Data(contentsOf: fileURL),
-                  let state = try? decoder.decode(RestorableAgentHookSessionStoreFile.self, from: data) else {
-                continue
+        var hookIdentityByPanelID: [UUID: SessionKey] = [:]
+        var ambiguousHookPanelIDs = Set<UUID>()
+        let hookSources = hookKinds.map {
+            ($0.kind, $0.registration, $0.kind.hookStoreFileURL(homeDirectory: homeDirectory))
+        }
+        let registrySources = hookSources.map { (kind: $0.0, fileURL: $0.2) }
+        let registrySnapshots: [String: CmuxAgentSessionRegistry.Snapshot]?
+        if let hibernationPanelKeys {
+            var exactSessionIDsByProvider: [String: Set<String>] = [:]
+            for detected in detectedSnapshots.values where detected.sessionIDSource == .explicit {
+                let sessionID = detected.snapshot.sessionId
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !sessionID.isEmpty else { continue }
+                exactSessionIDsByProvider[detected.snapshot.kind.rawValue, default: []]
+                    .insert(sessionID)
             }
+            registrySnapshots = agentRegistryHibernationSnapshots(
+                registrySources,
+                panelKeys: hibernationPanelKeys,
+                exactSessionIDsByProvider: exactSessionIDsByProvider,
+                fileManager: fileManager
+            ).snapshots
+        } else {
+            registrySnapshots = agentRegistrySnapshots(
+                registrySources,
+                fileManager: fileManager
+            )
+        }
+        for (kind, registration, fileURL) in hookSources {
+            guard let state = agentHookState(kind: kind, fileURL: fileURL,
+                                             snapshots: registrySnapshots, fileManager: fileManager,
+                                             decoder: decoder) else { continue }
 
-            for record in state.sessions.values {
-                var effectiveRecord = kind == .claude
-                    ? resolvedClaudeWorkflowRecord(
-                        record,
-                        fileManager: fileManager,
-                        lookup: claudeTranscriptLookup
-                    )
-                    : record
+            for record in state.sessions.values where record.projectedRestoreAuthority && record.completedAt == nil {
+                var effectiveRecord = record
                 // Drop untrusted launch captures before ANY derivation: the
                 // working directory below would otherwise inherit the foreign launch cwd.
                 effectiveRecord.launchCommand = trustedLaunchCommand(
@@ -1131,6 +1420,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 if kind == .codex, normalizedNonEmptyValue(effectiveRecord.launchCommand?.source)?.lowercased() == "environment", normalizedNonEmptyValue(effectiveRecord.launchCommand?.environment?["CODEX_HOME"]) == nil, (normalizedNonEmptyValue(effectiveRecord.launchCommand?.environment?["ANTHROPIC_BASE_URL"]) != nil || normalizedNonEmptyValue(effectiveRecord.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) != nil) { effectiveRecord.launchCommand = nil }
                 let normalizedSessionId = effectiveRecord.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !normalizedSessionId.isEmpty,
+                      kind != .claude || normalizedSessionId == effectiveRecord.sessionId,
                       let workspaceId = UUID(uuidString: effectiveRecord.workspaceId),
                       let panelId = UUID(uuidString: effectiveRecord.surfaceId),
                       hookRecordIsRestorable(
@@ -1145,6 +1435,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 let snapshot = SessionRestorableAgentSnapshot(
                     kind: kind,
                     sessionId: normalizedSessionId,
+                    transcriptPath: effectiveRecord.transcriptPath,
                     workingDirectory: restorableWorkingDirectory(
                         for: effectiveRecord,
                         kind: kind,
@@ -1157,10 +1448,23 @@ struct RestorableAgentSessionIndex: Sendable {
                     registration: registration,
                     permissionMode: effectiveRecord.lastPermissionMode
                 )
+                // A legacy record can predate the explicit `isRestorable` and
+                // rejected-source fields while still carrying one-shot argv.
+                // Command generation is the final replay authority, so keep
+                // snapshots with no safe resume command out of every restore,
+                // hibernation, closed-history, and fork consumer.
+                guard snapshot.resumeCommand != nil else { continue }
                 let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
                 let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
                 let panelKindKey = PanelKindKey(panelKey: key, kind: kind)
-                let panelIDKindKey = PanelIDKindKey(panelId: panelId, kind: kind)
+                // Workspace UUIDs can rotate on restore, but a surface-only fallback is safe
+                // only when every surviving hook record agrees on the session identity.
+                if let existingIdentity = hookIdentityByPanelID[panelId],
+                   existingIdentity != sessionKey {
+                    ambiguousHookPanelIDs.insert(panelId)
+                } else {
+                    hookIdentityByPanelID[panelId] = sessionKey
+                }
                 let liveProcessID = liveScopedProcessID(
                     for: effectiveRecord,
                     kind: kind,
@@ -1170,7 +1474,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 )
                 let entry = Entry(
                     snapshot: snapshot,
-                    lifecycle: effectiveRecord.agentLifecycle,
+                    lifecycle: effectiveRecord.effectiveHibernationLifecycle,
                     updatedAt: effectiveRecord.updatedAt,
                     processIDs: liveProcessID.map { [$0] } ?? [],
                     agentProcessIDs: liveProcessID.map { [$0] } ?? [],
@@ -1184,25 +1488,6 @@ struct RestorableAgentSessionIndex: Sendable {
                     incoming: entry
                 ) {
                     hookCandidatesByPanelAndKind[panelKindKey] = entry
-                }
-                if let existingPanelIDCandidate = hookCandidatesByPanelIdAndKind[panelIDKindKey] {
-                    let shouldReplace = shouldReplaceHookEntry(
-                        existing: existingPanelIDCandidate.entry,
-                        incoming: entry
-                    )
-                    hookCandidatesByPanelIdAndKind[panelIDKindKey] = PanelIDKindCandidate(
-                        panelKey: shouldReplace ? key : existingPanelIDCandidate.panelKey,
-                        entry: shouldReplace ? entry : existingPanelIDCandidate.entry,
-                        isAmbiguous: existingPanelIDCandidate.isAmbiguous ||
-                            existingPanelIDCandidate.panelKey != key ||
-                            existingPanelIDCandidate.entry.snapshot.sessionId != entry.snapshot.sessionId
-                    )
-                } else {
-                    hookCandidatesByPanelIdAndKind[panelIDKindKey] = PanelIDKindCandidate(
-                        panelKey: key,
-                        entry: entry,
-                        isAmbiguous: false
-                    )
                 }
                 if shouldReplaceHookEntry(
                     existing: hookCandidatesBySession[sessionKey],
@@ -1234,17 +1519,6 @@ struct RestorableAgentSessionIndex: Sendable {
             let sameKindPanelCandidate = hookCandidatesByPanelAndKind[
                 PanelKindKey(panelKey: key, kind: detected.snapshot.kind)
             ]
-            let sameKindPanelIDCandidate = hookCandidatesByPanelIdAndKind[
-                PanelIDKindKey(panelId: key.panelId, kind: detected.snapshot.kind)
-            ]
-            // Panel-only restore is safe only when this surface/kind maps back to exactly one
-            // old workspace/session pair. Stale hook stores can otherwise reuse a surface id
-            // across old workspaces, or record multiple sessions for the same old workspace and
-            // surface after an agent restart. In either case, shouldReplaceHookEntry would pick
-            // one session by recency, so the panel-only fallback must stay ambiguous.
-            let sameKindStablePanelCandidate = sameKindPanelCandidate ?? (
-                sameKindPanelIDCandidate?.isAmbiguous == false ? sameKindPanelIDCandidate?.entry : nil
-            )
             if detected.sessionIDSource == .forkParentFallback,
                let panelCandidate = sameKindPanelCandidate,
                Self.hookCandidateRepresentsDetectedProcess(
@@ -1258,13 +1532,6 @@ struct RestorableAgentSessionIndex: Sendable {
                 // A nested fork process inside another agent's pane must not displace
                 // that pane's hook-backed identity.
                 continue
-            } else if detected.sessionIDSource == .inferredLatestSessionFile,
-                      let panelCandidate = sameKindStablePanelCandidate {
-                // Latest-file detection is ambiguous when multiple panels or restored workspaces share a
-                // cwd. Prefer the hook-store identity for this stable panel/surface while still carrying
-                // live process evidence for the restored panel. The workspace UUID can rotate during
-                // session restore, but the surface id is intentionally reused on the normal restore path.
-                resolved[key] = processDetectedEntry(snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
             } else if let existing = Self.matchingHookEntry(
                 for: detected.snapshot,
                 resolved: resolved[key],
@@ -1299,7 +1566,44 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         }
 
-        return RestorableAgentSessionIndex(entriesByPanel: resolved)
+        let processEvidenceByPanel: [PanelKey: AgentHibernationProcessEvidence]
+        switch mode {
+        case .standard:
+            processEvidenceByPanel = [:]
+        case .hibernation(let processSnapshot):
+            let restorablePanelIDs = Set(resolved.keys.map(\.panelId))
+            // Surface UUIDs can survive workspace restore and can also collide
+            // across concurrently running cmux runtimes. Any live resolved
+            // session for a surface revokes process-free authority for every
+            // workspace key carrying that surface UUID.
+            let liveResolvedPanelIDs = Set(resolved.compactMap { key, entry in
+                entry.processIDs.isEmpty ? nil : key.panelId
+            })
+            let processFreeCandidateKeys = Set(resolved.compactMap { key, entry in
+                entry.processIDs.isEmpty && !liveResolvedPanelIDs.contains(key.panelId) ? key : nil
+            })
+            let topology = AgentHibernationProcessTopologyIndex(
+                processSnapshot: processSnapshot,
+                targetPanelKeys: processFreeCandidateKeys,
+                targetPanelIDs: restorablePanelIDs.subtracting(liveResolvedPanelIDs),
+                processArguments: processArgumentsProvider,
+                processIdentity: processIdentityProvider,
+                processExecutablePath: processExecutablePathProvider,
+                processSessionID: processSessionIDProvider,
+                ttyProcessIDs: ttyProcessIDsProvider,
+                childProcessIDs: childProcessIDsProvider
+            )
+            var evidence = topology.allEvidence
+            for (key, entry) in resolved where !entry.processIDs.isEmpty {
+                evidence[key] = .unverified(processIDs: entry.processIDs)
+            }
+            processEvidenceByPanel = evidence
+        }
+        return RestorableAgentSessionIndex(
+            entriesByPanel: resolved,
+            processEvidenceByPanel: processEvidenceByPanel,
+            ambiguousPanelIDs: ambiguousHookPanelIDs
+        )
     }
 
     private static func matchingHookEntry(
@@ -1352,8 +1656,19 @@ struct RestorableAgentSessionIndex: Sendable {
         kind: RestorableAgentKind
     ) -> AgentLaunchCommandSnapshot? {
         guard let launchCommand else { return nil }
+        // A canonical replay plan intentionally has no executable or argv. Any
+        // captured executable must independently prove the actual agent entrypoint;
+        // the launcher label alone can be inherited or forged by older records.
+        let isCanonicalCapture = launchCommand.arguments.isEmpty
+            && normalizedNonEmptyValue(launchCommand.executablePath) == nil
         guard AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: kind.rawValue),
-              !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
+              !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments),
+              isCanonicalCapture || AgentLaunchCaptureTrust.capturedArgumentsDescribeKind(
+                  launcher: launchCommand.launcher,
+                  executablePath: launchCommand.executablePath,
+                  arguments: launchCommand.arguments,
+                  kind: kind.rawValue
+              ) else {
             return nil
         }
         return launchCommand
@@ -1365,9 +1680,16 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager,
         claudeTranscriptLookup: ClaudeTranscriptLookupCache
     ) -> Bool {
+        // Keep the app restore index on the same trust boundary as agents
+        // list/tree and fork diagnostics. `rejected` means the live process or
+        // captured argv proved that this launch shape is not safe to replay;
+        // an older sticky `isRestorable=true` bit must not resurrect it after
+        // an app restart.
+        guard normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else {
+            return false
+        }
         if kind == .codex {
             guard record.isRestorable != false else { return false }
-            guard normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else { return false }
             let launchSource = normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased()
             if record.isRestorable == true
                 || launchSource == "default"
@@ -1383,157 +1705,33 @@ struct RestorableAgentSessionIndex: Sendable {
                 fileManager: fileManager
             )
         }
+        if kind == .gemini {
+            guard record.isRestorable != false,
+                  let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) else {
+                return false
+            }
+            return regularNonEmptyFileExists(
+                atPath: (transcriptPath as NSString).expandingTildeInPath,
+                fileManager: fileManager
+            )
+        }
         guard kind == .claude else {
             return record.isRestorable != false
         }
-        if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath),
-           regularNonEmptyFileExists(
-               atPath: (transcriptPath as NSString).expandingTildeInPath,
-               fileManager: fileManager
-           ) {
-            return true
+        let sessionId = record.sessionId
+        guard claudeSessionIdIsSafeFilename(sessionId) else {
+            return false
+        }
+        if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) {
+            let expandedTranscriptPath = (transcriptPath as NSString).expandingTildeInPath
+            guard claudeTranscriptPath(expandedTranscriptPath, matchesSessionId: sessionId) else {
+                return false
+            }
+            if regularNonEmptyFileExists(atPath: expandedTranscriptPath, fileManager: fileManager) {
+                return true
+            }
         }
         return claudeTranscriptExists(for: record, fileManager: fileManager, lookup: claudeTranscriptLookup)
-    }
-
-    private static func resolvedClaudeWorkflowRecord(
-        _ record: RestorableAgentHookSessionRecord,
-        fileManager: FileManager,
-        lookup: ClaudeTranscriptLookupCache
-    ) -> RestorableAgentHookSessionRecord {
-        guard let sessionId = normalizedNonEmptyValue(record.sessionId),
-              claudeSessionIdIsSafeFilename(sessionId) else {
-            return record
-        }
-        if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath),
-           regularNonEmptyFileExists(
-               atPath: (transcriptPath as NSString).expandingTildeInPath,
-               fileManager: fileManager
-           ) {
-            return record
-        }
-
-        let roots = lookup.configRoots(for: record)
-        guard !roots.isEmpty else { return record }
-        let candidateProjectDirs = claudeWorkflowProjectDirs(
-            for: record,
-            sessionId: sessionId,
-            roots: roots,
-            fileManager: fileManager,
-            lookup: lookup
-        )
-        guard let resolved = singleClaudeSiblingTranscript(
-            in: candidateProjectDirs,
-            excludingSessionId: sessionId,
-            fileManager: fileManager
-        ) else {
-            return record
-        }
-
-        var resolvedRecord = record
-        resolvedRecord.sessionId = resolved.sessionId
-        resolvedRecord.transcriptPath = resolved.path
-        return resolvedRecord
-    }
-
-    private static func claudeWorkflowProjectDirs(
-        for record: RestorableAgentHookSessionRecord,
-        sessionId: String,
-        roots: [String],
-        fileManager: FileManager,
-        lookup: ClaudeTranscriptLookupCache
-    ) -> [String] {
-        var projectDirs: [String] = []
-        var seen: Set<String> = []
-
-        func appendIfWorkflowContainer(projectRoot: String) {
-            let workflowContainer = (projectRoot as NSString).appendingPathComponent(sessionId)
-            var isDirectory: ObjCBool = false
-            guard fileManager.fileExists(atPath: workflowContainer, isDirectory: &isDirectory),
-                  isDirectory.boolValue else {
-                return
-            }
-            let standardized = (projectRoot as NSString).standardizingPath
-            guard seen.insert(standardized).inserted else { return }
-            projectDirs.append(standardized)
-        }
-
-        let cwdCandidates = [
-            normalizedWorkingDirectory(record.launchCommand?.workingDirectory),
-            normalizedWorkingDirectory(record.cwd),
-        ].compactMap { $0 }
-        for root in roots {
-            let projectsRoot = (root as NSString).appendingPathComponent("projects")
-            for cwd in cwdCandidates {
-                appendIfWorkflowContainer(
-                    projectRoot: (projectsRoot as NSString).appendingPathComponent(encodeClaudeProjectDir(cwd))
-                )
-            }
-            for projectDir in lookup.projectDirs(configRoot: root) {
-                appendIfWorkflowContainer(
-                    projectRoot: (projectsRoot as NSString).appendingPathComponent(projectDir)
-                )
-            }
-        }
-        return projectDirs
-    }
-
-    private static func singleClaudeSiblingTranscript(
-        in projectDirs: [String],
-        excludingSessionId excludedSessionId: String,
-        fileManager: FileManager
-    ) -> (sessionId: String, path: String)? {
-        var matches: [(sessionId: String, path: String)] = []
-        for projectDir in projectDirs {
-            guard matches.count < 2 else { break }
-            collectClaudeTranscripts(
-                inDirectory: projectDir,
-                excludingSessionId: excludedSessionId,
-                remainingDirectoryDepth: 4,
-                fileManager: fileManager,
-                matches: &matches
-            )
-        }
-        guard matches.count == 1, let match = matches.first else { return nil }
-        return match
-    }
-
-    private static func collectClaudeTranscripts(
-        inDirectory directory: String,
-        excludingSessionId excludedSessionId: String,
-        remainingDirectoryDepth: Int,
-        fileManager: FileManager,
-        matches: inout [(sessionId: String, path: String)]
-    ) {
-        guard matches.count < 2 else { return }
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
-              isDirectory.boolValue,
-              let children = try? fileManager.contentsOfDirectory(atPath: directory) else {
-            return
-        }
-        for child in children {
-            let childPath = (directory as NSString).appendingPathComponent(child)
-            if child.hasSuffix(".jsonl") {
-                let sessionId = String(child.dropLast(".jsonl".count))
-                guard sessionId != excludedSessionId,
-                      claudeSessionIdIsSafeFilename(sessionId),
-                      regularNonEmptyFileExists(atPath: childPath, fileManager: fileManager) else {
-                    continue
-                }
-                matches.append((sessionId, childPath))
-                if matches.count >= 2 { return }
-            } else if remainingDirectoryDepth > 0 {
-                collectClaudeTranscripts(
-                    inDirectory: childPath,
-                    excludingSessionId: excludedSessionId,
-                    remainingDirectoryDepth: remainingDirectoryDepth - 1,
-                    fileManager: fileManager,
-                    matches: &matches
-                )
-                if matches.count >= 2 { return }
-            }
-        }
     }
 
     private static func claudeTranscriptExists(
@@ -1541,30 +1739,30 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager,
         lookup: ClaudeTranscriptLookupCache
     ) -> Bool {
-        guard let sessionId = normalizedNonEmptyValue(record.sessionId),
-              claudeSessionIdIsSafeFilename(sessionId) else {
+        let sessionId = record.sessionId
+        guard claudeSessionIdIsSafeFilename(sessionId) else {
             return false
         }
 
         let roots = lookup.configRoots(for: record)
         guard !roots.isEmpty else { return false }
 
-        let cwd = normalizedWorkingDirectory(record.cwd)
-            ?? normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
-        for root in roots {
-            if let cwd,
-               lookup.transcriptPath(
-                   configRoot: root,
-                   projectDirName: encodeClaudeProjectDir(cwd),
-                   sessionId: sessionId
-               ) != nil {
-                return true
-            }
-            if lookup.transcriptPathInAnyProject(
-                configRoot: root,
-                sessionId: sessionId
-            ) != nil {
-                return true
+        var seenProjectDirectories: Set<String> = []
+        let candidates = [
+            normalizedWorkingDirectory(record.launchCommand?.workingDirectory),
+            normalizedWorkingDirectory(record.cwd),
+        ].compactMap { $0 }
+        for cwd in candidates {
+            let projectDirectory = encodeClaudeProjectDir(cwd)
+            guard seenProjectDirectories.insert(projectDirectory).inserted else { continue }
+            for root in roots {
+                if lookup.transcriptPath(
+                    configRoot: root,
+                    projectDirName: projectDirectory,
+                    sessionId: sessionId
+                ) != nil {
+                    return true
+                }
             }
         }
         return false
@@ -1634,8 +1832,8 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager,
         lookup: ClaudeTranscriptLookupCache
     ) -> String? {
-        guard let sessionId = normalizedNonEmptyValue(record.sessionId),
-              claudeSessionIdIsSafeFilename(sessionId) else {
+        let sessionId = record.sessionId
+        guard claudeSessionIdIsSafeFilename(sessionId) else {
             return nil
         }
         let candidates = [launchCwd, recordedCwd].compactMap { $0 }
@@ -1644,17 +1842,20 @@ struct RestorableAgentSessionIndex: Sendable {
         // so the candidate whose encoding matches it is the one Claude can resume from.
         if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) {
             let expandedTranscriptPath = (transcriptPath as NSString).expandingTildeInPath
-            let roots = lookup.configRoots(for: record)
-            let expectedProjectDirName = claudeProjectDirName(
-                containingTranscriptPath: expandedTranscriptPath,
-                configRoots: roots
-            ) ?? (((expandedTranscriptPath as NSString).deletingLastPathComponent) as NSString)
-                .lastPathComponent
-            if !expectedProjectDirName.isEmpty,
-               let matched = candidates.first(where: {
-                   encodeClaudeProjectDir($0) == expectedProjectDirName
-               }) {
-                return matched
+            if claudeTranscriptPath(expandedTranscriptPath, matchesSessionId: sessionId),
+               regularNonEmptyFileExists(atPath: expandedTranscriptPath, fileManager: fileManager) {
+                let roots = lookup.configRoots(for: record)
+                let expectedProjectDirName = claudeProjectDirName(
+                    containingTranscriptPath: expandedTranscriptPath,
+                    configRoots: roots
+                ) ?? (((expandedTranscriptPath as NSString).deletingLastPathComponent) as NSString)
+                    .lastPathComponent
+                if !expectedProjectDirName.isEmpty,
+                   let matched = candidates.first(where: {
+                       encodeClaudeProjectDir($0) == expectedProjectDirName
+                   }) {
+                    return matched
+                }
             }
         }
 
@@ -1680,6 +1881,12 @@ struct RestorableAgentSessionIndex: Sendable {
             && !sessionId.isEmpty
             && sessionId != "."
             && sessionId != ".."
+            && sessionId.trimmingCharacters(in: .whitespacesAndNewlines) == sessionId
+            && sessionId.rangeOfCharacter(from: .controlCharacters) == nil
+    }
+
+    private static func claudeTranscriptPath(_ path: String, matchesSessionId sessionId: String) -> Bool {
+        (path as NSString).lastPathComponent == "\(sessionId).jsonl"
     }
 
     static func encodeClaudeProjectDir(_ path: String) -> String {
@@ -1842,14 +2049,8 @@ struct RestorableAgentSessionIndex: Sendable {
         var lookups: [String: ClaudeTranscriptLookupResult] = [:]
     }
 
-    private struct ClaudeTranscriptProjectDirsCache: Sendable {
-        var stamp: ClaudeTranscriptDirectoryStamp?
-        var projectDirs: [String]
-    }
-
     private struct ClaudeTranscriptSharedStore: Sendable {
         var projectRootCaches: [String: ClaudeTranscriptProjectRootCache] = [:]
-        var projectDirsByConfigRoot: [String: ClaudeTranscriptProjectDirsCache] = [:]
     }
 
     // load() is synchronous and can be invoked concurrently by the live index and
@@ -1862,13 +2063,14 @@ struct RestorableAgentSessionIndex: Sendable {
     // nested `<sessionId>/messages/` layout (or on zero-byte files growing in place)
     // are marked `requiresPerLoadRecheck` and re-probed once per load instead of being
     // trusted across loads.
-    // Growth stays bounded: per-root session entries only exist for hook-store records
-    // the loader walks and are replaced wholesale when that directory's mtime changes,
-    // while caches for deleted project directories are pruned when the projects/
-    // listing is revalidated (deletion bumps the projects/ root mtime).
+    // Growth is capped at both ownership levels without scanning unrelated project
+    // directories. Exact hook session IDs and recorded working directories are the
+    // only keys admitted to this cache.
     private nonisolated static let claudeTranscriptSharedStore = OSAllocatedUnfairLock(
         initialState: ClaudeTranscriptSharedStore()
     )
+    private nonisolated static let maximumClaudeTranscriptProjectRootCacheCount = 512
+    private nonisolated static let maximumClaudeTranscriptSessionCacheCountPerRoot = 2_048
 
     private final class ClaudeTranscriptLookupCache {
         private let homeDirectory: String
@@ -1876,13 +2078,9 @@ struct RestorableAgentSessionIndex: Sendable {
         private let usesSharedStore: Bool
         private var defaultRoots: [String]?
         private var validatedProjectRootStamps: [String: ClaudeTranscriptDirectoryValidation] = [:]
-        private var validatedProjectDirsStamps: [String: ClaudeTranscriptDirectoryValidation] = [:]
-        private var projectDirsByConfigRoot: [String: [String]] = [:]
         private var transcriptPathByProjectRootAndSession: [String: String] = [:]
         private var missingTranscriptPathByProjectRootAndSession: Set<String> = []
         private var volatileTranscriptLookupCheckedThisLoad: Set<String> = []
-        private var transcriptPathByConfigRootAndSession: [String: String] = [:]
-        private var missingTranscriptPathByConfigRootAndSession: Set<String> = []
 
         init(homeDirectory: String, fileManager: FileManager) {
             self.homeDirectory = homeDirectory
@@ -1918,13 +2116,6 @@ struct RestorableAgentSessionIndex: Sendable {
                 roots.append(standardized)
             }
 
-            let accountRoot = (homeDirectory as NSString).appendingPathComponent(".codex-accounts/claude")
-            if directoryExists(atPath: accountRoot),
-               let accountDirs = try? fileManager.contentsOfDirectory(atPath: accountRoot) {
-                for accountDir in accountDirs.sorted() {
-                    appendRoot((accountRoot as NSString).appendingPathComponent(accountDir))
-                }
-            }
             appendRoot((homeDirectory as NSString).appendingPathComponent(".claude"))
             appendRoot(
                 ClaudeConfigDirectoryPath.preferredPath(
@@ -1936,75 +2127,6 @@ struct RestorableAgentSessionIndex: Sendable {
 
             defaultRoots = roots
             return roots
-        }
-
-        func projectDirs(configRoot: String) -> [String] {
-            let standardizedRoot = (configRoot as NSString).standardizingPath
-            guard usesSharedStore else {
-                return uncachedProjectDirs(configRoot: standardizedRoot)
-            }
-
-            let stamp = validatedProjectsRootStamp(configRoot: standardizedRoot)
-            if let cached = RestorableAgentSessionIndex.claudeTranscriptSharedStore.withLock({ store in
-                store.projectDirsByConfigRoot[standardizedRoot]
-            }), cached.stamp == stamp {
-                return cached.projectDirs
-            }
-
-            let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
-            let projectDirs: [String]
-            if directoryExists(atPath: projectsRoot) {
-                guard let listed = try? fileManager.contentsOfDirectory(atPath: projectsRoot) else {
-                    return []
-                }
-                projectDirs = listed
-            } else {
-                projectDirs = []
-            }
-
-            // Recomputing the listing is the eviction point for dead project roots:
-            // deleting a project directory (or the whole projects/ root) bumps the
-            // projects/ mtime, lands here, and drops the per-root lookup caches for
-            // directories that no longer exist. Per-root session entries are bounded
-            // by the hook-store records the loader walks and are replaced wholesale
-            // whenever that directory's own mtime changes.
-            let liveProjectRoots = Set(projectDirs.map { dirName in
-                ((projectsRoot as NSString).appendingPathComponent(dirName) as NSString).standardizingPath
-            })
-            let projectsRootPrefix = projectsRoot.hasSuffix("/") ? projectsRoot : projectsRoot + "/"
-            RestorableAgentSessionIndex.claudeTranscriptSharedStore.withLock { store in
-                if let existing = store.projectDirsByConfigRoot[standardizedRoot],
-                   existing.stamp != stamp {
-                    return
-                }
-                store.projectDirsByConfigRoot[standardizedRoot] = ClaudeTranscriptProjectDirsCache(
-                    stamp: stamp,
-                    projectDirs: projectDirs
-                )
-                let staleRoots = store.projectRootCaches.keys.filter { root in
-                    root.hasPrefix(projectsRootPrefix) && !liveProjectRoots.contains(root)
-                }
-                for staleRoot in staleRoots {
-                    store.projectRootCaches[staleRoot] = nil
-                }
-            }
-            return projectDirs
-        }
-
-        private func uncachedProjectDirs(configRoot standardizedRoot: String) -> [String] {
-            if let cached = projectDirsByConfigRoot[standardizedRoot] {
-                return cached
-            }
-
-            let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
-            guard directoryExists(atPath: projectsRoot),
-                  let projectDirs = try? fileManager.contentsOfDirectory(atPath: projectsRoot) else {
-                projectDirsByConfigRoot[standardizedRoot] = []
-                return []
-            }
-
-            projectDirsByConfigRoot[standardizedRoot] = projectDirs
-            return projectDirs
         }
 
         func transcriptPath(configRoot: String, projectDirName: String, sessionId: String) -> String? {
@@ -2044,7 +2166,17 @@ struct RestorableAgentSessionIndex: Sendable {
             RestorableAgentSessionIndex.claudeTranscriptSharedStore.withLock { store in
                 var cache = store.projectRootCaches[projectRoot] ?? ClaudeTranscriptProjectRootCache(stamp: stamp)
                 guard cache.stamp == stamp else { return }
+                if cache.lookups[sessionId] == nil,
+                   cache.lookups.count >= RestorableAgentSessionIndex.maximumClaudeTranscriptSessionCacheCountPerRoot,
+                   let evictedSessionID = cache.lookups.keys.first {
+                    cache.lookups.removeValue(forKey: evictedSessionID)
+                }
                 cache.lookups[sessionId] = result
+                if store.projectRootCaches[projectRoot] == nil,
+                   store.projectRootCaches.count >= RestorableAgentSessionIndex.maximumClaudeTranscriptProjectRootCacheCount,
+                   let evictedProjectRoot = store.projectRootCaches.keys.first {
+                    store.projectRootCaches.removeValue(forKey: evictedProjectRoot)
+                }
                 store.projectRootCaches[projectRoot] = cache
             }
             return result.path
@@ -2072,47 +2204,6 @@ struct RestorableAgentSessionIndex: Sendable {
             return path
         }
 
-        func transcriptPathInAnyProject(configRoot: String, sessionId: String) -> String? {
-            let standardizedRoot = (configRoot as NSString).standardizingPath
-            let key = cacheKey(standardizedRoot, sessionId)
-            if let cached = transcriptPathByConfigRootAndSession[key] {
-                return cached
-            }
-            if missingTranscriptPathByConfigRootAndSession.contains(key) {
-                return nil
-            }
-
-            for projectDir in projectDirs(configRoot: standardizedRoot) {
-                if let path = transcriptPath(
-                    configRoot: standardizedRoot,
-                    projectDirName: projectDir,
-                    sessionId: sessionId
-                ) {
-                    transcriptPathByConfigRootAndSession[key] = path
-                    return path
-                }
-            }
-            missingTranscriptPathByConfigRootAndSession.insert(key)
-            return nil
-        }
-
-        private func validatedProjectsRootStamp(configRoot standardizedRoot: String) -> ClaudeTranscriptDirectoryStamp? {
-            if let validation = validatedProjectDirsStamps[standardizedRoot] {
-                return validation.stamp
-            }
-
-            let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
-            let stamp = RestorableAgentSessionIndex.directoryStamp(atPath: projectsRoot)
-            RestorableAgentSessionIndex.claudeTranscriptSharedStore.withLock { store in
-                if let existing = store.projectDirsByConfigRoot[standardizedRoot],
-                   existing.stamp != stamp {
-                    store.projectDirsByConfigRoot[standardizedRoot] = nil
-                }
-            }
-            validatedProjectDirsStamps[standardizedRoot] = ClaudeTranscriptDirectoryValidation(stamp: stamp)
-            return stamp
-        }
-
         private func validatedProjectRootStamp(_ projectRoot: String) -> ClaudeTranscriptDirectoryStamp? {
             if let validation = validatedProjectRootStamps[projectRoot] {
                 return validation.stamp
@@ -2123,6 +2214,11 @@ struct RestorableAgentSessionIndex: Sendable {
                 if let existing = store.projectRootCaches[projectRoot],
                    existing.stamp == stamp {
                     return
+                }
+                if store.projectRootCaches[projectRoot] == nil,
+                   store.projectRootCaches.count >= RestorableAgentSessionIndex.maximumClaudeTranscriptProjectRootCacheCount,
+                   let evictedProjectRoot = store.projectRootCaches.keys.first {
+                    store.projectRootCaches.removeValue(forKey: evictedProjectRoot)
                 }
                 store.projectRootCaches[projectRoot] = ClaudeTranscriptProjectRootCache(stamp: stamp)
             }
@@ -2226,10 +2322,32 @@ struct RestorableAgentSessionIndex: Sendable {
         return rawValue
     }
 
-    private init(entriesByPanel: [PanelKey: Entry]) {
+    private init(
+        entriesByPanel: [PanelKey: Entry],
+        processEvidenceByPanel: [PanelKey: AgentHibernationProcessEvidence],
+        ambiguousPanelIDs: Set<UUID> = []
+    ) {
         self.entriesByPanel = entriesByPanel
+        self.processEvidenceByPanel = processEvidenceByPanel
         var entriesByPanelId: [UUID: Entry] = [:]
+        var identityByPanelID: [UUID: SessionKey] = [:]
+        var ambiguousPanelIDs = ambiguousPanelIDs
         for (key, entry) in entriesByPanel {
+            // Never resolve a workspace-rotated lookup by recency when this surface has
+            // represented more than one conversation.
+            guard !ambiguousPanelIDs.contains(key.panelId) else { continue }
+            let identity = SessionKey(
+                kind: entry.snapshot.kind,
+                sessionId: entry.snapshot.sessionId
+            )
+            if let existingIdentity = identityByPanelID[key.panelId],
+               existingIdentity != identity {
+                ambiguousPanelIDs.insert(key.panelId)
+                entriesByPanelId.removeValue(forKey: key.panelId)
+                identityByPanelID.removeValue(forKey: key.panelId)
+                continue
+            }
+            identityByPanelID[key.panelId] = identity
             let existing = entriesByPanelId[key.panelId]
             if existing == nil || entry.updatedAt >= (existing?.updatedAt ?? 0) {
                 entriesByPanelId[key.panelId] = entry

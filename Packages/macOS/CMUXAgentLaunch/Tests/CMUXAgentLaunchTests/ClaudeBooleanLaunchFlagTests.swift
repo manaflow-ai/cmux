@@ -91,10 +91,10 @@ struct ClaudeBooleanLaunchFlagTests {
         )
     }
 
-    @Test("Teams prompt payload never promotes a flag-shaped token to an option")
-    func teamsPromptPayloadNeverPromotesFlagShapedToken() {
+    @Test("Teams bare tmux exposes an adjacent permission option")
+    func teamsBareTmuxExposesAdjacentPermissionOption() {
         #expect(
-            !AgentLaunchSanitizer.claudeTeamsLaunchHasOption(
+            AgentLaunchSanitizer.claudeTeamsLaunchHasOption(
                 "--dangerously-skip-permissions",
                 args: ["--tmux", "--dangerously-skip-permissions"]
             )

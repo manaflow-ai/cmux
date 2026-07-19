@@ -79,20 +79,14 @@ extension RestorableAgentSessionIndex {
         )) { existing, _ in existing }
         resolved.merge(processDetectedForkParentFallbackSnapshots(processSnapshot: processSnapshot, capturedAt: capturedAt, scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey, processArgumentsProvider: cachedProcessArguments)) { existing, _ in existing }
         guard !registry.registrations.isEmpty else { return resolved }
-        var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
+        var projectConfigCache = CmuxVaultAgentRegistry.ProjectConfigCache(base: registry)
+        var piSessionDirectoryIndex = PiSessionDirectoryIndex(fileManager: fileManager)
 
         func registryForWorkingDirectory(_ workingDirectory: String?) -> CmuxVaultAgentRegistry {
-            guard let workingDirectory else { return registry }
-            let key = (workingDirectory as NSString).standardizingPath
-            if let cached = registriesByWorkingDirectory[key] {
-                return cached
-            }
-            let resolved = registry.mergingProjectConfig(
-                workingDirectory: key,
+            projectConfigCache.registry(
+                forWorkingDirectory: workingDirectory,
                 fileManager: fileManager
             )
-            registriesByWorkingDirectory[key] = resolved
-            return resolved
         }
 
         for process in processSnapshot.cmuxScopedProcesses() {
@@ -109,12 +103,13 @@ extension RestorableAgentSessionIndex {
             )
             let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"])
             let processRegistry = registryForWorkingDirectory(cwd)
-            guard let registration = processRegistry.registrations.first(where: { $0.detect.matches(observed) }),
+            guard let registration = processRegistry.matchingRegistration(for: observed),
                   registration.processDetectedSnapshotIsRestorable(for: observed),
                   let sessionIDResolution = registration.sessionIdSource.sessionIDResolution(
                       from: observed,
                       registration: registration,
-                      fileManager: fileManager
+                      fileManager: fileManager,
+                      piSessionDirectoryIndex: &piSessionDirectoryIndex
                   ) else {
                 continue
             }
@@ -272,7 +267,11 @@ extension RestorableAgentSessionIndex {
                 arguments: processArguments.arguments,
                 environment: processArguments.environment
             )
-            guard observed.isOpenCodeProcess else { continue }
+            guard observed.isOpenCodeProcess,
+                  CmuxVaultAgentRegistration.processDetectedSnapshotIsRestorable(
+                      kind: "opencode",
+                      for: observed
+                  ) else { continue }
 
             let cwd = openCodeWorkingDirectory(observed: observed)
             let cwdKey = cwd.map { ($0 as NSString).standardizingPath } ?? ""
@@ -669,7 +668,8 @@ private extension CmuxVaultAgentSessionIDSource {
     func sessionIDResolution(
         from process: VaultObservedAgentProcess,
         registration: CmuxVaultAgentRegistration,
-        fileManager: FileManager
+        fileManager: FileManager,
+        piSessionDirectoryIndex: inout PiSessionDirectoryIndex
     ) -> VaultAgentSessionIDResolution? {
         switch self {
         case .argvOption(let option):
@@ -677,29 +677,18 @@ private extension CmuxVaultAgentSessionIDSource {
             return VaultAgentSessionIDResolution(sessionId: sessionId, source: registration.processArgumentsCarryForkParentFlag(process.arguments) ? .forkParentFallback : .explicit)
         case .piSessionFile:
             let carriesForkParentFlag = registration.processArgumentsCarryForkParentFlag(process.arguments)
-            if let session = process.piCompatibleSessionID {
-                let sessionId = PiSessionLocator.resolvedSessionPath(
-                    session,
-                    for: process,
-                    registration: registration,
-                    fileManager: fileManager
-                ) ?? session
-                return VaultAgentSessionIDResolution(
-                    sessionId: sessionId,
-                    source: carriesForkParentFlag ? .forkParentFallback : .explicit
-                )
-            }
-            if carriesForkParentFlag {
-                return nil
-            }
-            guard let sessionId = PiSessionLocator.latestSessionPath(
+            guard let session = process.piCompatibleSessionID else { return nil }
+            let sessionId = PiSessionLocator.resolvedSessionPath(
+                session,
                 for: process,
                 registration: registration,
-                fileManager: fileManager
-            ) else {
-                return nil
-            }
-            return VaultAgentSessionIDResolution(sessionId: sessionId, source: .inferredLatestSessionFile)
+                fileManager: fileManager,
+                piSessionDirectoryIndex: &piSessionDirectoryIndex
+            ) ?? session
+            return VaultAgentSessionIDResolution(
+                sessionId: sessionId,
+                source: carriesForkParentFlag ? .forkParentFallback : .explicit
+            )
         case .grokSessionDirectory:
             if let session = process.arguments.grokResumeSessionID {
                 return VaultAgentSessionIDResolution(sessionId: session, source: .explicit)
@@ -808,19 +797,12 @@ enum PiSessionLocator {
         return "--\(sanitized)--"
     }
 
-    fileprivate static func latestSessionPath(
-        for process: VaultObservedAgentProcess,
-        registration: CmuxVaultAgentRegistration,
-        fileManager: FileManager
-    ) -> String? {
-        newestJSONLFile(in: candidateSessionDirectory(for: process, registration: registration), fileManager: fileManager)?.path
-    }
-
     fileprivate static func resolvedSessionPath(
         _ session: String,
         for process: VaultObservedAgentProcess,
         registration: CmuxVaultAgentRegistration,
-        fileManager: FileManager
+        fileManager: FileManager,
+        piSessionDirectoryIndex: inout PiSessionDirectoryIndex
     ) -> String? {
         let trimmed = session.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -829,34 +811,10 @@ enum PiSessionLocator {
             return fileManager.fileExists(atPath: expanded) ? expanded : trimmed
         }
 
-        let directory = candidateSessionDirectory(for: process, registration: registration)
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
-              isDirectory.boolValue,
-              let enumerator = fileManager.enumerator(
-                  at: URL(fileURLWithPath: directory, isDirectory: true),
-                  includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-                  options: [.skipsHiddenFiles]
-              ) else {
-            return nil
-        }
-
-        var exactNewest: (url: URL, modified: Date)?
-        var partialNewest: (url: URL, modified: Date)?
-        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
-            let basename = url.deletingPathExtension().lastPathComponent
-            guard basename == trimmed || basename.contains(trimmed) else { continue }
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
-            guard values?.isRegularFile == true, let modified = values?.contentModificationDate else { continue }
-            if basename == trimmed {
-                if exactNewest == nil || modified > exactNewest!.modified {
-                    exactNewest = (url, modified)
-                }
-            } else if partialNewest == nil || modified > partialNewest!.modified {
-                partialNewest = (url, modified)
-            }
-        }
-        return exactNewest?.url.path ?? partialNewest?.url.path
+        return piSessionDirectoryIndex.resolvedSessionPath(
+            trimmed,
+            in: candidateSessionDirectory(for: process, registration: registration)
+        )
     }
 
 }

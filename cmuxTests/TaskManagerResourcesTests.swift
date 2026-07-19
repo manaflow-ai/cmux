@@ -569,6 +569,9 @@ final class TaskManagerResourcesTests: XCTestCase {
             ("droid", "factory"),
             ("factory", "factory"),
             ("qodercli", "qoder"),
+            ("kimi", "kimi"),
+            ("kimi-cli", "kimi"),
+            ("kimi-code", "kimi"),
         ]
 
         for testCase in cases {
@@ -583,6 +586,19 @@ final class TaskManagerResourcesTests: XCTestCase {
                 testCase.processName
             )
         }
+
+        XCTAssertEqual(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                processName: "python3.14",
+                processPath: "/Users/test/.local/share/uv/tools/kimi-cli/bin/python",
+                arguments: [
+                    "/Users/test/.local/share/uv/tools/kimi-cli/bin/python",
+                    "/Users/test/.local/share/uv/tools/kimi-cli/bin/kimi",
+                ],
+                environment: [:]
+            )?.id,
+            "kimi"
+        )
     }
 
     private func resourceSummary() -> CmuxTopResourceSummary {

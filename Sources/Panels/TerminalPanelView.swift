@@ -44,24 +44,20 @@ struct TerminalPanelView: View {
 
     @ViewBuilder
     private func hibernationBody(_ hibernationState: AgentHibernationPanelState) -> some View {
-        if isVisibleInUI {
-            Color(nsColor: appearance.contentBackgroundColor)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .id("hibernated-resuming-\(panel.id.uuidString)")
-                .onAppear {
-                    onAutoResumeAgentHibernation()
-                }
-        } else {
-            AgentHibernationPlaceholderView(
-                state: hibernationState,
-                appearance: appearance,
-                onResume: onResumeAgentHibernation
-            )
-            .id("hibernated-\(panel.id.uuidString)")
-            .onChange(of: isVisibleInUI) { _, visible in
-                if visible {
-                    onAutoResumeAgentHibernation()
-                }
+        AgentHibernationPlaceholderView(
+            state: hibernationState,
+            appearance: appearance,
+            onResume: onResumeAgentHibernation
+        )
+        .id("hibernated-\(panel.id.uuidString)")
+        .onAppear {
+            if isVisibleInUI {
+                onAutoResumeAgentHibernation()
+            }
+        }
+        .onChange(of: isVisibleInUI) { _, visible in
+            if visible {
+                onAutoResumeAgentHibernation()
             }
         }
     }

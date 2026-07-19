@@ -156,7 +156,12 @@ extension CMUXCLI {
         let command = "cmux hooks \(def.name) \(event.cmuxSubcommand)"
         let inline: String
         if def.name == "codex", codexHookCanRunFireAndForget(event.cmuxSubcommand) {
-            inline = codexFireAndForgetAgentHookShellCommand(command, for: def)
+            inline = codexFireAndForgetAgentHookShellCommand(
+                command,
+                for: def,
+                ownership: .persistent,
+                target: .wrapperEnvironment
+            )
         } else {
             inline = agentHookShellCommand(command, for: def)
         }
@@ -429,9 +434,20 @@ extension CMUXCLI {
         // Codex also had older top-level codex-hook/feed-hook commands.
         // Other generic agents can have stale `cmux hooks ...` files from
         // earlier integration attempts, and setup should be able to prune them.
+        if def.name == "codex" {
+            if isLegacyCodexProjectHookCommand(command)
+                || isLegacyCodexBundledDispatcher(command)
+                || isCmuxManagedCodexHookScript(command) {
+                return true
+            }
+        }
         return legacyCmuxCommandTokenLists(from: command, for: def).contains { tokens in
             isLegacyCmuxOwnedHookTokens(tokens, for: def)
         }
+    }
+    private static func isLegacyCodexProjectHookCommand(_ command: String) -> Bool {
+        let pattern = #"^\s*['\"]?[^'\"]*/\.codex/hooks/cmux-codex-fire-and-forget\.sh['\"]?\s+(session-start|prompt-submit|stop)\s*$"#
+        return command.range(of: pattern, options: .regularExpression) != nil
     }
 
     private static func isLegacyCmuxOwnedHookTokens(_ tokens: [String], for def: AgentHookDef) -> Bool {

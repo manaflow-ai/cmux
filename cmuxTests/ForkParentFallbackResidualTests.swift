@@ -179,6 +179,50 @@ struct ForkParentFallbackResidualTests {
         #expect(cwdless.forkStartupInput()?.contains("cd --") == false)
     }
 
+    @Test func codexThreadCwdLookupReusesOpenDatabaseAfterPathBecomesUnavailable() throws {
+        let fixture = try Fixture.make()
+        defer { fixture.cleanup() }
+
+        let codexHome = fixture.root.appendingPathComponent("codex-home", isDirectory: true)
+        try fixture.fileManager.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        let rows = (0..<10_000).map { index in
+            (sessionId: "session-\(index)", cwd: "/tmp/project-\(index)")
+        }
+        try writeCodexStateDB(codexHome: codexHome, rows: rows)
+        let launchCommand = AgentLaunchCommandSnapshot(
+            launcher: "codex",
+            executablePath: "/usr/local/bin/codex",
+            arguments: ["/usr/local/bin/codex"],
+            workingDirectory: nil,
+            environment: ["CODEX_HOME": codexHome.path],
+            capturedAt: nil,
+            source: "test"
+        )
+        let cache = CodexSessionCwdLookupCache(fileManager: fixture.fileManager)
+
+        let first = try #require(rows.first)
+        #expect(cache.workingDirectory(
+            kind: .codex,
+            sessionId: first.sessionId,
+            launchCommand: launchCommand
+        ) == first.cwd)
+        try fixture.fileManager.setAttributes(
+            [.posixPermissions: 0o000],
+            ofItemAtPath: codexHome.appendingPathComponent("state_5.sqlite", isDirectory: false).path
+        )
+
+        var mismatchCount = 0
+        for row in rows.dropFirst() where cache.workingDirectory(
+            kind: .codex,
+            sessionId: row.sessionId,
+            launchCommand: launchCommand
+        ) != row.cwd {
+            mismatchCount += 1
+        }
+
+        #expect(mismatchCount == 0)
+    }
+
     @Test func codexTeamsWrapperForkFallbackRoundTripsAndParentHookSurvives() throws {
         let fixture = try Fixture.make()
         defer { fixture.cleanup() }
@@ -422,6 +466,13 @@ struct ForkParentFallbackResidualTests {
     }
 
     private func writeCodexStateDB(codexHome: URL, sessionId: String, cwd: String) throws {
+        try writeCodexStateDB(codexHome: codexHome, rows: [(sessionId: sessionId, cwd: cwd)])
+    }
+
+    private func writeCodexStateDB(
+        codexHome: URL,
+        rows: [(sessionId: String, cwd: String)]
+    ) throws {
         let dbPath = codexHome.appendingPathComponent("state_5.sqlite", isDirectory: false).path
         var db: OpaquePointer?
         guard sqlite3_open(dbPath, &db) == SQLITE_OK, let db else {
@@ -438,9 +489,19 @@ struct ForkParentFallbackResidualTests {
         }
         defer { sqlite3_finalize(stmt) }
         let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-        sqlite3_bind_text(stmt, 1, sessionId, -1, SQLITE_TRANSIENT_FN)
-        sqlite3_bind_text(stmt, 2, cwd, -1, SQLITE_TRANSIENT_FN)
-        guard sqlite3_step(stmt) == SQLITE_DONE else {
+        guard sqlite3_exec(db, "BEGIN", nil, nil, nil) == SQLITE_OK else {
+            throw testFailure()
+        }
+        for row in rows {
+            sqlite3_reset(stmt)
+            sqlite3_clear_bindings(stmt)
+            sqlite3_bind_text(stmt, 1, row.sessionId, -1, SQLITE_TRANSIENT_FN)
+            sqlite3_bind_text(stmt, 2, row.cwd, -1, SQLITE_TRANSIENT_FN)
+            guard sqlite3_step(stmt) == SQLITE_DONE else {
+                throw testFailure()
+            }
+        }
+        guard sqlite3_exec(db, "COMMIT", nil, nil, nil) == SQLITE_OK else {
             throw testFailure()
         }
     }

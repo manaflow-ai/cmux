@@ -163,6 +163,7 @@ extension CampfireSupportTests {
         let registration = CmuxVaultAgentRegistration.builtInCampfire
         #expect(registration.id == "campfire")
         #expect(registration.resumeCommand == "{{executable}} --session {{sessionId}}")
+        #expect(registration.forkCommand == "{{executable}} --fork {{sessionId}}")
         #expect(registration.sessionIdSource == .argvOption("--session"))
         #expect(registration.sessionDirectory == "~/.campfire/agent/sessions")
     }

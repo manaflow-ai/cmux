@@ -98,6 +98,7 @@ def main() -> int:
         bin_dir.mkdir()
         fake_pi = bin_dir / "pi"
         make_executable(fake_pi, "#!/usr/bin/env bash\nexit 0\n")
+        make_executable(bin_dir / "cmux", "#!/usr/bin/env bash\nexit 73\n")
 
         fake_cmux = root / "fake-cmux"
         fake_args_log = root / "fake-cmux-args.log"
@@ -110,8 +111,7 @@ def main() -> int:
 set -euo pipefail
 printf '%s\n' "$*" >> "$CMUX_TEST_PI_ARGS_LOG"
 payload="$(cat)"
-printf '%s' "$payload" >> "$CMUX_TEST_PI_STDIN_LOG"
-printf '\n---\n' >> "$CMUX_TEST_PI_STDIN_LOG"
+printf '%s\n---\n' "$payload" >> "$CMUX_TEST_PI_STDIN_LOG"
 {
   printf 'kind=%s\n' "${CMUX_AGENT_LAUNCH_KIND-}"
   printf 'cwd=%s\n' "${CMUX_AGENT_LAUNCH_CWD-}"
@@ -174,7 +174,7 @@ esac
         check_env["CMUX_TEST_PI_EXTENSION_PATH"] = str(extension_path)
         check_env["CMUX_SURFACE_ID"] = "surface-pi-test"
         check_env["CMUX_WORKSPACE_ID"] = "workspace-pi-test"
-        check_env["CMUX_PI_CMUX_BIN"] = str(fake_cmux)
+        check_env["CMUX_BUNDLED_CLI_PATH"] = str(fake_cmux)
         check_env["CMUX_TEST_PI_ARGS_LOG"] = str(fake_args_log)
         check_env["CMUX_TEST_PI_STDIN_LOG"] = str(fake_stdin_log)
         check_env["CMUX_TEST_PI_ENV_LOG"] = str(fake_env_log)

@@ -384,7 +384,7 @@ struct RestorableAgentSessionIndexTests {
     }
 
     @Test
-    func testPanelFallbackUsesLatestHookRecord() throws {
+    func testPanelFallbackRejectsAmbiguousHookRecords() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
             .appendingPathComponent("cmux-claude-panel-fallback-\(UUID().uuidString)", isDirectory: true)
@@ -442,10 +442,7 @@ struct RestorableAgentSessionIndexTests {
             index.snapshot(workspaceId: oldWorkspaceId, panelId: panelId)?.sessionId,
             oldSessionId
         )
-        XCTAssertEqual(
-            index.snapshot(workspaceId: movedWorkspaceId, panelId: panelId)?.sessionId,
-            latestSessionId
-        )
+        XCTAssertNil(index.snapshot(workspaceId: movedWorkspaceId, panelId: panelId))
     }
 
     // A Claude session can start in one directory and `cd` into another (e.g. a repo root then a
@@ -561,6 +558,59 @@ struct RestorableAgentSessionIndexTests {
         XCTAssertEqual(snapshot.workingDirectory, launchCwd.path)
     }
 
+    @Test
+    func testClaudeForkIgnoresStaleExplicitTranscriptPathWhenExactLookupSucceeds() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-fork-stale-path-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let launchCwd = root.appendingPathComponent("repo.main", isDirectory: true)
+        let driftedCwd = root.appendingPathComponent("worktree", isDirectory: true)
+        try fm.createDirectory(at: launchCwd, withIntermediateDirectories: true)
+        try fm.createDirectory(at: driftedCwd, withIntermediateDirectories: true)
+
+        let sessionId = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
+        let realProjectDir = projectsDir.appendingPathComponent(
+            expectedClaudeProjectDirName(launchCwd.path),
+            isDirectory: true
+        )
+        let realTranscriptURL = realProjectDir.appendingPathComponent("\(sessionId).jsonl")
+        try writeClaudeTranscript(sessionId: sessionId, transcriptURL: realTranscriptURL, cwd: launchCwd)
+        let staleProjectDir = projectsDir.appendingPathComponent(
+            expectedClaudeProjectDirName(driftedCwd.path),
+            isDirectory: true
+        )
+        try fm.createDirectory(at: staleProjectDir, withIntermediateDirectories: true)
+        let staleTranscriptURL = staleProjectDir.appendingPathComponent("\(sessionId).jsonl")
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                sessionId: driftedHookRecord(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    recordedCwd: driftedCwd.path,
+                    launchCwd: launchCwd.path,
+                    configDir: configDir.path,
+                    transcriptPath: staleTranscriptURL.path,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        let snapshot = try #require(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+        #expect(snapshot.workingDirectory == launchCwd.path)
+        #expect(snapshot.resumeCommand?.contains("cd -- '\(launchCwd.path)'") == true)
+        #expect(snapshot.resumeCommand?.contains(driftedCwd.path) == false)
+    }
+
     // The transcript exists but its project directory encodes to neither the launch cwd nor the
     // drifted cwd (an out-of-tree transcript_path), and the config dir holds no matching project
     // folder, so neither verifier can confirm a candidate. Resolution must still prefer the launch
@@ -638,6 +688,8 @@ struct RestorableAgentSessionIndexTests {
         let driftedCwd = root.appendingPathComponent("worktree", isDirectory: true)
         try fm.createDirectory(at: launchCwd, withIntermediateDirectories: true)
         try fm.createDirectory(at: driftedCwd, withIntermediateDirectories: true)
+        let transcriptPath = launchCwd.appendingPathComponent("gemini-session.jsonl").path
+        try "{}\n".write(toFile: transcriptPath, atomically: true, encoding: .utf8)
 
         let sessionId = "dddddddd-dddd-dddd-dddd-dddddddddddd"
         let workspaceId = UUID()
@@ -653,6 +705,7 @@ struct RestorableAgentSessionIndexTests {
                     panelId: panelId,
                     recordedCwd: driftedCwd.path,
                     launchCwd: launchCwd.path,
+                    transcriptPath: transcriptPath,
                     updatedAt: 10
                 ),
             ]
@@ -675,7 +728,42 @@ struct RestorableAgentSessionIndexTests {
     }
 
     @Test
-    func testPiDetectedLatestSessionDoesNotCollapseExactHookRecordsAcrossPanels() throws {
+    func testGeminiWithoutNonEmptySessionFileDoesNotRestore() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-gemini-missing-transcript-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let sessionId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+        let emptyTranscriptPath = root.appendingPathComponent("empty.jsonl").path
+        try Data().write(to: URL(fileURLWithPath: emptyTranscriptPath))
+        try writeHookStore(
+            root: root,
+            storeFilename: "gemini-hook-sessions.json",
+            sessions: [
+                sessionId: driftedAgentHookRecord(
+                    launcher: "gemini",
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    recordedCwd: cwd.path,
+                    launchCwd: cwd.path,
+                    transcriptPath: emptyTranscriptPath,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        XCTAssertNil(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+    }
+
+    @Test
+    func testPiPlainProcessesKeepExactHookRecordsAcrossPanels() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
             .appendingPathComponent("cmux-pi-restore-collapse-\(UUID().uuidString)", isDirectory: true)
@@ -754,8 +842,7 @@ struct RestorableAgentSessionIndexTests {
             }
         )
 
-        let detectedSessionIds = Set(detectedSnapshots.values.map { $0.snapshot.sessionId })
-        XCTAssertEqual(detectedSessionIds.count, 1, "Pi latest-file detection is ambiguous for same-cwd panels")
+        XCTAssertTrue(detectedSnapshots.isEmpty)
 
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: root.path,
@@ -772,7 +859,7 @@ struct RestorableAgentSessionIndexTests {
     }
 
     @Test
-    func testPiDetectedLatestSessionDoesNotCollapseExactHookRecordsAfterWorkspaceIdRotation() throws {
+    func testPiPlainProcessesKeepUniquePanelHookRecordsAfterWorkspaceIdRotation() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
             .appendingPathComponent("cmux-pi-restore-workspace-rotation-\(UUID().uuidString)", isDirectory: true)
@@ -852,12 +939,7 @@ struct RestorableAgentSessionIndexTests {
             }
         )
 
-        let expectedDetectedKeys = Set(zip(restoredWorkspaceIds, panels).map { workspaceId, panelId in
-            RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
-        })
-        XCTAssertEqual(Set(detectedSnapshots.keys), expectedDetectedKeys)
-        let detectedSessionIds = Set(detectedSnapshots.values.map { $0.snapshot.sessionId })
-        XCTAssertEqual(detectedSessionIds.count, 1, "Pi latest-file detection is ambiguous for same-cwd workspaces")
+        XCTAssertTrue(detectedSnapshots.isEmpty)
 
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: root.path,
@@ -874,7 +956,7 @@ struct RestorableAgentSessionIndexTests {
     }
 
     @Test
-    func testPiDetectedLatestSessionDoesNotUsePanelOnlyFallbackWhenPanelIdIsAmbiguous() throws {
+    func testPiPlainProcessDoesNotUseAmbiguousPanelOnlyHookFallback() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
             .appendingPathComponent("cmux-pi-restore-panel-id-ambiguous-\(UUID().uuidString)", isDirectory: true)
@@ -899,7 +981,6 @@ struct RestorableAgentSessionIndexTests {
             (sessionId: "pi-old-workspace-b", workspaceId: oldWorkspaceId),
             (sessionId: "pi-other-old-workspace", workspaceId: otherOldWorkspaceId),
         ]
-        let detectedLatestSessionId = "pi-detected-newest"
         var hookSessions: [String: [String: Any]] = [:]
         for (index, hookRecord) in hookRecords.enumerated() {
             let sessionFile = projectSessions.appendingPathComponent("\(hookRecord.sessionId).jsonl", isDirectory: false)
@@ -918,12 +999,6 @@ struct RestorableAgentSessionIndexTests {
                 updatedAt: TimeInterval(10 + index)
             )
         }
-        let detectedLatestFile = projectSessions.appendingPathComponent("\(detectedLatestSessionId).jsonl", isDirectory: false)
-        try "{}\n".write(to: detectedLatestFile, atomically: true, encoding: .utf8)
-        try fm.setAttributes(
-            [.modificationDate: Date(timeIntervalSince1970: 2_000)],
-            ofItemAtPath: detectedLatestFile.path
-        )
         try writeHookStore(root: root, storeFilename: "pi-hook-sessions.json", sessions: hookSessions)
 
         let process = CmuxTopProcessInfo(
@@ -963,12 +1038,7 @@ struct RestorableAgentSessionIndexTests {
                 )
             }
         )
-        let restoredKey = RestorableAgentSessionIndex.PanelKey(
-            workspaceId: restoredWorkspaceId,
-            panelId: panelId
-        )
-        let detected = try XCTUnwrap(detectedSnapshots[restoredKey])
-        XCTAssertEqual(detected.snapshot.sessionId, detectedLatestSessionId)
+        XCTAssertTrue(detectedSnapshots.isEmpty)
 
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: root.path,
@@ -977,100 +1047,7 @@ struct RestorableAgentSessionIndexTests {
             detectedSnapshots: detectedSnapshots,
             processArgumentsProvider: { _ in nil }
         )
-        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: restoredWorkspaceId, panelId: panelId))
-
-        XCTAssertEqual(snapshot.sessionId, detectedLatestSessionId)
-    }
-
-    @Test
-    func testPiInferredLatestFallbackUsesSameKindPanelHookWhenAnotherKindIsNewer() throws {
-        let fm = FileManager.default
-        let root = fm.temporaryDirectory
-            .appendingPathComponent("cmux-pi-restore-kind-fallback-\(UUID().uuidString)", isDirectory: true)
-        defer { try? fm.removeItem(at: root) }
-
-        let cwd = root.appendingPathComponent("repo", isDirectory: true)
-        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
-        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
-        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
-        try fm.createDirectory(
-            at: projectsDir.appendingPathComponent(
-                RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd.path),
-                isDirectory: true
-            ),
-            withIntermediateDirectories: true
-        )
-
-        let workspaceId = UUID()
-        let panelId = UUID()
-        let claudeSessionId = "11111111-1111-1111-1111-111111111111"
-        let piHookSessionId = "pi-exact-panel-session"
-        let detectedLatestPiSessionId = "pi-newest-cwd-session"
-
-        try writeClaudeTranscript(sessionId: claudeSessionId, cwd: cwd, projectsDir: projectsDir)
-        try writeClaudeHookStore(
-            root: root,
-            sessions: [
-                claudeSessionId: hookRecord(
-                    sessionId: claudeSessionId,
-                    workspaceId: workspaceId,
-                    panelId: panelId,
-                    cwd: cwd.path,
-                    configDir: configDir.path,
-                    updatedAt: 50
-                ),
-            ]
-        )
-        try writeHookStore(
-            root: root,
-            storeFilename: "pi-hook-sessions.json",
-            sessions: [
-                piHookSessionId: driftedAgentHookRecord(
-                    launcher: "pi",
-                    sessionId: piHookSessionId,
-                    workspaceId: workspaceId,
-                    panelId: panelId,
-                    recordedCwd: cwd.path,
-                    launchCwd: cwd.path,
-                    updatedAt: 10
-                ),
-            ]
-        )
-
-        let detectedSnapshot = SessionRestorableAgentSnapshot(
-            kind: .custom("pi"),
-            sessionId: detectedLatestPiSessionId,
-            workingDirectory: cwd.path,
-            launchCommand: AgentLaunchCommandSnapshot(
-                launcher: "pi",
-                executablePath: "/usr/local/bin/pi",
-                arguments: ["/usr/local/bin/pi"],
-                workingDirectory: cwd.path,
-                environment: nil,
-                capturedAt: 99,
-                source: "process"
-            )
-        )
-        let key = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
-        let index = RestorableAgentSessionIndex.load(
-            homeDirectory: root.path,
-            fileManager: fm,
-            registry: CmuxVaultAgentRegistry(registrations: [.builtInPi]),
-            detectedSnapshots: [
-                key: (
-                    snapshot: detectedSnapshot,
-                    updatedAt: 99,
-                    processIDs: Set([123]), agentProcessIDs: Set([123]),
-                    sessionIDSource: .inferredLatestSessionFile
-                ),
-            ],
-            processArgumentsProvider: { _ in nil }
-        )
-        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
-
-        XCTAssertEqual(snapshot.kind, .custom("pi"))
-        XCTAssertEqual(snapshot.sessionId, piHookSessionId)
-        XCTAssertEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [123])
+        XCTAssertNil(index.snapshot(workspaceId: restoredWorkspaceId, panelId: panelId))
     }
 
     // RestorableAgentKind.cwdNamespacing delegates to the shared AgentResumeWorkingDirectory
@@ -1088,7 +1065,7 @@ struct RestorableAgentSessionIndexTests {
     }
 
     @Test
-    func testClaudeWorkflowDirectorySessionUsesSiblingJsonlSessionForResume() throws {
+    func testClaudeWorkflowDirectorySessionDoesNotGuessSiblingSessionForResume() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
             .appendingPathComponent("cmux-claude-workflow-directory-\(UUID().uuidString)", isDirectory: true)
@@ -1133,18 +1110,154 @@ struct RestorableAgentSessionIndexTests {
         )
 
         let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
-        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
-
-        XCTAssertEqual(snapshot.sessionId, resumableSessionId)
-        XCTAssertEqual(snapshot.workingDirectory, cwd.path)
-        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
-        XCTAssertTrue(
-            resumeCommand.contains(resumableSessionId),
-            "resume command must target the sibling transcript session; got: \(resumeCommand)"
+        XCTAssertNil(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId),
+            "A sibling transcript is not authoritative evidence for the hook's session identity"
         )
-        XCTAssertFalse(
-            resumeCommand.contains(workflowContainerSessionId),
-            "The Workflow container id is not accepted by claude --resume."
+    }
+
+    @Test
+    func testClaudeSessionDoesNotSearchUnrelatedProjectDirectoriesForResume() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-unrelated-project-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let recordedCwd = root.appendingPathComponent("recorded-repo", isDirectory: true)
+        let unrelatedCwd = root.appendingPathComponent("unrelated-repo", isDirectory: true)
+        try fm.createDirectory(at: recordedCwd, withIntermediateDirectories: true)
+        try fm.createDirectory(at: unrelatedCwd, withIntermediateDirectories: true)
+
+        let sessionId = "dddddddd-4444-4444-4444-dddddddddddd"
+        let unrelatedTranscriptURL = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(expectedClaudeProjectDirName(unrelatedCwd.path), isDirectory: true)
+            .appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+        try writeClaudeTranscript(
+            sessionId: sessionId,
+            transcriptURL: unrelatedTranscriptURL,
+            cwd: unrelatedCwd
+        )
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                sessionId: hookRecord(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: recordedCwd.path,
+                    configDir: configDir.path,
+                    transcriptPath: nil,
+                    isRestorable: true,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        #expect(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId) == nil,
+            "A matching ID under another project is not evidence that this panel owns that conversation"
+        )
+    }
+
+    @Test
+    func testClaudeSessionRejectsTranscriptPathForAnotherSession() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-mismatched-transcript-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+
+        let hookSessionId = "eeeeeeee-5555-5555-5555-eeeeeeeeeeee"
+        let transcriptSessionId = "ffffffff-6666-6666-6666-ffffffffffff"
+        let transcriptURL = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(expectedClaudeProjectDirName(cwd.path), isDirectory: true)
+            .appendingPathComponent("\(transcriptSessionId).jsonl", isDirectory: false)
+        try writeClaudeTranscript(
+            sessionId: transcriptSessionId,
+            transcriptURL: transcriptURL,
+            cwd: cwd
+        )
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                hookSessionId: hookRecord(
+                    sessionId: hookSessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    transcriptPath: transcriptURL.path,
+                    isRestorable: true,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        #expect(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId) == nil,
+            "A transcript path for another session must not authorize restore"
+        )
+    }
+
+    @Test(arguments: [
+        " session-id",
+        "session-id ",
+        "\tsession-id",
+        "session-id\n",
+    ])
+    func testClaudeSessionRejectsIdentityChangedByWhitespaceNormalization(
+        rawSessionId: String
+    ) throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-raw-session-id-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        let transcriptURL = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(expectedClaudeProjectDirName(cwd.path), isDirectory: true)
+            .appendingPathComponent("session-id.jsonl", isDirectory: false)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try writeClaudeTranscript(sessionId: "session-id", transcriptURL: transcriptURL, cwd: cwd)
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                rawSessionId: hookRecord(
+                    sessionId: rawSessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    transcriptPath: transcriptURL.path,
+                    isRestorable: true,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        #expect(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId) == nil,
+            "Claude restore must preserve the hook's exact session identifier"
         )
     }
 
@@ -1292,9 +1405,9 @@ struct RestorableAgentSessionIndexTests {
 
         let cases: [(launcher: String, store: String, verbNeedles: [String])] = [
             ("codex", "codex-hook-sessions.json", ["'fork'"]),
+            ("grok", "grok-hook-sessions.json", ["'--fork-session'"]),
             ("opencode", "opencode-hook-sessions.json", ["'--session'", "'--fork'"]),
             ("pi", "pi-hook-sessions.json", ["'--fork'"]),
-            ("omp", "omp-hook-sessions.json", ["'--fork'"]),
         ]
         for testCase in cases {
             let ws = UUID()
@@ -1343,17 +1456,24 @@ struct RestorableAgentSessionIndexTests {
         let dir = root.appendingPathComponent("repo", isDirectory: true)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
 
-        for launcher in ["gemini", "grok", "amp", "cursor"] {
+        for launcher in ["gemini", "amp", "cursor", "omp"] {
             let ws = UUID()
             let panel = UUID()
             let sid = "66666666-6666-6666-6666-666666666666"
+            let transcriptPath = launcher == "gemini"
+                ? dir.appendingPathComponent("gemini-nofork.jsonl").path
+                : nil
+            if let transcriptPath {
+                try "{}\n".write(toFile: transcriptPath, atomically: true, encoding: .utf8)
+            }
             try writeHookStore(
                 root: root,
                 storeFilename: "\(launcher)-hook-sessions.json",
                 sessions: [
                     sid: driftedAgentHookRecord(
                         launcher: launcher, sessionId: sid, workspaceId: ws, panelId: panel,
-                        recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
+                        recordedCwd: dir.path, launchCwd: dir.path,
+                        transcriptPath: transcriptPath, updatedAt: 10
                     ),
                 ]
             )
@@ -1383,17 +1503,23 @@ struct RestorableAgentSessionIndexTests {
         let panel = UUID()
         let oldId = "11111111-1111-1111-1111-111111111111"
         let newId = "22222222-2222-2222-2222-222222222222"
+        let oldTranscriptPath = dir.appendingPathComponent("gemini-old.jsonl").path
+        let newTranscriptPath = dir.appendingPathComponent("gemini-new.jsonl").path
+        try "{}\n".write(toFile: oldTranscriptPath, atomically: true, encoding: .utf8)
+        try "{}\n".write(toFile: newTranscriptPath, atomically: true, encoding: .utf8)
         try writeHookStore(
             root: root,
             storeFilename: "gemini-hook-sessions.json",
             sessions: [
                 oldId: driftedAgentHookRecord(
                     launcher: "gemini", sessionId: oldId, workspaceId: ws, panelId: panel,
-                    recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
+                    recordedCwd: dir.path, launchCwd: dir.path,
+                    transcriptPath: oldTranscriptPath, updatedAt: 10
                 ),
                 newId: driftedAgentHookRecord(
                     launcher: "gemini", sessionId: newId, workspaceId: ws, panelId: panel,
-                    recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 20
+                    recordedCwd: dir.path, launchCwd: dir.path,
+                    transcriptPath: newTranscriptPath, updatedAt: 20
                 ),
             ]
         )
@@ -1419,13 +1545,16 @@ struct RestorableAgentSessionIndexTests {
         let ws = UUID()
         let panel = UUID()
         let sid = "33333333-3333-3333-3333-333333333333"
+        let transcriptPath = dir.appendingPathComponent("gemini-idempotent.jsonl").path
+        try "{}\n".write(toFile: transcriptPath, atomically: true, encoding: .utf8)
         try writeHookStore(
             root: root,
             storeFilename: "gemini-hook-sessions.json",
             sessions: [
                 sid: driftedAgentHookRecord(
                     launcher: "gemini", sessionId: sid, workspaceId: ws, panelId: panel,
-                    recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
+                    recordedCwd: dir.path, launchCwd: dir.path,
+                    transcriptPath: transcriptPath, updatedAt: 10
                 ),
             ]
         )
@@ -1523,10 +1652,11 @@ struct RestorableAgentSessionIndexTests {
         panelId: UUID,
         recordedCwd: String,
         launchCwd: String,
+        transcriptPath: String? = nil,
         updatedAt: TimeInterval,
         pid: Int? = nil
     ) -> [String: Any] {
-        [
+        var record: [String: Any] = [
             "sessionId": sessionId,
             "workspaceId": workspaceId.uuidString,
             "surfaceId": panelId.uuidString,
@@ -1543,6 +1673,10 @@ struct RestorableAgentSessionIndexTests {
                 "source": "test",
             ],
         ]
+        if let transcriptPath {
+            record["transcriptPath"] = transcriptPath
+        }
+        return record
     }
 
     private func hookRecord(
@@ -1758,6 +1892,64 @@ struct RestorableAgentSessionIndexTests {
         XCTAssertTrue(fork.contains("fork") && fork.contains(sid), "codex fork must use the fork verb and session id; got: \(fork)")
     }
 
+    // Records written before launch-capture validation can claim the correct
+    // launcher while carrying an unrelated interpreter entrypoint. Only the
+    // actual script token, not a later prompt/file argument named `codex`, can
+    // establish executable identity for automatic replay.
+    @Test
+    func testMisleadingInterpreterCaptureIsDiscardedForResumeAndFork() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-misleading-interpreter-capture-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let sessionID = "99999999-9999-9999-9999-999999999999"
+        var record = driftedAgentHookRecord(
+            launcher: "codex",
+            sessionId: sessionID,
+            workspaceId: workspaceID,
+            panelId: panelID,
+            recordedCwd: dir.path,
+            launchCwd: dir.path,
+            updatedAt: 10
+        )
+        record["launchCommand"] = [
+            "launcher": "codex",
+            "executablePath": "/usr/local/bin/node",
+            "arguments": [
+                "/usr/local/bin/node",
+                "/tmp/unrelated-tool.js",
+                "/tmp/codex",
+                "--print",
+            ],
+            "workingDirectory": dir.path,
+            "capturedAt": 10,
+            "source": "process",
+        ]
+        try writeHookStore(
+            root: root,
+            storeFilename: "codex-hook-sessions.json",
+            sessions: [sessionID: record]
+        )
+
+        let snapshot = try XCTUnwrap(
+            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+                .snapshot(workspaceId: workspaceID, panelId: panelID)
+        )
+        let resume = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertFalse(resume.contains("'node'"), "codex resume must not run the unrelated interpreter; got: \(resume)")
+        XCTAssertFalse(resume.contains("unrelated-tool.js"), "codex resume must drop the unrelated script; got: \(resume)")
+        XCTAssertTrue(resume.contains("CMUX_CODEX_WRAPPER_SHIM"), "codex resume must use canonical Codex replay; got: \(resume)")
+        let fork = try XCTUnwrap(snapshot.forkCommand)
+        XCTAssertFalse(fork.contains("'node'"), "codex fork must not run the unrelated interpreter; got: \(fork)")
+        XCTAssertFalse(fork.contains("unrelated-tool.js"), "codex fork must drop the unrelated script; got: \(fork)")
+        XCTAssertTrue(fork.contains("CMUX_CODEX_WRAPPER_SHIM"), "codex fork must use canonical Codex replay; got: \(fork)")
+    }
+
     // Wrapper launchers legitimately differ from the hook kind; their captures must stay trusted.
     @Test
     func testWrapperLauncherCaptureStaysTrusted() throws {
@@ -1797,6 +1989,294 @@ struct RestorableAgentSessionIndexTests {
         XCTAssertTrue(
             fork.contains("'codex-teams' 'fork' '\(sid)'"),
             "codexTeams capture must keep routing fork through the cmux wrapper; got: \(fork)"
+        )
+    }
+
+    @Test
+    func testRejectedOneShotCaptureIsExcludedFromAppRestoreIndex() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-rejected-one-shot-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let sessionID = "rejected-one-shot"
+        var record = driftedAgentHookRecord(
+            launcher: "opencode",
+            sessionId: sessionID,
+            workspaceId: workspaceID,
+            panelId: panelID,
+            recordedCwd: dir.path,
+            launchCwd: dir.path,
+            updatedAt: 10
+        )
+        record["launchCommand"] = [
+            "launcher": "opencode",
+            "executablePath": "/usr/local/bin/opencode",
+            "arguments": ["/usr/local/bin/opencode", "run", "one-shot prompt"],
+            "workingDirectory": dir.path,
+            "capturedAt": 10,
+            "source": "rejected",
+        ]
+        try writeHookStore(
+            root: root,
+            storeFilename: "opencode-hook-sessions.json",
+            sessions: [sessionID: record]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        XCTAssertNil(
+            index.snapshot(workspaceId: workspaceID, panelId: panelID),
+            "A rejected one-shot capture must not become restorable after an app restart."
+        )
+    }
+
+    @Test
+    func testLegacyOneShotProcessCaptureIsExcludedFromAppRestoreIndex() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-legacy-one-shot-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let sessionID = "legacy-one-shot"
+        var record = driftedAgentHookRecord(
+            launcher: "opencode",
+            sessionId: sessionID,
+            workspaceId: workspaceID,
+            panelId: panelID,
+            recordedCwd: dir.path,
+            launchCwd: dir.path,
+            updatedAt: 10
+        )
+        record.removeValue(forKey: "isRestorable")
+        record["launchCommand"] = [
+            "launcher": "opencode",
+            "executablePath": "/usr/local/bin/opencode",
+            "arguments": ["/usr/local/bin/opencode", "run", "one-shot prompt"],
+            "workingDirectory": dir.path,
+            "capturedAt": 10,
+            // Records written before one-shot rejection used the ordinary
+            // process source and omitted the explicit restorable bit.
+            "source": "process",
+        ]
+        try writeHookStore(
+            root: root,
+            storeFilename: "opencode-hook-sessions.json",
+            sessions: [sessionID: record]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        XCTAssertNil(
+            index.snapshot(workspaceId: workspaceID, panelId: panelID),
+            "A legacy one-shot capture with no replay command must not survive in the app restore index."
+        )
+    }
+
+    @Test
+    func testAppRestoreAuthorityMatchesCanonicalRunProjection() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-canonical-run-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        struct Fixture {
+            var name: String
+            var recordAuthority: Bool?
+            var activeRunId: String?
+            var runs: [[String: Any]]?
+            var expectedAuthority: Bool
+        }
+        let fixtures = [
+            Fixture(
+                name: "stale-promote",
+                recordAuthority: true,
+                activeRunId: "child",
+                runs: [
+                    ["runId": "root", "restoreAuthority": true, "startedAt": 1.0, "updatedAt": 1.0],
+                    ["runId": "child", "restoreAuthority": false, "startedAt": 2.0, "updatedAt": 2.0],
+                ],
+                expectedAuthority: false
+            ),
+            Fixture(
+                name: "stale-demote",
+                recordAuthority: false,
+                activeRunId: "root",
+                runs: [[
+                    "runId": "root", "restoreAuthority": true, "startedAt": 1.0, "updatedAt": 2.0,
+                ]],
+                expectedAuthority: true
+            ),
+            Fixture(
+                name: "missing-active-falls-back",
+                recordAuthority: true,
+                activeRunId: "pruned-run",
+                runs: [
+                    ["runId": "root", "restoreAuthority": true, "startedAt": 1.0, "updatedAt": 1.0],
+                    ["runId": "child", "restoreAuthority": false, "startedAt": 2.0, "updatedAt": 3.0],
+                ],
+                expectedAuthority: false
+            ),
+            Fixture(
+                name: "duplicate-authority-conflict",
+                recordAuthority: true,
+                activeRunId: "duplicate",
+                runs: [
+                    ["runId": "duplicate", "restoreAuthority": true, "startedAt": 1.0, "updatedAt": 2.0],
+                    ["runId": "duplicate", "restoreAuthority": false, "startedAt": 1.0, "updatedAt": 2.0],
+                ],
+                expectedAuthority: false
+            ),
+            Fixture(
+                name: "duplicate-process-conflict",
+                recordAuthority: true,
+                activeRunId: "duplicate",
+                runs: [
+                    [
+                        "runId": "duplicate", "pid": 101, "restoreAuthority": true,
+                        "startedAt": 1.0, "updatedAt": 2.0,
+                    ],
+                    [
+                        "runId": "duplicate", "pid": 202, "restoreAuthority": true,
+                        "startedAt": 1.0, "updatedAt": 2.0,
+                    ],
+                ],
+                expectedAuthority: false
+            ),
+            Fixture(
+                name: "duplicate-ended",
+                recordAuthority: true,
+                activeRunId: "duplicate",
+                runs: [
+                    ["runId": "duplicate", "restoreAuthority": true, "startedAt": 1.0, "updatedAt": 2.0],
+                    [
+                        "runId": "duplicate", "restoreAuthority": true, "startedAt": 1.0,
+                        "updatedAt": 2.0, "endedAt": 3.0,
+                    ],
+                ],
+                expectedAuthority: false
+            ),
+            Fixture(
+                name: "legacy-no-runs",
+                recordAuthority: nil,
+                activeRunId: nil,
+                runs: nil,
+                expectedAuthority: true
+            ),
+            Fixture(
+                name: "legacy-empty-runs-demoted",
+                recordAuthority: false,
+                activeRunId: nil,
+                runs: [],
+                expectedAuthority: false
+            ),
+        ]
+
+        var sessions: [String: [String: Any]] = [:]
+        var locations: [(fixture: Fixture, workspaceID: UUID, panelID: UUID)] = []
+        for fixture in fixtures {
+            let workspaceID = UUID()
+            let panelID = UUID()
+            let sessionID = "canonical-\(fixture.name)"
+            var record = driftedAgentHookRecord(
+                launcher: "opencode",
+                sessionId: sessionID,
+                workspaceId: workspaceID,
+                panelId: panelID,
+                recordedCwd: dir.path,
+                launchCwd: dir.path,
+                updatedAt: 10
+            )
+            record["startedAt"] = 1.0
+            if let recordAuthority = fixture.recordAuthority {
+                record["restoreAuthority"] = recordAuthority
+            } else {
+                record.removeValue(forKey: "restoreAuthority")
+            }
+            if let activeRunId = fixture.activeRunId {
+                record["activeRunId"] = activeRunId
+            }
+            if let runs = fixture.runs {
+                record["runs"] = runs
+            }
+
+            let cliRecordData = try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+            let cliRecord = try JSONDecoder().decode(ClaudeHookSessionRecord.self, from: cliRecordData)
+            let cliAuthority = AgentSessionRunCanonicalizer().projectedRun(
+                record: cliRecord,
+                provider: "opencode"
+            ).restoreAuthority
+            XCTAssertEqual(
+                cliAuthority,
+                fixture.expectedAuthority,
+                "The fixture must encode the intended CLI canonical projection for \(fixture.name)."
+            )
+
+            sessions[sessionID] = record
+            locations.append((fixture, workspaceID, panelID))
+        }
+        try writeHookStore(
+            root: root,
+            storeFilename: "opencode-hook-sessions.json",
+            sessions: sessions
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        for location in locations {
+            XCTAssertEqual(
+                index.snapshot(workspaceId: location.workspaceID, panelId: location.panelID) != nil,
+                location.fixture.expectedAuthority,
+                "App restore authority must match the CLI canonical run for \(location.fixture.name)."
+            )
+        }
+    }
+
+    @Test
+    func testMalformedCanonicalRunFailsAppRestoreClosed() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-malformed-run-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let sessionID = "malformed-run"
+        var record = driftedAgentHookRecord(
+            launcher: "opencode",
+            sessionId: sessionID,
+            workspaceId: workspaceID,
+            panelId: panelID,
+            recordedCwd: dir.path,
+            launchCwd: dir.path,
+            updatedAt: 10
+        )
+        record["restoreAuthority"] = true
+        record["activeRunId"] = "missing-authority"
+        record["runs"] = [[
+            "runId": "missing-authority",
+            "startedAt": 1.0,
+            "updatedAt": 2.0,
+        ]]
+        try writeHookStore(
+            root: root,
+            storeFilename: "opencode-hook-sessions.json",
+            sessions: [sessionID: record]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        XCTAssertNil(
+            index.snapshot(workspaceId: workspaceID, panelId: panelID),
+            "A malformed nonempty run array must not fall back to stale record-level authority."
         )
     }
 

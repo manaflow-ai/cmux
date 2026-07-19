@@ -489,11 +489,11 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
-    @Test("Drops Hermes worktree value before preserving later options")
-    func dropsHermesWorktreeValueBeforePreservingLaterOptions() {
+    @Test("Drops Hermes worktree boolean without swallowing later options")
+    func dropsHermesWorktreeBooleanWithoutSwallowingLaterOptions() {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
-                ["hermes", "--worktree", "/tmp/repo", "--model", "gpt-5.4"],
+                ["hermes", "--worktree", "--model", "gpt-5.4"],
                 launcher: "hermes-agent",
                 fallbackKind: "hermes-agent"
             ) == ["hermes", "--model", "gpt-5.4"]

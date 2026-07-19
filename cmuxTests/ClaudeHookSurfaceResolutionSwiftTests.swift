@@ -439,6 +439,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         let surfaceId: String
 
         func cleanup() {
+            Darwin.shutdown(listenerFD, SHUT_RDWR)
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
@@ -544,52 +545,50 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
                     return
                 }
 
-                DispatchQueue.global(qos: .userInitiated).async {
-                    var authenticated = requiredSocketPassword == nil
+                var authenticated = requiredSocketPassword == nil
 
-                    defer {
-                        Darwin.close(clientFD)
-                        handled.signal()
+                defer {
+                    Darwin.close(clientFD)
+                    handled.signal()
+                }
+
+                func writeResponse(_ response: String) {
+                    let line = response + "\n"
+                    _ = line.withCString { ptr in
+                        Darwin.write(clientFD, ptr, strlen(ptr))
                     }
+                }
 
-                    func writeResponse(_ response: String) {
-                        let line = response + "\n"
-                        _ = line.withCString { ptr in
-                            Darwin.write(clientFD, ptr, strlen(ptr))
-                        }
+                var pending = Data()
+                var buffer = [UInt8](repeating: 0, count: 4096)
+                while true {
+                    let count = Darwin.read(clientFD, &buffer, buffer.count)
+                    if count < 0 {
+                        if errno == EINTR { continue }
+                        return
                     }
+                    if count == 0 { break }
+                    pending.append(buffer, count: count)
 
-                    var pending = Data()
-                    var buffer = [UInt8](repeating: 0, count: 4096)
-                    while true {
-                        let count = Darwin.read(clientFD, &buffer, buffer.count)
-                        if count < 0 {
-                            if errno == EINTR { continue }
-                            return
-                        }
-                        if count == 0 { return }
-                        pending.append(buffer, count: count)
-
-                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                            pending.removeSubrange(0...newlineRange.lowerBound)
-                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                            state.append(line)
-                            if let requiredSocketPassword, line.hasPrefix("auth ") {
-                                if line == "auth \(requiredSocketPassword)" {
-                                    authenticated = true
-                                    writeResponse("OK")
-                                } else {
-                                    writeResponse("ERROR: Access denied")
-                                }
-                                continue
-                            }
-                            guard authenticated else {
+                    while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                        let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                        pending.removeSubrange(0...newlineRange.lowerBound)
+                        guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                        state.append(line)
+                        if let requiredSocketPassword, line.hasPrefix("auth ") {
+                            if line == "auth \(requiredSocketPassword)" {
+                                authenticated = true
+                                writeResponse("OK")
+                            } else {
                                 writeResponse("ERROR: Access denied")
-                                continue
                             }
-                            writeResponse(handler(line))
+                            continue
                         }
+                        guard authenticated else {
+                            writeResponse("ERROR: Access denied")
+                            continue
+                        }
+                        writeResponse(handler(line))
                     }
                 }
             }
@@ -833,6 +832,10 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         process.standardInput = stdinPipe ?? FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
+        let exitSignal = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            exitSignal.signal()
+        }
 
         do {
             try process.run()
@@ -842,12 +845,6 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         if let standardInput, let stdinPipe {
             stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
             try? stdinPipe.fileHandleForWriting.close()
-        }
-
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
         }
 
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut

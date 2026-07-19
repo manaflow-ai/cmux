@@ -5,22 +5,6 @@ struct GrokSessionRoot: Sendable, Hashable {
     let grokHomeForResume: String?
 }
 
-private struct GrokHookObservedSessionStoreFile: Decodable {
-    var sessions: [String: GrokHookObservedSessionRecord]
-
-    private enum CodingKeys: String, CodingKey {
-        case sessions
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        sessions = try container.decodeIfPresent(
-            [String: GrokHookObservedSessionRecord].self,
-            forKey: .sessions
-        ) ?? [:]
-    }
-}
-
 private struct GrokHookObservedSessionRecord: Decodable {
     var launchCommand: GrokHookObservedLaunchCommand?
 }
@@ -30,6 +14,10 @@ private struct GrokHookObservedLaunchCommand: Decodable {
 }
 
 enum GrokSessionLocator {
+    static let maximumObservedGrokHomes = 16
+    private static let maximumObservedHookRecords = 512
+    private static let maximumObservedHookBytes: Int64 = 16 * 1_024 * 1_024
+
     static func defaultSessionsRoot(homeDirectory: String = NSHomeDirectory()) -> String {
         let standardizedHome = expandTilde(homeDirectory, homeDirectory: homeDirectory)
         return ((standardizedHome as NSString).appendingPathComponent(".grok") as NSString)
@@ -116,7 +104,7 @@ enum GrokSessionLocator {
         )
         var roots = [root]
         if registrationUsesDefaultGrokRoot(registration: registration, homeDirectory: homeDirectory) {
-            for grokHome in observedGrokHomes {
+            for grokHome in observedGrokHomes.prefix(maximumObservedGrokHomes) {
                 guard let candidate = sessionRoot(
                     grokHome: grokHome,
                     homeDirectory: homeDirectory
@@ -148,21 +136,31 @@ enum GrokSessionLocator {
             homeDirectory: homeDirectory,
             environment: environment
         )
-        guard fileManager.fileExists(atPath: storeURL.path),
-              let data = try? Data(contentsOf: storeURL),
-              let state = try? JSONDecoder().decode(GrokHookObservedSessionStoreFile.self, from: data) else {
+        guard let storedRecords = AgentHookSessionRegistryReader.recentRecordData(
+            provider: RestorableAgentKind.grok.rawValue,
+            legacyURL: storeURL,
+            environment: environment,
+            fileManager: fileManager,
+            maximumRecords: maximumObservedHookRecords,
+            maximumBytes: maximumObservedHookBytes
+        ) else {
             return []
         }
 
         var seen = Set<String>()
         var homes: [String] = []
-        for record in state.sessions.values {
+        for stored in storedRecords {
+            guard let record = try? JSONDecoder().decode(
+                      GrokHookObservedSessionRecord.self,
+                      from: stored.data
+                  ) else { continue }
             guard let rawHome = normalized(record.launchCommand?.environment?["GROK_HOME"]) else {
                 continue
             }
             let home = expandTilde(rawHome, homeDirectory: homeDirectory)
             guard seen.insert(home).inserted else { continue }
             homes.append(home)
+            if homes.count == maximumObservedGrokHomes { break }
         }
         return homes
     }

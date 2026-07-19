@@ -13,6 +13,9 @@ struct ClaudeLaunchArgumentsPreserver {
         args: [String],
         stripCmuxHookSettings: Bool = true
     ) -> [String]? {
+        guard !AgentLaunchSanitizer.containsNonSessionMetadataOption(kind: "claude", args: args) else {
+            return nil
+        }
         var policy = AgentLaunchSanitizer.claudePolicy
         policy.skipClaudeHookSettings = stripCmuxHookSettings
         return preserveOptions(args, policy)

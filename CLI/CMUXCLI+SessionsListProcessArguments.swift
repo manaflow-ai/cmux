@@ -2,19 +2,35 @@ import Darwin
 import Foundation
 
 extension CMUXCLI {
-    struct SessionsListProcessIdentity {
-        let executablePath: String?
-        let arguments: [String]
-        let startTime: TimeInterval
+    typealias SessionsListProcessIdentity = AgentStableProcessIdentity
+
+    func sessionsListProcessIdentity(
+        for pid: Int,
+        probedKernelStartTime: TimeInterval
+    ) -> SessionsListProcessIdentity? {
+        guard pid > 0, pid <= Int(Int32.max) else { return nil }
+        return sessionsListStableProcessIdentity(
+            for: pid,
+            probedKernelStartTime: probedKernelStartTime,
+            processStartTimeLookup: sessionsListProcessStartTime,
+            executablePathLookup: sessionsListProcessExecutablePath,
+            argumentsLookup: sessionsListProcessArguments
+        )
     }
 
-    func sessionsListProcessIdentity(for pid: Int) -> SessionsListProcessIdentity? {
-        guard pid > 0, pid <= Int(Int32.max) else { return nil }
-        guard let startTime = sessionsListProcessStartTime(for: pid) else { return nil }
-        return SessionsListProcessIdentity(
-            executablePath: sessionsListProcessExecutablePath(for: pid),
-            arguments: sessionsListProcessArguments(for: pid) ?? [],
-            startTime: startTime
+    func sessionsListStableProcessIdentity(
+        for pid: Int,
+        probedKernelStartTime: TimeInterval,
+        processStartTimeLookup: (Int) -> TimeInterval?,
+        executablePathLookup: (Int) -> String?,
+        argumentsLookup: (Int) -> [String]?
+    ) -> SessionsListProcessIdentity? {
+        agentStableProcessIdentityValidator.identity(
+            for: pid,
+            probedKernelStartTime: probedKernelStartTime,
+            processStartTimeLookup: processStartTimeLookup,
+            executablePathLookup: executablePathLookup,
+            argumentsLookup: argumentsLookup
         )
     }
 
@@ -28,7 +44,7 @@ extension CMUXCLI {
         processStartTime <= record.updatedAt + 5
     }
 
-    private func sessionsListProcessStartTime(for pid: Int) -> TimeInterval? {
+    func sessionsListProcessStartTime(for pid: Int) -> TimeInterval? {
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, Int32(pid)]
         var process = kinfo_proc()
         var length = MemoryLayout<kinfo_proc>.stride

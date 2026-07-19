@@ -1,13 +1,135 @@
+import CMUXAgentLaunch
 import Foundation
+
+private let knownVaultProcessRestoreKinds = Set(RestorableAgentKind.allCases.map(\.rawValue))
+    .union(RestorableAgentKind.registryOwnedRawValues)
 
 extension CmuxVaultAgentRegistration {
     func processDetectedSnapshotIsRestorable(for process: VaultObservedAgentProcess) -> Bool {
-        guard id == "campfire" else { return true }
-        return process.environment["CAMPFIRE_SESSION_ROLE"] == "host"
+        Self.processDetectedSnapshotIsRestorable(kind: id, for: process)
+    }
+
+    static func processDetectedSnapshotIsRestorable(
+        kind rawKind: String,
+        for process: VaultObservedAgentProcess
+    ) -> Bool {
+        let registeredKind = rawKind.lowercased()
+        let liveProcessName = process.processPath ?? process.processName
+        let kind = AgentLaunchCaptureTrust.nativeAgentKind(
+            processName: liveProcessName,
+            arguments: process.arguments
+        ) ?? registeredKind
+        if kind == "campfire",
+           process.environment["CAMPFIRE_SESSION_ROLE"] != "host" {
+            return false
+        }
+        guard knownVaultProcessRestoreKinds.contains(kind) else { return true }
+
+        let capturedArguments = Self.decodedCapturedArguments(
+            process.environment["CMUX_AGENT_LAUNCH_ARGV_B64"]
+        )
+        let capturedKind = process.environment["CMUX_AGENT_LAUNCH_KIND"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let capturedExecutable = process.environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let trustedCapture = capturedArguments.flatMap { arguments -> [String]? in
+            AgentLaunchCaptureTrust.capturedArgumentsDescribeKind(
+                launcher: capturedKind,
+                executablePath: capturedExecutable,
+                arguments: arguments,
+                kind: kind
+            ) ? arguments : nil
+        }
+        let classifier = AgentLaunchModeClassifier()
+        let liveMode = classifier.processMode(
+            processName: liveProcessName,
+            arguments: process.arguments,
+            kind: kind
+        )
+        let interpreterNames: Set<String> = [
+            "node", "nodejs", "bun", "deno", "tsx", "ts-node", "ts_node",
+        ]
+        let observedIsInterpreterHost = process.executableBasenames.contains {
+            interpreterNames.contains($0.lowercased())
+        }
+        let canUseCapturedInterpreterLaunch = ["pi", "omp", "campfire"].contains(kind)
+            && observedIsInterpreterHost
+            && liveMode == .unknown
+        let mode: AgentProcessLaunchMode
+        if canUseCapturedInterpreterLaunch, let trustedCapture {
+            mode = classifier.processMode(
+                processName: capturedExecutable?.isEmpty == false
+                    ? capturedExecutable
+                    : trustedCapture.first,
+                arguments: trustedCapture,
+                kind: kind
+            )
+        } else {
+            mode = liveMode
+        }
+        switch mode {
+        case .oneShot, .nonSession:
+            return false
+        case .interactive, .unknown:
+            return true
+        }
+    }
+
+    private static func decodedCapturedArguments(_ rawValue: String?) -> [String]? {
+        let maximumEncodedBytes = 1_400_000
+        let maximumArgumentCount = 4_096
+        guard let rawValue,
+              rawValue.utf8.count <= maximumEncodedBytes,
+              let data = Data(base64Encoded: rawValue) else {
+            return nil
+        }
+        var arguments: [String] = []
+        var start = data.startIndex
+        for index in data.indices where data[index] == 0 {
+            guard arguments.count < maximumArgumentCount else { return nil }
+            guard index > start,
+                  let argument = String(data: data[start..<index], encoding: .utf8),
+                  !argument.isEmpty else {
+                start = data.index(after: index)
+                continue
+            }
+            arguments.append(argument)
+            start = data.index(after: index)
+        }
+        if start < data.endIndex {
+            guard arguments.count < maximumArgumentCount,
+                  let argument = String(data: data[start..<data.endIndex], encoding: .utf8),
+                  !argument.isEmpty else {
+                return nil
+            }
+            arguments.append(argument)
+        }
+        return arguments.isEmpty ? nil : arguments
     }
 }
 
 extension CmuxVaultAgentDetectRule {
+    var detectionIndexProcessNames: [String] {
+        var names: [String] = []
+        let primaryNames = primaryProcessNames
+        if !primaryNames.isEmpty || !argvContains.isEmpty {
+            names.append(contentsOf: primaryNames)
+        }
+        if !alternateArgvContains.isEmpty || !alternateArgvContainsAny.isEmpty {
+            names.append(contentsOf: alternateProcessNames)
+        }
+        return names
+    }
+
+    var needsUnindexedDetectionFallback: Bool {
+        let primaryNames = primaryProcessNames
+        let primaryNeedsFallback = primaryNames.isEmpty && !argvContains.isEmpty
+        let hasAlternateCriteria = !alternateArgvContains.isEmpty
+            || !alternateArgvContainsAny.isEmpty
+        let alternateNeedsFallback = hasAlternateCriteria && alternateProcessNames.isEmpty
+        return primaryNeedsFallback || alternateNeedsFallback
+    }
+
     func matches(_ process: VaultObservedAgentProcess) -> Bool {
         let expectedNames = primaryProcessNames
         let hasPrimaryCriteria = !expectedNames.isEmpty || !argvContains.isEmpty

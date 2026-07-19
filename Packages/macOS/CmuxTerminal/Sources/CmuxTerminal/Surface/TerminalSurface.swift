@@ -7,6 +7,34 @@ public import CmuxTerminalCore
 internal import CMUXDebugLog
 #endif
 
+/// One-shot arbitration between explicit input and a provisional native
+/// hibernation free. The lock protects only the three-state handoff shared by
+/// the main-actor input path and the utility teardown worker.
+final class TerminalSurfaceHibernationValidationGate: @unchecked Sendable {
+    private enum State {
+        case valid
+        case invalidated
+        case claimed
+    }
+
+    private let lock = NSLock()
+    private var state = State.valid
+
+    func invalidate() {
+        lock.lock()
+        if state == .valid { state = .invalidated }
+        lock.unlock()
+    }
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard state == .valid else { return false }
+        state = .claimed
+        return true
+    }
+}
+
 /// The owner of one `ghostty_surface_t` lifecycle: spawn inputs, runtime
 /// creation/teardown, pending input queues, portal-host leases, and renderer
 /// reclamation state.
@@ -67,6 +95,30 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             runtimeSurface = newValue
             runtimeSurfaceGeneration &+= 1
         }
+    }
+
+    /// Temporarily transfers the native pointer without ending its lifetime.
+    ///
+    /// Agent hibernation must be able to restore a rejected teardown with the
+    /// same generation, so its provisional detach cannot use ``surface``'s
+    /// lifetime-ending setter.
+    func transferRuntimeSurfaceForAgentHibernation() -> ghostty_surface_t? {
+        let transferredSurface = runtimeSurface
+        runtimeSurface = nil
+        return transferredSurface
+    }
+
+    /// Restores a provisionally transferred native pointer without changing
+    /// its lifetime generation.
+    func restoreRuntimeSurfaceAfterRejectedAgentHibernation(_ restoredSurface: ghostty_surface_t) {
+        precondition(runtimeSurface == nil)
+        runtimeSurface = restoredSurface
+    }
+
+    /// Commits the end of a provisionally transferred native lifetime.
+    func commitTransferredRuntimeSurfaceTeardown() {
+        precondition(runtimeSurface == nil)
+        runtimeSurfaceGeneration &+= 1
     }
     /// Monotonic lifetime identity for the native Ghostty surface.
     ///
@@ -259,6 +311,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var restoredRuntimeSurfaceStartQueued = false
     var requiresRestoreSpawnPacing = false
     var runtimeSurfaceSuspendedForAgentHibernation = false
+    var runtimeSurfaceHibernationTeardownInFlight = false
+    var runtimeSurfaceHibernationOwnerCommitPending = false
+    var runtimeSurfaceHibernationValidationGate: TerminalSurfaceHibernationValidationGate?
     var headlessStartupWindow: NSWindow?
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     var claudeCommandShim: ClaudeCommandShim?
@@ -294,6 +349,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public internal(set) var clipboardReadGeneration = 0
 #if DEBUG
     var needsConfirmCloseOverrideForTesting: Bool?
+    var pendingSocketInputFlushOverrideForTesting: ((Int, Int) -> Void)?
     var runtimeSurfaceFreedOutOfBandForTesting = false
     var runtimeSurfaceCreateAttemptCountForTesting = 0
     // Same off-isolation-reader carve-out as debugMetadataLock.
@@ -415,7 +471,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         CmuxContextEnvironment(
             workspaceId: workspaceId,
             surfaceId: surfaceId,
-            socketPath: socketPath
+            socketPath: socketPath,
+            runtimeId: managedCmuxRuntimeId
         )
     }
 
@@ -605,8 +662,14 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         // Dropping by id only clears the registry/replay state; releasing
         // `teeLease` on each exit path frees the userdata independently.
         let teeSurfaceID = id
+        let teeSurfaceGeneration = runtimeSurfaceGeneration
         let teeBinding = byteTee
-        Task { @MainActor in teeBinding.dropSurface(surfaceID: teeSurfaceID) }
+        Task { @MainActor in
+            teeBinding.dropSurface(
+                surfaceID: teeSurfaceID,
+                surfaceGeneration: teeSurfaceGeneration
+            )
+        }
 
         // Nil out the surface pointer so any in-flight closures (e.g. geometry
         // reconcile dispatched via DispatchQueue.main.async) that read self.surface

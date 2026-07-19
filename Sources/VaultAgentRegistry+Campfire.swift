@@ -13,6 +13,7 @@ extension CmuxVaultAgentRegistration {
             ),
             sessionIdSource: .argvOption("--session"),
             resumeCommand: "{{executable}} --session {{sessionId}}",
+            forkCommand: "{{executable}} --fork {{sessionId}}",
             cwd: .preserve,
             sessionDirectory: "~/.campfire/agent/sessions"
         )

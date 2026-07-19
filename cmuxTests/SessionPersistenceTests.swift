@@ -874,6 +874,30 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testRestoreCompletionSaveUsesOnlyNonblockingAgentCache() throws {
+        let source = try String(contentsOf: appDelegateSourceURL(), encoding: .utf8)
+        let body = try XCTUnwrap(appDelegateSourceFunctionBody(
+            signature: "private func completeSessionRestoreOperation(",
+            source: source
+        ))
+
+        XCTAssertTrue(body.contains("restorableAgentIndex:"))
+        XCTAssertTrue(body.contains("currentIndexSchedulingRefresh()"))
+        XCTAssertTrue(body.contains("?? .empty"))
+    }
+
+    func testClosedWindowHistoryUsesOnlyNonblockingAgentCache() throws {
+        let source = try String(contentsOf: appDelegateSourceURL(), encoding: .utf8)
+        let body = try XCTUnwrap(appDelegateSourceFunctionBody(
+            signature: "private func recordClosedWindowHistoryIfNeeded(",
+            source: source
+        ))
+
+        XCTAssertTrue(body.contains("currentIndexSchedulingRefresh()"))
+        XCTAssertTrue(body.contains("?? .empty"))
+        XCTAssertFalse(body.contains("RestorableAgentSessionIndex.load()"))
+    }
+
     func testUnchangedAutosaveFingerprintSkipsWithinStalenessWindow() {
         let now = Date()
         XCTAssertTrue(
@@ -1768,7 +1792,7 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["PI_CODING_AGENT_DIR": "/tmp/pi"]
             case .amp:
                 resolvedEnvironment = ["AMP_SETTINGS_FILE": "/tmp/amp-settings.json"]
-            case .cursor, .rovodev, .factory, .ollama, .custom:
+            case .cursor, .rovodev, .factory, .ollama, .kimi, .custom:
                 resolvedEnvironment = [:]
             case .gemini:
                 resolvedEnvironment = ["GEMINI_CLI_HOME": "/tmp/gemini"]
@@ -1868,6 +1892,38 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    private func appDelegateSourceURL() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/AppDelegate.swift")
+    }
+
+    private func appDelegateSourceFunctionBody(signature: String, source: String) -> String? {
+        guard let signatureRange = source.range(of: signature),
+              let openingBrace = source[signatureRange.lowerBound...].firstIndex(of: "{") else {
+            return nil
+        }
+
+        var depth = 0
+        var index = openingBrace
+        while index < source.endIndex {
+            switch source[index] {
+            case "{":
+                depth += 1
+            case "}":
+                depth -= 1
+                if depth == 0 {
+                    return String(source[openingBrace...index])
+                }
+            default:
+                break
+            }
+            index = source.index(after: index)
+        }
+        return nil
+    }
+
     private func fileNumber(for fileURL: URL) throws -> Int {
         let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
         return try XCTUnwrap(attributes[.systemFileNumber] as? Int)
@@ -1875,6 +1931,100 @@ final class SessionPersistenceTests: XCTestCase {
 }
 
 final class SocketListenerAcceptPolicyTests: XCTestCase {
+    private enum PrivateLauncherScriptFixture: String, CaseIterable, Sendable {
+        case agentResume
+        case surfaceResumeBinding
+        case sessionRestoredTerminal
+
+        var directoryName: String {
+            switch self {
+            case .agentResume:
+                "cmux-agent-resume"
+            case .surfaceResumeBinding:
+                "cmux-surface-resume"
+            case .sessionRestoredTerminal:
+                "cmux-session-terminal-command"
+            }
+        }
+
+        func writeScript(
+            marker: String,
+            temporaryDirectory: URL,
+            fileManager: FileManager = .default
+        ) -> URL? {
+            switch self {
+            case .agentResume:
+                let snapshot = SessionRestorableAgentSnapshot(
+                    kind: .codex,
+                    sessionId: marker,
+                    workingDirectory: "/tmp"
+                )
+                guard let command = snapshot.resumeStartupCommand(
+                    fileManager: fileManager,
+                    temporaryDirectory: temporaryDirectory
+                ) else {
+                    return nil
+                }
+                let prefix = "/bin/zsh '"
+                guard command.hasPrefix(prefix), command.hasSuffix("'") else { return nil }
+                return URL(fileURLWithPath: String(command.dropFirst(prefix.count).dropLast()))
+            case .surfaceResumeBinding:
+                let binding = SurfaceResumeBindingSnapshot(
+                    kind: "test",
+                    command: "printf '%s\\n' '\(marker)'",
+                    checkpointId: marker,
+                    source: "test"
+                )
+                return SurfaceResumeBindingScriptStore.writeLauncherScript(
+                    inlineInput: binding.inlineStartupInput ?? binding.command,
+                    binding: binding,
+                    fileManager: fileManager,
+                    temporaryDirectory: temporaryDirectory
+                )
+            case .sessionRestoredTerminal:
+                return SessionRestoredTerminalCommandStore.writeLauncherScript(
+                    command: "printf '%s\\n' '\(marker)'",
+                    workingDirectory: "/tmp",
+                    fileManager: fileManager,
+                    temporaryDirectory: temporaryDirectory
+                )
+            }
+        }
+    }
+
+    private final class ConcurrentLauncherScriptState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storedURLs: [URL] = []
+        private var storedIssues: [String] = []
+
+        var urls: [URL] {
+            lock.lock()
+            defer { lock.unlock() }
+            return storedURLs
+        }
+
+        var issues: [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return storedIssues
+        }
+
+        func append(url: URL) {
+            lock.lock()
+            storedURLs.append(url)
+            lock.unlock()
+        }
+
+        func append(issue: String) {
+            lock.lock()
+            storedIssues.append(issue)
+            lock.unlock()
+        }
+    }
+
+    private static let privateLauncherScriptUmaskLock = NSLock()
+    private static let privateLauncherScriptDirectoryEntryBudget = 256
+
     func testClaudeResumeCommandRoutesThroughWrapperInsteadOfCapturedRealBinary() {
         // The captured launch executable is the real claude binary
         // (CMUX_AGENT_LAUNCH_EXECUTABLE). Resuming with it directly bypasses
@@ -2462,7 +2612,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "cd /Users/tiffanysun/fun && /bin/sh -c "
+            "cd -- '/Users/tiffanysun/fun' 2>/dev/null || [ ! -d '/Users/tiffanysun/fun' ] && /bin/sh -c "
                 + shellQuotedForTest("\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume a22293b7-bcef-4707-8439-2f538c8517a4")
         )
     }
@@ -2639,6 +2789,230 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
 
         XCTAssertNil(snapshot.resumeStartupInput(temporaryDirectory: blockedDirectory))
+    }
+
+    func testPrivateLauncherScriptStoresRejectDirectorySymlinksWithoutTouchingTarget() throws {
+        for fixture in PrivateLauncherScriptFixture.allCases {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "cmux-private-launcher-symlink-\(fixture.rawValue)-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            let target = root.appendingPathComponent("target", isDirectory: true)
+            let storeDirectory = root.appendingPathComponent(fixture.directoryName, isDirectory: true)
+            try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let sentinel = target.appendingPathComponent("sentinel.txt")
+            try "keep".write(to: sentinel, atomically: true, encoding: .utf8)
+            XCTAssertEqual(chmod(target.path, mode_t(0o755)), 0)
+            try FileManager.default.createSymbolicLink(at: storeDirectory, withDestinationURL: target)
+
+            XCTAssertNil(
+                fixture.writeScript(marker: "symlink-\(fixture.rawValue)", temporaryDirectory: root),
+                "\(fixture.rawValue) must fail closed on a symlinked store directory"
+            )
+            XCTAssertEqual(
+                try privateLauncherPermissions(at: target),
+                0o755,
+                "\(fixture.rawValue) must not chmod the symlink target"
+            )
+            XCTAssertEqual(try String(contentsOf: sentinel, encoding: .utf8), "keep")
+            XCTAssertEqual(
+                try FileManager.default.contentsOfDirectory(atPath: target.path).sorted(),
+                ["sentinel.txt"],
+                "\(fixture.rawValue) must not publish or prune through the symlink"
+            )
+        }
+    }
+
+    func testPrivateLauncherScriptStoresPruneOnlyOwnedSingleLinkRegularScripts() throws {
+        for fixture in PrivateLauncherScriptFixture.allCases {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "cmux-private-launcher-types-\(fixture.rawValue)-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            let storeDirectory = root.appendingPathComponent(fixture.directoryName, isDirectory: true)
+            try FileManager.default.createDirectory(at: storeDirectory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let oldDate = Date().addingTimeInterval(-3 * 24 * 60 * 60)
+            let directoryEntry = storeDirectory.appendingPathComponent("victim.zsh", isDirectory: true)
+            try FileManager.default.createDirectory(at: directoryEntry, withIntermediateDirectories: false)
+            let directorySentinel = directoryEntry.appendingPathComponent("keep.txt")
+            try "keep".write(to: directorySentinel, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes(
+                [.modificationDate: oldDate],
+                ofItemAtPath: directoryEntry.path
+            )
+
+            let fifoEntry = storeDirectory.appendingPathComponent("pipe.zsh")
+            XCTAssertEqual(mkfifo(fifoEntry.path, mode_t(0o600)), 0)
+            try FileManager.default.setAttributes(
+                [.modificationDate: oldDate],
+                ofItemAtPath: fifoEntry.path
+            )
+
+            let outside = root.appendingPathComponent("outside.txt")
+            try "outside".write(to: outside, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: outside.path)
+            let symlinkEntry = storeDirectory.appendingPathComponent("alias.zsh")
+            try FileManager.default.createSymbolicLink(at: symlinkEntry, withDestinationURL: outside)
+            let hardlinkEntry = storeDirectory.appendingPathComponent("hard.zsh")
+            try FileManager.default.linkItem(at: outside, to: hardlinkEntry)
+
+            XCTAssertNotNil(
+                fixture.writeScript(marker: "types-\(fixture.rawValue)", temporaryDirectory: root)
+            )
+            var isDirectory: ObjCBool = false
+            XCTAssertTrue(FileManager.default.fileExists(atPath: directoryEntry.path, isDirectory: &isDirectory))
+            XCTAssertTrue(isDirectory.boolValue)
+            XCTAssertEqual(try? String(contentsOf: directorySentinel, encoding: .utf8), "keep")
+            XCTAssertTrue(FileManager.default.fileExists(atPath: fifoEntry.path))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: symlinkEntry.path))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: hardlinkEntry.path))
+            XCTAssertEqual(try String(contentsOf: outside, encoding: .utf8), "outside")
+        }
+    }
+
+    func testPrivateLauncherScriptStoresPublish0600FilesInside0700DirectoryUnderOpenUmask() throws {
+        Self.privateLauncherScriptUmaskLock.lock()
+        defer { Self.privateLauncherScriptUmaskLock.unlock() }
+        let previousUmask = umask(0)
+        defer { _ = umask(previousUmask) }
+
+        for fixture in PrivateLauncherScriptFixture.allCases {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "cmux-private-launcher-mode-\(fixture.rawValue)-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let script = try XCTUnwrap(
+                fixture.writeScript(marker: "mode-\(fixture.rawValue)", temporaryDirectory: root)
+            )
+            XCTAssertEqual(
+                try privateLauncherPermissions(
+                    at: root.appendingPathComponent(fixture.directoryName, isDirectory: true)
+                ),
+                0o700,
+                fixture.rawValue
+            )
+            XCTAssertEqual(try privateLauncherPermissions(at: script), 0o600, fixture.rawValue)
+        }
+    }
+
+    func testPrivateLauncherScriptStoresBoundPruningAndFailClosedUntilOverflowDrains() throws {
+        for fixture in PrivateLauncherScriptFixture.allCases {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "cmux-private-launcher-cap-\(fixture.rawValue)-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            let storeDirectory = root.appendingPathComponent(fixture.directoryName, isDirectory: true)
+            try FileManager.default.createDirectory(at: storeDirectory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let oldDate = Date().addingTimeInterval(-3 * 24 * 60 * 60)
+            for index in 0...Self.privateLauncherScriptDirectoryEntryBudget {
+                let url = storeDirectory.appendingPathComponent("stale-\(index).zsh")
+                try "#!/bin/zsh\n".write(to: url, atomically: false, encoding: .utf8)
+                try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: url.path)
+            }
+
+            XCTAssertNil(
+                fixture.writeScript(marker: "overflow-\(fixture.rawValue)", temporaryDirectory: root),
+                "\(fixture.rawValue) must not add work after its bounded scan detects overflow"
+            )
+            let afterFirstPass = try stalePrivateLauncherScripts(in: storeDirectory)
+            XCTAssertEqual(
+                afterFirstPass.count,
+                1,
+                "\(fixture.rawValue) should make one bounded pass of cleanup progress"
+            )
+            XCTAssertNotNil(
+                fixture.writeScript(marker: "drained-\(fixture.rawValue)", temporaryDirectory: root),
+                "\(fixture.rawValue) should recover after a later bounded pass drains overflow"
+            )
+            XCTAssertTrue(try stalePrivateLauncherScripts(in: storeDirectory).isEmpty)
+        }
+    }
+
+    func testPrivateLauncherScriptStoresPublishOnlyCompleteFilesDuringConcurrentWrites() throws {
+        for fixture in PrivateLauncherScriptFixture.allCases {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "cmux-private-launcher-concurrent-\(fixture.rawValue)-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let state = ConcurrentLauncherScriptState()
+            let group = DispatchGroup()
+            for index in 0..<24 {
+                group.enter()
+                DispatchQueue.global(qos: .userInitiated).async {
+                    defer { group.leave() }
+                    if let url = fixture.writeScript(
+                        marker: "complete-\(fixture.rawValue)-\(index)",
+                        temporaryDirectory: root
+                    ) {
+                        state.append(url: url)
+                    }
+                }
+            }
+
+            let storeDirectory = root.appendingPathComponent(fixture.directoryName, isDirectory: true)
+            repeat {
+                inspectPublishedPrivateLauncherScripts(
+                    in: storeDirectory,
+                    fixture: fixture,
+                    state: state
+                )
+            } while group.wait(timeout: .now() + .milliseconds(2)) == .timedOut
+            inspectPublishedPrivateLauncherScripts(
+                in: storeDirectory,
+                fixture: fixture,
+                state: state
+            )
+
+            XCTAssertFalse(state.urls.isEmpty, "At least one nonblocking writer should publish")
+            XCTAssertTrue(state.issues.isEmpty, state.issues.joined(separator: "\n"))
+            for url in state.urls {
+                let contents = try String(contentsOf: url, encoding: .utf8)
+                XCTAssertTrue(contents.hasPrefix("#!/bin/zsh\n"), fixture.rawValue)
+                XCTAssertTrue(contents.hasSuffix("\n"), fixture.rawValue)
+                XCTAssertTrue(contents.contains("complete-\(fixture.rawValue)-"), fixture.rawValue)
+            }
+        }
+    }
+
+    private func privateLauncherPermissions(at url: URL) throws -> Int {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        return try XCTUnwrap(attributes[.posixPermissions] as? NSNumber).intValue & 0o777
+    }
+
+    private func stalePrivateLauncherScripts(in directory: URL) throws -> [String] {
+        try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            .filter { $0.hasPrefix("stale-") && $0.hasSuffix(".zsh") }
+    }
+
+    private func inspectPublishedPrivateLauncherScripts(
+        in directory: URL,
+        fixture: PrivateLauncherScriptFixture,
+        state: ConcurrentLauncherScriptState
+    ) {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else {
+            return
+        }
+        for name in names where !name.hasPrefix(".") && name.hasSuffix(".zsh") {
+            let url = directory.appendingPathComponent(name)
+            guard let contents = try? String(contentsOf: url, encoding: .utf8) else {
+                state.append(issue: "\(fixture.rawValue) published unreadable script \(name)")
+                continue
+            }
+            if !contents.hasPrefix("#!/bin/zsh\n") ||
+                !contents.hasSuffix("\n") ||
+                !contents.contains("complete-\(fixture.rawValue)-") {
+                state.append(issue: "\(fixture.rawValue) exposed partial script \(name)")
+            }
+        }
     }
 
     func testClaudeResumeCommandPreservesDangerouslySkipPermissionsAndObservedEnvironment() {

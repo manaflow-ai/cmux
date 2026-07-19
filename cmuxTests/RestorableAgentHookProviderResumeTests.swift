@@ -12,6 +12,7 @@ extension SocketListenerAcceptPolicyTests {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .gemini,
             sessionId: "5839bed1-0a60-4c05-b6d1-2410d7a3741e",
+            transcriptPath: "/tmp/gemini repo/session-2026-07-18T04-52-5839bed1.jsonl",
             workingDirectory: "/tmp/gemini repo",
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "gemini",
@@ -40,7 +41,7 @@ extension SocketListenerAcceptPolicyTests {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd -- '/tmp/gemini repo' 2>/dev/null || [ ! -d '/tmp/gemini repo' ] && 'env' 'GEMINI_CLI_HOME=/tmp/gemini home' '/Users/example/.bun/bin/gemini' '--resume' '5839bed1-0a60-4c05-b6d1-2410d7a3741e' '--model' 'gemini-2.5-pro' '--sandbox' 'danger-full-access' '--approval-mode' 'yolo'"
+            "cd -- '/tmp/gemini repo' 2>/dev/null || [ ! -d '/tmp/gemini repo' ] && 'env' 'GEMINI_CLI_HOME=/tmp/gemini home' '/Users/example/.bun/bin/gemini' '--session-file' '/tmp/gemini repo/session-2026-07-18T04-52-5839bed1.jsonl' '--model' 'gemini-2.5-pro' '--sandbox' 'danger-full-access' '--approval-mode' 'yolo'"
         )
     }
 

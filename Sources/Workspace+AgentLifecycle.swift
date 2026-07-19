@@ -2,6 +2,33 @@ import CmuxWorkspaces
 import Foundation
 
 extension Workspace {
+    func agentRootExitCandidate(
+        panelId: UUID,
+        previousState: PanelShellActivityState,
+        state: PanelShellActivityState
+    ) -> SurfaceResumeBindingSnapshot? {
+        // Resume-state handlers can clear the binding on the same transition,
+        // so capture the owner before those handlers run.
+        AgentHookSessionStateWriter.rootExitCandidate(
+            previousWasRunning: previousState == .commandRunning,
+            isPromptIdle: state == .promptIdle,
+            isHibernated: (panels[panelId] as? TerminalPanel)?.isAgentHibernated == true,
+            binding: surfaceResumeBindingsByPanelId[panelId]
+        )
+    }
+
+    func recordAgentRootExit(
+        panelId: UUID,
+        binding: SurfaceResumeBindingSnapshot?,
+        isPromptIdle: Bool
+    ) {
+        if let binding {
+            markAgentRootExitLocally(panelId: panelId, binding: binding)
+            AgentHookSessionStateWriter.recordRootExitIfNeeded(binding: binding)
+        }
+        if isPromptIdle { clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) }
+    }
+
     func allowsAgentContinuation(forPanelId panelId: UUID) -> Bool {
         restoredAgentResumeStatesByPanelId[panelId] != .completedAgentExit ||
             restoredAgentSnapshotForContinuation(panelId: panelId) != nil
@@ -46,6 +73,21 @@ extension Workspace {
             ),
             runtimeProcessIdentities: runtimeProcessIdentities
         )
+    }
+
+    func markAgentRootExitLocally(
+        panelId: UUID,
+        binding: SurfaceResumeBindingSnapshot
+    ) {
+        // Disk completion is deliberately queued off the main thread. Mark the
+        // in-memory owner ended first so a close snapshot taken before that write
+        // cannot persist the old session as restorable.
+        restoredAgentResumeStatesByPanelId[panelId] = .completedAgentExit
+        guard let storedBinding = surfaceResumeBindingsByPanelId[panelId],
+              storedBinding.isAgentHookBinding,
+              storedBinding.kind == binding.kind,
+              storedBinding.checkpointId == binding.checkpointId else { return }
+        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
     }
 
     func restoredAgentResumeStateForAcceptedSnapshot(panelId: UUID) -> RestoredAgentResumeState {
@@ -157,6 +199,16 @@ extension Workspace {
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
     }
 
+    func discardRejectedRestoredAgentHibernation(
+        panelId: UUID,
+        restoredAgent: SessionRestorableAgentSnapshot
+    ) {
+        _ = (panels[panelId] as? TerminalPanel)?.discardRestoredAgentHibernation()
+        invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
+        clearAgentLifecycleStates(panelId: panelId)
+        clearRejectedRestoredAgentHibernationMetadata(panelId: panelId)
+    }
+
     func seedDetachedRestoredAgentState(from detached: DetachedSurfaceTransfer) {
         if let shellActivityState = detached.shellActivityState {
             panelShellActivityStates[detached.panelId] = shellActivityState
@@ -245,23 +297,36 @@ extension Workspace {
         panelId: UUID,
         fallback: AgentHibernationLifecycleState?
     ) -> AgentHibernationLifecycleState {
-        let states = (agentLifecycleStatesByPanelId[panelId] ?? [:])
-            .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
-            .map(\.value)
+        let states = AgentHibernationLifecycleStatusKeys.resolvedStates(
+            agentLifecycleStatesByPanelId[panelId] ?? [:]
+        )
         guard !states.isEmpty else {
             return fallback ?? .unknown
         }
-        if states.contains(.running) { return .running }
-        if states.contains(.needsInput) { return .needsInput }
-        if states.contains(.unknown) { return .unknown }
-        if states.contains(.idle) { return .idle }
-        return fallback ?? .unknown
+        return AgentHibernationLifecycleState.effective(states)
     }
 
-    private func recordAgentLifecycleChange(panelId: UUID) {
+    func recordAgentHibernationLifecycleChange(panelId: UUID) {
+        invalidateProvisionalAgentHibernation(panelId: panelId)
         AgentHibernationController.shared.recordAgentLifecycleChange(
             workspaceId: id,
             panelId: panelId
         )
+    }
+
+    func recordAgentHibernationProcessChange(panelId: UUID) {
+        invalidateProvisionalAgentHibernation(panelId: panelId)
+        AgentHibernationController.shared.recordAgentProcessChange(
+            workspaceId: id,
+            panelId: panelId
+        )
+    }
+
+    private func invalidateProvisionalAgentHibernation(panelId: UUID) {
+        (panels[panelId] as? TerminalPanel)?.surface.invalidateProvisionalAgentHibernation()
+    }
+
+    private func recordAgentLifecycleChange(panelId: UUID) {
+        recordAgentHibernationLifecycleChange(panelId: panelId)
     }
 }

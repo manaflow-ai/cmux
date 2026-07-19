@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import CMUXAgentLaunch
+import CmuxFoundation
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -10,6 +11,264 @@ import CMUXAgentLaunch
 
 @Suite("Feed coordinator", .serialized)
 struct FeedCoordinatorTests {
+    @Test func feedJumpResolverFindsCanonicalSessionBeyondLegacyProjection() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-feed-canonical-\(UUID().uuidString)", isDirectory: true)
+        let stateDirectory = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let targetSessionID = "session-older-than-projection"
+        let targetWorkspaceID = UUID().uuidString
+        let targetSurfaceID = UUID().uuidString
+        let registry = CmuxAgentSessionRegistry(
+            url: stateDirectory.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        var records = try (0..<300).map { index in
+            try canonicalRecord(
+                provider: "codex",
+                sessionID: String(format: "recent-%03d", index),
+                workspaceID: UUID().uuidString,
+                surfaceID: UUID().uuidString,
+                updatedAt: TimeInterval(1_000 + index)
+            )
+        }
+        records.append(try canonicalRecord(
+            provider: "codex",
+            sessionID: targetSessionID,
+            workspaceID: targetWorkspaceID,
+            surfaceID: targetSurfaceID,
+            updatedAt: 1
+        ))
+        try registry.apply(provider: "codex", records: records)
+        try writeLegacyProjection(
+            records: Array(records.prefix(256)),
+            to: stateDirectory.appendingPathComponent("codex-hook-sessions.json")
+        )
+
+        let target = FeedJumpResolver.lookup(
+            agent: "codex",
+            sessionId: targetSessionID,
+            homeDirectory: home,
+            environment: [:]
+        )
+        #expect(target?.workspaceId == targetWorkspaceID)
+        #expect(target?.surfaceId == targetSurfaceID)
+    }
+
+    @Test func feedJumpResolverRefreshesChangedGenerationZeroLegacyRecord() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-feed-legacy-refresh-\(UUID().uuidString)", isDirectory: true)
+        let stateDirectory = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let sessionID = "legacy-session"
+        let firstWorkspaceID = UUID().uuidString
+        let secondWorkspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let legacyURL = stateDirectory.appendingPathComponent("codex-hook-sessions.json")
+        func writeLegacy(workspaceID: String, updatedAt: TimeInterval, padding: String) throws {
+            let data = try JSONSerialization.data(withJSONObject: [
+                "version": 1,
+                "sessions": [
+                    sessionID: [
+                        "sessionId": sessionID,
+                        "workspaceId": workspaceID,
+                        "surfaceId": surfaceID,
+                        "updatedAt": updatedAt,
+                        "padding": padding,
+                    ],
+                ],
+            ], options: [.sortedKeys])
+            try data.write(to: legacyURL, options: .atomic)
+        }
+
+        try writeLegacy(workspaceID: firstWorkspaceID, updatedAt: 1, padding: "first")
+        #expect(
+            FeedJumpResolver.lookup(
+                agent: "codex",
+                sessionId: sessionID,
+                homeDirectory: home,
+                environment: [:]
+            )?.workspaceId == firstWorkspaceID
+        )
+
+        try writeLegacy(
+            workspaceID: secondWorkspaceID,
+            updatedAt: 2,
+            padding: String(repeating: "changed", count: 4)
+        )
+        #expect(
+            FeedJumpResolver.lookup(
+                agent: "codex",
+                sessionId: sessionID,
+                homeDirectory: home,
+                environment: [:]
+            )?.workspaceId == secondWorkspaceID
+        )
+    }
+
+    @Test func feedJumpResolverDropsRemovedGenerationZeroLegacyRecord() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-feed-legacy-delete-\(UUID().uuidString)", isDirectory: true)
+        let stateDirectory = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let sessionID = "removed-legacy-session"
+        let legacyURL = stateDirectory.appendingPathComponent("codex-hook-sessions.json")
+        let initial = try JSONSerialization.data(withJSONObject: [
+            "version": 1,
+            "sessions": [
+                sessionID: [
+                    "sessionId": sessionID,
+                    "workspaceId": UUID().uuidString,
+                    "surfaceId": UUID().uuidString,
+                    "updatedAt": 1.0,
+                ],
+            ],
+        ], options: [.sortedKeys])
+        try initial.write(to: legacyURL, options: .atomic)
+        #expect(
+            FeedJumpResolver.lookup(
+                agent: "codex",
+                sessionId: sessionID,
+                homeDirectory: home,
+                environment: [:]
+            ) != nil
+        )
+
+        let removed = try JSONSerialization.data(withJSONObject: [
+            "version": 1,
+            "sessions": [:],
+            "padding": "force a distinct compatibility-file stamp",
+        ], options: [.sortedKeys])
+        try removed.write(to: legacyURL, options: .atomic)
+
+        #expect(
+            FeedJumpResolver.lookup(
+                agent: "codex",
+                sessionId: sessionID,
+                homeDirectory: home,
+                environment: [:]
+            ) == nil
+        )
+    }
+
+    @Test func feedJumpResolverRetainsBoundedFlatLegacyFallback() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-feed-flat-legacy-\(UUID().uuidString)", isDirectory: true)
+        let stateDirectory = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let sessionID = "flat-session"
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let data = try JSONSerialization.data(withJSONObject: [
+            sessionID: [
+                "workspaceId": workspaceID,
+                "surfaceId": surfaceID,
+                "updatedAt": 1.0,
+            ],
+        ], options: [.sortedKeys])
+        try data.write(
+            to: stateDirectory.appendingPathComponent("codex-hook-sessions.json"),
+            options: .atomic
+        )
+
+        let target = FeedJumpResolver.lookup(
+            agent: "codex",
+            sessionId: sessionID,
+            homeDirectory: home,
+            environment: [:]
+        )
+        #expect(target?.workspaceId == workspaceID)
+        #expect(target?.surfaceId == surfaceID)
+    }
+
+    @Test func feedJumpResolverKeepsHyphenatedProviderIdentity() {
+        #expect(
+            FeedJumpResolver.parse(
+                "hermes-agent-session-123",
+                source: "hermes-agent"
+            )?.agent == "hermes-agent"
+        )
+        #expect(
+            FeedJumpResolver.parse(
+                "hermes-agent-session-123",
+                source: "hermes-agent"
+            )?.sessionId == "session-123"
+        )
+
+        // Socket callers carry only the composite workstream id. They must
+        // still prefer the longest registered provider prefix rather than
+        // splitting `hermes-agent` at its first dash.
+        #expect(
+            FeedJumpResolver.parse("hermes-agent-session-123")?.agent == "hermes-agent"
+        )
+        #expect(
+            FeedJumpResolver.parse("hermes-agent-session-123")?.sessionId == "session-123"
+        )
+    }
+
+    @Test func feedJumpResolverRejectsMismatchedExplicitProvider() {
+        #expect(
+            FeedJumpResolver.parse(
+                "codex-session-123",
+                source: "hermes-agent"
+            )?.agent == nil
+        )
+        #expect(FeedJumpResolver.parse("hermes-agent-")?.agent == nil)
+    }
+
+    private func canonicalRecord(
+        provider: String,
+        sessionID: String,
+        workspaceID: String,
+        surfaceID: String,
+        updatedAt: TimeInterval
+    ) throws -> CmuxAgentSessionRegistry.Record {
+        let json = try JSONSerialization.data(withJSONObject: [
+            "sessionId": sessionID,
+            "workspaceId": workspaceID,
+            "surfaceId": surfaceID,
+            "updatedAt": updatedAt,
+        ], options: [.sortedKeys])
+        return CmuxAgentSessionRegistry.Record(
+            provider: provider,
+            sessionID: sessionID,
+            updatedAt: updatedAt,
+            json: json
+        )
+    }
+
+    private func writeLegacyProjection(
+        records: [CmuxAgentSessionRegistry.Record],
+        to url: URL
+    ) throws {
+        var sessions: [String: Any] = [:]
+        for record in records {
+            sessions[record.sessionID] = try JSONSerialization.jsonObject(with: record.json)
+        }
+        let data = try JSONSerialization.data(withJSONObject: [
+            "version": 1,
+            "sessions": sessions,
+        ], options: [.sortedKeys])
+        try data.write(to: url, options: .atomic)
+    }
+
+    @Test func feedJumpResolverRejectsProviderPathTraversal() {
+        #expect(FeedJumpResolver.parse("../outside-session")?.agent == nil)
+        #expect(
+            FeedJumpResolver.parse(
+                "../outside-session",
+                source: "../outside"
+            )?.agent == nil
+        )
+    }
+
     @Test func codexTeamsResolvesExplicitWorkingDirectoryFlags() {
         let base = "/tmp/cmux-base"
 

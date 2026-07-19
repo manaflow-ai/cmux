@@ -7,16 +7,23 @@ import Foundation
 public enum WorkstreamSource: String, Codable, Sendable, CaseIterable, Equatable {
     case claude
     case codex
+    case grok
     case pi
+    case omp
+    case campfire
     case amp
     case cursor
     case opencode
     case gemini
+    case kiro
+    case antigravity
+    case rovodev
     case hermesAgent = "hermes-agent"
     case copilot
     case codebuddy
     case factory
     case qoder
+    case kimi
 
     /// Parses a wire-frame `_source` string. Unknown sources fall back to
     /// `nil`; callers should persist the raw string separately when they want

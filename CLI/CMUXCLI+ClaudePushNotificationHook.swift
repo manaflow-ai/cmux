@@ -58,8 +58,13 @@ extension CMUXCLI {
             return
         }
         let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
-        guard !shouldSuppressNestedAgentVisibleMutations(
+        let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
             currentAgentPID: claudePid,
+            agentName: "claude",
+            env: ProcessInfo.processInfo.environment
+        )
+        guard !shouldSuppressNestedAgentNotification(
+            visibleMutationsSuppressed: suppressVisibleMutations,
             env: ProcessInfo.processInfo.environment
         ) else {
             telemetry.breadcrumb("claude-hook.push-notification.nested-suppressed")

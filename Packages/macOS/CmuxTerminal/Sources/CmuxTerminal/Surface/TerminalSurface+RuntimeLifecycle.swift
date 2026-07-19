@@ -172,7 +172,9 @@ extension TerminalSurface {
     }
 
     func allowsRuntimeSurfaceCreation() -> Bool {
-        portalLifecycleState == .live && !runtimeSurfaceSuspendedForAgentHibernation
+        portalLifecycleState == .live &&
+            !runtimeSurfaceSuspendedForAgentHibernation &&
+            !runtimeSurfaceHibernationTeardownInFlight
     }
 
     private var hasDeferredStartupWork: Bool {
@@ -231,9 +233,16 @@ extension TerminalSurface {
     public func teardownSurface() {
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
+        runtimeSurfaceHibernationOwnerCommitPending = false
         backgroundSurfaceStartSource = .normal
         cancelClaudeCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
+
+        // The async hibernation path has exclusive ownership of the native
+        // pointer and callback userdata until its coordinator request resolves.
+        // Sealing the portal is enough here; that path observes the closed
+        // lifecycle and completes the native free instead of restoring it.
+        guard !runtimeSurfaceHibernationTeardownInFlight else { return }
 
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
@@ -241,7 +250,7 @@ extension TerminalSurface {
         self.manualIOContext = nil
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
-        byteTee.dropSurface(surfaceID: id)
+        byteTee.dropSurface(surfaceID: id, surfaceGeneration: runtimeSurfaceGeneration)
 
         let surfaceToFree = surface
         if let surfaceToFree {
@@ -295,42 +304,61 @@ extension TerminalSurface {
         }
     }
 
-    /// Frees the runtime surface while keeping the model alive for an
-    /// agent-hibernation resume.
+    /// Atomically frees the runtime surface while keeping the model alive for
+    /// an agent-hibernation resume.
+    ///
+    /// The native pointer and its callback userdata are provisionally removed
+    /// from the model while `finalValidation` runs on the serialized teardown
+    /// lane. Rejected validation restores the exact pointer and userdata with
+    /// the same runtime generation. A portal close during validation instead
+    /// completes the free and returns `false`, so a closing surface is never
+    /// resurrected.
+    ///
+    /// - Parameters:
+    ///   - reason: The teardown reason, for diagnostics.
+    ///   - finalValidation: Async safety work completed before the non-suspending
+    ///     native-free handoff.
+    ///   - finalTeardownPreparation: Synchronous last safety gate. Success
+    ///     returns a finalizer kept alive through native free and invoked before
+    ///     the coordinator can suspend again.
+    ///   - finalCommit: Durable commit performed only after local invalidation
+    ///     has been atomically closed and last-mile preparation succeeds. A
+    ///     rejection runs the finalizer and restores the live runtime.
+    /// - Returns: `true` only after native free and callback-userdata release
+    ///   complete and the model commits its suspended state.
     @MainActor
-    public func suspendRuntimeSurfaceForAgentHibernation(reason: String) {
-        runtimeSurfaceSuspendedForAgentHibernation = true
-        backgroundSurfaceStartQueued = false
-        backgroundSurfaceStartSource = .normal
-        cancelClaudeCommandShimInstallLifecycle()
-        closeHeadlessStartupWindowIfNeeded()
+    public func suspendRuntimeSurfaceForAgentHibernation(
+        reason: String,
+        finalValidation: @escaping @Sendable () async -> Bool,
+        finalTeardownPreparation: @escaping @Sendable () -> (@Sendable () -> Void)? = { {} },
+        finalCommit: @escaping @Sendable () -> Bool = { true }
+    ) async -> Bool {
+        guard portalLifecycleState == .live,
+              !runtimeSurfaceHibernationTeardownInFlight,
+              let surfaceToFree = surface else {
+            return false
+        }
+
+        runtimeSurfaceHibernationOwnerCommitPending = false
+        let validationGate = TerminalSurfaceHibernationValidationGate()
+        runtimeSurfaceHibernationValidationGate = validationGate
+        runtimeSurfaceHibernationTeardownInFlight = true
+        let transferredGeneration = runtimeSurfaceGeneration
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
         let manualIOContext = manualIOContext
         self.manualIOContext = nil
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
-        byteTee.dropSurface(surfaceID: id)
-
-        let surfaceToFree = surface
-        if let surfaceToFree {
-            registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
-        }
-        surface = nil
-        activePortalHostLease = nil
-        portalHostAuthority = nil
+        registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
+        let transferredSurface = transferRuntimeSurfaceForAgentHibernation()
+        precondition(transferredSurface == surfaceToFree)
+        // A queued vacancy retry may otherwise re-bind this model while its
+        // native pointer is provisionally owned by the teardown lane. Advancing
+        // the portal generation makes every pre-hibernation retry stale before
+        // final validation can suspend.
         clearPortalHostVacancyRetries()
         portalLifecycleGeneration &+= 1
-        pendingSocketInputQueue.removeAll(keepingCapacity: false)
-        pendingSocketInputBytes = 0
-        desiredFocusState = false
-
-        guard let surfaceToFree else {
-            callbackContext?.release()
-            manualIOContext?.release()
-            teeLease?.release()
-            return
-        }
 
 #if DEBUG
         logDebugEvent(
@@ -340,11 +368,17 @@ extension TerminalSurface {
 #endif
 
 #if DEBUG
-        if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
-            // Transport manualIOContext and teeLease through the request too:
-            // the coordinator releases all callback userdata only after the
-            // native free, which is what joins ghostty's IO threads.
-            runtimeTeardown.enqueueRuntimeTeardown(
+        let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting ?? { surface in
+            ghostty_surface_free(surface)
+        }
+#else
+        let freeSurface: @Sendable (ghostty_surface_t) -> Void = { surface in
+            ghostty_surface_free(surface)
+        }
+#endif
+
+        let teardownResult = await runtimeTeardown.freeRuntimeSurfaceForAgentHibernation(
+            TerminalSurfaceRuntimeTeardownRequest(
                 id: id,
                 workspaceId: tabId,
                 reason: reason,
@@ -352,26 +386,164 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
+                finalValidation: finalValidation,
+                finalTeardownPreparation: {
+                    // Close package-local invalidation first. Input after this
+                    // claim is queued; the app's last-mile preparation still
+                    // performs its own lifecycle CAS after freezing the shell.
+                    guard validationGate.claim(),
+                          let finalizer = finalTeardownPreparation() else {
+                        return nil
+                    }
+                    return finalizer
+                },
+                finalCommit: finalCommit,
                 freeSurface: freeSurface
             )
-            return
+        )
+        let didFree: Bool
+        let rejectedFinalizer: (@Sendable () -> Void)?
+        switch teardownResult {
+        case .freed:
+            didFree = true
+            rejectedFinalizer = nil
+        case .rejected(let finalizer):
+            didFree = false
+            rejectedFinalizer = finalizer
         }
-#endif
 
-        Task { @MainActor in
-            ghostty_surface_free(surfaceToFree)
-            callbackContext?.release()
-            manualIOContext?.release()
-            teeLease?.release()
+        if !didFree, portalLifecycleState == .live {
+            restoreRuntimeSurfaceAfterRejectedAgentHibernation(surfaceToFree)
+            surfaceCallbackContext = callbackContext
+            self.manualIOContext = manualIOContext
+            mobileByteTeeLease = teeLease
+            registry.registerRuntimeSurface(surfaceToFree, ownerId: id)
+            runtimeSurfaceHibernationTeardownInFlight = false
+            runtimeSurfaceHibernationOwnerCommitPending = false
+            runtimeSurfaceHibernationValidationGate = nil
+            flushPendingRemoteOutput(to: surfaceToFree)
+            if pendingSocketInputBytes > 0 {
+                flushPendingSocketInputIfNeeded()
+            }
+            // The exact runtime, callback contexts, registry ownership, and
+            // queued traffic are live again before the shell can produce more
+            // output. The coordinator intentionally transferred this finalizer
+            // back instead of running it at durable-commit rejection.
+            rejectedFinalizer?()
+            return false
         }
+
+        if !didFree {
+            // Close won the race with final validation. The provisional
+            // resources still belong to this method, so send them back through
+            // the same serialized lane and await their unconditional free.
+            _ = await runtimeTeardown.freeRuntimeSurfaceForAgentHibernation(
+                TerminalSurfaceRuntimeTeardownRequest(
+                    id: id,
+                    workspaceId: tabId,
+                    reason: "\(reason).portalClosed",
+                    surface: surfaceToFree,
+                    callbackContext: callbackContext,
+                    manualIOContext: manualIOContext,
+                    byteTeeLease: teeLease,
+                    finalValidation: { true },
+                    finalTeardownPreparation: {
+                        if let rejectedFinalizer { return rejectedFinalizer }
+                        return {}
+                    },
+                    freeSurface: freeSurface
+                )
+            )
+        }
+
+        commitTransferredRuntimeSurfaceTeardown()
+        runtimeSurfaceHibernationTeardownInFlight = false
+        runtimeSurfaceHibernationValidationGate = nil
+        byteTee.dropSurface(surfaceID: id, surfaceGeneration: transferredGeneration)
+        backgroundSurfaceStartQueued = false
+        backgroundSurfaceStartSource = .normal
+        cancelClaudeCommandShimInstallLifecycle()
+        closeHeadlessStartupWindowIfNeeded()
+        activePortalHostLease = nil
+        portalHostAuthority = nil
+        if portalLifecycleState != .live {
+            pendingSocketInputQueue.removeAll(keepingCapacity: false)
+            pendingSocketInputBytes = 0
+        }
+        desiredFocusState = false
+
+        guard portalLifecycleState == .live, didFree else {
+            runtimeSurfaceSuspendedForAgentHibernation = false
+            runtimeSurfaceHibernationOwnerCommitPending = false
+            return false
+        }
+        runtimeSurfaceSuspendedForAgentHibernation = true
+        runtimeSurfaceHibernationOwnerCommitPending = true
+        return true
+    }
+
+    /// Revokes a provisional native hibernation transfer.
+    ///
+    /// Workspace shell, agent lifecycle, and tracked-process mutations call
+    /// this synchronously on the main actor. The internal one-shot gate remains
+    /// claimable until immediately before native free, so a mutation that lands
+    /// after the controller's outer token was claimed still rejects teardown.
+    @MainActor
+    public func invalidateProvisionalAgentHibernation() {
+        runtimeSurfaceHibernationValidationGate?.invalidate()
     }
 
     /// Marks the resume side of agent hibernation and primes the next runtime
     /// spawn's initial input.
     @MainActor
+    public var canPrepareAgentHibernationResume: Bool {
+        portalLifecycleState == .live
+            && runtimeSurfaceSuspendedForAgentHibernation
+            && !runtimeSurfaceHibernationTeardownInFlight
+    }
+
+    @MainActor
     public func prepareAgentHibernationResume(initialInput: String?) {
+        guard canPrepareAgentHibernationResume else { return }
         runtimeSurfaceSuspendedForAgentHibernation = false
+        runtimeSurfaceHibernationOwnerCommitPending = false
         prepareNextRuntimeInitialInput(initialInput)
+    }
+
+    /// Completes the handoff from native teardown to the pane owner's durable
+    /// hibernation state. Direct surface input must no longer queue after this
+    /// point because only the pane owner can resume the suspended runtime.
+    @MainActor
+    public func commitAgentHibernationOwnerState() {
+        runtimeSurfaceHibernationOwnerCommitPending = false
+    }
+
+    /// Applies a persisted hibernation marker to a newly restored surface
+    /// model that has no native runtime to tear down.
+    ///
+    /// Session restore uses this state-only entry point instead of the live
+    /// hibernation teardown API. It fails closed if a native runtime already
+    /// exists or a live teardown owns one provisionally.
+    ///
+    /// - Returns: `true` when the model entered restored hibernation, or
+    ///   `false` when its lifecycle was not safe for a state-only transition.
+    @MainActor
+    public func markRuntimeSurfaceSuspendedForRestoredAgentHibernation() -> Bool {
+        guard portalLifecycleState == .live,
+              surface == nil,
+              !runtimeSurfaceHibernationTeardownInFlight else {
+            return false
+        }
+        runtimeSurfaceSuspendedForAgentHibernation = true
+        runtimeSurfaceHibernationOwnerCommitPending = false
+        return true
+    }
+
+    /// Whether explicit input arrived after the native hibernation commit
+    /// point and must trigger an immediate agent resume.
+    @MainActor
+    public var hasPendingInputForAgentHibernationResume: Bool {
+        pendingSocketInputBytes > 0
     }
 
     /// Primes the initial input for the next runtime spawn only.
@@ -570,7 +742,12 @@ extension TerminalSurface {
         // grid parity by construction. The lease is released alongside
         // `surfaceCallbackContext` when the surface tears down.
         mobileByteTeeLease?.release()
-        mobileByteTeeLease = byteTee.installTee(on: createdSurface, workspaceID: tabId, surfaceID: id)
+        mobileByteTeeLease = byteTee.installTee(
+            on: createdSurface,
+            workspaceID: tabId,
+            surfaceID: id,
+            surfaceGeneration: runtimeSurfaceGeneration
+        )
         if runtimeInitialInput != nil {
             nextRuntimeInitialInput = nil
         }

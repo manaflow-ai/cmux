@@ -78,7 +78,8 @@ For a generic agent that exposes the current session as an argv option:
 Supported `resumeCommand` placeholders are `{{sessionId}}`, `{{sessionPath}}`,
 `{{executable}}`, `{{cwd}}`, and `{{sessionDir}}`. Pi uses `pi --session <id-or-path>`
 instead of `pi --continue` so Vault reopens the exact saved session.
-OMP accepts `--session`, `--resume`, and `-r` for existing sessions; Vault emits `omp --session <id-or-path>` so relaunch reopens the exact saved OMP session.
+OMP accepts `--resume` and `-r` for existing sessions; Vault emits
+`omp --resume <id-or-path>` so relaunch reopens the exact saved OMP session.
 
 Campfire resumes with `campfire --session <id>`; only the driver's host session is restorable (joiners are ephemeral views), and resuming restores the conversation in a fresh collaborative session with a new invite link.
 
@@ -89,8 +90,8 @@ example `pi --session {{sessionId}}`.
 is the argv template for forking (branching) a session into a new copy, for
 example `{{executable}} --session {{sessionId}} --fork`. Provide it only when the
 agent supports forking; when omitted, the right-click **Fork Conversation** item
-stays hidden for that agent (resume still works via `resumeCommand`). Pi and OMP
-ship with `{{executable}} --fork {{sessionId}}`.
+stays hidden for that agent (resume still works via `resumeCommand`). Pi ships
+with `{{executable}} --fork {{sessionId}}`; OMP does not expose a fork command.
 
 `iconAssetName` is optional. When omitted, Vault uses a neutral system icon for
 registered agents instead of reusing another agent's brand mark.
