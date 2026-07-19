@@ -7,6 +7,10 @@ public struct SubrouterSessionsSectionView: View {
     /// Long-lived daemons accumulate hundreds of session pins; the panel
     /// shows only the most recently routed handful.
     static let visibleSessionLimit = 8
+    /// Pins older than this are routing history, not live sessions — they
+    /// carry no actionable signal, so they only count toward the summary
+    /// line. When nothing is recent the whole section disappears.
+    static let recencyWindow: TimeInterval = 48 * 3600
 
     private let sessions: [SubrouterSessionAssignment]
 
@@ -18,26 +22,32 @@ public struct SubrouterSessionsSectionView: View {
 
     public var body: some View {
         let recent = recentSessions
-        VStack(alignment: .leading, spacing: 2) {
-            Text(String(localized: "subrouter.sessions.header", defaultValue: "Sessions"))
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-            ForEach(recent) { session in
-                SubrouterSessionRowView(session: session)
-            }
-            if sessions.count > recent.count {
-                Text(String(
-                    localized: "subrouter.sessions.more",
-                    defaultValue: "and \(sessions.count - recent.count) more"
-                ))
-                .font(.system(size: 9))
-                .foregroundStyle(.tertiary)
+        if recent.isEmpty {
+            EmptyView()
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(String(localized: "subrouter.sessions.header", defaultValue: "Sessions"))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                ForEach(recent) { session in
+                    SubrouterSessionRowView(session: session)
+                }
+                if sessions.count > recent.count {
+                    Text(String(
+                        localized: "subrouter.sessions.older",
+                        defaultValue: "and \(sessions.count - recent.count) older"
+                    ))
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                }
             }
         }
     }
 
     private var recentSessions: [SubrouterSessionAssignment] {
-        sessions
+        let cutoff = Date(timeIntervalSinceNow: -Self.recencyWindow)
+        return sessions
+            .filter { $0.updatedAt >= cutoff }
             .sorted { $0.updatedAt > $1.updatedAt }
             .prefix(Self.visibleSessionLimit)
             .map { $0 }
