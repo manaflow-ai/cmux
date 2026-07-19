@@ -399,7 +399,12 @@ struct GitHubPullRequestRequestTests {
             .init(statusCode: 200, data: Data("[]".utf8), gate: "shared"),
         ])
         let coordinator = GitHubPullRequestRequestCoordinator(session: makeSession())
-        let canceled = Task { await coordinator.response(endpoint: endpoint, authHeader: "Bearer token") }
+        let cancellationFinished = GitHubPullRequestTestSignal()
+        let canceled = Task {
+            let response = await coordinator.response(endpoint: endpoint, authHeader: "Bearer token")
+            await cancellationFinished.signal()
+            return response
+        }
         #expect(await requestsStarted.wait())
         let survivor = Task { await coordinator.response(endpoint: endpoint, authHeader: "Bearer token") }
         #expect(await GitHubPullRequestTestSignal.waitUntil {
@@ -407,6 +412,8 @@ struct GitHubPullRequestRequestTests {
             return inFlight.values.first?.waiterIDs.count == 2
         })
         canceled.cancel()
+        #expect(await cancellationFinished.wait(timeout: .milliseconds(500)))
+        #expect(GitHubPullRequestStubURLProtocol.capturedRequests().count == 1)
         GitHubPullRequestStubURLProtocol.releaseGate("shared")
 
         #expect(await canceled.value == nil)
