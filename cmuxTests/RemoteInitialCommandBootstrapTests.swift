@@ -208,14 +208,15 @@ struct RemoteInitialCommandBootstrapTests {
     }
 
     @Test
-    func generatedUnknownShellBootstrapRunsCommandInInteractiveProcess() throws {
+    func generatedNushellBootstrapRunsCommandThenEntersInteractiveModeOnlyOnce() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-remote-initial-command-unknown-shell-\(UUID().uuidString)")
+            .appendingPathComponent("cmux-remote-initial-command-nushell-\(UUID().uuidString)")
         let home = root.appendingPathComponent("home")
         let bin = root.appendingPathComponent("bin")
         let fakeShell = bin.appendingPathComponent("nu")
-        let output = home.appendingPathComponent("unknown shell.txt")
+        let invocations = home.appendingPathComponent("nushell invocations.txt")
+        let commandCapture = home.appendingPathComponent("nushell command.txt")
         try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
@@ -223,10 +224,16 @@ struct RemoteInitialCommandBootstrapTests {
         try """
         #!/bin/sh
         case "${1:-}" in
+          -e)
+            [ "$#" -eq 2 ] || exit 66
+            [ "$2" = "$CMUX_EXPECTED_COMMAND" ] || exit 68
+            printf '%s' "$2" > "$HOME/nushell command.txt"
+            printf 'execute|%s|%s\n' "$HOME" "$CMUX_REMOTE_VALUE" >> "$HOME/nushell invocations.txt"
+            exit 0
+            ;;
           -i)
-            [ "${2:-}" = -c ] && [ "$#" -eq 3 ] || exit 66
-            eval "$3"
-            printf '%s|%s\n' "$(/bin/pwd)" "${CMUX_UNKNOWN_STATE:-}" > "$HOME/unknown state.txt"
+            [ "$#" -eq 1 ] || exit 67
+            printf 'interactive\n' >> "$HOME/nushell invocations.txt"
             exit 0
             ;;
           -c) exit 67 ;;
@@ -240,15 +247,17 @@ struct RemoteInitialCommandBootstrapTests {
             ofItemAtPath: fakeShell.path
         )
 
+        let command = #"let quoted = "spaces 'single' \"double\" $env.CMUX_REMOTE_VALUE""#
         let script = RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: 0,
             shellFeatures: "ssh-env,ssh-terminfo",
-            initialCommand: #"cd "$HOME"; export CMUX_UNKNOWN_STATE=preserved; echo "interactive command $CMUX_REMOTE_VALUE" >> "$HOME/unknown shell.txt""#
+            initialCommand: command
         )
         let environment = ProcessInfo.processInfo.environment.merging([
             "HOME": home.path,
             "PATH": "/usr/bin:/bin",
             "SHELL": fakeShell.path,
+            "CMUX_EXPECTED_COMMAND": command,
             "CMUX_REMOTE_VALUE": "remote-only",
         ]) { _, new in new }
 
@@ -257,13 +266,10 @@ struct RemoteInitialCommandBootstrapTests {
         let second = try runShell(script, environment: environment)
         #expect(second.status == 0, "stdout: \(second.stdout)\nstderr: \(second.stderr)")
 
-        let captured = try String(contentsOf: output, encoding: .utf8)
-        #expect(captured == "interactive command remote-only\n")
-        let state = try String(
-            contentsOf: home.appendingPathComponent("unknown state.txt"),
-            encoding: .utf8
-        )
-        #expect(state == "\(home.path)|preserved\n")
+        let captured = try String(contentsOf: commandCapture, encoding: .utf8)
+        #expect(captured == command)
+        let recordedInvocations = try String(contentsOf: invocations, encoding: .utf8)
+        #expect(recordedInvocations == "execute|\(home.path)|remote-only\ninteractive\n")
     }
 
     @Test
