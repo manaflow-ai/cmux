@@ -287,38 +287,44 @@ interface LayoutStackNodeProps extends Omit<LayoutNodeProps, "node"> {
 function LayoutStackNode({ node, screen, basis, ...actions }: LayoutStackNodeProps) {
   const style = basis === undefined ? undefined : { flex: `0 0 ${basis}%` };
   const panes = visibleStackPanes(node.panes, node.expanded, null);
+  const expandedIndex = panes.indexOf(node.expanded);
+  const expandedPane = screen.panes.find((candidate) => candidate.id === node.expanded) ?? null;
+  const renderHeader = (pane: Id) => {
+    const livePane = screen.panes.find((candidate) => candidate.id === pane) ?? null;
+    const activeTab = livePane?.tabs[livePane.active_tab] ?? null;
+    const label = livePane?.name || activeTab?.name || activeTab?.title || t("pane", { number: pane });
+    return (
+      <div className="pane-leaf collapsed" key={pane}>
+        <button
+          aria-label={t("pane", { number: pane })}
+          className="stack-pane-header"
+          onClick={() => actions.onSelectPane(pane)}
+          type="button"
+        >
+          <span aria-hidden="true">┌</span>
+          <span className="stack-pane-title">{label}</span>
+          <span aria-hidden="true">┐</span>
+        </button>
+      </div>
+    );
+  };
   return (
     <div className="pane-stack" style={style}>
-      {panes.map((pane) => {
-        const livePane = screen.panes.find((candidate) => candidate.id === pane) ?? null;
-        const expanded = pane === node.expanded;
-        const activeTab = livePane?.tabs[livePane.active_tab] ?? null;
-        const label = livePane?.name || activeTab?.name || activeTab?.title || t("pane", { number: pane });
-        return (
-          <div className={`pane-leaf${expanded ? " expanded" : " collapsed"}`} key={pane}>
-            {expanded ? (
-              <PaneLeaf
-                {...actions}
-                pane={livePane}
-                paneId={pane}
-                active={screen.activePane === pane}
-                zoomed={screen.zoomedPane === pane}
-              />
-            ) : (
-              <button
-                aria-label={t("pane", { number: pane })}
-                className="stack-pane-header"
-                onClick={() => actions.onSelectPane(pane)}
-                type="button"
-              >
-                <span aria-hidden="true">┌</span>
-                <span className="stack-pane-title">{label}</span>
-                <span aria-hidden="true">┐</span>
-              </button>
-            )}
-          </div>
-        );
-      })}
+      <div className="stack-pane-headers before">
+        {panes.slice(0, expandedIndex).map(renderHeader)}
+      </div>
+      <div className="pane-leaf expanded">
+        <PaneLeaf
+          {...actions}
+          pane={expandedPane}
+          paneId={node.expanded}
+          active={screen.activePane === node.expanded}
+          zoomed={screen.zoomedPane === node.expanded}
+        />
+      </div>
+      <div className="stack-pane-headers after">
+        {panes.slice(expandedIndex + 1).map(renderHeader)}
+      </div>
     </div>
   );
 }

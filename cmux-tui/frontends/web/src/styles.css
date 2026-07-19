@@ -111,9 +111,11 @@ button { color: inherit; touch-action: manipulation; }
 .pane-group.row { flex-direction: row; }
 .pane-group.column { flex-direction: column; }
 .pane-leaf { min-width: 0; min-height: 0; background: var(--terminal-background); }
-.pane-stack { --stack-header-height: 30px; display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; gap: 1px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; background: var(--border-inactive); }
-.pane-stack > .pane-leaf { flex: 0 0 var(--stack-header-height); min-height: var(--stack-header-height); overflow: hidden; }
-.pane-stack > .pane-leaf.expanded { flex: 1 0 var(--stack-header-height); }
+.pane-stack { --stack-header-height: 30px; display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; gap: 1px; overflow: hidden; background: var(--border-inactive); }
+.stack-pane-headers { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; gap: 1px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+.stack-pane-headers:empty { display: none; }
+.stack-pane-headers > .pane-leaf { flex: 0 0 var(--stack-header-height); min-height: var(--stack-header-height); overflow: hidden; }
+.pane-stack > .pane-leaf.expanded { flex: 1 1 auto; min-height: min(100%, calc(var(--tui-cell-height) * 3)); overflow: hidden; }
 .stack-pane-header { display: flex; width: 100%; height: 100%; min-width: 0; align-items: center; gap: var(--tui-cell-width); padding: 0 var(--tui-cell-width); border: 0; color: var(--terminal-foreground); background: var(--terminal-background); font: inherit; text-align: left; }
 .stack-pane-header:focus-visible { outline: 1px solid var(--border-active); outline-offset: -1px; }
 .stack-pane-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
