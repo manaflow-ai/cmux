@@ -4705,6 +4705,9 @@ mod tests {
 
         let retry_stream = writer.start_stream(&json!({"event": "test"})).unwrap();
         mark_client_attached(&mux, client, surface.id, retry_stream, Some((80, 24))).unwrap();
+        let staged = mux.control_clients.list_json(client);
+        assert_eq!(staged[0]["attached"], json!([]));
+        assert_eq!(staged[0]["sizes"], json!([]));
         assert!(!events.try_iter().any(|event| matches!(
             event,
             MuxEvent::ClientAttached { .. } | MuxEvent::ClientChanged { .. }
@@ -4715,6 +4718,40 @@ mod tests {
             events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::ClientAttached { client: attached, .. }) if attached == client
         ));
+    }
+
+    #[test]
+    fn stale_workspace_selectors_report_revision_conflicts_before_lookup() {
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(Some("stale".into()), Some("stable-key".into()), None)
+            .unwrap();
+        mux.close_workspace_at_revision(workspace.workspace, Some(1)).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+        for command in [
+            Command::CloseWorkspace {
+                workspace: None,
+                key: Some("stable-key".into()),
+                expected_revision: Some(1),
+            },
+            Command::RenameWorkspace {
+                workspace: None,
+                key: Some("stable-key".into()),
+                name: "renamed".into(),
+                expected_revision: Some(1),
+            },
+            Command::MoveWorkspace {
+                workspace: None,
+                key: Some("stable-key".into()),
+                index: 0,
+                expected_revision: Some(1),
+            },
+        ] {
+            let error = handle_command(&mux, client, command, &writer).unwrap_err();
+            assert_eq!(error.to_string(), "workspace revision conflict: expected 1, current 2");
+        }
     }
 
     #[test]
