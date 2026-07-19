@@ -132,12 +132,12 @@ struct BackendOnlyProjectionDriverTests {
             .activatePane(
                 workspaceID: workspace.uuid,
                 screenID: screen.uuid,
-                paneID: secondPane.uuid
+                paneID: firstPane.uuid
             ),
             .setZoomedPane(
                 workspaceID: workspace.uuid,
                 screenID: screen.uuid,
-                paneID: secondPane.uuid
+                paneID: firstPane.uuid
             ),
             .selectSurface(
                 workspaceID: workspace.uuid,
@@ -150,18 +150,18 @@ struct BackendOnlyProjectionDriverTests {
             .activatePane(
                 workspaceID: workspace.uuid,
                 screenID: screen.uuid,
-                paneID: firstPane.uuid
+                paneID: secondPane.uuid
             ),
             .setZoomedPane(
                 workspaceID: workspace.uuid,
                 screenID: screen.uuid,
-                paneID: firstPane.uuid
+                paneID: secondPane.uuid
             ),
             .selectSurface(
                 workspaceID: workspace.uuid,
                 screenID: screen.uuid,
                 paneID: firstPane.uuid,
-                surfaceID: firstPane.tabs[1].uuid
+                surfaceID: firstPane.tabs[0].uuid
             ),
         ])
         #expect(await fixture.driver.pendingIntentCount == 3)
@@ -178,18 +178,18 @@ struct BackendOnlyProjectionDriverTests {
             .activatePane(
                 workspaceID: workspace.uuid,
                 screenID: screen.uuid,
-                paneID: firstPane.uuid
+                paneID: secondPane.uuid
             ),
             .setZoomedPane(
                 workspaceID: workspace.uuid,
                 screenID: screen.uuid,
-                paneID: firstPane.uuid
+                paneID: secondPane.uuid
             ),
             .selectSurface(
                 workspaceID: workspace.uuid,
                 screenID: screen.uuid,
                 paneID: firstPane.uuid,
-                surfaceID: firstPane.tabs[1].uuid
+                surfaceID: firstPane.tabs[0].uuid
             ),
         ])
         #expect(await fixture.rpc.maximumMutationsInFlight() == 1)
@@ -647,17 +647,19 @@ private actor DriverFakeRPC: BackendOnlyProjectionDriverRPC {
         }
         if let conflict = blockedMutationConflict {
             blockedMutationConflict = nil
+            installConflictCurrentState(conflict)
             return .conflict(conflict)
         }
         if let conflict = nextMutationConflict {
             nextMutationConflict = nil
+            installConflictCurrentState(conflict)
             return .conflict(conflict)
         }
         if nextMutationIsAmbiguous {
             nextMutationIsAmbiguous = false
             throw AmbiguousFailure.transportClosed
         }
-        let states = try projections.map { mutation in
+        let states = projections.map { mutation in
             let current = records[mutation.logicalPresentationID]!
             let updated = apply(
                 operations: mutation.operations,
@@ -713,6 +715,17 @@ private actor DriverFakeRPC: BackendOnlyProjectionDriverRPC {
 
     func installTopologyRevision(_ revision: UInt64) {
         topologyRevision = revision
+        records = records.mapValues { state in
+            BackendProjectionNavigationState(
+                logicalPresentationID: state.logicalPresentationID,
+                generation: state.generation,
+                claimID: state.claimID,
+                claimedProcessInstanceID: state.claimedProcessInstanceID,
+                reconciledTopologyRevision: revision,
+                selectedWorkspaceID: state.selectedWorkspaceID,
+                workspaces: state.workspaces
+            )
+        }
     }
 
     func record(_ logicalPresentationID: UUID) -> BackendProjectionNavigationState? {
@@ -726,7 +739,7 @@ private actor DriverFakeRPC: BackendOnlyProjectionDriverRPC {
     func mutationCount() -> Int { mutations.count }
     func maximumMutationsInFlight() -> Int { maximumMutationInFlight }
     func calls() -> [Call] { callLog }
-    func claimCount() -> Int { callLog.count(where: { $0 == .claim }) }
+    func claimCount() -> Int { callLog.filter { $0 == .claim }.count }
 
     private func resumeMutationStartWaiters() {
         var retained: [
@@ -740,6 +753,15 @@ private actor DriverFakeRPC: BackendOnlyProjectionDriverRPC {
             }
         }
         mutationStartWaiters = retained
+    }
+
+    private func installConflictCurrentState(
+        _ conflict: BackendProjectionNavigationConflict
+    ) {
+        guard case .staleGeneration(_, _, _, let currentState) = conflict else {
+            return
+        }
+        records[currentState.logicalPresentationID] = currentState
     }
 
     private func apply(
