@@ -2681,9 +2681,11 @@ impl Mux {
         let active_at = self.next_active_at();
         let moved = {
             let mut state = self.state.lock().unwrap();
-            let moved = move_tab_in_state(&mut state, surface, pane, index);
+            let (moved, split_index_dirty) = move_tab_in_state(&mut state, surface, pane, index);
             if moved {
                 stamp_pane(&mut state, pane, active_at);
+            }
+            if split_index_dirty {
                 Self::rebuild_split_screen_index(&mut state);
             }
             moved
@@ -3121,35 +3123,35 @@ fn move_tab_in_state(
     surface: SurfaceId,
     target_pane: PaneId,
     index: usize,
-) -> bool {
+) -> (bool, bool) {
     if !state.surfaces.contains_key(&surface) || !state.panes.contains_key(&target_pane) {
-        return false;
+        return (false, false);
     }
-    let Some(source_pane) = state.pane_of(surface) else { return false };
+    let Some(source_pane) = state.pane_of(surface) else { return (false, false) };
     if source_pane == target_pane {
         let Some(pane) = state.panes.get_mut(&target_pane) else {
-            return false;
+            return (false, false);
         };
         let Some(old_idx) = pane.tabs.iter().position(|id| *id == surface) else {
-            return false;
+            return (false, false);
         };
         let new_idx = if index > old_idx { index.saturating_sub(1) } else { index };
         let new_idx = new_idx.min(pane.tabs.len().saturating_sub(1));
         if new_idx == old_idx {
-            return false;
+            return (false, false);
         }
         let tab = pane.tabs.remove(old_idx);
         pane.tabs.insert(new_idx, tab);
         pane.active_tab = new_idx;
-        return true;
+        return (true, false);
     }
 
     {
         let Some(source) = state.panes.get_mut(&source_pane) else {
-            return false;
+            return (false, false);
         };
         let Some(old_idx) = source.tabs.iter().position(|id| *id == surface) else {
-            return false;
+            return (false, false);
         };
         source.tabs.remove(old_idx);
         if !source.tabs.is_empty() && source.active_tab >= old_idx && source.active_tab > 0 {
@@ -3157,12 +3159,13 @@ fn move_tab_in_state(
         }
     }
 
-    if state.panes.get(&source_pane).is_some_and(|pane| pane.tabs.is_empty()) {
+    let topology_changed = state.panes.get(&source_pane).is_some_and(|pane| pane.tabs.is_empty());
+    if topology_changed {
         collapse_empty_pane(state, source_pane);
     }
 
     let Some(target) = state.panes.get_mut(&target_pane) else {
-        return false;
+        return (false, topology_changed);
     };
     let new_idx = index.min(target.tabs.len());
     target.tabs.insert(new_idx, surface);
@@ -3173,7 +3176,7 @@ fn move_tab_in_state(
         ws.active_screen = si;
         ws.screens[si].active_pane = target_pane;
     }
-    true
+    (true, topology_changed)
 }
 
 #[cfg(test)]

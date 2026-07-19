@@ -164,7 +164,7 @@ describe("TerminalPane split dividers", () => {
   it("coalesces locally completed key repeats at a fixed cadence", async () => {
     vi.useFakeTimers();
     try {
-      const onSetSplitRatio = vi.fn(async () => true);
+      const onSetSplitRatio = vi.fn(async (_split: number, _ratio: number) => true);
       const props = terminalPaneProps(onSetSplitRatio);
       const { getByRole } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
       const divider = getByRole("separator");

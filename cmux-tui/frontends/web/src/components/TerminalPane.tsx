@@ -278,6 +278,8 @@ interface LayoutGroupNodeProps extends Omit<LayoutNodeProps, "node"> {
   node: Extract<PaneLayoutView, { type: "group" }>;
 }
 
+const KEYBOARD_RESIZE_INTERVAL_MS = 50;
+
 function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodeProps) {
   const style = basis === undefined ? undefined : { flex: `0 0 ${basis}%` };
   const authoritativeRatio = node.firstPercent / 100;
@@ -296,6 +298,8 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
     desiredRatio: number;
     generation: number;
     inFlightRatio: number | null;
+    lastSentAt: number;
+    scheduled: ReturnType<typeof setTimeout> | null;
     split: Id;
   } | null>(null);
   const drag = useRef<{
@@ -310,9 +314,9 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
   // off the snapshot it was based on. The moment the server's layout event
   // lands (confirm or foreign change), validity flips and the authoritative
   // ratio renders; the stale record is cleared lazily on the next pointerdown.
-  const keyboardRequestInFlight = keyboardResize.current?.split === target.split
-    && keyboardResize.current.inFlightRatio !== null;
-  const pendingConfirmed = !keyboardRequestInFlight
+  const keyboardRequestActive = keyboardResize.current?.split === target.split
+    && (keyboardResize.current.inFlightRatio !== null || keyboardResize.current.scheduled !== null);
+  const pendingConfirmed = !keyboardRequestActive
     && pendingRatio !== null
     && target.split === pendingRatio.split
     && Math.abs(authoritativeRatio - pendingRatio.ratio) <= 1e-6;
@@ -365,8 +369,18 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
   };
 
   const pumpKeyboardResize = (resize: NonNullable<typeof keyboardResize.current>) => {
-    if (keyboardResize.current !== resize || resize.inFlightRatio !== null) return;
+    if (keyboardResize.current !== resize || resize.inFlightRatio !== null || resize.scheduled !== null) return;
+    const wait = KEYBOARD_RESIZE_INTERVAL_MS - (performance.now() - resize.lastSentAt);
+    if (wait > 0) {
+      resize.scheduled = setTimeout(() => {
+        if (keyboardResize.current !== resize || keyboardGeneration.current !== resize.generation) return;
+        resize.scheduled = null;
+        pumpKeyboardResize(resize);
+      }, wait);
+      return;
+    }
     const ratio = resize.desiredRatio;
+    resize.lastSentAt = performance.now();
     resize.inFlightRatio = ratio;
     void actions.onSetSplitRatio(resize.split, ratio).catch(() => false).then((succeeded) => {
       if (keyboardResize.current !== resize || keyboardGeneration.current !== resize.generation) return;
@@ -428,6 +442,8 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
                   desiredRatio: baseRatio,
                   generation: ++keyboardGeneration.current,
                   inFlightRatio: null,
+                  lastSentAt: Number.NEGATIVE_INFINITY,
+                  scheduled: null,
                   split: target.split,
                 };
             resize.desiredRatio = ratio;
