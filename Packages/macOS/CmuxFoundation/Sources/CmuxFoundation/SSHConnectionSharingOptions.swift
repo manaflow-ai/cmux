@@ -212,6 +212,21 @@ public struct SSHConnectionSharingOptions: Sendable {
             .path
     }
 
+    /// Returns the shell commands that finish successful foreground authentication.
+    ///
+    /// The marker must be cleared before the advisory lock is released so a
+    /// concurrent cleanup request cannot mistake a completed authentication
+    /// attempt for one that is still in flight.
+    ///
+    /// - Returns: Shell commands that clear the marker, release the lock, and disarm cleanup traps.
+    public func successfulForegroundAuthenticationCleanupShellLines() -> [String] {
+        [
+            "cmux_ssh_clear_auth_inflight",
+            "zsystem flock -u \"$cmux_ssh_auth_lock_fd\" || exit 255",
+            "trap - EXIT HUP INT TERM",
+        ]
+    }
+
     /// Builds a shell function that removes a stale cmux-owned control socket.
     ///
     /// The caller invokes the function only while holding the matching

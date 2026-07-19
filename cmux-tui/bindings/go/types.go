@@ -113,11 +113,6 @@ type NewScreenOptions struct {
 	Rows      *uint16 `json:"rows,omitempty"`
 }
 
-type NewPaneOptions struct {
-	Cols *uint16 `json:"cols,omitempty"`
-	Rows *uint16 `json:"rows,omitempty"`
-}
-
 type SplitOptions struct {
 	Cols *uint16 `json:"cols,omitempty"`
 	Rows *uint16 `json:"rows,omitempty"`
@@ -141,6 +136,12 @@ type Event interface {
 type TreeChangedEvent struct{}
 
 func (TreeChangedEvent) EventName() string { return "tree-changed" }
+
+type LayoutChangedEvent struct {
+	Screen uint64 `json:"screen"`
+}
+
+func (LayoutChangedEvent) EventName() string { return "layout-changed" }
 
 type EmptyEvent struct{}
 

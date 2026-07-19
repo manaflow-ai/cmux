@@ -2,7 +2,7 @@
 
 [日本語](README.ja.md)
 
-A small third-party-style frontend that proves the protocol-v9 WebSocket API
+A small third-party-style frontend that proves the protocol-v8 WebSocket API
 and the browser entry of the TypeScript SDK are enough to build a natural cmux
 client. It renders the authoritative workspace tree, attaches xterm.js to the
 active PTY surface, forwards keyboard input, resizes from terminal cells, and
@@ -55,7 +55,6 @@ When served from a non-localhost host, the WebSocket URL defaults to `wss://<hos
   reconnect backoff, notifications, and unread attention state.
 - Stable split-id rendering and exact divider resizing through
   `set-split-ratio`.
-- Zellij-style stack layouts with one expanded pane and collapsed title rows.
 
 ## Follow-ups
 

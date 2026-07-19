@@ -13,7 +13,7 @@ fn main() -> Result<()> {
 
     let identify = client.identify()?;
     assert!(identify.app == "cmux-tui", "unexpected app {}", identify.app);
-    assert!((5..=9).contains(&identify.protocol), "unsupported protocol {}", identify.protocol);
+    assert!((5..=8).contains(&identify.protocol), "unsupported protocol {}", identify.protocol);
 
     let created = client.new_workspace(Some(&marker), Some(80), Some(24))?;
     client.send(created.surface, Some(&format!("printf '{marker}\\n'\r")), None)?;

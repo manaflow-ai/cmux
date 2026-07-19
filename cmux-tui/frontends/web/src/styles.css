@@ -106,17 +106,11 @@ button { color: inherit; touch-action: manipulation; }
 .new-workspace:hover { color: var(--status-active-fg); background: var(--sidebar-active-bg); }
 
 .pane-layout { display: flex; grid-area: 1 / 2; min-width: 0; min-height: 0; overflow: hidden; }
-.pane-layout > .pane-leaf, .pane-layout > .pane-group, .pane-layout > .pane-stack { flex: 1 1 auto; min-width: 0; min-height: 0; }
+.pane-layout > .pane-leaf, .pane-layout > .pane-group { flex: 1 1 auto; min-width: 0; min-height: 0; }
 .pane-group { position: relative; display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; background: var(--terminal-background); }
 .pane-group.row { flex-direction: row; }
 .pane-group.column { flex-direction: column; }
 .pane-leaf { min-width: 0; min-height: 0; background: var(--terminal-background); }
-.pane-stack { --stack-header-height: 30px; display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; gap: 1px; overflow: hidden; background: var(--border-inactive); }
-.pane-stack > .pane-leaf { flex: 0 0 var(--stack-header-height); min-height: var(--stack-header-height); overflow: hidden; }
-.pane-stack > .pane-leaf.expanded { flex: 1 0 var(--stack-header-height); }
-.stack-pane-header { display: flex; width: 100%; height: 100%; min-width: 0; align-items: center; gap: var(--tui-cell-width); padding: 0 var(--tui-cell-width); border: 0; color: var(--terminal-foreground); background: var(--terminal-background); font: inherit; text-align: left; }
-.stack-pane-header:focus-visible { outline: 1px solid var(--border-active); outline-offset: -1px; }
-.stack-pane-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .split-divider { position: absolute; z-index: 5; padding: 0; border: 0; background: var(--border-inactive); touch-action: none; user-select: none; -webkit-user-select: none; }
 .split-divider::before { position: absolute; content: ""; }
 .pane-group.row > .split-divider { top: 0; bottom: 0; width: 1px; transform: translateX(-0.5px); cursor: col-resize; }
@@ -243,7 +237,6 @@ button { color: inherit; touch-action: manipulation; }
   .drawer-backdrop { position: fixed; z-index: 40; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; background: rgba(0, 0, 0, .55); }
   .drawer-open .drawer-backdrop { display: block; }
   .pane-layout, .terminal-root { grid-area: 2 / 1; }
-  .pane-stack { --stack-header-height: 44px; }
   .terminal-panel { grid-template-rows: 44px minmax(0, 1fr) var(--tui-cell-height); }
   .tab-bar { height: 44px; align-items: flex-end; }
   .tab-bar button { height: 44px; min-height: 44px; }

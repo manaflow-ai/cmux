@@ -1,7 +1,7 @@
 # cmux TypeScript Client
 
 The typed client library for cmux-tui frontends. It exposes every implemented
-command and event in protocol v9, transport-independent request handling,
+command and event in protocol v8, transport-independent request handling,
 browser-safe attach streams, and Node.js Unix-socket defaults.
 
 ## Install and build

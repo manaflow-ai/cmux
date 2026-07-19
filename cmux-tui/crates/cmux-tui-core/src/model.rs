@@ -7,60 +7,14 @@ use std::sync::Arc;
 
 use crate::{PaneId, ScreenId, SplitDir, SplitId, Surface, SurfaceId, WorkspaceId};
 
-/// Pane membership for a stack. Construction rejects empty stacks so layout
-/// and protocol consumers never need to assume a member exists.
-#[derive(Debug, Clone)]
-pub struct StackPanes(Vec<PaneId>);
-
-impl StackPanes {
-    pub fn new(panes: Vec<PaneId>) -> Option<Self> {
-        (!panes.is_empty()).then_some(Self(panes))
-    }
-
-    pub fn as_slice(&self) -> &[PaneId] {
-        &self.0
-    }
-
-    fn iter_mut(&mut self) -> impl Iterator<Item = &mut PaneId> {
-        self.0.iter_mut()
-    }
-
-    fn retain(&mut self, predicate: impl FnMut(&PaneId) -> bool) {
-        self.0.retain(predicate);
-    }
-}
-
-impl std::ops::Deref for StackPanes {
-    type Target = [PaneId];
-
-    fn deref(&self) -> &Self::Target {
-        self.as_slice()
-    }
-}
-
 /// Binary split tree over panes for one screen.
 #[derive(Debug, Clone)]
 pub enum Node {
     Leaf(PaneId),
-    Split {
-        id: SplitId,
-        dir: SplitDir,
-        ratio: f32,
-        a: Box<Node>,
-        b: Box<Node>,
-    },
-    /// Zellij-style stacked panes. `Screen::active_pane` selects the expanded
-    /// member; the node owns membership and order only.
-    Stack {
-        panes: StackPanes,
-    },
+    Split { id: SplitId, dir: SplitDir, ratio: f32, a: Box<Node>, b: Box<Node> },
 }
 
 impl Node {
-    pub fn stack(panes: Vec<PaneId>) -> Option<Self> {
-        StackPanes::new(panes).map(|panes| Self::Stack { panes })
-    }
-
     pub fn pane_ids(&self, out: &mut Vec<PaneId>) {
         match self {
             Node::Leaf(id) => out.push(*id),
@@ -68,7 +22,6 @@ impl Node {
                 a.pane_ids(out);
                 b.pane_ids(out);
             }
-            Node::Stack { panes } => out.extend(panes.iter().copied()),
         }
     }
 
@@ -76,17 +29,6 @@ impl Node {
         match self {
             Node::Leaf(id) => *id == target,
             Node::Split { a, b, .. } => a.contains(target) || b.contains(target),
-            Node::Stack { panes } => panes.contains(&target),
-        }
-    }
-
-    pub(crate) fn contains_stack_pane(&self, target: PaneId) -> bool {
-        match self {
-            Node::Leaf(_) => false,
-            Node::Split { a, b, .. } => {
-                a.contains_stack_pane(target) || b.contains_stack_pane(target)
-            }
-            Node::Stack { panes } => panes.contains(&target),
         }
     }
 
@@ -96,7 +38,6 @@ impl Node {
             Node::Split { id, a, b, .. } => {
                 *id == target || a.contains_split(target) || b.contains_split(target)
             }
-            Node::Stack { .. } => false,
         }
     }
 
@@ -116,15 +57,6 @@ impl Node {
             Node::Split { a, b, .. } => {
                 a.swap_leaf_ids(first, second);
                 b.swap_leaf_ids(first, second);
-            }
-            Node::Stack { panes } => {
-                for pane in panes.iter_mut() {
-                    if *pane == first {
-                        *pane = second;
-                    } else if *pane == second {
-                        *pane = first;
-                    }
-                }
             }
         }
     }
@@ -153,18 +85,6 @@ impl Node {
                 a.split_leaf(target, split_id, dir, new_pane)
                     || b.split_leaf(target, split_id, dir, new_pane)
             }
-            Node::Stack { panes } if panes.contains(&target) => {
-                let old = std::mem::replace(self, Node::Leaf(target));
-                *self = Node::Split {
-                    id: split_id,
-                    dir,
-                    ratio: 0.5,
-                    a: Box::new(old),
-                    b: Box::new(Node::Leaf(new_pane)),
-                };
-                true
-            }
-            Node::Stack { .. } => false,
         }
     }
 
@@ -182,14 +102,6 @@ impl Node {
                     (Some(a), None) => Some(a),
                     (None, Some(b)) => Some(b),
                     (None, None) => None,
-                }
-            }
-            Node::Stack { mut panes } => {
-                panes.retain(|pane| *pane != target);
-                match panes.as_slice() {
-                    [] => None,
-                    [pane] => Some(Node::Leaf(*pane)),
-                    _ => Some(Node::Stack { panes }),
                 }
             }
         }
@@ -221,7 +133,6 @@ impl Node {
                         (contains, false)
                     }
                 }
-                Node::Stack { panes } => (panes.contains(&target), false),
             }
         }
 
@@ -239,7 +150,6 @@ impl Node {
                     a.set_split_ratio(target, new_ratio) || b.set_split_ratio(target, new_ratio)
                 }
             }
-            Node::Stack { .. } => false,
         }
     }
 }
@@ -247,12 +157,6 @@ impl Node {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn stack_construction_rejects_empty_membership() {
-        assert!(Node::stack(Vec::new()).is_none());
-        assert!(Node::stack(vec![1]).is_some());
-    }
 
     fn nested_tree() -> Node {
         Node::Split {
@@ -340,9 +244,6 @@ pub struct Screen {
     pub root: Node,
     pub active_pane: PaneId,
     pub zoomed_pane: Option<PaneId>,
-    /// Stable pane creation order for Zellij's default auto-layout family.
-    /// `None` means the screen owns a custom/damaged layout.
-    pub zellij_auto_layout: Option<Vec<PaneId>>,
 }
 
 #[derive(Debug)]
@@ -366,6 +267,7 @@ pub struct State {
     pub active_workspace: usize,
     pub panes: HashMap<PaneId, Pane>,
     pub surfaces: HashMap<SurfaceId, Arc<Surface>>,
+    pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,
 }
 
 impl State {

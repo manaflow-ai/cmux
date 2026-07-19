@@ -97,13 +97,11 @@ class Size:
 class Layout:
     type: str
     pane: Optional[int] = None
-    split: Optional[int] = None
     dir: Optional[str] = None
     ratio: Optional[float] = None
     a: Optional["Layout"] = None
     b: Optional["Layout"] = None
-    panes: Optional[List[int]] = None
-    expanded: Optional[int] = None
+    split: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -419,15 +417,6 @@ class CmuxClient:
     ) -> SurfaceResult:
         return SurfaceResult(int(self._request("new-screen", workspace=workspace, cols=cols, rows=rows)["surface"]))
 
-    def new_pane(
-        self,
-        pane: int,
-        cols: Optional[int] = None,
-        rows: Optional[int] = None,
-    ) -> SurfaceResult:
-        self._require_protocol(9, "new-pane")
-        return SurfaceResult(int(self._request("new-pane", pane=pane, cols=cols, rows=rows)["surface"]))
-
     def split(
         self,
         pane: int,
@@ -559,16 +548,12 @@ class CmuxClient:
 
     def attach_surface(self, surface: int) -> AttachStream:
         protocol = self._protocol if self._protocol is not None else self.identify().protocol
-        if protocol > 9:
-            raise ProtocolError(f"unsupported protocol {protocol}; maximum supported is 9")
         if protocol > 5 and not self.allow_protocol_v6_attach:
             raise ProtocolError("protocol v6+ attach streams require resized replay handling")
         return AttachStream(self, {"cmd": "attach-surface", "surface": surface})
 
     def _require_protocol(self, minimum: int, feature: str) -> None:
         protocol = self._protocol if self._protocol is not None else self.identify().protocol
-        if protocol > 9:
-            raise ProtocolError(f"unsupported protocol {protocol}; maximum supported is 9")
         if protocol < minimum:
             raise ProtocolError(
                 f"{feature} requires protocol {minimum}; server uses protocol {protocol}"
@@ -617,12 +602,6 @@ def _parse_layout(value: Dict[str, Any]) -> Layout:
             ratio=float(value.get("ratio", 0.0)),
             a=_parse_layout(value.get("a", {})),
             b=_parse_layout(value.get("b", {})),
-        )
-    if value.get("type") == "stack":
-        return Layout(
-            type="stack",
-            panes=[int(pane) for pane in value.get("panes", [])],
-            expanded=int(value.get("expanded", 0)),
         )
     return Layout(type="leaf", pane=int(value.get("pane", 0)))
 

@@ -166,8 +166,8 @@ export function useCmuxClient() {
         if (info.app !== "cmux-tui") throw new Error(t("wrongApp", { app: info.app }));
         if (!supportsProtocol(info.protocol)) {
           throw new Error(t("wrongProtocol", {
-            protocol: info.protocol,
             required: SUPPORTED_PROTOCOL,
+            protocol: info.protocol,
           }));
         }
         // Presence commands are additive (7c5a9e3e60); a protocol-6 server

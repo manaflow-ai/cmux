@@ -86,11 +86,6 @@ public final class CmuxClient implements AutoCloseable {
 
     private void requireProtocol(int minimum, String feature) throws CmuxException {
         int negotiated = protocol != null ? protocol : identify().protocol();
-        if (negotiated > 9) {
-            throw new CmuxProtocolMismatchException(
-                "unsupported protocol " + negotiated + "; maximum supported is 9"
-            );
-        }
         if (negotiated < minimum) {
             throw new CmuxProtocolMismatchException(
                 feature + " requires protocol " + minimum + "; server uses protocol " + negotiated
@@ -165,15 +160,6 @@ public final class CmuxClient implements AutoCloseable {
         putIfNotNull(params, "cols", cols);
         putIfNotNull(params, "rows", rows);
         return new SurfaceResult(asLong(request("new-screen", params).get("surface")));
-    }
-
-    public SurfaceResult newPane(long pane, Integer cols, Integer rows) throws CmuxException {
-        requireProtocol(9, "new-pane");
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("pane", pane);
-        putIfNotNull(params, "cols", cols);
-        putIfNotNull(params, "rows", rows);
-        return new SurfaceResult(asLong(request("new-pane", params).get("surface")));
     }
 
     public SurfaceResult split(long pane, String dir, Integer cols, Integer rows) throws CmuxException {
@@ -321,7 +307,7 @@ public final class CmuxClient implements AutoCloseable {
 
     public CmuxStream attachSurface(long surface) throws CmuxException {
         int negotiated = protocol != null ? protocol : identify().protocol();
-        if (negotiated > 9 || (negotiated > 5 && !allowProtocolV6Attach)) {
+        if (negotiated > 5 && !allowProtocolV6Attach) {
             throw new CmuxProtocolMismatchException("unsupported attach protocol " + negotiated);
         }
         Map<String, Object> params = new LinkedHashMap<>();

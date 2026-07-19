@@ -78,7 +78,6 @@ export type NewTabOptions = CmuxRequestParams<"new-tab">;
 export type NewBrowserTabOptions = Omit<CmuxRequestParams<"new-browser-tab">, "url">;
 export type NewWorkspaceOptions = CmuxRequestParams<"new-workspace">;
 export type NewScreenOptions = CmuxRequestParams<"new-screen">;
-export type NewPaneOptions = Omit<CmuxRequestParams<"new-pane">, "pane">;
 export type SplitOptions = Omit<CmuxRequestParams<"split">, "pane" | "dir">;
 export type SelectOptions = CmuxRequestParams<"select-screen">;
 export type SelectTabOptions = CmuxRequestParams<"select-tab">;
@@ -444,10 +443,6 @@ export class CmuxClient {
   }
   newWorkspace(options: NewWorkspaceOptions = {}): Promise<SurfaceResult> { return this.request("new-workspace", options); }
   newScreen(options: NewScreenOptions = {}): Promise<SurfaceResult> { return this.request("new-screen", options); }
-  async newPane(pane: Id, options: NewPaneOptions = {}): Promise<SurfaceResult> {
-    await this.requireProtocol(9, "new-pane");
-    return this.request("new-pane", { pane, ...options });
-  }
   split(pane: Id, dir: SplitDirection, options: SplitOptions = {}): Promise<SurfaceResult> {
     return this.request("split", { pane, dir, ...options });
   }
@@ -516,9 +511,6 @@ export class CmuxClient {
   ): Promise<CmuxStream<DecodedAttachEvent> | CmuxStream<RenderAttachEvent>> {
     const mode = options.mode ?? "bytes";
     const protocol = this.identifiedProtocol ?? (await this.identify()).protocol;
-    if (protocol > 9) {
-      throw new CmuxProtocolError(`unsupported protocol ${protocol}; maximum supported is 9`);
-    }
     if (mode === "render" && protocol < 7) {
       throw new CmuxProtocolError(
         `render attach requires protocol 7 or newer; server reported protocol ${protocol}`,
@@ -553,9 +545,6 @@ export class CmuxClient {
 
   private async requireProtocol(minimum: number, feature: string): Promise<void> {
     const protocol = this.protocol ?? (await this.identify()).protocol;
-    if (protocol > 9) {
-      throw new CmuxProtocolError(`unsupported protocol ${protocol}; maximum supported is 9`);
-    }
     if (protocol < minimum) {
       throw new CmuxProtocolError(
         `${feature} requires protocol ${minimum}; server uses protocol ${protocol}`,

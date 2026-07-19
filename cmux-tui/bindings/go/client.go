@@ -211,11 +211,6 @@ func (c *Client) requireProtocol(ctx context.Context, minimum uint32, feature st
 		}
 		protocol = &info.Protocol
 	}
-	if *protocol > 9 {
-		return &protocolError{msg: fmt.Sprintf(
-			"unsupported protocol %d; maximum supported is 9", *protocol,
-		)}
-	}
 	if *protocol < minimum {
 		return &protocolError{msg: fmt.Sprintf(
 			"%s requires protocol %d; server uses protocol %d",
@@ -274,16 +269,6 @@ func (c *Client) NewWorkspace(ctx context.Context, opts NewWorkspaceOptions) (Su
 func (c *Client) NewScreen(ctx context.Context, opts NewScreenOptions) (SurfaceResult, error) {
 	var result SurfaceResult
 	return result, c.request(ctx, "new-screen", commandMap(opts), &result)
-}
-
-func (c *Client) NewPane(ctx context.Context, pane uint64, opts NewPaneOptions) (SurfaceResult, error) {
-	if err := c.requireProtocol(ctx, 9, "new-pane"); err != nil {
-		return SurfaceResult{}, err
-	}
-	params := commandMap(opts)
-	params["pane"] = pane
-	var result SurfaceResult
-	return result, c.request(ctx, "new-pane", params, &result)
 }
 
 func (c *Client) Split(ctx context.Context, pane uint64, dir string, opts SplitOptions) (SurfaceResult, error) {
@@ -395,7 +380,7 @@ func (c *Client) AttachSurface(ctx context.Context, surface uint64) (*Stream, er
 		}
 		protocol = &info.Protocol
 	}
-	if *protocol > 9 || (*protocol > 5 && !c.allowProtocolV6Attach) {
+	if *protocol > 5 && !c.allowProtocolV6Attach {
 		return nil, &protocolError{msg: fmt.Sprintf("unsupported attach protocol %d", *protocol)}
 	}
 	return c.openStream(ctx, map[string]any{"id": c.nextRequestID(), "cmd": "attach-surface", "surface": surface})

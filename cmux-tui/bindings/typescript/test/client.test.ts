@@ -157,21 +157,6 @@ test("resize response preserves reservation identity", async () => {
   await client.close();
 });
 
-test("newPane rejects servers older than protocol 9", async () => {
-  const transport = new ScriptedTransport((request, connection) => {
-    assert.equal(request.cmd, "identify");
-    connection.emit({
-      id: request.id,
-      ok: true,
-      data: { app: "cmux-tui", version: "0.1.2", protocol: 8, session: "main", pid: 1 },
-    });
-  });
-  const client = new CmuxClient({ transport, timeoutMs: 100 });
-
-  await assert.rejects(client.newPane(1), /new-pane requires protocol 9/);
-  await client.close();
-});
-
 test("setSplitRatio rejects servers older than protocol 8", async () => {
   const transport = new ScriptedTransport((request, connection) => {
     assert.equal(request.cmd, "identify");
@@ -184,6 +169,25 @@ test("setSplitRatio rejects servers older than protocol 8", async () => {
   const client = new CmuxClient({ transport, timeoutMs: 100 });
 
   await assert.rejects(client.setSplitRatio(1, 0.5), /set-split-ratio requires protocol 8/);
+  await client.close();
+});
+
+test("setSplitRatio accepts newer additive protocols", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 9, session: "main", pid: 1 },
+      });
+      return;
+    }
+    assert.deepEqual(request, { id: 2, cmd: "set-split-ratio", split: 1, ratio: 0.5 });
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  await client.setSplitRatio(1, 0.5);
   await client.close();
 });
 
@@ -244,29 +248,6 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
     assert.deepEqual(resized.data, Uint8Array.from([1, 2, 3]));
     assert.deepEqual(resized.replay, resized.data);
   }
-  stream.close();
-  await client.close();
-});
-
-test("attachSurface accepts protocol 9", async () => {
-  const main = new ScriptedTransport((request, transport) => {
-    transport.emit({
-      id: request.id,
-      ok: true,
-      data: { app: "cmux-tui", version: "0.1.2", protocol: 9, session: "main", pid: 1 },
-    });
-  });
-  const attach = new ScriptedTransport((request, transport) => {
-    assert.equal(request.cmd, "attach-surface");
-    transport.emit({ id: request.id, ok: true, data: {} });
-  });
-  const client = new CmuxClient({
-    transport: main,
-    streamTransportFactory: () => attach,
-    timeoutMs: 100,
-  });
-
-  const stream = await client.attachSurface(7);
   stream.close();
   await client.close();
 });
@@ -431,6 +412,31 @@ test("attachSurface render mode yields render-state and render-delta from cached
     scrollback_rows: 43,
     rows: [{ row: 0, runs: [{ text: "ok ", fg: "#00ff00", bg: null, attrs: 0 }] }],
   });
+  stream.close();
+  await client.close();
+});
+
+test("attachSurface render mode accepts a newer additive protocol", async () => {
+  const main = new ScriptedTransport((request, transport) => {
+    assert.equal(request.cmd, "identify");
+    transport.emit({
+      id: request.id,
+      ok: true,
+      data: { app: "cmux-tui", version: "0.1.2", protocol: 9, session: "main", pid: 1 },
+    });
+  });
+  const attach = new ScriptedTransport((request, transport) => {
+    assert.deepEqual(request, { id: 2, cmd: "attach-surface", surface: 7, mode: "render" });
+    transport.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({
+    transport: main,
+    streamTransportFactory: () => attach,
+    timeoutMs: 100,
+  });
+
+  assert.equal((await client.identify()).protocol, 9);
+  const stream = await client.attachSurface(7, { mode: "render" });
   stream.close();
   await client.close();
 });

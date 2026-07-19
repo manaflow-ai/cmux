@@ -40,12 +40,11 @@ func TestSetSplitRatioRejectsServersOlderThanProtocolEight(t *testing.T) {
 	}
 }
 
-func TestNewPaneRejectsServersOlderThanProtocolNine(t *testing.T) {
-	protocol := uint32(8)
+func TestSetSplitRatioAcceptsNewerAdditiveProtocols(t *testing.T) {
+	protocol := uint32(9)
 	client := &Client{protocol: &protocol}
-	_, err := client.NewPane(context.Background(), 1, NewPaneOptions{})
-	if err == nil || !errors.Is(err, ErrProtocolMismatch) {
-		t.Fatalf("NewPane() error = %v, want protocol mismatch", err)
+	if err := client.requireProtocol(context.Background(), 8, "set-split-ratio"); err != nil {
+		t.Fatalf("requireProtocol() error = %v, want protocol 9 accepted", err)
 	}
 }
 

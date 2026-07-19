@@ -2,7 +2,7 @@
 
 Generated bindings live under `cmux-tui/bindings/<lang>/` in a future round. They are generated from this spec and validated by the conformance suite in this file.
 
-All bindings must expose the implemented protocol v9 commands, events, transports, stable split ids, stack layouts, and `set-split-ratio` API. APIs newer than the connected server must be guarded by explicit version checks or feature gates.
+All bindings must expose the implemented protocol v8 commands, events, transports, stable split ids, and `set-split-ratio` API. APIs newer than the connected server must be guarded by explicit version checks or feature gates.
 
 ## Shared Requirements
 
@@ -28,10 +28,6 @@ SDKs that expose protocol v7 should provide a version-gated render attachment it
 ## Protocol v8 SDK Expectations
 
 SDKs must treat `layout.split` and `set-split-ratio` as protocol-v8 features. A client connected to protocol 7 must not require the field or send the command.
-
-## Protocol v9 SDK Expectations
-
-SDKs must treat stack layout nodes and `new-pane` as protocol-v9 features. `new-pane` must fail locally before sending when the identified server reports protocol 8 or older.
 
 ## Rust
 

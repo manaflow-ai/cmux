@@ -18,7 +18,7 @@ use base64::Engine;
 use cmux_tui_core::{
     BrowserSource, BrowserStatus, MuxEvent, PairingChallenge, PaneId, Rect, SplitDir, SplitEdge,
     SplitId, SurfaceId, SurfaceKind, WorkspaceId, exact_split_for_pane_edge, layout_screen,
-    split_sides, zellij_default_pane_layout,
+    split_sides,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -1656,14 +1656,6 @@ impl OrderedSession {
         Ok(())
     }
 
-    pub fn new_pane(&self, pane: PaneId, size: Option<(u16, u16)>) -> anyhow::Result<()> {
-        self.enqueue_with_completion("create pane", true, move |session| {
-            let surface = session.new_pane(pane, size)?;
-            Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
-        });
-        Ok(())
-    }
-
     pub fn set_split_ratio(&self, split: SplitId, ratio: f32) {
         self.set_split_ratio_deferred(split, ratio);
         self.settle_split_ratio();
@@ -2434,6 +2426,9 @@ pub struct App {
     pub graphics_supported: bool,
     stdout_lock: Arc<Mutex<()>>,
     pub pane_areas: Vec<PaneArea>,
+    /// Terminal cells actually represented by the last rendered snapshot.
+    /// Foreign-viewer padding outside these bounds is display-only.
+    pub(crate) rendered_terminal_bounds: HashMap<SurfaceId, Rect>,
     /// Surfaces whose active tabs were visible in the previous layout pass.
     /// Attach streams may outlive this set, but only members hold size leases.
     visible_size_surfaces: HashSet<SurfaceId>,
@@ -2583,6 +2578,50 @@ fn content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Option<(u1
     (content.width > 0 && content.height > 0).then_some((content.width, content.height))
 }
 
+fn cell_height_width_ratio(cell_pixels: (u16, u16)) -> u16 {
+    let (width, height) = cell_pixels;
+    if width == 0 || height == 0 {
+        return 4;
+    }
+    ((height as f32 / width as f32).round() as u16).max(1)
+}
+
+fn zellij_smart_direction(content: Rect, ratio: u16) -> Option<SplitDir> {
+    let rows = content.height as u32;
+    let cols = content.width as u32;
+    let ratio = ratio as u32;
+    if rows.saturating_mul(ratio) > cols && rows > 20 {
+        Some(SplitDir::Down)
+    } else if cols > 60 {
+        Some(SplitDir::Right)
+    } else {
+        None
+    }
+}
+
+fn smart_split_target(
+    areas: &[PaneArea],
+    focused: Option<PaneId>,
+    cell_pixels: (u16, u16),
+) -> Option<(PaneId, SplitDir)> {
+    let ratio = cell_height_width_ratio(cell_pixels);
+    if let Some(area) = focused.and_then(|pane| areas.iter().find(|area| area.pane == pane))
+        && let Some(dir) = zellij_smart_direction(area.content, ratio)
+    {
+        return Some((area.pane, dir));
+    }
+    areas
+        .iter()
+        .filter_map(|area| {
+            zellij_smart_direction(area.content, ratio).map(|dir| {
+                let area_score = area.content.width as u32 * area.content.height as u32;
+                (area_score, area.pane, dir)
+            })
+        })
+        .max_by_key(|(area_score, _, _)| *area_score)
+        .map(|(_, pane, dir)| (pane, dir))
+}
+
 fn browser_content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Option<(u16, u16)> {
     let (_, _, content, _) = pane_parts_for_rect(rect, scrollbar, true);
     (content.width > 0 && content.height > 0).then_some((content.width, content.height))
@@ -2625,10 +2664,6 @@ fn pane_parts_for_rect(
         None
     };
     (bar, omnibar, content, track)
-}
-
-fn stacked_header_parts_for_rect(rect: Rect) -> (Option<Rect>, Option<Rect>, Rect, Option<Rect>) {
-    (Some(rect), None, Rect { y: rect.y.saturating_add(rect.height), height: 0, ..rect }, None)
 }
 
 pub fn run(
@@ -2769,6 +2804,7 @@ pub fn run(
         graphics_supported,
         stdout_lock: stdout_lock.clone(),
         pane_areas: Vec::new(),
+        rendered_terminal_bounds: HashMap::new(),
         visible_size_surfaces: HashSet::new(),
         pending_size_releases: HashSet::new(),
         prefix_armed: false,
@@ -3376,9 +3412,6 @@ impl App {
             if surface.kind() != SurfaceKind::Browser {
                 continue;
             }
-            if area.content.width == 0 || area.content.height == 0 {
-                continue;
-            }
             if self.browser_graphic_occluded(area.content) {
                 continue;
             }
@@ -3504,9 +3537,9 @@ impl App {
             .active_screen()
             .map(|screen| {
                 if let Some(pane) = screen.zoomed_pane {
-                    layout_screen(&cmux_tui_core::Node::Leaf(pane), area, Some(pane))
+                    layout_screen(&cmux_tui_core::Node::Leaf(pane), area)
                 } else {
-                    layout_screen(&screen.layout, area, Some(screen.active_pane))
+                    layout_screen(&screen.layout, area)
                 }
             })
             .unwrap_or_default();
@@ -3527,17 +3560,13 @@ impl App {
             }
             return;
         };
-        let stacked_headers = layout.stacked_headers;
         for (pane_id, rect) in layout.panes {
             let Some(pane) = screen.pane(pane_id) else { continue };
             let Some(surface_id) = pane.active_surface() else { continue };
             let has_browser_omnibar =
                 pane.tabs.get(pane.active_tab).is_some_and(|tab| tab.kind == SurfaceKind::Browser);
-            let (bar, omnibar, content, track) = if stacked_headers.contains(&pane_id) {
-                stacked_header_parts_for_rect(rect)
-            } else {
-                pane_parts_for_rect(rect, self.config.scrollbar.position, has_browser_omnibar)
-            };
+            let (bar, omnibar, content, track) =
+                pane_parts_for_rect(rect, self.config.scrollbar.position, has_browser_omnibar);
             self.pane_areas.push(PaneArea {
                 pane: pane_id,
                 surface: surface_id,
@@ -4595,22 +4624,12 @@ impl App {
     }
 
     fn new_pane_smart(&mut self) -> anyhow::Result<()> {
-        let Some(pane) = self.active_pane() else {
+        let Some((pane, dir)) =
+            smart_split_target(&self.pane_areas, self.active_pane(), self.cell_pixels)
+        else {
             return Ok(());
         };
-        let hint = self.tree.active_screen().and_then(|screen| {
-            let mut panes = Vec::new();
-            screen.layout.pane_ids(&mut panes);
-            panes.push(PaneId::MAX);
-            let layout = zellij_default_pane_layout(&panes)?;
-            let rect = layout_screen(&layout, self.content_area, Some(PaneId::MAX))
-                .rect_of(PaneId::MAX)?;
-            self.size_of_rect(rect)
-        });
-        if !self.prepare_pty_input_before_mutation() {
-            return Ok(());
-        }
-        self.session.new_pane(pane, hint)
+        self.split_pane(pane, dir)
     }
 
     fn new_workspace(&mut self) -> anyhow::Result<()> {
@@ -5367,7 +5386,6 @@ impl App {
         // Re-derive the layout geometry from the frame's pane areas.
         let layout = cmux_tui_core::LayoutResult {
             panes: self.pane_areas.iter().map(|a| (a.pane, a.rect)).collect(),
-            ..Default::default()
         };
         if let Some(next) = layout.neighbor(active, dx, dy) {
             self.focus_pane_after_input(next);
@@ -5845,12 +5863,18 @@ impl App {
         {
             return PtyMousePressResult::NotOwned;
         }
+        let Some(content) = self.terminal_input_rect(&area) else {
+            return PtyMousePressResult::NotOwned;
+        };
+        if !content.contains(x, y) {
+            return PtyMousePressResult::NotOwned;
+        }
         let Some(handle) = self.session.surface(area.surface) else {
             return PtyMousePressResult::Consumed;
         };
         let (release_capture, forwarded) = self.prepare_pty_mouse_press(
             (area.surface, handle.clone()),
-            area.content,
+            content,
             x,
             y,
             button,
@@ -5882,7 +5906,7 @@ impl App {
             handle: Some(handle),
             reservation_id,
             release_bytes,
-            content: area.content,
+            content,
             button,
             position: (x, y),
             modifiers,
@@ -6153,10 +6177,14 @@ impl App {
         {
             return false;
         }
+        let Some(content) = self.terminal_input_rect(&area) else { return false };
+        if !content.contains(x, y) {
+            return false;
+        }
         if action == MouseAction::Motion {
             return self.forward_pty_mouse_motion_if_uncontended(
                 area.surface,
-                area.content,
+                content,
                 (x, y),
                 None,
                 modifiers,
@@ -6165,7 +6193,7 @@ impl App {
         }
         self.forward_pty_mouse_to_surface(
             area.surface,
-            area.content,
+            content,
             x,
             y,
             action,
@@ -6441,8 +6469,15 @@ impl App {
         }
     }
 
+    fn terminal_input_rect(&self, area: &PaneArea) -> Option<Rect> {
+        self.rendered_terminal_bounds.get(&area.surface).copied()
+    }
+
     fn current_pty_content(&self, surface: SurfaceId) -> Option<Rect> {
-        self.pane_areas.iter().find(|area| area.surface == surface).map(|area| area.content)
+        self.pane_areas
+            .iter()
+            .find(|area| area.surface == surface)
+            .and_then(|area| self.terminal_input_rect(area))
     }
 
     fn cancel_pty_release_reservation(&self) {
@@ -6781,17 +6816,20 @@ impl App {
                     if self.active_pane() != Some(area.pane) {
                         self.focus_pane_after_input(area.pane);
                     }
+                    let Some(content) = self.terminal_input_rect(&area) else {
+                        return Ok(RenderAction::Draw);
+                    };
+                    if !content.contains(x, y) {
+                        return Ok(RenderAction::Draw);
+                    }
                     // Begin a text selection; it becomes visible once the
                     // mouse moves to a second cell.
                     let offset = self.surface_scroll_offset(area.surface);
-                    let cell = (x - area.content.x, offset + (y - area.content.y) as u64);
+                    let cell = (x - content.x, offset + (y - content.y) as u64);
                     self.selection =
                         Some(Selection { surface: area.surface, anchor: cell, head: cell });
-                    self.drag = Some(Drag::Select {
-                        content: area.content,
-                        auto_scroll: None,
-                        col: x - area.content.x,
-                    });
+                    self.drag =
+                        Some(Drag::Select { content, auto_scroll: None, col: x - content.x });
                 }
             } else if self.active_pane() != Some(area.pane) {
                 self.focus_pane_after_input(area.pane);
@@ -7094,14 +7132,8 @@ impl App {
         let Some((edge, target)) = candidates
             .into_iter()
             .filter_map(|(split_edge, pane_edge)| {
-                exact_split_for_pane_edge(
-                    &screen.layout,
-                    self.content_area,
-                    Some(screen.active_pane),
-                    pane,
-                    split_edge,
-                )
-                .map(|target| (pane_edge, target))
+                exact_split_for_pane_edge(&screen.layout, self.content_area, pane, split_edge)
+                    .map(|target| (pane_edge, target))
             })
             .min_by_key(|(_, target)| target.area.width as u32 * target.area.height as u32)
         else {
@@ -7142,13 +7174,9 @@ impl App {
             PaneEdge::Top => SplitEdge::Top,
             PaneEdge::Bottom => SplitEdge::Bottom,
         };
-        let Some(target) = exact_split_for_pane_edge(
-            &screen.layout,
-            self.content_area,
-            Some(screen.active_pane),
-            pane,
-            split_edge,
-        ) else {
+        let Some(target) =
+            exact_split_for_pane_edge(&screen.layout, self.content_area, pane, split_edge)
+        else {
             return;
         };
         let (coord, start, extent) = match edge {
@@ -7235,6 +7263,12 @@ impl App {
             return Ok(RenderAction::None);
         }
         let Some(area) = self.pane_area_at(x, y).copied() else { return Ok(RenderAction::None) };
+        if self.surface_kind(area.surface) == Some(SurfaceKind::Pty)
+            && area.content.contains(x, y)
+            && !self.terminal_input_rect(&area).is_some_and(|rect| rect.contains(x, y))
+        {
+            return Ok(RenderAction::None);
+        }
         if self.active_pane() != Some(area.pane) {
             self.focus_pane_after_input(area.pane);
         }
@@ -7309,6 +7343,12 @@ impl App {
         let Some(area) = self.pane_area_at(x, y).copied() else {
             return Ok(RenderAction::None);
         };
+        if self.surface_kind(area.surface) == Some(SurfaceKind::Pty)
+            && area.content.contains(x, y)
+            && !self.terminal_input_rect(&area).is_some_and(|rect| rect.contains(x, y))
+        {
+            return Ok(RenderAction::None);
+        }
         if self.active_pane() != Some(area.pane) {
             self.focus_pane_after_input(area.pane);
         }
@@ -7515,7 +7555,6 @@ mod tests {
 
     use cmux_tui_core::{
         BrowserStatus, Mux, MuxEvent, Node, Rect, SplitDir, SurfaceId, SurfaceKind, SurfaceOptions,
-        layout_screen,
     };
     use crossterm::event::{
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -7564,86 +7603,6 @@ mod tests {
                 MenuItem::Action(MenuAction::CopyPaneId(pane)),
             ]
         );
-    }
-
-    #[test]
-    fn alt_n_uses_zellij_default_vertical_distribution() {
-        let (mux, _) = test_mux("alt-n-zellij-layout-test", None);
-        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
-        app.sidebar_visible = false;
-        app.replace_tree(app.session.tree());
-
-        for _ in 0..4 {
-            app.sync_layout((200, 40));
-            app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
-            while app.session.has_pending_mutations() {
-                let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
-                app.handle(event).unwrap();
-            }
-        }
-
-        let screen = app.tree.active_screen().unwrap();
-        let mut panes = Vec::new();
-        screen.layout.pane_ids(&mut panes);
-        panes.sort_unstable();
-        assert_eq!(panes.len(), 5);
-
-        let layout = layout_screen(
-            &screen.layout,
-            Rect { x: 0, y: 0, width: 200, height: 40 },
-            Some(screen.active_pane),
-        );
-        assert_eq!(
-            layout.panes,
-            vec![
-                (panes[0], Rect { x: 0, y: 0, width: 100, height: 40 }),
-                (panes[1], Rect { x: 100, y: 0, width: 100, height: 10 }),
-                (panes[2], Rect { x: 100, y: 10, width: 100, height: 10 }),
-                (panes[3], Rect { x: 100, y: 20, width: 100, height: 10 }),
-                (panes[4], Rect { x: 100, y: 30, width: 100, height: 10 }),
-            ]
-        );
-
-        for _ in 0..8 {
-            app.sync_layout((200, 40));
-            app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
-            while app.session.has_pending_mutations() {
-                let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
-                app.handle(event).unwrap();
-            }
-        }
-
-        let screen = app.tree.active_screen().unwrap();
-        let mut panes = Vec::new();
-        screen.layout.pane_ids(&mut panes);
-        panes.sort_unstable();
-        assert_eq!(panes.len(), 13);
-
-        let layout = layout_screen(
-            &screen.layout,
-            Rect { x: 0, y: 0, width: 200, height: 40 },
-            Some(screen.active_pane),
-        );
-        for (index, (pane, rect)) in layout.panes[..12].iter().enumerate() {
-            assert_eq!(*pane, panes[index]);
-            assert_eq!(*rect, Rect { x: 0, y: index as u16, width: 200, height: 1 });
-        }
-        assert_eq!(layout.panes[12], (panes[12], Rect { x: 0, y: 12, width: 200, height: 28 }));
-
-        app.sync_layout((200, 41));
-        for pane in &panes[..12] {
-            let area = app.pane_areas.iter().find(|area| area.pane == *pane).unwrap();
-            assert_eq!(area.bar, Some(area.rect));
-            assert_eq!(area.content.height, 0);
-        }
-        let expanded = app.pane_areas.iter().find(|area| area.pane == panes[12]).unwrap();
-        assert_eq!(expanded.rect.height, 28);
-        assert_eq!(expanded.content.height, 26);
-
-        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
-        for surface in surfaces {
-            mux.close_surface(surface);
-        }
     }
 
     #[test]
@@ -7991,6 +7950,7 @@ mod tests {
             content,
             track: None,
         });
+        app.rendered_terminal_bounds.insert(surface.id, content);
 
         let event = |kind, modifiers| MouseEvent {
             kind,
@@ -8065,6 +8025,7 @@ mod tests {
             .unwrap();
         app.pane_areas[0].content.x += 3;
         let moved_content = app.pane_areas[0].content;
+        app.rendered_terminal_bounds.insert(surface.id, moved_content);
         let moved_event = MouseEvent {
             kind: MouseEventKind::Drag(MouseButton::Left),
             column: moved_content.x + 4,
@@ -8077,6 +8038,7 @@ mod tests {
             .unwrap();
         assert_eq!(app.encode_buf, b"\x1b[<0;5;3m");
         app.pane_areas[0].content = content;
+        app.rendered_terminal_bounds.insert(surface.id, content);
 
         app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE))
             .unwrap();
@@ -8099,6 +8061,136 @@ mod tests {
         assert!(app.encode_buf.is_empty());
         assert!(app.selection.is_some());
         assert!(matches!(app.drag, Some(Drag::Select { .. })));
+
+        mux.close_surface(surface.id);
+    }
+
+    #[test]
+    fn foreign_viewport_rejects_pty_mouse_input_outside_rendered_grid() {
+        let mux = Mux::new(
+            "foreign-viewport-mouse-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("work".to_string()), Some((12, 5))).unwrap();
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let content = Rect { x: 2, y: 3, width: 20, height: 8 };
+        let live = Rect { x: content.x, y: content.y, width: 12, height: 5 };
+        app.pane_areas.push(PaneArea {
+            pane,
+            surface: surface.id,
+            rect: Rect { x: 1, y: 2, width: 23, height: 10 },
+            bar: Some(Rect { x: 1, y: 2, width: 23, height: 1 }),
+            omnibar: None,
+            content,
+            track: None,
+        });
+        app.rendered_terminal_bounds.insert(surface.id, live);
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: live.x + live.width - 1,
+            row: live.y + live.height - 1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<0;12;5M");
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { content: rect, .. }) if rect == live));
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: live.x + live.width - 1,
+            row: live.y + live.height - 1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        app.encode_buf.clear();
+        let dead_column = live.x + live.width;
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: dead_column,
+            row: live.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.encode_buf.is_empty());
+        assert!(app.drag.is_none());
+        assert!(app.selection.is_none());
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: dead_column,
+            row: live.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.menu.is_some());
+        app.menu = None;
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: dead_column,
+            row: live.y,
+            modifiers: KeyModifiers::SHIFT,
+        })
+        .unwrap();
+        assert!(app.selection.is_none());
+        assert!(app.drag.is_none());
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: live.x + 1,
+            row: live.y + 1,
+            modifiers: KeyModifiers::SHIFT,
+        })
+        .unwrap();
+        assert!(matches!(app.drag, Some(Drag::Select { content: rect, .. }) if rect == live));
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + content.width - 1,
+            row: content.y + content.height - 1,
+            modifiers: KeyModifiers::SHIFT,
+        })
+        .unwrap();
+        assert_eq!(app.selection.map(|selection| selection.head), Some((11, 4)));
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: content.x + content.width - 1,
+            row: content.y + content.height - 1,
+            modifiers: KeyModifiers::SHIFT,
+        })
+        .unwrap();
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: dead_column,
+            row: live.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.encode_buf.is_empty());
+
+        app.rendered_terminal_bounds.remove(&surface.id);
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: live.x,
+            row: live.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.encode_buf.is_empty());
+        assert!(app.selection.is_none());
+        assert!(app.drag.is_none());
 
         mux.close_surface(surface.id);
     }
@@ -8180,6 +8272,7 @@ mod tests {
             content,
             track: None,
         });
+        app.rendered_terminal_bounds.insert(surface.id, content);
 
         let held_surface = surface.clone();
         let (locked_tx, locked_rx) = std::sync::mpsc::channel();
@@ -8229,6 +8322,7 @@ mod tests {
             content,
             track: None,
         });
+        app.rendered_terminal_bounds.insert(surface.id, content);
         app.sidebar_focused = true;
 
         assert_eq!(
@@ -10586,6 +10680,7 @@ mod tests {
             content,
             track: None,
         });
+        app.rendered_terminal_bounds.insert(surface.id, content);
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
         let event = |button| MouseEvent {
             kind: MouseEventKind::Down(button),
@@ -10885,6 +10980,7 @@ mod tests {
             graphics_supported: false,
             stdout_lock: Arc::new(Mutex::new(())),
             pane_areas: Vec::new(),
+            rendered_terminal_bounds: HashMap::new(),
             visible_size_surfaces: HashSet::new(),
             pending_size_releases: HashSet::new(),
             prefix_armed: false,

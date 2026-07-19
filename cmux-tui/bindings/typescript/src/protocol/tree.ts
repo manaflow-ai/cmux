@@ -11,8 +11,7 @@ export type Layout =
       ratio: number;
       a: Layout;
       b: Layout;
-    }
-  | { type: "stack"; panes: [Id, ...Id[]]; expanded: Id };
+    };
 
 /** A declarative split tree used by `apply-layout`. */
 export type DeclarativeLayout =

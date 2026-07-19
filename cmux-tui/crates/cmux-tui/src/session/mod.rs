@@ -705,23 +705,12 @@ impl Session {
         }
     }
 
-    pub fn new_pane(&self, pane: PaneId, size: Option<(u16, u16)>) -> anyhow::Result<SurfaceId> {
-        match self {
-            Session::Local(mux) => mux.new_pane(pane, size).map(|surface| surface.id),
-            Session::Remote(remote) => {
-                let result =
-                    remote.request(with_size(json!({"cmd": "new-pane", "pane": pane}), size))?;
-                response_surface(&result, "pane")
-            }
-        }
-    }
-
     pub fn set_split_ratio(&self, split: SplitId, ratio: f32) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => {
-                mux.set_split_ratio(split, ratio);
-                Ok(())
-            }
+            Session::Local(mux) => mux
+                .set_split_ratio(split, ratio)
+                .then_some(())
+                .ok_or_else(|| anyhow::anyhow!("unknown split {split}")),
             Session::Remote(remote) => remote
                 .request(json!({"cmd": "set-split-ratio", "split": split, "ratio": ratio}))
                 .map(|_| ()),
@@ -1359,7 +1348,9 @@ impl SurfaceHandle {
 
 #[cfg(test)]
 mod tests {
-    use super::resize_action;
+    use cmux_tui_core::{Mux, SurfaceOptions};
+
+    use super::{Session, resize_action};
 
     #[test]
     fn first_layout_after_attach_sends_ordered_resize() {
@@ -1383,5 +1374,14 @@ mod tests {
     fn steady_state_does_not_send() {
         let desired = (123, 65);
         assert!(!resize_action(desired, Some(desired)));
+    }
+
+    #[test]
+    fn local_set_split_ratio_rejects_an_unknown_split() {
+        let session =
+            Session::Local(Mux::new("unknown-local-split-test", SurfaceOptions::default()));
+
+        let error = session.set_split_ratio(999_999, 0.5).unwrap_err();
+        assert_eq!(error.to_string(), "unknown split 999999");
     }
 }

@@ -2,7 +2,7 @@ import { useCallback, useReducer, useRef, useState } from "react";
 import type { ClientInfo, CmuxClient, Id, LivePane, Tab } from "cmux/browser";
 import { t } from "../i18n";
 import type { PaneLayoutView } from "../lib/layout";
-import { layoutToViewModel, visibleStackPanes } from "../lib/layout";
+import { layoutToViewModel } from "../lib/layout";
 import type { ScreenView } from "../lib/tree";
 import { contextMenuReducer } from "../lib/contextMenu";
 import { clientSizingMenuItems, paneClientSummary } from "../lib/clientSizing";
@@ -278,75 +278,7 @@ interface LayoutGroupNodeProps extends Omit<LayoutNodeProps, "node"> {
   node: Extract<PaneLayoutView, { type: "group" }>;
 }
 
-interface LayoutStackNodeProps extends Omit<LayoutNodeProps, "node"> {
-  node: Extract<PaneLayoutView, { type: "stack" }>;
-}
-
-function useVisibleStackHeaders() {
-  const observer = useRef<ResizeObserver | null>(null);
-  const [visibleHeaders, setVisibleHeaders] = useState<number | null>(null);
-  const ref = useCallback((element: HTMLDivElement | null) => {
-    observer.current?.disconnect();
-    observer.current = null;
-    if (element === null || typeof ResizeObserver === "undefined") return;
-    const update = () => {
-      const headerHeight = Number.parseFloat(
-        getComputedStyle(element).getPropertyValue("--stack-header-height"),
-      ) || 30;
-      setVisibleHeaders(Math.max(0, Math.floor(
-        (element.getBoundingClientRect().height - headerHeight) / (headerHeight + 1),
-      )));
-    };
-    update();
-    observer.current = new ResizeObserver(update);
-    observer.current.observe(element);
-  }, []);
-  return { ref, visibleHeaders };
-}
-
-function LayoutStackNode({ node, screen, basis, ...actions }: LayoutStackNodeProps) {
-  const style = basis === undefined ? undefined : { flex: `0 0 ${basis}%` };
-  const { ref, visibleHeaders } = useVisibleStackHeaders();
-  const panes = visibleStackPanes(node.panes, node.expanded, visibleHeaders);
-  return (
-    <div className="pane-stack" ref={ref} style={style}>
-      {panes.map((pane) => {
-        const livePane = screen.panes.find((candidate) => candidate.id === pane) ?? null;
-        const expanded = pane === node.expanded;
-        const activeTab = livePane?.tabs[livePane.active_tab] ?? null;
-        const label = livePane?.name || activeTab?.name || activeTab?.title || t("pane", { number: pane });
-        return (
-          <div className={`pane-leaf${expanded ? " expanded" : " collapsed"}`} key={pane}>
-            {expanded ? (
-              <PaneLeaf
-                {...actions}
-                pane={livePane}
-                paneId={pane}
-                active={screen.activePane === pane}
-                zoomed={screen.zoomedPane === pane}
-              />
-            ) : (
-              <button
-                aria-label={t("pane", { number: pane })}
-                className="stack-pane-header"
-                onFocus={() => actions.onSelectPane(pane)}
-                onPointerDown={(event) => {
-                  if (event.pointerType === "mouse" && event.button !== 0) return;
-                  actions.onSelectPane(pane);
-                }}
-                type="button"
-              >
-                <span aria-hidden="true">┌</span>
-                <span className="stack-pane-title">{label}</span>
-                <span aria-hidden="true">┐</span>
-              </button>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
+const KEYBOARD_RESIZE_DEBOUNCE_MS = 100;
 
 function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodeProps) {
   const style = basis === undefined ? undefined : { flex: `0 0 ${basis}%` };
@@ -355,12 +287,20 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
   const [previewRatio, setPreviewRatio] = useState<number | null>(null);
   const [pendingRatio, setPendingRatio] = useState<{
     requestId: number;
-    previousRatio: number;
+    validRatios: number[];
     ratio: number;
     split: Id;
   } | null>(null);
   const nextRequestId = useRef(0);
   const activeRequestId = useRef<number | null>(null);
+  const keyboardGeneration = useRef(0);
+  const keyboardResize = useRef<{
+    desiredRatio: number;
+    generation: number;
+    inFlightRatio: number | null;
+    scheduled: ReturnType<typeof setTimeout> | null;
+    split: Id;
+  } | null>(null);
   const drag = useRef<{
     pointerId: number;
     bounds: DOMRect;
@@ -373,9 +313,27 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
   // off the snapshot it was based on. The moment the server's layout event
   // lands (confirm or foreign change), validity flips and the authoritative
   // ratio renders; the stale record is cleared lazily on the next pointerdown.
-  const pendingValid = pendingRatio !== null
+  const keyboardRequestActive = keyboardResize.current?.split === target.split
+    && (keyboardResize.current.inFlightRatio !== null || keyboardResize.current.scheduled !== null);
+  const pendingConfirmed = !keyboardRequestActive
+    && pendingRatio !== null
     && target.split === pendingRatio.split
-    && Math.abs(authoritativeRatio - pendingRatio.previousRatio) <= 1e-6;
+    && Math.abs(authoritativeRatio - pendingRatio.ratio) <= 1e-6;
+  const pendingValid = !pendingConfirmed
+    && pendingRatio !== null
+    && target.split === pendingRatio.split
+    && pendingRatio.validRatios.some((ratio) => Math.abs(authoritativeRatio - ratio) <= 1e-6);
+  const reconcileDividerRef = useCallback((divider: HTMLDivElement | null) => {
+    if (divider === null) {
+      keyboardGeneration.current += 1;
+      keyboardResize.current = null;
+      return;
+    }
+    if (!pendingConfirmed) return;
+    activeRequestId.current = null;
+    keyboardResize.current = null;
+    setPendingRatio(null);
+  }, [pendingConfirmed]);
 
   const firstRatio = previewRatio ?? (pendingValid && pendingRatio !== null ? pendingRatio.ratio : authoritativeRatio);
   const firstPercent = firstRatio * 100;
@@ -384,17 +342,123 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
     ? { left: `${firstPercent}%` }
     : { top: `${firstPercent}%` };
 
+  const commitRatio = (previousRatio: number, nextRatio: number) => {
+    const ratio = splitRatioToCommit(previousRatio, nextRatio);
+    if (ratio === null) {
+      setPreviewRatio(null);
+      return;
+    }
+    const requestId = ++nextRequestId.current;
+    activeRequestId.current = requestId;
+    setPreviewRatio(null);
+    setPendingRatio({
+      requestId,
+      validRatios: [previousRatio],
+      ratio,
+      split: target.split,
+    });
+    keyboardGeneration.current += 1;
+    keyboardResize.current = null;
+    void actions.onSetSplitRatio(target.split, ratio).catch(() => false).then((succeeded) => {
+      if (succeeded || activeRequestId.current !== requestId) return;
+      activeRequestId.current = null;
+      setPendingRatio(null);
+      setPreviewRatio(null);
+    });
+  };
+
+  function scheduleKeyboardResize(resize: NonNullable<typeof keyboardResize.current>) {
+    if (keyboardResize.current !== resize || keyboardGeneration.current !== resize.generation) return;
+    if (resize.scheduled !== null) clearTimeout(resize.scheduled);
+    resize.scheduled = setTimeout(() => {
+      if (keyboardResize.current !== resize || keyboardGeneration.current !== resize.generation) return;
+      resize.scheduled = null;
+      pumpKeyboardResize(resize);
+    }, KEYBOARD_RESIZE_DEBOUNCE_MS);
+  }
+
+  function pumpKeyboardResize(resize: NonNullable<typeof keyboardResize.current>) {
+    if (keyboardResize.current !== resize || resize.inFlightRatio !== null) return;
+    const ratio = resize.desiredRatio;
+    resize.inFlightRatio = ratio;
+    void actions.onSetSplitRatio(resize.split, ratio).catch(() => false).then((succeeded) => {
+      if (keyboardResize.current !== resize || keyboardGeneration.current !== resize.generation) return;
+      resize.inFlightRatio = null;
+      if (!succeeded) {
+        keyboardGeneration.current += 1;
+        keyboardResize.current = null;
+        activeRequestId.current = null;
+        setPendingRatio(null);
+        setPreviewRatio(null);
+        return;
+      }
+      if (Math.abs(resize.desiredRatio - ratio) > 1e-6) {
+        if (resize.scheduled === null) scheduleKeyboardResize(resize);
+      } else {
+        setPendingRatio((current) => current === null ? current : { ...current });
+      }
+    });
+  }
+
   return (
     <div className={`pane-group ${node.direction}`} style={style}>
       <LayoutNode {...actions} node={node.first} screen={screen} basis={firstPercent} />
       <div
+          aria-valuemax={95}
+          aria-valuemin={5}
+          aria-valuenow={Math.round(firstPercent)}
           aria-orientation={node.direction === "row" ? "vertical" : "horizontal"}
           className="split-divider"
+          ref={reconcileDividerRef}
           role="separator"
           style={dividerStyle}
+          tabIndex={0}
+          onKeyDown={(event) => {
+            const delta = node.direction === "row"
+              ? event.key === "ArrowLeft" ? -0.05 : event.key === "ArrowRight" ? 0.05 : null
+              : event.key === "ArrowUp" ? -0.05 : event.key === "ArrowDown" ? 0.05 : null;
+            if (delta === null) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (pendingRatio && !pendingValid && !pendingConfirmed) {
+              activeRequestId.current = null;
+              setPendingRatio(null);
+              keyboardGeneration.current += 1;
+              keyboardResize.current = null;
+            }
+            const existingResize = keyboardResize.current;
+            const canReuseResize = existingResize?.split === target.split && (pendingValid || pendingConfirmed);
+            const baseRatio = canReuseResize
+              ? existingResize.desiredRatio
+              : pendingValid && pendingRatio !== null
+                ? pendingRatio.ratio
+                : authoritativeRatio;
+            const ratio = Math.max(0.05, Math.min(0.95, baseRatio + delta));
+            if (Math.abs(ratio - baseRatio) <= 1e-6) return;
+            const resize = canReuseResize
+              ? existingResize
+              : {
+                  desiredRatio: baseRatio,
+                  generation: ++keyboardGeneration.current,
+                  inFlightRatio: null,
+                  scheduled: null,
+                  split: target.split,
+                };
+            resize.desiredRatio = ratio;
+            keyboardResize.current = resize;
+            const requestId = ++nextRequestId.current;
+            activeRequestId.current = requestId;
+            const validRatios = [authoritativeRatio, baseRatio, ratio];
+            if (resize.inFlightRatio !== null) validRatios.push(resize.inFlightRatio);
+            setPendingRatio({ requestId, validRatios, ratio, split: target.split });
+            setPreviewRatio(null);
+            scheduleKeyboardResize(resize);
+          }}
           onPointerDown={(event) => {
             if (event.pointerType === "mouse" && event.button !== 0) return;
             if (pendingRatio && pendingValid) return;
+            keyboardGeneration.current += 1;
+            keyboardResize.current = null;
             if (pendingRatio) {
               activeRequestId.current = null;
               setPendingRatio(null);
@@ -430,26 +494,7 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
             if (event.currentTarget.hasPointerCapture(event.pointerId)) {
               event.currentTarget.releasePointerCapture(event.pointerId);
             }
-            const ratio = splitRatioToCommit(currentDrag.initialRatio, nextRatio);
-            if (ratio === null) {
-              setPreviewRatio(null);
-              return;
-            }
-            const requestId = ++nextRequestId.current;
-            activeRequestId.current = requestId;
-            setPreviewRatio(null);
-            setPendingRatio({
-              requestId,
-              previousRatio: currentDrag.initialRatio,
-              ratio,
-              split: target.split,
-            });
-            void actions.onSetSplitRatio(target.split, ratio).then((succeeded) => {
-              if (succeeded || activeRequestId.current !== requestId) return;
-              activeRequestId.current = null;
-              setPendingRatio(null);
-              setPreviewRatio(null);
-            });
+            commitRatio(currentDrag.initialRatio, nextRatio);
           }}
           onPointerCancel={(event) => {
             if (!drag.current || drag.current.pointerId !== event.pointerId) return;
@@ -465,12 +510,17 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
 function LayoutNode({ node, screen, basis, ...actions }: LayoutNodeProps) {
   const style = basis === undefined ? undefined : { flex: `0 0 ${basis}%` };
   if (node.type === "group") {
-    // Keyed by screen so switching screens remounts the group and drops any
-    // drag/pending overlay state, replacing an imperative reset effect.
-    return <LayoutGroupNode key={screen.id} {...actions} node={node} screen={screen} basis={basis} />;
-  }
-  if (node.type === "stack") {
-    return <LayoutStackNode {...actions} node={node} screen={screen} basis={basis} />;
+    // Switching screens or replacing the authoritative split remounts the
+    // group and drops drag/pending overlay state without an imperative reset.
+    return (
+      <LayoutGroupNode
+        key={`${screen.id}:${node.split}`}
+        {...actions}
+        node={node}
+        screen={screen}
+        basis={basis}
+      />
+    );
   }
   return (
     <div className="pane-leaf" style={style}>
@@ -487,6 +537,6 @@ function LayoutNode({ node, screen, basis, ...actions }: LayoutNodeProps) {
 
 export function TerminalPane({ screen, ...props }: TerminalPaneProps) {
   if (!screen) return <section className="terminal-empty terminal-root">{t("noSurface")}</section>;
-  const node = layoutToViewModel(screen.layout, screen.zoomedPane, screen.activePane);
+  const node = layoutToViewModel(screen.layout, screen.zoomedPane);
   return <div className="pane-layout"><LayoutNode {...props} node={node} screen={screen} /></div>;
 }

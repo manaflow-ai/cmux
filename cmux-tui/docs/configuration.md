@@ -115,7 +115,7 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.alt_shortcuts` | boolean | `true` | Enables default modeless Alt bindings when true |
 | `keys.new-tab` | chord string or array or `"none"` | `["t","alt+t"]` | New PTY tab |
 | `keys.new_browser_tab` | chord string or array or `"none"` | `"B"` | Browser URL prompt |
-| `keys.new-pane-smart` | chord string or array or `"none"` | `"alt+n"` | New pane using the default automatic layout |
+| `keys.new-pane-smart` | chord string or array or `"none"` | `"alt+n"` | New pane using smart split direction |
 | `keys.next-tab` | chord string or array or `"none"` | `"tab"` | Next tab |
 | `keys.prev-tab` | chord string or array or `"none"` | `"backtab"` | Previous tab |
 | `keys.select-tab-1` through `keys.select-tab-9` | chord string or array or `"none"` | unbound | Select tab by visible tab number; use these to restore the old `Ctrl-b 1` through `Ctrl-b 9` tab selectors |
