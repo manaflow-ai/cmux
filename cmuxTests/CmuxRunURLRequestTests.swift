@@ -564,13 +564,13 @@ struct CmuxRunURLRequestTests {
 
     @Test func concurrentResolutionDoesNotSpawnASecondProcess() async throws {
         let (started, startedContinuation) = AsyncStream<Void>.makeStream()
-        let resolver = CmuxRunWorkingDirectoryResolver { _ in
+        let resolver = CmuxRunWorkingDirectoryResolver(commandOverride: { _ in
             startedContinuation.yield()
             return CmuxRunWorkingDirectoryCommand(
                 executableURL: URL(fileURLWithPath: "/usr/bin/yes"),
                 arguments: []
             )
-        }
+        })
         let first = Task {
             await resolver.resolveWithDeadline("/tmp", timeout: .seconds(1))
         }
@@ -588,12 +588,12 @@ struct CmuxRunURLRequestTests {
     }
 
     @Test func deadlineResolverRequiresIdentityFromTheBoundedVerifier() async {
-        let resolver = CmuxRunWorkingDirectoryResolver { _ in
+        let resolver = CmuxRunWorkingDirectoryResolver(commandOverride: { _ in
             CmuxRunWorkingDirectoryCommand(
                 executableURL: URL(fileURLWithPath: "/bin/sh"),
                 arguments: ["-c", "printf '/tmp\\n'"]
             )
-        }
+        })
 
         #expect(
             await resolver.resolveWithDeadline("/tmp")

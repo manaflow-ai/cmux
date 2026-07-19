@@ -7,24 +7,16 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
     static let defaultResolutionTimeout: Duration = .seconds(5)
 
     let fileManager: FileManager
-    private let commandOverride: (@Sendable (String) -> CmuxRunWorkingDirectoryCommand)?
+    let commandOverride: (@Sendable (String) -> CmuxRunWorkingDirectoryCommand)?
     private let processLimiter: CmuxRunWorkingDirectoryProcessLimiter
 
     init(
         fileManager: FileManager = .default,
-        processLimiter: CmuxRunWorkingDirectoryProcessLimiter = CmuxRunWorkingDirectoryProcessLimiter()
+        processLimiter: CmuxRunWorkingDirectoryProcessLimiter = CmuxRunWorkingDirectoryProcessLimiter(),
+        commandOverride: (@Sendable (String) -> CmuxRunWorkingDirectoryCommand)? = nil
     ) {
         self.fileManager = fileManager
-        self.commandOverride = nil
-        self.processLimiter = processLimiter
-    }
-
-    init(
-        commandForTesting: @escaping @Sendable (String) -> CmuxRunWorkingDirectoryCommand,
-        processLimiter: CmuxRunWorkingDirectoryProcessLimiter = CmuxRunWorkingDirectoryProcessLimiter()
-    ) {
-        self.fileManager = .default
-        self.commandOverride = commandForTesting
+        self.commandOverride = commandOverride
         self.processLimiter = processLimiter
     }
 

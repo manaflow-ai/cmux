@@ -389,7 +389,8 @@ final class CmuxRunURLCoordinator {
                 workingDirectory: plan.workingDirectory,
                 initialCommand: plan.launchCommand,
                 preserveFocusWhenUnfocused: false,
-                suppressWorkspaceRemoteStartupCommand: true
+                suppressWorkspaceRemoteStartupCommand: true,
+                startupInheritance: .reviewedCommand
             ) else {
                 return .failure(.creationFailed)
             }
@@ -426,7 +427,8 @@ final class CmuxRunURLCoordinator {
                 direction: splitDirection(direction),
                 focus: false,
                 workingDirectory: plan.workingDirectory,
-                initialCommand: plan.launchCommand
+                initialCommand: plan.launchCommand,
+                startupInheritance: .reviewedCommand
             ) else {
                 return .failure(.creationFailed)
             }

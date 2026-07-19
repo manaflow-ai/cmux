@@ -423,6 +423,32 @@ struct CmuxRunURLCoordinatorTests {
         }
     }
 
+    @Test func reviewedCommandPolicyDropsEveryInheritedStartupInfluence() {
+        var inherited = CmuxSurfaceConfigTemplate()
+        inherited.fontSize = 17
+        inherited.workingDirectory = "/tmp/unreviewed-directory"
+        inherited.command = "printf unreviewed-command"
+        inherited.environmentVariables = ["BASH_ENV": "/tmp/unreviewed-startup"]
+        inherited.initialInput = "printf unreviewed-input\\n"
+        inherited.waitAfterCommand = false
+
+        let policy = TerminalStartupInheritancePolicy.reviewedCommand
+        let sanitized = policy.configTemplate(from: inherited)
+
+        #expect(sanitized?.fontSize == 17)
+        #expect(sanitized?.workingDirectory == nil)
+        #expect(sanitized?.command == nil)
+        #expect(sanitized?.environmentVariables.isEmpty == true)
+        #expect(sanitized?.initialInput == nil)
+        #expect(sanitized?.waitAfterCommand == false)
+        #expect(policy.environment(
+            workspaceEnvironment: ["BASH_ENV": "/tmp/workspace-startup"],
+            explicitEnvironment: ["ENV": "/tmp/explicit-startup"]
+        ).isEmpty)
+        #expect(policy.initialInput("printf hidden\\n") == nil)
+        #expect(policy.tmuxStartCommand("tmux hidden") == nil)
+    }
+
     @Test func longApprovalDirectoryIsFullyInspectableAndCopyable() throws {
         let directory = "/private/var/folders/rr/vmfx6xh12dz2tlvgtmyvjmf80000gn/T/"
             + String(repeating: "security-sensitive-segment/", count: 14)

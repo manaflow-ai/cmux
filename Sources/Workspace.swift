@@ -48,6 +48,46 @@ private struct SessionPaneRestoreEntry {
     let snapshot: SessionPaneLayoutSnapshot
 }
 
+@MainActor
+enum TerminalStartupInheritancePolicy: Equatable {
+    case standard
+    case reviewedCommand
+
+    func configTemplate(from inherited: CmuxSurfaceConfigTemplate?) -> CmuxSurfaceConfigTemplate? {
+        switch self {
+        case .standard:
+            return inherited
+        case .reviewedCommand:
+            var sanitized = CmuxSurfaceConfigTemplate()
+            sanitized.fontSize = inherited?.fontSize ?? 0
+            return sanitized
+        }
+    }
+
+    func environment(
+        workspaceEnvironment: [String: String],
+        explicitEnvironment: [String: String]
+    ) -> [String: String] {
+        switch self {
+        case .standard:
+            return Workspace.startupEnvironment(
+                workspaceEnvironment: workspaceEnvironment,
+                overlaying: explicitEnvironment
+            )
+        case .reviewedCommand:
+            return [:]
+        }
+    }
+
+    func initialInput(_ input: String?) -> String? {
+        self == .reviewedCommand ? nil : input
+    }
+
+    func tmuxStartCommand(_ command: String?) -> String? {
+        self == .reviewedCommand ? nil : command
+    }
+}
+
 extension Workspace {
     func sessionSnapshot(
         includeScrollback: Bool,
@@ -6856,7 +6896,8 @@ final class Workspace: Identifiable, ObservableObject {
         initialDividerPosition: CGFloat? = nil,
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        startupInheritance: TerminalStartupInheritancePolicy = .standard
     ) -> TerminalPanel? {
         return newTerminalSplitOutcome(
             from: panelId,
@@ -6870,7 +6911,8 @@ final class Workspace: Identifiable, ObservableObject {
             initialDividerPosition: initialDividerPosition,
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            startupInheritance: startupInheritance
         ).panel
     }
 
@@ -6890,7 +6932,8 @@ final class Workspace: Identifiable, ObservableObject {
         initialDividerPosition: CGFloat? = nil,
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        startupInheritance: TerminalStartupInheritancePolicy = .standard
     ) -> TerminalPanelCreationOutcome {
         // In a remote tmux mirror workspace a split means "split the mirrored
         // tmux pane": route it to the remote and let the resulting
@@ -6922,7 +6965,8 @@ final class Workspace: Identifiable, ObservableObject {
             initialDividerPosition: initialDividerPosition,
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            startupInheritance: startupInheritance
         ) else { return .failed }
         return .created(panel)
     }
@@ -6939,7 +6983,8 @@ final class Workspace: Identifiable, ObservableObject {
         initialDividerPosition: CGFloat?,
         remotePTYSessionID: String?,
         suppressWorkspaceRemoteStartupCommand: Bool,
-        allowTextBoxFocusDefault: Bool
+        allowTextBoxFocusDefault: Bool,
+        startupInheritance: TerminalStartupInheritancePolicy
     ) -> TerminalPanel? {
 #if DEBUG
         let splitTimingStart = ProcessInfo.processInfo.systemUptime
@@ -6961,7 +7006,9 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         guard let paneId = sourcePaneId else { return nil }
-        var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
+        var inheritedConfig = startupInheritance.configTemplate(
+            from: inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
+        )
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
@@ -6973,7 +7020,10 @@ final class Workspace: Identifiable, ObservableObject {
             ?? ((remoteStartupCommandForEnvironment != nil && remoteConfiguration?.preserveAfterTerminalExit == true)
                 ? Self.defaultSSHPTYSessionID(workspaceId: id, panelId: newPanelID)
                 : nil)
-        var startupEnvironmentWithRemoteSession = startupEnvironmentMergingWorkspaceEnvironment(startupEnvironment)
+        var startupEnvironmentWithRemoteSession = startupInheritance.environment(
+            workspaceEnvironment: workspaceEnvironment,
+            explicitEnvironment: startupEnvironment
+        )
         if let effectiveRemotePTYSessionID {
             startupEnvironmentWithRemoteSession[Self.remotePTYSessionEnvironmentKey] = effectiveRemotePTYSessionID
         }
@@ -7020,7 +7070,7 @@ final class Workspace: Identifiable, ObservableObject {
             workingDirectory: splitWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
-            tmuxStartCommand: tmuxStartCommand,
+            tmuxStartCommand: startupInheritance.tmuxStartCommand(tmuxStartCommand),
             additionalEnvironment: effectiveStartupEnvironment
         )
         configureNewTerminalPanel(
@@ -7143,7 +7193,8 @@ final class Workspace: Identifiable, ObservableObject {
         restoredSurfaceId: UUID? = nil,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        startupInheritance: TerminalStartupInheritancePolicy = .standard
     ) -> TerminalPanel? {
         return newTerminalSurfaceOutcome(
             inPane: paneId,
@@ -7161,7 +7212,8 @@ final class Workspace: Identifiable, ObservableObject {
             restoredSurfaceId: restoredSurfaceId,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            startupInheritance: startupInheritance
         ).panel
     }
 
@@ -7184,7 +7236,8 @@ final class Workspace: Identifiable, ObservableObject {
         restoredSurfaceId: UUID? = nil,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        startupInheritance: TerminalStartupInheritancePolicy = .standard
     ) -> TerminalPanelCreationOutcome {
         // In a remote tmux mirror, a new tab means "create a tmux window"; never
         // create a local orphan the mirror can't reconcile. Dead mirrors are
@@ -7232,7 +7285,8 @@ final class Workspace: Identifiable, ObservableObject {
             restoredSurfaceId: restoredSurfaceId,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            startupInheritance: startupInheritance
         ) else { return .failed }
         return .created(panel)
     }
@@ -7253,13 +7307,16 @@ final class Workspace: Identifiable, ObservableObject {
         restoredSurfaceId: UUID?,
         inheritWorkingDirectoryFallback: Bool,
         workingDirectoryFallbackSourcePanelId: UUID?,
-        allowTextBoxFocusDefault: Bool
+        allowTextBoxFocusDefault: Bool,
+        startupInheritance: TerminalStartupInheritancePolicy
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
-        var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+        var inheritedConfig = startupInheritance.configTemplate(
+            from: inheritedTerminalConfig(inPane: paneId)
+        )
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
@@ -7271,7 +7328,10 @@ final class Workspace: Identifiable, ObservableObject {
             ?? ((remoteStartupCommandForEnvironment != nil && remoteConfiguration?.preserveAfterTerminalExit == true)
                 ? Self.defaultSSHPTYSessionID(workspaceId: id, panelId: newPanelID)
                 : nil)
-        var startupEnvironmentWithRemoteSession = startupEnvironmentMergingWorkspaceEnvironment(startupEnvironment)
+        var startupEnvironmentWithRemoteSession = startupInheritance.environment(
+            workspaceEnvironment: workspaceEnvironment,
+            explicitEnvironment: startupEnvironment
+        )
         if let effectiveRemotePTYSessionID {
             startupEnvironmentWithRemoteSession[Self.remotePTYSessionEnvironmentKey] = effectiveRemotePTYSessionID
         }
@@ -7308,8 +7368,8 @@ final class Workspace: Identifiable, ObservableObject {
             workingDirectory: requestedWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
-            tmuxStartCommand: tmuxStartCommand,
-            initialInput: initialInput,
+            tmuxStartCommand: startupInheritance.tmuxStartCommand(tmuxStartCommand),
+            initialInput: startupInheritance.initialInput(initialInput),
             additionalEnvironment: effectiveStartupEnvironment,
             runtimeSpawnPolicy: runtimeSpawnPolicy
         )

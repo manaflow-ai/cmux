@@ -15,12 +15,13 @@ identifiers are valid only for the current app session.
 `cmux://run` runs one shell command in a newly created local terminal after the
 user reviews and approves the complete execution plan. `command` and `cwd` are
 required. `cwd` must resolve to an existing directory. cmux passes `command`
-unchanged to `/bin/zsh -dflc`, so shell operators and agent CLI arguments work.
-Ghostty launches that shell as direct arguments instead of passing the request
-through its bash command wrapper. The child inherits the terminal environment
-but disables user-controlled startup files; startup aliases, functions,
-`BASH_ENV`, and exported bash functions cannot replace the directory and
-identity guards. The root-owned macOS `/etc/zshenv` remains a trusted system
+unchanged inside a guarded script, so shell operators and agent CLI arguments
+work. Ghostty owns process construction and launches the fixed
+`/bin/zsh -dflc` adapter through its embedded shell contract. Existing-surface
+commands, input, environment variables, tmux startup commands, and workspace
+environment variables are not inherited by reviewed-command terminals. The
+zsh adapter disables user-controlled startup files before checking the
+directory identity. The root-owned macOS `/etc/zshenv` remains a trusted system
 boundary.
 
 Create a workspace:

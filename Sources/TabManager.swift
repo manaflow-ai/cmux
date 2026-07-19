@@ -3824,7 +3824,8 @@ class TabManager: ObservableObject {
         tmuxStartCommand: String? = nil,
         startupEnvironment: [String: String] = [:],
         initialDividerPosition: CGFloat? = nil,
-        remotePTYSessionID: String? = nil
+        remotePTYSessionID: String? = nil,
+        startupInheritance: TerminalStartupInheritancePolicy = .standard
     ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         return tab.newTerminalSplit(
@@ -3837,7 +3838,8 @@ class TabManager: ObservableObject {
             tmuxStartCommand: tmuxStartCommand,
             startupEnvironment: startupEnvironment,
             initialDividerPosition: initialDividerPosition,
-            remotePTYSessionID: remotePTYSessionID
+            remotePTYSessionID: remotePTYSessionID,
+            startupInheritance: startupInheritance
         )?.id
     }
 
