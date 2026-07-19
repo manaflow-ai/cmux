@@ -527,6 +527,8 @@ pub struct Mux {
     #[cfg(test)]
     workspace_close_after_selector_resolution: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
+    layout_apply_after_workspace_reservation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
     terminal_create_after_empty_check: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     terminal_create_after_materialization_lock: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
@@ -587,6 +589,8 @@ impl Mux {
             workspace_close_before_empty_check: Mutex::new(None),
             #[cfg(test)]
             workspace_close_after_selector_resolution: Mutex::new(None),
+            #[cfg(test)]
+            layout_apply_after_workspace_reservation: Mutex::new(None),
             #[cfg(test)]
             terminal_create_after_empty_check: Mutex::new(None),
             #[cfg(test)]
@@ -3701,6 +3705,10 @@ impl Mux {
                 anyhow::bail!("unknown workspace {id}");
             }
         }
+        #[cfg(test)]
+        if let Some(hook) = self.layout_apply_after_workspace_reservation.lock().unwrap().clone() {
+            hook();
+        }
 
         // Generate the only fallible workspace metadata before spawning any
         // layout surfaces. A concurrently emptied registry may still need it.
@@ -5245,6 +5253,54 @@ mod tests {
         assert_eq!(applied_shape, exported_shape);
         assert_eq!(first.panes.len(), 3);
         assert_eq!(second.panes.len(), 3);
+    }
+
+    #[test]
+    fn apply_layout_holds_target_workspace_lifecycle_through_commit() {
+        let mux = test_mux();
+        let target = mux.create_empty_workspace(Some("target".into()), None, None).unwrap();
+        let (reserved_tx, reserved_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let release_rx = Arc::new(Mutex::new(release_rx));
+        *mux.layout_apply_after_workspace_reservation.lock().unwrap() = Some(Arc::new({
+            move || {
+                reserved_tx.send(()).unwrap();
+                release_rx.lock().unwrap().recv().unwrap();
+            }
+        }));
+        let apply = std::thread::spawn({
+            let mux = mux.clone();
+            move || mux.apply_layout(Some(target.workspace), None, &leaf_spec(), None)
+        });
+        reserved_rx.recv().unwrap();
+
+        let (close_done_tx, close_done_rx) = std::sync::mpsc::sync_channel(1);
+        let close = std::thread::spawn({
+            let mux = mux.clone();
+            move || {
+                close_done_tx
+                    .send(mux.close_workspace_at_revision(target.workspace, Some(1)))
+                    .unwrap();
+            }
+        });
+        let premature_close = close_done_rx.recv_timeout(Duration::from_millis(250));
+        let closed_early = premature_close.is_ok();
+        release_tx.send(()).unwrap();
+        let applied = apply.join();
+        let close_result = match premature_close {
+            Ok(result) => result,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => close_done_rx.recv().unwrap(),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                panic!("workspace close result channel disconnected")
+            }
+        };
+        close.join().unwrap();
+        *mux.layout_apply_after_workspace_reservation.lock().unwrap() = None;
+
+        assert!(!closed_early, "workspace closed before layout commit");
+        assert!(applied.unwrap().is_ok());
+        assert_eq!(close_result.unwrap(), Some(2));
+        mux.shutdown();
     }
 
     #[test]
