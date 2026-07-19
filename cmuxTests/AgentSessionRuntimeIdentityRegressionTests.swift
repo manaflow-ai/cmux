@@ -1,5 +1,6 @@
 import CmuxFoundation
 import Foundation
+import SQLite3
 import Testing
 
 #if canImport(cmux_DEV)
@@ -137,6 +138,83 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(
             loaded == nil,
             "An existing unreadable registry is authoritative and must not revive stale legacy state."
+        )
+    }
+
+    @Test func restoreLoaderRejectsStaleLegacyWhenCanonicalSlotScopeIsCorrupt() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-restore-corrupt-slot-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let legacyURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let sessionID = "stale-active-legacy-session"
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+        let activeRecord: [String: Any] = [
+            "sessionId": sessionID,
+            "workspaceId": workspaceID,
+            "surfaceId": surfaceID,
+            "restoreAuthority": true,
+            "sessionState": "active",
+            "startedAt": 100.0,
+            "updatedAt": 200.0,
+        ]
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [sessionID: activeRecord],
+            "activeSessionsBySurface": [surfaceID: [
+                "sessionId": sessionID,
+                "updatedAt": 200.0,
+            ]],
+        ], options: [.sortedKeys]).write(to: legacyURL, options: .atomic)
+        let environment = ["CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path]
+        let decoder = JSONDecoder()
+        #expect(RestorableAgentHookSessionStoreFile.load(
+            provider: "codex",
+            legacyURL: legacyURL,
+            environment: environment,
+            fileManager: .default,
+            decoder: decoder
+        )?.sessions[sessionID]?.restoreAuthority == true)
+
+        var completedRecord = activeRecord
+        completedRecord["restoreAuthority"] = false
+        completedRecord["sessionState"] = "ended"
+        completedRecord["completedAt"] = 300.0
+        completedRecord["updatedAt"] = 300.0
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        try registry.apply(provider: "codex", records: [
+            CmuxAgentSessionRegistry.Record(
+                provider: "codex",
+                sessionID: sessionID,
+                updatedAt: 300,
+                json: try JSONSerialization.data(withJSONObject: completedRecord, options: [.sortedKeys])
+            ),
+        ])
+
+        var database: OpaquePointer?
+        #expect(sqlite3_open(registryURL.path, &database) == SQLITE_OK)
+        let openedDatabase = try #require(database)
+        defer { sqlite3_close(openedDatabase) }
+        #expect(sqlite3_exec(
+            openedDatabase,
+            "UPDATE agent_active_slots SET scope = 'bogus' WHERE provider = 'codex'",
+            nil,
+            nil,
+            nil
+        ) == SQLITE_OK)
+
+        let loaded = RestorableAgentHookSessionStoreFile.load(
+            provider: "codex",
+            legacyURL: legacyURL,
+            environment: environment,
+            fileManager: .default,
+            decoder: decoder
+        )
+        #expect(
+            loaded == nil,
+            "A valid registry with corrupt typed slot data must not revive stale active legacy state."
         )
     }
 
