@@ -84,25 +84,35 @@ import Testing
             switch kind {
             case .other:
                 reply(connection, lines: [])
-            case .paneRects:
-                reply(connection, lines: ["%0 0 0 80 24 1 off :zsh"])
+            case let .paneRects(windowId, _):
+                // Reply with the pane id belonging to the requested window (the
+                // `windowId * 10` convention `publishWindows` stages), so a
+                // re-published @2/@3's rects publish correctly — not always `%0`.
+                reply(connection, lines: ["%\(windowId * 10) 0 0 80 24 1 off :zsh"])
             default:
                 break loop
             }
         }
     }
 
-    /// The pending command kinds with the incidental follow-ups filtered out — the
-    /// close/retention state machine these assertions are about is `listWindows`, not
-    /// the border-status unsubscribe (`.other`) or the per-window `paneRects` refetch
-    /// a re-published window re-stages.
-    private func reorderPending(_ connection: RemoteTmuxControlConnection) -> [RemoteTmuxControlCommandKind] {
-        connection.pendingCommandKindsForTesting.filter {
-            switch $0 {
-            case .other, .paneRects: return false
-            default: return true
-            }
+    private func isIncidentalFollowUp(_ kind: RemoteTmuxControlCommandKind) -> Bool {
+        switch kind {
+        case .other, .paneRects: return true
+        default: return false
         }
+    }
+
+    /// The pending command kinds with only the TRAILING incidental follow-ups dropped
+    /// — the border-status unsubscribe (`.other`) and the per-window `paneRects`
+    /// refetch a re-published window re-stages, which #7315 legitimately appends after
+    /// a `listWindows`. Incidentals are trimmed only from the tail, so one that lands
+    /// BETWEEN meaningful commands (an ordering anomaly indicating a broken
+    /// command-batch boundary) survives and fails the equality assertion instead of
+    /// being silently elided by a blanket filter.
+    private func reorderPending(_ connection: RemoteTmuxControlConnection) -> [RemoteTmuxControlCommandKind] {
+        var kinds = connection.pendingCommandKindsForTesting
+        while let last = kinds.last, isIncidentalFollowUp(last) { kinds.removeLast() }
+        return kinds
     }
 
     private func publishWindows(_ connection: RemoteTmuxControlConnection, order: [Int]) {
