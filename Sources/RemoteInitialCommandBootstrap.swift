@@ -20,7 +20,7 @@ struct RemoteInitialCommandBootstrap {
             "if [ ! -d \"$cmux_shell_dir/.initial-command.started\" ]; then",
             "  cmux_initial_command_b64='\(encodedCommand)'",
             "  cmux_initial_command_tmp=\"$cmux_shell_dir/.initial-command.$$\"",
-            "  (printf %s \"$cmux_initial_command_b64\" | base64 -d 2>/dev/null || printf %s \"$cmux_initial_command_b64\" | base64 -D 2>/dev/null) > \"$cmux_initial_command_tmp\" || { rm -f -- \"$cmux_initial_command_tmp\"; exit 1; }",
+            "  (umask 077; (printf %s \"$cmux_initial_command_b64\" | base64 -d 2>/dev/null || printf %s \"$cmux_initial_command_b64\" | base64 -D 2>/dev/null) > \"$cmux_initial_command_tmp\") || { rm -f -- \"$cmux_initial_command_tmp\"; exit 1; }",
             "  cmux_initial_command_file=\"$cmux_shell_dir/initial-command\"",
             "  mv -f -- \"$cmux_initial_command_tmp\" \"$cmux_initial_command_file\" || exit 1",
             "  chmod 600 \"$cmux_initial_command_file\" >/dev/null 2>&1 || true",
