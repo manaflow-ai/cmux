@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["bun"]
+  },
+  "include": ["test/**/*.ts", "src/protocol.ts", "src/session.ts", "src/jwt.ts"]
+}
