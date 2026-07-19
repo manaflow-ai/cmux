@@ -153,6 +153,12 @@ jobs:
           ./scripts/ci/run-swift-testing-suites.sh Packages/Shared/CMUXMobileCore
           ./scripts/ci/run-swift-testing-suites.sh Packages/Shared/CmuxIrohTransport
 
+      - name: Run mobile transport tests in x86_64 iOS Simulator on Intel Sonoma
+        if: matrix.expected_arch == 'x86_64'
+        env:
+          CMUX_EXPECTED_SIMULATOR_ARCH: ${{ matrix.expected_arch }}
+        run: ./scripts/ci/run-iroh-ios-simulator-package-tests.sh
+
       - name: Run unit tests
         if: matrix.run_unit_tests
         env:
