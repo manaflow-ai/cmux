@@ -714,9 +714,11 @@ pub struct Chord {
 
 impl Chord {
     pub fn matches(&self, key: &KeyEvent) -> bool {
-        // Shift is implied by uppercase/symbol chars; compare it only
-        // for non-char codes.
-        let mods_match = if matches!(self.code, KeyCode::Char(_)) {
+        // Shift is implied by uppercase/symbol chars and by BackTab. Crossterm
+        // reports the latter as BackTab + SHIFT even though users configure it
+        // as plain "backtab", so do not make that unavoidable modifier part
+        // of the chord comparison.
+        let mods_match = if matches!(self.code, KeyCode::Char(_) | KeyCode::BackTab) {
             key.modifiers.contains(self.mods & !KeyModifiers::SHIFT)
         } else {
             const TRACKED: KeyModifiers =
@@ -2244,6 +2246,15 @@ mod tests {
         let plain_left = Chord { code: KeyCode::Left, mods: KeyModifiers::NONE };
         assert!(plain_left.matches(&KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)));
         assert!(!plain_left.matches(&KeyEvent::new(KeyCode::Left, KeyModifiers::SHIFT)));
+    }
+
+    #[test]
+    fn default_backtab_accepts_crossterm_implied_shift() {
+        let keys = Keys::default();
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT)),
+            Some(Action::PrevTab)
+        );
     }
 
     #[test]
