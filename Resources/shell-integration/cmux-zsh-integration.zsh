@@ -1797,6 +1797,8 @@ _cmux_precmd() {
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     if [[ -n "$CMUX_PANEL_ID" ]]; then
         _cmux_reset_terminal_keyboard_protocols
+    fi
+    if [[ -n "$CMUX_PANEL_ID" ]] || (( ! cmux_has_unix_socket )); then
         _cmux_report_shell_activity_state prompt
     fi
 
@@ -1822,16 +1824,12 @@ _cmux_precmd() {
         if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
             _cmux_report_pwd_via_relay "$pwd" && _CMUX_PWD_LAST_PWD="$pwd"
         fi
-        if (( cmd_dur >= 2 || now - _CMUX_PORTS_LAST_RUN >= 10 )); then
-            _cmux_ports_kick refresh
-        fi
-        return 0
+    else
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
+        _cmux_prompt_wrap_guard "$cmd_start" "$pwd"
     fi
 
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
     _cmux_set_git_active_pwd "$pwd"
-
-    _cmux_prompt_wrap_guard "$cmd_start" "$pwd"
 
     # Post-wake socket writes can occasionally leave a probe process wedged.
     # If one probe is stale, clear the guard so fresh async probes can resume.
@@ -1848,7 +1846,7 @@ _cmux_precmd() {
 
     # CWD: keep the app in sync with the actual shell directory.
     # This is also the simplest way to test sidebar directory behavior end-to-end.
-    if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
+    if (( cmux_has_unix_socket )) && [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
         _CMUX_PWD_LAST_PWD="$pwd"
         local qpwd="${pwd//\"/\\\"}"
         _cmux_send_bg "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
@@ -1943,15 +1941,17 @@ _cmux_precmd() {
             _CMUX_GIT_JOB_STARTED_AT=$now
         fi
     fi
-    if (( git_head_changed )); then
-        _cmux_pr_cache_clear
-        _cmux_clear_pr_for_panel
-    fi
-    if [[ "${CMUX_NO_GIT_WATCH:-}" != "1" ]] && (( last_status == 0 )); then
-        _cmux_emit_pr_command_hint
-    else
-        _CMUX_LAST_PR_ACTION=""
-        _CMUX_LAST_PR_TARGET=""
+    if (( cmux_has_unix_socket )); then
+        if (( git_head_changed )); then
+            _cmux_pr_cache_clear
+            _cmux_clear_pr_for_panel
+        fi
+        if [[ "${CMUX_NO_GIT_WATCH:-}" != "1" ]] && (( last_status == 0 )); then
+            _cmux_emit_pr_command_hint
+        else
+            _CMUX_LAST_PR_ACTION=""
+            _CMUX_LAST_PR_TARGET=""
+        fi
     fi
 
     # Ports: lightweight kick to the app's batched scanner.
