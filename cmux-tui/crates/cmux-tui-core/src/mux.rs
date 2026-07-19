@@ -4141,8 +4141,8 @@ mod tests {
             assert_eq!(*id, 11);
             assert_eq!(*inner_ratio, 0.5);
         });
-        assert!(matches!(events.recv().unwrap(), MuxEvent::TreeChanged));
         assert!(matches!(events.recv().unwrap(), MuxEvent::LayoutChanged(1)));
+        assert!(events.try_recv().is_err());
         assert!(!mux.set_split_ratio(9999, 0.4));
     }
 

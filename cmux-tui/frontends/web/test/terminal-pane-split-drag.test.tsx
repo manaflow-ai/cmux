@@ -118,6 +118,22 @@ describe("TerminalPane split dividers", () => {
     expect(queryByRole("separator")).toBeNull();
   });
 
+  it("exposes split state and resizes with the orientation arrow keys", async () => {
+    const onSetSplitRatio = vi.fn(async () => true);
+    const props = terminalPaneProps(onSetSplitRatio);
+    const { getByRole } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
+    const divider = getByRole("separator");
+
+    expect(divider).toHaveAttribute("tabindex", "0");
+    expect(divider).toHaveAttribute("aria-valuemin", "5");
+    expect(divider).toHaveAttribute("aria-valuemax", "95");
+    expect(divider).toHaveAttribute("aria-valuenow", "50");
+
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledWith(42, 0.55));
+  });
+
   it("previews pointer movement, commits once, and reconciles to server layout", async () => {
     const onSetSplitRatio = vi.fn(async () => true);
     const props = terminalPaneProps(onSetSplitRatio);
