@@ -217,6 +217,12 @@ const VERBS: &[VerbSpec] = &[
         kind: socket(build_new_screen, print_surface, false),
     },
     VerbSpec {
+        name: "new-pane",
+        help: "Create a pane with automatic distribution.",
+        allowed: &["pane", "cols", "rows"],
+        kind: socket(build_new_pane, print_surface, false),
+    },
+    VerbSpec {
         name: "split",
         help: "Split a pane.",
         allowed: &["pane", "dir", "cols", "rows"],
@@ -972,6 +978,12 @@ fn build_new_workspace(flags: &FlagMap) -> Result<Value, UsageError> {
 fn build_new_screen(flags: &FlagMap) -> Result<Value, UsageError> {
     let mut value = json!({});
     flags.insert_optional_u64(&mut value, "workspace")?;
+    flags.insert_optional_size(&mut value)?;
+    Ok(value)
+}
+
+fn build_new_pane(flags: &FlagMap) -> Result<Value, UsageError> {
+    let mut value = json!({ "pane": flags.required_u64("pane")? });
     flags.insert_optional_size(&mut value)?;
     Ok(value)
 }

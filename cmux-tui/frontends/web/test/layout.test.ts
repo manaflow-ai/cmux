@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Layout } from "cmux/browser";
-import { layoutToViewModel } from "../src/lib/layout";
+import { layoutToViewModel, visibleStackPanes } from "../src/lib/layout";
 import {
   clampSplitRatio,
   splitDividerTarget,
@@ -58,7 +58,7 @@ describe("layoutToViewModel", () => {
     expect(layout.type).toBe("split");
   });
 
-  it("rejects split snapshots without protocol-8 split IDs", () => {
+  it("rejects split snapshots without stable split IDs", () => {
     expect(() => layoutToViewModel({
       type: "split",
       dir: "right",
@@ -66,6 +66,36 @@ describe("layoutToViewModel", () => {
       a: { type: "leaf", pane: 1 },
       b: { type: "leaf", pane: 2 },
     })).toThrow("invalid split layout");
+  });
+
+  it("preserves Zellij stack order and the expanded pane", () => {
+    const layout: Layout = { type: "stack", panes: [1, 2, 3], expanded: 2 };
+    expect(layoutToViewModel(layout)).toEqual({ type: "stack", panes: [1, 2, 3], expanded: 2 });
+    expect(layoutToViewModel(layout, null, 1)).toEqual({ type: "stack", panes: [1, 2, 3], expanded: 1 });
+    expect(layoutToViewModel(layout, 3)).toEqual({ type: "pane", pane: 3 });
+  });
+
+  it("rejects malformed stack snapshots", () => {
+    expect(() => layoutToViewModel({
+      type: "stack",
+      panes: [],
+      expanded: 1,
+    } as unknown as Layout)).toThrow("invalid stack layout");
+    expect(() => layoutToViewModel({
+      type: "stack",
+      panes: [1, 2],
+      expanded: 3,
+    })).toThrow("invalid stack layout");
+  });
+});
+
+describe("visibleStackPanes", () => {
+  it("keeps every live pane reachable when headers overflow", () => {
+    const panes = [1, 2, 3, 4, 5];
+    expect(visibleStackPanes(panes, 4, 2)).toEqual(panes);
+    expect(visibleStackPanes(panes, 1, 2)).toEqual(panes);
+    expect(visibleStackPanes(panes, 5, 0)).toEqual(panes);
+    expect(visibleStackPanes(panes, 3, null)).toEqual(panes);
   });
 });
 

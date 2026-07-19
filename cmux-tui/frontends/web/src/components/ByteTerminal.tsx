@@ -6,11 +6,23 @@ interface ByteTerminalProps {
   client: CmuxClient | null;
   surface: Id;
   error: string | null;
+  focusOnMount?: boolean;
   onError(error: Error): void;
 }
 
-export function ByteTerminal({ client, surface, error, onError }: ByteTerminalProps) {
-  const { terminalRef, focused } = useAttachedTerminal({ client, surface, onError });
+export function ByteTerminal({
+  client,
+  surface,
+  error,
+  focusOnMount = false,
+  onError,
+}: ByteTerminalProps) {
+  const { terminalRef, focused } = useAttachedTerminal({
+    client,
+    surface,
+    focusOnMount,
+    onError,
+  });
   return (
     <TerminalFrame
       client={client}

@@ -102,6 +102,8 @@ class Layout:
     a: Optional["Layout"] = None
     b: Optional["Layout"] = None
     split: Optional[int] = None
+    panes: Optional[List[int]] = None
+    expanded: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -417,6 +419,15 @@ class CmuxClient:
     ) -> SurfaceResult:
         return SurfaceResult(int(self._request("new-screen", workspace=workspace, cols=cols, rows=rows)["surface"]))
 
+    def new_pane(
+        self,
+        pane: int,
+        cols: Optional[int] = None,
+        rows: Optional[int] = None,
+    ) -> SurfaceResult:
+        self._require_protocol(9, "new-pane")
+        return SurfaceResult(int(self._request("new-pane", pane=pane, cols=cols, rows=rows)["surface"]))
+
     def split(
         self,
         pane: int,
@@ -602,6 +613,12 @@ def _parse_layout(value: Dict[str, Any]) -> Layout:
             ratio=float(value.get("ratio", 0.0)),
             a=_parse_layout(value.get("a", {})),
             b=_parse_layout(value.get("b", {})),
+        )
+    if value.get("type") == "stack":
+        return Layout(
+            type="stack",
+            panes=[int(pane) for pane in value.get("panes", [])],
+            expanded=int(value.get("expanded", 0)),
         )
     return Layout(type="leaf", pane=int(value.get("pane", 0)))
 
