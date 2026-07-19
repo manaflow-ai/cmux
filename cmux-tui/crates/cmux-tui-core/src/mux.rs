@@ -16649,6 +16649,14 @@ mod tests {
     #[test]
     fn renderer_config_commit_rejects_inflight_stale_configuration() {
         let fixture = configured_renderer_fixture();
+        let stale_runtime = fixture
+            .mux
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .get(&fixture.presentation_id)
+            .cloned()
+            .unwrap();
         let reached_commit = Arc::new(std::sync::Barrier::new(2));
         let release_commit = Arc::new(std::sync::Barrier::new(2));
         *fixture.mux.renderer_configure_before_commit.lock().unwrap() = Some(Arc::new({
@@ -16687,16 +16695,17 @@ mod tests {
             Err(error) => error,
         };
         assert!(error.to_string().contains("renderer config changed during configuration"));
-        let retained = fixture
-            .mux
-            .renderer_presentations
-            .lock()
-            .unwrap()
-            .get(&fixture.presentation_id)
-            .cloned()
-            .unwrap();
-        assert_eq!(retained.attachment.presentation_generation, fixture.renderer_generation);
-        assert!(retained.removal_pending.load(Ordering::Acquire));
+        assert!(
+            fixture
+                .mux
+                .renderer_presentations
+                .lock()
+                .unwrap()
+                .get(&fixture.presentation_id)
+                .is_none()
+        );
+        assert_eq!(stale_runtime.attachment.presentation_generation, fixture.renderer_generation);
+        assert!(stale_runtime.removal_pending.load(Ordering::Acquire));
     }
 
     #[test]
