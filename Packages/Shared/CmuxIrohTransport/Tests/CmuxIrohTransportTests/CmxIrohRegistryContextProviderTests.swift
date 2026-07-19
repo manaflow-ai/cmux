@@ -359,11 +359,13 @@ struct RegistryFixture: Sendable {
     let key: CmxIrohGrantVerificationKey
     let initiator: CmxIrohGrantPeer
     let acceptor: CmxIrohGrantPeer
-    let now = Date(timeIntervalSince1970: 1_800_000_000)
-    let nowSeconds: Int64 = 1_800_000_000
+    let now: Date
+    let nowSeconds: Int64
     let relayURL = "https://use1-1.relay.lawrence.cmux.iroh.link/"
 
-    init() throws {
+    init(now: Date = Date(timeIntervalSince1970: 1_800_000_000)) throws {
+        self.now = now
+        nowSeconds = Int64(now.timeIntervalSince1970.rounded(.down))
         privateKey = try Curve25519.Signing.PrivateKey(
             rawRepresentation: Data((0 ..< 32).map(UInt8.init))
         )
