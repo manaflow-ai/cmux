@@ -10,6 +10,16 @@ type IdentifyResult struct {
 	PID      uint32 `json:"pid"`
 }
 
+type IdentifyDetails struct {
+	App           string  `json:"app"`
+	Version       string  `json:"version"`
+	BuildCommit   *string `json:"build_commit"`
+	GhosttyCommit *string `json:"ghostty_commit"`
+	Protocol      uint32  `json:"protocol"`
+	Session       string  `json:"session"`
+	PID           uint32  `json:"pid"`
+}
+
 type SurfaceResult struct {
 	Surface uint64 `json:"surface"`
 }

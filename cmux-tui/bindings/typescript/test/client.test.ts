@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { CmuxClient, CmuxStream } from "../src/client.js";
 import { CmuxCommandError, CmuxProtocolError } from "../src/errors.js";
-import type { TreeDeltaEvent } from "../src/protocol/index.js";
+import type { DecodedResizedEvent, TreeDeltaEvent } from "../src/protocol/index.js";
 import type { Transport, Unsubscribe } from "../src/transport.js";
 
 class ScriptedTransport implements Transport {
@@ -225,13 +225,28 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
         cursor: "#f0f0f0",
         selection_bg: null,
         selection_fg: null,
+        palette: { "4": "#ff4f8b" },
         cursor_style: "underline",
         cursor_blink: true,
       },
     });
     transport.emit({ id: request.id, ok: true, data: {} });
     transport.emit({ event: "output", surface: 7, data: "aGk=" });
-    transport.emit({ event: "resized", surface: 7, cols: 100, rows: 30, data: "AQID" });
+    transport.emit({
+      event: "resized",
+      surface: 7,
+      cols: 100,
+      rows: 30,
+      data: "AQID",
+      colors: {
+        fg: null,
+        bg: null,
+        cursor: null,
+        selection_bg: null,
+        selection_fg: null,
+        palette: { "5": "#112233" },
+      },
+    });
   });
   const client = new CmuxClient({
     transport: main,
@@ -252,6 +267,7 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
       cursor: "#f0f0f0",
       selection_bg: null,
       selection_fg: null,
+      palette: { "4": "#ff4f8b" },
       cursor_style: "underline",
       cursor_blink: true,
     });
@@ -260,8 +276,10 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
   if (output.event === "output") assert.deepEqual(output.data, Uint8Array.from([104, 105]));
   assert.equal(resized.event, "resized");
   if (resized.event === "resized") {
-    assert.deepEqual(resized.data, Uint8Array.from([1, 2, 3]));
-    assert.deepEqual(resized.replay, resized.data);
+    const decoded = resized as DecodedResizedEvent;
+    assert.deepEqual(decoded.data, Uint8Array.from([1, 2, 3]));
+    assert.deepEqual(decoded.replay, decoded.data);
+    assert.deepEqual(decoded.colors?.palette, { "5": "#112233" });
   }
   stream.close();
   await client.close();
@@ -347,6 +365,7 @@ test("attachSurface routes colors-changed events without a surface field", async
       cursor: null,
       selection_bg: "#334455",
       selection_fg: "#ffffff",
+      palette: { "4": "#ff4f8b" },
       cursor_style: "bar",
       cursor_blink: false,
     });
@@ -362,6 +381,7 @@ test("attachSurface routes colors-changed events without a surface field", async
     cursor: null,
     selection_bg: "#334455",
     selection_fg: "#ffffff",
+    palette: { "4": "#ff4f8b" },
     cursor_style: "bar",
     cursor_blink: false,
   });
@@ -515,11 +535,23 @@ test("generic request preserves exact wire command and typed result", async () =
   let sent: Record<string, unknown> | undefined;
   const transport = new ScriptedTransport((request, connection) => {
     sent = request;
-    connection.emit({ id: request.id, ok: true, data: { ok: true, version: "0.1.2", protocol: 6 } });
+    connection.emit({
+      id: request.id,
+      ok: true,
+      data: {
+        ok: true,
+        version: "0.1.2",
+        build_commit: "cmux-sha",
+        ghostty_commit: "ghostty-sha",
+        protocol: 6,
+      },
+    });
   });
   const client = new CmuxClient({ transport });
   const result = await client.request({ cmd: "ping" });
   assert.equal(result.protocol, 6);
+  assert.equal(result.build_commit, "cmux-sha");
+  assert.equal(result.ghostty_commit, "ghostty-sha");
   assert.deepEqual(sent, { id: 1, cmd: "ping" });
   await client.close();
 });
