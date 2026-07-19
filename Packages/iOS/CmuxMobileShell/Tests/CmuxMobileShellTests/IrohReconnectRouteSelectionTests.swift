@@ -3,6 +3,7 @@ import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
+import SQLite3
 import Testing
 @testable import CmuxMobileShell
 
@@ -97,6 +98,45 @@ extension ReconnectRouteSelectionTests {
 
         #expect(!(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")))
         #expect(factory.attemptedKinds().isEmpty)
+    }
+
+    @Test func preIrohPairingContinuesOverItsExactTailscaleRouteAfterIOSUpgrade() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { clock.now },
+            supportedRouteKinds: [.iroh, .tailscale]
+        )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let databaseURL = directory.appendingPathComponent("paired-macs.sqlite3")
+        try seedVersionSevenPairing(
+            at: databaseURL,
+            route: tailscale(),
+            stackUserID: "user-1"
+        )
+        let pairedStore = try MobilePairedMacStore(databaseURL: databaseURL)
+        let store = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "iroh-tailscale-upgrade-\(UUID().uuidString)"
+            )!
+        )
+        await store.loadPairedMacs()
+
+        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(store.connectionState == .connected)
+        #expect(factory.attemptedKinds() == [.tailscale])
+        #expect(store.activeRoute?.kind == .tailscale)
     }
 
     @Test func reconnectUsesSingleRegistrySnapshotToRescueNonActiveMacWithNoLocalRoutes() async throws {
@@ -1136,6 +1176,65 @@ extension ReconnectRouteSelectionTests {
             ),
             priority: -10_000
         )
+    }
+
+    private func seedVersionSevenPairing(
+        at databaseURL: URL,
+        route: CmxAttachRoute,
+        stackUserID: String
+    ) throws {
+        let ownerKey = "\(stackUserID)\u{1F}\u{1F}"
+        let routeData = try JSONEncoder().encode(route)
+        let routeJSON = try #require(String(data: routeData, encoding: .utf8))
+        var database: OpaquePointer?
+        #expect(sqlite3_open(databaseURL.path, &database) == SQLITE_OK)
+        defer { sqlite3_close(database) }
+        let seed = """
+            CREATE TABLE paired_macs (
+                mac_device_id TEXT NOT NULL,
+                owner_key TEXT NOT NULL,
+                display_name TEXT,
+                stack_user_id TEXT,
+                team_id TEXT,
+                created_at REAL NOT NULL,
+                last_seen_at REAL NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 0,
+                custom_name TEXT,
+                custom_color TEXT,
+                custom_icon TEXT,
+                instance_tag TEXT,
+                PRIMARY KEY (mac_device_id, owner_key)
+            );
+            CREATE TABLE mac_routes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mac_device_id TEXT NOT NULL,
+                owner_key TEXT NOT NULL,
+                route_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                endpoint_json TEXT NOT NULL,
+                priority INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (mac_device_id, owner_key)
+                    REFERENCES paired_macs(mac_device_id, owner_key)
+                    ON DELETE CASCADE
+            );
+            INSERT INTO paired_macs VALUES (
+                'test-mac', \(sqlQuoted(ownerKey)), 'Test Mac',
+                \(sqlQuoted(stackUserID)), NULL, 0, 0, 1,
+                NULL, NULL, NULL, NULL
+            );
+            INSERT INTO mac_routes (
+                mac_device_id, owner_key, route_id, kind, endpoint_json, priority
+            ) VALUES (
+                'test-mac', \(sqlQuoted(ownerKey)), \(sqlQuoted(route.id)),
+                'tailscale', \(sqlQuoted(routeJSON)), \(route.priority)
+            );
+            PRAGMA user_version = 7;
+        """
+        #expect(sqlite3_exec(database, seed, nil, nil, nil) == SQLITE_OK)
+    }
+
+    private func sqlQuoted(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "''"))'"
     }
 
     private func makeMigrationShell(
