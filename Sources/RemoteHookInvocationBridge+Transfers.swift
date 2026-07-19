@@ -2,7 +2,7 @@ import Foundation
 
 extension RemoteHookInvocationBridge {
     // Fixed slots plus the per-transfer caps bound aggregate staging to 68 MiB.
-    func beginTransfer(_ invocation: Invocation) throws -> String {
+    func beginTransfer(_ invocation: RemoteHookInvocation) throws -> String {
         try FileManager.default.createDirectory(
             at: transferRoot,
             withIntermediateDirectories: true,
@@ -12,7 +12,7 @@ extension RemoteHookInvocationBridge {
             [.posixPermissions: 0o700],
             ofItemAtPath: transferRoot.path
         )
-        let metadata = TransferMetadata(
+        let metadata = RemoteHookTransferMetadata(
             arguments: invocation.arguments,
             environment: invocation.environment
         )
@@ -77,7 +77,7 @@ extension RemoteHookInvocationBridge {
         )
     }
 
-    func takeTransfer(_ transferID: String) throws -> Invocation {
+    func takeTransfer(_ transferID: String) throws -> RemoteHookInvocation {
         let directory = try existingTransferDirectory(for: transferID)
         defer { try? FileManager.default.removeItem(at: directory.deletingLastPathComponent()) }
         let metadataData = try boundedTransferData(
@@ -88,8 +88,8 @@ extension RemoteHookInvocationBridge {
             at: directory.appendingPathComponent("stdin"),
             maximumBytes: maximumInputBytes
         )
-        let metadata = try JSONDecoder().decode(TransferMetadata.self, from: metadataData)
-        return Invocation(arguments: metadata.arguments, environment: metadata.environment, input: input)
+        let metadata = try JSONDecoder().decode(RemoteHookTransferMetadata.self, from: metadataData)
+        return RemoteHookInvocation(arguments: metadata.arguments, environment: metadata.environment, input: input)
     }
 
     func removeStaleTransfers(now: Date = Date()) {
@@ -143,7 +143,7 @@ extension RemoteHookInvocationBridge {
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
-    private func invalidTransferError() -> BridgeError {
+    private func invalidTransferError() -> RemoteHookInvocationBridgeError {
         bridgeError(
             "invalid_params",
             key: "socket.hooks.remoteBridge.invalidTransfer",

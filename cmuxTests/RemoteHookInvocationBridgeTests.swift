@@ -62,7 +62,7 @@ struct RemoteHookInvocationBridgeTests {
                 maximumBytes: 4 * 1024
             )
             Issue.record("expected output limit failure")
-        } catch let error as RemoteHookInvocationBridge.BridgeError {
+        } catch let error as RemoteHookInvocationBridgeError {
             #expect(error.code == "resource_exhausted")
         }
         #expect(!process.isRunning)
@@ -90,7 +90,7 @@ struct RemoteHookInvocationBridgeTests {
                 maximumBytes: 4 * 1024
             )
             Issue.record("expected timeout failure")
-        } catch let error as RemoteHookInvocationBridge.BridgeError {
+        } catch let error as RemoteHookInvocationBridgeError {
             #expect(error.code == "timed_out")
         }
         #expect(!process.isRunning)

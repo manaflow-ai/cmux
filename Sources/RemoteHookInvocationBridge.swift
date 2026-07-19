@@ -1,22 +1,6 @@
 import Foundation
 
 nonisolated struct RemoteHookInvocationBridge: Sendable {
-    struct BridgeError: Error {
-        let code: String
-        let message: String
-    }
-
-    struct Invocation: Sendable {
-        let arguments: [String]
-        let environment: [String: String]
-        let input: Data
-    }
-
-    struct TransferMetadata: Codable, Sendable {
-        let arguments: [String]
-        let environment: [String: String]
-    }
-
     let maximumInputBytes = 16 * 1024 * 1024
     private let maximumHookInputBytes = 8 * 1024 * 1024
     private let maximumChunkBytes = 6 * 1024
@@ -40,7 +24,7 @@ nonisolated struct RemoteHookInvocationBridge: Sendable {
         method: String,
         params: [String: Any],
         localSocketPath: String
-    ) -> Result<[String: Any], BridgeError> {
+    ) -> Result<[String: Any], RemoteHookInvocationBridgeError> {
         do {
             removeStaleTransfers()
             switch method {
@@ -73,7 +57,7 @@ nonisolated struct RemoteHookInvocationBridge: Sendable {
                     fallback: "Unknown remote hook bridge method."
                 )
             }
-        } catch let error as BridgeError {
+        } catch let error as RemoteHookInvocationBridgeError {
             return .failure(error)
         } catch {
             return .failure(bridgeError(
@@ -84,7 +68,7 @@ nonisolated struct RemoteHookInvocationBridge: Sendable {
         }
     }
 
-    private func decodeInvocation(params: [String: Any], requireInput: Bool = true) throws -> Invocation {
+    private func decodeInvocation(params: [String: Any], requireInput: Bool = true) throws -> RemoteHookInvocation {
         guard let arguments = params["arguments"] as? [String],
               !arguments.isEmpty,
               arguments.count <= 32,
@@ -135,7 +119,7 @@ nonisolated struct RemoteHookInvocationBridge: Sendable {
                 fallback: "Remote hook payload exceeds the relay limit."
             )
         }
-        return Invocation(arguments: arguments, environment: environment, input: input)
+        return RemoteHookInvocation(arguments: arguments, environment: environment, input: input)
     }
 
     private static func argumentsAreAllowed(_ arguments: [String]) -> Bool {
@@ -157,7 +141,7 @@ nonisolated struct RemoteHookInvocationBridge: Sendable {
         return !prohibitedActions.contains(arguments[1].lowercased())
     }
 
-    private func run(_ invocation: Invocation, localSocketPath: String) throws -> [String: Any] {
+    private func run(_ invocation: RemoteHookInvocation, localSocketPath: String) throws -> [String: Any] {
         guard let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
               FileManager.default.isExecutableFile(atPath: cliURL.path) else {
             throw bridgeError(
@@ -271,8 +255,11 @@ nonisolated struct RemoteHookInvocationBridge: Sendable {
         return data
     }
 
-    func bridgeError(_ code: String, key: String, fallback: String) -> BridgeError {
-        BridgeError(code: code, message: Bundle.main.localizedString(forKey: key, value: fallback, table: nil))
+    func bridgeError(_ code: String, key: String, fallback: String) -> RemoteHookInvocationBridgeError {
+        RemoteHookInvocationBridgeError(
+            code: code,
+            message: Bundle.main.localizedString(forKey: key, value: fallback, table: nil)
+        )
     }
 
     private static let routingEnvironmentKeys: Set<String> = [

@@ -230,7 +230,7 @@ extension RemoteHookInvocationBridge {
         }
     }
 
-    private func internalProcessError() -> BridgeError {
+    private func internalProcessError() -> RemoteHookInvocationBridgeError {
         bridgeError(
             "internal_error",
             key: "socket.hooks.remoteBridge.failed",

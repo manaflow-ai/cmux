@@ -181,12 +181,13 @@ extension RemoteCLIRelayServer {
             }
             phase = .forwarding
             let forwardedCommandLine = commandRewriter(commandLine)
-            DispatchQueue.global(qos: .utility).async { [localSocketPath, forwardedCommandLine, queue] in
+            let timeoutSeconds = isHookInvocation(forwardedCommandLine) ? 135 : 15
+            DispatchQueue.global(qos: .utility).async { [self, localSocketPath, forwardedCommandLine, queue] in
                 let result = Result {
-                    try Self.roundTripUnixSocket(
+                    try roundTripUnixSocket(
                         socketPath: localSocketPath,
                         request: forwardedCommandLine,
-                        timeoutSeconds: Self.isHookInvocation(forwardedCommandLine) ? 135 : 15
+                        timeoutSeconds: timeoutSeconds
                     )
                 }
                 queue.async { [weak self] in
@@ -289,13 +290,13 @@ extension RemoteCLIRelayServer {
             return bytes.map { String(format: "%02x", $0) }.joined()
         }
 
-        private static func isHookInvocation(_ request: Data) -> Bool {
+        private func isHookInvocation(_ request: Data) -> Bool {
             guard let object = try? JSONSerialization.jsonObject(with: request) as? [String: Any],
                   let method = object["method"] as? String else { return false }
             return method == "hooks.invoke" || method == "hooks.invoke.execute"
         }
 
-        private static func roundTripUnixSocket(socketPath: String, request: Data, timeoutSeconds: Int = 15) throws -> Data {
+        private func roundTripUnixSocket(socketPath: String, request: Data, timeoutSeconds: Int = 15) throws -> Data {
             let fd = socket(AF_UNIX, SOCK_STREAM, 0)
             guard fd >= 0 else {
                 throw NSError(domain: "cmux.remote.relay", code: 1, userInfo: [
