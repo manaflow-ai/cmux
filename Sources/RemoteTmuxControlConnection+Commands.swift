@@ -163,7 +163,7 @@ extension RemoteTmuxControlConnection {
         // output, without a transport-visible gap where live bytes can be lost.
         // Buffering already started above, so output concurrent with the reset is
         // reconciled by the capture boundary regardless of SSH chunking/latency.
-        let outputResetCommand = "refresh-client -A %\(paneId):off -A %\(paneId):on"
+        let outputResetCommand = Self.paneOutputCursorResetCommand(paneId: paneId)
         // Match the remote pane's screen (primary vs alternate) BEFORE seeding the
         // captured rows. An alt-screen TUI (e.g. claude) must render on the mirror's
         // alternate screen so resize matches the remote (the alternate screen does
@@ -235,7 +235,7 @@ extension RemoteTmuxControlConnection {
         let seedID = beginPaneSeed(paneId: paneId, clearScrollback: false)
         guard sendBatchInternal(
             [
-                "refresh-client -A %\(paneId):off -A %\(paneId):on",
+                Self.paneOutputCursorResetCommand(paneId: paneId),
                 "capture-pane -p -e -t %\(paneId)",
                 Self.paneStateQueryCommand(paneId: paneId),
             ],
@@ -248,6 +248,12 @@ extension RemoteTmuxControlConnection {
             cancelPaneSeed(paneId: paneId, seedID: seedID)
             return
         }
+    }
+
+    /// Builds the atomic pane-output cursor reset accepted by tmux's command parser.
+    static func paneOutputCursorResetCommand(paneId: Int) -> String {
+        // tmux parses an unquoted `%pane:state` token as syntax, before -A sees it.
+        "refresh-client -A \"%\(paneId):off\" -A \"%\(paneId):on\""
     }
 
     /// The `display-message` line that reads a pane's terminal state (cursor,
