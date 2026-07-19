@@ -4634,5 +4634,43 @@
         "action": "プランを管理"
       }
     }
+  },
+  "share": {
+    "connectingTitle": "接続中…",
+    "connectingBody": "共有ワークスペースのセッションに接続しています。",
+    "pendingTitle": "承認を待っています",
+    "pendingBody": "ホストに参加リクエストを送信しました。このタブを開いたままにしてください。",
+    "deniedTitle": "アクセスが拒否されました",
+    "deniedBody": "ホストがこのセッションへの参加リクエストを拒否しました。",
+    "kickedTitle": "セッションから削除されました",
+    "kickedBody": "ホストがあなたをこの共有ワークスペースから削除しました。",
+    "unavailableTitle": "セッションを利用できません",
+    "unavailableBody": "この共有リンクは無効か、セッションが終了しています。",
+    "endedTitle": "セッションが終了しました",
+    "endedBody": "ホストが共有を停止しました。このリンクは無効になりました。",
+    "endedHostGoneBody": "ホストが切断され、復帰しませんでした。このリンクは無効になりました。",
+    "sharedBy": "{email} が共有中",
+    "reconnecting": "再接続中…",
+    "hostDisconnected": "ホストが切断されました",
+    "roleEditor": "編集可能",
+    "roleViewer": "閲覧のみ",
+    "workspaces": "ワークスペース",
+    "participants": "参加者",
+    "hostBadge": "ホスト",
+    "chatYou": "自分",
+    "followLabel": "フォロー",
+    "followingLabel": "フォロー中",
+    "chatTitle": "セッションチャット",
+    "chatCollapse": "チャットを折りたたむ",
+    "chatEmpty": "メッセージはまだありません。ワークスペース上で / を押すとカーソル位置でチャットできます。",
+    "chatPlaceholder": "メッセージ…",
+    "bubblePlaceholder": "コメントを入力…",
+    "emptyWorkspace": "このワークスペースにはペインがありません。",
+    "browserPanePlaceholder": "ブラウザペイン（共有は近日対応）",
+    "panePlaceholder": "このペインタイプはまだ共有できません",
+    "noWorkspaces": "共有中のワークスペースはありません。",
+    "composerLabel": "共同コンポーザー",
+    "composerPlaceholder": "一緒に入力…",
+    "pixelViewOnlyBadge": "閲覧のみ"
   }
 }

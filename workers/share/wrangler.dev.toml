@@ -1,0 +1,20 @@
+# Shared dev instance of the share worker. Deploy with:
+#   wrangler deploy --config wrangler.dev.toml
+# Never deploy with `--name`: that detaches from this config and can steal the
+# production custom domain.
+
+name = "cmux-share-dev"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+workers_dev = true
+
+[observability]
+enabled = true
+
+[[durable_objects.bindings]]
+name = "SHARE_SESSION"
+class_name = "ShareSession"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ShareSession"]
