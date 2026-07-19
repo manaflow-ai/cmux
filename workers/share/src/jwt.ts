@@ -12,8 +12,11 @@ export interface ShareClaims {
   email: string;
   /** Share code this token is valid for. */
   code: string;
-  /** True only on tokens minted by the session-create endpoint. */
+  /** Host-claim connection (session creator's Mac). */
   host: boolean;
+  /** True only on create-endpoint tokens: the only ones that may
+   * materialize a new session. Refresh tokens reconnect, never create. */
+  create: boolean;
 }
 
 export const SHARE_JWT_AUDIENCE = "cmux-share";
@@ -75,6 +78,7 @@ export function validateClaims(
     email,
     code: payload.code,
     host: payload.host === true,
+    create: payload.create === true,
   };
 }
 

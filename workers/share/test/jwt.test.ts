@@ -66,7 +66,13 @@ describe("claim validation (pure)", () => {
       email: "a@b.c",
       code: "code123",
       host: true,
+      create: false,
     });
+  });
+
+  it("create claim must be literal true", () => {
+    expect(validateClaims(claims({ create: true }), "code123", NOW)?.create).toBe(true);
+    expect(validateClaims(claims({ create: "true" }), "code123", NOW)?.create).toBe(false);
   });
 
   it.each([

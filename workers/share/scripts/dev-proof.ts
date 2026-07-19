@@ -32,7 +32,18 @@ function mint(sub: string, email: string, host: boolean): string {
   const now = Math.floor(Date.now() / 1000);
   const b64 = (v: Buffer | string) => Buffer.from(v).toString("base64url");
   const input = `${b64(JSON.stringify({ alg: "EdDSA", typ: "JWT" }))}.${b64(
-    JSON.stringify({ iss: "cmux", aud: "cmux-share", sub, email, code, host, iat: now, exp: now + 300 }),
+    JSON.stringify({
+      iss: "cmux",
+      aud: "cmux-share",
+      sub,
+      email,
+      code,
+      host,
+      // Host tokens here stand in for the create endpoint's token.
+      ...(host ? { create: true } : {}),
+      iat: now,
+      exp: now + 300,
+    }),
   )}`;
   return `${input}.${b64(edSign(null, Buffer.from(input), key))}`;
 }

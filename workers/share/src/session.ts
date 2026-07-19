@@ -28,6 +28,9 @@ export const CHAT_HISTORY_LIMIT = 500;
 export const COLOR_COUNT = 8;
 /** Upper bound on message text; longer chat is truncated, not rejected. */
 export const CHAT_TEXT_LIMIT = 4_000;
+/** Per-connection cap on pane subscriptions (a guest-supplied string set;
+ * the cap bounds memory instead of trusting the client). */
+export const MAX_SUBS_PER_CONN = 64;
 
 export type ConnId = string;
 
@@ -281,6 +284,28 @@ export class ShareSessionCore {
     return effects;
   }
 
+  /** Drop every subscription to a no-longer-shared workspace and tell the
+   * host about the count changes, so unsharing immediately stops streams. */
+  private pruneUnsharedSubs(): Effect[] {
+    const dropped = new Set<string>();
+    for (const conn of this.conns.values()) {
+      if (conn.isHost) continue;
+      for (const key of [...conn.subs]) {
+        const [ws] = key.split(SUB_KEY_SEPARATOR);
+        if (ws && !this.isSharedWorkspace(ws)) {
+          conn.subs.delete(key);
+          dropped.add(key);
+        }
+      }
+    }
+    const effects: Effect[] = [];
+    for (const key of dropped) {
+      const [ws, pane] = key.split(SUB_KEY_SEPARATOR);
+      if (ws && pane) effects.push(...this.subCountChanged(ws, pane));
+    }
+    return effects;
+  }
+
   /** Alarm fired: end the session if the host never came back. */
   alarm(now: number): Effect[] {
     if (this.s.ended) return [];
@@ -320,6 +345,7 @@ export class ShareSessionCore {
         this.pruneLayouts();
         return [
           { kind: "persist" },
+          ...this.pruneUnsharedSubs(),
           ...this.broadcastActive({ t: "shared", shared: msg.shared }, id),
         ];
       }
@@ -417,6 +443,15 @@ export class ShareSessionCore {
       }
       case "sub": {
         if (!this.isSharedWorkspace(msg.ws)) return [];
+        if (conn.subs.size >= MAX_SUBS_PER_CONN && !conn.subs.has(subKey(msg.ws, msg.pane))) {
+          return [
+            {
+              kind: "send",
+              to: conn.id,
+              msg: { t: "error", code: "too_many_subs", message: "subscription limit reached" },
+            },
+          ];
+        }
         conn.subs.add(subKey(msg.ws, msg.pane));
         return this.subCountChanged(msg.ws, msg.pane);
       }
@@ -439,6 +474,9 @@ export class ShareSessionCore {
   routeBinary(fromId: ConnId, ws: string, pane: string, data: Uint8Array): Effect[] {
     const conn = this.conns.get(fromId);
     if (!conn?.isHost || this.s.ended) return [];
+    // Never fan out frames for a workspace the host no longer shares, even
+    // if a lagging host keeps emitting them.
+    if (!this.isSharedWorkspace(ws)) return [];
     const key = subKey(ws, pane);
     const effects: Effect[] = [];
     for (const c of this.conns.values()) {

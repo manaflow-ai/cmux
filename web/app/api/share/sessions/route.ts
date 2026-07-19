@@ -57,6 +57,7 @@ export async function handleShareSessionCreate(
     email: user.primaryEmail ?? "",
     code,
     host: true,
+    create: true,
     key,
     nowSeconds: deps.nowSeconds(),
   });

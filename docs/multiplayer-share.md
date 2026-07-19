@@ -30,7 +30,7 @@ viewer scale.
 
 ## Architecture
 
-```
+```text
 Mac host ──ws──▶ ShareSession DO (workers/share) ◀──ws── guest browsers
                  one per code · participants/roles/chat · fan-out
 ```

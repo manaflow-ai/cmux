@@ -43,12 +43,16 @@ export class ShareSession extends DurableObject<ShareWorkerEnv> {
     const user = request.headers.get("x-share-user");
     const email = request.headers.get("x-share-email") ?? "";
     const isHost = request.headers.get("x-share-host") === "1";
+    const isCreate = request.headers.get("x-share-create") === "1";
     const code = request.headers.get("x-share-code");
     if (!user || !code) return new Response("bad gateway headers", { status: 400 });
 
     let core = await this.ensureCore();
     if (!core) {
-      if (!isHost) return new Response("no such session", { status: 404 });
+      // Only a create-endpoint token materializes a session: a host-claim
+      // refresh token reconnects to an existing session but can never squat
+      // a code its holder did not mint.
+      if (!isHost || !isCreate) return new Response("no such session", { status: 404 });
       const persisted = ShareSessionCore.create(code, { user, email }, Date.now());
       await this.ctx.storage.put(SESSION_KEY, persisted);
       core = new ShareSessionCore(persisted);

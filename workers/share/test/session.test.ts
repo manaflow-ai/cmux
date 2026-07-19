@@ -358,6 +358,42 @@ describe("subscriptions and binary routing", () => {
     });
   });
 
+  it("unsharing a workspace drops its subs, notifies the host, and stops routing", () => {
+    const core = bootedCore();
+    approveGuest(core, "c-alice", ALICE);
+    core.handleGuest("c-alice", { t: "sub", ws: "workspace:1", pane: "surface:1" });
+    const effects = core.handleHost("c-host", { t: "shared", shared: [] });
+    expect(sends(effects, "c-host")).toContainEqual({
+      t: "guest-sub",
+      ws: "workspace:1",
+      pane: "surface:1",
+      count: 0,
+    });
+    // A lagging host still emitting frames for the unshared workspace gets dropped.
+    expect(core.routeBinary("c-host", "workspace:1", "surface:1", new Uint8Array(8))).toEqual([]);
+  });
+
+  it("caps per-connection subscriptions", () => {
+    const core = bootedCore();
+    approveGuest(core, "c-alice", ALICE);
+    for (let i = 0; i < 64; i += 1) {
+      core.handleGuest("c-alice", { t: "sub", ws: "workspace:1", pane: `surface:${i}` });
+    }
+    const over = core.handleGuest("c-alice", {
+      t: "sub",
+      ws: "workspace:1",
+      pane: "surface:overflow",
+    });
+    expect(sends(over, "c-alice")).toContainEqual({
+      t: "error",
+      code: "too_many_subs",
+      message: "subscription limit reached",
+    });
+    // Re-subscribing an existing pane is still allowed at the cap.
+    const resub = core.handleGuest("c-alice", { t: "sub", ws: "workspace:1", pane: "surface:0" });
+    expect(sends(resub, "c-host").some((m) => m.t === "guest-sub")).toBe(true);
+  });
+
   it("binary frames from guests are never routed", () => {
     const core = bootedCore();
     approveGuest(core, "c-alice", ALICE);

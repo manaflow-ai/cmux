@@ -105,7 +105,13 @@ final class ShareSessionController: ObservableObject {
             } catch {
                 guard let self, self.status == .starting else { return }
                 self.status = .idle
-                self.lastErrorText = String(describing: error)
+                // User-facing copy stays localized and generic; the detail
+                // goes to the debug log only.
+                cmuxDebugLog("share.start failed: \(String(describing: error))")
+                self.lastErrorText = String(
+                    localized: "share.error.startFailed",
+                    defaultValue: "Couldn't start sharing. Check your connection and try again."
+                )
             }
         }
     }
@@ -411,7 +417,11 @@ final class ShareSessionController: ObservableObject {
         case .sessionEnded:
             teardownSession()
         case .error(let code, let message):
-            lastErrorText = "\(code): \(message)"
+            cmuxDebugLog("share.server error code=\(code) message=\(message)")
+            lastErrorText = String(
+                localized: "share.error.sessionError",
+                defaultValue: "The share session hit an error. Reconnecting…"
+            )
         case .unknown:
             break
         }

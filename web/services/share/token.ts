@@ -89,10 +89,15 @@ export function mintShareToken(params: {
   email: string;
   code: string;
   host: boolean;
+  /** True only on tokens minted by the session-create endpoint: the only
+   * tokens allowed to materialize a new session in the DO. A host-claim
+   * refresh token can reconnect to its session but never create one, so
+   * nobody can squat sessions at codes they did not mint. */
+  create?: boolean;
   key: KeyObject;
   nowSeconds: number;
 }): { token: string; expiresAt: number } {
-  const { sub, email, code, host, key, nowSeconds } = params;
+  const { sub, email, code, host, create, key, nowSeconds } = params;
   const expiresAt = nowSeconds + SHARE_TOKEN_TTL_SECONDS;
   const header = { alg: "EdDSA", typ: "JWT" };
   const payload: Record<string, unknown> = {
@@ -102,6 +107,7 @@ export function mintShareToken(params: {
     email,
     code,
     host,
+    ...(create ? { create: true } : {}),
     iat: nowSeconds,
     exp: expiresAt,
   };

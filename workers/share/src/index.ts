@@ -50,11 +50,14 @@ export default {
 
       const stub = env.SHARE_SESSION.get(env.SHARE_SESSION.idFromName(code));
       // Forward the upgrade with verified identity in headers the DO trusts.
-      // The token never reaches the DO.
+      // The token never reaches the DO — strip credential-bearing headers.
       const headers = new Headers(request.headers);
+      headers.delete("authorization");
+      headers.delete("cookie");
       headers.set("x-share-user", claims.sub);
       headers.set("x-share-email", claims.email);
       headers.set("x-share-host", claims.host ? "1" : "0");
+      headers.set("x-share-create", claims.create ? "1" : "0");
       headers.set("x-share-code", code);
       const forward = new Request(url.origin + url.pathname, {
         method: "GET",

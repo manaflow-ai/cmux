@@ -16,8 +16,11 @@ export class PixelPaneModel {
   private decoder: VideoDecoder | null = null;
   private sawKeyframe = false;
   private timestamp = 0;
-  /** Serializes WebP decodes so a slow decode can't reorder frames. */
-  private stillChain: Promise<void> = Promise.resolve();
+  private closed = false;
+  /** Latest-wins still decoding: at most one decode in flight, and only the
+   * newest pending frame is decoded next (stale stills are dropped). */
+  private stillDecoding = false;
+  private pendingStill: Uint8Array | null = null;
 
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
@@ -28,7 +31,7 @@ export class PixelPaneModel {
 
   /** Payload after the binary header: [codec u8][flags u8][data]. */
   push(payload: Uint8Array): void {
-    if (payload.length < 2) return;
+    if (this.closed || payload.length < 2) return;
     const codec = payload[0] ?? 0;
     const flags = payload[1] ?? 0;
     const data = payload.subarray(2);
@@ -40,20 +43,41 @@ export class PixelPaneModel {
   }
 
   close(): void {
-    this.decoder?.close();
+    this.closed = true;
+    this.pendingStill = null;
+    try {
+      this.decoder?.close();
+    } catch {
+      // Already closed.
+    }
     this.decoder = null;
     this.dropImage();
   }
 
   private pushStill(data: Uint8Array): void {
-    // No MIME type: createImageBitmap sniffs, so JPEG and WebP both work.
-    const blob = new Blob([data.slice()]);
-    this.stillChain = this.stillChain
-      .then(() => createImageBitmap(blob))
-      .then((bitmap) => this.setImage(bitmap))
-      .catch(() => {
+    this.pendingStill = data;
+    if (this.stillDecoding) return;
+    this.stillDecoding = true;
+    void this.decodeNextStill();
+  }
+
+  private async decodeNextStill(): Promise<void> {
+    while (!this.closed && this.pendingStill) {
+      const data = this.pendingStill;
+      this.pendingStill = null;
+      try {
+        // No MIME type: createImageBitmap sniffs, so JPEG and WebP both work.
+        const bitmap = await createImageBitmap(new Blob([data.slice()]));
+        if (this.closed) {
+          bitmap.close();
+        } else {
+          this.setImage(bitmap);
+        }
+      } catch {
         // Undecodable still; keep showing the previous frame.
-      });
+      }
+    }
+    this.stillDecoding = false;
   }
 
   private pushVideo(data: Uint8Array, keyframe: boolean): void {

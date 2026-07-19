@@ -238,6 +238,12 @@ function PixelPane({
           }
           onKeyDown={(e) => {
             if (e.metaKey) return; // leave browser/system shortcuts alone
+            if (e.key === "Escape") {
+              // Keyboard exit: Escape releases focus instead of being
+              // swallowed by the remote pane forever.
+              e.currentTarget.blur();
+              return;
+            }
             e.preventDefault();
             client.sendWebKey(webKeyMessage(ws, pane, e, true));
           }}
