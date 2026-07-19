@@ -12,6 +12,41 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func legacyRecordLevelEvidenceDemotesCLIAndRestoreProjection() throws {
+        let structuralEvidence: [[String: Any]] = [
+            ["relationship": "spawned"],
+            ["authorityEvidence": "managed_child"],
+            ["authorityEvidence": "provisional_ambiguous_child"],
+            ["completedAt": 200],
+        ]
+
+        for evidence in structuralEvidence {
+            var object: [String: Any] = [
+                "sessionId": "legacy-session",
+                "workspaceId": "workspace",
+                "surfaceId": "surface",
+                "restoreAuthority": true,
+                "startedAt": 100,
+                "updatedAt": 200,
+            ]
+            object.merge(evidence) { _, incoming in incoming }
+            let data = try JSONSerialization.data(withJSONObject: object)
+
+            let cliRecord = try JSONDecoder().decode(ClaudeHookSessionRecord.self, from: data)
+            #expect(
+                !AgentSessionRunCanonicalizer()
+                    .projectedRun(record: cliRecord, provider: "codex")
+                    .restoreAuthority
+            )
+
+            let restoreRecord = try JSONDecoder().decode(
+                RestorableAgentHookSessionRecord.self,
+                from: data
+            )
+            #expect(!restoreRecord.projectedRestoreAuthority)
+        }
+    }
+
     @Test func cliCanonicalizerRejectsRuntimeProcessGenerationConflicts() throws {
         func runtime(processID: Int) throws -> AgentCmuxRuntimeIdentity {
             let data = try JSONSerialization.data(withJSONObject: [
@@ -55,13 +90,6 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @Test func laterDuplicateCannotReviveDurableChildAuthority() throws {
-        let child = AgentSessionRunRecord(
-            runId: "shared-run", pid: 42, processStartedAt: 100,
-            parentRunId: "parent-run", parentSessionId: "parent-session",
-            relationship: .spawned, restoreAuthority: false,
-            authorityEvidence: .managedChild,
-            startedAt: 100, updatedAt: 200, endedAt: nil
-        )
         let laterRoot = AgentSessionRunRecord(
             runId: "shared-run", pid: 42, processStartedAt: 100,
             parentRunId: "parent-run", parentSessionId: "parent-session",
@@ -70,22 +98,34 @@ extension CMUXCLIErrorOutputRegressionTests {
             startedAt: 100, updatedAt: 300, endedAt: nil
         )
 
-        for runs in [[child, laterRoot], [laterRoot, child]] {
-            let projected = AgentSessionRunCanonicalizer().projectedRun(
-                record: ClaudeHookSessionRecord(
-                    sessionId: "session",
-                    workspaceId: "workspace",
-                    surfaceId: "surface",
-                    startedAt: 100,
-                    updatedAt: 300,
-                    runs: runs,
-                    activeRunId: "shared-run"
-                ),
-                provider: "codex"
+        for (evidence, expectedEvidence): (
+            AgentSessionAuthorityEvidence?,
+            AgentSessionAuthorityEvidence
+        ) in [(.managedChild, .managedChild), (nil, .legacyChild)] {
+            let child = AgentSessionRunRecord(
+                runId: "shared-run", pid: 42, processStartedAt: 100,
+                parentRunId: "parent-run", parentSessionId: "parent-session",
+                relationship: .spawned, restoreAuthority: false,
+                authorityEvidence: evidence,
+                startedAt: 100, updatedAt: 200, endedAt: nil
             )
-            #expect(!projected.restoreAuthority)
-            #expect(projected.relationship == .spawned)
-            #expect(projected.authorityEvidence == .managedChild)
+            for runs in [[child, laterRoot], [laterRoot, child]] {
+                let projected = AgentSessionRunCanonicalizer().projectedRun(
+                    record: ClaudeHookSessionRecord(
+                        sessionId: "session",
+                        workspaceId: "workspace",
+                        surfaceId: "surface",
+                        startedAt: 100,
+                        updatedAt: 300,
+                        runs: runs,
+                        activeRunId: "shared-run"
+                    ),
+                    provider: "codex"
+                )
+                #expect(!projected.restoreAuthority)
+                #expect(projected.relationship == .spawned)
+                #expect(projected.authorityEvidence == expectedEvidence)
+            }
         }
     }
 
@@ -120,6 +160,44 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(projected.restoreAuthority)
         #expect(projected.relationship == .forked)
         #expect(projected.authorityEvidence == .verifiedForkRoot)
+    }
+
+    @Test func provisionalChildNeedsCompleteForkRootProofToRecover() {
+        let provisional = AgentSessionRunRecord(
+            runId: "shared-run", pid: 42, processStartedAt: 100,
+            parentRunId: "parent-run", parentSessionId: "parent-session",
+            relationship: .spawned, restoreAuthority: false,
+            authorityEvidence: .provisionalAmbiguousChild,
+            startedAt: 100, updatedAt: 200, endedAt: nil
+        )
+
+        for (relationship, evidence): (
+            AgentSessionRelationship?,
+            AgentSessionAuthorityEvidence?
+        ) in [(nil, nil), (.forked, nil), (nil, .verifiedForkRoot)] {
+            let incompleteRoot = AgentSessionRunRecord(
+                runId: "shared-run", pid: 42, processStartedAt: 100,
+                parentRunId: nil, parentSessionId: nil,
+                relationship: relationship, restoreAuthority: true,
+                authorityEvidence: evidence,
+                startedAt: 100, updatedAt: 300, endedAt: nil
+            )
+            let projected = AgentSessionRunCanonicalizer().projectedRun(
+                record: ClaudeHookSessionRecord(
+                    sessionId: "session",
+                    workspaceId: "workspace",
+                    surfaceId: "surface",
+                    startedAt: 100,
+                    updatedAt: 300,
+                    runs: [provisional, incompleteRoot],
+                    activeRunId: "shared-run"
+                ),
+                provider: "codex"
+            )
+            #expect(!projected.restoreAuthority)
+            #expect(projected.relationship == .spawned)
+            #expect(projected.authorityEvidence == .provisionalAmbiguousChild)
+        }
     }
 
     @Test func canonicalRunChildEvidenceCannotRetainRestoreAuthority() throws {

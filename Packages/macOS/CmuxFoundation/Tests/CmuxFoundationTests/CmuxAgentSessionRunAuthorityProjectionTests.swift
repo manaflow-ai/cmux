@@ -74,22 +74,27 @@ struct CmuxAgentSessionRunAuthorityProjectionTests {
 
     @Test("later duplicate cannot revive durable child authority")
     func laterDuplicateCannotReviveDurableChildAuthority() throws {
-        var child = run(relationship: .spawned, authorityEvidence: .managedChild)
-        child.restoreAuthority = false
-        child.updatedAt = 200
         var laterRoot = run(relationship: .forked, authorityEvidence: .verifiedForkRoot)
         laterRoot.updatedAt = 300
 
-        for runs in [[child, laterRoot], [laterRoot, child]] {
-            let projection = CmuxAgentSessionRunAuthorityProjection().projection(
-                recordRestoreAuthority: true,
-                runs: runs,
-                activeRunId: child.runId
-            )
-            let projectedRun = try #require(projection.run)
-            #expect(!projection.restoreAuthority)
-            #expect(projectedRun.relationship == .spawned)
-            #expect(projectedRun.authorityEvidence == .managedChild)
+        for (evidence, expectedEvidence): (
+            CmuxAgentSessionRunAuthorityProjection.AuthorityEvidence?,
+            CmuxAgentSessionRunAuthorityProjection.AuthorityEvidence
+        ) in [(.managedChild, .managedChild), (nil, .legacyChild)] {
+            var child = run(relationship: .spawned, authorityEvidence: evidence)
+            child.restoreAuthority = false
+            child.updatedAt = 200
+            for runs in [[child, laterRoot], [laterRoot, child]] {
+                let projection = CmuxAgentSessionRunAuthorityProjection().projection(
+                    recordRestoreAuthority: true,
+                    runs: runs,
+                    activeRunId: child.runId
+                )
+                let projectedRun = try #require(projection.run)
+                #expect(!projection.restoreAuthority)
+                #expect(projectedRun.relationship == .spawned)
+                #expect(projectedRun.authorityEvidence == expectedEvidence)
+            }
         }
     }
 
@@ -113,6 +118,36 @@ struct CmuxAgentSessionRunAuthorityProjectionTests {
         #expect(projection.restoreAuthority)
         #expect(projectedRun.relationship == .forked)
         #expect(projectedRun.authorityEvidence == .verifiedForkRoot)
+    }
+
+    @Test("provisional child authority needs complete fork-root proof to recover")
+    func provisionalAuthorityNeedsCompleteForkRootProof() throws {
+        var provisional = run(
+            relationship: .spawned,
+            authorityEvidence: .provisionalAmbiguousChild
+        )
+        provisional.restoreAuthority = false
+        provisional.updatedAt = 200
+
+        for (relationship, evidence): (
+            CmuxAgentSessionRunAuthorityProjection.Relationship?,
+            CmuxAgentSessionRunAuthorityProjection.AuthorityEvidence?
+        ) in [(nil, nil), (.forked, nil), (nil, .verifiedForkRoot)] {
+            var incompleteRoot = run(
+                relationship: relationship,
+                authorityEvidence: evidence
+            )
+            incompleteRoot.updatedAt = 300
+            let projection = CmuxAgentSessionRunAuthorityProjection().projection(
+                recordRestoreAuthority: true,
+                runs: [provisional, incompleteRoot],
+                activeRunId: provisional.runId
+            )
+            let projectedRun = try #require(projection.run)
+            #expect(!projection.restoreAuthority)
+            #expect(projectedRun.relationship == .spawned)
+            #expect(projectedRun.authorityEvidence == .provisionalAmbiguousChild)
+        }
     }
 
     @Test("legacy records project top-level child evidence")
