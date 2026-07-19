@@ -6,6 +6,9 @@ struct AgentCmuxRuntimeIdentity: Codable, Sendable, Equatable {
     var id: String
     var socketPath: String?
     var bundleIdentifier: String?
+    var processId: Int?
+    var processStartSeconds: Int64?
+    var processStartMicroseconds: Int64?
 
     init?(environment: [String: String]) {
         guard let id = Self.normalized(environment["CMUX_RUNTIME_ID"]) else { return nil }
@@ -13,12 +16,25 @@ struct AgentCmuxRuntimeIdentity: Codable, Sendable, Equatable {
         socketPath = Self.normalized(environment["CMUX_SOCKET_PATH"])
             ?? Self.normalized(environment["CMUX_SOCKET"])
         bundleIdentifier = Self.normalized(environment["CMUX_BUNDLE_ID"])
+        processId = nil
+        processStartSeconds = nil
+        processStartMicroseconds = nil
     }
 
-    init(id: String, socketPath: String?, bundleIdentifier: String?) {
+    init(
+        id: String,
+        socketPath: String?,
+        bundleIdentifier: String?,
+        processId: Int? = nil,
+        processStartSeconds: Int64? = nil,
+        processStartMicroseconds: Int64? = nil
+    ) {
         self.id = id
         self.socketPath = socketPath
         self.bundleIdentifier = bundleIdentifier
+        self.processId = processId
+        self.processStartSeconds = processStartSeconds
+        self.processStartMicroseconds = processStartMicroseconds
     }
 
     /// The connected app owns runtime identity. Hook providers may sanitize

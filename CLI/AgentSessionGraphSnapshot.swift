@@ -58,6 +58,7 @@ struct AgentSessionRunCanonicalizer: Sendable {
                 parentSessionId: record.parentSessionId,
                 relationship: record.relationship,
                 restoreAuthority: record.restoreAuthority ?? (record.relationship != .spawned),
+                authorityEvidence: record.authorityEvidence,
                 startedAt: record.startedAt,
                 updatedAt: record.updatedAt,
                 endedAt: record.completedAt
@@ -162,7 +163,7 @@ struct AgentSessionRunCanonicalizer: Sendable {
     ) -> AgentSessionRunRecord {
         guard candidate.updatedAt == current.updatedAt,
               candidate.startedAt == current.startedAt else {
-            return isNewer(candidate, than: current) ? candidate : current
+            return canonicalNonEqualDuplicate(candidate, current)
         }
 
         let preferred = isNewer(candidate, than: current) ? candidate : current
@@ -232,6 +233,7 @@ struct AgentSessionRunCanonicalizer: Sendable {
 
     private func normalizedAuthority(_ source: AgentSessionRunRecord) -> AgentSessionRunRecord {
         var run = source
+        run.authorityEvidence = AgentSessionAuthorityTransition().persistedEvidence(for: run)
         if run.relationship == .spawned
             || run.authorityEvidence?.prohibitsRestore == true
             || run.endedAt != nil
@@ -239,6 +241,54 @@ struct AgentSessionRunCanonicalizer: Sendable {
             run.restoreAuthority = false
         }
         return run
+    }
+
+    private func canonicalNonEqualDuplicate(
+        _ candidate: AgentSessionRunRecord,
+        _ current: AgentSessionRunRecord
+    ) -> AgentSessionRunRecord {
+        let newer = isNewer(candidate, than: current) ? candidate : current
+        let older = newer == candidate ? current : candidate
+        let transition = AgentSessionAuthorityTransition()
+        let newerEvidence = transition.persistedEvidence(for: newer)
+        let olderEvidence = transition.persistedEvidence(for: older)
+        if let durableEvidence = preferredAuthorityEvidence(
+            newerEvidence?.isDurableChild == true ? newerEvidence : nil,
+            olderEvidence?.isDurableChild == true ? olderEvidence : nil
+        ) {
+            var merged = newer
+            merged.parentRunId = newer.parentRunId ?? older.parentRunId
+            merged.parentSessionId = newer.parentSessionId ?? older.parentSessionId
+            merged.relationship = .spawned
+            merged.restoreAuthority = false
+            merged.authorityEvidence = durableEvidence
+            return normalizedAuthority(merged)
+        }
+        if olderEvidence == .provisionalAmbiguousChild {
+            if newerEvidence == .verifiedForkRoot,
+               newer.relationship == .forked,
+               newer.restoreAuthority {
+                return normalizedAuthority(newer)
+            }
+            return provisionalChildProjection(newer: newer, older: older)
+        }
+        if newerEvidence == .provisionalAmbiguousChild {
+            return provisionalChildProjection(newer: newer, older: older)
+        }
+        return normalizedAuthority(newer)
+    }
+
+    private func provisionalChildProjection(
+        newer: AgentSessionRunRecord,
+        older: AgentSessionRunRecord
+    ) -> AgentSessionRunRecord {
+        var merged = newer
+        merged.parentRunId = newer.parentRunId ?? older.parentRunId
+        merged.parentSessionId = newer.parentSessionId ?? older.parentSessionId
+        merged.relationship = .spawned
+        merged.restoreAuthority = false
+        merged.authorityEvidence = .provisionalAmbiguousChild
+        return normalizedAuthority(merged)
     }
 
     private func conflictingProcessIdentity(
@@ -262,6 +312,9 @@ struct AgentSessionRunCanonicalizer: Sendable {
         return lhs.id != rhs.id
             || optionalValuesConflict(lhs.socketPath, rhs.socketPath)
             || optionalValuesConflict(lhs.bundleIdentifier, rhs.bundleIdentifier)
+            || optionalValuesConflict(lhs.processId, rhs.processId)
+            || optionalValuesConflict(lhs.processStartSeconds, rhs.processStartSeconds)
+            || optionalValuesConflict(lhs.processStartMicroseconds, rhs.processStartMicroseconds)
     }
 
     private func optionalValuesConflict<T: Equatable>(_ lhs: T?, _ rhs: T?) -> Bool {
@@ -279,11 +332,26 @@ struct AgentSessionRunCanonicalizer: Sendable {
         return AgentCmuxRuntimeIdentity(
             id: lhs.id,
             socketPath: mergedRuntimeField(lhs.socketPath, rhs.socketPath),
-            bundleIdentifier: mergedRuntimeField(lhs.bundleIdentifier, rhs.bundleIdentifier)
+            bundleIdentifier: mergedRuntimeField(lhs.bundleIdentifier, rhs.bundleIdentifier),
+            processId: mergedRuntimeField(lhs.processId, rhs.processId),
+            processStartSeconds: mergedRuntimeField(
+                lhs.processStartSeconds,
+                rhs.processStartSeconds
+            ),
+            processStartMicroseconds: mergedRuntimeField(
+                lhs.processStartMicroseconds,
+                rhs.processStartMicroseconds
+            )
         )
     }
 
     private func mergedRuntimeField(_ lhs: String?, _ rhs: String?) -> String? {
+        guard let lhs else { return rhs }
+        guard let rhs else { return lhs }
+        return lhs == rhs ? lhs : nil
+    }
+
+    private func mergedRuntimeField<T: Equatable>(_ lhs: T?, _ rhs: T?) -> T? {
         guard let lhs else { return rhs }
         guard let rhs else { return lhs }
         return lhs == rhs ? lhs : nil

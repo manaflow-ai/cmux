@@ -31,7 +31,10 @@ enum AgentSessionAuthorityEvidence: String, Codable, Sendable, Equatable {
 
 struct AgentSessionAuthorityTransition: Sendable {
     func persistedEvidence(for run: AgentSessionRunRecord) -> AgentSessionAuthorityEvidence? {
-        run.authorityEvidence ?? (run.relationship == .spawned ? .legacyChild : nil)
+        guard run.relationship == .spawned else { return run.authorityEvidence }
+        if run.authorityEvidence == .provisionalAmbiguousChild { return run.authorityEvidence }
+        if run.authorityEvidence?.isDurableChild == true { return run.authorityEvidence }
+        return .legacyChild
     }
 
     func canRecoverProvisionalFork(

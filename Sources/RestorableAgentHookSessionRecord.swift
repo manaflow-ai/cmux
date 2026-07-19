@@ -15,6 +15,8 @@ struct RestorableAgentHookSessionRecord: Codable, Sendable {
     /// False for a session observed beneath another agent on the same surface.
     /// Child sessions remain visible in history but never become restoration candidates.
     var restoreAuthority: Bool? = nil
+    var relationship: CmuxAgentSessionRunAuthorityProjection.Relationship? = nil
+    var authorityEvidence: CmuxAgentSessionRunAuthorityProjection.AuthorityEvidence? = nil
     /// Canonical process generations supersede the compatibility authority bit.
     var runs: [CmuxAgentSessionRunAuthorityProjection.Run]? = nil
     var activeRunId: String? = nil
@@ -32,7 +34,10 @@ struct RestorableAgentHookSessionRecord: Codable, Sendable {
         CmuxAgentSessionRunAuthorityProjection().projectedRestoreAuthority(
             recordRestoreAuthority: restoreAuthority,
             runs: runs,
-            activeRunId: activeRunId
+            activeRunId: activeRunId,
+            recordRelationship: relationship,
+            recordAuthorityEvidence: authorityEvidence,
+            recordCompletedAt: completedAt
         )
     }
 }

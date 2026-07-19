@@ -78,6 +78,7 @@ struct ClaudeHookSessionRecord: Codable {
     var restoreAuthority: Bool? = nil
     var parentSessionId: String? = nil
     var relationship: AgentSessionRelationship? = nil
+    var authorityEvidence: AgentSessionAuthorityEvidence? = nil
     var completedAt: TimeInterval? = nil
     /// The cmux app process that most recently owned the active run.
     var cmuxRuntime: AgentCmuxRuntimeIdentity? = nil

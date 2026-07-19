@@ -122,6 +122,9 @@ public struct CmuxAgentSessionRunAuthorityProjection: Sendable {
 
     private struct RecordEnvelope: Decodable {
         var restoreAuthority: Bool?
+        var relationship: Relationship?
+        var authorityEvidence: AuthorityEvidence?
+        var completedAt: TimeInterval?
         var runs: [Run]?
         var activeRunId: String?
     }
@@ -143,7 +146,10 @@ public struct CmuxAgentSessionRunAuthorityProjection: Sendable {
         return projection(
             recordRestoreAuthority: record.restoreAuthority,
             runs: record.runs,
-            activeRunId: record.activeRunId
+            activeRunId: record.activeRunId,
+            recordRelationship: record.relationship,
+            recordAuthorityEvidence: record.authorityEvidence,
+            recordCompletedAt: record.completedAt
         )
     }
 
@@ -152,22 +158,39 @@ public struct CmuxAgentSessionRunAuthorityProjection: Sendable {
     public func projectedRestoreAuthority(
         recordRestoreAuthority: Bool?,
         runs: [Run]?,
-        activeRunId: String?
+        activeRunId: String?,
+        recordRelationship: Relationship? = nil,
+        recordAuthorityEvidence: AuthorityEvidence? = nil,
+        recordCompletedAt: TimeInterval? = nil
     ) -> Bool {
         projection(
             recordRestoreAuthority: recordRestoreAuthority,
             runs: runs,
-            activeRunId: activeRunId
+            activeRunId: activeRunId,
+            recordRelationship: recordRelationship,
+            recordAuthorityEvidence: recordAuthorityEvidence,
+            recordCompletedAt: recordCompletedAt
         ).restoreAuthority
     }
 
     public func projection(
         recordRestoreAuthority: Bool?,
         runs: [Run]?,
-        activeRunId: String?
+        activeRunId: String?,
+        recordRelationship: Relationship? = nil,
+        recordAuthorityEvidence: AuthorityEvidence? = nil,
+        recordCompletedAt: TimeInterval? = nil
     ) -> Projection {
         guard let runs, !runs.isEmpty else {
-            return Projection(restoreAuthority: recordRestoreAuthority != false, run: nil)
+            let evidence = persistedAuthorityEvidence(
+                relationship: recordRelationship,
+                authorityEvidence: recordAuthorityEvidence
+            )
+            let restoreAuthority = recordRestoreAuthority != false
+                && recordCompletedAt == nil
+                && recordRelationship != .spawned
+                && evidence?.prohibitsRestore != true
+            return Projection(restoreAuthority: restoreAuthority, run: nil)
         }
         let run = projectedRun(runs: runs, activeRunId: activeRunId)
         return Projection(restoreAuthority: run?.restoreAuthority ?? false, run: run)
@@ -257,7 +280,7 @@ public struct CmuxAgentSessionRunAuthorityProjection: Sendable {
     private func canonicalDuplicate(_ candidate: Run, _ current: Run) -> Run {
         guard candidate.updatedAt == current.updatedAt,
               candidate.startedAt == current.startedAt else {
-            return isNewer(candidate, than: current) ? candidate : current
+            return canonicalNonEqualDuplicate(candidate, current)
         }
 
         let preferred = isNewer(candidate, than: current) ? candidate : current
@@ -323,6 +346,10 @@ public struct CmuxAgentSessionRunAuthorityProjection: Sendable {
     /// evidence proves the process generation cannot own restoration.
     private func normalizedAuthority(_ source: Run) -> Run {
         var run = source
+        run.authorityEvidence = persistedAuthorityEvidence(
+            relationship: run.relationship,
+            authorityEvidence: run.authorityEvidence
+        )
         if run.relationship == .spawned
             || run.authorityEvidence?.prohibitsRestore == true
             || run.endedAt != nil
@@ -330,6 +357,63 @@ public struct CmuxAgentSessionRunAuthorityProjection: Sendable {
             run.restoreAuthority = false
         }
         return run
+    }
+
+    private func canonicalNonEqualDuplicate(_ candidate: Run, _ current: Run) -> Run {
+        let newer = isNewer(candidate, than: current) ? candidate : current
+        let older = newer == candidate ? current : candidate
+        let newerEvidence = persistedAuthorityEvidence(
+            relationship: newer.relationship,
+            authorityEvidence: newer.authorityEvidence
+        )
+        let olderEvidence = persistedAuthorityEvidence(
+            relationship: older.relationship,
+            authorityEvidence: older.authorityEvidence
+        )
+        if let durableEvidence = preferredAuthorityEvidence(
+            newerEvidence?.isDurableChild == true ? newerEvidence : nil,
+            olderEvidence?.isDurableChild == true ? olderEvidence : nil
+        ) {
+            var merged = newer
+            merged.parentRunId = newer.parentRunId ?? older.parentRunId
+            merged.parentSessionId = newer.parentSessionId ?? older.parentSessionId
+            merged.relationship = .spawned
+            merged.restoreAuthority = false
+            merged.authorityEvidence = durableEvidence
+            return normalizedAuthority(merged)
+        }
+        if olderEvidence == .provisionalAmbiguousChild {
+            if newerEvidence == .verifiedForkRoot,
+               newer.relationship == .forked,
+               newer.restoreAuthority {
+                return normalizedAuthority(newer)
+            }
+            return provisionalChildProjection(newer: newer, older: older)
+        }
+        if newerEvidence == .provisionalAmbiguousChild {
+            return provisionalChildProjection(newer: newer, older: older)
+        }
+        return normalizedAuthority(newer)
+    }
+
+    private func provisionalChildProjection(newer: Run, older: Run) -> Run {
+        var merged = newer
+        merged.parentRunId = newer.parentRunId ?? older.parentRunId
+        merged.parentSessionId = newer.parentSessionId ?? older.parentSessionId
+        merged.relationship = .spawned
+        merged.restoreAuthority = false
+        merged.authorityEvidence = .provisionalAmbiguousChild
+        return normalizedAuthority(merged)
+    }
+
+    private func persistedAuthorityEvidence(
+        relationship: Relationship?,
+        authorityEvidence: AuthorityEvidence?
+    ) -> AuthorityEvidence? {
+        guard relationship == .spawned else { return authorityEvidence }
+        if authorityEvidence == .provisionalAmbiguousChild { return authorityEvidence }
+        if authorityEvidence?.isDurableChild == true { return authorityEvidence }
+        return .legacyChild
     }
 
     private func conflictingProcessIdentity(_ lhs: Run, _ rhs: Run) -> Bool {
