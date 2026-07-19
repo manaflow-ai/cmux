@@ -16,12 +16,12 @@ enum MobileHostConnectionAuthorizationContext: Equatable, Sendable {
     case irohAdmission(CmxIrohAdmittedPeer)
 }
 
-/// One policy authority for transports accepted by the legacy private-network
-/// listener. Keeping this separate from Iroh admission makes version-skew
-/// coverage exercise the same authorization choice as the production listener.
-enum MobileHostTransportAuthorizationPolicy {
-    static let legacyPrivateNetworkListener: MobileHostConnectionAuthorizationContext =
-        .stackBearer
+extension MobileHostConnectionAuthorizationContext {
+    /// One policy authority for transports accepted by the legacy
+    /// private-network listener. Keeping this separate from Iroh admission
+    /// makes version-skew coverage exercise the same authorization choice as
+    /// the production listener.
+    static let legacyPrivateNetworkListener: Self = .stackBearer
 }
 
 

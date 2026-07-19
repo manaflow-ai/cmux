@@ -251,8 +251,7 @@ struct IrohTailscaleVersionSkewMacGateTests {
             authorizeRequest: { request in
                 await MobileHostService.connectionAuthorizationError(
                     for: request,
-                    authorization: MobileHostTransportAuthorizationPolicy
-                        .legacyPrivateNetworkListener,
+                    authorization: .legacyPrivateNetworkListener,
                     stackAuthorization: { decoded in
                         await stackAuthorization.record(decoded)
                         guard decoded.auth?.stackAccessToken == "legacy-stack-token" else {
@@ -300,7 +299,7 @@ struct IrohTailscaleVersionSkewMacGateTests {
 
     @Test func testLegacyCompatibilityPolicyCannotBecomeIrohAdmission() {
         #expect(
-            MobileHostTransportAuthorizationPolicy.legacyPrivateNetworkListener
+            MobileHostConnectionAuthorizationContext.legacyPrivateNetworkListener
                 == .stackBearer
         )
     }
