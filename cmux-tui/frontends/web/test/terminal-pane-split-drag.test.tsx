@@ -486,6 +486,9 @@ describe("TerminalPane stacks", () => {
       />,
     );
     expect(queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(
+      container.querySelector(".pane-leaf.expanded [data-render-input]"),
+    );
   });
 });
 
