@@ -34,7 +34,7 @@ actor DispatchDirectoryIndex {
     }
 
     private struct ScanNode: Sendable {
-        let url: URL
+        let path: String
         let depth: Int
     }
 
@@ -216,11 +216,14 @@ actor DispatchDirectoryIndex {
         _ entry: Entry,
         homePath: String
     ) -> CommandPaletteSearchCorpusEntry<Entry> {
+        // The name is not repeated in searchableTexts: the prepared title
+        // already scores it (with a bonus), and corpus-entry preparation is
+        // the scan's dominant cost at home-directory scale.
         CommandPaletteSearchCorpusEntry(
             payload: entry,
             rank: entry.depth,
             title: entry.name,
-            searchableTexts: [relativePath(entry.path, homePath: homePath), entry.name]
+            searchableTexts: [relativePath(entry.path, homePath: homePath)]
         )
     }
 
@@ -242,13 +245,12 @@ actor DispatchDirectoryIndex {
         generation: Int,
         index: DispatchDirectoryIndex
     ) async -> ScanResult {
-        let fileManager = FileManager()
-        let homeURL = URL(fileURLWithPath: homePath, isDirectory: true).standardizedFileURL
+        let home = URL(fileURLWithPath: homePath, isDirectory: true).standardizedFileURL.path
         // Breadth-first, so every top-level tree is represented before the
         // directory cap can bite. A depth-first walk exhausted the whole cap
         // inside the first few huge sibling trees and left entire top-level
         // folders (and their projects) unsearchable.
-        var queue = [ScanNode(url: homeURL, depth: 0)]
+        var queue = [ScanNode(path: home, depth: 0)]
         var queueHead = 0
         var batch: [CommandPaletteSearchCorpusEntry<Entry>] = []
         batch.reserveCapacity(publishBatchSize)
@@ -260,24 +262,13 @@ actor DispatchDirectoryIndex {
             queueHead += 1
             if Task.isCancelled { break }
             guard node.depth < maximumDepth else { continue }
-            let children: [URL]
-            do {
-                children = try fileManager.contentsOfDirectory(
-                    at: node.url,
-                    includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
-                    options: []
-                )
-            } catch {
-                continue
-            }
-
-            for child in children.sorted(by: { $0.path < $1.path }) {
-                guard let values = try? child.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
-                      values.isDirectory == true,
-                      values.isSymbolicLink != true else {
-                    continue
-                }
-                let components = relativeComponents(child.path, homePath: homePath)
+            // readdir with d_type instead of FileManager URL enumeration: the
+            // resource-key variant open()s every child (files included), which
+            // took tens of minutes on a large real home directory (sampled).
+            // d_type identifies subdirectories with zero per-child syscalls.
+            for name in childDirectoryNames(of: node.path).sorted() {
+                let childPath = node.path + "/" + name
+                let components = relativeComponents(childPath, homePath: home)
                 if shouldSkip(components) {
                     continue
                 }
@@ -289,11 +280,16 @@ actor DispatchDirectoryIndex {
                 }
                 let depth = node.depth + 1
                 batch.append(preparedCorpusEntry(
-                    entry(url: child, depth: depth, fileManager: fileManager),
-                    homePath: homePath
+                    Entry(
+                        path: childPath,
+                        name: name,
+                        git: access(childPath + "/.git", F_OK) == 0,
+                        depth: depth
+                    ),
+                    homePath: home
                 ))
                 if depth < maximumDepth {
-                    queue.append(ScanNode(url: child, depth: depth))
+                    queue.append(ScanNode(path: childPath, depth: depth))
                 }
                 if batch.count >= publishBatchSize {
                     await index.publish(batch, generation: generation)
@@ -309,6 +305,8 @@ actor DispatchDirectoryIndex {
         return ScanResult(truncated: truncated)
     }
 
+    /// Single-level entry construction for browse listings (which keep the
+    /// FileManager URL path: one level at a time is cheap).
     private nonisolated static func entry(url: URL, depth: Int, fileManager: FileManager) -> Entry {
         Entry(
             path: url.standardizedFileURL.path,
@@ -316,6 +314,31 @@ actor DispatchDirectoryIndex {
             git: fileManager.fileExists(atPath: url.appendingPathComponent(".git").path),
             depth: depth
         )
+    }
+
+    /// Names of `node`'s immediate subdirectories via `readdir`'s `d_type`,
+    /// so classifying children costs no stat/open per entry. `DT_UNKNOWN`
+    /// (some filesystems) falls back to one `lstat`; symlinks are excluded.
+    private nonisolated static func childDirectoryNames(of path: String) -> [String] {
+        guard let dir = opendir(path) else { return [] }
+        defer { closedir(dir) }
+        var names: [String] = []
+        while let rawEntry = readdir(dir) {
+            let type = rawEntry.pointee.d_type
+            guard type == DT_DIR || type == DT_UNKNOWN else { continue }
+            let name = withUnsafeBytes(of: rawEntry.pointee.d_name) { rawBuffer -> String? in
+                guard let base = rawBuffer.baseAddress else { return nil }
+                return String(cString: base.assumingMemoryBound(to: CChar.self))
+            }
+            guard let name, name != ".", name != ".." else { continue }
+            if type == DT_UNKNOWN {
+                var status = stat()
+                guard lstat(path + "/" + name, &status) == 0,
+                      (status.st_mode & S_IFMT) == S_IFDIR else { continue }
+            }
+            names.append(name)
+        }
+        return names
     }
 
     private nonisolated static func relativePath(_ path: String, homePath: String) -> String {
@@ -335,9 +358,11 @@ actor DispatchDirectoryIndex {
             return true
         }
         // TCC-protected roots: enumerating them from a background scan pops a
-        // surprise macOS privacy dialog. Browse-into still reaches them, which
-        // prompts at a user-intentional moment instead.
-        if components.count == 1, ["Desktop", "Documents", "Downloads"].contains(name) {
+        // surprise macOS privacy dialog, and a raw readdir() BLOCKS inside the
+        // syscall until the user answers it, freezing the whole walk (hit
+        // live: the scan froze at ~/Movies). Browse-into still reaches them,
+        // prompting at a user-intentional moment instead.
+        if components.count == 1, ["Desktop", "Documents", "Downloads", "Movies", "Music", "Pictures"].contains(name) {
             return true
         }
         // Top-level dot-trees (~/.claude, ~/.npm, …) are tool state, not

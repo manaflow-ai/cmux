@@ -2948,13 +2948,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search covers your home folder, skipping caches and Desktop, Documents, and Downloads; Browse reaches every folder."
+            "value": "Search covers your home folder, skipping caches and macOS-protected folders like Documents and Downloads; Browse reaches every folder."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "検索の対象はホームフォルダで、キャッシュとデスクトップ・書類・ダウンロードは除外されます。ブラウズではすべてのフォルダに移動できます。"
+            "value": "検索の対象はホームフォルダで、キャッシュと書類・ダウンロードなど macOS 保護フォルダは除外されます。ブラウズではすべてのフォルダに移動できます。"
           }
         }
       }

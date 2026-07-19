@@ -170,7 +170,7 @@ struct DispatchProjectPickerScreen: View {
         } footer: {
             Text(L10n.string(
                 "mobile.dispatch.picker.browseFooter",
-                defaultValue: "Search covers your home folder, skipping caches and Desktop, Documents, and Downloads; Browse reaches every folder."
+                defaultValue: "Search covers your home folder, skipping caches and macOS-protected folders like Documents and Downloads; Browse reaches every folder."
             ))
         }
     }
