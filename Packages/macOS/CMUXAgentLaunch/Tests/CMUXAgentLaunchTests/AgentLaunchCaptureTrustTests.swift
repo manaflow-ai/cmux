@@ -55,6 +55,37 @@ struct AgentLaunchCaptureTrustTests {
         ) == .unknown)
     }
 
+    @Test func nativeKindInferencePrefersExactKindsAndUniqueAliases() {
+        #expect(AgentLaunchCaptureTrust.nativeAgentKind(
+            processName: "/opt/bin/claude",
+            arguments: ["/opt/bin/claude", "--print", "fix this"]
+        ) == "claude")
+        #expect(AgentLaunchCaptureTrust.nativeAgentKind(
+            processName: "/usr/bin/node",
+            arguments: [
+                "/usr/bin/node",
+                "/opt/node_modules/@anthropic-ai/claude-code/cli.js",
+                "--print",
+            ]
+        ) == "claude")
+        #expect(AgentLaunchCaptureTrust.nativeAgentKind(
+            processName: "/opt/bin/omp",
+            arguments: ["/opt/bin/omp", "--print", "fix this"]
+        ) == "omp")
+        #expect(AgentLaunchCaptureTrust.nativeAgentKind(
+            processName: "/opt/bin/droid",
+            arguments: ["/opt/bin/droid"]
+        ) == "factory")
+        #expect(AgentLaunchCaptureTrust.nativeAgentKind(
+            processName: "/opt/bin/future-agent",
+            arguments: ["/opt/bin/future-agent", "codex", "exec"]
+        ) == nil)
+        #expect(AgentLaunchCaptureTrust.nativeAgentKind(
+            processName: "/opt/bin/claude",
+            arguments: ["/opt/bin/codex"]
+        ) == nil)
+    }
+
     @Test func wrapperLaunchersDescribeTheirKind() {
         #expect(AgentLaunchCaptureTrust.launcherDescribesKind("claudeTeams", kind: "claude"))
         #expect(AgentLaunchCaptureTrust.launcherDescribesKind("codexTeams", kind: "codex"))

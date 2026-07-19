@@ -13,7 +13,12 @@ extension CmuxVaultAgentRegistration {
         kind rawKind: String,
         for process: VaultObservedAgentProcess
     ) -> Bool {
-        let kind = rawKind.lowercased()
+        let registeredKind = rawKind.lowercased()
+        let liveProcessName = process.processPath ?? process.processName
+        let kind = AgentLaunchCaptureTrust.nativeAgentKind(
+            processName: liveProcessName,
+            arguments: process.arguments
+        ) ?? registeredKind
         if kind == "campfire",
            process.environment["CAMPFIRE_SESSION_ROLE"] != "host" {
             return false
@@ -35,7 +40,6 @@ extension CmuxVaultAgentRegistration {
                 kind: kind
             ) ? arguments : nil
         }
-        let liveProcessName = process.processPath ?? process.processName
         let classifier = AgentLaunchModeClassifier()
         let liveMode = classifier.processMode(
             processName: liveProcessName,

@@ -159,6 +159,30 @@ public enum AgentLaunchCaptureTrust {
         }
     }
 
+    /// Resolves a live native process to its canonical built-in agent kind.
+    /// Exact kind basenames win over aliases, so `omp` remains OMP even though
+    /// it is also a supported Pi launcher. Ambiguous or unknown descriptors
+    /// fail closed instead of guessing from prompt or option argv tokens.
+    public static func nativeAgentKind(
+        processName: String?,
+        arguments: [String]
+    ) -> String? {
+        let descriptors = nativeProcessDescriptors(
+            processName: processName,
+            arguments: arguments
+        )
+        let exactKinds = descriptors.intersection(nativeProcessAliasesByKind.keys)
+        guard exactKinds.count <= 1 else { return nil }
+        if let exactKind = exactKinds.first { return exactKind }
+
+        let aliasedKinds = Set(descriptors.flatMap { descriptor in
+            nativeProcessAliasesByKind.compactMap { kind, aliases in
+                aliases.contains(descriptor) ? kind : nil
+            }
+        })
+        return aliasedKinds.count == 1 ? aliasedKinds.first : nil
+    }
+
     /// Returns only the provider-owned argv tail for a trusted live process.
     /// Interpreter and package-manager flags before the agent script are not
     /// provider launch options and must not affect restorability classification.
