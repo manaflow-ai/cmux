@@ -80,11 +80,15 @@ mod tests {
     }
 
     #[test]
-    fn foreign_viewport_hints_describe_state_without_promising_input_takeover() {
-        assert_eq!(ENGLISH.foreign_viewport.hint(12, 5), "sized by another client (12x5)");
-        assert_eq!(
-            JAPANESE.foreign_viewport.hint(12, 5),
-            "別のクライアントがサイズを決定中 (12x5)"
-        );
+    fn foreign_viewport_hints_are_neutral_and_stack_backed() {
+        let english = ENGLISH.foreign_viewport.hint(12, 5).expect("English hint fits inline");
+        assert_eq!(english.as_str(), "terminal grid (12x5)");
+        assert_eq!(english.inline_capacity(), 64);
+        assert_eq!(ENGLISH.foreign_viewport.hint_width(12, 5), 20);
+
+        let japanese = JAPANESE.foreign_viewport.hint(12, 5).expect("Japanese hint fits inline");
+        assert_eq!(japanese.as_str(), "端末グリッド (12x5)");
+        assert_eq!(japanese.inline_capacity(), 64);
+        assert_eq!(JAPANESE.foreign_viewport.hint_width(12, 5), 19);
     }
 }
