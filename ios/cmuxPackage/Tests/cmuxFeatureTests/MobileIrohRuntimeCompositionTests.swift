@@ -84,6 +84,32 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
+    func discoveryRefreshDiagnosticPreservesTypedFailureCategory() throws {
+        let offline = try #require(
+            MobileIrohRuntimeComposition.discoveryRefreshFailureEvent(
+                for: .failed(.offline)
+            )
+        )
+        #expect(offline.code == .discoveryFailed)
+        #expect(offline.a == DiagnosticTransportKind.iroh.rawValue)
+        #expect(offline.b == DiagnosticFailureKind.offline.rawValue)
+        #expect(offline.surface == nil)
+        #expect(offline.c == nil)
+
+        let unavailable = try #require(
+            MobileIrohRuntimeComposition.discoveryRefreshFailureEvent(
+                for: .failed(.policyUnavailable)
+            )
+        )
+        #expect(unavailable.b == DiagnosticFailureKind.policyUnavailable.rawValue)
+        #expect(
+            MobileIrohRuntimeComposition.discoveryRefreshFailureEvent(
+                for: .refreshed
+            ) == nil
+        )
+    }
+
+    @Test
     func discoveryCatalogRetainsFortyConcurrentDevelopmentBindings() async throws {
         let bindings = (0..<40).map { index in
             mobileIrohBinding(

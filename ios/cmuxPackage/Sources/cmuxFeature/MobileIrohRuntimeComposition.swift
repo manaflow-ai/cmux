@@ -402,14 +402,13 @@ public final class MobileIrohRuntimeComposition:
             recordDiscoveryOutcome(candidateCount: candidates.count)
             return candidates
         }
-        guard await runtime.refreshLiveDiscovery() else {
+        let refreshOutcome = await runtime.refreshLiveDiscoveryOutcome()
+        guard refreshOutcome == .refreshed else {
             guard self.runtime === runtime else { return [] }
             await routeCatalog.clearLiveMacCandidates(scope: lifecycleRevision)
-            diagnosticLog?.record(DiagnosticEvent(
-                .discoveryFailed,
-                a: DiagnosticTransportKind.iroh.rawValue,
-                b: DiagnosticFailureKind.unknown.rawValue
-            ))
+            if let event = Self.discoveryRefreshFailureEvent(for: refreshOutcome) {
+                diagnosticLog?.record(event)
+            }
             return []
         }
         generation = await runtime.liveDiscoverySnapshotGeneration()
@@ -437,6 +436,17 @@ public final class MobileIrohRuntimeComposition:
                 b: DiagnosticFailureKind.noRoute.rawValue
             ))
         }
+    }
+
+    nonisolated static func discoveryRefreshFailureEvent(
+        for outcome: CmxIrohLiveDiscoveryRefreshOutcome
+    ) -> DiagnosticEvent? {
+        guard case let .failed(failure) = outcome else { return nil }
+        return DiagnosticEvent(
+            .discoveryFailed,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: failure.rawValue
+        )
     }
 
     /// Resolves a disconnected transport from the active account runtime.
@@ -1101,7 +1111,7 @@ public final class MobileIrohRuntimeComposition:
             appInstanceID: appInstanceID
         )
         let endpointID = try Self.peerIdentity(for: identity)
-        let deviceID = deviceID().lowercased()
+        let deviceID = cmxCanonicalDeviceID(deviceID())
         let cachedBinding = try await brokerCredentials.loadBinding(
             accountID: accountID,
             appInstanceID: appInstanceID
@@ -1243,6 +1253,7 @@ public final class MobileIrohRuntimeComposition:
             protocolConfiguration: Self.protocolConfiguration(
                 for: transportVerificationMode
             ),
+            diagnosticLog: diagnosticLog,
             offlinePolicyCache: offlinePolicies,
             networkPathSnapshot: networkPathSnapshot,
             lanFallback: { target, bindings, rendezvous in

@@ -429,8 +429,11 @@ final class MobileHostService {
 
     /// Whether the mobile pairing host should bind a network listener at all.
     ///
-    /// Defaults off in every build so macOS does not ask for Local Network
-    /// permission until the user enables iOS pairing in Settings.
+    /// An explicit current or legacy preference always wins. Without one,
+    /// dev and nightly builds preserve their historical listener default so an
+    /// older iOS app can still reach an updated Mac over Tailscale. Stable
+    /// remains opt-in so macOS does not ask every user for Local Network
+    /// permission.
     nonisolated static var isListeningEnabled: Bool {
         isListeningEnabled(defaults: .standard)
     }
@@ -448,13 +451,20 @@ final class MobileHostService {
     #endif
 
     nonisolated static func isListeningEnabled(defaults: UserDefaults) -> Bool {
+        isListeningEnabled(defaults: defaults, buildFlavor: .current)
+    }
+
+    nonisolated static func isListeningEnabled(
+        defaults: UserDefaults,
+        buildFlavor: BuildFlavor
+    ) -> Bool {
         if let override = defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool {
             return override
         }
         if let legacyOverride = defaults.object(forKey: legacyListeningEnabledDefaultsKey) as? Bool {
             return legacyOverride
         }
-        return SettingCatalog().mobile.iOSPairingHost.defaultValue
+        return buildFlavor != .stable
     }
 
     /// User-default key for the preferred iOS pairing listener port.

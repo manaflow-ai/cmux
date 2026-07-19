@@ -166,6 +166,33 @@ public enum DiagnosticPathKind: Int, Sendable, Codable, CaseIterable {
     }
 }
 
+/// Why an admitted transport session entered or left its local pool.
+///
+/// Raw values are stable export vocabulary. The cases identify only local
+/// lifecycle ownership, never a peer, endpoint, address, account, or raw error.
+public enum DiagnosticSessionLifecycleKind: Int, Sendable, Codable, CaseIterable {
+    /// A newly authenticated session entered the pool.
+    case established = 1
+    /// The RPC owner intentionally relinquished its control stream.
+    case controlOwnerReleased = 2
+    /// The RPC control reader failed and relinquished ownership.
+    case controlReadFailed = 3
+    /// The RPC control writer failed and relinquished ownership.
+    case controlWriteFailed = 4
+    /// The transport reported that its peer connection closed.
+    case remoteClosed = 5
+    /// A caller found a cached session already closed before its watcher ran.
+    case closedSessionEvicted = 6
+    /// An application-lane operation found the shared connection closed.
+    case applicationLaneFailed = 7
+    /// The account-scoped runtime stopped.
+    case runtimeDeactivated = 8
+    /// The runtime generation changed and replaced its prior sessions.
+    case runtimeReconfigured = 9
+    /// A caller explicitly invalidated one exact peer session.
+    case explicitlyInvalidated = 10
+}
+
 /// Which component produced a diagnostic report.
 public enum DiagnosticRuntimeRole: Int, Sendable, Codable, CaseIterable {
     case unspecified = 0

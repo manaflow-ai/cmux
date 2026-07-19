@@ -76,12 +76,11 @@ hints and removes existing Iroh route bodies from the legacy device registry.
 Hosts republish sanitized EndpointID/managed-relay routes on their next refresh;
 non-Iroh routes are preserved in order.
 
-The `20260710113000_iroh_relay_reservation_expiry` migration adds the
-expanded status constraint with `NOT VALID` so its `ACCESS EXCLUSIVE` lock is
-released without scanning existing rows. Drizzle 1.0 applies all pending
-Postgres migrations in one transaction, so constraint validation must ship in
-a later deployment after this migration is recorded. That follow-up migration
-must run:
+The `20260710113000_iroh_relay_reservation_expiry` migration added the expanded
+status constraint with `NOT VALID` so its `ACCESS EXCLUSIVE` lock was released
+without scanning existing rows. The later
+`20260718120000_iroh_relay_status_validation` migration validates it after the
+schema change was recorded:
 
 ```sql
 ALTER TABLE "iroh_relay_token_issuances"
