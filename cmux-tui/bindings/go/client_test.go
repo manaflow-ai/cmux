@@ -31,8 +31,8 @@ func TestResizeResponsePreservesReservationIdentity(t *testing.T) {
 	}
 }
 
-func TestIdentifyResultPreservesArtifactRevisions(t *testing.T) {
-	var result IdentifyResult
+func TestIdentifyDetailsPreservesArtifactRevisions(t *testing.T) {
+	var result IdentifyDetails
 	if err := json.Unmarshal([]byte(`{"app":"cmux-tui","version":"0.1.2","build_commit":"cmux-sha","ghostty_commit":"ghostty-sha","protocol":7,"session":"main","pid":42}`), &result); err != nil {
 		t.Fatal(err)
 	}
@@ -44,13 +44,20 @@ func TestIdentifyResultPreservesArtifactRevisions(t *testing.T) {
 	}
 }
 
-func TestIdentifyResultAcceptsMissingArtifactRevisions(t *testing.T) {
-	var result IdentifyResult
+func TestIdentifyDetailsAcceptsMissingArtifactRevisions(t *testing.T) {
+	var result IdentifyDetails
 	if err := json.Unmarshal([]byte(`{"app":"cmux-tui","version":"0.1.2","protocol":7,"session":"main","pid":42}`), &result); err != nil {
 		t.Fatal(err)
 	}
 	if result.BuildCommit != nil || result.GhosttyCommit != nil {
 		t.Fatalf("artifact revisions = %v, %v; want nil", result.BuildCommit, result.GhosttyCommit)
+	}
+}
+
+func TestIdentifyResultPreservesPositionalLiteralCompatibility(t *testing.T) {
+	result := IdentifyResult{"cmux-tui", "0.1.2", 7, "main", 42}
+	if result.Protocol != 7 || result.PID != 42 {
+		t.Fatalf("legacy positional identify result = %#v", result)
 	}
 }
 
