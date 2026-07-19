@@ -55,18 +55,24 @@ final class AgentTerminalStateRuntime {
         observers[surfaceID] = observer
         observationCache.replace(surfaceID: surfaceID, with: nil)
         let worker = classificationWorker
-        surfaceTasks.install(surfaceID: surfaceID) { [weak self, scheduler] in
-            await scheduler.start(surfaceID: surfaceID, signal: signal) { revision in
-                guard signal.currentRevision() == revision,
-                      let snapshot = await observer.capture() else { return nil }
-                guard signal.currentRevision() == revision else { return nil }
-                return await worker.classify(surfaceID: surfaceID, snapshot: snapshot)
-            } deliver: { update in
-                await self?.apply(
-                    update,
-                    expectedRuntimeGeneration: expectedRuntimeGeneration
-                )
-            }
+        let deliver: @Sendable (AgentTerminalDetectionUpdate) async -> Void = { [weak self] update in
+            await self?.apply(
+                update,
+                expectedRuntimeGeneration: expectedRuntimeGeneration
+            )
+        }
+        surfaceTasks.install(surfaceID: surfaceID) { [scheduler] in
+            await scheduler.start(
+                surfaceID: surfaceID,
+                signal: signal,
+                evaluate: { revision in
+                    guard signal.currentRevision() == revision,
+                          let snapshot = await observer.capture() else { return nil }
+                    guard signal.currentRevision() == revision else { return nil }
+                    return await worker.classify(surfaceID: surfaceID, snapshot: snapshot)
+                },
+                deliver: deliver
+            )
         }
         // Runtime installation itself is new evidence even before the first PTY chunk.
         signal.markDirty()
