@@ -272,6 +272,115 @@ struct BackendProjectionNavigationV2CommandTests {
         await client.close()
     }
 
+    @Test("malformed structured conflicts cannot enter reconciliation")
+    func malformedStructuredConflicts() async throws {
+        let authority = try authority()
+        let identifiers = try identifiers()
+        var staleState = statePayload(identifiers: identifiers, generation: 7)
+        staleState["reconciled_topology_revision"] = 40
+        let nilID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        let legacyState: [String: Any] = [
+            "logical_presentation_id": identifiers.logicalPresentationID.uuidString,
+            "generation": 7,
+            "claim_id": identifiers.claimID.uuidString,
+            "claimed_process_instance_uuid": identifiers.processInstanceID.uuidString,
+            "workspaces": [
+                [
+                    "workspace_uuid": identifiers.workspaceID.description,
+                    "selected_screen_uuid": identifiers.screenID.description,
+                ],
+                [
+                    "workspace_uuid": identifiers.workspaceID.description,
+                    "selected_screen_uuid": identifiers.screenID.description,
+                ],
+            ],
+        ]
+        let conflicts: [[String: Any]] = [
+            [
+                "code": "stale-generation",
+                "logical_presentation_id": identifiers.logicalPresentationID.uuidString,
+                "expected": 6,
+                "current": 7,
+                "current_state": staleState,
+            ],
+            [
+                "code": "claim-lost",
+                "logical_presentation_id": nilID.uuidString,
+                "claimed_process_instance_uuid": NSNull(),
+            ],
+            [
+                "code": "legacy-stale-generation",
+                "logical_presentation_id": identifiers.logicalPresentationID.uuidString,
+                "expected": 6,
+                "current": 7,
+                "current_state": legacyState,
+            ],
+        ]
+
+        for conflict in conflicts {
+            let transport = ScriptedBackendTransport()
+            let client = BackendProtocolClient(transport: transport)
+            try await client.connect()
+            let task = Task {
+                try await client.claimProjectionNavigationV2(
+                    logicalPresentationID: identifiers.logicalPresentationID,
+                    authority: authority,
+                    expectedTopologyRevision: 41
+                )
+            }
+            let request = try request(await transport.nextSent())
+            await transport.enqueue(try response(to: request, data: [
+                "status": "conflict",
+                "conflict": conflict,
+            ]))
+            await #expect(throws: BackendProtocolError.malformedMessage) {
+                try await task.value
+            }
+            await client.close()
+        }
+    }
+
+    @Test("mutation receipts retain the requested claim and advance by at most one generation")
+    func mutationReceiptFences() async throws {
+        let authority = try authority()
+        let identifiers = try identifiers()
+        var wrongClaimState = statePayload(identifiers: identifiers, generation: 8)
+        wrongClaimState["claim_id"] = UUID().uuidString
+        let responses = [
+            wrongClaimState,
+            statePayload(identifiers: identifiers, generation: 9),
+        ]
+
+        for responseState in responses {
+            let transport = ScriptedBackendTransport()
+            let client = BackendProtocolClient(transport: transport)
+            try await client.connect()
+            let mutation = BackendProjectionNavigationMutation(
+                logicalPresentationID: identifiers.logicalPresentationID,
+                claimID: identifiers.claimID,
+                expectedGeneration: 7,
+                operations: []
+            )
+            let task = Task {
+                try await client.mutateProjectionNavigationV2(
+                    requestID: UUID(),
+                    authority: authority,
+                    expectedTopologyRevision: 41,
+                    projections: [mutation]
+                )
+            }
+            let request = try request(await transport.nextSent())
+            await transport.enqueue(try response(
+                to: request,
+                data: appliedPayload(topologyRevision: 41, states: [responseState])
+            ))
+            await #expect(throws: BackendProtocolError.malformedMessage) {
+                try await task.value
+            }
+            await client.close()
+        }
+    }
+
     @Test("list-all always begins without a cursor and consolidates one revision")
     func listAllPagination() async throws {
         let transport = ScriptedBackendTransport()
