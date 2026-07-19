@@ -20,7 +20,7 @@ import {
   selectionSnapshot,
 } from "../lib/localSelection";
 import { reconnectTransition, type ReconnectState } from "../lib/reconnect";
-import { supportsProtocol } from "../lib/protocol";
+import { SUPPORTED_PROTOCOL, supportsProtocol } from "../lib/protocol";
 import { activeScreen, locateSurface, SurfaceTitleReconciler, treeToViewModel } from "../lib/tree";
 import { t } from "../i18n";
 
@@ -164,7 +164,12 @@ export function useCmuxClient() {
       try {
         const info = await client.identify();
         if (info.app !== "cmux-tui") throw new Error(t("wrongApp", { app: info.app }));
-        if (!supportsProtocol(info.protocol)) throw new Error(t("wrongProtocol", { protocol: info.protocol }));
+        if (!supportsProtocol(info.protocol)) {
+          throw new Error(t("wrongProtocol", {
+            required: SUPPORTED_PROTOCOL,
+            protocol: info.protocol,
+          }));
+        }
         // Presence commands are additive (7c5a9e3e60); a protocol-6 server
         // predating them still serves everything else, so degrade instead of
         // failing the whole connect.
