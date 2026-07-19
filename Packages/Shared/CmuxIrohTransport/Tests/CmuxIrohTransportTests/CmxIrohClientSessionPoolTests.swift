@@ -580,6 +580,42 @@ struct CmxIrohClientSessionPoolTests {
     }
 
     @Test
+    func selectedPathDoesNotPublishAnUnestablishedControlSession() async throws {
+        let fixture = try PoolFixture()
+        let endpoint = TestHangingDialEndpoint(localIdentity: fixture.localIdentity)
+        let pool = try await fixture.pool(endpoint: endpoint, generation: 1)
+        let changes = await pool.selectedPathChanges()
+        let recorder = SelectedPathChangeRecorder()
+        let observation = Task {
+            for await _ in changes {
+                await recorder.record()
+            }
+        }
+        #expect(await waitForSelectedPathChangeCount(recorder, atLeast: 1))
+
+        let transport = try CmxIrohByteTransportFactory(sessionPool: pool)
+            .makeTransport(for: fixture.request)
+        let connection = Task {
+            try await transport.connect()
+        }
+        let started = await endpoint.startedEvents()
+        var startedIterator = started.makeAsyncIterator()
+        #expect(await startedIterator.next() != nil)
+
+        let publishedBeforeEstablishment = await waitForSelectedPathChangeCount(
+            recorder,
+            atLeast: 2
+        )
+        #expect(!publishedBeforeEstablishment)
+        #expect(await pool.selectedObservedPath() == .unavailable)
+
+        connection.cancel()
+        await pool.deactivate()
+        _ = try? await connection.value
+        observation.cancel()
+    }
+
+    @Test
     func selectedPathPrefersTheActiveControlSessionOverANewerBackgroundSession() async throws {
         let fixture = try PoolFixture()
         let backgroundIdentity = try CmxIrohPeerIdentity(
@@ -640,6 +676,29 @@ private func waitForControlWaiter(
     return false
 }
 
+private actor SelectedPathChangeRecorder {
+    private var count = 0
+
+    func record() {
+        count += 1
+    }
+
+    func observedCount() -> Int {
+        count
+    }
+}
+
+private func waitForSelectedPathChangeCount(
+    _ recorder: SelectedPathChangeRecorder,
+    atLeast expectedCount: Int
+) async -> Bool {
+    for _ in 0 ..< 1_000 {
+        if await recorder.observedCount() >= expectedCount { return true }
+        await Task.yield()
+    }
+    return false
+}
+
 private struct PoolFixture {
     let localIdentity: CmxIrohPeerIdentity
     let remoteIdentity: CmxIrohPeerIdentity
@@ -669,7 +728,7 @@ private struct PoolFixture {
     }
 
     func pool(
-        endpoint: TestDialingIrohEndpoint,
+        endpoint: any CmxIrohEndpoint,
         generation: UInt64,
         contextProvider: (any CmxIrohClientContextProvider)? = nil
     ) async throws -> CmxIrohClientSessionPool {
