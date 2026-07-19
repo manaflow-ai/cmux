@@ -18,12 +18,15 @@ struct BackendOnlyFocusCoordinatorTests {
         #expect(fixture.twoFocus.count == 0)
         #expect(fixture.coordinator.firstResponderOwnedSlotID == nil)
 
+        fixture.coordinator.setWindowKey(false)
         #expect(fixture.coordinator.installAuthoritativeActiveSlot(
             fixture.two,
             authorityRevision: 1
         ))
 
         #expect(fixture.oneFocus.count == 0)
+        #expect(fixture.twoFocus.count == 0)
+        fixture.coordinator.setWindowKey(true)
         #expect(fixture.twoFocus.count == 1)
         #expect(fixture.coordinator.firstResponderOwnedSlotID == fixture.two)
     }
@@ -97,6 +100,7 @@ struct BackendOnlyFocusCoordinatorTests {
         )
 
         #expect(await request.value == .applied)
+        #expect(fixture.submitter.actionsSnapshot() == [action])
         #expect(fixture.coordinator.authoritativeActiveSlotID == fixture.two)
         #expect(!fixture.coordinator.isAuthoritativelyActive(fixture.one))
         #expect(fixture.coordinator.isAuthoritativelyActive(fixture.two))
@@ -258,10 +262,12 @@ private final class Fixture {
         _ slotID: BackendOnlyProjectionSlotID,
         surface: SurfaceID
     ) {
-        let spy = switch slotID.paneID {
-        case one.paneID: oneFocus
-        case two.paneID: twoFocus
-        default: threeFocus
+        let spy = if slotID == one {
+            oneFocus
+        } else if slotID == two {
+            twoFocus
+        } else {
+            threeFocus
         }
         coordinator.register(
             slotID: slotID,

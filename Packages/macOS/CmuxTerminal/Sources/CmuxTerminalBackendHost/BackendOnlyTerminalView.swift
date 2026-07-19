@@ -54,7 +54,6 @@ private final class BackendOnlyTerminalViewportHostView: NSView {
             mouseMovedEventsLease = BackendOnlyWindowMouseMovedEventsLease(window: window)
             observe(window)
             publishViewportIfChanged()
-            window.makeFirstResponder(interactionView)
         }
         publishPresentationState()
     }
