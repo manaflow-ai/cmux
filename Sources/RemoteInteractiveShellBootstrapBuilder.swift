@@ -4,12 +4,14 @@ enum RemoteInteractiveShellBootstrapBuilder {
     static func script(
         remoteRelayPort: Int,
         shellFeatures: String,
+        initialCommand: String? = nil,
         terminfoSource: String? = nil,
         bundledZshIntegration: String? = nil,
         bundledBashIntegration: String? = nil,
         bundledFishIntegration: String? = nil
     ) -> String {
         let shellStateDir = shellStateDirForRemoteRelayPort(remoteRelayPort)
+        let initialCommandBootstrap = RemoteInitialCommandBootstrap(command: initialCommand)
         let commonShellExportLines = commonShellLines(
             remoteRelayPort: remoteRelayPort,
             shellStateDir: shellStateDir,
@@ -20,10 +22,12 @@ enum RemoteInteractiveShellBootstrapBuilder {
         zshShellLines.append(
             #"if [ "${CMUX_SHELL_INTEGRATION:-1}" != "0" ] && [ -r "${CMUX_SHELL_INTEGRATION_DIR}/cmux-zsh-integration.zsh" ]; then . "${CMUX_SHELL_INTEGRATION_DIR}/cmux-zsh-integration.zsh"; fi"#
         )
+        zshShellLines.append(contentsOf: initialCommandBootstrap.posixInteractiveShellLines)
         var bashShellLines = commonShellExportLines
         bashShellLines.append(
             #"if [ "${CMUX_SHELL_INTEGRATION:-1}" != "0" ] && [ -r "${CMUX_SHELL_INTEGRATION_DIR}/cmux-bash-integration.bash" ]; then . "${CMUX_SHELL_INTEGRATION_DIR}/cmux-bash-integration.bash"; fi"#
         )
+        bashShellLines.append(contentsOf: initialCommandBootstrap.posixInteractiveShellLines)
         let zshBootstrap = RemoteRelayZshBootstrap(shellStateDir: shellStateDir)
         let relayWarmupLines = relayWarmupLines(remoteRelayPort: remoteRelayPort)
 
@@ -32,6 +36,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "cmux_shell_dir=\"\(shellStateDir)\"",
             "mkdir -p \"$cmux_shell_dir\"",
         ]
+        outerLines.append(contentsOf: initialCommandBootstrap.preparationLines)
         if let bundledZshIntegration {
             outerLines += [
                 "cat > \"$cmux_shell_dir/cmux-zsh-integration.zsh\" <<'CMUXCMUXZSH'",
@@ -111,14 +116,19 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "  fish)",
         ]
         outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
+        var fishInitCommands = ["source \"$CMUX_FISH_INTEGRATION_FILE\""]
+        if let initialCommand = initialCommandBootstrap.fishInteractiveShellCommand {
+            fishInitCommands.append(initialCommand)
+        }
         outerLines += [
             "    export CMUX_FISH_INTEGRATION_FILE=\"$cmux_shell_dir/fish/config.fish\"",
             "    export CMUX_FISH_USER_CONFIG_ALREADY_LOADED=1",
-            "    exec \"$CMUX_LOGIN_SHELL\" -il --init-command 'source \"$CMUX_FISH_INTEGRATION_FILE\"'",
+            "    exec \"$CMUX_LOGIN_SHELL\" -il --init-command \(shellQuote(fishInitCommands.joined(separator: "; ")))",
             "    ;;",
             "  *)",
         ]
         outerLines.append(contentsOf: relayWarmupLines)
+        outerLines.append(contentsOf: initialCommandBootstrap.fallbackShellLines)
         outerLines += [
             "exec \"$CMUX_LOGIN_SHELL\" -i",
             ";;",
