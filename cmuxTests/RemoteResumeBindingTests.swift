@@ -116,9 +116,9 @@ struct RemoteResumeBindingTests {
     }
 
     @Test
-    func legacyRemoteSnapshotMigratesBindingIntoPersistentSSHContext() throws {
+    func legacyRemoteSnapshotWithoutWorkspaceIDMigratesBindingIntoPersistentSSHContext() throws {
         let fixture = try makeRelayedFixture()
-        let legacySnapshot = try snapshotWithoutLaunchFlavor(fixture.snapshot)
+        let legacySnapshot = try snapshotWithoutLaunchFlavorOrWorkspaceID(fixture.snapshot)
         let suiteName = "cmux-legacy-remote-resume-binding-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
@@ -339,11 +339,12 @@ struct RemoteResumeBindingTests {
         return try #require(String(data: data, encoding: .utf8))
     }
 
-    private func snapshotWithoutLaunchFlavor(
+    private func snapshotWithoutLaunchFlavorOrWorkspaceID(
         _ snapshot: SessionWorkspaceSnapshot
     ) throws -> SessionWorkspaceSnapshot {
         let encoded = try JSONEncoder().encode(snapshot)
         var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "workspaceId")
         var panels = try #require(object["panels"] as? [[String: Any]])
         let panelIndex = try #require(panels.firstIndex { $0["terminal"] != nil })
         var panel = panels[panelIndex]
