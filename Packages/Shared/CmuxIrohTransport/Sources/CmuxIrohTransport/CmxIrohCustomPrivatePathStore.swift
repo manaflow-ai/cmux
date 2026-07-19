@@ -1,6 +1,6 @@
 public import CMUXMobileCore
 import CryptoKit
-public import Foundation
+import Foundation
 
 /// Validated device-local settings for one authenticated Mac.
 public struct CmxIrohCustomPrivatePathConfiguration: Codable, Equatable, Sendable {
@@ -21,7 +21,7 @@ public struct CmxIrohCustomPrivatePathConfiguration: Codable, Equatable, Sendabl
         guard let uuid = UUID(uuidString: canonicalDeviceID),
               uuid.uuidString.lowercased() == canonicalDeviceID,
               !addresses.isEmpty,
-              addresses.count <= CmxIrohCustomPrivatePathStore.maximumAddressCount,
+              addresses.count <= CmxIrohCustomPrivatePathDraft.maximumAddressCount,
               Set(addresses).count == addresses.count else {
             throw CmxIrohCustomPrivatePathStoreError.invalidConfiguration
         }
@@ -110,7 +110,6 @@ public actor CmxIrohCustomPrivatePathStore {
     }
 
     public static let maximumConfigurationCount = 64
-    public static let maximumAddressCount = 8
     private static let recordVersion = 1
     private static let maximumEncodedByteCount = 64 * 1_024
 
@@ -290,13 +289,24 @@ public actor CmxIrohCustomPrivatePathStore {
     ) throws -> CmxIrohNetworkProfileKey {
         let digest = SHA256.hash(
             data: Data("custom-private-path-v1\0\(accountScope)\0\(macDeviceID)".utf8)
-        ).map { String(format: "%02x", $0) }.joined()
-        return try CmxIrohNetworkProfileKey(source: .customVPN, profileID: digest)
+        )
+        var encoded = [UInt8]()
+        encoded.reserveCapacity(SHA256.Digest.byteCount * 2)
+        for byte in digest {
+            encoded.append(Self.hexDigits[Int(byte >> 4)])
+            encoded.append(Self.hexDigits[Int(byte & 0x0f)])
+        }
+        return try CmxIrohNetworkProfileKey(
+            source: .customVPN,
+            profileID: String(decoding: encoded, as: UTF8.self)
+        )
     }
 
     private func nextGeneration(_ current: UInt64) -> UInt64 {
         current == .max ? 1 : current + 1
     }
+
+    private static let hexDigits = Array("0123456789abcdef".utf8)
 }
 
 public enum CmxIrohCustomPrivatePathStoreError: Error, Equatable, Sendable {

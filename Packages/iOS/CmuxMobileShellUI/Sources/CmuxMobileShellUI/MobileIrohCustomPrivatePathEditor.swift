@@ -14,6 +14,12 @@ struct MobileIrohCustomPrivatePathEditor: View {
     @State private var addressesText: String
     @State private var isEnabled: Bool
     @State private var isSaving = false
+    @State private var validation: Validation
+
+    struct Validation: Equatable {
+        let addresses: [String]
+        let canSave: Bool
+    }
 
     init(
         path: CmxIrohSettingsSnapshot.CustomPrivateNetwork?,
@@ -23,11 +29,15 @@ struct MobileIrohCustomPrivatePathEditor: View {
         existing = path
         self.availableMacs = availableMacs
         self.onSave = onSave
-        _selectedMacDeviceID = State(
-            initialValue: path?.macDeviceID ?? availableMacs.first?.id ?? ""
-        )
-        _addressesText = State(initialValue: path?.addresses.joined(separator: "\n") ?? "")
+        let selectedMacDeviceID = path?.macDeviceID ?? availableMacs.first?.id ?? ""
+        let addressesText = path?.addresses.joined(separator: "\n") ?? ""
+        _selectedMacDeviceID = State(initialValue: selectedMacDeviceID)
+        _addressesText = State(initialValue: addressesText)
         _isEnabled = State(initialValue: path?.isEnabled ?? false)
+        _validation = State(initialValue: Self.validate(
+            addressesText: addressesText,
+            selectedMacDeviceID: selectedMacDeviceID
+        ))
     }
 
     var body: some View {
@@ -103,24 +113,34 @@ struct MobileIrohCustomPrivatePathEditor: View {
                     Button(L10n.string("mobile.common.save", defaultValue: "Save")) {
                         save()
                     }
-                    .disabled(!isValid || isSaving)
+                    .disabled(!validation.canSave || isSaving)
                 }
             }
+            .onChange(of: addressesText) { _, _ in refreshValidation() }
+            .onChange(of: selectedMacDeviceID) { _, _ in refreshValidation() }
         }
     }
 
-    private var addresses: [String] {
-        addressesText
+    static func validate(
+        addressesText: String,
+        selectedMacDeviceID: String
+    ) -> Validation {
+        let addresses = addressesText
             .split(whereSeparator: { $0.isNewline })
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+        let canSave = !selectedMacDeviceID.isEmpty
+            && !addresses.isEmpty
+            && addresses.count <= CmxIrohCustomPrivatePathDraft.maximumAddressCount
+            && addresses.allSatisfy { (try? CmxIrohCustomPrivateAddress($0)) != nil }
+        return Validation(addresses: addresses, canSave: canSave)
     }
 
-    private var isValid: Bool {
-        !selectedMacDeviceID.isEmpty
-            && !addresses.isEmpty
-            && addresses.count <= 8
-            && addresses.allSatisfy { (try? CmxIrohCustomPrivateAddress($0)) != nil }
+    private func refreshValidation() {
+        validation = Self.validate(
+            addressesText: addressesText,
+            selectedMacDeviceID: selectedMacDeviceID
+        )
     }
 
     private func displayName(_ value: String) -> String {
@@ -130,13 +150,13 @@ struct MobileIrohCustomPrivatePathEditor: View {
     }
 
     private func save() {
-        guard isValid, !isSaving else { return }
+        guard validation.canSave, !isSaving else { return }
         let mac = availableMacs.first { $0.id == selectedMacDeviceID }
         let displayName = existing?.macDisplayName ?? mac?.displayName ?? ""
         let draft = CmxIrohCustomPrivatePathDraft(
             macDeviceID: selectedMacDeviceID,
             macDisplayName: displayName,
-            addresses: addresses,
+            addresses: validation.addresses,
             isEnabled: isEnabled
         )
         isSaving = true
