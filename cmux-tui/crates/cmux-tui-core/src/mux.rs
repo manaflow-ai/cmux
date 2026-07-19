@@ -2447,6 +2447,30 @@ impl RendererPresentationRuntimes {
         std::mem::take(&mut self.by_id).into_values().collect()
     }
 
+    fn remove_stale_for_config(
+        &mut self,
+        current: &RendererConfigSnapshot,
+    ) -> Vec<Arc<RendererPresentationRuntime>> {
+        let stale = self
+            .by_id
+            .iter()
+            .filter_map(|(presentation_id, runtime)| {
+                (!renderer_runtime_matches_config(runtime, current)).then_some(*presentation_id)
+            })
+            .collect::<Vec<_>>();
+        stale
+            .into_iter()
+            .filter_map(|presentation_id| {
+                let runtime = self.remove(&presentation_id)?;
+                // The config write lock prevents an activation or frame send
+                // from crossing this map removal. Mark the detached runtime
+                // immediately so paths that already cloned it also fail shut.
+                runtime.removal_pending.store(true, Ordering::Release);
+                Some(runtime)
+            })
+            .collect()
+    }
+
     fn iter(
         &self,
     ) -> impl Iterator<Item = (&crate::PresentationId, &Arc<RendererPresentationRuntime>)> {
@@ -2559,6 +2583,18 @@ fn renderer_config_changed_diagnostic(
     format!(
         "renderer config changed during activation; reconfigure presentation from revision {} to current revision {} ({})",
         runtime.attachment.resolved_config_revision,
+        current.revision,
+        current.digest_hex(),
+    )
+}
+
+fn renderer_configuration_changed_diagnostic(
+    configured: &RendererConfigSnapshot,
+    current: &RendererConfigSnapshot,
+) -> String {
+    format!(
+        "renderer config changed during configuration; retry from revision {} to current revision {} ({})",
+        configured.revision,
         current.revision,
         current.digest_hex(),
     )
@@ -2804,7 +2840,7 @@ pub struct Mux {
     frontend_native_browsers: FrontendNativeBrowserRegistry,
     remote_tmux_producers: RemoteTmuxProducerRegistry,
     cell_pixels: Mutex<(u16, u16)>,
-    renderer_config: Mutex<RendererConfigSnapshot>,
+    renderer_config: RwLock<RendererConfigSnapshot>,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<SurfaceId, AgentRecord>>,
     pub(crate) control_clients: crate::server::ClientRegistry,
@@ -3000,7 +3036,7 @@ impl Mux {
             frontend_native_browsers: FrontendNativeBrowserRegistry::new(),
             remote_tmux_producers: RemoteTmuxProducerRegistry::new(),
             cell_pixels: Mutex::new((8, 16)),
-            renderer_config: Mutex::new(RendererConfigSnapshot::empty()),
+            renderer_config: RwLock::new(RendererConfigSnapshot::empty()),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(HashMap::new()),
             control_clients: crate::server::ClientRegistry::new(),
@@ -5603,16 +5639,16 @@ impl Mux {
         if current.generation != presentation.generation {
             anyhow::bail!("presentation changed while its renderer was attaching");
         }
-        #[cfg(test)]
-        if let Some(before_commit) = self.renderer_configure_before_commit.lock().unwrap().take() {
-            before_commit();
-        }
         let retained_workspace = self
             .renderer_presentations
             .lock()
             .unwrap()
             .get(&presentation_id)
             .map(|runtime| runtime.workspace_uuid);
+        #[cfg(test)]
+        if let Some(before_commit) = self.renderer_configure_before_commit.lock().unwrap().take() {
+            before_commit();
+        }
         supervisor.set_presentation_workspace(presentation_id, Some(workspace_uuid))?;
         match supervisor.workspace_status(workspace_uuid) {
             Ok(Some(_)) => {}
@@ -5641,11 +5677,24 @@ impl Mux {
             removal_pending: AtomicBool::new(false),
         });
         let previous = {
+            // Configuration commit is config -> runtime map. A config writer
+            // that commits first removes every stale runtime before this
+            // insertion can become visible; an insertion that wins this read
+            // fence is ordered before the later invalidation.
+            let current_config = self.renderer_config.read().unwrap();
+            if &*current_config != &renderer_config {
+                let diagnostic =
+                    renderer_configuration_changed_diagnostic(&renderer_config, &current_config);
+                drop(current_config);
+                supervisor.set_presentation_workspace(presentation_id, retained_workspace)?;
+                anyhow::bail!(diagnostic);
+            }
             let mut runtimes = self.renderer_presentations.lock().unwrap();
             if !runtimes.admits(presentation_id, workspace_uuid) {
                 let retained_workspace =
                     runtimes.get(&presentation_id).map(|runtime| runtime.workspace_uuid);
                 drop(runtimes);
+                drop(current_config);
                 supervisor.set_presentation_workspace(presentation_id, retained_workspace)?;
                 anyhow::bail!(
                     "workspace renderer presentation limit reached (maximum {})",
@@ -6243,12 +6292,17 @@ impl Mux {
     ) -> bool {
         let operation = runtime.operation.lock().unwrap();
         let presentation_id = presentation_id_from_uuid(runtime.attachment.presentation_id);
+        // A config writer cannot commit while this read fence covers the
+        // identity check and exact scene send. If it committed first, it has
+        // already removed this runtime from the map.
+        let current_config = self.renderer_config.read().unwrap();
         if !self
             .renderer_presentations
             .lock()
             .unwrap()
             .get(&presentation_id)
             .is_some_and(|current| Arc::ptr_eq(current, runtime))
+            || !renderer_runtime_matches_config(runtime, &current_config)
             || runtime.removal_pending.load(Ordering::Acquire)
             || frame.terminal.terminal_id.as_uuid() != runtime.attachment.terminal_id
             || frame.terminal.runtime_epoch != runtime.attachment.terminal_epoch
@@ -6261,6 +6315,9 @@ impl Mux {
             Some(scene) => scene.renderer_epoch,
             None => return false,
         };
+        if !runtime.is_renderer_epoch_active(renderer_epoch) {
+            return false;
+        }
         let Some(supervisor) = self.renderer_supervisor.lock().unwrap().clone() else {
             return false;
         };
@@ -6284,6 +6341,7 @@ impl Mux {
             return false;
         }
         drop(operation);
+        drop(current_config);
         true
     }
 
@@ -6311,6 +6369,20 @@ impl Mux {
                 let runtime =
                     self.renderer_presentations.lock().unwrap().get(&presentation_id).cloned();
                 let Some(runtime) = runtime else { return };
+                let _operation = runtime.operation.lock().unwrap();
+                let current_config = self.renderer_config.read().unwrap();
+                if !self
+                    .renderer_presentations
+                    .lock()
+                    .unwrap()
+                    .get(&presentation_id)
+                    .is_some_and(|current| Arc::ptr_eq(current, &runtime))
+                    || !renderer_runtime_matches_config(&runtime, &current_config)
+                    || runtime.removal_pending.load(Ordering::Acquire)
+                    || !runtime.is_renderer_epoch_active(renderer_epoch)
+                {
+                    return;
+                }
                 let scene = runtime.scene.lock().unwrap();
                 let Some(scene) = scene.as_ref() else { return };
                 if runtime.workspace_uuid == workspace_uuid
@@ -6414,10 +6486,21 @@ impl Mux {
                 let runtime =
                     self.renderer_presentations.lock().unwrap().get(&presentation_id).cloned();
                 let Some(runtime) = runtime else { return };
-                if runtime.workspace_uuid != workspace_uuid
+                let _operation = runtime.operation.lock().unwrap();
+                let current_config = self.renderer_config.read().unwrap();
+                if !self
+                    .renderer_presentations
+                    .lock()
+                    .unwrap()
+                    .get(&presentation_id)
+                    .is_some_and(|current| Arc::ptr_eq(current, &runtime))
+                    || !renderer_runtime_matches_config(&runtime, &current_config)
+                    || runtime.removal_pending.load(Ordering::Acquire)
+                    || runtime.workspace_uuid != workspace_uuid
                     || runtime.attachment.terminal_id != metrics.terminal_id
                     || runtime.attachment.terminal_epoch != metrics.terminal_epoch
                     || runtime.attachment.presentation_generation != metrics.presentation_generation
+                    || !runtime.is_renderer_epoch_active(renderer_epoch)
                     || !runtime
                         .scene
                         .lock()
@@ -6577,6 +6660,35 @@ impl Mux {
                 return Err(error);
             }
         };
+        // Cover publication and local activation commit with the same config
+        // read fence. Config install either removes this runtime first, in
+        // which case no Upsert can escape, or waits until activation is fully
+        // committed and then retracts it before emitting invalidation.
+        let current_config = self.renderer_config.read().unwrap();
+        if !renderer_runtime_matches_config(&runtime, &current_config) {
+            let diagnostic = renderer_config_changed_diagnostic(&runtime, &current_config);
+            drop(current_config);
+            if let Some(scene) = runtime.take_scene_if_epoch(renderer_epoch) {
+                scene.canceled.store(true, Ordering::Release);
+                scene.control.detach();
+            }
+            anyhow::bail!(diagnostic);
+        }
+        if !self
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .get(&presentation_id)
+            .is_some_and(|current| Arc::ptr_eq(current, &runtime))
+            || runtime.removal_pending.load(Ordering::Acquire)
+        {
+            drop(current_config);
+            if let Some(scene) = runtime.take_scene_if_epoch(renderer_epoch) {
+                scene.canceled.store(true, Ordering::Release);
+                scene.control.detach();
+            }
+            anyhow::bail!("renderer presentation changed during activation");
+        }
         self.remember_renderer_release_route(&runtime, renderer_epoch);
         let published_worker = match supervisor.publish_if_epoch(
             runtime.workspace_uuid,
@@ -6640,21 +6752,21 @@ impl Mux {
         if let Some(before_commit) = self.renderer_activation_before_commit.lock().unwrap().take() {
             before_commit();
         }
-        // This lock is the linearization fence shared with config install.
-        // A reload that commits first makes this activation retract its stale
-        // publication. An activation that commits first becomes usable before
-        // the reload can publish its invalidation.
-        let current_config = self.renderer_config.lock().unwrap();
-        if !renderer_runtime_matches_config(&runtime, &current_config) {
-            let diagnostic = renderer_config_changed_diagnostic(&runtime, &current_config);
+        if !self
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .get(&presentation_id)
+            .is_some_and(|current| Arc::ptr_eq(current, &runtime))
+            || runtime.removal_pending.load(Ordering::Acquire)
+        {
             drop(current_config);
             self.rollback_renderer_publication_locked(
                 &runtime,
                 supervisor.as_ref(),
                 renderer_epoch,
-            )
-            .with_context(|| diagnostic.clone())?;
-            anyhow::bail!(diagnostic);
+            )?;
+            anyhow::bail!("renderer activation was revoked during publication");
         }
         if !activation_claim.commit() {
             drop(current_config);
@@ -6685,7 +6797,7 @@ impl Mux {
         &self,
         runtime: &RendererPresentationRuntime,
     ) -> Option<RendererConfigSnapshot> {
-        let current = self.renderer_config.lock().unwrap();
+        let current = self.renderer_config.read().unwrap();
         (!renderer_runtime_matches_config(runtime, &current)).then(|| current.clone())
     }
 
@@ -6854,16 +6966,16 @@ impl Mux {
     }
 
     pub fn default_colors(&self) -> DefaultColors {
-        self.renderer_config.lock().unwrap().default_colors
+        self.renderer_config.read().unwrap().default_colors
     }
 
     pub fn default_colors_snapshot(&self) -> (u64, DefaultColors) {
-        let current = self.renderer_config.lock().unwrap();
+        let current = self.renderer_config.read().unwrap();
         (current.revision, current.default_colors)
     }
 
     pub fn renderer_config_snapshot(&self) -> RendererConfigSnapshot {
-        self.renderer_config.lock().unwrap().clone()
+        self.renderer_config.read().unwrap().clone()
     }
 
     /// Install one complete canonical renderer configuration.
@@ -6890,8 +7002,8 @@ impl Mux {
         }
 
         let digest: [u8; 32] = Sha256::digest(&resolved_config).into();
-        let snapshot = {
-            let mut current = self.renderer_config.lock().unwrap();
+        let (snapshot, stale_runtimes) = {
+            let mut current = self.renderer_config.write().unwrap();
             if current.digest == digest
                 && current.resolved_config.as_ref() == resolved_config.as_slice()
                 && current.default_colors == default_colors
@@ -6908,32 +7020,57 @@ impl Mux {
                 resolved_config: Arc::from(resolved_config),
                 default_colors,
             };
-            current.clone()
+            let snapshot = current.clone();
+            // Config authority always precedes the runtime map. Removing stale
+            // entries while the write fence is held means every later
+            // activation, frame, and readiness lookup fails immediately.
+            let stale_runtimes =
+                self.renderer_presentations.lock().unwrap().remove_stale_for_config(&snapshot);
+            (snapshot, stale_runtimes)
         };
         #[cfg(test)]
         if let Some(after_commit) = self.renderer_config_after_commit.lock().unwrap().take() {
             after_commit();
         }
-        self.publish_renderer_config_change(&snapshot, reason);
+        self.publish_renderer_config_change(&snapshot, stale_runtimes, reason);
         Ok(true)
     }
 
     #[cfg(test)]
     pub fn set_default_colors(&self, colors: DefaultColors) {
-        let snapshot = {
-            let mut current = self.renderer_config.lock().unwrap();
+        let (snapshot, stale_runtimes) = {
+            let mut current = self.renderer_config.write().unwrap();
             if current.default_colors == colors {
                 return;
             }
             current.revision =
                 current.revision.checked_add(1).expect("renderer config revision exhausted");
             current.default_colors = colors;
-            current.clone()
+            let snapshot = current.clone();
+            let stale_runtimes =
+                self.renderer_presentations.lock().unwrap().remove_stale_for_config(&snapshot);
+            (snapshot, stale_runtimes)
         };
-        self.publish_renderer_config_change(&snapshot, Arc::<str>::from("default-colors-changed"));
+        self.publish_renderer_config_change(
+            &snapshot,
+            stale_runtimes,
+            Arc::<str>::from("default-colors-changed"),
+        );
     }
 
-    fn publish_renderer_config_change(&self, snapshot: &RendererConfigSnapshot, reason: Arc<str>) {
+    fn publish_renderer_config_change(
+        &self,
+        snapshot: &RendererConfigSnapshot,
+        stale_runtimes: Vec<Arc<RendererPresentationRuntime>>,
+        reason: Arc<str>,
+    ) {
+        // Runtime retirement takes the per-presentation operation lock only
+        // after config and map guards are gone. This avoids a cycle with
+        // activation's operation -> config order while guaranteeing exact
+        // worker Remove precedes the frontend invalidation.
+        for runtime in stale_runtimes {
+            self.retire_renderer_runtime(&runtime);
+        }
         let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
         for surface in surfaces {
             surface.set_default_colors(snapshot.default_colors);
