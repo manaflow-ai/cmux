@@ -312,15 +312,34 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     let mut attach = UnixStream::connect(&socket_path).unwrap();
     attach
         .write_all(
-            json!({"id": 2, "cmd": "attach-surface", "surface": surface}).to_string().as_bytes(),
+            json!({
+                "id": 2,
+                "cmd": "attach-surface",
+                "surface": surface,
+                "cols": 12,
+                "rows": 6
+            })
+            .to_string()
+            .as_bytes(),
         )
         .unwrap();
     attach.write_all(b"\n").unwrap();
     let mut attach_reader = BufReader::new(attach);
     let state = recv_attach_event(&mut attach_reader, "browser-state");
     assert_eq!(state["surface"], surface);
+    assert_eq!(state["cols"], 12);
+    assert_eq!(state["rows"], 6);
     assert_eq!(state["url"], "https://example.test");
     assert!(state["frame"].is_null());
+
+    let resized = rpc(
+        &socket_path,
+        json!({"id": 102, "cmd": "resize-surface", "surface": surface, "cols": 10, "rows": 5}),
+    );
+    assert_eq!(resized["ok"], true, "resize-surface failed: {resized}");
+    let resized_state = recv_attach_event(&mut attach_reader, "browser-state");
+    assert_eq!(resized_state["cols"], 10);
+    assert_eq!(resized_state["rows"], 5);
 
     frame_tx.send(()).unwrap();
     let frame = recv_attach_event(&mut attach_reader, "frame");
