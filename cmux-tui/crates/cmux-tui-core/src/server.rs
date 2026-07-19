@@ -1025,7 +1025,9 @@ impl ClientTransport {
 #[derive(Default)]
 struct AttachedSurface {
     streams: BTreeMap<u64, OutboundStream>,
+    pending_streams: BTreeMap<u64, OutboundStream>,
     size: Option<(u16, u16)>,
+    committed_size: Option<(u16, u16)>,
 }
 
 struct ClientRecord {
@@ -1103,9 +1105,14 @@ impl ClientRegistry {
                         "name": record.name,
                         "kind": record.kind,
                         "connected_seconds": record.connected_at.elapsed().as_secs(),
-                        "attached": record.attached.keys().copied().collect::<Vec<_>>(),
-                        "sizes": record.attached.iter().map(|(surface, attached)| {
-                            match attached.size {
+                        "attached": record.attached.iter().filter_map(|(surface, attached)| {
+                            (!attached.streams.is_empty()).then_some(*surface)
+                        }).collect::<Vec<_>>(),
+                        "sizes": record.attached.iter().filter_map(|(surface, attached)| {
+                            if attached.streams.is_empty() {
+                                return None;
+                            }
+                            Some(match attached.committed_size {
                                 Some((cols, rows)) => json!({
                                     "surface": surface,
                                     "cols": cols,
@@ -1116,7 +1123,7 @@ impl ClientRegistry {
                                     "cols": null,
                                     "rows": null,
                                 }),
-                            }
+                            })
                         }).collect::<Vec<_>>(),
                         "self": *client == requesting_client,
                     })
@@ -1134,7 +1141,23 @@ impl ClientRegistry {
         let mut clients = self.clients.lock().unwrap();
         let record =
             clients.get_mut(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
-        record.attached.entry(surface).or_default().streams.insert(stream.id, stream);
+        record.attached.entry(surface).or_default().pending_streams.insert(stream.id, stream);
+        Ok(())
+    }
+
+    fn commit_surface(&self, client: u64, surface: SurfaceId, stream: u64) -> anyhow::Result<()> {
+        let mut clients = self.clients.lock().unwrap();
+        let record =
+            clients.get_mut(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        let attached = record
+            .attached
+            .get_mut(&surface)
+            .ok_or_else(|| anyhow::anyhow!("client {client} has no pending surface {surface}"))?;
+        let outbound = attached.pending_streams.remove(&stream).ok_or_else(|| {
+            anyhow::anyhow!("client {client} has no pending stream {stream} for surface {surface}")
+        })?;
+        attached.streams.insert(stream, outbound);
+        attached.committed_size = attached.size;
         Ok(())
     }
 
@@ -1145,7 +1168,10 @@ impl ClientRegistry {
         if record.announced_attached {
             return Ok(None);
         }
-        anyhow::ensure!(!record.attached.is_empty(), "client {client} has no attached surfaces");
+        anyhow::ensure!(
+            record.attached.values().any(|attached| !attached.streams.is_empty()),
+            "client {client} has no attached surfaces"
+        );
         record.announced_attached = true;
         Ok(Some((record.transport.as_str().to_string(), record.name.clone(), record.kind.clone())))
     }
@@ -1155,7 +1181,8 @@ impl ClientRegistry {
         let Some(record) = clients.get_mut(&client) else { return false };
         let Some(attached) = record.attached.get_mut(&surface) else { return false };
         attached.streams.remove(&stream);
-        if attached.streams.is_empty() {
+        attached.pending_streams.remove(&stream);
+        if attached.streams.is_empty() && attached.pending_streams.is_empty() {
             record.attached.remove(&surface);
             return true;
         }
@@ -1176,6 +1203,9 @@ impl ClientRegistry {
         let previous = attached.size;
         let changed = previous != Some((cols, rows));
         attached.size = Some((cols, rows));
+        if attached.pending_streams.is_empty() && !attached.streams.is_empty() {
+            attached.committed_size = attached.size;
+        }
         Ok(Some((changed, record.name.clone(), record.kind.clone(), previous)))
     }
 
@@ -1188,6 +1218,9 @@ impl ClientRegistry {
             .and_then(|record| record.attached.get_mut(&surface))
         {
             attached.size = size;
+            if attached.pending_streams.is_empty() && !attached.streams.is_empty() {
+                attached.committed_size = size;
+            }
         }
     }
 
@@ -1200,6 +1233,7 @@ impl ClientRegistry {
         let record = clients.get_mut(&client)?;
         let attached = record.attached.get_mut(&surface)?;
         let changed = attached.size.take().is_some();
+        attached.committed_size = None;
         Some((changed, record.name.clone(), record.kind.clone()))
     }
 
@@ -2461,8 +2495,11 @@ fn announce_client_attached(mux: &Mux, client: u64) -> anyhow::Result<bool> {
 fn commit_client_attach(
     mux: &Mux,
     client: u64,
+    surface: SurfaceId,
+    stream: u64,
     changed: Option<(Option<String>, Option<String>)>,
 ) -> anyhow::Result<()> {
+    mux.control_clients.commit_surface(client, surface, stream)?;
     let newly_announced = announce_client_attached(mux, client)?;
     if !newly_announced && let Some((name, kind)) = changed {
         mux.emit(MuxEvent::ClientChanged { client, name, kind });
@@ -3043,11 +3080,14 @@ fn handle_command(
             Ok(json!({}))
         }
         Command::MoveWorkspace { workspace, key, index, expected_revision } => {
-            let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
-            let Some((revision, _)) =
-                mux.move_workspace_at_revision(workspace, index, expected_revision)?
+            let Some((workspace, key, revision, _)) = mux.move_workspace_selector_at_revision(
+                workspace,
+                key.as_deref(),
+                index,
+                expected_revision,
+            )?
             else {
-                anyhow::bail!("unknown workspace {workspace}");
+                anyhow::bail!("unknown workspace selector");
             };
             Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
         }
@@ -3086,10 +3126,13 @@ fn handle_command(
             Ok(json!({}))
         }
         Command::CloseWorkspace { workspace, key, expected_revision } => {
-            let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
-            let Some(revision) = mux.close_workspace_at_revision(workspace, expected_revision)?
+            let Some((workspace, key, revision)) = mux.close_workspace_selector_at_revision(
+                workspace,
+                key.as_deref(),
+                expected_revision,
+            )?
             else {
-                anyhow::bail!("unknown workspace {workspace}");
+                anyhow::bail!("unknown workspace selector");
             };
             Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
         }
@@ -3112,11 +3155,14 @@ fn handle_command(
             Ok(json!({}))
         }
         Command::RenameWorkspace { workspace, key, name, expected_revision } => {
-            let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
-            let Some(revision) =
-                mux.rename_workspace_at_revision(workspace, name, expected_revision)?
+            let Some((workspace, key, revision)) = mux.rename_workspace_selector_at_revision(
+                workspace,
+                key.as_deref(),
+                name,
+                expected_revision,
+            )?
             else {
-                anyhow::bail!("unknown workspace {workspace}");
+                anyhow::bail!("unknown workspace selector");
             };
             Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
         }
@@ -3358,7 +3404,7 @@ fn handle_command(
                     );
                     return Err(error.into());
                 }
-                commit_client_attach(mux, client, client_changed)?;
+                commit_client_attach(mux, client, surface_id, outbound_stream.id, client_changed)?;
                 return Ok(json!({}));
             }
             if surface.kind() == SurfaceKind::Browser {
@@ -3503,7 +3549,7 @@ fn handle_command(
                     );
                     return Err(error.into());
                 }
-                commit_client_attach(mux, client, client_changed)?;
+                commit_client_attach(mux, client, surface_id, outbound_stream.id, client_changed)?;
                 return Ok(json!({}));
             }
             let MarkedClientAttach { size_rollback, client_changed, .. } = mark_client_attached(
@@ -3619,7 +3665,7 @@ fn handle_command(
                 rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
                 return Err(error.into());
             }
-            commit_client_attach(mux, client, client_changed)?;
+            commit_client_attach(mux, client, surface_id, outbound_stream.id, client_changed)?;
             Ok(json!({}))
         }
     }
@@ -3944,6 +3990,7 @@ mod tests {
         let stream = writer.start_stream(&attach_overflow_json(41)).unwrap();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         mux.control_clients.attach_surface(client, 41, stream.clone()).unwrap();
+        mux.control_clients.commit_surface(client, 41, stream.id).unwrap();
         writer.send_initial(&json!({"event": "vt-state", "surface": 41}), &stream).unwrap();
         writer.send_stream(&json!({"event": "output", "surface": 41}), &stream).unwrap();
 
@@ -4282,7 +4329,9 @@ mod tests {
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+        let stream_id = stream.id;
         mux.control_clients.attach_surface(client, surface.id, stream).unwrap();
+        mux.control_clients.commit_surface(client, surface.id, stream_id).unwrap();
         let events = mux.subscribe();
 
         handle_command(
@@ -4439,7 +4488,9 @@ mod tests {
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+        let stream_id = stream.id;
         mux.control_clients.attach_surface(client, missing_surface, stream).unwrap();
+        mux.control_clients.commit_surface(client, missing_surface, stream_id).unwrap();
 
         assert!(mux
             .resize_surface_for_control_client_with_reservation(
@@ -4704,6 +4755,7 @@ mod tests {
         assert!(!mux.control_clients.attached_client_ids().contains(&client));
 
         let retry_stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+        let retry_stream_id = retry_stream.id;
         mark_client_attached(&mux, client, surface.id, retry_stream, Some((80, 24))).unwrap();
         let staged = mux.control_clients.list_json(client);
         assert_eq!(staged[0]["attached"], json!([]));
@@ -4712,7 +4764,7 @@ mod tests {
             event,
             MuxEvent::ClientAttached { .. } | MuxEvent::ClientChanged { .. }
         )));
-        announce_client_attached(&mux, client).unwrap();
+        commit_client_attach(&mux, client, surface.id, retry_stream_id, None).unwrap();
 
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)),

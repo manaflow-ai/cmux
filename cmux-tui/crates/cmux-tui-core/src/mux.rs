@@ -585,6 +585,28 @@ impl Mux {
         Ok(())
     }
 
+    fn resolve_workspace_selector(
+        state: &State,
+        id: Option<WorkspaceId>,
+        key: Option<&str>,
+    ) -> anyhow::Result<Option<(WorkspaceId, String)>> {
+        let by_id = id.and_then(|id| state.workspace_by_id(id));
+        let by_key = key.and_then(|key| state.workspace_by_key(key));
+        let workspace = match (id, key, by_id, by_key) {
+            (None, None, _, _) => anyhow::bail!("workspace or key is required"),
+            (Some(id), None, Some(workspace), _) if workspace.id == id => Some(workspace),
+            (Some(_), None, None, _) => None,
+            (None, Some(key), _, Some(workspace)) if workspace.key == key => Some(workspace),
+            (None, Some(_), _, None) => None,
+            (Some(_), Some(_), Some(by_id), Some(by_key)) if by_id.id == by_key.id => Some(by_id),
+            (Some(_), Some(_), _, _) => {
+                anyhow::bail!("workspace id and key do not identify the same workspace")
+            }
+            _ => unreachable!("workspace selector cases are exhaustive"),
+        };
+        Ok(workspace.map(|workspace| (workspace.id, workspace.key.clone())))
+    }
+
     pub fn subscribe(&self) -> MuxEventReceiver {
         self.subscribers.subscribe()
     }
@@ -2700,13 +2722,25 @@ impl Mux {
         target: WorkspaceId,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<Option<u64>> {
+        Ok(self
+            .close_workspace_selector_at_revision(Some(target), None, expected_revision)?
+            .map(|(_, _, revision)| revision))
+    }
+
+    pub(crate) fn close_workspace_selector_at_revision(
+        &self,
+        id: Option<WorkspaceId>,
+        key: Option<&str>,
+        expected_revision: Option<u64>,
+    ) -> anyhow::Result<Option<(WorkspaceId, String, u64)>> {
         let notifications = self.surface_notifications();
-        let (removed, delta, empty, revision, selection_resync) = {
+        let (target, key, removed, delta, empty, revision, selection_resync) = {
             let mut state = self.state.lock().unwrap();
             Self::require_workspace_revision(&state, expected_revision)?;
-            let Some(index) = state.workspace_index(target) else {
+            let Some((target, key)) = Self::resolve_workspace_selector(&state, id, key)? else {
                 return Ok(None);
             };
+            let index = state.workspace_index(target).expect("resolved workspace is indexed");
             let mut delta = close_workspace_delta(&state, &notifications, target)
                 .expect("live workspace has a close delta");
             let was_active = state.active_workspace == index;
@@ -2735,7 +2769,7 @@ impl Mux {
             let revision = state.workspace_revision;
             delta.workspace_revision = Some(revision);
             let empty = state.workspaces.is_empty();
-            (removed, delta, empty, revision, was_active && !empty)
+            (target, key, removed, delta, empty, revision, was_active && !empty)
         };
         for surface in removed {
             self.purge_surface_side_tables(surface.id);
@@ -2745,7 +2779,7 @@ impl Mux {
         if empty {
             self.emit(MuxEvent::Empty);
         }
-        Ok(Some(revision))
+        Ok(Some((target, key, revision)))
     }
 
     pub fn rename_workspace(&self, target: WorkspaceId, name: String) -> bool {
@@ -2760,13 +2794,26 @@ impl Mux {
         name: String,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<Option<u64>> {
+        Ok(self
+            .rename_workspace_selector_at_revision(Some(target), None, name, expected_revision)?
+            .map(|(_, _, revision)| revision))
+    }
+
+    pub(crate) fn rename_workspace_selector_at_revision(
+        &self,
+        id: Option<WorkspaceId>,
+        key: Option<&str>,
+        name: String,
+        expected_revision: Option<u64>,
+    ) -> anyhow::Result<Option<(WorkspaceId, String, u64)>> {
         let notifications = self.surface_notifications();
-        let renamed = {
+        let (target, key, renamed) = {
             let mut state = self.state.lock().unwrap();
             Self::require_workspace_revision(&state, expected_revision)?;
-            let Some(index) = state.workspace_index(target) else {
+            let Some((target, key)) = Self::resolve_workspace_selector(&state, id, key)? else {
                 return Ok(None);
             };
+            let index = state.workspace_index(target).expect("resolved workspace is indexed");
             state.workspaces[index].name = name;
             state.workspace_revision = state.workspace_revision.saturating_add(1);
             let workspace_revision = state.workspace_revision;
@@ -2777,7 +2824,7 @@ impl Mux {
                 target,
             )
             .expect("renamed workspace is present in tree snapshot");
-            (
+            let renamed = (
                 TreeDelta {
                     kind: TreeDeltaKind::WorkspaceRenamed,
                     workspace: target,
@@ -2789,10 +2836,11 @@ impl Mux {
                     workspace_revision: Some(workspace_revision),
                 },
                 workspace_revision,
-            )
+            );
+            (target, key, renamed)
         };
         self.emit(MuxEvent::TreeDelta(renamed.0));
-        Ok(Some(renamed.1))
+        Ok(Some((target, key, renamed.1)))
     }
 
     /// Set a pane's user-visible name. An empty name clears it (the pane
@@ -3285,19 +3333,32 @@ impl Mux {
         index: usize,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<Option<(u64, bool)>> {
+        Ok(self
+            .move_workspace_selector_at_revision(Some(workspace), None, index, expected_revision)?
+            .map(|(_, _, revision, changed)| (revision, changed)))
+    }
+
+    pub(crate) fn move_workspace_selector_at_revision(
+        &self,
+        id: Option<WorkspaceId>,
+        key: Option<&str>,
+        index: usize,
+        expected_revision: Option<u64>,
+    ) -> anyhow::Result<Option<(WorkspaceId, String, u64, bool)>> {
         let notifications = self.surface_notifications();
-        let delta = {
+        let (workspace, key, delta) = {
             let mut state = self.state.lock().unwrap();
             Self::require_workspace_revision(&state, expected_revision)?;
-            let Some(old_idx) = state.workspace_index(workspace) else {
+            let Some((workspace, key)) = Self::resolve_workspace_selector(&state, id, key)? else {
                 return Ok(None);
             };
+            let old_idx = state.workspace_index(workspace).expect("resolved workspace is indexed");
             // Protocol v7 retains insertion-index semantics: after removing the
             // source, insertion points to its right shift left by one.
             let new_idx = if index > old_idx { index.saturating_sub(1) } else { index };
             let new_idx = new_idx.min(state.workspaces.len().saturating_sub(1));
             if new_idx == old_idx {
-                return Ok(Some((state.workspace_revision, false)));
+                return Ok(Some((workspace, key, state.workspace_revision, false)));
             }
             let active_id = state.workspaces.get(state.active_workspace).map(|ws| ws.id);
             state.move_workspace(old_idx, new_idx);
@@ -3314,7 +3375,7 @@ impl Mux {
                 workspace,
             )
             .expect("moved workspace is present in tree snapshot");
-            Some((
+            let delta = Some((
                 TreeDelta {
                     kind: TreeDeltaKind::WorkspaceMoved,
                     workspace,
@@ -3326,11 +3387,12 @@ impl Mux {
                     workspace_revision: Some(workspace_revision),
                 },
                 workspace_revision,
-            ))
+            ));
+            (workspace, key, delta)
         };
         if let Some((delta, revision)) = delta {
             self.emit(MuxEvent::TreeDelta(delta));
-            Ok(Some((revision, true)))
+            Ok(Some((workspace, key, revision, true)))
         } else {
             Ok(None)
         }
