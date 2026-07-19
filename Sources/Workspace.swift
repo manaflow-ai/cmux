@@ -2024,6 +2024,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
     let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
+    let browserServices: BrowserServices?
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
@@ -2043,6 +2044,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let existing = _dockSplit { return existing }
         let store = DockSplitStore(
             workspaceId: id,
+            browserServices: browserServices,
             baseDirectoryProvider: { [weak self] in self?.currentDirectory },
             remoteBrowserSettingsProvider: { [weak self] in
                 guard let self else { return .local }
@@ -2911,6 +2913,7 @@ final class Workspace: Identifiable, ObservableObject {
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
+        browserServices: BrowserServices? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
     ) {
         self.id = UUID()
@@ -2919,6 +2922,7 @@ final class Workspace: Identifiable, ObservableObject {
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
+        self.browserServices = browserServices
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
         self.workspaceEnvironment = sanitizedWorkspaceEnvironment
         self.portOrdinal = portOrdinal
@@ -2990,7 +2994,8 @@ final class Workspace: Identifiable, ObservableObject {
                 profileID: resolvedNewBrowserProfileID(),
                 initialURL: initialBrowserURL,
                 omnibarVisible: initialBrowserOmnibarVisible,
-                transparentBackground: initialBrowserTransparentBackground
+                transparentBackground: initialBrowserTransparentBackground,
+                browserServices: browserServices
             )
             configureBrowserPanel(browserPanel)
             panels[browserPanel.id] = browserPanel
@@ -3612,6 +3617,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configureBrowserPanel(_ browserPanel: BrowserPanel) {
+        browserServices?.registerBrowserPanel(browserPanel, workspace: self)
         browserPanel.webViewDidRequestClose = { [weak self, weak browserPanel] in
             guard let self, let browserPanel else { return }
             guard self.panels[browserPanel.id] is BrowserPanel else { return }
@@ -7806,9 +7812,9 @@ final class Workspace: Identifiable, ObservableObject {
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            browserServices: browserServices
         )
-        configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
         panelTitles[browserPanel.id] = browserPanel.displayTitle
 
@@ -7834,8 +7840,10 @@ final class Workspace: Identifiable, ObservableObject {
             removeSurfaceMapping(forSurfaceId: newTab.id)
             panels.removeValue(forKey: browserPanel.id)
             panelTitles.removeValue(forKey: browserPanel.id)
+            browserPanel.close()
             return nil
         }
+        configureBrowserPanel(browserPanel)
         applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
         setPreferredBrowserProfileID(browserPanel.profileID)
         publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: browserPanel.id, kind: "browser", origin: "browser_split", focused: focus)
@@ -7915,9 +7923,9 @@ final class Workspace: Identifiable, ObservableObject {
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            browserServices: browserServices
         )
-        configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
         panelTitles[browserPanel.id] = browserPanel.displayTitle
 
@@ -7934,10 +7942,12 @@ final class Workspace: Identifiable, ObservableObject {
         ) else {
             panels.removeValue(forKey: browserPanel.id)
             panelTitles.removeValue(forKey: browserPanel.id)
+            browserPanel.close()
             return nil
         }
 
         bindSurface(newTabId, toPanelId: browserPanel.id)
+        configureBrowserPanel(browserPanel)
         setPreferredBrowserProfileID(browserPanel.profileID)
 
         // Keyboard/browser-open paths want "new tab at end" regardless of global new-tab placement.
@@ -7969,6 +7979,42 @@ final class Workspace: Identifiable, ObservableObject {
         browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
 
         return browserPanel
+    }
+
+    /// Opens the browser extensions manager in its own pane. Reuses an existing
+    /// manager surface for this workspace so every toolbar and automation
+    /// entrypoint converges on one state owner.
+    @discardableResult
+    func openBrowserExtensionsManager(from sourcePanelId: UUID) -> BrowserPanel? {
+        let sourceProfileID = (panels[sourcePanelId] as? BrowserPanel)?.profileID
+        if let existing = panels.values
+            .compactMap({ $0 as? BrowserPanel })
+            .first(where: {
+                $0.internalPage == .extensions && $0.profileID == sourceProfileID
+            }) {
+            clearSplitZoom()
+            focusPanel(existing.id)
+            return existing
+        }
+        guard let managerPanel = newBrowserSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            preferredProfileID: sourceProfileID,
+            focus: true,
+            omnibarVisible: false
+        ) else {
+            return nil
+        }
+        managerPanel.showBrowserExtensionsManager()
+        _ = updatePanelTitle(panelId: managerPanel.id, title: managerPanel.displayTitle)
+        if let tabId = surfaceIdFromPanelId(managerPanel.id) {
+            bonsplitController.updateTab(
+                tabId,
+                icon: .some(managerPanel.displayIcon),
+                iconImageData: .some(nil)
+            )
+        }
+        return managerPanel
     }
 
     /// Creates a sidebar extension browser tab in the requested pane and returns its panel.
@@ -11453,6 +11499,10 @@ extension Workspace: BonsplitDelegate {
             focusIntent: activationIntent,
             reassertAppKitFocus: reassertAppKitFocus
         )
+        browserServices?.activateWebExtensionTab(
+            panelID: panelId,
+            previousPanelID: previousFocusedPanelId
+        )
         let focusIntentAllowsBrowserOmnibarAutofocus =
             explicitFocusIntent ||
             TerminalController.socketCommandAllowsInAppFocusMutations()
@@ -12086,6 +12136,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didReorderTabsInPane pane: PaneID, orderedTabIds: [TabID]) {
+        browserServices?.webExtensionTabOrderDidChange(ownerID: id)
         // A remote tmux mirror tab reorder propagates to tmux window order.
         guard isRemoteTmuxMirror else { return }
         let orderedPanelIds = orderedTabIds.compactMap { panelIdFromSurfaceId($0) }
@@ -12094,6 +12145,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didMoveTab tab: Bonsplit.Tab, fromPane source: PaneID, toPane destination: PaneID) {
+        browserServices?.webExtensionTabOrderDidChange(ownerID: id)
 #if DEBUG
         let now = ProcessInfo.processInfo.systemUptime
         let sincePrev: String

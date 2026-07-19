@@ -88,6 +88,16 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "feed.question.reply",
         "feed.exit_plan.reply",
         "browser.download.wait",
+        // Extension package hashing, WebKit background loading, popup
+        // JavaScript evaluation, and console capture can all wait. Their
+        // handlers make narrow main-actor hops for WebKit-owned state.
+        "browser.extensions.list",
+        "browser.extensions.add",
+        "browser.extensions.action",
+        "browser.extensions.errors",
+        "browser.extensions.webviews",
+        "browser.extensions.eval",
+        "browser.extensions.console",
         "browser.profiles.list",
         "browser.profiles.create",
         "browser.profiles.rename",

@@ -392,6 +392,7 @@ class TabManager: ObservableObject {
     /// Typed synchronous settings access (CmuxSettings).
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
+    let browserServices: BrowserServices?
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
 
     @Published private(set) var focusHistoryRevision: UInt64 = 0 {
@@ -477,10 +478,12 @@ class TabManager: ObservableObject {
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
-        closeTabWarningDefaults: UserDefaults = .standard
+        closeTabWarningDefaults: UserDefaults = .standard,
+        browserServices: BrowserServices? = nil
     ) {
         self.settings = settings
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
+        self.browserServices = browserServices
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
@@ -962,6 +965,7 @@ class TabManager: ObservableObject {
             workspaceEnvironment: workspaceEnvironment,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
             closeTabWarningDefaults: closeTabWarningDefaults,
+            browserServices: browserServices,
             nativeSSHConnectionBroker: nativeSSHConnectionBroker
         )
     }
@@ -6005,6 +6009,7 @@ extension TabManager {
                 workingDirectory: workspaceSnapshot.currentDirectory,
                 portOrdinal: ordinal,
                 closeTabWarningDefaults: closeTabWarningDefaults,
+                browserServices: browserServices,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             workspace.owningTabManager = self
@@ -6022,6 +6027,7 @@ extension TabManager {
                 title: "Terminal 1",
                 portOrdinal: ordinal,
                 closeTabWarningDefaults: closeTabWarningDefaults,
+                browserServices: browserServices,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             fallback.owningTabManager = self

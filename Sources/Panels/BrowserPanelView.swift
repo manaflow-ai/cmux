@@ -249,6 +249,7 @@ struct BrowserPanelView: View {
     let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
+    let appearance: PanelAppearance
     let onRequestPanelFocus: () -> Void
     /// Explicit pane-ownership signal for hosts whose panels are not registered
     /// in the main `Workspace` tree (e.g. the right-sidebar Dock, which owns its
@@ -347,6 +348,7 @@ struct BrowserPanelView: View {
         isFocused: Bool,
         isVisibleInUI: Bool,
         portalPriority: Int,
+        appearance: PanelAppearance,
         paneOwnershipOverride: Bool? = nil,
         onRequestPanelFocus: @escaping () -> Void
     ) {
@@ -355,6 +357,7 @@ struct BrowserPanelView: View {
         self.isFocused = isFocused
         self.isVisibleInUI = isVisibleInUI
         self.portalPriority = portalPriority
+        self.appearance = appearance
         self.paneOwnershipOverride = paneOwnershipOverride
         self.onRequestPanelFocus = onRequestPanelFocus
         self._browserChromeStyle = State(initialValue: BrowserChromeStyle.resolve(
@@ -1005,24 +1008,29 @@ struct BrowserPanelView: View {
         }
     }
 
+    @ViewBuilder
     private var browserPanelBaseView: some View {
-        // Layering contract: browser find UI is mounted in the portal-hosted AppKit
-        // container. Rendering it here can hide it behind the portal-hosted WKWebView.
-        VStack(spacing: 0) {
-            omnibarHeaderView
-            webView
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .overlay(browserFindOverlayView)
-        .overlay(focusFlashOverlayView)
-        .overlay(omnibarSuggestionsOverlayView, alignment: .topLeading)
-        .overlay(alignment: .bottom) {
-            // WebView-backed cases host the composer in the AppKit portal slot
-            // (WindowBrowserSlotView.setDesignComposer) so it layers above the
-            // portal-hosted WKWebView. This SwiftUI mount only covers the empty
-            // new-tab state, e.g. surfacing the "open a page first" error.
-            if !panel.shouldRenderWebView {
-                BrowserDesignModePopoverHost(controller: panel.designModeController)
+        if panel.internalPage == .extensions {
+            BrowserExtensionsManagerPage(panel: panel, appearance: appearance)
+        } else {
+            // Layering contract: browser find UI is mounted in the portal-hosted AppKit
+            // container. Rendering it here can hide it behind the portal-hosted WKWebView.
+            VStack(spacing: 0) {
+                omnibarHeaderView
+                webView
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .overlay(browserFindOverlayView)
+            .overlay(focusFlashOverlayView)
+            .overlay(omnibarSuggestionsOverlayView, alignment: .topLeading)
+            .overlay(alignment: .bottom) {
+                // WebView-backed cases host the composer in the AppKit portal slot
+                // (WindowBrowserSlotView.setDesignComposer) so it layers above the
+                // portal-hosted WKWebView. This SwiftUI mount only covers the empty
+                // new-tab state, e.g. surfacing the "open a page first" error.
+                if !panel.shouldRenderWebView {
+                    BrowserDesignModePopoverHost(controller: panel.designModeController)
+                }
             }
         }
     }
@@ -1129,6 +1137,7 @@ struct BrowserPanelView: View {
                     // into an overflow menu and keep the popover-anchored
                     // profile/theme controls present.
                     browserOverflowMenu
+                    browserExtensionsButton
                     browserProfileButton
                     browserThemeModeButton
                 } else {
@@ -1142,6 +1151,7 @@ struct BrowserPanelView: View {
                     )
                     screenshotPageButton
                     // reactGrabButton  // Hidden for now; design mode covers element grabbing.
+                    browserExtensionsButton
                     browserProfileButton
                     browserThemeModeButton
                     developerToolsButton
@@ -1368,6 +1378,30 @@ struct BrowserPanelView: View {
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .safeHelp(developerToolsButtonHelp)
         .accessibilityIdentifier("BrowserToggleDevToolsButton")
+    }
+
+    private var browserExtensionsButton: some View {
+        BrowserExtensionsToolbarButton(
+            isPresented: $panel.isBrowserExtensionsPopoverPresented,
+            panelID: panel.id,
+            profileID: panel.profileID,
+            iconPointSize: devToolsButtonIconSize,
+            hitSize: addressBarButtonSize,
+            loadSnapshot: { await panel.browserWebExtensionsPresentationSnapshot() },
+            openManager: { panel.openBrowserExtensionsManager() != nil },
+            setToolbarPinned: { identifier, isPinned in
+                await panel.setBrowserWebExtensionToolbarActionPinned(
+                    isPinned,
+                    uniqueIdentifier: identifier
+                )
+            },
+            performAction: { identifier, anchorView in
+                panel.performBrowserWebExtensionAction(
+                    uniqueIdentifier: identifier,
+                    anchorView: anchorView
+                )
+            }
+        )
     }
 
     private var browserProfileButton: some View {

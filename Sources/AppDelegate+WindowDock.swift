@@ -10,6 +10,7 @@ extension AppDelegate.MainWindowContext {
         let store = DockSplitStore(
             workspaceId: windowId,
             scope: .global,
+            browserServices: tabManager.browserServices,
             baseDirectoryProvider: { nil },
             remoteBrowserSettingsProvider: { .local }
         )

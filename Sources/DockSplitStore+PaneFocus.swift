@@ -136,6 +136,11 @@ extension DockSplitStore {
                 panel.unfocus()
             }
         }
+        browserServices?.activateWebExtensionTab(
+            panelID: selectedPanel.id,
+            previousPanelID: lastActivatedWebExtensionPanelID
+        )
+        lastActivatedWebExtensionPanelID = selectedPanel.id
         selectedPanel.focus()
     }
 
@@ -207,11 +212,20 @@ extension DockSplitStore {
         fromPane source: PaneID,
         toPane destination: PaneID
     ) {
+        browserServices?.webExtensionTabOrderDidChange(ownerID: webExtensionWindowID)
         applyDockSelection(tabId: tab.id, inPane: destination)
         let movedPanel = panel(for: tab.id)
         (movedPanel as? TerminalPanel)?.recordPortalHostOwnershipChange()
         movedPanel?.focus()
         scheduleDockPortalReconcile(reason: "dock.moveTab")
+    }
+
+    func splitTabBar(
+        _ controller: BonsplitController,
+        didReorderTabsInPane pane: PaneID,
+        orderedTabIds: [TabID]
+    ) {
+        browserServices?.webExtensionTabOrderDidChange(ownerID: webExtensionWindowID)
     }
 
     /// Replaces an empty or placeholder-only pane with a real Dock terminal,

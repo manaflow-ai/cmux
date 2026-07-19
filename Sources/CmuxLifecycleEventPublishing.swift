@@ -268,6 +268,7 @@ extension AppDelegate {
             if let context {
                 MainWindowKeyRegainRefresh.refresh(window: window, context: context)
             }
+            browserWindowFocusDidChange()
         }
     }
 
@@ -277,6 +278,7 @@ extension AppDelegate {
             if let windowId = mainWindowId(from: window) {
                 publishCmuxWindowLifecycle(name: "window.unkeyed", windowId: windowId, origin: "appkit_key")
             }
+            browserWindowFocusDidChange()
         }
     }
 

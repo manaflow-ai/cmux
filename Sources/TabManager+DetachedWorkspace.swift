@@ -66,6 +66,7 @@ extension TabManager {
                 portOrdinal: ordinal,
                 configTemplate: inheritedConfig,
                 initialDetachedSurface: detached,
+                browserServices: browserServices,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             guard newWorkspace.panels[detached.panelId] != nil,

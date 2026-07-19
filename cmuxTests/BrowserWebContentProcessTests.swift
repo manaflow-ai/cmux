@@ -33,6 +33,7 @@ struct BrowserWebContentProcessTests {
 
         BrowserPanel.configureWebViewConfiguration(
             configuration,
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
             websiteDataStore: websiteDataStore
         )
 
@@ -44,6 +45,7 @@ struct BrowserWebContentProcessTests {
         let configuration = WKWebViewConfiguration()
         BrowserPanel.configureWebViewConfiguration(
             configuration,
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
             websiteDataStore: .nonPersistent()
         )
         let webAuthnScript = try #require(
@@ -123,6 +125,7 @@ struct BrowserWebContentProcessTests {
         let configuration = WKWebViewConfiguration()
         BrowserPanel.configureWebViewConfiguration(
             configuration,
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
             websiteDataStore: .nonPersistent()
         )
         let probe = BrowserWebAuthnReplyProbe()

@@ -3196,6 +3196,27 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
         XCTAssertNil(inserted.surfaceResumeBinding(panelId: detached.panelId))
     }
 
+    func testDetachedWorkspacePreservesBrowserServices() throws {
+        let extensionDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-detached-browser-services-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: extensionDirectory) }
+        let browserServices = BrowserServices(extensionDirectory: extensionDirectory)
+        let manager = TabManager(
+            initialWorkingDirectory: "/tmp/cmux-source-\(UUID().uuidString)",
+            autoWelcomeIfNeeded: false,
+            browserServices: browserServices
+        )
+        let source = try XCTUnwrap(manager.selectedWorkspace)
+        let detached = makeDetachedWorkspaceTestTransfer(sourceWorkspaceId: source.id)
+
+        let inserted = try XCTUnwrap(manager.addWorkspace(
+            fromDetachedSurface: detached,
+            select: false
+        ))
+
+        XCTAssertTrue(inserted.browserServices === browserServices)
+    }
+
     private func withWorkspaceWorkingDirectoryInheritanceSetting(
         _ value: Bool?,
         _ body: () throws -> Void

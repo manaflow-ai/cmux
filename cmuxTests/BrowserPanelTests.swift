@@ -655,6 +655,20 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertTrue(normalLocalhostPanel.shouldPersistSessionSnapshot())
     }
 
+    func testExtensionsManagerPageIsNotPersistedForSessionRestore() throws {
+        let normalURL = try XCTUnwrap(URL(string: "https://example.com/page"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: normalURL,
+            renderInitialNavigation: false
+        )
+
+        XCTAssertTrue(panel.shouldPersistSessionSnapshot())
+        XCTAssertTrue(panel.showBrowserExtensionsManager())
+        XCTAssertEqual(panel.internalPage, .extensions)
+        XCTAssertFalse(panel.shouldPersistSessionSnapshot())
+    }
+
     func testDiffViewerURLIsNotRecordedInBrowserHistory() throws {
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-browser-history-\(UUID().uuidString).json")
@@ -697,6 +711,7 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
 
         BrowserPanel.configureWebViewConfiguration(
             config,
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
             websiteDataStore: .nonPersistent()
         )
 

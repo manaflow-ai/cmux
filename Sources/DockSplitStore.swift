@@ -12,7 +12,9 @@ import SwiftUI
 @Observable
 final class DockSplitStore: BonsplitDelegate {
     let workspaceId: UUID
+    let webExtensionWindowID = UUID()
     let bonsplitController: BonsplitController
+    let browserServices: BrowserServices?
 
     /// Which Dock this store backs: `.workspace` (per-workspace, seeded from the
     /// project `.cmux/dock.json`) or `.global` (a per-window Dock seeded from
@@ -60,6 +62,7 @@ final class DockSplitStore: BonsplitDelegate {
     @ObservationIgnored var tabCloseButtonCloseDockTabIds: Set<TabID> = []
     @ObservationIgnored var terminalViewReattachCoalescingDepth = 0
     @ObservationIgnored var pendingTerminalViewReattachPanelIds: Set<UUID> = []
+    @ObservationIgnored var lastActivatedWebExtensionPanelID: UUID?
     @ObservationIgnored let focusHistoryNavigation: any FocusHistoryNavigating = FocusHistoryModel()
 
     /// Weak registry of every live Dock store. Lets control-surface routing
@@ -74,12 +77,14 @@ final class DockSplitStore: BonsplitDelegate {
     init(
         workspaceId: UUID,
         scope: DockScope = .workspace,
+        browserServices: BrowserServices? = nil,
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
         browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() }
     ) {
         self.workspaceId = workspaceId
         self.scope = scope
+        self.browserServices = browserServices
         self.baseDirectoryProvider = baseDirectoryProvider
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
@@ -283,6 +288,42 @@ final class DockSplitStore: BonsplitDelegate {
             restoreDockPaneSelection(previousFocus)
         }
         return panel.id
+    }
+
+    /// Opens the extensions manager as a sibling Dock tab, preserving the
+    /// caller's page and providing the Dock tab bar as the return path.
+    @discardableResult
+    func openBrowserExtensionsManager(from sourcePanelId: UUID) -> BrowserPanel? {
+        guard let source = browserPanel(for: sourcePanelId),
+              let paneId = paneId(forPanelId: sourcePanelId) else {
+            return nil
+        }
+        if let existing = panels.values
+            .compactMap({ $0 as? BrowserPanel })
+            .first(where: {
+                $0.internalPage == .extensions && $0.profileID == source.profileID
+            }) {
+            focusPanel(existing.id)
+            return existing
+        }
+        guard let managerID = newSurface(
+            kind: .browser,
+            inPane: paneId,
+            focus: true,
+            preferredProfileID: source.profileID
+        ), let manager = browserPanel(for: managerID) else {
+            return nil
+        }
+        manager.showBrowserExtensionsManager()
+        if let tabId = surfaceId(forPanelId: managerID) {
+            bonsplitController.updateTab(
+                tabId,
+                title: manager.displayTitle,
+                icon: .some(manager.displayIcon),
+                iconImageData: .some(nil)
+            )
+        }
+        return manager
     }
 
     /// Creates a new surface by splitting an existing Dock pane. Used by
@@ -554,6 +595,7 @@ final class DockSplitStore: BonsplitDelegate {
 
     func installSubscription(for panel: any Panel, tracksTerminalTitle: Bool) {
         if let browser = panel as? BrowserPanel {
+            browserServices?.registerBrowserPanel(browser, dock: self)
             let cancellable = Publishers.CombineLatest4(
                 browser.$pageTitle.removeDuplicates(),
                 browser.$isLoading.removeDuplicates(),
@@ -617,7 +659,12 @@ final class DockSplitStore: BonsplitDelegate {
             panelCancellables.removeValue(forKey: panelId)
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspaceId, surfaceId: panelId)
             detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
-            if let panel = panels.removeValue(forKey: panelId) { panel.close() }
+            if let panel = panels.removeValue(forKey: panelId) {
+                if panel is BrowserPanel {
+                    browserServices?.unregisterBrowserPanel(id: panelId)
+                }
+                panel.close()
+            }
         }
     }
 
@@ -657,7 +704,12 @@ final class DockSplitStore: BonsplitDelegate {
         for tabId in tabIds { _ = bonsplitController.closeTab(tabId) }
         collapseToSingleEmptyPane()
         reconcilePanels()
-        for panel in panels.values { panel.close() }
+        for panel in panels.values {
+            if panel is BrowserPanel {
+                browserServices?.unregisterBrowserPanel(id: panel.id)
+            }
+            panel.close()
+        }
         panels.removeAll(); surfaceIdToPanelId.removeAll()
         detachedSurfaceTransfersByPanelId.removeAll()
         panelCancellables.values.forEach { $0.cancel() }

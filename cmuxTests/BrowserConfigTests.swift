@@ -5426,6 +5426,7 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         let diffViewer = try XCTUnwrap(URL(string: "cmux-diff-viewer://0123456789abcdef/diff.html"))
         let javascript = try XCTUnwrap(URL(string: "javascript:void(0)"))
         let webkitInternal = try XCTUnwrap(URL(string: "applewebdata://local/page"))
+        let webExtension = try XCTUnwrap(URL(string: "webkit-extension://extension-id/app/app.html"))
 
         XCTAssertFalse(browserShouldOpenURLExternally(https))
         XCTAssertFalse(browserShouldOpenURLExternally(http))
@@ -5436,6 +5437,7 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         XCTAssertFalse(browserShouldOpenURLExternally(diffViewer))
         XCTAssertFalse(browserShouldOpenURLExternally(javascript))
         XCTAssertFalse(browserShouldOpenURLExternally(webkitInternal))
+        XCTAssertFalse(browserShouldOpenURLExternally(webExtension))
     }
 
     func testCustomAppSchemesRouteExternallyFromSubframes() throws {

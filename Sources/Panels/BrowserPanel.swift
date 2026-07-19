@@ -22,6 +22,10 @@ import CommonCrypto
 import Security
 #endif
 
+enum BrowserInternalPage: Equatable {
+    case extensions
+}
+
 fileprivate func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
     var seen = Set<String>()
     var result: [URL] = []
@@ -344,6 +348,8 @@ private struct BrowserProfileFileRemover: BrowserProfileFileRemoving {
 @MainActor
 final class BrowserProfileStore: ObservableObject {
     static let shared = BrowserProfileStore()
+    nonisolated static let profileDidDeleteNotification = Notification.Name("cmux.browserProfile.didDelete")
+    nonisolated static let profileIDNotificationKey = "profileID"
 
     @Published private(set) var profiles: [BrowserProfileDefinition] = []
     @Published private(set) var lastUsedProfileID: UUID = BrowserProfileRepository.builtInDefaultProfileID
@@ -402,6 +408,13 @@ final class BrowserProfileStore: ObservableObject {
     func deleteProfile(id: UUID) -> BrowserProfileDefinition? {
         let result = repository.deleteProfile(id: id)
         mirrorPublishedState()
+        if result != nil {
+            NotificationCenter.default.post(
+                name: Self.profileDidDeleteNotification,
+                object: self,
+                userInfo: [Self.profileIDNotificationKey: id]
+            )
+        }
         return result
     }
 
@@ -724,7 +737,9 @@ func browserNewTabNavigationSeed(
 
 /// Mirrors the opener's WebKit browsing context for popup windows.
 struct BrowserPopupBrowserContext {
+    let profileID: UUID
     let websiteDataStore: WKWebsiteDataStore
+    let browserServices: BrowserServices?
 }
 
 enum BrowserFileSystemAccessBridge {
@@ -987,6 +1002,7 @@ private let browserEmbeddedNavigationSchemes: Set<String> = [
     "http",
     "https",
     "javascript",
+    "webkit-extension",
 ]
 
 func browserShouldOpenURLExternally(_ url: URL) -> Bool {
@@ -2728,6 +2744,8 @@ final class BrowserPanel: Panel, ObservableObject {
     var browserViewportHostRestorationTask: Task<Void, Never>?
     var browserViewportHostRestorationPending = false
     var websiteDataStore: WKWebsiteDataStore
+    let browserServices: BrowserServices?
+    private var webExtensionPageBaseURL: URL?
     var browserAutomationUserScripts: [WKUserScript] = []
     var browserAutomationInitScriptCount = 0
     var browserAutomationStyleScriptCount = 0
@@ -2909,6 +2927,8 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Per-surface browser chrome visibility. Diff and artifact viewers can hide
     /// the omnibar without changing the global browser default.
     @Published private(set) var isOmnibarVisible: Bool
+    @Published var isBrowserExtensionsPopoverPresented = false
+    @Published private(set) var internalPage: BrowserInternalPage? = nil
 
     /// Semantic in-panel focus target used by split switching and transient overlays.
     private(set) var preferredFocusIntent: BrowserPanelFocusIntent = .webView
@@ -3073,12 +3093,16 @@ final class BrowserPanel: Panel, ObservableObject {
         isUsingCamera: Bool? = nil,
         reason: String
     ) {
-        var next = mediaActivity
+        let previous = mediaActivity
+        var next = previous
         if let isPlayingAudio { next.isPlayingAudio = isPlayingAudio }
         if let isUsingMicrophone { next.isUsingMicrophone = isUsingMicrophone }
         if let isUsingCamera { next.isUsingCamera = isUsingCamera }
         guard next != mediaActivity else { return }
         mediaActivity = next
+        if #available(macOS 15.4, *), previous.isPlayingAudio != next.isPlayingAudio {
+            notifyWebExtensionTabPropertiesChanged(.playingAudio)
+        }
         onMediaActivityChanged?(next)
         reevaluateHiddenWebViewDiscardScheduling(reason: reason)
     }
@@ -3117,6 +3141,10 @@ final class BrowserPanel: Panel, ObservableObject {
         let preserveRestoredSessionHistory: Bool
     }
     private var pendingRemoteNavigation: PendingRemoteNavigation?
+    private var pendingWebExtensionNavigationTask: Task<Void, Never>?
+    var isWaitingForWebExtensionsBeforeNavigation: Bool {
+        pendingWebExtensionNavigationTask != nil
+    }
     private let bypassesRemoteWorkspaceProxy: Bool
     /// Marks this surface as transparent internal cmux UI (e.g. the diff viewer
     /// or other custom UI) rather than a normal web page. When set, the webview
@@ -3146,6 +3174,9 @@ final class BrowserPanel: Panel, ObservableObject {
     private var browserThemeMode: BrowserThemeMode
 
     var displayTitle: String {
+        if internalPage == .extensions {
+            return String(localized: "browser.extensions.title", defaultValue: "Extensions")
+        }
         if !pageTitle.isEmpty {
             return pageTitle
         }
@@ -3315,6 +3346,9 @@ final class BrowserPanel: Panel, ObservableObject {
         let history = sessionNavigationHistorySnapshot()
         let historyCurrentURL = preferredURLStringForOmnibar() ?? restoreURL?.absoluteString
         let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
+        let extensionPageConfiguration = restoreURL.flatMap {
+            webExtensionPageConfiguration(for: $0)
+        }
 
         clearBrowserFocusMode(reason: "webViewDiscard")
         invalidateSearchFocusRequests(reason: "webViewDiscard")
@@ -3338,8 +3372,10 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let replacement = makeReplacementWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            baseConfiguration: extensionPageConfiguration?.configuration
         )
+        webExtensionPageBaseURL = extensionPageConfiguration?.baseURL
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
@@ -3387,7 +3423,9 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Popups inherit this panel's exact WebKit storage context.
     var popupBrowserContext: BrowserPopupBrowserContext {
         BrowserPopupBrowserContext(
-            websiteDataStore: websiteDataStore
+            profileID: profileID,
+            websiteDataStore: websiteDataStore,
+            browserServices: browserServices
         )
     }
 
@@ -3546,7 +3584,10 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     var displayIcon: String? {
-        "globe"
+        if internalPage == .extensions {
+            return "puzzlepiece.extension"
+        }
+        return "globe"
     }
 
     var isDirty: Bool {
@@ -3557,13 +3598,20 @@ final class BrowserPanel: Panel, ObservableObject {
     // identical configuration, making adoption a drop-in swap.
     static func makeWebView(
         profileID: UUID,
-        websiteDataStore: WKWebsiteDataStore? = nil
+        websiteDataStore: WKWebsiteDataStore? = nil,
+        browserServices: BrowserServices? = nil,
+        baseConfiguration: WKWebViewConfiguration? = nil
     ) -> CmuxWebView {
-        let config = WKWebViewConfiguration()
-        configureWebViewConfiguration(
-            config,
-            websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
-        )
+        let config = baseConfiguration ?? WKWebViewConfiguration()
+        if baseConfiguration == nil {
+            configureWebViewConfiguration(
+                config,
+                profileID: profileID,
+                websiteDataStore: websiteDataStore
+                    ?? BrowserProfileStore.shared.websiteDataStore(for: profileID),
+                browserServices: browserServices
+            )
+        }
 
         let webView = CmuxWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
@@ -3577,101 +3625,6 @@ final class BrowserPanel: Panel, ObservableObject {
         // Always present as Safari.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         return webView
-    }
-
-    static func configureWebViewConfiguration(
-        _ configuration: WKWebViewConfiguration,
-        websiteDataStore: WKWebsiteDataStore
-    ) {
-        configuration.mediaTypesRequiringUserActionForPlayback = []
-        // Ensure browser cookies/storage persist across navigations and launches.
-        // This reduces repeated consent/bot-challenge flows on sites like Google.
-        configuration.websiteDataStore = websiteDataStore
-        if configuration.urlSchemeHandler(forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme) == nil {
-            configuration.setURLSchemeHandler(
-                CmuxDiffViewerURLSchemeHandler.shared,
-                forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme
-            )
-        }
-        // Review-comment persistence + TextBox attach for diff viewer pages.
-        // The handler itself rejects every frame that is not a registered diff
-        // viewer session, so installing it on all browser webviews is safe.
-        DiffSidecarBridge.installViewerBridges(on: configuration.userContentController)
-
-        // Enable developer extras (DevTools)
-        configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
-        configuration.preferences.isElementFullscreenEnabled = true
-
-        // Enable JavaScript
-        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-        configuration.userContentController.addUserScript(
-            WKUserScript(
-                source: BrowserFileSystemAccessBridge.scriptSource,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
-            )
-        )
-        // Keep browser console/error/dialog telemetry active from document start on every navigation.
-        // Main frame only — injecting into cross-origin iframes causes CAPTCHA providers
-        // (reCAPTCHA, hCaptcha, Cloudflare Turnstile) to detect the overridden console.*
-        // methods and __cmux* globals as environment tampering, failing the challenge.
-        configuration.userContentController.addUserScript(
-            WKUserScript(
-                source: Self.telemetryHookBootstrapScriptSource,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
-            )
-        )
-        configuration.userContentController.addUserScript(
-            WKUserScript(
-                source: RemoteLoopbackRuntimeBridge.runtimeBridgeScriptSource,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: false
-            )
-        )
-        configuration.userContentController.addUserScript(WKUserScript(source: BrowserWebAuthnBridgeContract.relayScriptSource, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: BrowserWebAuthnBridgeContract.contentWorld)); configuration.userContentController.addUserScript(
-            WKUserScript(
-                source: BrowserWebAuthnBridgeContract.scriptSource,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true,
-                in: .page
-            )
-        )
-        // Track the last editable focused element continuously so omnibar exit can
-        // restore page input focus even if capture runs after first-responder handoff.
-        // Main frame only — same CAPTCHA interference concern as telemetry hooks.
-        configuration.userContentController.addUserScript(
-            WKUserScript(
-                source: BrowserOmnibarPageFocusRepository.trackingBootstrapScriptSource,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
-            )
-        )
-        // Keep a native cache of whether the focused page element can currently accept
-        // plain-text paste so Cmd+Shift+V is only consumed when the browser can use it.
-        configuration.userContentController.addUserScript(
-            WKUserScript(
-                source: CmuxWebView.pasteAsPlainTextFocusTrackingBootstrapScriptSource,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
-            )
-        )
-        // Report <video>/<audio> playback so a hidden pane with actively-playing
-        // media is exempted from memory discard
-        // (https://github.com/manaflow-ai/cmux/issues/5409). Injected into every
-        // frame so embedded players in cross-origin iframes keep the pane alive
-        // too. Runs in an isolated content world (shared DOM, separate JS scope)
-        // so the handler is hidden from page JavaScript that could otherwise post
-        // a fake playing report; this also keeps it clear of CAPTCHA fingerprint
-        // checks in those iframes.
-        configuration.userContentController.addUserScript(
-            WKUserScript(
-                source: Self.mediaPlaybackTrackingBootstrapScriptSource,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: false,
-                in: Self.mediaPlaybackContentWorld
-            )
-        )
     }
 
     private func bindWebView(_ webView: CmuxWebView) {
@@ -3729,11 +3682,17 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.navigationDelegate = navigationDelegate
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
-        setupReactGrabMessageHandler(for: webView)
-        designModeController.install(on: webView)
-        setupSSLTrustBypassMessageHandler(for: webView)
-        setupMediaPlaybackMessageHandler(for: webView)
-        webAuthnCoordinator.install(on: webView)
+        // A WebExtension page configuration owns a shared user-content
+        // controller used by the extension background page and its tabs.
+        // Installing panel-scoped handlers there duplicates handler names and
+        // exposes cmux-only bridges to privileged extension pages.
+        if webExtensionPageBaseURL == nil {
+            setupReactGrabMessageHandler(for: webView)
+            designModeController.install(on: webView)
+            setupSSLTrustBypassMessageHandler(for: webView)
+            setupMediaPlaybackMessageHandler(for: webView)
+            webAuthnCoordinator.install(on: webView)
+        }
         applyMuteState(to: webView, reason: "bindWebView")
     }
     private func setupSSLTrustBypassMessageHandler(for webView: WKWebView) {
@@ -3825,6 +3784,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.pageTitle = failedURL.isEmpty ? "" : failedURL
                 self.faviconPNGData = nil
                 self.lastFaviconURLString = nil
+                if #available(macOS 15.4, *) {
+                    self.notifyWebExtensionTabPropertiesChanged([.URL, .title])
+                }
                 self.applyMuteState(to: failedWebView, reason: "navigationFail")
                 if self.isDiscardRestoreBookkeepingNavigation(failedNavigation) {
                     self.noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_failed")
@@ -3980,13 +3942,15 @@ final class BrowserPanel: Panel, ObservableObject {
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
-        remoteWebsiteDataStoreIdentifier: UUID? = nil
+        remoteWebsiteDataStoreIdentifier: UUID? = nil,
+        browserServices: BrowserServices? = nil
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
         Self.bootstrapBrowserDefaultsIfNeeded()
         self.id = UUID()
         self.workspaceId = workspaceId
+        self.browserServices = browserServices
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
         self.historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
@@ -4017,7 +3981,8 @@ final class BrowserPanel: Panel, ObservableObject {
         } else {
             webView = Self.makeWebView(
                 profileID: resolvedProfileID,
-                websiteDataStore: websiteDataStore
+                websiteDataStore: websiteDataStore,
+                browserServices: browserServices
             )
         }
         self.webView = webView
@@ -4221,20 +4186,23 @@ final class BrowserPanel: Panel, ObservableObject {
             currentURL = initialRequest.url
             shouldRenderWebView = renderInitialNavigation
             guard renderInitialNavigation else { return }
-            if let url = initialRequest.url,
-               insecureHTTPBypassHostOnce == nil,
-               shouldBlockInsecureHTTPNavigation(to: url) {
-                presentInsecureHTTPAlert(
-                    for: initialRequest,
-                    intent: .currentTab,
-                    recordTypedNavigation: false
-                )
-            } else {
-                navigateWithoutInsecureHTTPPrompt(
-                    request: initialRequest,
-                    recordTypedNavigation: false
-                )
+            let navigateInitialRequest = { [self] in
+                if let url = initialRequest.url,
+                   insecureHTTPBypassHostOnce == nil,
+                   shouldBlockInsecureHTTPNavigation(to: url) {
+                    presentInsecureHTTPAlert(
+                        for: initialRequest,
+                        intent: .currentTab,
+                        recordTypedNavigation: false
+                    )
+                } else {
+                    navigateWithoutInsecureHTTPPrompt(
+                        request: initialRequest,
+                        recordTypedNavigation: false
+                    )
+                }
             }
+            runWhenWebExtensionsLoaded(navigateInitialRequest)
         } else if let url = initialURL {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = url
@@ -4248,9 +4216,33 @@ final class BrowserPanel: Panel, ObservableObject {
                 hasCommittedDocumentSinceWebViewReplacement = true
                 refreshBackgroundAppearance()
             } else {
-                navigate(to: url)
+                runWhenWebExtensionsLoaded { [self] in navigate(to: url) }
             }
         }
+    }
+
+    /// Runs `navigation` only after the shared web-extension load finishes so
+    /// a webview's first page load never races extension content-script
+    /// injection. Synchronous when extensions are loaded or absent.
+    func runWhenWebExtensionsLoaded(_ navigation: @escaping @MainActor () -> Void) {
+        cancelPendingWebExtensionNavigation()
+        if #available(macOS 15.4, *),
+           let manager = browserServices?.webExtensionsManager(for: profileID),
+           !manager.isLoaded {
+            pendingWebExtensionNavigationTask = Task { @MainActor [weak self] in
+                await manager.waitUntilLoaded()
+                guard !Task.isCancelled, let self, !self.isClosingWebViewLifecycle else { return }
+                self.pendingWebExtensionNavigationTask = nil
+                navigation()
+            }
+        } else {
+            navigation()
+        }
+    }
+
+    private func cancelPendingWebExtensionNavigation() {
+        pendingWebExtensionNavigationTask?.cancel()
+        pendingWebExtensionNavigationTask = nil
     }
 
     @discardableResult
@@ -4629,6 +4621,8 @@ final class BrowserPanel: Panel, ObservableObject {
             return false
         }
 
+        cancelPendingWebExtensionNavigation()
+
         let previousWebView = webView
         let wasRenderable = shouldRenderWebView
         let restoreURL = restorableDisplayURLForCurrentErrorPage(liveURL: previousWebView.url)
@@ -4672,13 +4666,15 @@ final class BrowserPanel: Panel, ObservableObject {
         clearBrowserAutomationUserScripts()
         let replacement = Self.makeWebView(
             profileID: resolvedProfileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            browserServices: browserServices
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
         resetWebViewLifecycleMetadata(resetVisibility: false)
         webView = replacement
+        browserServices?.browserPanelProfileDidChange(self)
         currentURL = restoreURL
         shouldRenderWebView = wasRenderable
         refreshWebViewLifecycleState()
@@ -4696,11 +4692,14 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         if shouldRestoreURL, let restoreURL {
-            navigateWithoutInsecureHTTPPrompt(
-                to: restoreURL,
-                recordTypedNavigation: false,
-                preserveRestoredSessionHistory: true
-            )
+            runWhenWebExtensionsLoaded { [weak self] in
+                guard let self, self.profileID == resolvedProfileID else { return }
+                self.navigateWithoutInsecureHTTPPrompt(
+                    to: restoreURL,
+                    recordTypedNavigation: false,
+                    preserveRestoredSessionHistory: true
+                )
+            }
         } else {
             refreshNavigationAvailability()
         }
@@ -4843,6 +4842,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func shouldPersistSessionSnapshot() -> Bool {
+        // Internal pages are transient app UI with no persisted kind or
+        // restorable navigation target.
+        guard internalPage == nil else { return false }
         // Diff viewer surfaces are otherwise treated as temporary. Persist them
         // only when they can actually be restored via the custom scheme (a
         // local-only, non-pending manifest); otherwise persisting would leave a
@@ -4911,6 +4913,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.currentURL = Self.remoteProxyDisplayURL(for: observedURL)
                 self.refreshBackgroundAppearance()
                 GlobalSearchCoordinator.shared.captureBrowserPanel(self)
+                if #available(macOS 15.4, *) {
+                    self.notifyWebExtensionTabPropertiesChanged(.URL)
+                }
             }
         }
         webViewObservers.append(urlObserver)
@@ -4926,6 +4931,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 guard !trimmed.isEmpty else { return }
                 self.pageTitle = trimmed
                 GlobalSearchCoordinator.shared.captureBrowserPanel(self)
+                if #available(macOS 15.4, *) {
+                    self.notifyWebExtensionTabPropertiesChanged(.title)
+                }
             }
         }
         webViewObservers.append(titleObserver)
@@ -4941,6 +4949,9 @@ final class BrowserPanel: Panel, ObservableObject {
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
                 self.handleWebViewLoadingChanged(newValue)
+                if #available(macOS 15.4, *) {
+                    self.notifyWebExtensionTabPropertiesChanged(.loading)
+                }
             }
         }
         webViewObservers.append(loadingObserver)
@@ -5130,7 +5141,10 @@ final class BrowserPanel: Panel, ObservableObject {
         from oldWebView: WKWebView,
         websiteDataStore: WKWebsiteDataStore,
         reason: String,
-        waitForManualRecovery: Bool = false
+        waitForManualRecovery: Bool = false,
+        baseConfiguration: WKWebViewConfiguration? = nil,
+        navigationOverride: URL? = nil,
+        preserveNavigationHistory: Bool = true
     ) {
         guard oldWebView === webView else { return }
 
@@ -5138,11 +5152,18 @@ final class BrowserPanel: Panel, ObservableObject {
         let attemptedURL = Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
             ?? navigationDelegate?.lastAttemptedURL
         let liveURL = restorableDisplayURLForCurrentErrorPage(liveURL: oldWebView.url)
-        let restoreURL = (isMainFrameProvisionalNavigationActive ? attemptedURL : nil)
+        let restoreURL = navigationOverride
+            ?? (isMainFrameProvisionalNavigationActive ? attemptedURL : nil)
             ?? liveURL
             ?? attemptedURL
             ?? resolvedCurrentSessionHistoryURL()
         let restoreURLString = restoreURL?.absoluteString
+        let extensionPageConfiguration = restoreURL.flatMap {
+            webExtensionPageConfiguration(for: $0)
+        }
+        let effectiveBaseConfiguration = baseConfiguration
+            ?? extensionPageConfiguration?.configuration
+        webExtensionPageBaseURL = extensionPageConfiguration?.baseURL
         let hasRecoveryTarget = restoreURLString != nil && restoreURLString != blankURLString
         let shouldRestoreURL = wasRenderable && hasRecoveryTarget
         let shouldShowManualRecovery = waitForManualRecovery && wasRenderable && hasRecoveryTarget
@@ -5186,7 +5207,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let replacement = makeReplacementWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            baseConfiguration: effectiveBaseConfiguration
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
@@ -5199,7 +5221,8 @@ final class BrowserPanel: Panel, ObservableObject {
         bindWebView(replacement)
         applyBrowserThemeModeIfNeeded()
 
-        if !history.backHistoryURLStrings.isEmpty || !history.forwardHistoryURLStrings.isEmpty {
+        if preserveNavigationHistory
+            && (!history.backHistoryURLStrings.isEmpty || !history.forwardHistoryURLStrings.isEmpty) {
             restoreSessionNavigationHistory(
                 backHistoryURLStrings: history.backHistoryURLStrings,
                 forwardHistoryURLStrings: history.forwardHistoryURLStrings,
@@ -5351,6 +5374,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func close() {
         cancelHiddenWebViewDiscard()
+        pendingWebExtensionNavigationTask?.cancel()
+        pendingWebExtensionNavigationTask = nil
         isClosingWebViewLifecycle = true
         automationDocumentReadiness.invalidate()
         automationWatchdog.invalidate()
@@ -5738,8 +5763,51 @@ final class BrowserPanel: Panel, ObservableObject {
 
     // MARK: - Navigation
 
+    private func webExtensionPageConfiguration(
+        for url: URL
+    ) -> (baseURL: URL, configuration: WKWebViewConfiguration)? {
+        guard #available(macOS 15.4, *) else { return nil }
+        return browserServices?.webExtensionPageConfiguration(
+            for: url,
+            profileID: profileID
+        )
+    }
+
+    private func replaceWebViewConfigurationIfNeeded(
+        for url: URL,
+        recordTypedNavigation: Bool
+    ) -> Bool {
+        let extensionPageConfiguration = webExtensionPageConfiguration(for: url)
+        let targetBaseURL = extensionPageConfiguration?.baseURL
+        guard targetBaseURL != webExtensionPageBaseURL else { return false }
+
+        // A WebExtension page must use its context-owned configuration. A tab
+        // leaving an extension origin must return to the normal profile
+        // configuration. WebKit rejects either URL in the other configuration.
+        shouldRenderWebView = true
+        currentURL = url
+        if recordTypedNavigation {
+            historyStore.recordTypedNavigation(url: url)
+        }
+        replaceWebViewPreservingState(
+            from: webView,
+            websiteDataStore: websiteDataStore,
+            reason: "web_extension_origin_change",
+            baseConfiguration: extensionPageConfiguration?.configuration,
+            navigationOverride: url,
+            preserveNavigationHistory: false
+        )
+        return true
+    }
+
     /// Navigate to a URL
     func navigate(to url: URL, recordTypedNavigation: Bool = false) {
+        if replaceWebViewConfigurationIfNeeded(
+            for: url,
+            recordTypedNavigation: recordTypedNavigation
+        ) {
+            return
+        }
         let request = URLRequest(url: url)
         if shouldBlockInsecureHTTPNavigation(to: url) {
             presentInsecureHTTPAlert(for: request, intent: .currentTab, recordTypedNavigation: recordTypedNavigation)
@@ -5767,7 +5835,13 @@ final class BrowserPanel: Panel, ObservableObject {
         recordTypedNavigation: Bool,
         preserveRestoredSessionHistory: Bool = false
     ) {
+        cancelPendingWebExtensionNavigation()
         guard let url = request.url else { return }
+        if internalPage != nil {
+            internalPage = nil
+            browserServices?.browserPanelInternalPageDidChange(self)
+            isOmnibarVisible = true
+        }
         cancelHiddenWebViewDiscard()
         if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
             pendingRemoteNavigation = PendingRemoteNavigation(
@@ -5947,6 +6021,9 @@ final class BrowserPanel: Panel, ObservableObject {
         recordTypedNavigation: Bool,
         onResolution: @escaping (BrowserInsecureHTTPNavigationResolution) -> Void = { _ in }
     ) {
+        if case .currentTab = intent {
+            cancelPendingWebExtensionNavigation()
+        }
         guard let url = request.url else { return }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return }
         let alert = insecureHTTPAlertFactory()
@@ -6192,7 +6269,8 @@ extension BrowserPanel {
         clearBrowserAutomationUserScripts()
         let replacement = Self.makeWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            browserServices: browserServices
         )
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
@@ -6286,6 +6364,9 @@ extension BrowserPanel {
         let applied = applyMuteState(muted, to: webView, reason: "setMuted")
         if applied, isMuted != muted {
             isMuted = muted
+            if #available(macOS 15.4, *) {
+                notifyWebExtensionTabPropertiesChanged(.muted)
+            }
             refreshAudioMediaActivity(reason: "audio_mute_changed")
         }
         return applied
@@ -6296,9 +6377,17 @@ extension BrowserPanel {
         setMuted(!isMuted)
     }
 
+    @available(macOS 15.4, *)
+    private func notifyWebExtensionTabPropertiesChanged(
+        _ properties: WKWebExtension.TabChangedProperties
+    ) {
+        browserServices?.webExtensionTabPropertiesDidChange(panelID: id, properties: properties)
+    }
+
     /// Go back in history
     func goBack() {
         guard canGoBack else { return }
+        cancelPendingWebExtensionNavigation()
         reactivateDiscardedWebViewWithoutNavigation(reason: "goBack")
         cancelInFlightNavigationBeforeHistoryTraversal()
         if usesRestoredSessionHistory {
@@ -6331,6 +6420,7 @@ extension BrowserPanel {
     /// Go forward in history
     func goForward() {
         guard canGoForward else { return }
+        cancelPendingWebExtensionNavigation()
         reactivateDiscardedWebViewWithoutNavigation(reason: "goForward")
         cancelInFlightNavigationBeforeHistoryTraversal()
         if usesRestoredSessionHistory {
@@ -6469,6 +6559,7 @@ extension BrowserPanel {
 
     /// Reload the current page
     func reload() {
+        cancelPendingWebExtensionNavigation()
         if prepareForReload(reason: "reload", mode: .soft) {
             return
         }
@@ -6477,6 +6568,7 @@ extension BrowserPanel {
 
     /// Reload the current page, bypassing WebKit's cache.
     func hardReload() {
+        cancelPendingWebExtensionNavigation()
         if prepareForReload(reason: "hardReload", mode: .hard) {
             return
         }
@@ -6485,6 +6577,7 @@ extension BrowserPanel {
 
     /// Stop loading
     func stopLoading() {
+        cancelPendingWebExtensionNavigation()
         // Fail closed: a reveal must never blank-shell-heal over an explicit Stop.
         userStoppedLoadSinceWebViewReplacement = true
         webView.stopLoading()
@@ -7624,6 +7717,72 @@ extension BrowserPanel {
     func toggleOmnibarVisibility() -> Bool {
         setOmnibarVisible(!isOmnibarVisible)
         return isOmnibarVisible
+    }
+
+    @discardableResult
+    func presentBrowserExtensionsPopover() -> Bool {
+        isBrowserExtensionsPopoverPresented = true
+        return true
+    }
+
+    @discardableResult
+    func showBrowserExtensionsManager() -> Bool {
+        isBrowserExtensionsPopoverPresented = false
+        setOmnibarVisible(false)
+        internalPage = .extensions
+        browserServices?.browserPanelInternalPageDidChange(self)
+        return true
+    }
+
+    @discardableResult
+    func openBrowserExtensionsManager() -> UUID? {
+        guard let app = AppDelegate.shared else { return nil }
+        if let workspace = app.workspaceContainingPanel(
+                panelId: id,
+                preferredWorkspaceId: workspaceId
+              )?.workspace {
+            return workspace.openBrowserExtensionsManager(from: id)?.id
+        }
+        return DockSplitStore.liveStores
+            .first(where: { $0.containsPanel(id) })?
+            .openBrowserExtensionsManager(from: id)?
+            .id
+    }
+
+    func browserWebExtensionsPresentationSnapshot() async -> BrowserWebExtensionsPresentationSnapshot {
+        guard let browserServices else { return .unsupported }
+        return await browserServices.webExtensionsPresentationSnapshot(for: id, profileID: profileID)
+    }
+
+    func installBrowserWebExtension(from source: URL) async throws -> BrowserWebExtensionInstallReceipt {
+        guard let browserServices else { throw BrowserWebExtensionServiceError.unsupported }
+        return try await browserServices.installWebExtension(from: source, profileID: profileID)
+    }
+
+    func installBrowserWebExtension(_ entry: BrowserWebExtensionCatalogEntry) async throws -> BrowserWebExtensionInstallReceipt {
+        guard let browserServices else { throw BrowserWebExtensionServiceError.unsupported }
+        return try await browserServices.installWebExtension(entry, profileID: profileID)
+    }
+
+    func setBrowserWebExtensionToolbarActionPinned(
+        _ isPinned: Bool,
+        uniqueIdentifier: String
+    ) async -> Bool {
+        guard let browserServices else { return false }
+        return await browserServices.setWebExtensionToolbarActionPinned(
+            isPinned,
+            uniqueIdentifier: uniqueIdentifier,
+            profileID: profileID
+        )
+    }
+
+    @discardableResult
+    func performBrowserWebExtensionAction(uniqueIdentifier: String, anchorView: NSView? = nil) -> Bool {
+        browserServices?.performWebExtensionAction(
+            uniqueIdentifier: uniqueIdentifier,
+            in: self,
+            anchorView: anchorView
+        ) ?? false
     }
 
     func noteWebViewFocused() {

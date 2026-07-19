@@ -13055,7 +13055,7 @@ struct CMUXCLI {
         var surfaceRaw = surfaceOpt
         var args = argsWithoutSurfaceFlag
 
-        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles", "react-grab", "reactgrab", "devtools", "dev-tools", "focus-mode", "design-mode", "zoom", "history"]
+        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles", "react-grab", "reactgrab", "devtools", "dev-tools", "extensions", "focus-mode", "design-mode", "zoom", "history"]
         if surfaceRaw == nil, let first = args.first {
             if !first.hasPrefix("-") && !verbsWithoutSurface.contains(first.lowercased()) {
                 surfaceRaw = first
@@ -13671,6 +13671,86 @@ struct CMUXCLI {
             output(payload, fallback: "OK")
             return
         }
+        if subcommand == "extensions" {
+            let verb = browserActionVerbArgs().first?.lowercased() ?? "show"
+            var params = try optionalSurfaceParams()
+            let (extensionOpt, _) = parseOption(subArgs, name: "--extension")
+            let (webViewOpt, _) = parseOption(subArgs, name: "--webview")
+            let (scriptOpt, _) = parseOption(subArgs, name: "--script")
+            if let extensionOpt { params["extension_id"] = extensionOpt }
+            if let webViewOpt { params["webview_id"] = webViewOpt }
+
+            let method: String
+            switch verb {
+            case "show", "manage":
+                method = "browser.extensions.show"
+            case "list":
+                method = "browser.extensions.list"
+            case "add", "install":
+                let positional = browserActionVerbArgs()
+                guard positional.count >= 2 else {
+                    throw CLIError(message: String(
+                        localized: "cli.browser.extensions.error.addPathRequired",
+                        defaultValue: "browser extensions add requires a folder or ZIP path"
+                    ))
+                }
+                let rawPath = positional.dropFirst().joined(separator: " ")
+                params["path"] = URL(
+                    fileURLWithPath: (rawPath as NSString).expandingTildeInPath
+                ).standardizedFileURL.path
+                method = "browser.extensions.add"
+            case "action", "run":
+                guard let extensionOpt, !extensionOpt.isEmpty else {
+                    throw CLIError(message: String(
+                        localized: "cli.browser.extensions.error.actionIdentifierRequired",
+                        defaultValue: "browser extensions action requires --extension <id-or-name>"
+                    ))
+                }
+                method = "browser.extensions.action"
+            case "errors":
+                method = "browser.extensions.errors"
+            case "webviews":
+                method = "browser.extensions.webviews"
+            case "eval":
+                guard let extensionOpt, !extensionOpt.isEmpty else {
+                    throw CLIError(message: String(
+                        localized: "cli.browser.extensions.error.evalIdentifierRequired",
+                        defaultValue: "browser extensions eval requires --extension <id-or-name>"
+                    ))
+                }
+                guard let scriptOpt, !scriptOpt.isEmpty else {
+                    throw CLIError(message: String(
+                        localized: "cli.browser.extensions.error.evalScriptRequired",
+                        defaultValue: "browser extensions eval requires --script <javascript>"
+                    ))
+                }
+                params["script"] = scriptOpt
+                method = "browser.extensions.eval"
+            case "console":
+                guard let extensionOpt, !extensionOpt.isEmpty else {
+                    throw CLIError(message: String(
+                        localized: "cli.browser.extensions.error.consoleIdentifierRequired",
+                        defaultValue: "browser extensions console requires --extension <id-or-name>"
+                    ))
+                }
+                method = "browser.extensions.console"
+            default:
+                throw CLIError(
+                    message: String(
+                        localized: "cli.browser.extensions.error.unsupportedSubcommand",
+                        defaultValue: "Unsupported browser extensions subcommand: \(verb) (expected: show, list, add, action, errors, webviews, eval, console)"
+                    )
+                )
+            }
+            let payload = try client.sendV2(method: method, params: params)
+            if ["list", "action", "run", "errors", "webviews", "eval", "console"].contains(verb) {
+                print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+            } else {
+                output(payload, fallback: "OK")
+            }
+            return
+        }
+
         if subcommand == "focus-mode" || subcommand == "design-mode" {
             let isDesignMode = subcommand == "design-mode"
             let mode = browserActionVerbArgs().first?.lowercased() ?? (isDesignMode ? "status" : "toggle")
@@ -16924,6 +17004,19 @@ struct CMUXCLI {
               disable | enable | status
               goto|navigate <url> [--snapshot-after]
               back|forward|reload [--snapshot-after]
+              react-grab toggle [--surface <id>] [--return-to <terminal-surface>]
+              devtools toggle|console [--surface <id>]
+              \(String(localized: "cli.browser.help.extensionsShow", defaultValue: "extensions show [--surface <id>]"))
+              \(String(localized: "cli.browser.help.extensionsList", defaultValue: "extensions list [--surface <id>]"))
+              \(String(localized: "cli.browser.help.extensionsAdd", defaultValue: "extensions add <folder-or-zip> [--surface <id>]"))
+              \(String(localized: "cli.browser.help.extensionsAction", defaultValue: "extensions action --extension <id-or-name> [--surface <id>]"))
+              \(String(localized: "cli.browser.help.extensionsErrors", defaultValue: "extensions errors [--extension <id-or-name>] [--surface <id>]"))
+              \(String(localized: "cli.browser.help.extensionsWebViews", defaultValue: "extensions webviews [--extension <id-or-name>] [--surface <id>]"))
+              \(String(localized: "cli.browser.help.extensionsEval", defaultValue: "extensions eval --extension <id-or-name> [--webview <id>] --script <javascript> [--surface <id>]"))
+              \(String(localized: "cli.browser.help.extensionsConsole", defaultValue: "extensions console --extension <id-or-name> [--surface <id>]"))
+                \(String(localized: "cli.browser.help.extensionsDefaultProfile", defaultValue: "Without --surface, extension commands target the caller's sole browser or the default browser profile."))
+              focus-mode enter|exit|toggle [--surface <id>]
+              zoom in|out|reset [--surface <id>]
               url|get-url
               focus-webview | is-webview-focused
               snapshot [--interactive|-i] [--cursor] [--compact] [--max-depth <n>] [--selector <css>]
@@ -35341,6 +35434,15 @@ export default CMUXSessionRestore;
           browser back|forward|reload [--snapshot-after]
           browser react-grab toggle [--surface <id>] [--return-to <terminal-surface>]
           browser devtools toggle|console [--surface <id>]
+          browser \(String(localized: "cli.browser.help.extensionsShow", defaultValue: "extensions show [--surface <id>]"))
+          browser \(String(localized: "cli.browser.help.extensionsList", defaultValue: "extensions list [--surface <id>]"))
+          browser \(String(localized: "cli.browser.help.extensionsAdd", defaultValue: "extensions add <folder-or-zip> [--surface <id>]"))
+          browser \(String(localized: "cli.browser.help.extensionsAction", defaultValue: "extensions action --extension <id-or-name> [--surface <id>]"))
+          browser \(String(localized: "cli.browser.help.extensionsErrors", defaultValue: "extensions errors [--extension <id-or-name>] [--surface <id>]"))
+          browser \(String(localized: "cli.browser.help.extensionsWebViews", defaultValue: "extensions webviews [--extension <id-or-name>] [--surface <id>]"))
+          browser \(String(localized: "cli.browser.help.extensionsEval", defaultValue: "extensions eval --extension <id-or-name> [--webview <id>] --script <javascript> [--surface <id>]"))
+          browser \(String(localized: "cli.browser.help.extensionsConsole", defaultValue: "extensions console --extension <id-or-name> [--surface <id>]"))
+            \(String(localized: "cli.browser.help.extensionsDefaultProfile", defaultValue: "Without --surface, extension commands target the caller's sole browser or the default browser profile."))
           browser focus-mode enter|exit|toggle [--surface <id>]
           \(String(localized: "cli.browser.designMode.help", defaultValue: "browser design-mode enable|disable|toggle|status [--surface <id>]"))
           browser zoom in|out|reset [--surface <id>]

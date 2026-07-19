@@ -30,6 +30,9 @@ struct ControlCommandExecutionPolicyTests {
         for method in [
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",
             "feed.push", "browser.download.wait", "system.top", "system.memory",
+            "browser.extensions.list", "browser.extensions.add", "browser.extensions.action",
+            "browser.extensions.errors", "browser.extensions.webviews",
+            "browser.extensions.eval", "browser.extensions.console",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
             "debug.sidebar.simulate_drag", "mobile.attach_ticket.create",

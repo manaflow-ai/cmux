@@ -89,12 +89,14 @@ extension BrowserPanel {
 
         if hiddenWebViewDiscardManager.restoreIfNeeded(reason: reason, force: forceRestartPendingRestore, performRestore: {
             shouldRenderWebView = true
-            navigateWithoutInsecureHTTPPrompt(
-                to: restoreURL,
-                recordTypedNavigation: false,
-                preserveRestoredSessionHistory: true,
-                cachePolicy: cachePolicy
-            )
+            runWhenWebExtensionsLoaded { [self] in
+                navigateWithoutInsecureHTTPPrompt(
+                    to: restoreURL,
+                    recordTypedNavigation: false,
+                    preserveRestoredSessionHistory: true,
+                    cachePolicy: cachePolicy
+                )
+            }
         }) {
             return true
         }
@@ -128,12 +130,14 @@ extension BrowserPanel {
             return false
         }
         guard let intentURL else { return false }
-        navigateWithoutInsecureHTTPPrompt(
-            to: intentURL,
-            recordTypedNavigation: false,
-            preserveRestoredSessionHistory: true,
-            cachePolicy: cachePolicy
-        )
+        runWhenWebExtensionsLoaded { [self] in
+            navigateWithoutInsecureHTTPPrompt(
+                to: intentURL,
+                recordTypedNavigation: false,
+                preserveRestoredSessionHistory: true,
+                cachePolicy: cachePolicy
+            )
+        }
         return true
     }
 

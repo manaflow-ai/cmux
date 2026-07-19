@@ -18,14 +18,18 @@ private final class PrewarmPoolHarness {
     private(set) var loadedRequests: [URLRequest] = []
     let pool: BrowserPrewarmedWebViewPool
 
-    init(expirySleep: @escaping @Sendable (Duration) async throws -> Void = { _ in
-        try await Task.sleep(for: .seconds(3600))
-    }) {
+    init(
+        browserServices: BrowserServices? = nil,
+        waitForWebExtensions: @escaping @MainActor (BrowserServices, UUID) async -> Void = { _, _ in },
+        expirySleep: @escaping @Sendable (Duration) async throws -> Void = { _ in
+            try await Task.sleep(for: .seconds(3600))
+        }
+    ) {
         var recordWebView: (@MainActor (CmuxWebView) -> Void)!
         var recordRequest: (@MainActor (URLRequest) -> Void)!
         let dataStore = dataStore
         pool = BrowserPrewarmedWebViewPool(
-            makeWebView: { _ in
+            makeWebView: { _, _ in
                 let configuration = WKWebViewConfiguration()
                 configuration.websiteDataStore = dataStore
                 let webView = CmuxWebView(frame: .zero, configuration: configuration)
@@ -35,10 +39,35 @@ private final class PrewarmPoolHarness {
             startLoad: { _, request in
                 recordRequest(request)
             },
+            waitForWebExtensions: waitForWebExtensions,
             expirySleep: expirySleep
         )
         recordWebView = { [weak self] in self?.madeWebViews.append($0) }
         recordRequest = { [weak self] in self?.loadedRequests.append($0) }
+        if let browserServices {
+            pool.configure(browserServices: browserServices)
+        }
+    }
+}
+
+@MainActor
+private final class PrewarmExtensionLoadGate {
+    private(set) var isWaiting = false
+    private var isOpen = false
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+        isWaiting = true
+        guard !isOpen else { return }
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func resume() {
+        isOpen = true
+        continuation?.resume()
+        continuation = nil
     }
 }
 
@@ -68,6 +97,41 @@ struct BrowserPrewarmedWebViewPoolTests {
         #expect(harness.madeWebViews.count == 1)
         #expect(harness.loadedRequests.count == 1)
         harness.pool.discard(reason: "test-teardown")
+    }
+
+    @Test func prewarmWaitsForProfileExtensionsBeforeNavigation() async {
+        let browserServices = BrowserServices()
+        let gate = PrewarmExtensionLoadGate()
+        let harness = PrewarmPoolHarness(
+            browserServices: browserServices,
+            waitForWebExtensions: { receivedServices, receivedProfileID in
+                #expect(receivedServices === browserServices)
+                #expect(receivedProfileID == profileID)
+                await gate.wait()
+            }
+        )
+        defer {
+            gate.resume()
+            harness.pool.discard(reason: "test-teardown")
+        }
+
+        harness.pool.prewarm(url: pricingURL, profileID: profileID)
+
+        var remainingYields = 1000
+        while !gate.isWaiting, remainingYields > 0 {
+            remainingYields -= 1
+            await Task.yield()
+        }
+        #expect(gate.isWaiting)
+        #expect(harness.loadedRequests.isEmpty)
+
+        gate.resume()
+        remainingYields = 1000
+        while harness.loadedRequests.isEmpty, remainingYields > 0 {
+            remainingYields -= 1
+            await Task.yield()
+        }
+        #expect(harness.loadedRequests.map(\.url) == [pricingURL])
     }
 
     @Test func prewarmForDifferentURLReplacesEntry() {
