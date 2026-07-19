@@ -2,6 +2,134 @@ import Foundation
 import Testing
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func agentsListProvidesVersionedOfflineSessionInspection() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-list-\(UUID().uuidString)", isDirectory: true)
+        let stateDir = root.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store: [String: Any] = [
+            "version": 1,
+            "activeSessionsByWorkspace": [
+                "workspace-root": [
+                    "sessionId": "root-session",
+                    "updatedAt": 200.0,
+                ],
+            ],
+            "activeSessionsBySurface": [
+                "surface-root": [
+                    "sessionId": "root-session",
+                    "updatedAt": 200.0,
+                ],
+            ],
+            "sessions": [
+                "root-session": [
+                    "sessionId": "root-session",
+                    "workspaceId": "workspace-root",
+                    "surfaceId": "surface-root",
+                    "cwd": "/tmp/cmux/root",
+                    "startedAt": 100.0,
+                    "updatedAt": 200.0,
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
+        try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["agents", "list", "--agent", "codex", "--all", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        #expect(payload["schema_version"] as? Int == 2)
+        let sessions = try #require(payload["sessions"] as? [[String: Any]])
+        #expect(sessions.count == 1)
+        #expect(sessions.first?["agent"] as? String == "codex")
+        #expect(sessions.first?["session_id"] as? String == "root-session")
+    }
+
+    @Test func agentsTreeBuildsRelationshipsFromSavedSessionMetadata() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-tree-\(UUID().uuidString)", isDirectory: true)
+        let stateDir = root.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                "root-session": [
+                    "sessionId": "root-session",
+                    "workspaceId": "workspace-root",
+                    "surfaceId": "surface-root",
+                    "runId": "root-run",
+                    "restoreAuthority": true,
+                    "startedAt": 100.0,
+                    "updatedAt": 200.0,
+                ],
+                "child-session": [
+                    "sessionId": "child-session",
+                    "workspaceId": "workspace-root",
+                    "surfaceId": "surface-child",
+                    "runId": "child-run",
+                    "parentRunId": "root-run",
+                    "parentSessionId": "root-session",
+                    "relationship": "spawned",
+                    "restoreAuthority": false,
+                    "startedAt": 120.0,
+                    "updatedAt": 180.0,
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
+        try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["agents", "tree", "--agent", "codex", "--all", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        #expect(payload["schema_version"] as? Int == 2)
+        let nodes = try #require(payload["nodes"] as? [[String: Any]])
+        let edges = try #require(payload["edges"] as? [[String: Any]])
+        #expect(Set(nodes.compactMap { $0["run_id"] as? String }) == ["root-run", "child-run"])
+        #expect(edges.count == 1)
+        #expect(edges.first?["from_run_id"] as? String == "root-run")
+        #expect(edges.first?["to_run_id"] as? String == "child-run")
+        #expect(edges.first?["relationship"] as? String == "spawned")
+    }
+
     @Test func testSessionsListDefaultOmitsStaleCodexRowsWithoutTranscript() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
