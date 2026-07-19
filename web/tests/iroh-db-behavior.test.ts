@@ -133,6 +133,54 @@ describe("Iroh trust broker database behavior", () => {
     expect(state).toEqual({ sequence: "22", catalog: removed });
   });
 
+  dbTest("fails closed when the persisted relay catalog digest is corrupt", async () => {
+    const current: RelayCatalog = {
+      version: 1,
+      sequence: 30,
+      relays: [{
+        id: "relay-a",
+        provider: "cmux",
+        region: "A",
+        url: "https://relay-a.cmux.dev/",
+      }],
+    };
+    const next: RelayCatalog = {
+      ...current,
+      sequence: 31,
+      relays: [
+        ...current.relays,
+        {
+          id: "relay-b",
+          provider: "cmux",
+          region: "B",
+          url: "https://relay-b.cmux.dev/",
+        },
+      ],
+    };
+    await requiredSql()`
+      insert into iroh_relay_catalog_state (
+        id, catalog_sequence, catalog_digest, catalog, updated_at
+      ) values (
+        'managed', ${current.sequence}, ${"0".repeat(64)}, ${requiredSql().json(current)},
+        to_timestamp(1_000)
+      )
+    `;
+
+    const exit = await Effect.runPromiseExit(
+      requiredRelayRepository().acceptCatalog({ catalog: next, nowSeconds: 1_001 }),
+    );
+
+    expect(exit._tag).toBe("Failure");
+    expect(String(exit)).toContain("RelayCatalogIntegrityError");
+    expect(String(exit)).toContain("persisted_catalog_digest_mismatch");
+    const [state] = await requiredSql()<Array<{ sequence: string }>>`
+      select catalog_sequence::text as sequence
+      from iroh_relay_catalog_state
+      where id = 'managed'
+    `;
+    expect(state).toEqual({ sequence: "30" });
+  });
+
   dbTest("blocks new trust state once account deletion wins the account fence", async () => {
     const userId = "user-deleting";
     let mutation: ReturnType<typeof Effect.runPromiseExit> | undefined;

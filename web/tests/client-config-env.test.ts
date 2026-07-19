@@ -166,10 +166,11 @@ describe("client config env validation", () => {
     });
 
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain("CMUX_RELAY_JWT_PRIVATE_KEY_PEM is required");
-    expect(result.stderr).toContain("CMUX_RELAY_POLICY_KEY_ID is required");
-    expect(result.stderr).toContain("CMUX_RELAY_POLICY_PRIVATE_KEY_PEM is required");
-    expect(result.stderr).toContain("CMUX_RELAY_TOKEN_RATE_LIMIT_ID is required");
+    expect(result.stderr).toContain("Self-hosted relay runtime configuration is incomplete");
+    expect(result.stderr).not.toContain("CMUX_RELAY_JWT_PRIVATE_KEY_PEM");
+    expect(result.stderr).not.toContain("CMUX_RELAY_POLICY_KEY_ID");
+    expect(result.stderr).not.toContain("CMUX_RELAY_POLICY_PRIVATE_KEY_PEM");
+    expect(result.stderr).not.toContain("CMUX_RELAY_TOKEN_RATE_LIMIT_ID");
   });
 
   test("keeps Vercel previews credential-free for the self-hosted relay fleet", () => {
