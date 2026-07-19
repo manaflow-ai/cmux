@@ -1439,8 +1439,11 @@ fn spawn_frame_producer(surface: &Arc<Surface>, requests: Receiver<u64>) -> anyh
             let mut term = pty.term.lock().unwrap();
             let generation = requested.max(pty.render_generation.load(Ordering::Acquire));
             let colors_pending = pty.attach_colors_pending.load(Ordering::Acquire);
-            let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
-            let _ = pty.flush_attach_colors_locked(&term, defaults);
+            if colors_pending {
+                let defaults =
+                    pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+                let _ = pty.flush_attach_colors_locked(&term, defaults);
+            }
             if pty.build_frame_locked(&mut term, generation, true).unwrap_or(false)
                 || colors_pending
             {

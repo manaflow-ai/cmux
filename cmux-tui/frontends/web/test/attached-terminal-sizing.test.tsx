@@ -367,6 +367,9 @@ describe("attached terminal sizing", () => {
       expect(theme.foreground).not.toBe("#112233");
       expect(theme.background).not.toBe("#223344");
       expect(theme.cursor).not.toBe("#334455");
+      expect(document.querySelector<HTMLElement>(".terminal-stage")?.style.getPropertyValue(
+        "--surface-background",
+      )).toBe("#223344");
     });
     view.unmount();
   });

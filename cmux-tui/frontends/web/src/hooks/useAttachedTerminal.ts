@@ -45,6 +45,7 @@ export function useAttachedTerminal({
     if (!host || !client || surface === null) return;
     let cancelled = false;
     const baseTheme = terminalTheme(host);
+    const stage = host.closest<HTMLElement>(".terminal-stage");
     const terminal = new Terminal({
       allowProposedApi: true,
       convertEol: false,
@@ -101,6 +102,11 @@ export function useAttachedTerminal({
       const themePatch = colorsToSelectionThemePatch(colors);
       if (themePatch !== null) {
         terminal.options.theme = { ...baseTheme, ...themePatch };
+      }
+      if (colors?.bg != null) {
+        stage?.style.setProperty("--surface-background", colors.bg);
+      } else {
+        stage?.style.removeProperty("--surface-background");
       }
       const dynamicSequence = colorsToDynamicColorSequence(colors);
       if (dynamicSequence !== null) await writeTerminal(dynamicSequence);
@@ -250,6 +256,7 @@ export function useAttachedTerminal({
       void client.releaseSurfaceSize(surface).catch(onError);
       webgl?.dispose();
       terminal.dispose();
+      stage?.style.removeProperty("--surface-background");
       setFocused(false);
     };
   }, [client, focusOnMount, host, onError, surface]);
