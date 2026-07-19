@@ -181,6 +181,153 @@ client consumes terminal presentation frames when the platform supports shared
 GPU buffers and canonical cell scenes otherwise. Neither client receives raw
 PTY output as the normal rendering contract.
 
+## Swift navigation projection
+
+cmuxd owns one version-2 navigation record for each stable logical Swift
+window. The record contains workspace assignments, the selected workspace and
+screen, the active and zoomed pane for each visited screen, and the selected
+surface for each visited pane. Swift persists only the logical-presentation
+UUID. A legacy selected-workspace default may seed a new empty record once and
+is then deleted. It never remains a second authority.
+
+Every record access carries this identity and revision fence:
+
+- daemon instance UUID
+- session UUID
+- exact canonical-topology revision
+- stable client UUID
+- per-launch process-instance UUID
+- logical-presentation UUID
+- claim UUID for the current connection
+- expected record generation for a mutation
+- request UUID for mutation replay
+
+Claiming changes only ownership and generation. A connection loss releases the
+claim but retains navigation. Explicit release deletes the logical window and
+is used only when that window is permanently closed. App termination,
+`onDisappear`, renderer retirement, and transport failure do not release it.
+
+The first hydration for a Swift process is ordered:
+
+1. install an exact canonical-topology snapshot
+2. list every version-2 navigation page, beginning with no cursor
+3. discard all pages and restart from no cursor after a stale-cursor or
+   restart-required response, with three complete attempts at most
+4. wait for the exact replacement topology after a stale-topology response
+5. claim the stable logical presentation
+6. assign canonical workspaces that are unowned or already owned by this
+   presentation, in batches within the 4,096-operation record limit
+7. preserve a valid selected workspace or select the first assigned workspace
+   in canonical order
+8. publish only a topology and navigation state with the same authority and
+   topology revision
+9. construct renderer presentations only after that publication
+
+Invalid, repeated, nonadvancing, or server-invented cursors are protocol
+corruption. Claim loss while the connection remains live supersedes the Swift
+window and does not enter a reclaim loop. Stale generation installs the
+structured current state and rebases only newer absolute user intent. An
+ambiguous transport failure reconnects, lists, and compares authoritative
+state before reapplying unmet absolute intent.
+
+One projection-driver actor owns the claim, generation, topology expectation,
+one admitted RPC, and one bounded map of pending absolute intents. Intents are
+keyed by workspace binding, selected workspace, selected screen, active pane,
+zoomed pane, or selected surface. Newer intent replaces older intent for the
+same target. Sequence and within-action order preserve dependent changes such
+as activating a pane before zooming it. The main actor receives immutable,
+fully fenced window projections and contains no retry state machine.
+
+## Split projection and runtime reconciliation
+
+The split planner is a pure value transformation. It indexes topology UUIDs
+once, resolves the exact selected workspace and screen, and traverses the
+canonical layout tree in leaf order. It never selects the first terminal as a
+fallback. A zoomed screen projects exactly the active leaf. A selected browser
+surface becomes a browser placeholder, an unknown surface kind becomes an
+unsupported placeholder, and only `terminal` or `pty` produces a terminal
+runtime descriptor.
+
+The planner counts every visible leaf before creating descriptors. Up to 256
+visible leaves are accepted. A 257-leaf screen returns one localized limit
+state and creates no partial runtime set. Planning 1,000 workspaces visits the
+workspace index once and then only the selected workspace's visible leaves.
+
+A terminal runtime slot is identified by logical presentation, workspace,
+screen, and pane. Surface identity is intentionally excluded from the slot so
+a tab change is recognized as replacement within one pane. Reuse still
+requires the same canonical-session object, exact selected surface and numeric
+aliases, and compatible render configuration.
+
+The main-actor reconciler owns a dictionary of slot to managed runtime. It
+unpublishes stale plans before shutdown, awaits retirement before replacement,
+and re-reads the newest desired plan after every suspension. Zoom retains the
+matching active runtime and retires other leaves. Browser and unsupported
+leaves own no terminal runtime. Disconnect clears the rendered plan before any
+asynchronous shutdown begins.
+
+Mounted terminal views do not claim first responder. One focus coordinator
+grants programmatic focus only to the authoritative active pane when the window
+is key. A pointer click may become first responder immediately, but active
+styling and projection change only after the daemon applies the exact
+`activate-pane` operation. Tab selection and pane activation are one ordered
+action when both are required. Zoom is an exact `set-zoomed-pane` operation.
+
+## Interaction-state and accessibility cadence
+
+Ordinary terminal output must not schedule a main-actor task or terminal-state
+RPC for each presented frame. cmuxd emits a revisioned
+`terminal-interaction-mode-changed` event only when parser-owned mouse-tracking
+mode changes. The event carries surface UUID, terminal epoch, monotonic
+interaction revision, and the new mode. Terminal-state and related mutation
+responses carry the same interaction revision, which closes the race between
+the initial snapshot and event subscription.
+
+One connection-wide bounded subscription carries interaction-mode events. The
+event mailbox keeps the latest value for each `(surface UUID, terminal epoch)`
+and never creates one server thread per visible terminal. Swift routes the
+stream into exact bounded per-surface listeners. Unknown surfaces, old terminal
+epochs, and nonincreasing revisions are rejected. Overflow invalidates the
+affected cache and requires a state resnapshot.
+
+The frame-presented callback stores only the newest fixed-size metadata off the
+main actor. Before accessibility demand, 10,000 new terminal content sequences
+schedule zero semantic drains. After demand, a changed terminal sequence may
+schedule one coalesced accessibility read fenced by daemon, renderer,
+presentation, terminal epoch, and terminal sequence. Pointer routing reads the
+rare interaction-mode event cache instead of a frame-cadence state RPC.
+
+Accessibility demand is reversible and reference-counted per presentation.
+The first observer enables daemon retention and may query the already visible
+frame. The last observer cancels pending reads, clears Swift semantic state,
+disables frame drains, and releases the exact daemon demand generation. Late
+release from an older generation cannot erase a later enable. Detach releases
+all remaining demand. cmuxd drops retained semantic-frame caches immediately
+when no presentation demands them.
+
+## Thin-host composition budget
+
+Mach receive, frame authentication, IOSurface import, newest-frame admission,
+and blit submission remain off the main actor. Drawable acquisition and Metal
+submission use a dedicated bounded serial executor rather than blocking a
+generic cooperative actor. Imported source textures are cached by worker,
+renderer epoch, presentation generation, and IOSurface identifier, then evicted
+on release or fence change.
+
+Frame releases use a dedicated bounded control lane with reserved capacity, so
+GPU completion cannot create an unbounded task burst or starve topology and
+input RPCs. Every admitted and submitted frame has counters for accepted,
+dropped, submitted blit, GPU completion, and released surface. For a stable
+capture interval, submitted host blits equal Metal-trace host blits and never
+exceed admitted visible frames.
+
+The host target's complete Mach-O load closure excludes Ghostty, PTY, parser,
+font shaping, and terminal-renderer symbols. Runtime evidence binds the exact
+Swift, cmuxd, renderer, and shell process IDs, start times, executable hashes,
+audit identities, terminal IDs, and TTY device identities to the final commit.
+Metal System Trace must attribute every Ghostty render encoder and draw to the
+renderer PID. The Swift PID may contain only the labeled full-IOSurface blit.
+
 ### Frontend-native browser panels
 
 Browser identity, presentation mode, and placement are canonical. A
