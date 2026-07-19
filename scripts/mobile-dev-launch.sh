@@ -34,6 +34,9 @@
 #   --iroh-release-gate <automatic|relayOnly|directOnly>
 #              simulator only: run the credential-free Iroh release-gate probe
 #              after sign-in and attach.
+#   --credentials-file <absolute-path>
+#              load one 0600 credential file exclusively. Intended for an
+#              isolated temporary production release-gate account.
 
 set -euo pipefail
 
@@ -47,6 +50,7 @@ ENSURE_MAC=0
 AGENT=0
 DETACH=0
 IROH_RELEASE_GATE_MODE=""
+AUTH_CREDENTIALS_FILE=""
 ATTACH_TTL_SECONDS="${CMUX_ATTACH_TTL_SECONDS:-600}"
 ATTACH_MINT_MAX_ATTEMPTS="${CMUX_ATTACH_MINT_MAX_ATTEMPTS:-20}"
 
@@ -70,6 +74,7 @@ while [[ $# -gt 0 ]]; do
     --agent) AGENT=1; shift ;;
     --detach) DETACH=1; shift ;;
     --iroh-release-gate) IROH_RELEASE_GATE_MODE="${2:-}"; shift 2 ;;
+    --credentials-file) AUTH_CREDENTIALS_FILE="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown arg $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -113,7 +118,9 @@ source "$SCRIPT_DIR/lib/mobile-attach.sh"
 if ! cmux_attach_validate_dev_tag "$TAG"; then
   exit 2
 fi
-if [[ "$AGENT" -eq 1 ]]; then
+if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
+  cmux_dev_secrets_load --credentials-file "$AUTH_CREDENTIALS_FILE" || exit $?
+elif [[ "$AGENT" -eq 1 ]]; then
   cmux_dev_secrets_load --agent || exit $?
 else
   cmux_dev_secrets_load || exit $?
@@ -177,8 +184,14 @@ if [[ "$ATTACH" -eq 1 ]]; then
   fi
 fi
 
-# Never print the attach URL (bearer credential); just whether auto-pair is on.
-echo "==> launching $BUNDLE_ID on $TARGET (signed in as $CMUX_UITEST_STACK_EMAIL${ATTACH_URL:+, auto-pairing})"
+# Never print the attach URL (bearer credential). One-shot production-account
+# identities are redacted too; ordinary dogfood launches retain their existing
+# account label so developers can detect accidental account selection.
+SIGN_IN_ACCOUNT_LABEL="$CMUX_UITEST_STACK_EMAIL"
+if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
+  SIGN_IN_ACCOUNT_LABEL="[redacted]"
+fi
+echo "==> launching $BUNDLE_ID on $TARGET (signed in as $SIGN_IN_ACCOUNT_LABEL${ATTACH_URL:+, auto-pairing})"
 
 if [[ "$TARGET" == "simulator" ]]; then
   if [[ -n "$SIMULATOR_ID" ]]; then
