@@ -1,4 +1,5 @@
 import Testing
+import CmuxRemoteSession
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -11,10 +12,14 @@ struct TabManagerBootstrapTests {
     @MainActor
     @Test
     func appBootstrapManagerDoesNotCreateAWorkspaceOrTerminal() {
-        let manager = TabManager(createInitialWorkspace: false)
+        let nativeSSHConnectionBroker = NativeSSHConnectionBroker()
+        let manager = TabManager.makeAppBootstrap(
+            nativeSSHConnectionBroker: nativeSSHConnectionBroker
+        )
 
         #expect(manager.tabs.isEmpty)
         #expect(manager.selectedWorkspace == nil)
         #expect(manager.selectedSurface == nil)
+        #expect(manager.nativeSSHConnectionBroker === nativeSSHConnectionBroker)
     }
 }

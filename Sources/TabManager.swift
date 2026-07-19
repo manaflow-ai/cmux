@@ -622,6 +622,20 @@ class TabManager: ObservableObject {
 #endif
     }
 
+    /// Creates the process-level command-routing fallback used before AppKit
+    /// registers a real per-window manager.
+    ///
+    /// This bootstrap owner must remain terminal-free because SwiftUI may
+    /// initialize the app value more than once during launch.
+    static func makeAppBootstrap(
+        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
+    ) -> TabManager {
+        TabManager(
+            createInitialWorkspace: false,
+            nativeSSHConnectionBroker: nativeSSHConnectionBroker
+        )
+    }
+
     deinit {
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)
