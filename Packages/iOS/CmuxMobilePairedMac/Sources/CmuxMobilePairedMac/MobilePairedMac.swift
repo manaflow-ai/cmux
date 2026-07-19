@@ -6,6 +6,24 @@ public import Foundation
 /// Auth tokens are never persisted, only enough to re-mint a fresh attach
 /// ticket via the StackAuth-authenticated manual host flow on next launch.
 public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
+    /// Persisted compatibility grants are intentionally absent. They may move
+    /// only through the local SQLite grant table, never Codable state, account
+    /// backup, logs, or another device.
+    private enum CodingKeys: String, CodingKey {
+        case macDeviceID
+        case displayName
+        case routes
+        case instanceTag
+        case createdAt
+        case lastSeenAt
+        case isActive
+        case stackUserID
+        case teamID
+        case customName
+        case customColor
+        case customIcon
+    }
+
     /// Stable identifier of the paired Mac device.
     public var macDeviceID: String
     /// Human-readable name of the Mac, if the pairing payload supplied one.
@@ -16,6 +34,11 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     /// `nil` means an older host has not established instance-level authority;
     /// route refresh then requires one unambiguous route-advertising instance.
     public var instanceTag: String?
+    /// Exact raw Tailscale routes this iPhone had already trusted before the
+    /// Iroh migration. This local-only compatibility capability is never
+    /// created for new or cloud-restored pairings and is revoked once the Mac
+    /// publishes an authenticated Iroh identity.
+    public var legacyTailscaleRoutes: [CmxAttachRoute]? = nil
     /// When this pairing was first recorded.
     public var createdAt: Date
     /// When this pairing was last refreshed or used.
@@ -104,7 +127,8 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         customName: String? = nil,
         customColor: String? = nil,
         customIcon: String? = nil,
-        instanceTag: String? = nil
+        instanceTag: String? = nil,
+        legacyTailscaleRoutes: [CmxAttachRoute]? = nil
     ) {
         self.macDeviceID = macDeviceID
         self.displayName = displayName
@@ -118,5 +142,6 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         self.customColor = customColor
         self.customIcon = customIcon
         self.instanceTag = instanceTag
+        self.legacyTailscaleRoutes = legacyTailscaleRoutes
     }
 }

@@ -55,6 +55,37 @@ struct ReconnectRefreshSnapshot: Sendable {
 
 @MainActor
 extension MobileShellComposite {
+    /// Resolves one immutable pre-Iroh capability for an exact raw Tailscale
+    /// route. Fresh registry/manual routes cannot create this evidence; they
+    /// must match a route retained by the local schema migration.
+    static func legacyTailscaleAuthorizationEvidence(
+        for route: CmxAttachRoute,
+        macDeviceID: String,
+        persistedRoutes: [CmxAttachRoute]
+    ) -> CmxLegacyTailscaleAuthorizationEvidence? {
+        guard route.kind == .tailscale,
+              case let .hostPort(host, port) = route.endpoint else {
+            return nil
+        }
+        for persistedRoute in persistedRoutes where persistedRoute.kind == .tailscale {
+            guard case let .hostPort(persistedHost, persistedPort) = persistedRoute.endpoint,
+                  let evidence = try? CmxLegacyTailscaleAuthorizationEvidence(
+                      macDeviceID: macDeviceID,
+                      host: persistedHost,
+                      port: persistedPort
+                  ),
+                  evidence.authorizes(
+                      macDeviceID: macDeviceID,
+                      host: host,
+                      port: port
+                  ) else {
+                continue
+            }
+            return evidence
+        }
+        return nil
+    }
+
     /// Supported routes for reconnecting an already-paired Mac.
     ///
     /// Unlike the legacy host/port helper, this preserves Iroh peer routes. Once

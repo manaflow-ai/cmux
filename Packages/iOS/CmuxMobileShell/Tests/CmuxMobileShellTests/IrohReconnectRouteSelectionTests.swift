@@ -136,6 +136,16 @@ extension ReconnectRouteSelectionTests {
         #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         #expect(store.connectionState == .connected)
         #expect(factory.attemptedKinds() == [.tailscale])
+        #expect(
+            factory.attemptedAuthorizationModes()
+                == [.legacyTailscaleBearer(
+                    try CmxLegacyTailscaleAuthorizationEvidence(
+                        macDeviceID: "test-mac",
+                        host: "100.82.214.112",
+                        port: 50_906
+                    )
+                )]
+        )
         #expect(store.activeRoute?.kind == .tailscale)
     }
 
