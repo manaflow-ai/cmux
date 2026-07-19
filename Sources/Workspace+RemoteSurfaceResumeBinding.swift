@@ -1,6 +1,32 @@
 import Foundation
 
 extension Workspace {
+    /// Migrates a legacy binding only when its saved terminal has authoritative persistent-SSH ownership.
+    func migratingLegacyPersistentSSHResumeBinding(
+        _ binding: SurfaceResumeBindingSnapshot?,
+        snapshotWorkspaceID: UUID?,
+        snapshotSurfaceID: UUID,
+        persistentPTYSessionID: String?,
+        restoresRemoteTerminal: Bool
+    ) -> SurfaceResumeBindingSnapshot? {
+        guard let binding,
+              restoresRemoteTerminal,
+              let snapshotWorkspaceID,
+              let persistentPTYSessionID = normalizedRemotePTYSessionID(persistentPTYSessionID),
+              let configuration = remoteConfiguration,
+              configuration.transport == .ssh,
+              configuration.preserveAfterTerminalExit,
+              !configuration.skipDaemonBootstrap,
+              configuration.persistentDaemonSlot != nil else {
+            return binding
+        }
+        return binding.migratingLegacyPersistentSSH(SurfaceResumeRemoteContext(
+            workspaceID: snapshotWorkspaceID,
+            surfaceID: snapshotSurfaceID,
+            persistentPTYSessionID: persistentPTYSessionID
+        ))
+    }
+
     func persistentSSHResumeContext(panelID: UUID) -> SurfaceResumeRemoteContext? {
         guard let configuration = remoteConfiguration,
               configuration.transport == .ssh,

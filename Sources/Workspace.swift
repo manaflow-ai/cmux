@@ -1258,13 +1258,10 @@ extension Workspace {
         switch snapshot.type {
         case .terminal:
             let snapshotRestorableAgent = snapshot.terminal?.agent
-            let resumeBinding = Self.resumeBindingForSessionRestore(
-                snapshot.terminal?.resumeBinding,
-                restorableAgent: snapshotRestorableAgent
-            )
+            let persistedResumeBinding = snapshot.terminal?.resumeBinding
             let restorableAgent = Self.restorableAgentForSessionRestore(
                 snapshotRestorableAgent,
-                resumeBinding: resumeBinding
+                resumeBinding: persistedResumeBinding
             )
             let restoredHibernation = restorableAgent != nil ? snapshot.terminal?.hibernation : nil
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults)
@@ -1272,17 +1269,6 @@ extension Workspace {
             // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
             let agentWasRunningAtQuit = snapshot.terminal?.wasAgentRunning ?? true
             let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunningAtQuit
-            let resumeBindingForStartup =
-                restoredHibernation != nil ||
-                (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
-                    ? nil
-                    : resumeBinding
-            let effectiveResumeBindingForStartup = sessionRestorePolicy.approvedSurfaceResumeBinding(
-                resumeBindingForStartup,
-                autoResumeAgentSessions: shouldAutoResumeAgent,
-                promptForApproval: true,
-                approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
-            )
             let remoteStartupCommand = remoteTerminalStartupCommand()
             let restoresRemoteWorkspaceTerminalSnapshot =
                 remoteStartupCommand != nil &&
@@ -1303,6 +1289,28 @@ extension Workspace {
                 }
                 return Self.defaultSSHPTYSessionID(workspaceId: snapshotWorkspaceId ?? id, panelId: snapshot.id)
             }()
+            let locatedResumeBinding = migratingLegacyPersistentSSHResumeBinding(
+                persistedResumeBinding,
+                snapshotWorkspaceID: snapshotWorkspaceId,
+                snapshotSurfaceID: snapshot.id,
+                persistentPTYSessionID: restoredRemotePTYSessionID,
+                restoresRemoteTerminal: restoresRemoteWorkspaceTerminalSnapshot
+            )
+            let resumeBinding = Self.resumeBindingForSessionRestore(
+                locatedResumeBinding,
+                restorableAgent: restorableAgent
+            )
+            let resumeBindingForStartup =
+                restoredHibernation != nil ||
+                (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
+                    ? nil
+                    : resumeBinding
+            let effectiveResumeBindingForStartup = sessionRestorePolicy.approvedSurfaceResumeBinding(
+                resumeBindingForStartup,
+                autoResumeAgentSessions: shouldAutoResumeAgent,
+                promptForApproval: true,
+                approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
+            )
             let restoredPersistentSSHResumeCommand: String? = if let restoredRemotePTYSessionID,
                                                                  let snapshotWorkspaceId {
                 persistentSSHResumeCommand(
