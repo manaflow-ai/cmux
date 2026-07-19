@@ -163,6 +163,17 @@ extension CMUXCLI {
         }
 
         let descriptor = Self.remoteHookDescriptor(definition)
+        var seenPaths: Set<String> = []
+        var before: [String: RemoteHookSnapshotEntry] = [:]
+        for entry in snapshot.entries {
+            let path = Self.normalizedRemoteHookPath(entry.path)
+            guard seenPaths.insert(path).inserted else {
+                throw Self.remoteHookBridgeError("duplicate_snapshot_path")
+            }
+            if entry.kind == "file" {
+                before[path] = entry
+            }
+        }
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-remote-hooks-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
@@ -177,10 +188,6 @@ extension CMUXCLI {
             temporaryDirectory: temporaryDirectory
         )
         let after = try Self.remoteHookFiles(descriptor: descriptor, under: temporaryDirectory)
-        let before = Dictionary(uniqueKeysWithValues: snapshot.entries.compactMap { entry -> (String, RemoteHookSnapshotEntry)? in
-            guard entry.kind == "file" else { return nil }
-            return (Self.normalizedRemoteHookPath(entry.path), entry)
-        })
         var mutations: [RemoteHookMutation] = []
         for path in Set(before.keys).union(after.keys).sorted() {
             if let current = after[path] {
