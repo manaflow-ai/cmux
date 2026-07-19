@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf8"
+	"unsafe"
 
 	"github.com/creack/pty"
 	"nhooyr.io/websocket"
@@ -912,6 +913,7 @@ func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID stri
 		cmd = exec.Command("/bin/sh", "-c", trimmedCommand)
 	}
 	cmd.Env = defaultWebSocketPTYEnv(shellPath)
+	cmd = persistentPTYCommand(cmd)
 	ptyFile, ttyFile, err := h.startPTYCommand(cmd, cols, rows)
 	if err != nil {
 		if tmpScript != "" {
@@ -941,6 +943,19 @@ func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID stri
 	go h.pumpSession(session)
 	go h.writeInputLoop(session)
 	return session, nil
+}
+
+func persistentPTYCommand(command *exec.Cmd) *exec.Cmd {
+	// A persistent PTY outlives every relay attachment. Make that ownership
+	// boundary apply to the whole process tree. Linux preserves an ignored
+	// signal across exec, and its interactive shells pass that disposition to
+	// foreground children unless a program explicitly installs its own policy.
+	arguments := []string{"-c", `trap '' HUP; exec "$0" "$@"`, command.Path}
+	arguments = append(arguments, command.Args[1:]...)
+	wrapped := exec.Command("/bin/sh", arguments...)
+	wrapped.Env = command.Env
+	wrapped.Dir = command.Dir
+	return wrapped
 }
 
 func (h *wsPTYHub) startPTYCommand(cmd *exec.Cmd, cols int, rows int) (*os.File, *os.File, error) {
@@ -1134,9 +1149,7 @@ func (h *wsPTYHub) closeSessionForAttachment(attachment *wsPTYAttachment) {
 	attachment.cancel()
 	h.mu.Unlock()
 
-	if session.cmd != nil && session.cmd.Process != nil {
-		_ = session.cmd.Process.Kill()
-	}
+	session.terminateProcesses()
 	session.closePTYFiles()
 }
 
@@ -1151,9 +1164,7 @@ func (h *wsPTYHub) closeAll() {
 	h.mu.Unlock()
 
 	for _, session := range sessions {
-		if session.cmd != nil && session.cmd.Process != nil {
-			_ = session.cmd.Process.Kill()
-		}
+		session.terminateProcesses()
 		session.closePTYFiles()
 	}
 }
@@ -1211,9 +1222,7 @@ func (h *wsPTYHub) closeSessionByID(sessionID string) bool {
 	session.closed = true
 	h.mu.Unlock()
 
-	if session.cmd != nil && session.cmd.Process != nil {
-		_ = session.cmd.Process.Kill()
-	}
+	session.terminateProcesses()
 	session.closePTYFiles()
 	return true
 }
@@ -1305,6 +1314,25 @@ func (h *wsPTYHub) waitSessionProcess(session *wsPTYSession) {
 func (session *wsPTYSession) closePTYFiles() {
 	session.closeTTYFile()
 	session.closePTYFile()
+}
+
+func (session *wsPTYSession) terminateProcesses() {
+	if session.ptyFile != nil {
+		var foregroundGroup int32
+		_, _, errno := syscall.Syscall(
+			syscall.SYS_IOCTL,
+			session.ptyFile.Fd(),
+			uintptr(syscall.TIOCGPGRP),
+			uintptr(unsafe.Pointer(&foregroundGroup)),
+		)
+		if errno == 0 && foregroundGroup > 0 {
+			_ = syscall.Kill(-int(foregroundGroup), syscall.SIGKILL)
+		}
+	}
+	if session.cmd != nil && session.cmd.Process != nil {
+		_ = syscall.Kill(-session.cmd.Process.Pid, syscall.SIGKILL)
+		_ = session.cmd.Process.Kill()
+	}
 }
 
 func (session *wsPTYSession) closeTTYFile() {
@@ -1488,9 +1516,7 @@ func (h *wsPTYHub) reapIdleSession(session *wsPTYSession) {
 	session.idleTimer = nil
 	h.mu.Unlock()
 
-	if session.cmd != nil && session.cmd.Process != nil {
-		_ = session.cmd.Process.Kill()
-	}
+	session.terminateProcesses()
 	session.closePTYFiles()
 }
 
