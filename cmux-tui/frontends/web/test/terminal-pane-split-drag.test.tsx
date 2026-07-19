@@ -135,7 +135,9 @@ describe("TerminalPane split dividers", () => {
   });
 
   it("queues repeated arrow-key adjustments without dropping input", async () => {
-    let resolveFirst: ((succeeded: boolean) => void) | null = null;
+    let resolveFirst: (succeeded: boolean) => void = (_succeeded) => {
+      throw new Error("first request was not started");
+    };
     const onSetSplitRatio = vi.fn((_split: number, ratio: number) => {
       if (ratio !== 0.55) return Promise.resolve(true);
       return new Promise<boolean>((resolve) => {
@@ -153,10 +155,12 @@ describe("TerminalPane split dividers", () => {
     await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(1));
     expect(onSetSplitRatio).toHaveBeenNthCalledWith(1, 42, 0.55);
 
-    resolveFirst?.(true);
+    resolveFirst(true);
     await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(3));
-    expect(onSetSplitRatio).toHaveBeenNthCalledWith(2, 42, 0.6);
-    expect(onSetSplitRatio).toHaveBeenNthCalledWith(3, 42, 0.65);
+    expect(onSetSplitRatio.mock.calls[1]?.[0]).toBe(42);
+    expect(onSetSplitRatio.mock.calls[1]?.[1]).toBeCloseTo(0.6);
+    expect(onSetSplitRatio.mock.calls[2]?.[0]).toBe(42);
+    expect(onSetSplitRatio.mock.calls[2]?.[1]).toBeCloseTo(0.65);
   });
 
   it("previews pointer movement, commits once, and reconciles to server layout", async () => {

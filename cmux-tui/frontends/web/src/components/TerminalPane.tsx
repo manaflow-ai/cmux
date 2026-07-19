@@ -285,12 +285,20 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
   const [previewRatio, setPreviewRatio] = useState<number | null>(null);
   const [pendingRatio, setPendingRatio] = useState<{
     requestId: number;
-    previousRatio: number;
+    validRatios: number[];
     ratio: number;
     split: Id;
   } | null>(null);
   const nextRequestId = useRef(0);
   const activeRequestId = useRef<number | null>(null);
+  const keyboardGeneration = useRef(0);
+  const keyboardRequestChain = useRef(Promise.resolve());
+  const keyboardTarget = useRef<{
+    generation: number;
+    ratio: number;
+    split: Id;
+    validRatios: number[];
+  } | null>(null);
   const drag = useRef<{
     pointerId: number;
     bounds: DOMRect;
@@ -305,7 +313,7 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
   // ratio renders; the stale record is cleared lazily on the next pointerdown.
   const pendingValid = pendingRatio !== null
     && target.split === pendingRatio.split
-    && Math.abs(authoritativeRatio - pendingRatio.previousRatio) <= 1e-6;
+    && pendingRatio.validRatios.some((ratio) => Math.abs(authoritativeRatio - ratio) <= 1e-6);
 
   const firstRatio = previewRatio ?? (pendingValid && pendingRatio !== null ? pendingRatio.ratio : authoritativeRatio);
   const firstPercent = firstRatio * 100;
@@ -314,7 +322,11 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
     ? { left: `${firstPercent}%` }
     : { top: `${firstPercent}%` };
 
-  const commitRatio = (previousRatio: number, nextRatio: number) => {
+  const commitRatio = (
+    previousRatio: number,
+    nextRatio: number,
+    keyboard?: { generation: number; validRatios: number[] },
+  ) => {
     const ratio = splitRatioToCommit(previousRatio, nextRatio);
     if (ratio === null) {
       setPreviewRatio(null);
@@ -325,16 +337,25 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
     setPreviewRatio(null);
     setPendingRatio({
       requestId,
-      previousRatio,
+      validRatios: keyboard?.validRatios ?? [previousRatio],
       ratio,
       split: target.split,
     });
-    void actions.onSetSplitRatio(target.split, ratio).then((succeeded) => {
+    const send = async () => {
+      if (keyboard && keyboardGeneration.current !== keyboard.generation) return;
+      const succeeded = await actions.onSetSplitRatio(target.split, ratio).catch(() => false);
       if (succeeded || activeRequestId.current !== requestId) return;
       activeRequestId.current = null;
       setPendingRatio(null);
       setPreviewRatio(null);
-    });
+    };
+    if (keyboard) {
+      keyboardRequestChain.current = keyboardRequestChain.current.then(send);
+    } else {
+      keyboardGeneration.current += 1;
+      keyboardTarget.current = null;
+      void send();
+    }
   };
 
   return (
@@ -356,16 +377,31 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
             if (delta === null) return;
             event.preventDefault();
             event.stopPropagation();
-            if (pendingRatio && pendingValid) return;
-            if (pendingRatio) {
+            if (pendingRatio && !pendingValid) {
               activeRequestId.current = null;
               setPendingRatio(null);
+              keyboardGeneration.current += 1;
+              keyboardTarget.current = null;
             }
-            commitRatio(authoritativeRatio, Math.max(0.05, Math.min(0.95, authoritativeRatio + delta)));
+            const existingTarget = keyboardTarget.current;
+            const baseRatio = existingTarget?.split === target.split && pendingValid
+              ? existingTarget.ratio
+              : authoritativeRatio;
+            const ratio = Math.max(0.05, Math.min(0.95, baseRatio + delta));
+            const generation = existingTarget?.split === target.split && pendingValid
+              ? existingTarget.generation
+              : ++keyboardGeneration.current;
+            const validRatios = existingTarget?.split === target.split && pendingValid
+              ? [...existingTarget.validRatios, ratio]
+              : [authoritativeRatio, ratio];
+            keyboardTarget.current = { generation, ratio, split: target.split, validRatios };
+            commitRatio(authoritativeRatio, ratio, { generation, validRatios });
           }}
           onPointerDown={(event) => {
             if (event.pointerType === "mouse" && event.button !== 0) return;
             if (pendingRatio && pendingValid) return;
+            keyboardGeneration.current += 1;
+            keyboardTarget.current = null;
             if (pendingRatio) {
               activeRequestId.current = null;
               setPendingRatio(null);
