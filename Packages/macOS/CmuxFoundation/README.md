@@ -15,6 +15,8 @@ so call sites read naturally (`value.javaScriptStringLiteral`, not `f(value)`).
 
 - `String.javaScriptStringLiteral` — the string encoded as a quoted JavaScript string literal.
 - `SSHAgentSocketResolver` — OpenSSH option parsing and SSH agent socket path normalization.
+- `MoshTerminalCommandBuilder` — a pure Mosh startup-command builder with explicit SSH fallback.
+- `WorkspaceRemoteTerminalTransport` — the persisted SSH-or-Mosh interactive terminal preference.
 
 ## Usage
 
@@ -25,9 +27,26 @@ let literal = userText?.javaScriptStringLiteral ?? "null"
 webView.evaluateJavaScript("setValue(\(literal))")
 ```
 
+Callers supply complete SSH argv prefixes and localized diagnostics to the Mosh builder, which
+keeps process execution and localization outside this dependency-free package:
+
+```swift
+let command = MoshTerminalCommandBuilder(
+    capabilityProbeSSHArguments: ["ssh", "-o", "RemoteCommand=none"],
+    sessionSSHArguments: ["ssh", "-o", "RemoteCommand=none", "-p", "2222"],
+    destination: "dev@example.com",
+    remoteCommandArguments: [],
+    sshFallbackCommand: "ssh -p 2222 dev@example.com",
+    localMoshMissingMessage: "Mosh is unavailable locally; using SSH.",
+    localMoshUnsupportedMessage: "Mosh is too old for shared SSH setup; using SSH.",
+    remoteMoshMissingMessage: "mosh-server is unavailable remotely; using SSH.",
+    remoteMoshProbeFailedMessage: "Mosh capability check failed; using SSH."
+).command()
+```
+
 ## Testing
 
-Everything here is a pure value transform, so tests need no app, no AppKit, and no filesystem:
+Everything here is a value transform, so tests need no app, no AppKit, and no user-owned state:
 
 ```swift
 import Testing

@@ -1,6 +1,6 @@
 # Remote SSH Living Spec
 
-Last updated: June 3, 2026
+Last updated: July 18, 2026
 Tracking issue: https://github.com/manaflow-ai/cmux/issues/151
 Primary PR: https://github.com/manaflow-ai/cmux/pull/1296
 CLI relay PR: https://github.com/manaflow-ai/cmux/pull/374
@@ -28,6 +28,12 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 - `DONE` scoped shell niceties are applied only for `cmux ssh` launches.
 - `DONE` context menu actions exist for remote workspaces (`Reconnect Workspace(s)`, `Disconnect Workspace(s)`).
 - `DONE` socket API includes `workspace.remote.reconnect`.
+
+#### 3.1.1 Interactive Terminal Transport
+- `DONE` `cmux ssh <destination> --transport mosh` selects Mosh for the interactive terminal and persists that preference in remote workspace metadata and session snapshots.
+- `DONE` terminal transport is separate from management transport. Mosh carries only the interactive PTY; SSH remains responsible for `cmuxd-remote` upload/bootstrap, daemon RPC, the reverse CLI relay, proxy/egress traffic, file uploads, capability probes, and reconnect controls.
+- `DONE` cmux requires a local Mosh client with `--experimental-remote-ip=remote` support (Mosh 1.4+), then checks for remote `mosh-server`. A missing/incompatible client, missing server, or failed capability probe produces an explicit message and falls back to the existing SSH terminal command.
+- `DEFERRED` Mosh-based tmux mirroring, running the daemon/control lane over Mosh, and automatic recovery from blocked UDP after a successful Mosh capability probe.
 
 ### 3.2 Bootstrap + Daemon
 - `DONE` local app probes remote platform, verifies a release-pinned `cmuxd-remote` artifact by embedded manifest SHA-256, uploads it when missing, and runs `serve --stdio`.
@@ -227,7 +233,12 @@ Before declaring browser proxying complete:
 2. Control-socket defaults (`ControlMaster`, `ControlPersist`, `ControlPath`) are only injected when missing.
 3. SSH option key matching is case-insensitive for precedence checks in both CLI-built commands and remote configure payloads.
 
-### 10.3 SSH Docker E2E Harness Knobs
+### 10.3 Interactive Terminal Transport
+1. `workspace.remote.configure.terminal_transport` accepts `ssh` (default) or `mosh` and rejects other values with `invalid_params`.
+2. `mosh` is valid only when the workspace management transport is SSH and cmux performs the normal daemon bootstrap; cloud/WebSocket and pre-baked-daemon paths remain SSH-terminal-only in this milestone.
+3. `workspace.remote.status.remote.terminal_transport` reports the persisted terminal preference. The separate `transport` field continues to report the management/control transport.
+
+### 10.4 SSH Docker E2E Harness Knobs
 1. `CMUX_SSH_TEST_DOCKER_HOST` sets the SSH destination host/IP used by docker-backed SSH fixtures (default `127.0.0.1`).
 2. `CMUX_SSH_TEST_DOCKER_BIND_ADDR` sets the bind address used in fixture container publish mappings (default `127.0.0.1`).
 3. Defaults preserve loopback behavior on a single host; override both when docker runs on a different host (for example VM -> host OrbStack).

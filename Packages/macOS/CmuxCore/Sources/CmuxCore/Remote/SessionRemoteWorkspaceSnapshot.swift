@@ -6,6 +6,8 @@
 public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
     /// The transport the workspace used when the snapshot was taken.
     public var transport: WorkspaceRemoteTransport
+    /// The interactive terminal protocol, absent in snapshots written before Mosh support.
+    public var terminalTransport: WorkspaceRemoteTerminalTransport? = nil
     /// SSH destination (`user@host` or `host`).
     public var destination: String
     /// Explicit SSH port, when one was configured.
@@ -28,6 +30,7 @@ public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
     /// Creates a snapshot value; mirrors the synthesized memberwise initializer.
     public init(
         transport: WorkspaceRemoteTransport,
+        terminalTransport: WorkspaceRemoteTerminalTransport? = nil,
         destination: String,
         port: Int? = nil,
         identityFile: String? = nil,
@@ -39,6 +42,7 @@ public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
         managedCloudVMID: String? = nil
     ) {
         self.transport = transport
+        self.terminalTransport = terminalTransport
         self.destination = destination
         self.port = port
         self.identityFile = identityFile

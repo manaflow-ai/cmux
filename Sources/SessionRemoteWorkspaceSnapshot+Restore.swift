@@ -1,5 +1,6 @@
 import Foundation
 import CmuxCore
+import CmuxFoundation
 #if canImport(Security)
 import Security
 #endif
@@ -18,6 +19,7 @@ extension SessionRemoteWorkspaceSnapshot {
             guard let normalizedManagedCloudVMID else { return nil }
             return WorkspaceRemoteConfiguration(
                 transport: .websocket,
+                terminalTransport: .ssh,
                 destination: normalizedDestination,
                 port: nil,
                 identityFile: nil,
@@ -59,9 +61,13 @@ extension SessionRemoteWorkspaceSnapshot {
         let managedCloudVMID = normalizedManagedCloudVMID
             ?? Self.legacyDefaultFreestyleVMID(destination: normalizedDestination, skipDaemonBootstrap: skipDaemonBootstrap)
         let defaultFreestyleVMID = skipDaemonBootstrap == true ? managedCloudVMID : nil
+        let restoredTerminalTransport: WorkspaceRemoteTerminalTransport = defaultFreestyleVMID == nil
+            ? (terminalTransport ?? .ssh)
+            : .ssh
         let effectivePersistentDaemonSlot = normalizedPersistentDaemonSlot
             ?? (defaultFreestyleVMID == nil ? nil : Self.defaultFreestylePersistentDaemonSlot)
         let preservePTYSession =
+            restoredTerminalTransport == .ssh &&
             allowPersistentPTYRestore &&
             preserveAfterTerminalExit == true &&
             skipDaemonBootstrap != true &&
@@ -92,6 +98,7 @@ extension SessionRemoteWorkspaceSnapshot {
             : nil
         return WorkspaceRemoteConfiguration(
             transport: transport,
+            terminalTransport: restoredTerminalTransport,
             destination: normalizedDestination,
             port: normalizedPort,
             identityFile: Self.normalizedIdentityPath(identityFile),
@@ -115,10 +122,20 @@ extension SessionRemoteWorkspaceSnapshot {
                 if let defaultFreestyleVMID {
                     return Self.defaultFreestyleSSHAttachCommand(vmID: defaultFreestyleVMID)
                 }
-                return sshReconnectCommand(
+                let fallbackCommand = sshReconnectCommand(
                     destination: normalizedDestination,
                     port: normalizedPort,
                     sshOptions: restoredSSHOptions
+                )
+                guard restoredTerminalTransport == .mosh,
+                      let fallbackCommand else {
+                    return fallbackCommand
+                }
+                return moshReconnectCommand(
+                    destination: normalizedDestination,
+                    port: normalizedPort,
+                    sshOptions: restoredSSHOptions,
+                    sshFallbackCommand: fallbackCommand
                 )
             }(),
             foregroundAuthToken: foregroundAuthToken,
@@ -150,6 +167,60 @@ extension SessionRemoteWorkspaceSnapshot {
         port normalizedPort: Int?,
         sshOptions reconnectSSHOptions: [String]? = nil
     ) -> String? {
+        var arguments = sshBootstrapArguments(
+            port: normalizedPort,
+            sshOptions: reconnectSSHOptions
+        )
+        let normalizedOptions = reconnectSSHOptions ?? Self.normalizedSSHOptions(sshOptions)
+        if !Self.hasSSHOptionKey(normalizedOptions, key: "RequestTTY") {
+            arguments.append("-tt")
+        }
+        arguments.append(normalizedDestination)
+        return arguments.map(Self.shellQuote).joined(separator: " ")
+    }
+
+    private func moshReconnectCommand(
+        destination normalizedDestination: String,
+        port normalizedPort: Int?,
+        sshOptions reconnectSSHOptions: [String],
+        sshFallbackCommand: String
+    ) -> String {
+        let sshArguments = sshBootstrapArguments(
+            port: normalizedPort,
+            sshOptions: reconnectSSHOptions
+        )
+        let moshSSHArguments = [sshArguments[0]]
+            + SSHHostConfiguredRemoteCommand().overrideArguments
+            + sshArguments.dropFirst()
+        return MoshTerminalCommandBuilder(
+            capabilityProbeSSHArguments: moshSSHArguments,
+            sessionSSHArguments: moshSSHArguments,
+            destination: normalizedDestination,
+            remoteCommandArguments: [],
+            sshFallbackCommand: sshFallbackCommand,
+            localMoshMissingMessage: String(
+                localized: "cli.ssh.mosh.localMissing",
+                defaultValue: "[cmux] Mosh is not installed locally; continuing over SSH."
+            ),
+            localMoshUnsupportedMessage: String(
+                localized: "cli.ssh.mosh.localUnsupported",
+                defaultValue: "[cmux] The local Mosh client lacks required SSH integration; continuing over SSH."
+            ),
+            remoteMoshMissingMessage: String(
+                localized: "cli.ssh.mosh.remoteMissing",
+                defaultValue: "[cmux] mosh-server is not installed on the remote host; continuing over SSH."
+            ),
+            remoteMoshProbeFailedMessage: String(
+                localized: "cli.ssh.mosh.probeFailed",
+                defaultValue: "[cmux] Could not verify remote Mosh support; continuing over SSH."
+            )
+        ).command()
+    }
+
+    private func sshBootstrapArguments(
+        port normalizedPort: Int?,
+        sshOptions reconnectSSHOptions: [String]? = nil
+    ) -> [String] {
         var arguments = ["ssh"]
         if let normalizedPort {
             arguments += ["-p", String(normalizedPort)]
@@ -161,11 +232,7 @@ extension SessionRemoteWorkspaceSnapshot {
         for option in normalizedOptions {
             arguments += ["-o", option]
         }
-        if !Self.hasSSHOptionKey(normalizedOptions, key: "RequestTTY") {
-            arguments.append("-tt")
-        }
-        arguments.append(normalizedDestination)
-        return arguments.map(Self.shellQuote).joined(separator: " ")
+        return arguments
     }
 
     private static func normalizedIdentityPath(_ value: String?) -> String? {

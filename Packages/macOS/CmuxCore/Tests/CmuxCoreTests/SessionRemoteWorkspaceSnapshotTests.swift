@@ -8,6 +8,7 @@ struct SessionRemoteWorkspaceSnapshotTests {
     func codableRoundTrip() throws {
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,
+            terminalTransport: .mosh,
             destination: "user@host",
             port: 2222,
             identityFile: "/id",
@@ -37,6 +38,7 @@ struct SessionRemoteWorkspaceSnapshotTests {
             from: Data(json.utf8)
         )
         #expect(decoded.transport == .ssh)
+        #expect(decoded.terminalTransport == nil)
         #expect(decoded.destination == "user@host")
         #expect(decoded.port == nil)
         #expect(decoded.identityFile == nil)
@@ -51,5 +53,7 @@ struct SessionRemoteWorkspaceSnapshotTests {
     func transportRawValues() {
         #expect(WorkspaceRemoteTransport.ssh.rawValue == "ssh")
         #expect(WorkspaceRemoteTransport.websocket.rawValue == "websocket")
+        #expect(WorkspaceRemoteTerminalTransport.ssh.rawValue == "ssh")
+        #expect(WorkspaceRemoteTerminalTransport.mosh.rawValue == "mosh")
     }
 }

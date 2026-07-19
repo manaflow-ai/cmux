@@ -87,6 +87,7 @@ struct WorkspaceRemoteConfigurationNormalizationTests {
 struct WorkspaceRemoteConfigurationValueTests {
     private func makeConfiguration(
         transport: WorkspaceRemoteTransport = .ssh,
+        terminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
         destination: String = "user@host",
         port: Int? = nil,
         identityFile: String? = nil,
@@ -100,6 +101,7 @@ struct WorkspaceRemoteConfigurationValueTests {
     ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             transport: transport,
+            terminalTransport: terminalTransport,
             destination: destination,
             port: port,
             identityFile: identityFile,
@@ -116,6 +118,42 @@ struct WorkspaceRemoteConfigurationValueTests {
             persistentDaemonSlot: persistentDaemonSlot,
             skipDaemonBootstrap: skipDaemonBootstrap
         )
+    }
+
+    @Test("remote configuration resolves terminal transport and supported pairings")
+    func remoteTerminalTransportSelection() {
+        #expect(WorkspaceRemoteTerminalTransport(remoteConfigurationValue: nil) == .ssh)
+        #expect(WorkspaceRemoteTerminalTransport(remoteConfigurationValue: " MOSH\n") == .mosh)
+        #expect(WorkspaceRemoteTerminalTransport(remoteConfigurationValue: "udp") == nil)
+        #expect(
+            WorkspaceRemoteTerminalTransport.mosh.isSupportedForRemoteConfiguration(
+                managementTransport: .ssh,
+                skipDaemonBootstrap: false
+            )
+        )
+        #expect(
+            !WorkspaceRemoteTerminalTransport.mosh.isSupportedForRemoteConfiguration(
+                managementTransport: .websocket,
+                skipDaemonBootstrap: false
+            )
+        )
+        #expect(
+            !WorkspaceRemoteTerminalTransport.mosh.isSupportedForRemoteConfiguration(
+                managementTransport: .ssh,
+                skipDaemonBootstrap: true
+            )
+        )
+    }
+
+    @Test("terminal transport participates in value equality and snapshots")
+    func terminalTransportValueBehavior() throws {
+        let ssh = makeConfiguration(terminalTransport: .ssh)
+        let mosh = makeConfiguration(terminalTransport: .mosh)
+        let snapshot = try #require(mosh.sessionSnapshot())
+
+        #expect(ssh != mosh)
+        #expect(mosh.scopedToOwnerWorkspace(UUID()).terminalTransport == .mosh)
+        #expect(snapshot.terminalTransport == .mosh)
     }
 
     @Test("persistent daemon slot is gated on preserveAfterTerminalExit")

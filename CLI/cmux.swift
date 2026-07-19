@@ -8568,63 +8568,6 @@ struct CMUXCLI {
             windowOverride: windowOverride
         )
     }
-    struct SSHCommandOptions {
-        let destination: String
-        let displayDestination: String
-        let port: Int?
-        let identityFile: String?
-        let workspaceName: String?
-        let windowRaw: String?
-        let noFocus: Bool
-        var sshOptions: [String]
-        let extraArguments: [String]
-        let agentSocketPath: String?
-        let passwordCredential: String?
-        let localSocketPath: String
-        let remoteRelayPort: Int
-        let pinWorkspaceToTop: Bool
-        let daemonWebSocketEndpoint: VMDaemonWebSocketEndpoint?
-        /// True when the remote is a cloud VM with cmuxd-remote pre-baked in the image.
-        /// Set by `cmux vm new/shell/attach`; false for plain `cmux ssh`.
-        let skipDaemonBootstrap: Bool
-
-        init(
-            destination: String,
-            displayDestination: String? = nil,
-            port: Int?,
-            identityFile: String?,
-            workspaceName: String?,
-            windowRaw: String? = nil,
-            noFocus: Bool,
-            sshOptions: [String],
-            extraArguments: [String],
-            agentSocketPath: String? = nil,
-            passwordCredential: String? = nil,
-            localSocketPath: String,
-            remoteRelayPort: Int,
-            pinWorkspaceToTop: Bool = false,
-            daemonWebSocketEndpoint: VMDaemonWebSocketEndpoint? = nil,
-            skipDaemonBootstrap: Bool = false
-        ) {
-            self.destination = destination
-            self.displayDestination = displayDestination ?? destination
-            self.port = port
-            self.identityFile = identityFile
-            self.workspaceName = workspaceName
-            self.windowRaw = windowRaw
-            self.noFocus = noFocus
-            self.sshOptions = sshOptions
-            self.extraArguments = extraArguments
-            self.agentSocketPath = agentSocketPath
-            self.passwordCredential = passwordCredential
-            self.localSocketPath = localSocketPath
-            self.remoteRelayPort = remoteRelayPort
-            self.pinWorkspaceToTop = pinWorkspaceToTop
-            self.daemonWebSocketEndpoint = daemonWebSocketEndpoint
-            self.skipDaemonBootstrap = skipDaemonBootstrap
-        }
-    }
-
     private struct VMPtyWebSocketEndpoint {
         let url: String
         let headers: [String: String]
@@ -8999,6 +8942,7 @@ struct CMUXCLI {
             vmIDForSplitAttach != nil
         let usesPersistentSSHPTY =
             !sshOptions.skipDaemonBootstrap &&
+            sshOptions.terminalTransport == .ssh &&
             sshOptions.extraArguments.isEmpty &&
             remoteTerminalBootstrapScript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false &&
             deferredRemoteReconnectCommandScript != nil
@@ -9063,6 +9007,20 @@ struct CMUXCLI {
             initialSSHStartupCommand = ptyStartupCommand
             remoteTerminalSSHStartupCommand = ptyStartupCommand
         }
+        if sshOptions.terminalTransport == .mosh {
+            initialSSHStartupCommand = buildMoshTerminalStartupCommand(
+                options: sshOptions,
+                remoteBootstrapScript: remoteTerminalBootstrapScript,
+                localCommandScript: combinedLocalCommandScript,
+                sshFallbackCommand: initialSSHStartupCommand
+            )
+            remoteTerminalSSHStartupCommand = buildMoshTerminalStartupCommand(
+                options: sshOptions,
+                remoteBootstrapScript: remoteTerminalBootstrapScript,
+                localCommandScript: combinedLocalCommandScript,
+                sshFallbackCommand: remoteTerminalSSHStartupCommand
+            )
+        }
         let reusableTerminalStartupCommand: String
         if let vmIDForSplitAttach,
            sshOptions.skipDaemonBootstrap {
@@ -9101,6 +9059,7 @@ struct CMUXCLI {
             "relayPort=\(sshOptions.remoteRelayPort) localSocket=\(sshOptions.localSocketPath) " +
             "controlPath=\(sshOptionValue(named: "ControlPath", in: remoteSSHOptions) ?? "nil") " +
             "workspaceName=\(sshOptions.workspaceName?.replacingOccurrences(of: " ", with: "_") ?? "nil") " +
+            "terminalTransport=\(sshOptions.terminalTransport.rawValue) " +
             "extraArgs=\(sshOptions.extraArguments.count)"
         )
 
@@ -9192,6 +9151,7 @@ struct CMUXCLI {
             var configureParams: [String: Any] = [
                 "workspace_id": workspaceId,
                 "destination": sshOptions.destination,
+                "terminal_transport": sshOptions.terminalTransport.rawValue,
                 "auto_connect": deferredRemoteReconnectCommandScript == nil,
             ]
             if let configuredForegroundAuthToken {
@@ -9311,6 +9271,7 @@ struct CMUXCLI {
             "GHOSTTY_SHELL_FEATURES": shellFeaturesValue,
         ]
         payload["remote_relay_port"] = sshOptions.remoteRelayPort
+        payload["terminal_transport"] = sshOptions.terminalTransport.rawValue
         if usesPersistentSSHPTY, let workspaceInitialSurfaceId {
             payload["ssh_pty_session_id"] = "ssh-\(workspaceId)-\(workspaceInitialSurfaceId)"
         }
@@ -9410,6 +9371,7 @@ struct CMUXCLI {
         var noFocus = false
         var sshOptions: [String] = []
         var extraArguments: [String] = []
+        var terminalTransport: WorkspaceRemoteTerminalTransport = .ssh
         var forwardAgentOverride: Bool?
 
         var passthrough = false
@@ -9471,6 +9433,16 @@ struct CMUXCLI {
                     sshOptions.append(value)
                 }
                 index += 2
+            case "--transport":
+                guard index + 1 < commandArgs.count,
+                      let parsed = WorkspaceRemoteTerminalTransport(cliValue: commandArgs[index + 1]) else {
+                    throw CLIError(message: String(
+                        localized: "cli.ssh.transport.invalid",
+                        defaultValue: "ssh: --transport must be followed by 'ssh' or 'mosh'"
+                    ))
+                }
+                terminalTransport = parsed
+                index += 2
             default:
                 if arg.hasPrefix("--") {
                     throw CLIError(message: "ssh: unknown flag '\(arg)'")
@@ -9505,6 +9477,7 @@ struct CMUXCLI {
             noFocus: noFocus,
             sshOptions: agentForwarding.sshOptions,
             extraArguments: extraArguments,
+            terminalTransport: terminalTransport,
             agentSocketPath: agentForwarding.agentSocketPath,
             localSocketPath: localSocketPath,
             remoteRelayPort: remoteRelayPort
@@ -10032,7 +10005,7 @@ struct CMUXCLI {
         ]
     }
 
-    private func baseSSHArguments(_ options: SSHCommandOptions, localCommandScript: String? = nil) -> [String] {
+    func baseSSHArguments(_ options: SSHCommandOptions, localCommandScript: String? = nil) -> [String] {
         let effectiveSSHOptions = effectiveSSHOptions(
             options.sshOptions,
             remoteRelayPort: options.remoteRelayPort
@@ -15819,28 +15792,7 @@ struct CMUXCLI {
             via Settings → Keyboard.
             """
         case "ssh":
-            return String(localized: "cli.help.ssh", defaultValue: """
-            Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]
-
-            Create a new workspace, mark it as remote-SSH, and start an SSH session in that workspace.
-            cmux will also establish a local SSH proxy endpoint so browser traffic can egress from the remote host.
-
-            Flags:
-              --name <title>          Optional workspace title
-              --port <n>              SSH port
-              --identity <path>       SSH identity file path
-              -A, --forward-agent     Forward the caller's SSH agent; also honors ForwardAgent yes from ssh_config
-              -a, --no-forward-agent  Disable SSH agent forwarding for this workspace
-              --ssh-option <opt>      Extra SSH -o option (repeatable)
-              --window <id|ref|index> Target window for the managed workspace
-              --no-focus              Create workspace without switching to it
-
-            Example:
-              cmux ssh dev@my-host
-              cmux ssh dev@my-host --name "gpu-box" --port 2222 --identity ~/.ssh/id_ed25519
-              cmux ssh dev@my-host --forward-agent
-              cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no
-            """)
+            return Self.sshCommandUsage
         case "ssh-tmux":
             let help = String(localized: "cli.help.ssh-tmux", defaultValue: """
             Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]
@@ -35247,7 +35199,7 @@ export default CMUXSessionRestore;
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
-          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
+          ssh <destination> [--transport <ssh|mosh>] [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
           ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus] [--new-window]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]

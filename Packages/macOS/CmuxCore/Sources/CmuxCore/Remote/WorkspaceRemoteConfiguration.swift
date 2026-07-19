@@ -1,3 +1,4 @@
+public import CmuxFoundation
 public import Foundation
 
 /// Everything needed to establish and operate one remote-workspace connection:
@@ -7,8 +8,10 @@ public import Foundation
 /// This is a pure `Sendable` value; all normalization helpers are pure string
 /// transforms (see `WorkspaceRemoteConfiguration+SSHOptionNormalization.swift`).
 public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
-    /// Transport used to reach the host.
+    /// Management transport used for daemon bootstrap, relay, proxy, and uploads.
     public let transport: WorkspaceRemoteTransport
+    /// Protocol used by the user-facing interactive terminal.
+    public let terminalTransport: WorkspaceRemoteTerminalTransport
     /// SSH destination (`user@host` or `host`).
     public let destination: String
     /// Explicit SSH port, when configured.
@@ -59,6 +62,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     /// the original app-target initializer.
     public init(
         transport: WorkspaceRemoteTransport = .ssh,
+        terminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
         destination: String,
         port: Int?,
         identityFile: String?,
@@ -80,6 +84,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         sshControlMasterLeaseGeneration: UUID? = nil
     ) {
         self.transport = transport
+        self.terminalTransport = terminalTransport
         self.destination = destination
         self.port = port
         self.identityFile = identityFile
@@ -105,6 +110,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
 
     public init(
         transport: WorkspaceRemoteTransport = .ssh,
+        terminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
         destination: String,
         port: Int?,
         identityFile: String?,
@@ -126,6 +132,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     ) {
         self.init(
             transport: transport,
+            terminalTransport: terminalTransport,
             destination: destination,
             port: port,
             identityFile: identityFile,
@@ -151,6 +158,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     /// Compares user-visible connection settings while ignoring the runtime lease generation.
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.transport == rhs.transport &&
+            lhs.terminalTransport == rhs.terminalTransport &&
             lhs.destination == rhs.destination &&
             lhs.port == rhs.port &&
             lhs.identityFile == rhs.identityFile &&
@@ -303,6 +311,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     public func scopedToOwnerWorkspace(_ workspaceID: UUID) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             transport: transport,
+            terminalTransport: terminalTransport,
             destination: destination,
             port: port,
             identityFile: identityFile,
@@ -328,6 +337,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     public func withSSHControlMasterLeaseGeneration(_ generation: UUID) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             transport: transport,
+            terminalTransport: terminalTransport,
             destination: destination,
             port: port,
             identityFile: identityFile,
@@ -387,6 +397,7 @@ extension WorkspaceRemoteConfiguration {
             guard let managedCloudVMID else { return nil }
             return SessionRemoteWorkspaceSnapshot(
                 transport: transport,
+                terminalTransport: terminalTransport,
                 destination: normalizedDestination,
                 port: nil,
                 identityFile: nil,
@@ -403,6 +414,7 @@ extension WorkspaceRemoteConfiguration {
 
         return SessionRemoteWorkspaceSnapshot(
             transport: transport,
+            terminalTransport: terminalTransport,
             destination: normalizedDestination,
             port: port,
             identityFile: Self.normalizedIdentityPath(identityFile),
