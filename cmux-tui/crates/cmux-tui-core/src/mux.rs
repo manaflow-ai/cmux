@@ -4762,6 +4762,31 @@ mod tests {
     }
 
     #[test]
+    fn registry_active_workspace_changes_emit_resync_barriers() {
+        let mux = test_mux();
+        let events = mux.subscribe();
+        let first = mux.create_empty_workspace(Some("first".into()), None, None).unwrap();
+        assert!(matches!(events.recv().unwrap(), MuxEvent::TreeDelta(_)));
+
+        let second = mux.create_empty_workspace(Some("second".into()), None, None).unwrap();
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::TreeDelta(TreeDelta { kind: TreeDeltaKind::WorkspaceAdded, .. })
+        ));
+        assert!(matches!(events.recv().unwrap(), MuxEvent::TreeChanged));
+
+        mux.close_workspace_at_revision(second.workspace, Some(2)).unwrap();
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::TreeDelta(TreeDelta { kind: TreeDeltaKind::WorkspaceClosed, .. })
+        ));
+        assert!(matches!(events.recv().unwrap(), MuxEvent::TreeChanged));
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces[state.active_workspace].id, first.workspace);
+        });
+    }
+
+    #[test]
     fn reaped_surface_close_advances_workspace_registry_revision() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
@@ -4789,6 +4814,42 @@ mod tests {
             Ok(MuxEvent::Empty)
         ));
         surface.kill();
+    }
+
+    #[test]
+    fn reaped_surface_tree_target_close_advances_workspace_registry_revision() {
+        for close_screen in [false, true] {
+            let mux = test_mux();
+            let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+            let (pane, screen, previous_revision) = mux.with_state(|state| {
+                let pane = state.pane_of(surface.id).unwrap();
+                let (wi, si) = state.screen_of(pane).unwrap();
+                (pane, state.workspaces[wi].screens[si].id, state.workspace_revision)
+            });
+            let events = mux.subscribe();
+            let reaped = mux.state.lock().unwrap().surfaces.remove(&surface.id);
+            assert!(reaped.is_some(), "surface must exist before simulating the race");
+
+            if close_screen {
+                assert!(mux.close_screen(screen));
+            } else {
+                mux.close_pane(pane);
+            }
+
+            mux.with_state(|state| {
+                assert!(state.workspaces.is_empty());
+                assert_eq!(state.workspace_revision, previous_revision + 1);
+            });
+            assert!(matches!(
+                events.recv_timeout(std::time::Duration::from_secs(1)),
+                Ok(MuxEvent::TreeDelta(TreeDelta {
+                    kind: TreeDeltaKind::WorkspaceClosed,
+                    workspace_revision: Some(revision),
+                    ..
+                })) if revision == previous_revision + 1
+            ));
+            surface.kill();
+        }
     }
 
     #[test]

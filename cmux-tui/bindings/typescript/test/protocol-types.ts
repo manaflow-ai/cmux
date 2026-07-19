@@ -79,6 +79,13 @@ type IdentifyData = CmuxResponseData<(typeof requests)[0]>;
 const identify: IdentifyData = { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 };
 void identify;
 
+type LegacyWorkspaceMutationData = CmuxResponseData<{
+  cmd: "close-workspace";
+  workspace: number;
+}>;
+const legacyWorkspaceMutation: LegacyWorkspaceMutationData = {};
+void legacyWorkspaceMutation;
+
 function surfaceFromKnownEvent(event: KnownCmuxEvent): number | undefined {
   switch (event.event) {
     case "surface-output":
