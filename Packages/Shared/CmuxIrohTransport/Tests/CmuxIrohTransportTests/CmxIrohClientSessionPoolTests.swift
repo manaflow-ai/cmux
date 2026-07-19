@@ -215,7 +215,12 @@ struct CmxIrohClientSessionPoolTests {
                 .connection(secondConnection),
             ]
         )
-        let pool = try await fixture.pool(endpoint: endpoint, generation: 1)
+        let diagnosticLog = DiagnosticLog(capacity: 8)
+        let pool = try await fixture.pool(
+            endpoint: endpoint,
+            generation: 1,
+            diagnosticLog: diagnosticLog
+        )
         let factory = CmxIrohByteTransportFactory(sessionPool: pool)
         let first = try factory.makeTransport(for: fixture.request)
         try await first.connect()
@@ -228,6 +233,22 @@ struct CmxIrohClientSessionPoolTests {
         try await replacement.connect()
         #expect(await endpoint.observedDialedAddresses().count == 2)
         #expect(await secondConnection.observedCloseCallCount() == 0)
+
+        for _ in 0 ..< 1_000 {
+            if await diagnosticLog.processedCount() >= 4 { break }
+            await Task.yield()
+        }
+        let events = await diagnosticLog.snapshot().events
+        #expect(events.map(\.code) == [
+            .transportSessionLifecycle,
+            .transportSessionLifecycle,
+            .sessionClosed,
+            .transportSessionLifecycle,
+        ])
+        #expect(events[1].diagnosticSessionLifecycleKind == .remoteClosed)
+        #expect(events[1].diagnosticSessionPurpose == .foregroundControl)
+        #expect(events[1].diagnosticSessionID == events[2].diagnosticSessionID)
+        #expect(events[3].diagnosticSessionID != events[2].diagnosticSessionID)
         await replacement.close()
     }
 
