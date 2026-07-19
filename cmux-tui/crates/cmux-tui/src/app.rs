@@ -8142,6 +8142,16 @@ mod tests {
         assert!(app.selection.is_none());
 
         app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: dead_column,
+            row: live.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.menu.is_some());
+        app.menu = None;
+
+        app.handle_mouse(MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             column: dead_column,
             row: live.y,
