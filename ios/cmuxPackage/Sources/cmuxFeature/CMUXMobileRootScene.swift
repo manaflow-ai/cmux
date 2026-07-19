@@ -37,6 +37,9 @@ public struct CMUXMobileRootScene: View {
     private let signOutHook: MobileSignOutHook
     private let personalIrohRouteCatalog: MobileIrohRouteCatalog?
     private let personalIrohDiscovery: (any MobileIrohMacDiscovering)?
+    #if os(iOS) && DEBUG
+    private let irohSettingsController: (any CmxIrohSettingsControlling)?
+    #endif
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
@@ -85,6 +88,8 @@ public struct CMUXMobileRootScene: View {
     ///     to merge when refreshing paired Macs and listing live candidates.
     ///   - personalIrohDiscovery: Live same-account Mac discovery used before
     ///     presenting QR pairing.
+    ///   - irohSettingsController: Debug-only controller used by the isolated
+    ///     simulator Iroh release gate.
     ///   - signOutHook: Ordered local and remote service teardown for sign-out.
     ///   - diagnosticLog: The privacy-safe structured connection log.
     public init(
@@ -98,6 +103,7 @@ public struct CMUXMobileRootScene: View {
         tailscaleStatusMonitor: any TailscaleStatusObserving,
         personalIrohRouteCatalog: MobileIrohRouteCatalog? = nil,
         personalIrohDiscovery: (any MobileIrohMacDiscovering)? = nil,
+        irohSettingsController: (any CmxIrohSettingsControlling)? = nil,
         signOutHook: MobileSignOutHook,
         diagnosticLog: DiagnosticLog
     ) {
@@ -111,6 +117,9 @@ public struct CMUXMobileRootScene: View {
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.personalIrohRouteCatalog = personalIrohRouteCatalog
         self.personalIrohDiscovery = personalIrohDiscovery
+        #if DEBUG
+        self.irohSettingsController = irohSettingsController
+        #endif
         self.signOutHook = signOutHook
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
@@ -284,6 +293,15 @@ public struct CMUXMobileRootScene: View {
             MobileZoomStressView()
         } else if ProcessInfo.processInfo.environment["CMUX_BOTTOM_SCROLL_STRESS"] == "1" {
             MobileBottomScrollStressView()
+        } else if let configuration = MobileIrohReleaseGateRunner.Configuration.current(),
+                  let irohSettingsController {
+            MobileIrohReleaseGateHostView(
+                store: makeStore(),
+                configuration: configuration,
+                onboardingStore: onboardingStore,
+                signOutHook: signOutHook,
+                settingsController: irohSettingsController
+            )
         } else {
             CMUXMobileAppView(
                 store: makeStore(),
