@@ -4762,6 +4762,36 @@ mod tests {
     }
 
     #[test]
+    fn reaped_surface_close_advances_workspace_registry_revision() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let events = mux.subscribe();
+        let previous_revision = mux.with_state(|state| state.workspace_revision);
+
+        let reaped = mux.state.lock().unwrap().surfaces.remove(&surface.id);
+        assert!(reaped.is_some(), "surface must exist before simulating the early-exit race");
+        mux.close_surface(surface.id);
+
+        mux.with_state(|state| {
+            assert!(state.workspaces.is_empty());
+            assert_eq!(state.workspace_revision, previous_revision + 1);
+        });
+        assert!(matches!(
+            events.recv_timeout(std::time::Duration::from_secs(1)),
+            Ok(MuxEvent::TreeDelta(TreeDelta {
+                kind: TreeDeltaKind::WorkspaceClosed,
+                workspace_revision: Some(revision),
+                ..
+            })) if revision == previous_revision + 1
+        ));
+        assert!(matches!(
+            events.recv_timeout(std::time::Duration::from_secs(1)),
+            Ok(MuxEvent::Empty)
+        ));
+        surface.kill();
+    }
+
+    #[test]
     fn new_tab_materializes_selected_empty_workspace() {
         let mux = test_mux();
         let placement = mux.create_empty_workspace(Some("gui".into()), None, None).unwrap();

@@ -421,6 +421,34 @@ test("protocol v6 keeps byte attach working and refuses render mode client-side"
   await client.close();
 });
 
+test("protocol v7 refuses initial attach sizing without the advertised capability", async () => {
+  let attachRequests = 0;
+  const main = new ScriptedTransport((request, transport) => {
+    assert.equal(request.cmd, "identify");
+    transport.emit({
+      id: request.id,
+      ok: true,
+      data: { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 },
+    });
+  });
+  const attach = new ScriptedTransport(() => {
+    attachRequests += 1;
+  });
+  const client = new CmuxClient({
+    transport: main,
+    streamTransportFactory: () => attach,
+    timeoutMs: 100,
+  });
+
+  await assert.rejects(
+    () => client.attachSurface(7, { cols: 80, rows: 24 }),
+    (error: unknown) => error instanceof CmuxProtocolError
+      && error.message === "initial attach sizing is not supported by this server",
+  );
+  assert.equal(attachRequests, 0);
+  await client.close();
+});
+
 test("generic request preserves exact wire command and typed result", async () => {
   let sent: Record<string, unknown> | undefined;
   const transport = new ScriptedTransport((request, connection) => {

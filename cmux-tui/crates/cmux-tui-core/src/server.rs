@@ -4526,13 +4526,28 @@ mod tests {
 
         let retry_stream = writer.start_stream(&json!({"event": "test"})).unwrap();
         mark_client_attached(&mux, client, surface.id, retry_stream, Some((80, 24))).unwrap();
-        assert!(!events.try_iter().any(|event| matches!(event, MuxEvent::ClientAttached { .. })));
+        assert!(!events.try_iter().any(|event| matches!(
+            event,
+            MuxEvent::ClientAttached { .. } | MuxEvent::ClientChanged { .. }
+        )));
         announce_client_attached(&mux, client).unwrap();
 
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::ClientAttached { client: attached, .. }) if attached == client
         ));
+    }
+
+    #[test]
+    fn identify_advertises_initial_attach_size_capability() {
+        let mux = test_mux();
+        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+
+        assert!(identity["capabilities"]
+            .as_array()
+            .is_some_and(|capabilities| capabilities.iter().any(|value| {
+                value.as_str() == Some("attach-initial-size")
+            })));
     }
 
     #[test]
