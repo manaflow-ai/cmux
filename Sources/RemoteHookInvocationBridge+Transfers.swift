@@ -78,19 +78,44 @@ extension RemoteHookInvocationBridge {
     }
 
     func takeTransfer(_ transferID: String) throws -> RemoteHookInvocation {
-        let directory = try existingTransferDirectory(for: transferID)
-        defer { try? FileManager.default.removeItem(at: directory.deletingLastPathComponent()) }
-        let metadataData = try boundedTransferData(
-            at: directory.appendingPathComponent("metadata.json"),
-            maximumBytes: maximumTransferMetadataBytes
+        let stagedDirectory = try existingTransferDirectory(for: transferID)
+        let slotDirectory = stagedDirectory.deletingLastPathComponent()
+        let claimedDirectory = slotDirectory.appendingPathComponent(
+            "claimed-\(stagedDirectory.lastPathComponent)",
+            isDirectory: true
         )
-        let input = try boundedTransferData(
-            at: directory.appendingPathComponent("stdin"),
-            maximumBytes: maximumInputBytes
-        )
-        let metadata = try JSONDecoder().decode(RemoteHookTransferMetadata.self, from: metadataData)
-        try validateInputSize(input.count, arguments: metadata.arguments)
-        return RemoteHookInvocation(arguments: metadata.arguments, environment: metadata.environment, input: input)
+        do {
+            try FileManager.default.moveItem(at: stagedDirectory, to: claimedDirectory)
+        } catch {
+            throw invalidTransferError()
+        }
+
+        do {
+            let metadataData = try boundedTransferData(
+                at: claimedDirectory.appendingPathComponent("metadata.json"),
+                maximumBytes: maximumTransferMetadataBytes
+            )
+            let input = try boundedTransferData(
+                at: claimedDirectory.appendingPathComponent("stdin"),
+                maximumBytes: maximumInputBytes
+            )
+            let metadata = try JSONDecoder().decode(RemoteHookTransferMetadata.self, from: metadataData)
+            try validateInputSize(input.count, arguments: metadata.arguments)
+            return RemoteHookInvocation(
+                arguments: metadata.arguments,
+                environment: metadata.environment,
+                input: input
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: slotDirectory)
+            throw error
+        }
+    }
+
+    func releaseTransfer(_ transferID: String) {
+        guard let components = try? transferComponents(for: transferID) else { return }
+        let slotDirectory = transferRoot.appendingPathComponent("slot-\(components.slot)", isDirectory: true)
+        try? FileManager.default.removeItem(at: slotDirectory)
     }
 
     func removeStaleTransfers(now: Date = Date()) {
@@ -110,6 +135,18 @@ extension RemoteHookInvocationBridge {
     }
 
     private func existingTransferDirectory(for transferID: String) throws -> URL {
+        let components = try transferComponents(for: transferID)
+        let slotDirectory = transferRoot.appendingPathComponent("slot-\(components.slot)", isDirectory: true)
+        let directory = slotDirectory.appendingPathComponent(components.uuid.uuidString, isDirectory: true)
+        var isDirectory = ObjCBool(false)
+        guard FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            throw invalidTransferError()
+        }
+        return directory
+    }
+
+    private func transferComponents(for transferID: String) throws -> (slot: Int, uuid: UUID) {
         let components = transferID.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
         guard components.count == 2,
               let slot = Int(components[0]),
@@ -118,14 +155,7 @@ extension RemoteHookInvocationBridge {
               uuid.uuidString == components[1].uppercased() else {
             throw invalidTransferError()
         }
-        let slotDirectory = transferRoot.appendingPathComponent("slot-\(slot)", isDirectory: true)
-        let directory = slotDirectory.appendingPathComponent(uuid.uuidString, isDirectory: true)
-        var isDirectory = ObjCBool(false)
-        guard FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
-            throw invalidTransferError()
-        }
-        return directory
+        return (slot, uuid)
     }
 
     private func boundedTransferData(at url: URL, maximumBytes: Int) throws -> Data {

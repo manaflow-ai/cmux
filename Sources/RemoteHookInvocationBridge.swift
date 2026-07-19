@@ -49,6 +49,7 @@ nonisolated struct RemoteHookInvocationBridge: Sendable {
             case "hooks.invoke.execute":
                 let transferID = try requiredString("transfer_id", params: params)
                 let invocation = try takeTransfer(transferID)
+                defer { releaseTransfer(transferID) }
                 return .success(try run(invocation, localSocketPath: localSocketPath))
             default:
                 throw bridgeError(
