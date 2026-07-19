@@ -184,14 +184,26 @@ extension CMUXCLIErrorOutputRegressionTests {
         completedRecord["completedAt"] = 300.0
         completedRecord["updatedAt"] = 300.0
         let registry = CmuxAgentSessionRegistry(url: registryURL)
-        try registry.apply(provider: "codex", records: [
-            CmuxAgentSessionRegistry.Record(
+        try registry.apply(
+            provider: "codex",
+            records: [CmuxAgentSessionRegistry.Record(
                 provider: "codex",
                 sessionID: sessionID,
                 updatedAt: 300,
                 json: try JSONSerialization.data(withJSONObject: completedRecord, options: [.sortedKeys])
-            ),
-        ])
+            )],
+            activeSlots: [CmuxAgentSessionRegistry.ActiveSlot(
+                provider: "codex",
+                scope: .surface,
+                scopeID: surfaceID,
+                sessionID: sessionID,
+                updatedAt: 300,
+                json: try JSONSerialization.data(withJSONObject: [
+                    "sessionId": sessionID,
+                    "updatedAt": 300.0,
+                ], options: [.sortedKeys])
+            )]
+        )
 
         var database: OpaquePointer?
         #expect(sqlite3_open(registryURL.path, &database) == SQLITE_OK)
@@ -204,6 +216,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             nil,
             nil
         ) == SQLITE_OK)
+        #expect(sqlite3_changes(openedDatabase) == 1)
 
         let loaded = RestorableAgentHookSessionStoreFile.load(
             provider: "codex",
