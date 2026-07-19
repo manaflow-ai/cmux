@@ -202,12 +202,19 @@ extension MobileHostIrohRuntime {
                 let eventWriter = MobileHostIrohServerEventWriter(
                     session: session
                 )
-                let laneRouter = MobileHostIrohApplicationLaneRouter(session: session)
+                let artifactTransfers = MobileHostIrohArtifactTransferRegistry()
+                let laneRouter = MobileHostIrohApplicationLaneRouter(
+                    session: session,
+                    artifactHandler: MobileHostIrohArtifactLaneHandler(
+                        registry: artifactTransfers
+                    )
+                )
                 let connectionSupervisor = CmxIrohAdmittedConnectionSupervisor(
                     runControl: {
                         await MobileHostService.acceptTransport(
                             session.controlTransport,
                             authorization: .irohAdmission(session.peer),
+                            artifactTransfers: artifactTransfers,
                             independentEventWriter: eventWriter,
                             isCurrent: isCurrent
                         )

@@ -251,9 +251,17 @@ final class MobileHostService {
     /// the display name or the device id, so this reply is where a freshly
     /// paired phone learns what to call this Mac, which paired-Mac record owns
     /// the connection, and which app instance owns its routes.
-    nonisolated static func identityStatusPayload(routes: [CmxAttachRoute], now: Date = Date()) -> [String: Any] {
+    nonisolated static func identityStatusPayload(
+        routes: [CmxAttachRoute],
+        additionalCapabilities: Set<String> = [],
+        now: Date = Date()
+    ) -> [String: Any] {
         var payload = publicStatusPayload(routes: [], now: now)
         payload["routes"] = routes.mobileHostJSONObjects(for: .authenticated, at: now)
+        if !additionalCapabilities.isEmpty {
+            payload["capabilities"] = mobileHostCapabilities
+                + additionalCapabilities.sorted()
+        }
         payload["terminal_theme_revision_epoch"] = terminalThemeRevisionEpoch
         payload["mac_device_id"] = MobileHostIdentity.deviceID()
         payload["mac_instance_tag"] = MobileHostIdentity.instanceTag()
@@ -1024,6 +1032,7 @@ final class MobileHostService {
     nonisolated static func acceptTransport(
         _ transport: any CmxByteTransport,
         authorization: MobileHostConnectionAuthorizationContext,
+        artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         isCurrent: @escaping @Sendable () async -> Bool
     ) async {
@@ -1063,12 +1072,19 @@ final class MobileHostService {
                     return await Self.connectionStatusResult(
                         for: request,
                         authorization: authorization,
+                        supportsArtifactLane: artifactTransfers != nil,
                         stackStatus: { request in
                             await MobileHostService.networkStatusResult(for: request)
                         }
                     )
                 }
-                let result = await TerminalController.shared.mobileHostHandleRPC(request)
+                let result = await TerminalController.shared.mobileHostHandleRPC(
+                    request,
+                    executionContext: MobileHostRPCExecutionContext(
+                        authorization: authorization,
+                        artifactTransfers: artifactTransfers
+                    )
+                )
                 await MobileHostService.shared.recordCreatedResourcesIfNeeded(
                     request: request,
                     result: result
@@ -1118,13 +1134,19 @@ final class MobileHostService {
     nonisolated static func connectionStatusResult(
         for request: MobileHostRPCRequest,
         authorization: MobileHostConnectionAuthorizationContext,
+        supportsArtifactLane: Bool = false,
         stackStatus: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     ) async -> MobileHostRPCResult {
         switch authorization {
         case .stackBearer:
             return await stackStatus(request)
         case .irohAdmission:
-            return MobileHostPublicStatusCache.result(includeIdentity: true)
+            return MobileHostPublicStatusCache.result(
+                includeIdentity: true,
+                additionalCapabilities: supportsArtifactLane
+                    ? Set([irohArtifactLaneCapability])
+                    : Set()
+            )
         }
     }
 
