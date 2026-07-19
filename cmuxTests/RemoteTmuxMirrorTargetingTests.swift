@@ -206,15 +206,16 @@ struct RemoteTmuxMirrorTargetingTests {
         // can be enqueued incrementally (window @2's arrives after @1 resolves), so
         // a single snapshot of pending kinds would leave the second window unpublished
         // and the mirror would build only one tab. Drain every paneRects fetch.
+        // Replies consume the FIFO head (`pendingCommandKindsForTesting.first`), so
+        // drain strictly from the head: reply to a leading paneRects with ITS window's
+        // pane, and consume a leading incidental (.other). Iterating a stale snapshot
+        // instead could reply to the wrong queued command when an incidental precedes a
+        // fetch. Stop at the first correlated command so we never swallow its reply.
         var rectsDrainGuard = 0
-        while rectsDrainGuard < 8,
-              connection.pendingCommandKindsForTesting.contains(where: {
-                  if case .paneRects = $0 { return true }
-                  return false
-              }) {
+        drain: while rectsDrainGuard < 16, let kind = connection.pendingCommandKindsForTesting.first {
             rectsDrainGuard += 1
-            for kind in connection.pendingCommandKindsForTesting {
-                guard case let .paneRects(windowId, _) = kind else { continue }
+            switch kind {
+            case let .paneRects(windowId, _):
                 let paneId = windowId == 1 ? 0 : 5
                 let size = windowId == 1 ? "80 24" : "90 30"
                 connection.handleMessageForTesting(.commandResult(
@@ -222,6 +223,11 @@ struct RemoteTmuxMirrorTargetingTests {
                     lines: ["%\(paneId) 0 0 \(size) 1 off :zsh"],
                     isError: false
                 ))
+            case .other:
+                connection.handleMessageForTesting(.commandResult(
+                    commandNumber: 2, lines: [], isError: false))
+            default:
+                break drain
             }
         }
 
