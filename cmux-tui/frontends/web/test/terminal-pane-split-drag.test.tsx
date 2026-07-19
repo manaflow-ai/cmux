@@ -299,6 +299,46 @@ describe("TerminalPane split dividers", () => {
     expect(container.querySelector<HTMLElement>(".pane-leaf")?.style.flex).toContain("60%");
   });
 
+  it("bases a keyboard nudge on a pending pointer ratio", async () => {
+    let resolvePointer: (succeeded: boolean) => void = (_succeeded) => {
+      throw new Error("pointer request was not started");
+    };
+    const onSetSplitRatio = vi.fn((_split: number, ratio: number) => {
+      if (ratio !== 0.75) return Promise.resolve(true);
+      return new Promise<boolean>((resolve) => {
+        resolvePointer = resolve;
+      });
+    });
+    const props = terminalPaneProps(onSetSplitRatio);
+    const { getByRole } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
+    const divider = getByRole("separator");
+    const group = divider.parentElement as HTMLDivElement;
+    group.getBoundingClientRect = () => ({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 400,
+      bottom: 200,
+      width: 400,
+      height: 200,
+      toJSON: () => ({}),
+    });
+    Object.defineProperties(divider, {
+      setPointerCapture: { value: vi.fn() },
+      hasPointerCapture: { value: vi.fn(() => false) },
+    });
+
+    fireEvent.pointerDown(divider, { pointerId: 13, pointerType: "mouse", button: 0, clientX: 200 });
+    fireEvent.pointerUp(divider, { pointerId: 13, pointerType: "mouse", button: 0, clientX: 300 });
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledWith(42, 0.75));
+
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(2));
+    expect(onSetSplitRatio.mock.calls[1]?.[1]).toBeCloseTo(0.8);
+    resolvePointer(true);
+  });
+
   it("rolls the preview back when set-ratio fails", async () => {
     const onSetSplitRatio = vi.fn(async () => false);
     const props = terminalPaneProps(onSetSplitRatio);

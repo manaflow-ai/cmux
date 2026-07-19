@@ -4070,6 +4070,26 @@ mod tests {
     }
 
     #[test]
+    fn closing_an_ordinary_tab_does_not_rebuild_the_split_index() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        mux.split(pane, SplitDir::Right, None).unwrap();
+        let ordinary_tab = mux.new_tab(Some(pane), None, None).unwrap();
+        let sentinel = SplitId::MAX;
+        {
+            let mut state = mux.state.lock().unwrap();
+            state.split_screens.insert(sentinel, (usize::MAX, usize::MAX, ScreenId::MAX));
+        }
+
+        mux.close_surface(ordinary_tab.id);
+
+        mux.with_state(|state| assert!(state.split_screens.contains_key(&sentinel)));
+        mux.close_surface(first.id);
+        mux.with_state(|state| assert!(!state.split_screens.contains_key(&sentinel)));
+    }
+
+    #[test]
     fn move_tab_within_pane_clamps_and_tracks_active_tab() {
         let mux = test_mux();
         let s1 = mux.new_workspace(None, None).unwrap();
