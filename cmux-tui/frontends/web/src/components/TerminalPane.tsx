@@ -292,12 +292,11 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
   const nextRequestId = useRef(0);
   const activeRequestId = useRef<number | null>(null);
   const keyboardGeneration = useRef(0);
-  const keyboardRequestChain = useRef(Promise.resolve());
-  const keyboardTarget = useRef<{
+  const keyboardResize = useRef<{
+    desiredRatio: number;
     generation: number;
-    ratio: number;
+    inFlightRatio: number | null;
     split: Id;
-    validRatios: number[];
   } | null>(null);
   const drag = useRef<{
     pointerId: number;
@@ -311,7 +310,11 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
   // off the snapshot it was based on. The moment the server's layout event
   // lands (confirm or foreign change), validity flips and the authoritative
   // ratio renders; the stale record is cleared lazily on the next pointerdown.
-  const pendingValid = pendingRatio !== null
+  const pendingConfirmed = pendingRatio !== null
+    && target.split === pendingRatio.split
+    && Math.abs(authoritativeRatio - pendingRatio.ratio) <= 1e-6;
+  const pendingValid = !pendingConfirmed
+    && pendingRatio !== null
     && target.split === pendingRatio.split
     && pendingRatio.validRatios.some((ratio) => Math.abs(authoritativeRatio - ratio) <= 1e-6);
 
@@ -322,11 +325,7 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
     ? { left: `${firstPercent}%` }
     : { top: `${firstPercent}%` };
 
-  const commitRatio = (
-    previousRatio: number,
-    nextRatio: number,
-    keyboard?: { generation: number; validRatios: number[] },
-  ) => {
+  const commitRatio = (previousRatio: number, nextRatio: number) => {
     const ratio = splitRatioToCommit(previousRatio, nextRatio);
     if (ratio === null) {
       setPreviewRatio(null);
@@ -337,25 +336,37 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
     setPreviewRatio(null);
     setPendingRatio({
       requestId,
-      validRatios: keyboard?.validRatios ?? [previousRatio],
+      validRatios: [previousRatio],
       ratio,
       split: target.split,
     });
-    const send = async () => {
-      if (keyboard && keyboardGeneration.current !== keyboard.generation) return;
-      const succeeded = await actions.onSetSplitRatio(target.split, ratio).catch(() => false);
+    keyboardGeneration.current += 1;
+    keyboardResize.current = null;
+    void actions.onSetSplitRatio(target.split, ratio).catch(() => false).then((succeeded) => {
       if (succeeded || activeRequestId.current !== requestId) return;
       activeRequestId.current = null;
       setPendingRatio(null);
       setPreviewRatio(null);
-    };
-    if (keyboard) {
-      keyboardRequestChain.current = keyboardRequestChain.current.then(send);
-    } else {
-      keyboardGeneration.current += 1;
-      keyboardTarget.current = null;
-      void send();
-    }
+    });
+  };
+
+  const pumpKeyboardResize = (resize: NonNullable<typeof keyboardResize.current>) => {
+    if (keyboardResize.current !== resize || resize.inFlightRatio !== null) return;
+    const ratio = resize.desiredRatio;
+    resize.inFlightRatio = ratio;
+    void actions.onSetSplitRatio(resize.split, ratio).catch(() => false).then((succeeded) => {
+      if (keyboardResize.current !== resize || keyboardGeneration.current !== resize.generation) return;
+      resize.inFlightRatio = null;
+      if (!succeeded) {
+        keyboardGeneration.current += 1;
+        keyboardResize.current = null;
+        activeRequestId.current = null;
+        setPendingRatio(null);
+        setPreviewRatio(null);
+        return;
+      }
+      if (Math.abs(resize.desiredRatio - ratio) > 1e-6) pumpKeyboardResize(resize);
+    });
   };
 
   return (
@@ -377,31 +388,42 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
             if (delta === null) return;
             event.preventDefault();
             event.stopPropagation();
-            if (pendingRatio && !pendingValid) {
+            if (pendingRatio && !pendingValid && !pendingConfirmed) {
               activeRequestId.current = null;
               setPendingRatio(null);
               keyboardGeneration.current += 1;
-              keyboardTarget.current = null;
+              keyboardResize.current = null;
             }
-            const existingTarget = keyboardTarget.current;
-            const baseRatio = existingTarget?.split === target.split && pendingValid
-              ? existingTarget.ratio
+            const existingResize = keyboardResize.current;
+            const canReuseResize = existingResize?.split === target.split && (pendingValid || pendingConfirmed);
+            const baseRatio = canReuseResize
+              ? existingResize.desiredRatio
               : authoritativeRatio;
             const ratio = Math.max(0.05, Math.min(0.95, baseRatio + delta));
-            const generation = existingTarget?.split === target.split && pendingValid
-              ? existingTarget.generation
-              : ++keyboardGeneration.current;
-            const validRatios = existingTarget?.split === target.split && pendingValid
-              ? [...existingTarget.validRatios, ratio]
-              : [authoritativeRatio, ratio];
-            keyboardTarget.current = { generation, ratio, split: target.split, validRatios };
-            commitRatio(authoritativeRatio, ratio, { generation, validRatios });
+            if (Math.abs(ratio - baseRatio) <= 1e-6) return;
+            const resize = canReuseResize
+              ? existingResize
+              : {
+                  desiredRatio: authoritativeRatio,
+                  generation: ++keyboardGeneration.current,
+                  inFlightRatio: null,
+                  split: target.split,
+                };
+            resize.desiredRatio = ratio;
+            keyboardResize.current = resize;
+            const requestId = ++nextRequestId.current;
+            activeRequestId.current = requestId;
+            const validRatios = [authoritativeRatio, ratio];
+            if (resize.inFlightRatio !== null) validRatios.push(resize.inFlightRatio);
+            setPendingRatio({ requestId, validRatios, ratio, split: target.split });
+            setPreviewRatio(null);
+            pumpKeyboardResize(resize);
           }}
           onPointerDown={(event) => {
             if (event.pointerType === "mouse" && event.button !== 0) return;
             if (pendingRatio && pendingValid) return;
             keyboardGeneration.current += 1;
-            keyboardTarget.current = null;
+            keyboardResize.current = null;
             if (pendingRatio) {
               activeRequestId.current = null;
               setPendingRatio(null);

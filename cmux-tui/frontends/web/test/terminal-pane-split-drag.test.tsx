@@ -156,11 +156,54 @@ describe("TerminalPane split dividers", () => {
     expect(onSetSplitRatio).toHaveBeenNthCalledWith(1, 42, 0.55);
 
     resolveFirst(true);
-    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(2));
     expect(onSetSplitRatio.mock.calls[1]?.[0]).toBe(42);
-    expect(onSetSplitRatio.mock.calls[1]?.[1]).toBeCloseTo(0.6);
-    expect(onSetSplitRatio.mock.calls[2]?.[0]).toBe(42);
-    expect(onSetSplitRatio.mock.calls[2]?.[1]).toBeCloseTo(0.65);
+    expect(onSetSplitRatio.mock.calls[1]?.[1]).toBeCloseTo(0.65);
+  });
+
+  it("preserves a reversal queued behind an in-flight keyboard adjustment", async () => {
+    let resolveFirst: (succeeded: boolean) => void = (_succeeded) => {
+      throw new Error("first request was not started");
+    };
+    const onSetSplitRatio = vi.fn((_split: number, ratio: number) => {
+      if (ratio !== 0.55) return Promise.resolve(true);
+      return new Promise<boolean>((resolve) => {
+        resolveFirst = resolve;
+      });
+    });
+    const props = terminalPaneProps(onSetSplitRatio);
+    const { getByRole } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
+    const divider = getByRole("separator");
+
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    fireEvent.keyDown(divider, { key: "ArrowLeft" });
+
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(1));
+    resolveFirst(true);
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(2));
+    expect(onSetSplitRatio.mock.calls[1]?.[0]).toBe(42);
+    expect(onSetSplitRatio.mock.calls[1]?.[1]).toBeCloseTo(0.5);
+  });
+
+  it("unlocks pointer dragging after the server confirms a keyboard adjustment", async () => {
+    const onSetSplitRatio = vi.fn(async () => true);
+    const props = terminalPaneProps(onSetSplitRatio);
+    const { getByRole, rerender } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
+    const divider = getByRole("separator");
+    const setPointerCapture = vi.fn();
+    Object.defineProperty(divider, "setPointerCapture", { value: setPointerCapture });
+
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledWith(42, 0.55));
+    rerender(<TerminalPane {...props} screen={screenView(0.55)} />);
+    fireEvent.pointerDown(getByRole("separator"), {
+      pointerId: 12,
+      pointerType: "mouse",
+      button: 0,
+      clientX: 220,
+    });
+
+    expect(setPointerCapture).toHaveBeenCalledWith(12);
   });
 
   it("previews pointer movement, commits once, and reconciles to server layout", async () => {
