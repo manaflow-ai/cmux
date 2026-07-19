@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxFoundation
 
@@ -69,6 +70,74 @@ struct CmuxAgentSessionRunAuthorityProjectionTests {
         )
 
         #expect(projection.restoreAuthority)
+    }
+
+    @Test("later duplicate cannot revive durable child authority")
+    func laterDuplicateCannotReviveDurableChildAuthority() throws {
+        var child = run(relationship: .spawned, authorityEvidence: .managedChild)
+        child.restoreAuthority = false
+        child.updatedAt = 200
+        var laterRoot = run(relationship: .forked, authorityEvidence: .verifiedForkRoot)
+        laterRoot.updatedAt = 300
+
+        for runs in [[child, laterRoot], [laterRoot, child]] {
+            let projection = CmuxAgentSessionRunAuthorityProjection().projection(
+                recordRestoreAuthority: true,
+                runs: runs,
+                activeRunId: child.runId
+            )
+            let projectedRun = try #require(projection.run)
+            #expect(!projection.restoreAuthority)
+            #expect(projectedRun.relationship == .spawned)
+            #expect(projectedRun.authorityEvidence == .managedChild)
+        }
+    }
+
+    @Test("later verified fork root recovers provisional child authority")
+    func laterVerifiedForkRootRecoversProvisionalAuthority() throws {
+        var provisional = run(
+            relationship: .spawned,
+            authorityEvidence: .provisionalAmbiguousChild
+        )
+        provisional.restoreAuthority = false
+        provisional.updatedAt = 200
+        var verifiedRoot = run(relationship: .forked, authorityEvidence: .verifiedForkRoot)
+        verifiedRoot.updatedAt = 300
+
+        let projection = CmuxAgentSessionRunAuthorityProjection().projection(
+            recordRestoreAuthority: false,
+            runs: [verifiedRoot, provisional],
+            activeRunId: verifiedRoot.runId
+        )
+        let projectedRun = try #require(projection.run)
+        #expect(projection.restoreAuthority)
+        #expect(projectedRun.relationship == .forked)
+        #expect(projectedRun.authorityEvidence == .verifiedForkRoot)
+    }
+
+    @Test("legacy records project top-level child evidence")
+    func legacyRecordProjectsTopLevelChildEvidence() throws {
+        for fields: [String: Any] in [
+            ["restoreAuthority": true, "relationship": "spawned"],
+            ["restoreAuthority": true, "authorityEvidence": "managed_child"],
+            ["restoreAuthority": true, "authorityEvidence": "provisional_ambiguous_child"],
+        ] {
+            let data = try JSONSerialization.data(withJSONObject: fields)
+            #expect(
+                CmuxAgentSessionRunAuthorityProjection()
+                    .projection(recordJSON: data)?.restoreAuthority == false
+            )
+        }
+
+        let verifiedRoot = try JSONSerialization.data(withJSONObject: [
+            "restoreAuthority": true,
+            "relationship": "forked",
+            "authorityEvidence": "verified_fork_root",
+        ])
+        #expect(
+            CmuxAgentSessionRunAuthorityProjection()
+                .projection(recordJSON: verifiedRoot)?.restoreAuthority == true
+        )
     }
 
     private func run(
