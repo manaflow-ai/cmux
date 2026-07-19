@@ -9,6 +9,7 @@ import (
 	"net"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestLegacyResizeResponseDefaultsToAccepted(t *testing.T) {
@@ -66,6 +67,57 @@ func TestCreateTerminalPreservesExplicitlyEmptyArgv(t *testing.T) {
 	if !ok || len(argv) != 0 {
 		t.Fatalf("argv = %#v, want explicitly supplied empty array", params["argv"])
 	}
+}
+
+func TestIdentifyCapabilityStateIsConcurrentSafe(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	client := &Client{
+		timeout: time.Second,
+		conn:    &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+	}
+	defer client.Close()
+
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		encoder := json.NewEncoder(serverConn)
+		for {
+			var request map[string]any
+			if decoder.Decode(&request) != nil {
+				return
+			}
+			if encoder.Encode(map[string]any{
+				"id": request["id"],
+				"ok": true,
+				"data": map[string]any{
+					"app": "cmux-tui", "version": "test", "protocol": 7,
+					"capabilities": []string{"attach-initial-size"},
+					"session":      "test", "pid": 1,
+				},
+			}) != nil {
+				return
+			}
+		}
+	}()
+
+	var wait sync.WaitGroup
+	wait.Add(2)
+	go func() {
+		defer wait.Done()
+		for range 100 {
+			if _, err := client.Identify(context.Background()); err != nil {
+				t.Errorf("Identify() error = %v", err)
+				return
+			}
+		}
+	}()
+	go func() {
+		defer wait.Done()
+		for range 10_000 {
+			_ = client.hasCapability("attach-initial-size")
+		}
+	}()
+	wait.Wait()
 }
 
 func TestStreamYieldsBufferedOverflowOnceThenStops(t *testing.T) {

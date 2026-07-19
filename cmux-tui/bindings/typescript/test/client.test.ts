@@ -456,6 +456,31 @@ test("protocol v7 refuses initial attach sizing without the advertised capabilit
   await client.close();
 });
 
+test("protocol v7 refuses registry CAS mutations without the advertised capability", async () => {
+  let mutationRequests = 0;
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 },
+      });
+      return;
+    }
+    mutationRequests += 1;
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport });
+
+  await assert.rejects(
+    () => client.closeWorkspaceRegistry({ key: "stable", expected_revision: 4 }),
+    (error: unknown) => error instanceof CmuxProtocolError
+      && error.message === "workspace registry is not supported by this server",
+  );
+  assert.equal(mutationRequests, 0);
+  await client.close();
+});
+
 test("generic request preserves exact wire command and typed result", async () => {
   let sent: Record<string, unknown> | undefined;
   const transport = new ScriptedTransport((request, connection) => {
