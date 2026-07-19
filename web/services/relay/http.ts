@@ -100,7 +100,13 @@ export function relayErrorResponse(error: unknown): Response {
     console.error("relay.policy.catalog_rollback", {
       configuredSequence: (error as { configuredSequence?: unknown }).configuredSequence,
       persistedSequence: (error as { persistedSequence?: unknown }).persistedSequence,
+      reason: (error as { reason?: unknown }).reason,
     });
+    return jsonResponse({ error: "relay_policy_unavailable" }, 503);
+  }
+  if (tag === "RelayCatalogIntegrityError") {
+    const typed = error as Extract<RelayServiceError, { _tag: "RelayCatalogIntegrityError" }>;
+    console.error("relay.policy.catalog_integrity", { reason: typed.reason });
     return jsonResponse({ error: "relay_policy_unavailable" }, 503);
   }
   if (

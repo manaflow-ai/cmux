@@ -102,8 +102,8 @@ export const accountDeletionTombstones = pgTable(
 
 /**
  * The last server-configured relay catalog accepted by this database.
- * Persisting its sequence and digest prevents an older or conflicting deploy
- * from signing a rollback after a newer catalog has already been served.
+ * Persisting its complete non-secret body lets activation enforce add-before-
+ * remove rotation under the same lock that prevents sequence rollback.
  */
 export const irohRelayCatalogState = pgTable(
   "iroh_relay_catalog_state",
@@ -111,6 +111,10 @@ export const irohRelayCatalogState = pgTable(
     id: text("id").primaryKey(),
     catalogSequence: bigint("catalog_sequence", { mode: "number" }).notNull(),
     catalogDigest: text("catalog_digest").notNull(),
+    // Nullable for rolling compatibility with an older web process. The new
+    // process backfills only an exact sequence/digest match and refuses to
+    // advance until the prior catalog body is authoritative.
+    catalog: jsonb("catalog"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
