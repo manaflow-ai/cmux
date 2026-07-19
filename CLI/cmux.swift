@@ -4427,8 +4427,17 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
 
-        case "ssh":
+        case "ssh", "mosh":
             try runSSH(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId,
+                defaultTerminalTransport: command == "mosh" ? .mosh : .ssh
+            )
+        case "mosh-tmux":
+            try runMoshTmux(
                 commandArgs: commandArgs,
                 client: client,
                 jsonOutput: jsonOutput,
@@ -8635,12 +8644,14 @@ struct CMUXCLI {
         return bytes.map { String(format: "%02x", $0) }.joined()
     }
 
-    private func runSSH(
+    func runSSH(
         commandArgs: [String],
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat,
-        windowOverride: String?
+        windowOverride: String?,
+        defaultTerminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
+        terminalProfile: WorkspaceRemoteTerminalProfile = .shell
     ) throws {
         // Use the socket path from this invocation (supports --socket overrides).
         let localSocketPath = client.socketPath
@@ -8651,7 +8662,9 @@ struct CMUXCLI {
             commandArgs,
             localSocketPath: localSocketPath,
             remoteRelayPort: remoteRelayPort,
-            windowOverride: windowOverride
+            windowOverride: windowOverride,
+            defaultTerminalTransport: defaultTerminalTransport,
+            terminalProfile: terminalProfile
         )
         try runSSHWithOptions(
             sshOptions,
@@ -8911,7 +8924,8 @@ struct CMUXCLI {
                 ? buildInteractiveRemoteShellScript(
                     remoteRelayPort: sshOptions.remoteRelayPort,
                     shellFeatures: shellFeaturesValue,
-                    terminfoSource: terminfoSource
+                    terminfoSource: terminfoSource,
+                    terminalCommand: sshOptions.terminalProfile.remoteShellCommand
                 )
                 : nil
         }
@@ -9152,8 +9166,12 @@ struct CMUXCLI {
                 "workspace_id": workspaceId,
                 "destination": sshOptions.destination,
                 "terminal_transport": sshOptions.terminalTransport.rawValue,
+                "terminal_profile": sshOptions.terminalProfile.kind.rawValue,
                 "auto_connect": deferredRemoteReconnectCommandScript == nil,
             ]
+            if let tmuxSessionName = sshOptions.terminalProfile.tmuxSessionName {
+                configureParams["terminal_tmux_session"] = tmuxSessionName
+            }
             if let configuredForegroundAuthToken {
                 configureParams["foreground_auth_token"] = configuredForegroundAuthToken
             }
@@ -9272,6 +9290,10 @@ struct CMUXCLI {
         ]
         payload["remote_relay_port"] = sshOptions.remoteRelayPort
         payload["terminal_transport"] = sshOptions.terminalTransport.rawValue
+        payload["terminal_profile"] = sshOptions.terminalProfile.kind.rawValue
+        if let tmuxSessionName = sshOptions.terminalProfile.tmuxSessionName {
+            payload["terminal_tmux_session"] = tmuxSessionName
+        }
         if usesPersistentSSHPTY, let workspaceInitialSurfaceId {
             payload["ssh_pty_session_id"] = "ssh-\(workspaceId)-\(workspaceInitialSurfaceId)"
         }
@@ -9361,7 +9383,9 @@ struct CMUXCLI {
         _ commandArgs: [String],
         localSocketPath: String = "",
         remoteRelayPort: Int = 0,
-        windowOverride: String? = nil
+        windowOverride: String? = nil,
+        defaultTerminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
+        terminalProfile defaultTerminalProfile: WorkspaceRemoteTerminalProfile = .shell
     ) throws -> SSHCommandOptions {
         var destination: String?
         var port: Int?
@@ -9371,7 +9395,8 @@ struct CMUXCLI {
         var noFocus = false
         var sshOptions: [String] = []
         var extraArguments: [String] = []
-        var terminalTransport: WorkspaceRemoteTerminalTransport = .ssh
+        var terminalTransport = defaultTerminalTransport
+        var terminalProfile = defaultTerminalProfile
         var forwardAgentOverride: Bool?
 
         var passthrough = false
@@ -9443,6 +9468,19 @@ struct CMUXCLI {
                 }
                 terminalTransport = parsed
                 index += 2
+            case "--session" where terminalProfile.kind == .tmux:
+                guard index + 1 < commandArgs.count,
+                      let parsed = WorkspaceRemoteTerminalProfile(
+                          kind: .tmux,
+                          tmuxSessionName: commandArgs[index + 1]
+                      ) else {
+                    throw CLIError(message: String(
+                        localized: "cli.moshTmux.session.invalid",
+                        defaultValue: "mosh-tmux: --session requires a non-empty session name without hidden characters"
+                    ))
+                }
+                terminalProfile = parsed
+                index += 2
             default:
                 if arg.hasPrefix("--") {
                     throw CLIError(message: "ssh: unknown flag '\(arg)'")
@@ -9464,6 +9502,12 @@ struct CMUXCLI {
         guard let destination else {
             throw CLIError(message: "ssh requires a destination (example: cmux ssh user@host)")
         }
+        guard terminalProfile.kind == .shell || extraArguments.isEmpty else {
+            throw CLIError(message: String(
+                localized: "cli.moshTmux.arguments.invalid",
+                defaultValue: "mosh-tmux accepts a destination and --session, not a separate remote command"
+            ))
+        }
         let agentForwarding = resolvedSSHAgentForwarding(
             sshOptions: sshOptions,
             override: forwardAgentOverride
@@ -9478,6 +9522,7 @@ struct CMUXCLI {
             sshOptions: agentForwarding.sshOptions,
             extraArguments: extraArguments,
             terminalTransport: terminalTransport,
+            terminalProfile: terminalProfile,
             agentSocketPath: agentForwarding.agentSocketPath,
             localSocketPath: localSocketPath,
             remoteRelayPort: remoteRelayPort
@@ -9755,7 +9800,8 @@ struct CMUXCLI {
     func buildInteractiveRemoteShellScript(
         remoteRelayPort: Int,
         shellFeatures: String,
-        terminfoSource: String? = nil
+        terminfoSource: String? = nil,
+        terminalCommand: String? = nil
     ) -> String {
         // Share the single terminfo-install implementation with the app-side SSH
         // PTY bootstrap so the two entrypoints can never drift (the synchronous
@@ -9806,6 +9852,7 @@ struct CMUXCLI {
             "[ -f \"$HOME/.bashrc\" ] && . \"$HOME/.bashrc\"",
         ] + bashShellLines
         let relayWarmupLines = interactiveRemoteRelayWarmupLines(remoteRelayPort: remoteRelayPort)
+        let terminalExecCommand = terminalCommand.map { "exec \($0)" }
 
         var outerLines: [String] = [
             "mkdir -p \"$HOME/.cmux/relay\"",
@@ -9857,7 +9904,7 @@ struct CMUXCLI {
         outerLines += [
             "    export CMUX_REAL_ZDOTDIR=\"${ZDOTDIR:-$HOME}\"",
             "    export ZDOTDIR=\"$cmux_shell_dir\"",
-            "    exec \"$CMUX_LOGIN_SHELL\" -il",
+            terminalExecCommand ?? "    exec \"$CMUX_LOGIN_SHELL\" -il",
             "    ;;",
             "  bash)",
             "    cat > \"$cmux_shell_dir/.bashrc\" <<'CMUXBASHRC'",
@@ -9869,14 +9916,14 @@ struct CMUXCLI {
         ]
         outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
         outerLines += [
-            "    exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i",
+            terminalExecCommand ?? "    exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i",
             "    ;;",
             "  *)",
         ]
         outerLines.append(contentsOf: commonShellExportLines)
         outerLines.append(contentsOf: relayWarmupLines)
         outerLines += [
-            "exec \"$CMUX_LOGIN_SHELL\" -i",
+            terminalExecCommand ?? "exec \"$CMUX_LOGIN_SHELL\" -i",
             ";;",
             "esac",
         ]
@@ -15793,6 +15840,10 @@ struct CMUXCLI {
             """
         case "ssh":
             return Self.sshCommandUsage
+        case "mosh":
+            return Self.moshCommandUsage
+        case "mosh-tmux":
+            return Self.moshTmuxCommandUsage
         case "ssh-tmux":
             let help = String(localized: "cli.help.ssh-tmux", defaultValue: """
             Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]
@@ -35200,6 +35251,8 @@ export default CMUXSessionRestore;
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
           ssh <destination> [--transport <ssh|mosh>] [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
+          mosh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
+          mosh-tmux <destination> [--session <name>] [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus]
           ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus] [--new-window]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]

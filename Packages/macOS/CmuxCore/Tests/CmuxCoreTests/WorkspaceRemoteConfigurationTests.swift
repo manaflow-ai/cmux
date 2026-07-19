@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 @testable import CmuxCore
@@ -88,6 +89,7 @@ struct WorkspaceRemoteConfigurationValueTests {
     private func makeConfiguration(
         transport: WorkspaceRemoteTransport = .ssh,
         terminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
+        terminalProfile: WorkspaceRemoteTerminalProfile = .shell,
         destination: String = "user@host",
         port: Int? = nil,
         identityFile: String? = nil,
@@ -102,6 +104,7 @@ struct WorkspaceRemoteConfigurationValueTests {
         WorkspaceRemoteConfiguration(
             transport: transport,
             terminalTransport: terminalTransport,
+            terminalProfile: terminalProfile,
             destination: destination,
             port: port,
             identityFile: identityFile,
@@ -154,6 +157,17 @@ struct WorkspaceRemoteConfigurationValueTests {
         #expect(ssh != mosh)
         #expect(mosh.scopedToOwnerWorkspace(UUID()).terminalTransport == .mosh)
         #expect(snapshot.terminalTransport == .mosh)
+    }
+
+    @Test("terminal profile participates in value equality and snapshots")
+    func terminalProfileValueBehavior() throws {
+        let shell = makeConfiguration(terminalProfile: .shell)
+        let tmux = makeConfiguration(terminalProfile: .defaultTmux)
+        let snapshot = try #require(tmux.sessionSnapshot())
+
+        #expect(shell != tmux)
+        #expect(tmux.scopedToOwnerWorkspace(UUID()).terminalProfile == .defaultTmux)
+        #expect(snapshot.terminalProfile == .defaultTmux)
     }
 
     @Test("Mosh terminals disable SSH persistent-PTY state")

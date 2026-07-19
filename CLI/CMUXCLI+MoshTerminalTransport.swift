@@ -2,6 +2,24 @@ import CmuxFoundation
 import Foundation
 
 extension CMUXCLI {
+    func runMoshTmux(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        try runSSH(
+            commandArgs: commandArgs,
+            client: client,
+            jsonOutput: jsonOutput,
+            idFormat: idFormat,
+            windowOverride: windowOverride,
+            defaultTerminalTransport: .mosh,
+            terminalProfile: .defaultTmux
+        )
+    }
+
     func buildMoshTerminalStartupCommand(
         options: SSHCommandOptions,
         remoteBootstrapScript: String?,

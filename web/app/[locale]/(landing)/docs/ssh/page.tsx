@@ -40,7 +40,10 @@ export default async function SshPage({
 cmux ssh user@remote --name "dev server"
 cmux ssh user@remote -p 2222
 cmux ssh user@remote -i ~/.ssh/id_ed25519
-cmux ssh user@remote --transport mosh`}</CodeBlock>
+cmux ssh user@remote --transport mosh
+cmux mosh user@remote
+cmux mosh-tmux user@remote
+cmux mosh-tmux user@remote --session agent-main`}</CodeBlock>
       <p>{t("usageDesc")}</p>
 
       <DocsHeading level={2} id="flags-title">{t("flagsTitle")}</DocsHeading>

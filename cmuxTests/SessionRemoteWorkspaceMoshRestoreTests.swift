@@ -33,6 +33,30 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
         #expect(command.contains("exec /bin/sh -c"), "\(command)")
     }
 
+    @Test("restores a named Mosh tmux terminal profile")
+    func restoresNamedMoshTmuxProfile() throws {
+        let terminalProfile = try #require(WorkspaceRemoteTerminalProfile(
+            kind: .tmux,
+            tmuxSessionName: "agent-main"
+        ))
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            terminalTransport: .mosh,
+            terminalProfile: terminalProfile,
+            destination: "dev@example.com",
+            sshOptions: []
+        )
+
+        let configuration = try #require(snapshot.workspaceConfiguration())
+        let command = try #require(configuration.terminalStartupCommand)
+
+        #expect(configuration.terminalTransport == .mosh)
+        #expect(configuration.terminalProfile == terminalProfile)
+        #expect(command.contains("new-session"), "\(command)")
+        #expect(command.contains("agent-main"), "\(command)")
+        #expect(command.contains("exec /bin/sh -c"), "\(command)")
+    }
+
     @Test("legacy snapshots continue to restore an SSH terminal")
     func legacySnapshotRestoresSSH() throws {
         let json = """
@@ -50,6 +74,7 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
         let command = try #require(configuration.terminalStartupCommand)
 
         #expect(configuration.terminalTransport == .ssh)
+        #expect(configuration.terminalProfile == .shell)
         #expect(!command.contains("mosh"), "\(command)")
     }
 

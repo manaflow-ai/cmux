@@ -64,6 +64,9 @@ extension SessionRemoteWorkspaceSnapshot {
         let restoredTerminalTransport: WorkspaceRemoteTerminalTransport = defaultFreestyleVMID == nil
             ? (terminalTransport ?? .ssh)
             : .ssh
+        let restoredTerminalProfile: WorkspaceRemoteTerminalProfile = defaultFreestyleVMID == nil
+            ? (terminalProfile ?? .shell)
+            : .shell
         let effectivePersistentDaemonSlot = normalizedPersistentDaemonSlot
             ?? (defaultFreestyleVMID == nil ? nil : Self.defaultFreestylePersistentDaemonSlot)
         let preservePTYSession =
@@ -99,6 +102,7 @@ extension SessionRemoteWorkspaceSnapshot {
         return WorkspaceRemoteConfiguration(
             transport: transport,
             terminalTransport: restoredTerminalTransport,
+            terminalProfile: restoredTerminalProfile,
             destination: normalizedDestination,
             port: normalizedPort,
             identityFile: Self.normalizedIdentityPath(identityFile),
@@ -125,7 +129,8 @@ extension SessionRemoteWorkspaceSnapshot {
                 let fallbackCommand = sshReconnectCommand(
                     destination: normalizedDestination,
                     port: normalizedPort,
-                    sshOptions: restoredSSHOptions
+                    sshOptions: restoredSSHOptions,
+                    terminalProfile: restoredTerminalProfile
                 )
                 guard restoredTerminalTransport == .mosh,
                       let fallbackCommand else {
@@ -135,6 +140,7 @@ extension SessionRemoteWorkspaceSnapshot {
                     destination: normalizedDestination,
                     port: normalizedPort,
                     sshOptions: restoredSSHOptions,
+                    terminalProfile: restoredTerminalProfile,
                     sshFallbackCommand: fallbackCommand
                 )
             }(),
@@ -165,7 +171,8 @@ extension SessionRemoteWorkspaceSnapshot {
     private func sshReconnectCommand(
         destination normalizedDestination: String,
         port normalizedPort: Int?,
-        sshOptions reconnectSSHOptions: [String]? = nil
+        sshOptions reconnectSSHOptions: [String]? = nil,
+        terminalProfile: WorkspaceRemoteTerminalProfile = .shell
     ) -> String? {
         var arguments = sshBootstrapArguments(
             port: normalizedPort,
@@ -175,7 +182,13 @@ extension SessionRemoteWorkspaceSnapshot {
         if !Self.hasSSHOptionKey(normalizedOptions, key: "RequestTTY") {
             arguments.append("-tt")
         }
+        if !terminalProfile.remoteCommandArguments.isEmpty {
+            arguments = [arguments[0]]
+                + SSHHostConfiguredRemoteCommand().overrideArguments
+                + arguments.dropFirst()
+        }
         arguments.append(normalizedDestination)
+        arguments.append(contentsOf: terminalProfile.remoteCommandArguments)
         return arguments.map(Self.shellQuote).joined(separator: " ")
     }
 
@@ -183,6 +196,7 @@ extension SessionRemoteWorkspaceSnapshot {
         destination normalizedDestination: String,
         port normalizedPort: Int?,
         sshOptions reconnectSSHOptions: [String],
+        terminalProfile: WorkspaceRemoteTerminalProfile,
         sshFallbackCommand: String
     ) -> String {
         let sshArguments = sshBootstrapArguments(
@@ -196,7 +210,7 @@ extension SessionRemoteWorkspaceSnapshot {
             capabilityProbeSSHArguments: moshSSHArguments,
             sessionSSHArguments: moshSSHArguments,
             destination: normalizedDestination,
-            remoteCommandArguments: [],
+            remoteCommandArguments: terminalProfile.remoteCommandArguments,
             sshFallbackCommand: sshFallbackCommand,
             localMoshMissingMessage: String(
                 localized: "cli.ssh.mosh.localMissing",

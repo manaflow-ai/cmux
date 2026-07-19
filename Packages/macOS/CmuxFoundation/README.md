@@ -16,6 +16,8 @@ so call sites read naturally (`value.javaScriptStringLiteral`, not `f(value)`).
 - `String.javaScriptStringLiteral` — the string encoded as a quoted JavaScript string literal.
 - `SSHAgentSocketResolver` — OpenSSH option parsing and SSH agent socket path normalization.
 - `MoshTerminalCommandBuilder` — a pure Mosh startup-command builder with explicit SSH fallback.
+- `RemoteTmuxCommandBuilder` — shared remote `tmux` resolution and argv preservation.
+- `WorkspaceRemoteTerminalProfile` — durable shell-or-named-tmux terminal intent.
 - `WorkspaceRemoteTerminalTransport` — the persisted SSH-or-Mosh interactive terminal preference.
 
 ## Usage
@@ -42,6 +44,14 @@ let command = MoshTerminalCommandBuilder(
     remoteMoshMissingMessage: "mosh-server is unavailable remotely; using SSH.",
     remoteMoshProbeFailedMessage: "Mosh capability check failed; using SSH."
 ).command()
+```
+
+Transport and terminal program are orthogonal values, so a Mosh workspace can durably
+restore a named tmux session without moving daemon or proxy traffic away from SSH:
+
+```swift
+let profile = WorkspaceRemoteTerminalProfile(kind: .tmux, tmuxSessionName: "agent-main")
+let remoteArguments = profile?.remoteCommandArguments
 ```
 
 ## Testing

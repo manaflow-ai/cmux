@@ -493,6 +493,8 @@ final class TerminalControllerSocketSecurityTests {
                 "workspace_id": workspace.id.uuidString,
                 "transport": "ssh",
                 "terminal_transport": "mosh",
+                "terminal_profile": "tmux",
+                "terminal_tmux_session": "agent-main",
                 "destination": "example.com",
                 "preserve_after_terminal_exit": true,
                 "auto_connect": false,
@@ -502,8 +504,13 @@ final class TerminalControllerSocketSecurityTests {
         #expect(response["ok"] as? Bool == true)
         let configuration = try #require(workspace.remoteConfiguration)
         #expect(configuration.terminalTransport == .mosh)
+        #expect(configuration.terminalProfile.tmuxSessionName == "agent-main")
         #expect(!configuration.preserveAfterTerminalExit)
         #expect(configuration.persistentDaemonSlot == nil)
+        let remotePayload = try #require(response["result"] as? [String: Any])
+        let remote = try #require(remotePayload["remote"] as? [String: Any])
+        #expect(remote["terminal_profile"] as? String == "tmux")
+        #expect(remote["terminal_tmux_session"] as? String == "agent-main")
     }
 
     @Test func testRemoteConfigureDerivesAgentSocketPathFromForwardAgentOption() throws {

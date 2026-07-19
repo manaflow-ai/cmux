@@ -12,6 +12,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     public let transport: WorkspaceRemoteTransport
     /// Protocol used by the user-facing interactive terminal.
     public let terminalTransport: WorkspaceRemoteTerminalTransport
+    /// Durable program profile opened in the interactive terminal.
+    public let terminalProfile: WorkspaceRemoteTerminalProfile
     /// SSH destination (`user@host` or `host`).
     public let destination: String
     /// Explicit SSH port, when configured.
@@ -62,6 +64,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     public init(
         transport: WorkspaceRemoteTransport = .ssh,
         terminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
+        terminalProfile: WorkspaceRemoteTerminalProfile = .shell,
         destination: String,
         port: Int?,
         identityFile: String?,
@@ -84,6 +87,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     ) {
         self.transport = transport
         self.terminalTransport = terminalTransport
+        self.terminalProfile = terminalProfile
         self.destination = destination
         self.port = port
         self.identityFile = identityFile
@@ -111,6 +115,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     public init(
         transport: WorkspaceRemoteTransport = .ssh,
         terminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
+        terminalProfile: WorkspaceRemoteTerminalProfile = .shell,
         destination: String,
         port: Int?,
         identityFile: String?,
@@ -133,6 +138,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         self.init(
             transport: transport,
             terminalTransport: terminalTransport,
+            terminalProfile: terminalProfile,
             destination: destination,
             port: port,
             identityFile: identityFile,
@@ -159,6 +165,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.transport == rhs.transport &&
             lhs.terminalTransport == rhs.terminalTransport &&
+            lhs.terminalProfile == rhs.terminalProfile &&
             lhs.destination == rhs.destination &&
             lhs.port == rhs.port &&
             lhs.identityFile == rhs.identityFile &&
@@ -312,6 +319,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         WorkspaceRemoteConfiguration(
             transport: transport,
             terminalTransport: terminalTransport,
+            terminalProfile: terminalProfile,
             destination: destination,
             port: port,
             identityFile: identityFile,
@@ -338,6 +346,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         WorkspaceRemoteConfiguration(
             transport: transport,
             terminalTransport: terminalTransport,
+            terminalProfile: terminalProfile,
             destination: destination,
             port: port,
             identityFile: identityFile,
@@ -398,6 +407,7 @@ extension WorkspaceRemoteConfiguration {
             return SessionRemoteWorkspaceSnapshot(
                 transport: transport,
                 terminalTransport: terminalTransport,
+                terminalProfile: terminalProfile,
                 destination: normalizedDestination,
                 port: nil,
                 identityFile: nil,
@@ -415,6 +425,7 @@ extension WorkspaceRemoteConfiguration {
         return SessionRemoteWorkspaceSnapshot(
             transport: transport,
             terminalTransport: terminalTransport,
+            terminalProfile: terminalProfile,
             destination: normalizedDestination,
             port: port,
             identityFile: Self.normalizedIdentityPath(identityFile),

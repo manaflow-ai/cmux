@@ -39,4 +39,42 @@ extension CMUXCLI {
         )
         return "\(help)\n\n\(moshHelp)"
     }
+
+    static var moshCommandUsage: String {
+        String(localized: "cli.help.mosh", defaultValue: """
+        Usage: cmux mosh <destination> [flags] [-- <remote-command-args>]
+
+        Create a first-class remote workspace with Mosh as the interactive terminal
+        transport. SSH remains the management lane for remote metadata, daemon control,
+        proxy/egress, uploads, cwd/git integration, and reconnect actions.
+
+        Accepts the same workspace and SSH bootstrap flags as `cmux ssh`. If Mosh is
+        unavailable locally or remotely, cmux explains why and falls back to SSH.
+
+        Example:
+          cmux mosh dev@my-host
+        """)
+    }
+
+    static var moshTmuxCommandUsage: String {
+        String(localized: "cli.help.mosh-tmux", defaultValue: """
+        Usage: cmux mosh-tmux <destination> [--session <name>] [flags]
+
+        Create a first-class remote workspace whose Mosh terminal creates or attaches
+        to a named tmux session (default: main). The tmux profile persists across cmux
+        workspace reconnect and app session restore.
+
+        This is a terminal-attached tmux session that roams with Mosh. It is distinct
+        from `cmux ssh-tmux`, which uses SSH and tmux control mode to mirror sessions,
+        windows, and panes as native cmux workspaces, tabs, and splits.
+
+        `--session <name>` selects the tmux session. All other workspace and SSH
+        bootstrap flags match `cmux mosh`. If Mosh is unavailable, cmux runs the
+        same managed tmux profile over SSH.
+
+        Example:
+          cmux mosh-tmux dev@my-host
+          cmux mosh-tmux dev@my-host --session agent-main
+        """)
+    }
 }

@@ -31,9 +31,11 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 
 #### 3.1.1 Interactive Terminal Transport
 - `DONE` `cmux ssh <destination> --transport mosh` selects Mosh for the interactive terminal and persists that preference in remote workspace metadata and session snapshots.
+- `DONE` `cmux mosh <destination>` is a command-level alias for the same first-class remote-workspace path, with Mosh selected by default.
+- `DONE` `cmux mosh-tmux <destination> [--session <name>]` creates or attaches a terminal-hosted tmux session over Mosh while preserving remote metadata, daemon/control, relay, proxy/egress, upload, and reconnect behavior. The typed shell-or-tmux terminal profile persists across workspace reconnect and app session restore.
 - `DONE` terminal transport is separate from management transport. Mosh carries only the interactive PTY; SSH remains responsible for `cmuxd-remote` upload/bootstrap, daemon RPC, the reverse CLI relay, proxy/egress traffic, file uploads, capability probes, and reconnect controls.
 - `DONE` cmux requires a local Mosh client with `--experimental-remote-ip=remote` support (Mosh 1.4+), then checks for remote `mosh-server`. A missing/incompatible client, missing server, or failed capability probe produces an explicit message and falls back to the existing SSH terminal command.
-- `DEFERRED` Mosh-based tmux mirroring, running the daemon/control lane over Mosh, and automatic recovery from blocked UDP after a successful Mosh capability probe.
+- `DEFERRED` Native `ssh-tmux`-style mirroring over Mosh: tmux control mode requires a lossless byte stream, while Mosh exposes synchronized terminal screen state. `mosh-tmux` therefore provides a real roaming terminal attach, not a mislabeled native mirror. Also deferred: running the daemon/control lane over Mosh and automatic recovery from blocked UDP after a successful Mosh capability probe.
 
 ### 3.2 Bootstrap + Daemon
 - `DONE` local app probes remote platform, verifies a release-pinned `cmuxd-remote` artifact by embedded manifest SHA-256, uploads it when missing, and runs `serve --stdio`.
@@ -236,7 +238,8 @@ Before declaring browser proxying complete:
 ### 10.3 Interactive Terminal Transport
 1. `workspace.remote.configure.terminal_transport` accepts `ssh` (default) or `mosh` and rejects other values with `invalid_params`.
 2. `mosh` is valid only when the workspace management transport is SSH and cmux performs the normal daemon bootstrap; cloud/WebSocket and pre-baked-daemon paths remain SSH-terminal-only in this milestone.
-3. `workspace.remote.status.remote.terminal_transport` reports the persisted terminal preference. The separate `transport` field continues to report the management/control transport.
+3. `workspace.remote.configure.terminal_profile` accepts `shell` (default) or `tmux`; `terminal_tmux_session` carries the validated named session and defaults to `main` for tmux profiles.
+4. `workspace.remote.status.remote` reports `terminal_transport`, `terminal_profile`, and `terminal_tmux_session`; the separate `transport` field continues to report the management/control transport.
 
 ### 10.4 SSH Docker E2E Harness Knobs
 1. `CMUX_SSH_TEST_DOCKER_HOST` sets the SSH destination host/IP used by docker-backed SSH fixtures (default `127.0.0.1`).

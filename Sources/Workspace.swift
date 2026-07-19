@@ -5274,6 +5274,8 @@ final class Workspace: Identifiable, ObservableObject {
         }
         payload["transport"] = (remoteConfiguration?.transport.rawValue as Any?) ?? NSNull()
         payload["terminal_transport"] = (remoteConfiguration?.terminalTransport.rawValue as Any?) ?? NSNull()
+        payload["terminal_profile"] = (remoteConfiguration?.terminalProfile.kind.rawValue as Any?) ?? NSNull()
+        payload["terminal_tmux_session"] = (remoteConfiguration?.terminalProfile.tmuxSessionName as Any?) ?? NSNull()
         if let remoteConfiguration {
             payload["destination"] = remoteConfiguration.destination
             payload["port"] = remoteConfiguration.port ?? NSNull()

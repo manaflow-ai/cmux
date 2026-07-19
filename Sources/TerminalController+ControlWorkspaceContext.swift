@@ -502,8 +502,11 @@ extension TerminalController: ControlWorkspaceContext {
         let sshOptions = v2StringArray(params, "ssh_options") ?? []
         let remoteTransports = remoteTransportConfiguration(params)
         if let error = remoteTransports.error { return error }
+        let remoteTerminalProfile = remoteTerminalProfileConfiguration(params)
+        if let error = remoteTerminalProfile.error { return error }
         let (transport, terminalTransport, skipDaemonBootstrap) =
             (remoteTransports.management, remoteTransports.terminal, remoteTransports.skipDaemonBootstrap)
+        let terminalProfile = remoteTerminalProfile.profile
         let autoConnect = v2Bool(params, "auto_connect") ?? true
         var relayPort: Int?
         if v2HasNonNullParam(params, "relay_port") {
@@ -628,6 +631,7 @@ extension TerminalController: ControlWorkspaceContext {
         let config = WorkspaceRemoteConfiguration(
             transport: transport,
             terminalTransport: terminalTransport,
+            terminalProfile: terminalProfile,
             destination: destination,
             port: sshPort,
             identityFile: identityFile?.isEmpty == true ? nil : identityFile,

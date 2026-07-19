@@ -1,8 +1,21 @@
 import CmuxCore
 import CmuxControlSocket
+import CmuxFoundation
 import Foundation
 
 extension TerminalController {
+    func remoteTerminalProfileConfiguration(
+        _ params: [String: Any]
+    ) -> (profile: WorkspaceRemoteTerminalProfile, error: ControlCallResult?) {
+        guard let profile = WorkspaceRemoteTerminalProfile(
+            remoteConfigurationValue: v2RawString(params, "terminal_profile"),
+            tmuxSessionName: v2RawString(params, "terminal_tmux_session")
+        ) else {
+            return (.shell, invalidRemoteTerminalProfileResult())
+        }
+        return (profile, nil)
+    }
+
     func remoteTransportConfiguration(
         _ params: [String: Any]
     ) -> (
@@ -35,6 +48,17 @@ extension TerminalController {
             message: String(
                 localized: "socket.workspace.remote.terminalTransport.invalid",
                 defaultValue: "terminal_transport must be 'ssh' or 'mosh'"
+            ),
+            data: nil
+        )
+    }
+
+    func invalidRemoteTerminalProfileResult() -> ControlCallResult {
+        .err(
+            code: "invalid_params",
+            message: String(
+                localized: "socket.workspace.remote.terminalProfile.invalid",
+                defaultValue: "terminal_profile must be 'shell' or 'tmux', with a valid terminal_tmux_session"
             ),
             data: nil
         )

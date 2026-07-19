@@ -13,6 +13,7 @@ extension CMUXCLI {
         var sshOptions: [String]
         let extraArguments: [String]
         let terminalTransport: WorkspaceRemoteTerminalTransport
+        let terminalProfile: WorkspaceRemoteTerminalProfile
         let agentSocketPath: String?
         let passwordCredential: String?
         let localSocketPath: String
@@ -34,6 +35,7 @@ extension CMUXCLI {
             sshOptions: [String],
             extraArguments: [String],
             terminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
+            terminalProfile: WorkspaceRemoteTerminalProfile = .shell,
             agentSocketPath: String? = nil,
             passwordCredential: String? = nil,
             localSocketPath: String,
@@ -52,6 +54,7 @@ extension CMUXCLI {
             self.sshOptions = sshOptions
             self.extraArguments = extraArguments
             self.terminalTransport = terminalTransport
+            self.terminalProfile = terminalProfile
             self.agentSocketPath = agentSocketPath
             self.passwordCredential = passwordCredential
             self.localSocketPath = localSocketPath
