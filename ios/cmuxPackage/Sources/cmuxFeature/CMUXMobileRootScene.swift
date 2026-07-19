@@ -57,9 +57,13 @@ public struct CMUXMobileRootScene: View {
     /// separately and replaces this at the composition root without touching the
     /// shell.
     private let draftStore: any TerminalDraftStoring
-    /// The bounded structured diagnostic log injected into the shell store.
-    /// Release builds retain only fixed categories and numeric magnitudes.
+    /// The bounded privacy-safe diagnostic log shared by the production shell
+    /// store and the in-app diagnostics exporter.
+    #if os(iOS)
+    private let diagnosticLog: DiagnosticLog
+    #else
     private let diagnosticLog: DiagnosticLog?
+    #endif
 
     #if os(iOS)
     /// Creates the root scene.
