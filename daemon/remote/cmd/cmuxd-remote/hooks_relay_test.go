@@ -1,10 +1,36 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
+	"encoding/json"
+	"net"
 	"strings"
 	"testing"
 )
+
+func TestChunkedHookAppendFailureCancelsTransfer(t *testing.T) {
+	sockPath, requests := startFailingHookAppendSocket(t)
+	_, err := invokeRemoteHook(
+		sockPath,
+		[]string{"omp", "session-start"},
+		bytes.Repeat([]byte("x"), remoteHookDirectBytes+1),
+		func() string { return "" },
+	)
+	if err == nil {
+		t.Fatal("append failure should fail the hook invocation")
+	}
+
+	for _, expectedMethod := range []string{"hooks.invoke.begin", "hooks.invoke.append", "hooks.invoke.cancel"} {
+		request := receiveRequest(t, requests)
+		if request["method"] != expectedMethod {
+			t.Fatalf("expected %s, got %v", expectedMethod, request["method"])
+		}
+		if expectedMethod == "hooks.invoke.cancel" && params(request)["transfer_id"] != "0:00000000-0000-0000-0000-000000000001" {
+			t.Fatalf("cancel request lost transfer id: %#v", params(request))
+		}
+	}
+}
 
 func TestHooksEventRelaysPayloadAndRemoteTarget(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
@@ -42,4 +68,48 @@ func TestHooksEventRelaysPayloadAndRemoteTarget(t *testing.T) {
 	if environment["CMUX_SURFACE_ID"] != "remote-surface" {
 		t.Fatalf("expected remote surface context, got %v", environment["CMUX_SURFACE_ID"])
 	}
+}
+
+func startFailingHookAppendSocket(t *testing.T) (string, <-chan map[string]any) {
+	t.Helper()
+	sockPath := makeShortUnixSocketPath(t)
+	requests := make(chan map[string]any, 4)
+	listener, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatalf("listen for hook relay test: %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	go func() {
+		for {
+			connection, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func(connection net.Conn) {
+				defer connection.Close()
+				var request map[string]any
+				if json.NewDecoder(connection).Decode(&request) != nil {
+					return
+				}
+				requests <- request
+				response := map[string]any{"id": request["id"], "ok": true, "result": map[string]any{}}
+				switch request["method"] {
+				case "hooks.invoke.begin":
+					response["result"] = map[string]any{
+						"transfer_id": "0:00000000-0000-0000-0000-000000000001",
+					}
+				case "hooks.invoke.append":
+					response = map[string]any{
+						"id":    request["id"],
+						"ok":    false,
+						"error": map[string]any{"code": "append_failed", "message": "test failure"},
+					}
+				}
+				_ = json.NewEncoder(connection).Encode(response)
+			}(connection)
+		}
+	}()
+
+	return sockPath, requests
 }
