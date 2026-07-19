@@ -693,6 +693,10 @@ struct FileExplorerStoreTests {
             !store.isExpanded(directory),
             "Refreshing a collapsed directory row must not write a synthetic expansion back into the store."
         )
+        #expect(
+            !outlineView.isItemExpanded(directory),
+            "Refreshing a collapsed directory row must not expand the AppKit outline item."
+        )
     }
 }
 
