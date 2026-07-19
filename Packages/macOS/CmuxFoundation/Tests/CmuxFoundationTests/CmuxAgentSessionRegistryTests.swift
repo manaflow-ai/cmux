@@ -433,6 +433,22 @@ struct CmuxAgentSessionRegistryTests {
             try fixture.registry.snapshot(provider: relevantProvider).records.map(\.sessionID)
                 == [relevantSessionID]
         )
+
+        let unchanged = try fixture.registry.refreshLegacySources(
+            [.init(provider: relevantProvider, url: relevantURL)],
+            maximumReadBytes: 0
+        )
+        #expect(unchanged.failedProviders.isEmpty)
+        #expect(unchanged.sourceReadBudgetUsed == 0)
+
+        let firstNoiseSource = try #require(sources.first)
+        let retried = try fixture.registry.refreshLegacySources(
+            [firstNoiseSource],
+            maximumReadBytes: Int64(noiseData.count)
+        )
+        #expect(retried.refreshedProviders == [firstNoiseSource.provider])
+        #expect(retried.failedProviders.isEmpty)
+        #expect(retried.readBudgetExceededProviders.isEmpty)
     }
 
     @Test("restore preflight retries one exact sidecar replacement")
