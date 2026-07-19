@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -93,6 +94,7 @@ struct RemoteShellPromptRelayTests {
         let logFile = directory.appendingPathComponent("relay.log")
         try FileManager.default.createDirectory(at: gitDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        guard Darwin.mkfifo(logFile.path, 0o600) == 0 else { throw POSIXError(.EIO) }
         defer { try? FileManager.default.removeItem(at: directory) }
 
         try integration.write(to: integrationFile, atomically: true, encoding: .utf8)
@@ -101,7 +103,7 @@ struct RemoteShellPromptRelayTests {
             atomically: true,
             encoding: .utf8
         )
-        try "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$CMUX_TEST_LOG\"\n".write(
+        try "#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$CMUX_TEST_LOG\"\n".write(
             to: cmuxFile,
             atomically: true,
             encoding: .utf8
@@ -111,7 +113,6 @@ struct RemoteShellPromptRelayTests {
         let modeSetup = mode == "git"
             ? "_CMUX_SHELL_ACTIVITY_LAST=prompt"
             : "CMUX_NO_GIT_WATCH=1; export CMUX_NO_GIT_WATCH"
-        let pidExpression = mode == "git" ? "${_CMUX_GIT_JOB_PID:-}" : "$!"
         let process = Process()
         let standardOutput = Pipe()
         let standardError = Pipe()
@@ -123,10 +124,12 @@ struct RemoteShellPromptRelayTests {
             _CMUX_PWD_LAST_PWD="$PWD"
             _CMUX_PORTS_LAST_RUN="$(_cmux_now)"
             \(modeSetup)
+            exec 9<> "$CMUX_TEST_LOG"
             \(promptFunction)
-            cmux_bg_pid="\(pidExpression)"
-            if [ -n "$cmux_bg_pid" ]; then wait "$cmux_bg_pid" 2>/dev/null || true; fi
-            cat "$CMUX_TEST_LOG" 2>/dev/null || true
+            cmux_relay_line=""
+            IFS= read -r -t 2 cmux_relay_line <&9 || true
+            printf '%s\n' "$cmux_relay_line"
+            exec 9>&-
             """,
         ]
         process.currentDirectoryURL = repository
