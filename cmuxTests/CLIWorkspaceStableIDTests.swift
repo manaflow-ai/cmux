@@ -24,6 +24,11 @@ struct CLIWorkspaceStableIDTests {
             #expect(workspace["id"] as? String == Self.workspaceID, Comment(rawValue: "command=\(command) row=\(workspace)"))
             #expect(workspace["ref"] as? String == "workspace:1", Comment(rawValue: "command=\(command) row=\(workspace)"))
             assertDefaultIdentifierShape(in: root, command: command)
+            if command.first == "top" {
+                let tag = try topTagRow(in: root)
+                #expect(tag["id"] == nil, Comment(rawValue: "command=\(command) row=\(tag)"))
+                #expect(tag["ref"] as? String == "workspace:\(Self.workspaceID):tag:agent")
+            }
         }
     }
 
@@ -36,17 +41,31 @@ struct CLIWorkspaceStableIDTests {
             ("both", true, true),
         ]
 
+        let commands = [
+            ["list-workspaces", "--window", Self.windowID, "--json"],
+            ["workspace", "list", "--window", Self.windowID, "--json"],
+            ["current-workspace", "--window", Self.windowID, "--json"],
+            ["tree", "--window", Self.windowID, "--json"],
+            ["top", "--window", Self.windowID, "--json"],
+        ]
+
         for expectation in expectations {
-            let command = [
-                "workspace", "list", "--window", Self.windowID, "--json",
-                "--id-format", expectation.mode,
-            ]
-            let result = try await run(command: command, cliPath: cliPath)
-            #expect(!result.timedOut, Comment(rawValue: result.stderr))
-            #expect(result.status == 0, Comment(rawValue: result.stderr))
-            let workspace = try workspaceRow(in: responseObject(in: result.stdout))
-            #expect((workspace["id"] as? String) == (expectation.hasID ? Self.workspaceID : nil))
-            #expect((workspace["ref"] as? String) == (expectation.hasRef ? "workspace:1" : nil))
+            for baseCommand in commands {
+                let command = baseCommand + ["--id-format", expectation.mode]
+                let result = try await run(command: command, cliPath: cliPath)
+                #expect(!result.timedOut, Comment(rawValue: result.stderr))
+                #expect(result.status == 0, Comment(rawValue: result.stderr))
+                let root = try responseObject(in: result.stdout)
+                let workspace = try workspaceRow(in: root)
+                #expect((workspace["id"] as? String) == (expectation.hasID ? Self.workspaceID : nil))
+                #expect((workspace["ref"] as? String) == (expectation.hasRef ? "workspace:1" : nil))
+                assertExplicitIdentifierShape(
+                    in: root,
+                    command: command,
+                    hasIDs: expectation.hasID,
+                    hasRefs: expectation.hasRef
+                )
+            }
         }
     }
 
@@ -97,11 +116,18 @@ struct CLIWorkspaceStableIDTests {
         return try #require((window["workspaces"] as? [[String: Any]])?.first)
     }
 
+    private func topTagRow(in root: [String: Any]) throws -> [String: Any] {
+        let window = try #require((root["windows"] as? [[String: Any]])?.first)
+        let workspace = try #require((window["workspaces"] as? [[String: Any]])?.first)
+        return try #require((workspace["tags"] as? [[String: Any]])?.first)
+    }
+
     private func assertDefaultIdentifierShape(in value: Any, command: [String]) {
         if let dictionary = value as? [String: Any] {
             if let ref = dictionary["ref"] as? String {
                 let id = dictionary["id"] as? String
-                if ref.hasPrefix("workspace:") {
+                let components = ref.split(separator: ":", omittingEmptySubsequences: false)
+                if components.count == 2, components.first == Substring("workspace") {
                     #expect(id == Self.workspaceID, Comment(rawValue: "command=\(command) row=\(dictionary)"))
                 } else {
                     #expect(id == nil, Comment(rawValue: "command=\(command) row=\(dictionary)"))
@@ -121,6 +147,58 @@ struct CLIWorkspaceStableIDTests {
         } else if let array = value as? [Any] {
             for child in array {
                 assertDefaultIdentifierShape(in: child, command: command)
+            }
+        }
+    }
+
+    private func assertExplicitIdentifierShape(
+        in value: Any,
+        command: [String],
+        hasIDs: Bool,
+        hasRefs: Bool
+    ) {
+        if let dictionary = value as? [String: Any] {
+            if dictionary["id"] != nil || dictionary["ref"] != nil {
+                #expect((dictionary["id"] != nil) == hasIDs, Comment(rawValue: "command=\(command) row=\(dictionary)"))
+                #expect((dictionary["ref"] != nil) == hasRefs, Comment(rawValue: "command=\(command) row=\(dictionary)"))
+            }
+
+            let singularPrefixes = Set(dictionary.keys.compactMap { key -> String? in
+                if key.hasSuffix("_id") { return String(key.dropLast(3)) }
+                if key.hasSuffix("_ref") { return String(key.dropLast(4)) }
+                return nil
+            })
+            for prefix in singularPrefixes {
+                #expect((dictionary["\(prefix)_id"] != nil) == hasIDs, Comment(rawValue: "command=\(command) row=\(dictionary)"))
+                #expect((dictionary["\(prefix)_ref"] != nil) == hasRefs, Comment(rawValue: "command=\(command) row=\(dictionary)"))
+            }
+
+            let pluralPrefixes = Set(dictionary.keys.compactMap { key -> String? in
+                if key.hasSuffix("_ids") { return String(key.dropLast(4)) }
+                if key.hasSuffix("_refs") { return String(key.dropLast(5)) }
+                return nil
+            })
+            for prefix in pluralPrefixes {
+                #expect((dictionary["\(prefix)_ids"] != nil) == hasIDs, Comment(rawValue: "command=\(command) row=\(dictionary)"))
+                #expect((dictionary["\(prefix)_refs"] != nil) == hasRefs, Comment(rawValue: "command=\(command) row=\(dictionary)"))
+            }
+
+            for child in dictionary.values {
+                assertExplicitIdentifierShape(
+                    in: child,
+                    command: command,
+                    hasIDs: hasIDs,
+                    hasRefs: hasRefs
+                )
+            }
+        } else if let array = value as? [Any] {
+            for child in array {
+                assertExplicitIdentifierShape(
+                    in: child,
+                    command: command,
+                    hasIDs: hasIDs,
+                    hasRefs: hasRefs
+                )
             }
         }
     }

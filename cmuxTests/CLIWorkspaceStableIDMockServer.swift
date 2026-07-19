@@ -127,7 +127,7 @@ struct CLIWorkspaceStableIDMockServer: Sendable {
                     "workspace": workspaceRow(),
                 ]
             )
-        case "system.tree", "system.top":
+        case "system.tree":
             return encodedResponse(
                 id: requestID,
                 result: [
@@ -141,6 +141,20 @@ struct CLIWorkspaceStableIDMockServer: Sendable {
                     ]],
                 ]
             )
+        case "system.top":
+            return encodedResponse(
+                id: requestID,
+                result: [
+                    "active": NSNull(),
+                    "caller": NSNull(),
+                    "windows": [[
+                        "id": windowID,
+                        "ref": "window:1",
+                        "index": 0,
+                        "workspaces": [workspaceRow(includingTopTag: true)],
+                    ]],
+                ]
+            )
         default:
             return encodedResponse(
                 id: requestID,
@@ -149,8 +163,8 @@ struct CLIWorkspaceStableIDMockServer: Sendable {
         }
     }
 
-    private func workspaceRow() -> [String: Any] {
-        [
+    private func workspaceRow(includingTopTag: Bool = false) -> [String: Any] {
+        var row: [String: Any] = [
             "id": workspaceID,
             "ref": "workspace:1",
             "index": 0,
@@ -172,6 +186,17 @@ struct CLIWorkspaceStableIDMockServer: Sendable {
                 "state": "connected",
             ],
         ]
+        if includingTopTag {
+            row["tags"] = [[
+                "kind": "tag",
+                "id": "\(workspaceID):tag:agent",
+                "ref": "workspace:\(workspaceID):tag:agent",
+                "index": 0,
+                "key": "agent",
+                "value": "running",
+            ]]
+        }
+        return row
     }
 
     private func encodedResponse(
