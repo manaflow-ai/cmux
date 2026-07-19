@@ -461,6 +461,7 @@ impl CmuxClient {
         &mut self,
         options: CreateWorkspaceOptions<'_>,
     ) -> Result<WorkspacePlacement> {
+        self.require_capability("workspace-registry-v1", "workspace registry")?;
         let mut params = Map::new();
         insert_opt(&mut params, "name", options.name);
         insert_opt(&mut params, "key", options.key);
@@ -472,6 +473,7 @@ impl CmuxClient {
         &mut self,
         options: CreateTerminalOptions<'_>,
     ) -> Result<TerminalPlacement> {
+        self.require_capability("workspace-registry-v1", "workspace registry")?;
         let mut params = Map::new();
         insert_opt(&mut params, "workspace", options.workspace);
         insert_opt(&mut params, "key", options.key);
@@ -553,6 +555,7 @@ impl CmuxClient {
         &mut self,
         options: WorkspaceSelectorOptions<'_>,
     ) -> Result<WorkspaceMutation> {
+        self.require_capability("workspace-registry-v1", "workspace registry")?;
         let mut params = Map::new();
         insert_opt(&mut params, "workspace", options.workspace);
         insert_opt(&mut params, "key", options.key);
@@ -592,6 +595,7 @@ impl CmuxClient {
         options: WorkspaceSelectorOptions<'_>,
         name: &str,
     ) -> Result<WorkspaceMutation> {
+        self.require_capability("workspace-registry-v1", "workspace registry")?;
         let mut params = Map::new();
         insert_opt(&mut params, "workspace", options.workspace);
         insert_opt(&mut params, "key", options.key);
@@ -668,6 +672,7 @@ impl CmuxClient {
         options: WorkspaceSelectorOptions<'_>,
         index: usize,
     ) -> Result<WorkspaceMutation> {
+        self.require_capability("workspace-registry-v1", "workspace registry")?;
         let mut params = Map::new();
         insert_opt(&mut params, "workspace", options.workspace);
         insert_opt(&mut params, "key", options.key);
@@ -715,6 +720,16 @@ impl CmuxClient {
         insert_opt(&mut params, "cols", options.cols);
         insert_opt(&mut params, "rows", options.rows);
         self.open_stream("attach-surface", params)
+    }
+
+    fn require_capability(&mut self, capability: &str, feature: &str) -> Result<()> {
+        if self.protocol.is_none() {
+            self.identify()?;
+        }
+        if self.capabilities.iter().any(|value| value == capability) {
+            return Ok(());
+        }
+        Err(CmuxError::ProtocolVersion(format!("{feature} is not supported by this server")))
     }
 
     fn open_stream(&mut self, cmd: &str, mut params: Map<String, Value>) -> Result<CmuxStream> {

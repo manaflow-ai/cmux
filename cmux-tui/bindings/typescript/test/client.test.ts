@@ -496,11 +496,11 @@ test("generic request preserves exact wire command and typed result", async () =
 
 test("workspace registry methods preserve keys and revisions", async () => {
   const expected = [
-    { id: 1, cmd: "create-workspace", name: "gui", key: "stable", expected_revision: 4 },
-    { id: 2, cmd: "create-terminal", key: "stable", command: "echo ready" },
-    { id: 3, cmd: "rename-workspace", key: "stable", name: "renamed", expected_revision: 5 },
-    { id: 4, cmd: "move-workspace", key: "stable", index: 0, expected_revision: 6 },
-    { id: 5, cmd: "close-workspace", key: "stable", expected_revision: 7 },
+    { id: 2, cmd: "create-workspace", name: "gui", key: "stable", expected_revision: 4 },
+    { id: 3, cmd: "create-terminal", key: "stable", command: "echo ready" },
+    { id: 4, cmd: "rename-workspace", key: "stable", name: "renamed", expected_revision: 5 },
+    { id: 5, cmd: "move-workspace", key: "stable", index: 0, expected_revision: 6 },
+    { id: 6, cmd: "close-workspace", key: "stable", expected_revision: 7 },
   ];
   const responses = [
     { workspace: 1, key: "stable", index: 0, workspace_revision: 5 },
@@ -511,6 +511,21 @@ test("workspace registry methods preserve keys and revisions", async () => {
   ];
   let index = 0;
   const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: {
+          app: "cmux-tui",
+          version: "0.1.2",
+          protocol: 7,
+          capabilities: ["workspace-registry-v1"],
+          session: "main",
+          pid: 1,
+        },
+      });
+      return;
+    }
     assert.deepEqual(request, expected[index]);
     connection.emit({ id: request.id, ok: true, data: responses[index] });
     index += 1;

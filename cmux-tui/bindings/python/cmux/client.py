@@ -444,6 +444,7 @@ class CmuxClient:
         key: Optional[str] = None,
         expected_revision: Optional[int] = None,
     ) -> WorkspacePlacement:
+        self._require_capability("workspace-registry-v1", "workspace registry")
         data = self._request(
             "create-workspace",
             name=name,
@@ -468,6 +469,7 @@ class CmuxClient:
         cols: Optional[int] = None,
         rows: Optional[int] = None,
     ) -> TerminalPlacement:
+        self._require_capability("workspace-registry-v1", "workspace registry")
         data = self._request(
             "create-terminal",
             workspace=workspace,
@@ -563,6 +565,7 @@ class CmuxClient:
         key: Optional[str] = None,
         expected_revision: Optional[int] = None,
     ) -> WorkspaceMutation:
+        self._require_capability("workspace-registry-v1", "workspace registry")
         data = self._request(
             "close-workspace",
             workspace=workspace,
@@ -594,6 +597,7 @@ class CmuxClient:
         key: Optional[str] = None,
         expected_revision: Optional[int] = None,
     ) -> WorkspaceMutation:
+        self._require_capability("workspace-registry-v1", "workspace registry")
         data = self._request(
             "rename-workspace",
             workspace=workspace,
@@ -646,6 +650,7 @@ class CmuxClient:
         key: Optional[str] = None,
         expected_revision: Optional[int] = None,
     ) -> WorkspaceMutation:
+        self._require_capability("workspace-registry-v1", "workspace registry")
         data = self._request(
             "move-workspace",
             workspace=workspace,
@@ -681,6 +686,12 @@ class CmuxClient:
         if rows is not None:
             request["rows"] = rows
         return AttachStream(self, request)
+
+    def _require_capability(self, capability: str, feature: str) -> None:
+        if self._protocol is None:
+            self.identify()
+        if capability not in self._capabilities:
+            raise ProtocolError(f"{feature} is not supported by this server")
 
 
 def default_socket_path(session: str) -> str:

@@ -53,6 +53,7 @@ use crate::{
 
 pub const PROTOCOL_VERSION: u32 = 7;
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
+const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
 
 /// Default socket path for a session.
 pub fn default_socket_path(session: &str) -> PathBuf {
@@ -2430,7 +2431,7 @@ fn handle_command(
                 "app": "cmux-tui",
                 "version": env!("CARGO_PKG_VERSION"),
                 "protocol": PROTOCOL_VERSION,
-                "capabilities": [ATTACH_INITIAL_SIZE_CAPABILITY],
+                "capabilities": [ATTACH_INITIAL_SIZE_CAPABILITY, WORKSPACE_REGISTRY_CAPABILITY],
                 "session": mux.session,
                 "pid": std::process::id(),
             });
@@ -4554,13 +4555,14 @@ mod tests {
     }
 
     #[test]
-    fn identify_advertises_initial_attach_size_capability() {
+    fn identify_advertises_additive_capabilities() {
         let mux = test_mux();
         let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
 
-        assert!(identity["capabilities"].as_array().is_some_and(|capabilities| {
-            capabilities.iter().any(|value| value.as_str() == Some("attach-initial-size"))
-        }));
+        let capabilities = identity["capabilities"].as_array().expect("capabilities");
+        for expected in ["attach-initial-size", "workspace-registry-v1"] {
+            assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
+        }
     }
 
     #[test]

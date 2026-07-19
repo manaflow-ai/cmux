@@ -160,7 +160,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":7,"capabilities":["attach-initial-size"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":7,"capabilities":["attach-initial-size","workspace-registry-v1"],"session":"main","pid":12345}}
 ```
 
 This implemented example reports the current protocol 6; a v7 server reports `7` in the same `protocol` field, including in `ping`.
@@ -853,6 +853,8 @@ Example:
 
 ### create-workspace
 
+Requires the `workspace-registry-v1` capability. Clients must not send this command to a server that omits the capability.
+
 | Field | Value |
 | --- | --- |
 | name | `create-workspace` |
@@ -885,6 +887,8 @@ Example:
 ```
 
 ### create-terminal
+
+Requires the `workspace-registry-v1` capability. Clients must not send this command to a server that omits the capability.
 
 | Field | Value |
 | --- | --- |
@@ -1371,7 +1375,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Closes a workspace and every screen, pane, and tab in it. The workspace may be selected by stable key or numeric id. The active workspace selection is adjusted to keep a remaining workspace active when possible. `expected_revision` provides compare-and-swap protection against concurrent registry mutations.
+Closes a workspace and every screen, pane, and tab in it. The workspace may be selected by stable key or numeric id. The active workspace selection is adjusted to keep a remaining workspace active when possible. `expected_revision` provides compare-and-swap protection against concurrent registry mutations. Stable-key selection, revision CAS, and the mutation result require `workspace-registry-v1`; the legacy numeric-id form remains available without it.
 
 Params:
 
@@ -1563,7 +1567,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Sets a workspace name. The workspace may be selected by stable key or numeric id. Unlike pane, surface, and screen names, an empty `name` is stored as the workspace name. `expected_revision` provides compare-and-swap protection against concurrent registry mutations.
+Sets a workspace name. The workspace may be selected by stable key or numeric id. Unlike pane, surface, and screen names, an empty `name` is stored as the workspace name. `expected_revision` provides compare-and-swap protection against concurrent registry mutations. Stable-key selection, revision CAS, and the mutation result require `workspace-registry-v1`; the legacy numeric-id form remains available without it.
 
 Params:
 
@@ -1932,7 +1936,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Moves an existing workspace to zero-based insertion `index`. The workspace may be selected by stable key or numeric id. The destination is clamped to the last workspace after removing the source, so moving right produces a final index one less than the requested insertion index. Moving a workspace to its current position is an `ok:true` no-op that preserves the current revision. `expected_revision` provides compare-and-swap protection against concurrent registry mutations.
+Moves an existing workspace to zero-based insertion `index`. The workspace may be selected by stable key or numeric id. The destination is clamped to the last workspace after removing the source, so moving right produces a final index one less than the requested insertion index. Moving a workspace to its current position is an `ok:true` no-op that preserves the current revision. `expected_revision` provides compare-and-swap protection against concurrent registry mutations. Stable-key selection, revision CAS, and the mutation result require `workspace-registry-v1`; the legacy numeric-id form remains available without it.
 
 Params:
 

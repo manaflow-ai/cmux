@@ -34,6 +34,8 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(tree.workspaces[0].key, "stable")
 
         client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 7
+        client._capabilities = {"workspace-registry-v1"}
         client._request = lambda cmd, **_params: (
             {"workspace": 1, "key": "stable", "index": 0, "workspace_revision": 5}
             if cmd == "create-workspace"

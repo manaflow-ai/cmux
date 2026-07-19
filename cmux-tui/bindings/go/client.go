@@ -69,6 +69,7 @@ type Client struct {
 	conn                  *jsonLineConn
 	mu                    sync.Mutex
 	nextID                atomic.Uint64
+	negotiationMu         sync.RWMutex
 	protocol              *uint32
 	capabilities          map[string]struct{}
 }
@@ -198,11 +199,15 @@ func (c *Client) Identify(ctx context.Context) (IdentifyResult, error) {
 	var result IdentifyResult
 	err := c.request(ctx, "identify", nil, &result)
 	if err == nil {
-		c.protocol = &result.Protocol
-		c.capabilities = make(map[string]struct{}, len(result.Capabilities))
+		capabilities := make(map[string]struct{}, len(result.Capabilities))
 		for _, capability := range result.Capabilities {
-			c.capabilities[capability] = struct{}{}
+			capabilities[capability] = struct{}{}
 		}
+		protocol := result.Protocol
+		c.negotiationMu.Lock()
+		c.protocol = &protocol
+		c.capabilities = capabilities
+		c.negotiationMu.Unlock()
 	}
 	return result, err
 }
@@ -255,11 +260,17 @@ func (c *Client) NewWorkspace(ctx context.Context, opts NewWorkspaceOptions) (Su
 
 func (c *Client) CreateWorkspace(ctx context.Context, opts CreateWorkspaceOptions) (WorkspacePlacement, error) {
 	var result WorkspacePlacement
+	if err := c.requireCapability(ctx, "workspace-registry-v1", "workspace registry"); err != nil {
+		return result, err
+	}
 	return result, c.request(ctx, "create-workspace", commandMap(opts), &result)
 }
 
 func (c *Client) CreateTerminal(ctx context.Context, opts CreateTerminalOptions) (TerminalPlacement, error) {
 	var result TerminalPlacement
+	if err := c.requireCapability(ctx, "workspace-registry-v1", "workspace registry"); err != nil {
+		return result, err
+	}
 	return result, c.request(ctx, "create-terminal", commandMap(opts), &result)
 }
 
@@ -354,6 +365,9 @@ func (c *Client) MoveWorkspace(ctx context.Context, workspace uint64, index uint
 }
 
 func (c *Client) MoveWorkspaceRegistry(ctx context.Context, opts WorkspaceSelectorOptions, index uint) (WorkspaceMutation, error) {
+	if err := c.requireCapability(ctx, "workspace-registry-v1", "workspace registry"); err != nil {
+		return WorkspaceMutation{}, err
+	}
 	params := commandMap(opts)
 	params["index"] = index
 	var result WorkspaceMutation
@@ -361,6 +375,9 @@ func (c *Client) MoveWorkspaceRegistry(ctx context.Context, opts WorkspaceSelect
 }
 
 func (c *Client) RenameWorkspaceRegistry(ctx context.Context, opts WorkspaceSelectorOptions, name string) (WorkspaceMutation, error) {
+	if err := c.requireCapability(ctx, "workspace-registry-v1", "workspace registry"); err != nil {
+		return WorkspaceMutation{}, err
+	}
 	params := commandMap(opts)
 	params["name"] = name
 	var result WorkspaceMutation
@@ -369,6 +386,9 @@ func (c *Client) RenameWorkspaceRegistry(ctx context.Context, opts WorkspaceSele
 
 func (c *Client) CloseWorkspaceRegistry(ctx context.Context, opts WorkspaceSelectorOptions) (WorkspaceMutation, error) {
 	var result WorkspaceMutation
+	if err := c.requireCapability(ctx, "workspace-registry-v1", "workspace registry"); err != nil {
+		return result, err
+	}
 	return result, c.request(ctx, "close-workspace", commandMap(opts), &result)
 }
 
@@ -390,16 +410,15 @@ func (c *Client) AttachSurface(ctx context.Context, surface uint64) (*Stream, er
 }
 
 func (c *Client) AttachSurfaceWithOptions(ctx context.Context, surface uint64, opts AttachSurfaceOptions) (*Stream, error) {
-	protocol := c.protocol
-	if protocol == nil {
-		info, err := c.Identify(ctx)
-		if err != nil {
+	protocol, identified, _ := c.negotiatedState("")
+	if !identified {
+		if _, err := c.Identify(ctx); err != nil {
 			return nil, err
 		}
-		protocol = &info.Protocol
+		protocol, _, _ = c.negotiatedState("")
 	}
-	if *protocol > 7 || (*protocol > 5 && !c.allowProtocolV6Attach) {
-		return nil, &protocolError{msg: fmt.Sprintf("unsupported attach protocol %d", *protocol)}
+	if protocol > 7 || (protocol > 5 && !c.allowProtocolV6Attach) {
+		return nil, &protocolError{msg: fmt.Sprintf("unsupported attach protocol %d", protocol)}
 	}
 	if (opts.Cols != nil || opts.Rows != nil) && !c.hasCapability("attach-initial-size") {
 		return nil, &protocolError{msg: "initial attach sizing is not supported by this server"}
@@ -415,8 +434,32 @@ func (c *Client) AttachSurfaceWithOptions(ctx context.Context, surface uint64, o
 }
 
 func (c *Client) hasCapability(capability string) bool {
-	_, ok := c.capabilities[capability]
-	return ok
+	_, _, supported := c.negotiatedState(capability)
+	return supported
+}
+
+func (c *Client) requireCapability(ctx context.Context, capability, feature string) error {
+	_, identified, supported := c.negotiatedState(capability)
+	if !identified {
+		if _, err := c.Identify(ctx); err != nil {
+			return err
+		}
+		_, _, supported = c.negotiatedState(capability)
+	}
+	if !supported {
+		return &protocolError{msg: feature + " is not supported by this server"}
+	}
+	return nil
+}
+
+func (c *Client) negotiatedState(capability string) (uint32, bool, bool) {
+	c.negotiationMu.RLock()
+	defer c.negotiationMu.RUnlock()
+	if c.protocol == nil {
+		return 0, false, false
+	}
+	_, supported := c.capabilities[capability]
+	return *c.protocol, true, supported
 }
 
 func (c *Client) openStream(ctx context.Context, request map[string]any) (*Stream, error) {

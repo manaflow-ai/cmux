@@ -149,6 +149,7 @@ public final class CmuxClient implements AutoCloseable {
     }
 
     public WorkspacePlacement createWorkspace(CreateWorkspaceRequest createRequest) throws CmuxException {
+        requireCapability("workspace-registry-v1", "workspace registry");
         Map<String, Object> data = request("create-workspace", createRequest.toMap());
         return new WorkspacePlacement(
             asLong(data.get("workspace")),
@@ -159,6 +160,7 @@ public final class CmuxClient implements AutoCloseable {
     }
 
     public TerminalPlacement createTerminal(CreateTerminalRequest createRequest) throws CmuxException {
+        requireCapability("workspace-registry-v1", "workspace registry");
         Map<String, Object> data = request("create-terminal", createRequest.toMap());
         return new TerminalPlacement(
             asLong(data.get("surface")),
@@ -245,6 +247,7 @@ public final class CmuxClient implements AutoCloseable {
     }
 
     public WorkspaceMutation renameWorkspaceRegistry(WorkspaceSelectorRequest selector, String name) throws CmuxException {
+        requireCapability("workspace-registry-v1", "workspace registry");
         Map<String, Object> params = selector.toMap();
         params.put("name", name);
         return workspaceMutation(request("rename-workspace", params));
@@ -264,6 +267,7 @@ public final class CmuxClient implements AutoCloseable {
     }
 
     public WorkspaceMutation closeWorkspaceRegistry(WorkspaceSelectorRequest selector) throws CmuxException {
+        requireCapability("workspace-registry-v1", "workspace registry");
         return workspaceMutation(request("close-workspace", selector.toMap()));
     }
 
@@ -310,6 +314,7 @@ public final class CmuxClient implements AutoCloseable {
     }
 
     public WorkspaceMutation moveWorkspaceRegistry(WorkspaceSelectorRequest selector, int index) throws CmuxException {
+        requireCapability("workspace-registry-v1", "workspace registry");
         Map<String, Object> params = selector.toMap();
         params.put("index", index);
         return workspaceMutation(request("move-workspace", params));
@@ -357,6 +362,15 @@ public final class CmuxClient implements AutoCloseable {
         if (rows != null) params.put("rows", rows);
         params.put("id", nextId());
         return CmuxStream.open(socketPath, timeout, params);
+    }
+
+    private void requireCapability(String capability, String feature) throws CmuxException {
+        if (protocol == null) {
+            identify();
+        }
+        if (!capabilities.contains(capability)) {
+            throw new CmuxProtocolMismatchException(feature + " is not supported by this server");
+        }
     }
 
     @SuppressWarnings("unchecked")

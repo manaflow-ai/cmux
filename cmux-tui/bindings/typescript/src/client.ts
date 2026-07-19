@@ -452,10 +452,12 @@ export class CmuxClient {
     return this.request("new-browser-tab", { url, ...options });
   }
   newWorkspace(options: NewWorkspaceOptions = {}): Promise<SurfaceResult> { return this.request("new-workspace", options); }
-  createWorkspace(options: CreateWorkspaceOptions = {}): Promise<WorkspacePlacement> {
+  async createWorkspace(options: CreateWorkspaceOptions = {}): Promise<WorkspacePlacement> {
+    await this.requireCapability("workspace-registry-v1", "workspace registry");
     return this.request("create-workspace", options);
   }
-  createTerminal(options: CreateTerminalOptions): Promise<TerminalPlacement> {
+  async createTerminal(options: CreateTerminalOptions): Promise<TerminalPlacement> {
+    await this.requireCapability("workspace-registry-v1", "workspace registry");
     return this.request("create-terminal", options);
   }
   newScreen(options: NewScreenOptions = {}): Promise<SurfaceResult> { return this.request("new-screen", options); }
@@ -484,7 +486,8 @@ export class CmuxClient {
     await this.request("close-workspace", { workspace });
     return {};
   }
-  closeWorkspaceRegistry(options: CloseWorkspaceOptions): Promise<WorkspaceMutation> {
+  async closeWorkspaceRegistry(options: CloseWorkspaceOptions): Promise<WorkspaceMutation> {
+    await this.requireCapability("workspace-registry-v1", "workspace registry");
     return this.request("close-workspace", options);
   }
   renamePane(pane: Id, name: string): Promise<EmptyResult> { return this.request("rename-pane", { pane, name }); }
@@ -494,7 +497,8 @@ export class CmuxClient {
     await this.request("rename-workspace", { workspace, name });
     return {};
   }
-  renameWorkspaceRegistry(options: RenameWorkspaceOptions): Promise<WorkspaceMutation> {
+  async renameWorkspaceRegistry(options: RenameWorkspaceOptions): Promise<WorkspaceMutation> {
+    await this.requireCapability("workspace-registry-v1", "workspace registry");
     return this.request("rename-workspace", options);
   }
   async resizeSurface(surface: Id, cols: number, rows: number): Promise<ResizeSurfaceResult> {
@@ -513,7 +517,8 @@ export class CmuxClient {
     await this.request("move-workspace", { workspace, index });
     return {};
   }
-  moveWorkspaceRegistry(options: MoveWorkspaceOptions): Promise<WorkspaceMutation> {
+  async moveWorkspaceRegistry(options: MoveWorkspaceOptions): Promise<WorkspaceMutation> {
+    await this.requireCapability("workspace-registry-v1", "workspace registry");
     return this.request("move-workspace", options);
   }
   scrollSurface(surface: Id, delta: number): Promise<EmptyResult> { return this.request("scroll-surface", { surface, delta }); }
@@ -579,6 +584,15 @@ export class CmuxClient {
         retainedBytes: (event) => this.attachEventRetainedBytes(event),
       },
     );
+  }
+
+  private async requireCapability(capability: string, feature: string): Promise<void> {
+    if (this.identifiedProtocol === null) {
+      await this.identify();
+    }
+    if (!this.identifiedCapabilities.has(capability)) {
+      throw new CmuxProtocolError(`${feature} is not supported by this server`);
+    }
   }
 
   waitFor(surface: IdRef, pattern: string, timeoutMs: number): Promise<WaitForResult> {
