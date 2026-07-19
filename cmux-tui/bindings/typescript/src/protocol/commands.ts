@@ -487,11 +487,11 @@ export interface CmuxResponseDataMap {
   "close-surface": EmptyResult;
   "close-pane": EmptyResult;
   "close-screen": EmptyResult;
-  "close-workspace": WorkspaceMutation;
+  "close-workspace": EmptyResult | WorkspaceMutation;
   "rename-pane": EmptyResult;
   "rename-surface": EmptyResult;
   "rename-screen": EmptyResult;
-  "rename-workspace": WorkspaceMutation;
+  "rename-workspace": EmptyResult | WorkspaceMutation;
   "resize-surface": ResizeSurfaceResult;
   "release-surface-size": EmptyResult;
   "focus-pane": EmptyResult;
@@ -499,7 +499,7 @@ export interface CmuxResponseDataMap {
   "select-screen": EmptyResult;
   "select-workspace": EmptyResult;
   "move-tab": EmptyResult;
-  "move-workspace": WorkspaceMutation;
+  "move-workspace": EmptyResult | WorkspaceMutation;
   "scroll-surface": EmptyResult;
   subscribe: EmptyResult;
   "attach-surface": EmptyResult;

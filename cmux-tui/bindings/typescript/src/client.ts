@@ -77,6 +77,16 @@ export interface CmuxClientOptions {
 export const DEFAULT_MAX_BUFFERED_EVENTS = 256;
 export const DEFAULT_MAX_ATTACH_ENCODED_CHARS = 16 * 1024 * 1024;
 
+function workspaceMutationResult(result: EmptyResult | WorkspaceMutation): WorkspaceMutation {
+  const candidate = result as Partial<WorkspaceMutation>;
+  if (typeof candidate.workspace === "number"
+    && typeof candidate.key === "string"
+    && typeof candidate.workspace_revision === "number") {
+    return candidate as WorkspaceMutation;
+  }
+  throw new CmuxProtocolError("server returned an invalid workspace registry mutation");
+}
+
 export type NewTabOptions = CmuxRequestParams<"new-tab">;
 export type NewBrowserTabOptions = Omit<CmuxRequestParams<"new-browser-tab">, "url">;
 export type NewWorkspaceOptions = CmuxRequestParams<"new-workspace">;
@@ -488,7 +498,7 @@ export class CmuxClient {
   }
   async closeWorkspaceRegistry(options: CloseWorkspaceOptions): Promise<WorkspaceMutation> {
     await this.requireCapability("workspace-registry-v1", "workspace registry");
-    return this.request("close-workspace", options);
+    return workspaceMutationResult(await this.request("close-workspace", options));
   }
   renamePane(pane: Id, name: string): Promise<EmptyResult> { return this.request("rename-pane", { pane, name }); }
   renameSurface(surface: Id, name: string): Promise<EmptyResult> { return this.request("rename-surface", { surface, name }); }
@@ -499,7 +509,7 @@ export class CmuxClient {
   }
   async renameWorkspaceRegistry(options: RenameWorkspaceOptions): Promise<WorkspaceMutation> {
     await this.requireCapability("workspace-registry-v1", "workspace registry");
-    return this.request("rename-workspace", options);
+    return workspaceMutationResult(await this.request("rename-workspace", options));
   }
   async resizeSurface(surface: Id, cols: number, rows: number): Promise<ResizeSurfaceResult> {
     const result = await this.request("resize-surface", { surface, cols, rows });
@@ -519,7 +529,7 @@ export class CmuxClient {
   }
   async moveWorkspaceRegistry(options: MoveWorkspaceOptions): Promise<WorkspaceMutation> {
     await this.requireCapability("workspace-registry-v1", "workspace registry");
-    return this.request("move-workspace", options);
+    return workspaceMutationResult(await this.request("move-workspace", options));
   }
   scrollSurface(surface: Id, delta: number): Promise<EmptyResult> { return this.request("scroll-surface", { surface, delta }); }
 

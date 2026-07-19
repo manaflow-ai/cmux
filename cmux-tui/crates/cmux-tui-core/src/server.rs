@@ -2351,16 +2351,18 @@ fn handle_attach_send_error(lifecycle: &AttachLifecycle, error: &std::io::Error)
     }
 }
 
+struct MarkedClientAttach {
+    size_rollback: Option<crate::mux::ClientSizeRollback>,
+    client_changed: Option<(Option<String>, Option<String>)>,
+}
+
 fn mark_client_attached(
     mux: &Mux,
     client: u64,
     surface: SurfaceId,
     stream: OutboundStream,
     initial_size: Option<(u16, u16)>,
-) -> anyhow::Result<(
-    Option<crate::mux::ClientSizeRollback>,
-    Option<(Option<String>, Option<String>)>,
-)> {
+) -> anyhow::Result<MarkedClientAttach> {
     mux.control_clients.attach_surface(client, surface, stream.clone())?;
     if let Some((cols, rows)) = initial_size {
         let cols = cols.max(1);
@@ -2374,9 +2376,12 @@ fn mark_client_attached(
             cleanup_failed_attach(mux, client, surface, stream.id);
             anyhow::bail!("client {client} is not attached to surface {surface}");
         };
-        return Ok((Some(rollback), changed.then_some((name, kind))));
+        return Ok(MarkedClientAttach {
+            size_rollback: Some(rollback),
+            client_changed: changed.then_some((name, kind)),
+        });
     }
-    Ok((None, None))
+    Ok(MarkedClientAttach { size_rollback: None, client_changed: None })
 }
 
 fn announce_client_attached(mux: &Mux, client: u64) -> anyhow::Result<bool> {
@@ -3178,7 +3183,7 @@ fn handle_command(
             };
             if render_mode {
                 require_pty(&surface)?;
-                let (size_rollback, client_changed) = mark_client_attached(
+                let MarkedClientAttach { size_rollback, client_changed } = mark_client_attached(
                     mux,
                     client,
                     surface_id,
@@ -3277,7 +3282,7 @@ fn handle_command(
                 return Ok(json!({}));
             }
             if surface.kind() == SurfaceKind::Browser {
-                let (size_rollback, client_changed) = mark_client_attached(
+                let MarkedClientAttach { size_rollback, client_changed } = mark_client_attached(
                     mux,
                     client,
                     surface_id,
@@ -3402,7 +3407,7 @@ fn handle_command(
                 commit_client_attach(mux, client, client_changed)?;
                 return Ok(json!({}));
             }
-            let (size_rollback, client_changed) = mark_client_attached(
+            let MarkedClientAttach { size_rollback, client_changed } = mark_client_attached(
                 mux,
                 client,
                 surface_id,
@@ -4517,7 +4522,7 @@ mod tests {
             mark_client_attached(&mux, client, surface.id, failed.clone(), Some((60, 20))).unwrap();
         assert_eq!(mux.client_surface_size(surface.id, client), Some((60, 20)));
         assert_eq!(surface.size(), (60, 20));
-        rollback_failed_attach(&mux, client, surface.id, failed.id, rollback.0);
+        rollback_failed_attach(&mux, client, surface.id, failed.id, rollback.size_rollback);
 
         assert!(mux.control_clients.attached_client_ids().contains(&client));
         assert_eq!(mux.client_surface_size(surface.id, client), Some((80, 24)));

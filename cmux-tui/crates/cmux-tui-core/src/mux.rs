@@ -586,6 +586,13 @@ impl Mux {
         self.subscribers.emit(event);
     }
 
+    fn emit_tree_delta(&self, delta: TreeDelta, selection_resync: bool) {
+        self.emit(MuxEvent::TreeDelta(delta));
+        if selection_resync {
+            self.emit(MuxEvent::TreeChanged);
+        }
+    }
+
     pub(crate) fn lock_client_sizing_lifecycle(&self) -> MutexGuard<'_, ()> {
         self.client_sizing_lifecycle.lock().unwrap()
     }
@@ -1598,7 +1605,8 @@ impl Mux {
                 workspace_revision: Some(workspace_revision),
             }
         };
-        self.emit(MuxEvent::TreeDelta(delta));
+        let selection_resync = delta.index.is_some_and(|index| index > 0);
+        self.emit_tree_delta(delta, selection_resync);
         self.reap_if_dead(&surface);
         Ok(surface)
     }
@@ -1619,13 +1627,14 @@ impl Mux {
         };
         let ws_id = self.next_id();
         let notifications = self.surface_notifications();
-        let (placement, delta) = {
+        let (placement, delta, selection_resync) = {
             let mut state = self.state.lock().unwrap();
             Self::require_workspace_revision(&state, expected_revision)?;
             if state.workspace_by_key(&key).is_some() {
                 anyhow::bail!("workspace key already exists: {key}");
             }
             let name = name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
+            let selection_resync = !state.workspaces.is_empty();
             state.push_workspace(Workspace {
                 id: ws_id,
                 key: key.clone(),
@@ -1656,9 +1665,10 @@ impl Mux {
                     entity,
                     workspace_revision: Some(revision),
                 },
+                selection_resync,
             )
         };
-        self.emit(MuxEvent::TreeDelta(delta));
+        self.emit_tree_delta(delta, selection_resync);
         Ok(placement)
     }
 
@@ -1721,7 +1731,8 @@ impl Mux {
                     workspace_revision: Some(workspace_revision),
                 }
             };
-            self.emit(MuxEvent::TreeDelta(delta));
+            let selection_resync = delta.index.is_some_and(|index| index > 0);
+            self.emit_tree_delta(delta, selection_resync);
             self.reap_if_dead(&surface);
             return Ok(RunPlacement {
                 surface: surface.id,
@@ -2217,7 +2228,8 @@ impl Mux {
                     workspace_revision: Some(workspace_revision),
                 }
             };
-            self.emit(MuxEvent::TreeDelta(delta));
+            let selection_resync = delta.index.is_some_and(|index| index > 0);
+            self.emit_tree_delta(delta, selection_resync);
             self.reap_if_dead(&surface);
             return Ok(surface);
         };
@@ -2440,7 +2452,7 @@ impl Mux {
     /// out of its split tree (and emptied screens/workspaces are removed).
     pub fn close_surface(&self, target: SurfaceId) {
         let notifications = self.surface_notifications();
-        let (removed, changed_screens, empty, delta) = {
+        let (removed, changed_screens, empty, delta, selection_resync) = {
             let mut state = self.state.lock().unwrap();
             let changed_screen = surface_screen_id(&state, target);
             let mut delta = close_surface_delta(&state, &notifications, target);
@@ -2454,11 +2466,14 @@ impl Mux {
                     delta.workspace_revision = Some(state.workspace_revision);
                 }
             }
+            let empty = state.workspaces.is_empty();
+            let selection_resync = !empty && delta.as_ref().is_some_and(workspace_close_was_active);
             (
                 removed,
                 changed_screen.into_iter().collect::<Vec<_>>(),
-                state.workspaces.is_empty(),
+                empty,
                 delta,
+                selection_resync,
             )
         };
         if let Some(surface) = &removed {
@@ -2466,7 +2481,7 @@ impl Mux {
             surface.kill();
         }
         if let Some(delta) = delta {
-            self.emit(MuxEvent::TreeDelta(delta));
+            self.emit_tree_delta(delta, selection_resync);
         } else if removed.is_some() {
             self.emit(MuxEvent::TreeChanged);
         }
@@ -2484,53 +2499,65 @@ impl Mux {
     /// as removal so a concurrent registry mutation cannot stale its index.
     fn close_tree_target(&self, target: TreeCloseTarget) -> bool {
         let notifications = self.surface_notifications();
-        let Some((removed, changed_screens, empty, delta)) = (|| {
-            let mut state = self.state.lock().unwrap();
-            let (tabs, mut delta) = match target {
-                TreeCloseTarget::Pane(target) => {
-                    let pane = state.panes.get(&target)?;
-                    (
-                        pane.tabs.clone(),
-                        close_pane_delta(&state, &notifications, target)
-                            .expect("live pane has a close delta"),
-                    )
+        let Some((removed, changed_screens, empty, delta, tree_removed, selection_resync)) =
+            (|| {
+                let mut state = self.state.lock().unwrap();
+                let (tabs, mut delta) = match target {
+                    TreeCloseTarget::Pane(target) => {
+                        let pane = state.panes.get(&target)?;
+                        (
+                            pane.tabs.clone(),
+                            close_pane_delta(&state, &notifications, target)
+                                .expect("live pane has a close delta"),
+                        )
+                    }
+                    TreeCloseTarget::Screen(target) => {
+                        let screen = state
+                            .workspaces
+                            .iter()
+                            .flat_map(|workspace| &workspace.screens)
+                            .find(|screen| screen.id == target)?;
+                        (
+                            screen_tabs(&state, screen),
+                            close_screen_delta(&state, &notifications, target)
+                                .expect("live screen has a close delta"),
+                        )
+                    }
+                };
+                let changed_screens = unique_screen_ids(
+                    tabs.iter().filter_map(|surface| surface_screen_id(&state, *surface)),
+                );
+                let mut removed = Vec::new();
+                for surface in tabs {
+                    if let Some(surface) = remove_surface(&mut state, surface) {
+                        removed.push(surface);
+                    }
                 }
-                TreeCloseTarget::Screen(target) => {
-                    let screen = state
+                let tree_removed = match target {
+                    TreeCloseTarget::Pane(target) => !state.panes.contains_key(&target),
+                    TreeCloseTarget::Screen(target) => !state
                         .workspaces
                         .iter()
                         .flat_map(|workspace| &workspace.screens)
-                        .find(|screen| screen.id == target)?;
-                    (
-                        screen_tabs(&state, screen),
-                        close_screen_delta(&state, &notifications, target)
-                            .expect("live screen has a close delta"),
-                    )
+                        .any(|screen| screen.id == target),
+                };
+                if tree_removed && delta.kind == TreeDeltaKind::WorkspaceClosed {
+                    state.workspace_revision = state.workspace_revision.saturating_add(1);
+                    delta.workspace_revision = Some(state.workspace_revision);
                 }
-            };
-            let changed_screens = unique_screen_ids(
-                tabs.iter().filter_map(|surface| surface_screen_id(&state, *surface)),
-            );
-            let mut removed = Vec::new();
-            for surface in tabs {
-                if let Some(surface) = remove_surface(&mut state, surface) {
-                    removed.push(surface);
-                }
-            }
-            if !removed.is_empty() && delta.kind == TreeDeltaKind::WorkspaceClosed {
-                state.workspace_revision = state.workspace_revision.saturating_add(1);
-                delta.workspace_revision = Some(state.workspace_revision);
-            }
-            Some((removed, changed_screens, state.workspaces.is_empty(), delta))
-        })() else {
+                let empty = state.workspaces.is_empty();
+                let selection_resync = !empty && workspace_close_was_active(&delta);
+                Some((removed, changed_screens, empty, delta, tree_removed, selection_resync))
+            })()
+        else {
             return false;
         };
-        if !removed.is_empty() {
-            for surface in removed {
-                self.purge_surface_side_tables(surface.id);
-                surface.kill();
-            }
-            self.emit(MuxEvent::TreeDelta(delta));
+        for surface in removed {
+            self.purge_surface_side_tables(surface.id);
+            surface.kill();
+        }
+        if tree_removed {
+            self.emit_tree_delta(delta, selection_resync);
             for screen in changed_screens {
                 self.emit(MuxEvent::LayoutChanged(screen));
             }
@@ -2567,7 +2594,7 @@ impl Mux {
         expected_revision: Option<u64>,
     ) -> anyhow::Result<Option<u64>> {
         let notifications = self.surface_notifications();
-        let (removed, delta, empty, revision) = {
+        let (removed, delta, empty, revision, selection_resync) = {
             let mut state = self.state.lock().unwrap();
             Self::require_workspace_revision(&state, expected_revision)?;
             let Some(index) = state.workspace_index(target) else {
@@ -2575,6 +2602,7 @@ impl Mux {
             };
             let mut delta = close_workspace_delta(&state, &notifications, target)
                 .expect("live workspace has a close delta");
+            let was_active = state.active_workspace == index;
             let active_id =
                 state.workspaces.get(state.active_workspace).map(|workspace| workspace.id);
             let workspace = state.remove_workspace(index);
@@ -2598,13 +2626,14 @@ impl Mux {
             state.workspace_revision = state.workspace_revision.saturating_add(1);
             let revision = state.workspace_revision;
             delta.workspace_revision = Some(revision);
-            (removed, delta, state.workspaces.is_empty(), revision)
+            let empty = state.workspaces.is_empty();
+            (removed, delta, empty, revision, was_active && !empty)
         };
         for surface in removed {
             self.purge_surface_side_tables(surface.id);
             surface.kill();
         }
-        self.emit(MuxEvent::TreeDelta(delta));
+        self.emit_tree_delta(delta, selection_resync);
         if empty {
             self.emit(MuxEvent::Empty);
         }
@@ -3313,6 +3342,11 @@ fn unique_screen_ids(ids: impl IntoIterator<Item = ScreenId>) -> Vec<ScreenId> {
         }
     }
     unique
+}
+
+fn workspace_close_was_active(delta: &TreeDelta) -> bool {
+    delta.kind == TreeDeltaKind::WorkspaceClosed
+        && delta.entity.get("active").and_then(Value::as_bool) == Some(true)
 }
 
 fn surface_screen_id(state: &State, surface: SurfaceId) -> Option<ScreenId> {
@@ -4802,17 +4836,14 @@ mod tests {
             assert_eq!(state.workspace_revision, previous_revision + 1);
         });
         assert!(matches!(
-            events.recv_timeout(std::time::Duration::from_secs(1)),
+            events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::TreeDelta(TreeDelta {
                 kind: TreeDeltaKind::WorkspaceClosed,
                 workspace_revision: Some(revision),
                 ..
             })) if revision == previous_revision + 1
         ));
-        assert!(matches!(
-            events.recv_timeout(std::time::Duration::from_secs(1)),
-            Ok(MuxEvent::Empty)
-        ));
+        assert!(matches!(events.recv_timeout(Duration::from_secs(1)), Ok(MuxEvent::Empty)));
         surface.kill();
     }
 
@@ -4841,7 +4872,7 @@ mod tests {
                 assert_eq!(state.workspace_revision, previous_revision + 1);
             });
             assert!(matches!(
-                events.recv_timeout(std::time::Duration::from_secs(1)),
+                events.recv_timeout(Duration::from_secs(1)),
                 Ok(MuxEvent::TreeDelta(TreeDelta {
                     kind: TreeDeltaKind::WorkspaceClosed,
                     workspace_revision: Some(revision),
