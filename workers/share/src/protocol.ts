@@ -60,7 +60,8 @@ export type LayoutNode =
   | {
       kind: "pane";
       pane: string;
-      content: "terminal" | "browser" | "other";
+      /** "agent" is an agent-chat session pane (composer co-editing target). */
+      content: "terminal" | "browser" | "agent" | "other";
       /** Terminal geometry so the viewer can size its grid canvas. */
       cols?: number;
       rows?: number;
@@ -75,6 +76,22 @@ export interface WorkspaceLayout {
 // ---------------------------------------------------------------------------
 // Guest -> DO
 
+/** One text edit against a compose field at a specific revision. */
+export interface ComposeOp {
+  /** Codepoint position the edit applies at. */
+  p: number;
+  /** Number of codepoints to delete at `p`. */
+  d?: number;
+  /** Text to insert at `p` (after the delete). */
+  i?: string;
+}
+
+export interface ComposeCaret {
+  user: string;
+  start: number;
+  end: number;
+}
+
 export type GuestMessage =
   | { t: "hello"; proto: number }
   | { t: "cursor"; pos: CursorPos | null }
@@ -83,7 +100,41 @@ export type GuestMessage =
   | { t: "sub"; ws: string; pane: string }
   | { t: "unsub"; ws: string; pane: string }
   | { t: "focus"; ws: string | null }
-  | { t: "follow"; user: string | null };
+  | { t: "follow"; user: string | null }
+  /**
+   * Multiplayer textbox (slice 2): edits against the composer of pane
+   * `field`, based on host revision `rev`. The host is the single serializer
+   * (rebases stale ops) and answers with `compose-state`. Editor role only.
+   */
+  | { t: "compose"; field: string; rev: number; ops: ComposeOp[]; caret?: { start: number; end: number } }
+  /**
+   * Interactive browser panes (slice 3): pointer/keyboard events forwarded
+   * into the host's webview. Pane-relative normalized coords. Editor role
+   * only; the host re-validates against the shared-surface set.
+   */
+  | {
+      t: "pointer";
+      ws: string;
+      pane: string;
+      action: "move" | "down" | "up" | "wheel";
+      x: number;
+      y: number;
+      button?: number;
+      dx?: number;
+      dy?: number;
+    }
+  | {
+      t: "webkey";
+      ws: string;
+      pane: string;
+      key: string;
+      code: string;
+      down: boolean;
+      alt?: boolean;
+      ctrl?: boolean;
+      meta?: boolean;
+      shift?: boolean;
+    };
 
 // ---------------------------------------------------------------------------
 // Host -> DO
@@ -103,6 +154,10 @@ export type HostMessage =
   | { t: "role"; user: string; role: Role }
   | { t: "cursor"; pos: CursorPos | null }
   | { t: "chat"; text: string; bubble?: CursorPos }
+  /** Which shared workspace the host is viewing (drives follow-the-host). */
+  | { t: "focus"; ws: string | null }
+  /** Authoritative composer state after applying (rebased) ops. */
+  | { t: "compose-state"; field: string; rev: number; text: string; carets: ComposeCaret[] }
   | { t: "end" };
 
 // ---------------------------------------------------------------------------
@@ -140,8 +195,42 @@ export type ServerMessage =
       t: "session-ended";
       reason: "host-stopped" | "host-gone" | "expired";
     }
+  | { t: "compose-state"; field: string; rev: number; text: string; carets: ComposeCaret[] }
   // Relayed to the host only:
   | { t: "guest-input"; user: string; ws: string; pane: string; data: string }
+  | {
+      t: "guest-compose";
+      user: string;
+      field: string;
+      rev: number;
+      ops: ComposeOp[];
+      caret?: { start: number; end: number };
+    }
+  | {
+      t: "guest-pointer";
+      user: string;
+      ws: string;
+      pane: string;
+      action: "move" | "down" | "up" | "wheel";
+      x: number;
+      y: number;
+      button?: number;
+      dx?: number;
+      dy?: number;
+    }
+  | {
+      t: "guest-webkey";
+      user: string;
+      ws: string;
+      pane: string;
+      key: string;
+      code: string;
+      down: boolean;
+      alt?: boolean;
+      ctrl?: boolean;
+      meta?: boolean;
+      shift?: boolean;
+    }
   | { t: "guest-sub"; ws: string; pane: string; count: number }
   | { t: "error"; code: string; message: string };
 
@@ -149,7 +238,16 @@ export type ServerMessage =
 // Binary frames: [kindTag u8][wsLen u8][ws utf8][paneLen u8][pane utf8][payload]
 
 export const BINARY_KIND_GRID = 0x01;
+/**
+ * Pixel/video frame for non-terminal panes (slice 2). Payload:
+ * [codec u8][flags u8][data]. codec 1 = H.264 Annex B (flags bit0 =
+ * keyframe; parameter sets inline on keyframes so WebCodecs decodes without
+ * out-of-band description), codec 2 = WebP still (flags unused).
+ */
 export const BINARY_KIND_PIXEL = 0x02;
+export const PIXEL_CODEC_H264_ANNEXB = 1;
+export const PIXEL_CODEC_WEBP = 2;
+export const PIXEL_FLAG_KEYFRAME = 0x01;
 
 export interface BinaryHeader {
   kind: number;

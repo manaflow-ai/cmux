@@ -4757,6 +4757,9 @@
     "emptyWorkspace": "This workspace has no panes.",
     "browserPanePlaceholder": "Browser pane (sharing coming soon)",
     "panePlaceholder": "This pane type isn't shareable yet",
-    "noWorkspaces": "No shared workspaces."
+    "noWorkspaces": "No shared workspaces.",
+    "composerLabel": "Shared composer",
+    "composerPlaceholder": "Compose together…",
+    "pixelViewOnlyBadge": "view only"
   }
 }

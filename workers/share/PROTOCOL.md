@@ -53,8 +53,11 @@ frames prefixed with a 1-byte kind tag (see Binary frames). JSON envelope:
 - `chat` `{t, text, bubble: {ws, pane, x, y}?}` — bubble anchor optional.
 - `input` `{t, ws, pane, data}` — key/text input for a terminal surface
   (editor role only; relayed to host, never stored).
-- `compose` `{t, field, rev, ops: [...]}` — multiplayer textbox ops
-  (slice 2; host-authoritative rebase).
+- `compose` `{t, field, rev, ops: [{p, d?, i?}], caret?}` — multiplayer
+  textbox ops against the composer of pane `field`, based on host revision
+  `rev` (slice 2). Editor role only; the DO relays to the host as
+  `guest-compose` with the sender attached, and the host (single serializer)
+  rebases stale ops and answers with `compose-state`.
 - `sub` / `unsub` `{t, ws, pane}` — subscribe to a surface stream.
 - `focus` `{t, ws}` — which workspace this guest is viewing (drives sidebar
   presence dots and per-workspace cursor scoping).
@@ -91,9 +94,15 @@ First byte is a kind tag; remainder is the payload. Grid frames reuse the
 existing cmux render-grid encoding (same bytes the iOS mirror consumes) so the
 host does not re-encode per consumer:
 
-- `0x01` grid frame: `[0x01][u32 ws][u32 pane][render-grid payload]`
-- `0x02` pixel/video frame (slice 2): `[0x02][u32 ws][u32 pane][codec tag]
-  [payload]` — H.264 (VideoToolbox) primary, WebP still fallback.
+The header is `[kind u8][wsLen u8][ws utf8][paneLen u8][pane utf8]`, followed
+by the kind-specific payload:
+
+- `0x01` grid frame: payload is the render-grid frame's JSON bytes
+  (`cmux.render-grid.v1`, exactly what the iOS mirror consumes).
+- `0x02` pixel/video frame (slice 2): payload is `[codec u8][flags u8][data]`.
+  codec `1` = H.264 Annex B from VideoToolbox (flags bit0 = keyframe;
+  parameter sets ride inline on keyframes so WebCodecs decodes without an
+  out-of-band description), codec `2` = WebP still (fallback path).
 
 The DO forwards binary frames to guests subscribed to `(ws, pane)` without
 parsing beyond the header.

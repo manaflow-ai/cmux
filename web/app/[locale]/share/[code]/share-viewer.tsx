@@ -177,6 +177,12 @@ function ActiveViewer({ client }: { client: ShareClient }): ReactNode {
               clientX: e.clientX,
               clientY: e.clientY,
             };
+            // One shared path for presence cursors across every pane kind.
+            client.sendCursor(lastPointer.current.pos);
+          }}
+          onPointerLeave={() => {
+            lastPointer.current = null;
+            client.sendCursor(null);
           }}
           onKeyDown={(e) => {
             // "/" over the workspace (not while typing into a pane or input)
@@ -203,6 +209,8 @@ function ActiveViewer({ client }: { client: ShareClient }): ReactNode {
                 ws={session.activeWs}
                 node={activeLayout?.tree ?? null}
                 canType={canType}
+                participants={session.participants}
+                selfUser={session.you?.user ?? null}
               />
             </PaneRegistryProvider>
           ) : (

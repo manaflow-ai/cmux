@@ -5,8 +5,11 @@
 // isolated to the cursor layer), and per-pane grid generations (painted
 // imperatively onto canvases, never through React state).
 
+import { PixelPaneModel } from "./pixel-pane";
 import type {
   ChatMessage,
+  ComposeCaret,
+  ComposeOp,
   CursorPos,
   GuestMessage,
   LayoutNode,
@@ -19,6 +22,7 @@ import type {
 } from "./share-protocol";
 import {
   BINARY_KIND_GRID,
+  BINARY_KIND_PIXEL,
   decodeBinaryFrame,
   PROTO_VERSION,
 } from "./share-protocol";
@@ -94,19 +98,29 @@ const BUBBLE_VISIBLE_MS = 5_000;
 const RECONNECT_BASE_MS = 800;
 const RECONNECT_MAX_MS = 10_000;
 
+export interface ComposeState {
+  rev: number;
+  text: string;
+  carets: ComposeCaret[];
+}
+
 export class ShareClient {
   readonly session = new Store<ShareSessionState>(INITIAL_STATE);
   readonly cursors = new Store<ReadonlyMap<string, RemoteCursor>>(new Map());
+  /** Authoritative composer state per field (agent pane id). */
+  readonly compose = new Store<ReadonlyMap<string, ComposeState>>(new Map());
 
   private ws: WebSocket | null = null;
   private grids = new Map<string, TerminalGridModel>();
   private gridListeners = new Map<string, Set<Listener>>();
+  private pixels = new Map<string, PixelPaneModel>();
   private subs = new Set<string>();
   private stopped = false;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingCursor: CursorPos | null | undefined;
   private cursorTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastPointerMoveSent = 0;
   private bubbleTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly code: string) {}
@@ -123,6 +137,8 @@ export class ShareClient {
     if (this.bubbleTimer) clearTimeout(this.bubbleTimer);
     this.ws?.close(1000, "leaving");
     this.ws = null;
+    for (const model of this.pixels.values()) model.close();
+    this.pixels.clear();
   }
 
   // -------------------------------------------------------------------------
@@ -271,6 +287,12 @@ export class ShareClient {
         if (you) this.session.update({ you: { ...you, role: msg.role } });
         break;
       }
+      case "compose-state": {
+        const next = new Map(this.compose.get());
+        next.set(msg.field, { rev: msg.rev, text: msg.text, carets: msg.carets });
+        this.compose.set(next);
+        break;
+      }
       case "resync":
         this.replayVolatileState();
         break;
@@ -287,8 +309,13 @@ export class ShareClient {
 
   private handleBinary(data: Uint8Array): void {
     const frame = decodeBinaryFrame(data);
-    if (!frame || frame.kind !== BINARY_KIND_GRID) return;
+    if (!frame) return;
     const key = paneKey(frame.ws, frame.pane);
+    if (frame.kind === BINARY_KIND_PIXEL) {
+      this.pixelFor(frame.ws, frame.pane).push(frame.payload);
+      return;
+    }
+    if (frame.kind !== BINARY_KIND_GRID) return;
     let model = this.grids.get(key);
     if (!model) {
       model = new TerminalGridModel();
@@ -366,7 +393,8 @@ export class ShareClient {
     if (user) this.maybeFollow(this.session.get().participants);
   }
 
-  /** Subscribe to all terminal panes of the active workspace, drop the rest. */
+  /** Subscribe to every pane of the active workspace, drop the rest.
+   * Terminals stream grids; browser/agent panes stream pixels (slice 2). */
   private syncWorkspaceSubscriptions(ws: string): void {
     const layout = this.session.get().layouts[ws];
     const wanted = new Set<string>();
@@ -377,7 +405,7 @@ export class ShareClient {
         visit(node.b);
         return;
       }
-      if (node.content === "terminal") wanted.add(paneKey(ws, node.pane));
+      if (node.content !== "other") wanted.add(paneKey(ws, node.pane));
     };
     visit(layout?.tree);
     for (const key of this.subs) {
@@ -420,6 +448,32 @@ export class ShareClient {
     this.send({ t: "input", ws, pane, data });
   }
 
+  sendCompose(
+    field: string,
+    rev: number,
+    ops: ComposeOp[],
+    caret?: { start: number; end: number },
+  ): void {
+    if (this.session.get().you?.role !== "editor") return;
+    this.send(caret ? { t: "compose", field, rev, ops, caret } : { t: "compose", field, rev, ops });
+  }
+
+  /** Interactive browser panes (slice 3). Pointer moves are rate-limited. */
+  sendPointer(msg: Extract<GuestMessage, { t: "pointer" }>): void {
+    if (this.session.get().you?.role !== "editor") return;
+    if (msg.action === "move") {
+      const now = Date.now();
+      if (now - this.lastPointerMoveSent < CURSOR_SEND_INTERVAL_MS) return;
+      this.lastPointerMoveSent = now;
+    }
+    this.send(msg);
+  }
+
+  sendWebKey(msg: Extract<GuestMessage, { t: "webkey" }>): void {
+    if (this.session.get().you?.role !== "editor") return;
+    this.send(msg);
+  }
+
   // -------------------------------------------------------------------------
   // Grid access for pane canvases
 
@@ -429,6 +483,16 @@ export class ShareClient {
     if (!model) {
       model = new TerminalGridModel();
       this.grids.set(key, model);
+    }
+    return model;
+  }
+
+  pixelFor(ws: string, pane: string): PixelPaneModel {
+    const key = paneKey(ws, pane);
+    let model = this.pixels.get(key);
+    if (!model) {
+      model = new PixelPaneModel();
+      this.pixels.set(key, model);
     }
     return model;
   }

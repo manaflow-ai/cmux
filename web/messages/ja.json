@@ -4667,6 +4667,9 @@
     "emptyWorkspace": "このワークスペースにはペインがありません。",
     "browserPanePlaceholder": "ブラウザペイン（共有は近日対応）",
     "panePlaceholder": "このペインタイプはまだ共有できません",
-    "noWorkspaces": "共有中のワークスペースはありません。"
+    "noWorkspaces": "共有中のワークスペースはありません。",
+    "composerLabel": "共同コンポーザー",
+    "composerPlaceholder": "一緒に入力…",
+    "pixelViewOnlyBadge": "閲覧のみ"
   }
 }

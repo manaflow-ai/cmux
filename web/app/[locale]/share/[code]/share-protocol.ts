@@ -42,11 +42,23 @@ export type LayoutNode =
   | {
       kind: "pane";
       pane: string;
-      content: "terminal" | "browser" | "other";
+      content: "terminal" | "browser" | "agent" | "other";
       cols?: number;
       rows?: number;
       title?: string;
     };
+
+export interface ComposeOp {
+  p: number;
+  d?: number;
+  i?: string;
+}
+
+export interface ComposeCaret {
+  user: string;
+  start: number;
+  end: number;
+}
 
 export interface WorkspaceLayout {
   ws: string;
@@ -61,7 +73,37 @@ export type GuestMessage =
   | { t: "sub"; ws: string; pane: string }
   | { t: "unsub"; ws: string; pane: string }
   | { t: "focus"; ws: string | null }
-  | { t: "follow"; user: string | null };
+  | { t: "follow"; user: string | null }
+  | {
+      t: "compose";
+      field: string;
+      rev: number;
+      ops: ComposeOp[];
+      caret?: { start: number; end: number };
+    }
+  | {
+      t: "pointer";
+      ws: string;
+      pane: string;
+      action: "move" | "down" | "up" | "wheel";
+      x: number;
+      y: number;
+      button?: number;
+      dx?: number;
+      dy?: number;
+    }
+  | {
+      t: "webkey";
+      ws: string;
+      pane: string;
+      key: string;
+      code: string;
+      down: boolean;
+      alt?: boolean;
+      ctrl?: boolean;
+      meta?: boolean;
+      shift?: boolean;
+    };
 
 export interface SessionSnapshot {
   t: "session-state";
@@ -87,10 +129,14 @@ export type ServerMessage =
   | { t: "kicked" }
   | { t: "resync" }
   | { t: "session-ended"; reason: "host-stopped" | "host-gone" | "expired" }
+  | { t: "compose-state"; field: string; rev: number; text: string; carets: ComposeCaret[] }
   | { t: "error"; code: string; message: string };
 
 export const BINARY_KIND_GRID = 0x01;
 export const BINARY_KIND_PIXEL = 0x02;
+export const PIXEL_CODEC_H264_ANNEXB = 1;
+export const PIXEL_CODEC_WEBP = 2;
+export const PIXEL_FLAG_KEYFRAME = 0x01;
 
 export interface BinaryFrame {
   kind: number;
