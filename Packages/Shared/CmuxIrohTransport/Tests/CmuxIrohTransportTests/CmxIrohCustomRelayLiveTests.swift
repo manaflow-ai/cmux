@@ -138,7 +138,7 @@ struct CmxIrohCustomRelayLiveTests {
                 refreshToken: { refreshToken }
             )
         )
-        try await revokeStaleLiveTestBindings(broker: broker)
+        let runTag = "relay-live-\(UUID().uuidString.lowercased())"
         let firstSecretKey = try randomSecretKey()
         let secondSecretKey = try randomSecretKey()
         var bindingIDs: [String] = []
@@ -148,7 +148,7 @@ struct CmxIrohCustomRelayLiveTests {
             print("Iroh live relay: \(stage)")
             let first = try await register(
                 secretKey: firstSecretKey,
-                tag: "relay-live-first",
+                tag: "\(runTag)-first",
                 broker: broker
             )
             bindingIDs.append(first.bindingID)
@@ -156,7 +156,7 @@ struct CmxIrohCustomRelayLiveTests {
             print("Iroh live relay: \(stage)")
             let second = try await register(
                 secretKey: secondSecretKey,
-                tag: "relay-live-second",
+                tag: "\(runTag)-second",
                 broker: broker
             )
             bindingIDs.append(second.bindingID)
@@ -173,8 +173,9 @@ struct CmxIrohCustomRelayLiveTests {
                 bindingID: second.bindingID,
                 endpointID: second.endpointID
             )
-            let firstCredentials: [String: String] = Dictionary(
-                uniqueKeysWithValues: firstToken.credentials.map { ($0.relayURL, $0.token) }
+            let firstCredentials = Dictionary(
+                firstToken.credentials.map { ($0.relayURL, $0.token) },
+                uniquingKeysWith: { _, latestToken in latestToken }
             )
             let commonRelayURL = try #require(
                 secondToken.credentials.lazy
@@ -265,17 +266,6 @@ struct CmxIrohCustomRelayLiveTests {
             } catch {
                 Issue.record("Failed to revoke disposable live-test binding")
             }
-        }
-    }
-
-    private func revokeStaleLiveTestBindings(
-        broker: CmxIrohTrustBrokerClient
-    ) async throws {
-        let staleBindingIDs = try await broker.discover().bindings
-            .filter { ["relay-live-first", "relay-live-second"].contains($0.tag) }
-            .map(\.bindingID)
-        for bindingID in staleBindingIDs {
-            try await broker.revoke(bindingID: bindingID)
         }
     }
 
