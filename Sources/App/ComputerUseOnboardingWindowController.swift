@@ -91,6 +91,8 @@ final class ComputerUseOnboardingWindowController {
     }
 
     private func permissionSettingsWillOpen() {
+        systemSettingsPlacementRetryTask?.cancel()
+        hasPositionedForPermissionSetup = false
         awaitingSystemSettingsActivation = true
         if positionBesideSystemSettingsIfNeeded() {
             awaitingSystemSettingsActivation = false
