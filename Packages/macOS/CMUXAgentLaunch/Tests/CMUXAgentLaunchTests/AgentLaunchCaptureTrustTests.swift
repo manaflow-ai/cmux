@@ -284,6 +284,24 @@ struct AgentLaunchCaptureTrustTests {
         )
         #expect(
             AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
+                processName: "github-copilot-cli",
+                arguments: ["/Users/alice/.local/bin/github-copilot-cli"]
+            )
+        )
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
+                processName: "opencode-ai",
+                arguments: ["/Users/alice/.local/bin/opencode-ai"]
+            )
+        )
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
+                processName: "open-code",
+                arguments: ["/Users/alice/.local/bin/open-code"]
+            )
+        )
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
                 processName: "amp",
                 arguments: ["/Users/alice/.local/bin/amp"]
             )
