@@ -13,6 +13,157 @@ import Testing
 @Suite(.serialized)
 struct AgentSessionAutoResumeSwiftTests {
     @MainActor
+    @Test func sessionRestoreStartupBreadcrumbsExplainBindingResumeAndPanelOutcomes() throws {
+        let defaultsSuite = "cmux-tests.restore-breadcrumbs.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuite))
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let issuedPanelId = try #require(source.focusedPanelId)
+        let missingPanelId = try #require(source.newTerminalSurfaceInFocusedPane(focus: false)).id
+        let rejectedPanelId = try #require(source.newTerminalSurfaceInFocusedPane(focus: false)).id
+        let failedPanelId = UUID()
+        let sessionId = "codex-private-session-\(UUID().uuidString)"
+        let privateDirectory = "/tmp/cmux-private-project-\(UUID().uuidString)"
+        let privateEnvironmentValue = "environment-private-\(UUID().uuidString)"
+
+        source.updatePanelShellActivityState(panelId: issuedPanelId, state: .commandRunning)
+        source.setRestoredAgentSnapshotForTesting(
+            SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: sessionId,
+                workingDirectory: privateDirectory,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "codex",
+                    executablePath: "/usr/local/bin/codex",
+                    arguments: ["/usr/local/bin/codex", "resume", sessionId],
+                    workingDirectory: privateDirectory,
+                    environment: ["SAFE_TEST_VALUE": privateEnvironmentValue],
+                    capturedAt: 1_777_777_777,
+                    source: "process"
+                )
+            ),
+            panelId: issuedPanelId
+        )
+
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: issuedPanelId):
+                SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "{ cd -- '\(privateDirectory)' 2>/dev/null || [ ! -d '\(privateDirectory)' ]; } && 'codex' 'resume' '\(sessionId)'",
+                    cwd: privateDirectory,
+                    checkpointId: sessionId,
+                    source: "agent-hook",
+                    environment: ["SAFE_TEST_VALUE": privateEnvironmentValue],
+                    autoResume: true,
+                    updatedAt: 1_777_777_777
+                ),
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: rejectedPanelId):
+                SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "'codex' 'resume' 'rejected-private-session'",
+                    checkpointId: "rejected-private-session",
+                    source: "agent-hook",
+                    autoResume: false,
+                    approvalPolicy: .manual,
+                    updatedAt: 1_777_777_778
+                ),
+        ])
+
+        var snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+        var failedPanel = try #require(snapshot.panels.first)
+        failedPanel.id = failedPanelId
+        failedPanel.type = .markdown
+        failedPanel.terminal = nil
+        failedPanel.markdown = nil
+        snapshot.panels.append(failedPanel)
+        let bulkPanelIds = (0..<32).map { _ in UUID() }
+        let bulkPanelTemplate = try #require(snapshot.panels.first { $0.id == missingPanelId })
+        for bulkPanelId in bulkPanelIds {
+            var bulkPanel = bulkPanelTemplate
+            bulkPanel.id = bulkPanelId
+            snapshot.panels.append(bulkPanel)
+        }
+        guard case .pane(var paneSnapshot) = snapshot.layout else {
+            Issue.record("Expected one pane for the restore breadcrumb fixture")
+            return
+        }
+        paneSnapshot.panelIds.append(failedPanelId)
+        paneSnapshot.panelIds.append(contentsOf: bulkPanelIds)
+        snapshot.layout = .pane(paneSnapshot)
+
+        var recordedBatches: [[StartupBreadcrumbEvent]] = []
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: defaults,
+            startupBreadcrumbBatchWriter: { recordedBatches.append($0) }
+        )
+        let mapping = restored.restoreSessionSnapshot(snapshot)
+        #expect(mapping[issuedPanelId] != nil)
+        #expect(mapping[missingPanelId] != nil)
+        #expect(mapping[rejectedPanelId] != nil)
+        #expect(mapping[failedPanelId] == nil)
+        for bulkPanelId in bulkPanelIds {
+            #expect(mapping[bulkPanelId] != nil)
+        }
+
+        #expect(recordedBatches.count == 1)
+        let events = try #require(recordedBatches.first)
+        #expect(events.count == snapshot.panels.count)
+        #expect(events.allSatisfy { $0.event == "session.restore.panel" })
+        let expectedPanelTokens = snapshot.panels
+            .map { String($0.id.uuidString.lowercased().prefix(8)) }
+            .sorted()
+        #expect(events.compactMap { $0.fields["panel"] }.sorted() == expectedPanelTokens)
+
+        let issued = try #require(event(for: issuedPanelId, in: events))
+        #expect(issued["type"] == "terminal")
+        #expect(issued["binding"] == "found")
+        #expect(issued["bindingReason"] == "approved")
+        #expect(issued["resume"] == "issued")
+        #expect(issued["resumeReason"] == "binding")
+        #expect(issued["resumeMode"] == "command")
+        #expect(issued["provider"] == "codex")
+        #expect(issued["outcome"] == "created")
+
+        let missing = try #require(event(for: missingPanelId, in: events))
+        #expect(missing["binding"] == "missing")
+        #expect(missing["bindingReason"] == "absent")
+        #expect(missing["resume"] == "suppressed")
+        #expect(missing["resumeReason"] == "no_candidate")
+        #expect(missing["outcome"] == "created")
+
+        let rejected = try #require(event(for: rejectedPanelId, in: events))
+        #expect(rejected["binding"] == "rejected")
+        #expect(rejected["bindingReason"] == "policy_denied")
+        #expect(rejected["resume"] == "suppressed")
+        #expect(rejected["resumeReason"] == "binding_rejected")
+        #expect(rejected["outcome"] == "created")
+
+        let failed = try #require(event(for: failedPanelId, in: events))
+        #expect(failed["type"] == "markdown")
+        #expect(failed["outcome"] == "failed")
+        #expect(failed["failureReason"] == "panel_creation_failed")
+
+        let recordedJSON = try JSONSerialization.data(
+            withJSONObject: events.map { event -> [String: Any] in
+                ["event": event.event, "fields": event.fields]
+            },
+            options: [.sortedKeys]
+        )
+        let recordedText = String(decoding: recordedJSON, as: UTF8.self)
+        #expect(!recordedText.contains(sessionId))
+        #expect(!recordedText.contains(privateDirectory))
+        #expect(!recordedText.contains(privateEnvironmentValue))
+        #expect(!recordedText.contains(issuedPanelId.uuidString))
+    }
+
+    @MainActor
     @Test func sessionRestoreDropsPersistedAgentStatusRuntimeState() throws {
         let source = Workspace()
         let sourcePanelId = try #require(source.focusedPanelId)
@@ -1400,6 +1551,14 @@ struct AgentSessionAutoResumeSwiftTests {
             }
         }
         return try body()
+    }
+
+    private func event(
+        for panelId: UUID,
+        in events: [StartupBreadcrumbEvent]
+    ) -> [String: String]? {
+        let panelToken = String(panelId.uuidString.lowercased().prefix(8))
+        return events.first { $0.fields["panel"] == panelToken }?.fields
     }
 
     @MainActor

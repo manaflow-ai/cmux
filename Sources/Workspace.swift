@@ -48,6 +48,130 @@ private struct SessionPaneRestoreEntry {
     let snapshot: SessionPaneLayoutSnapshot
 }
 
+fileprivate struct PendingRestoredAgentHibernationAdoption: Sendable {
+    let request: AgentHookSessionStateWriter.RestoredHibernationAdoptionRequest
+    let resumeWorkingDirectory: String?
+}
+
+private struct RestoredAgentHibernationAdoptionIdentity: Hashable, Sendable {
+    let kind: String
+    let sessionId: String
+    let previousWorkspaceId: UUID?
+    let previousSurfaceId: UUID
+    let workspaceId: UUID
+    let surfaceId: UUID
+    let adoptionId: UUID
+    let resumeWorkingDirectory: String?
+
+    init(_ adoption: PendingRestoredAgentHibernationAdoption) {
+        kind = adoption.request.agent.kind.rawValue
+        sessionId = adoption.request.agent.sessionId
+        previousWorkspaceId = adoption.request.previousWorkspaceId
+        previousSurfaceId = adoption.request.previousSurfaceId
+        workspaceId = adoption.request.workspaceId
+        surfaceId = adoption.request.surfaceId
+        adoptionId = adoption.request.adoptionId
+        resumeWorkingDirectory = adoption.resumeWorkingDirectory
+    }
+}
+
+typealias RestoredAgentHibernationAdoptionWaitHandler = @Sendable (
+    [AgentHookSessionStateWriter.RestoredHibernationAdoptionRequest]
+) async -> [UUID: AgentHookSessionStateWriter.RestoredHibernationAdoptionOutcome]
+
+fileprivate struct AgentHibernationRestoreSuppressionState {
+    let wasRestoring: Bool
+    let presentationVisible: Bool
+    let presentationVisibilityWasUpdated: Bool
+}
+
+private enum AgentHibernationResumeAuthority {
+    case untracked
+    case claim(AgentHookSessionStateWriter.HibernatedResumeAuthorityRequest)
+    case rejected
+}
+
+private struct AgentHibernationResumeCandidate {
+    let panelId: UUID
+    let panel: TerminalPanel
+    let agent: SessionRestorableAgentSnapshot
+    let plan: AgentHibernationResumePlan
+    let authority: AgentHibernationResumeAuthority
+}
+
+/// Owns one window restore's hibernation transfer. Every workspace remains
+/// suppressed until the complete request set has crossed one adoption call,
+/// which the writer then groups into one SQLite transaction per provider.
+@MainActor
+final class RestoredAgentHibernationAdoptionBatch {
+    typealias AdoptionHandler = (
+        [AgentHookSessionStateWriter.RestoredHibernationAdoptionRequest]
+    ) -> [UUID: AgentHookSessionStateWriter.RestoredHibernationAdoptionOutcome]
+
+    private struct Entry {
+        let workspace: Workspace
+        let pending: [PendingRestoredAgentHibernationAdoption]
+        let suppression: AgentHibernationRestoreSuppressionState
+    }
+
+    private let adoptionHandler: AdoptionHandler
+    private var entries: [Entry] = []
+    private var isFinalized = false
+    private(set) var adoptionOperationCount = 0
+
+    init(
+        adoptionHandler: @escaping AdoptionHandler = {
+            AgentHookSessionStateWriter.recordRestoredHibernationOutcomes($0)
+        }
+    ) {
+        self.adoptionHandler = adoptionHandler
+    }
+
+    @discardableResult
+    fileprivate func append(
+        workspace: Workspace,
+        pending: [PendingRestoredAgentHibernationAdoption],
+        suppression: AgentHibernationRestoreSuppressionState
+    ) -> Bool {
+        guard !isFinalized else { return false }
+        entries.append(Entry(
+            workspace: workspace,
+            pending: pending,
+            suppression: suppression
+        ))
+        return true
+    }
+
+    func finalize() {
+        guard !isFinalized else { return }
+        isFinalized = true
+        let entries = entries
+        self.entries.removeAll(keepingCapacity: false)
+        defer {
+            for entry in entries {
+                entry.workspace.endAgentHibernationRestoreSuppression(entry.suppression)
+            }
+        }
+
+        let requests = entries.flatMap { $0.pending.map(\.request) }
+        let adoptionOutcomes: [
+            UUID: AgentHookSessionStateWriter.RestoredHibernationAdoptionOutcome
+        ]
+        if requests.isEmpty {
+            adoptionOutcomes = [:]
+        } else {
+            adoptionOperationCount += 1
+            adoptionOutcomes = adoptionHandler(requests)
+        }
+        for entry in entries {
+            entry.workspace.applyRestoredAgentHibernationAdoptions(
+                entry.pending,
+                outcomes: adoptionOutcomes
+            )
+        }
+    }
+}
+
 extension Workspace {
     func sessionSnapshot(
         includeScrollback: Bool,
@@ -150,10 +274,22 @@ extension Workspace {
     }
 
     @discardableResult
-    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot, excludingStableIdentities: Set<UUID> = []) -> [UUID: UUID] {
+    func restoreSessionSnapshot(
+        _ snapshot: SessionWorkspaceSnapshot,
+        excludingStableIdentities: Set<UUID> = [],
+        restoredAgentHibernationAdoptionBatch: RestoredAgentHibernationAdoptionBatch? = nil,
+        agentCommandExecutableResolver providedAgentCommandExecutableResolver: AgentCommandExecutableResolver? = nil
+    ) -> [UUID: UUID] {
         let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
+        let hibernationSuppression = beginAgentHibernationRestoreSuppression()
+        var transferredHibernationSuppression = false
         suppressClosedPanelHistory = true
-        defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
+        defer {
+            suppressClosedPanelHistory = previousSuppressClosedPanelHistory
+            if !transferredHibernationSuppression {
+                endAgentHibernationRestoreSuppression(hibernationSuppression)
+            }
+        }
         sessionRestoreIdentityExclusions.beginRestore(excluding: excludingStableIdentities)
         defer { sessionRestoreIdentityExclusions.endRestore() }
 
@@ -172,6 +308,8 @@ extension Workspace {
         restoredAgentResumeStatesByPanelId.removeAll(keepingCapacity: false)
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
+        cancelAllRestoredAgentHibernationAdoptionWaits()
+        pendingRestoredAgentHibernationAdoptionsByPanelId.removeAll(keepingCapacity: false)
         restoredGuardedWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
 
@@ -212,6 +350,10 @@ extension Workspace {
             return restoreSessionLayout(snapshot.layout)
         }()
         var oldToNewPanelIds: [UUID: UUID] = [:]
+        var pendingAgentHibernationAdoptions: [PendingRestoredAgentHibernationAdoption] = []
+        var startupBreadcrumbEvents: [StartupBreadcrumbEvent] = []
+        let agentCommandExecutableResolver = providedAgentCommandExecutableResolver
+            ?? AgentCommandExecutableResolver()
 
         for entry in leafEntries {
             restorePane(
@@ -220,8 +362,27 @@ extension Workspace {
                 panelSnapshotsById: panelSnapshotsById,
                 snapshotWorkspaceId: snapshot.workspaceId,
                 shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal,
-                oldToNewPanelIds: &oldToNewPanelIds
+                oldToNewPanelIds: &oldToNewPanelIds,
+                startupBreadcrumbEvents: &startupBreadcrumbEvents,
+                pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions,
+                agentCommandExecutableResolver: agentCommandExecutableResolver
             )
+        }
+        if !startupBreadcrumbEvents.isEmpty {
+            startupBreadcrumbBatchWriter(startupBreadcrumbEvents)
+        }
+
+        if let restoredAgentHibernationAdoptionBatch {
+            transferredHibernationSuppression = restoredAgentHibernationAdoptionBatch.append(
+                workspace: self,
+                pending: pendingAgentHibernationAdoptions,
+                suppression: hibernationSuppression
+            )
+            if !transferredHibernationSuppression {
+                finalizeRestoredAgentHibernationAdoptions(pendingAgentHibernationAdoptions)
+            }
+        } else {
+            finalizeRestoredAgentHibernationAdoptions(pendingAgentHibernationAdoptions)
         }
 
         pruneSurfaceMetadata(validSurfaceIds: Set(panels.keys))
@@ -292,6 +453,275 @@ extension Workspace {
         AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
         syncUnreadBadgeStateForAllPanels()
         return oldToNewPanelIds
+    }
+
+    private func finalizeRestoredAgentHibernationAdoptions(
+        _ pending: [PendingRestoredAgentHibernationAdoption]
+    ) {
+        guard !pending.isEmpty else { return }
+        let outcomes = AgentHookSessionStateWriter.recordRestoredHibernationOutcomes(
+            pending.map(\.request)
+        )
+        applyRestoredAgentHibernationAdoptions(
+            pending,
+            outcomes: outcomes
+        )
+    }
+
+    fileprivate func applyRestoredAgentHibernationAdoptions(
+        _ pending: [PendingRestoredAgentHibernationAdoption],
+        outcomes: [UUID: AgentHookSessionStateWriter.RestoredHibernationAdoptionOutcome]
+    ) {
+        for adoption in pending {
+            let request = adoption.request
+            switch outcomes[request.surfaceId] ?? .unavailable {
+            case .adopted:
+                pendingRestoredAgentHibernationAdoptionsByPanelId.removeValue(
+                    forKey: request.surfaceId
+                )
+                if let resumeDirectory = adoption.resumeWorkingDirectory?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                   !resumeDirectory.isEmpty {
+                    restoredResumeSessionWorkingDirectoriesByPanelId[request.surfaceId] = resumeDirectory
+                } else {
+                    restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: request.surfaceId)
+                }
+                AgentChatTranscriptService.recordResumeIntent(
+                    sessionID: request.agent.sessionId,
+                    source: request.agent.kind.rawValue,
+                    surfaceID: request.surfaceId.uuidString,
+                    workspaceID: request.workspaceId.uuidString,
+                    workingDirectory: adoption.resumeWorkingDirectory
+                )
+            case .rejected:
+                pendingRestoredAgentHibernationAdoptionsByPanelId.removeValue(
+                    forKey: request.surfaceId
+                )
+                discardRejectedRestoredAgentHibernation(
+                    panelId: request.surfaceId,
+                    restoredAgent: request.agent
+                )
+            case .unavailable:
+                pendingRestoredAgentHibernationAdoptionsByPanelId[request.surfaceId] = adoption
+            }
+        }
+    }
+
+    private func retryPendingRestoredAgentHibernationAdoptions(panelIds: Set<UUID>) {
+        let pending: [PendingRestoredAgentHibernationAdoption] = panelIds
+            .sorted { $0.uuidString < $1.uuidString }
+            .compactMap { panelId in
+                guard restoredAgentHibernationAdoptionWaitGroupIdByPanelId[panelId] == nil else {
+                    return nil
+                }
+                return pendingRestoredAgentHibernationAdoptionsByPanelId[panelId]
+            }
+        guard !pending.isEmpty else { return }
+        applyRestoredAgentHibernationAdoptions(
+            pending,
+            outcomes: AgentHookSessionStateWriter.recordRestoredHibernationOutcomes(
+                pending.map { $0.request }
+            )
+        )
+    }
+
+    /// Gives a transient SQLite writer one bounded chance to finish without
+    /// blocking the main actor. One task preserves the provider-batched restore
+    /// transaction for all newly visible panels, and panel/group ownership
+    /// prevents repeated visibility callbacks from scheduling duplicate claims.
+    private func scheduleRestoredAgentHibernationAdoptionWait(panelIds: Set<UUID>) {
+        let visiblePanelIds = agentHibernationVisiblePanelIdsForCurrentLayout()
+        let pending: [PendingRestoredAgentHibernationAdoption] = panelIds
+            .intersection(visiblePanelIds)
+            .sorted { $0.uuidString < $1.uuidString }
+            .compactMap { panelId in
+                guard restoredAgentHibernationAdoptionWaitGroupIdByPanelId[panelId] == nil else {
+                    return nil
+                }
+                return pendingRestoredAgentHibernationAdoptionsByPanelId[panelId]
+            }
+        guard !pending.isEmpty else { return }
+
+        let groupId = UUID()
+        for adoption in pending {
+            restoredAgentHibernationAdoptionWaitGroupIdByPanelId[adoption.request.surfaceId] = groupId
+        }
+#if DEBUG
+        debugRestoredAgentHibernationAdoptionWaitOperationCount += 1
+        let waitHandler = debugRestoredAgentHibernationAdoptionWaitHandler ?? {
+            await AgentHookSessionStateWriter.waitForRestoredHibernationOutcomes($0)
+        }
+        let ownerReleasedHandler = debugRestoredAgentHibernationAdoptionWaitOwnerReleased
+#else
+        let waitHandler: RestoredAgentHibernationAdoptionWaitHandler = {
+            await AgentHookSessionStateWriter.waitForRestoredHibernationOutcomes($0)
+        }
+#endif
+        let requests = pending.map { $0.request }
+        let task = Task { @MainActor [weak self] in
+            let outcomes = await waitHandler(requests)
+            let wasCancelled = Task.isCancelled
+            if let self {
+                await self.finishRestoredAgentHibernationAdoptionWait(
+                    groupId: groupId,
+                    capturedPending: pending,
+                    outcomes: outcomes,
+                    wasCancelled: wasCancelled
+                )
+            } else {
+                // Workspace teardown is also the app/window shutdown path. An
+                // adoption that already committed remains the next launch's
+                // restore authority. Explicit panel/workspace closes remove
+                // the panel while this owner is alive, then release the exact
+                // adoption generation through the normal finish path.
+#if DEBUG
+                ownerReleasedHandler?()
+#endif
+            }
+        }
+        restoredAgentHibernationAdoptionWaitTasksByGroupId[groupId] = task
+    }
+
+    private func finishRestoredAgentHibernationAdoptionWait(
+        groupId: UUID,
+        capturedPending: [PendingRestoredAgentHibernationAdoption],
+        outcomes: [UUID: AgentHookSessionStateWriter.RestoredHibernationAdoptionOutcome],
+        wasCancelled: Bool
+    ) async {
+        guard restoredAgentHibernationAdoptionWaitTasksByGroupId.removeValue(
+            forKey: groupId
+        ) != nil else { return }
+        let groupWasCanceled = canceledRestoredAgentHibernationAdoptionWaitGroupIds.remove(groupId) != nil
+
+        var applicable: [PendingRestoredAgentHibernationAdoption] = []
+        var adoptedButNoLongerOwned: [
+            AgentHookSessionStateWriter.RestoredHibernationAdoptionRequest
+        ] = []
+        applicable.reserveCapacity(capturedPending.count)
+        for captured in capturedPending {
+            let panelId = captured.request.surfaceId
+            guard restoredAgentHibernationAdoptionWaitGroupIdByPanelId[panelId] == groupId else {
+                if outcomes[panelId] == .adopted {
+                    adoptedButNoLongerOwned.append(captured.request)
+                }
+                continue
+            }
+            restoredAgentHibernationAdoptionWaitGroupIdByPanelId.removeValue(forKey: panelId)
+            guard panels[panelId] != nil,
+                  let current = pendingRestoredAgentHibernationAdoptionsByPanelId[panelId],
+                  RestoredAgentHibernationAdoptionIdentity(current)
+                    == RestoredAgentHibernationAdoptionIdentity(captured) else {
+                if outcomes[panelId] == .adopted {
+                    adoptedButNoLongerOwned.append(captured.request)
+                }
+                continue
+            }
+            applicable.append(current)
+        }
+
+        applyRestoredAgentHibernationAdoptions(applicable, outcomes: outcomes)
+        let visiblePanelIds = agentHibernationVisiblePanelIdsForCurrentLayout()
+        let adoptedPanelIds = Set(applicable.compactMap { adoption in
+            outcomes[adoption.request.surfaceId] == .adopted
+                && visiblePanelIds.contains(adoption.request.surfaceId)
+                ? adoption.request.surfaceId
+                : nil
+        })
+        if !adoptedPanelIds.isEmpty {
+            _ = resumeAgentHibernationPanels(
+                panelIds: adoptedPanelIds,
+                focusPanelId: nil
+            )
+        }
+        await AgentHookSessionStateWriter.releaseCanceledRestoredHibernations(
+            adoptedButNoLongerOwned
+        )
+        if wasCancelled || groupWasCanceled {
+            scheduleRestoredAgentHibernationAdoptionWait(
+                panelIds: Set(capturedPending.compactMap { adoption in
+                    let panelId = adoption.request.surfaceId
+                    return pendingRestoredAgentHibernationAdoptionsByPanelId[panelId] != nil
+                        ? panelId
+                        : nil
+                })
+            )
+        }
+#if DEBUG
+        debugRestoredAgentHibernationAdoptionWaitDidFinish?(groupId)
+#endif
+    }
+
+    private func cancelRestoredAgentHibernationAdoptionWait(
+        containing panelId: UUID
+    ) {
+        guard let groupId = restoredAgentHibernationAdoptionWaitGroupIdByPanelId[panelId] else {
+            return
+        }
+        restoredAgentHibernationAdoptionWaitGroupIdByPanelId.removeValue(forKey: panelId)
+        canceledRestoredAgentHibernationAdoptionWaitGroupIds.insert(groupId)
+        restoredAgentHibernationAdoptionWaitTasksByGroupId[groupId]?.cancel()
+#if DEBUG
+        debugRestoredAgentHibernationAdoptionWaitCancellationCount += 1
+#endif
+        // Remaining group members are rescheduled only after the canceled
+        // transaction finishes or rolls back, preventing an old cleanup from
+        // racing a replacement adoption generation.
+    }
+
+    private func cancelAllRestoredAgentHibernationAdoptionWaits() {
+        let tasks = restoredAgentHibernationAdoptionWaitTasksByGroupId
+        canceledRestoredAgentHibernationAdoptionWaitGroupIds.formUnion(tasks.keys)
+        restoredAgentHibernationAdoptionWaitGroupIdByPanelId.removeAll(keepingCapacity: false)
+        for task in tasks.values { task.cancel() }
+    }
+
+    private func beginAgentHibernationRestoreSuppression() -> AgentHibernationRestoreSuppressionState {
+        let state = AgentHibernationRestoreSuppressionState(
+            wasRestoring: isRestoringSessionSnapshot,
+            presentationVisible: agentHibernationAutoResumePresentationVisible,
+            presentationVisibilityWasUpdated: agentHibernationPresentationVisibilityWasUpdatedDuringSessionRestore
+        )
+        isRestoringSessionSnapshot = true
+        agentHibernationAutoResumePresentationVisible = false
+        agentHibernationPresentationVisibilityWasUpdatedDuringSessionRestore = false
+        return state
+    }
+
+    fileprivate func endAgentHibernationRestoreSuppression(
+        _ state: AgentHibernationRestoreSuppressionState
+    ) {
+        let presentationVisible = agentHibernationPresentationVisibilityWasUpdatedDuringSessionRestore
+            ? agentHibernationAutoResumePresentationVisible
+            : state.presentationVisible
+        isRestoringSessionSnapshot = state.wasRestoring
+        agentHibernationPresentationVisibilityWasUpdatedDuringSessionRestore =
+            state.presentationVisibilityWasUpdated
+        if state.wasRestoring {
+            agentHibernationAutoResumePresentationVisible = presentationVisible
+            agentHibernationPresentationVisibilityWasUpdatedDuringSessionRestore = true
+        } else {
+            setAgentHibernationAutoResumePresentationVisible(
+                presentationVisible,
+                retryPendingAdoptions: false
+            )
+        }
+    }
+
+    func clearRejectedRestoredAgentHibernationMetadata(panelId: UUID) {
+        cancelRestoredAgentHibernationAdoptionWait(
+            containing: panelId
+        )
+        pendingRestoredAgentHibernationAdoptionsByPanelId.removeValue(forKey: panelId)
+        restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
+        restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+        restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+    }
+
+    func clearPendingRestoredAgentHibernationAdoption(panelId: UUID) {
+        cancelRestoredAgentHibernationAdoptionWait(
+            containing: panelId
+        )
+        pendingRestoredAgentHibernationAdoptionsByPanelId.removeValue(forKey: panelId)
     }
 
     private func sessionLayoutSnapshot(from node: ExternalTreeNode) -> SessionWorkspaceLayoutSnapshot {
@@ -742,15 +1172,16 @@ extension Workspace {
                 anchorPanelId: fallbackAnchorPanelId
             )
         }
-        // Prefer the warm cached agent index over a synchronous `RestorableAgentSessionIndex.load()`
-        // (sysctl-per-record + disk, ~350ms-1.8s on machines with large agent history) so closing a
-        // tab does not freeze the main thread. Fall back to a fresh load only when the cache has not
-        // loaded yet (the brief window after launch before the first refresh completes; the cache is
-        // prewarmed at launch so this is rare). A cached entry at most one refresh stale is acceptable
-        // here because restore prefers the always-fresh in-memory resumeBinding and only consults this
-        // agent snapshot when no binding exists, so cmux-launched agents reopen correctly regardless of cache freshness.
+        // Prefer the warm cached agent index over a synchronous
+        // `RestorableAgentSessionIndex.load()` (sysctl-per-record + disk, ~350ms-1.8s on
+        // machines with large agent history) so closing a tab does not freeze the main
+        // thread. An empty index is safer than a synchronous cold load before
+        // the prewarmed cache finishes. A cached entry at most one refresh stale
+        // is acceptable here because restore prefers the always-fresh in-memory
+        // resumeBinding and only consults this agent snapshot when no binding exists, so
+        // cmux-launched agents reopen correctly regardless of cache freshness.
         let agentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-            ?? RestorableAgentSessionIndex.load()
+            ?? .empty
         let restorableAgentObservation = agentIndex.entry(workspaceId: id, panelId: panelId)
         guard let snapshot = sessionPanelSnapshot(
             panelId: panelId,
@@ -795,7 +1226,7 @@ extension Workspace {
         guard let entry = closedPanelHistoryEntry(panelId: panelId, tabId: tab.id, pane: pane) else {
             return false
         }
-        ClosedItemHistoryStore.shared.push(.panel(entry))
+        pushClosedPanelHistoryEntryWithAgentEnrichment(entry)
         return true
     }
 
@@ -821,12 +1252,21 @@ extension Workspace {
 
     @discardableResult
     private func restoreClosedPanel(_ entry: ClosedPanelHistoryEntry, inPane pane: PaneID) -> UUID? {
+        let hibernationSuppression = beginAgentHibernationRestoreSuppression()
+        defer { endAgentHibernationRestoreSuppression(hibernationSuppression) }
+        var pendingAgentHibernationAdoptions: [PendingRestoredAgentHibernationAdoption] = []
+        var discardedStartupBreadcrumbEvents: [StartupBreadcrumbEvent] = []
         guard let panelId = createPanel(
             from: entry.snapshot,
             inPane: pane,
-            snapshotWorkspaceId: nil,
-            shouldRestoreSingleDefaultCloudTerminal: false
+            snapshotWorkspaceId: entry.workspaceId,
+            shouldRestoreSingleDefaultCloudTerminal: false,
+            recordsStartupBreadcrumb: false,
+            startupBreadcrumbEvents: &discardedStartupBreadcrumbEvents,
+            pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions,
+            agentCommandExecutableResolver: AgentCommandExecutableResolver()
         ) else { return nil }
+        finalizeRestoredAgentHibernationAdoptions(pendingAgentHibernationAdoptions)
 
         let maxIndex = max(0, bonsplitController.tabs(inPane: pane).count - 1)
         _ = reorderSurface(panelId: panelId, toIndex: min(max(entry.tabIndex, 0), maxIndex))
@@ -841,6 +1281,8 @@ extension Workspace {
 
     @discardableResult
     private func restoreClosedPanelInFallbackSplit(_ entry: ClosedPanelHistoryEntry) -> UUID? {
+        let hibernationSuppression = beginAgentHibernationRestoreSuppression()
+        defer { endAgentHibernationRestoreSuppression(hibernationSuppression) }
         guard let placement = entry.fallbackSplitPlacement,
               let anchorPanelId = placement.anchorPanelId,
               panels[anchorPanelId] != nil else {
@@ -860,15 +1302,22 @@ extension Workspace {
             return nil
         }
 
+        var pendingAgentHibernationAdoptions: [PendingRestoredAgentHibernationAdoption] = []
+        var discardedStartupBreadcrumbEvents: [StartupBreadcrumbEvent] = []
         guard let panelId = createPanel(
             from: entry.snapshot,
             inPane: pane,
-            snapshotWorkspaceId: nil,
-            shouldRestoreSingleDefaultCloudTerminal: false
+            snapshotWorkspaceId: entry.workspaceId,
+            shouldRestoreSingleDefaultCloudTerminal: false,
+            recordsStartupBreadcrumb: false,
+            startupBreadcrumbEvents: &discardedStartupBreadcrumbEvents,
+            pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions,
+            agentCommandExecutableResolver: AgentCommandExecutableResolver()
         ) else {
             _ = closePanel(placeholderPanel.id, force: true)
             return nil
         }
+        finalizeRestoredAgentHibernationAdoptions(pendingAgentHibernationAdoptions)
 
         _ = closePanel(placeholderPanel.id, force: true)
         guard panels[panelId] != nil else {
@@ -965,9 +1414,7 @@ extension Workspace {
         guard binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines) == restorableAgent.sessionId else {
             return binding
         }
-        if let bindingKind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !bindingKind.isEmpty,
-           RestorableAgentKind(rawValue: bindingKind) != restorableAgent.kind {
+        if !resumeBindingProviderMatches(binding.kind, agent: restorableAgent) {
             return binding
         }
 
@@ -999,13 +1446,18 @@ extension Workspace {
            checkpointId != restorableAgent.sessionId {
             return nil
         }
-        if let kindValue = normalizedResumeBindingValue(resumeBinding.kind) {
-            guard let bindingKind = RestorableAgentKind(rawValue: kindValue),
-                  bindingKind == restorableAgent.kind else {
-                return nil
-            }
+        if !resumeBindingProviderMatches(resumeBinding.kind, agent: restorableAgent) {
+            return nil
         }
         return restorableAgent
+    }
+
+    nonisolated private static func resumeBindingProviderMatches(
+        _ rawKind: String?,
+        agent: SessionRestorableAgentSnapshot
+    ) -> Bool {
+        guard let kind = normalizedResumeBindingValue(rawKind) else { return true }
+        return kind == agent.kind.rawValue
     }
 
     nonisolated private static func normalizedResumeBindingValue(_ value: String?) -> String? {
@@ -1155,7 +1607,10 @@ extension Workspace {
         panelSnapshotsById: [UUID: SessionPanelSnapshot],
         snapshotWorkspaceId: UUID?,
         shouldRestoreSingleDefaultCloudTerminal: Bool,
-        oldToNewPanelIds: inout [UUID: UUID]
+        oldToNewPanelIds: inout [UUID: UUID],
+        startupBreadcrumbEvents: inout [StartupBreadcrumbEvent],
+        pendingAgentHibernationAdoptions: inout [PendingRestoredAgentHibernationAdoption],
+        agentCommandExecutableResolver: AgentCommandExecutableResolver
     ) {
         let existingPanelIds = bonsplitController
             .tabs(inPane: paneId)
@@ -1166,12 +1621,24 @@ extension Workspace {
         var createdPanelIds: [UUID] = []
         for oldPanelId in desiredOldPanelIds {
             guard let panelSnapshot = panelSnapshotsById[oldPanelId] else { continue }
-            guard let createdPanelId = createPanel(
+            let createdPanelId = createPanel(
                 from: panelSnapshot,
                 inPane: paneId,
                 snapshotWorkspaceId: snapshotWorkspaceId,
-                shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal
-            ) else { continue }
+                shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal,
+                recordsStartupBreadcrumb: true,
+                startupBreadcrumbEvents: &startupBreadcrumbEvents,
+                pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions,
+                agentCommandExecutableResolver: agentCommandExecutableResolver
+            )
+            if panelSnapshot.type != .terminal {
+                recordSessionRestorePanelBreadcrumb(
+                    snapshot: panelSnapshot,
+                    outcome: createdPanelId == nil ? "failed" : "created",
+                    events: &startupBreadcrumbEvents
+                )
+            }
+            guard let createdPanelId else { continue }
             createdPanelIds.append(createdPanelId)
             oldToNewPanelIds[oldPanelId] = createdPanelId
         }
@@ -1250,7 +1717,11 @@ extension Workspace {
         from snapshot: SessionPanelSnapshot,
         inPane paneId: PaneID,
         snapshotWorkspaceId: UUID?,
-        shouldRestoreSingleDefaultCloudTerminal: Bool
+        shouldRestoreSingleDefaultCloudTerminal: Bool,
+        recordsStartupBreadcrumb: Bool,
+        startupBreadcrumbEvents: inout [StartupBreadcrumbEvent],
+        pendingAgentHibernationAdoptions: inout [PendingRestoredAgentHibernationAdoption],
+        agentCommandExecutableResolver: AgentCommandExecutableResolver
     ) -> UUID? {
         let restoresUntrustedSavedDirectory = snapshot.directoryIsTrustedRemoteReport != true &&
             (snapshot.directoryRequiresRemoteTrust == true ||
@@ -1287,7 +1758,24 @@ extension Workspace {
             let restoresRemoteWorkspaceTerminalSnapshot =
                 remoteStartupCommand != nil &&
                 (snapshot.terminal?.isRemoteTerminal != false || shouldRestoreSingleDefaultCloudTerminal)
-            let restoredBindingLaunch: SurfaceResumeStartupLaunch? = if restoresRemoteWorkspaceTerminalSnapshot {
+            let selectedAgentHookBinding = effectiveResumeBindingForStartup.flatMap {
+                $0.isAgentHookBinding ? $0 : nil
+            }
+            let shouldPreflightResumeExecutable = !restoresRemoteWorkspaceTerminalSnapshot
+                && shouldAutoResumeAgent
+                && restoredHibernation == nil
+            let selectedAgentHookBindingExecutableUnavailable = selectedAgentHookBinding.map { binding in
+                guard let descriptor = binding.agentHookExecutionDescriptor else { return true }
+                return agentCommandExecutableResolver.resolve(descriptor) == nil
+            } ?? false
+            let selectedBindingExecutableUnavailable = shouldPreflightResumeExecutable
+                && selectedAgentHookBinding != nil
+                && selectedAgentHookBindingExecutableUnavailable
+            let candidateRestoredBindingLaunch: SurfaceResumeStartupLaunch? = if selectedBindingExecutableUnavailable {
+                // Do not write an oversized launcher script for a command that
+                // cannot pass local executable preflight.
+                nil
+            } else if restoresRemoteWorkspaceTerminalSnapshot {
                 effectiveResumeBindingForStartup?.remoteStartupInputWithLauncherScript(allowLauncherScript: false)
                     .map(SurfaceResumeStartupLaunch.input)
             } else {
@@ -1298,6 +1786,18 @@ extension Workspace {
                     )
                 }
             }
+            let restorableAgentExecutableUnavailable = restorableAgent.map { agent in
+                guard let descriptor = agent.resumeExecutionDescriptor else { return true }
+                return agentCommandExecutableResolver.resolve(descriptor) == nil
+            } ?? false
+            let selectedRestorableAgentExecutableUnavailable = shouldPreflightResumeExecutable
+                && selectedAgentHookBinding == nil
+                && candidateRestoredBindingLaunch == nil
+                && restorableAgent != nil
+                && restorableAgentExecutableUnavailable
+            let resumeExecutableUnavailable = selectedBindingExecutableUnavailable
+                || selectedRestorableAgentExecutableUnavailable
+            let restoredBindingLaunch = candidateRestoredBindingLaunch
             let effectiveResumeBinding = restoredBindingLaunch == nil ? nil : resumeBinding
             let savedWorkingDirectory = effectiveResumeBinding?.cwd
                 ?? (restoresUntrustedSavedDirectory ? nil : snapshot.terminal?.workingDirectory)
@@ -1332,7 +1832,11 @@ extension Workspace {
             }
             let restoredTmuxStartCommand = restoredTmuxStartupScript == nil ? nil : restorableTmuxStartCommand
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
-                if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil {
+                if shouldAutoResumeAgent
+                    && restoredHibernation == nil
+                    && restoredBindingLaunch == nil
+                    && selectedAgentHookBinding == nil
+                    && !resumeExecutableUnavailable {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         restorableAgent?.resumeStartupInput(allowLauncherScript: false, allowOversizedInlineInput: true)
                             .map(SurfaceResumeStartupLaunch.input)
@@ -1393,7 +1897,9 @@ extension Workspace {
             }
             let restoredStartupCommand =
                 restoredRemotePTYAttachCommand
-                ?? restoredTmuxStartupScript?.path
+                ?? restoredTmuxStartupScript.map(
+                    SessionRestoredTerminalCommandStore.launcherCommand(for:)
+                )
                 ?? restoredBindingLaunch?.initialCommand
                 ?? restoredAgentResumeLaunch?.initialCommand
             let restoredStartupInput = restoredRemotePTYAttachCommand == nil
@@ -1426,6 +1932,76 @@ extension Workspace {
             let restoredAgentWillRunStartupInput =
                 restoredAgentResumeLaunch?.initialInput != nil ||
                 (restoredBindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
+            let bindingStatus: String
+            let bindingReason: String
+            if snapshot.terminal?.resumeBinding == nil {
+                bindingStatus = "missing"
+                bindingReason = "absent"
+            } else if restoredHibernation != nil {
+                bindingStatus = "found"
+                bindingReason = "hibernated"
+            } else if resumeBinding?.isProcessDetected == true, resumeBinding?.autoResume != true {
+                bindingStatus = "found"
+                bindingReason = "process_detected_manual"
+            } else if effectiveResumeBindingForStartup == nil {
+                bindingStatus = "rejected"
+                if !autoResumeAgentSessions {
+                    bindingReason = "auto_resume_disabled"
+                } else if !agentWasRunningAtQuit {
+                    bindingReason = "agent_not_running"
+                } else {
+                    bindingReason = "policy_denied"
+                }
+            } else {
+                bindingStatus = "found"
+                bindingReason = "approved"
+            }
+            let resumeAction = restoredBindingLaunch != nil || restoredAgentResumeLaunch != nil
+                ? "issued"
+                : "suppressed"
+            let resumeMode: String = {
+                if restoredBindingLaunch?.initialCommand != nil || restoredAgentResumeLaunch?.initialCommand != nil {
+                    return "command"
+                }
+                if restoredBindingLaunch?.initialInput != nil || restoredAgentResumeLaunch?.initialInput != nil {
+                    return "input"
+                }
+                return "none"
+            }()
+            let resumeReason: String = {
+                if restoredBindingLaunch != nil { return "binding" }
+                if restoredAgentResumeLaunch != nil { return "agent" }
+                if restoredHibernation != nil { return "hibernated" }
+                if resumeExecutableUnavailable { return "resume_executable_unavailable" }
+                if snapshot.terminal?.resumeBinding != nil {
+                    switch bindingReason {
+                    case "auto_resume_disabled": return "auto_resume_disabled"
+                    case "agent_not_running": return "agent_not_running"
+                    case "process_detected_manual": return "process_detected"
+                    case "policy_denied": return "binding_rejected"
+                    default: return "binding_unlaunchable"
+                    }
+                }
+                if restorableAgent != nil {
+                    if !autoResumeAgentSessions { return "auto_resume_disabled" }
+                    if !agentWasRunningAtQuit { return "agent_not_running" }
+                    return "resume_unavailable"
+                }
+                return "no_candidate"
+            }()
+            let provider: String = {
+                let kind = restorableAgent?.kind ?? resumeBinding?.kind.flatMap(RestorableAgentKind.init(rawValue:))
+                guard let kind else { return "unknown" }
+                return kind.customAgentID == nil ? kind.rawValue : "custom"
+            }()
+            let terminalBreadcrumbFields = [
+                "binding": bindingStatus,
+                "bindingReason": bindingReason,
+                "resume": resumeAction,
+                "resumeReason": resumeReason,
+                "resumeMode": resumeMode,
+                "provider": provider,
+            ]
 #if DEBUG
             if let restorableAgent {
                 let sessionPreview = String(restorableAgent.sessionId.prefix(8))
@@ -1475,35 +2051,25 @@ extension Workspace {
                 restoredSurfaceId: reusableSurfaceId
             ) else {
                 if let replayFileURL { try? FileManager.default.removeItem(at: replayFileURL) }
+                if recordsStartupBreadcrumb {
+                    recordSessionRestorePanelBreadcrumb(
+                        snapshot: snapshot,
+                        outcome: "failed",
+                        terminalFields: terminalBreadcrumbFields,
+                        events: &startupBreadcrumbEvents
+                    )
+                }
                 return nil
             }
-            terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
-            // Re-bind the resumed agent session from cmux's own authority, keyed
-            // on the surface that was actually created. `terminalPanel.id` equals
-            // `snapshot.id` on the normal path, but on a surface-id collision
-            // (restore-into-live / duplicate-workspace) `newTerminalSurface`
-            // minted a fresh id, so keying on `snapshot.id` would bind to a
-            // surface that does not exist and the GUI would never find the
-            // session. This is unconditional on whether cmux runs the resume
-            // command itself: a restored surface that CARRIES a resumable agent
-            // binding must flip its registry record to live/.idle so the iOS GUI
-            // is editable, even when auto-resume is off and the user resumes
-            // manually (e.g. `sr codex resume`). Recording .idle here is the safe
-            // direction per the spec — never invent `ended`.
-            if let resumeReboundSession {
-                // The chat record's cwd feeds transcript-path resolution
-                // (Claude transcripts live under the project the agent ran
-                // in), so it must be the resume launcher's real target, not
-                // the persisted terminal cwd a stray report may have parked
-                // on home (#7155).
-                AgentChatTranscriptService.recordResumeIntent(
-                    sessionID: resumeReboundSession.sessionID,
-                    source: resumeReboundSession.source,
-                    surfaceID: terminalPanel.id.uuidString,
-                    workspaceID: id.uuidString,
-                    workingDirectory: resumeSessionWorkingDirectory
+            if recordsStartupBreadcrumb {
+                recordSessionRestorePanelBreadcrumb(
+                    snapshot: snapshot,
+                    outcome: "created",
+                    terminalFields: terminalBreadcrumbFields,
+                    events: &startupBreadcrumbEvents
                 )
             }
+            terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
             if let restoredRemotePTYSessionID {
                 registerRemoteRelayIDAliases(
                     remotePTYSessionID: restoredRemotePTYSessionID,
@@ -1552,6 +2118,8 @@ extension Workspace {
             } else {
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: terminalPanel.id)
             }
+            let shouldRecordResumeIntent = restoredHibernation == nil
+                && (restoredBindingLaunch != nil || restoredAgentResumeLaunch != nil)
             if let restorableAgent {
                 seedSessionRestoredAgentState(
                     panelId: terminalPanel.id,
@@ -1559,13 +2127,32 @@ extension Workspace {
                     willRunStartupCommand: restoredAgentWillRunStartupCommand,
                     willRunStartupInput: restoredAgentWillRunStartupInput
                 )
-                if let restoredHibernation,
-                   restorableAgent.resumeCommand != nil {
-                    terminalPanel.enterAgentHibernation(
-                        agent: restorableAgent,
-                        lastActivityAt: Date(timeIntervalSince1970: restoredHibernation.lastActivityAt),
-                        hibernatedAt: Date(timeIntervalSince1970: restoredHibernation.hibernatedAt)
-                    )
+                if let restoredHibernation {
+                    let didEnterHibernation = restorableAgent.resumeCommand != nil &&
+                        terminalPanel.enterAgentHibernation(
+                            agent: restorableAgent,
+                            lastActivityAt: Date(timeIntervalSince1970: restoredHibernation.lastActivityAt),
+                            hibernatedAt: Date(timeIntervalSince1970: restoredHibernation.hibernatedAt)
+                        )
+                    if didEnterHibernation {
+                        pendingAgentHibernationAdoptions.append(
+                            PendingRestoredAgentHibernationAdoption(
+                                request: .init(
+                                    agent: restorableAgent,
+                                    previousWorkspaceId: snapshotWorkspaceId,
+                                    previousSurfaceId: snapshot.id,
+                                    workspaceId: id,
+                                    surfaceId: terminalPanel.id
+                                ),
+                                resumeWorkingDirectory: resumeSessionWorkingDirectory
+                            )
+                        )
+                    } else {
+                        discardRejectedRestoredAgentHibernation(
+                            panelId: terminalPanel.id,
+                            restoredAgent: restorableAgent
+                        )
+                    }
                 }
             } else {
                 seedSessionRestoredAgentState(
@@ -1573,6 +2160,17 @@ extension Workspace {
                     restorableAgent: nil,
                     willRunStartupCommand: restoredAgentWillRunStartupCommand,
                     willRunStartupInput: restoredAgentWillRunStartupInput
+                )
+            }
+            if shouldRecordResumeIntent, let resumeReboundSession {
+                // The chat record's cwd feeds Claude transcript resolution, so
+                // use the resume launcher's target rather than a stray shell cwd.
+                AgentChatTranscriptService.recordResumeIntent(
+                    sessionID: resumeReboundSession.sessionID,
+                    source: resumeReboundSession.source,
+                    surfaceID: terminalPanel.id.uuidString,
+                    workspaceID: id.uuidString,
+                    workingDirectory: resumeSessionWorkingDirectory
                 )
             }
             // While an auto-resumed agent-hook or restorable-agent launcher
@@ -1673,6 +2271,22 @@ extension Workspace {
         case .cloudVMLoading:
             return nil
         }
+    }
+
+    private func recordSessionRestorePanelBreadcrumb(
+        snapshot: SessionPanelSnapshot,
+        outcome: String,
+        terminalFields: [String: String] = [:],
+        events: inout [StartupBreadcrumbEvent]
+    ) {
+        var fields = terminalFields
+        fields["panel"] = String(snapshot.id.uuidString.lowercased().prefix(8))
+        fields["type"] = snapshot.type.rawValue
+        fields["outcome"] = outcome
+        if outcome == "failed" {
+            fields["failureReason"] = "panel_creation_failed"
+        }
+        events.append((event: "session.restore.panel", fields: fields))
     }
 
     func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
@@ -2389,6 +3003,24 @@ final class Workspace: Identifiable, ObservableObject {
         set { restoredAgentLifecycle.snapshotsByPanelId = newValue }
     }
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    fileprivate var pendingRestoredAgentHibernationAdoptionsByPanelId: [
+        UUID: PendingRestoredAgentHibernationAdoption
+    ] = [:]
+    private var restoredAgentHibernationAdoptionWaitTasksByGroupId: [
+        UUID: Task<Void, Never>
+    ] = [:]
+    private var restoredAgentHibernationAdoptionWaitGroupIdByPanelId: [UUID: UUID] = [:]
+    private var canceledRestoredAgentHibernationAdoptionWaitGroupIds: Set<UUID> = []
+#if DEBUG
+    var debugRestoredAgentHibernationAdoptionWaitHandler: RestoredAgentHibernationAdoptionWaitHandler?
+    var debugRestoredAgentHibernationAdoptionWaitDidFinish: (@MainActor @Sendable (UUID) -> Void)?
+    var debugRestoredAgentHibernationAdoptionWaitOwnerReleased: (@MainActor @Sendable () -> Void)?
+    private(set) var debugRestoredAgentHibernationAdoptionWaitOperationCount = 0
+    private(set) var debugRestoredAgentHibernationAdoptionWaitCancellationCount = 0
+    var debugRestoredAgentHibernationAdoptionWaitInFlightCount: Int {
+        restoredAgentHibernationAdoptionWaitTasksByGroupId.count
+    }
+#endif
     private var restoredGuardedWorkingDirectoriesByPanelId: [UUID: String] = [:]
     /// The session directory each restored auto-resume launcher targets, kept
     /// for the lifetime of the resumed run (unlike the one-shot report guard
@@ -2410,6 +3042,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
     private let sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>
+    private let startupBreadcrumbBatchWriter: StartupBreadcrumbBatchWriter
 
     typealias SurfaceResumeStartupLaunch = WorkspaceSurfaceResumeStartupLaunch
 
@@ -2910,11 +3543,13 @@ final class Workspace: Identifiable, ObservableObject {
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
+        startupBreadcrumbBatchWriter: @escaping StartupBreadcrumbBatchWriter = { StartupBreadcrumbLog.append($0) },
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
     ) {
         self.id = UUID()
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
+        self.startupBreadcrumbBatchWriter = startupBreadcrumbBatchWriter
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.closeTabWarningDefaults = closeTabWarningDefaults
@@ -3188,6 +3823,9 @@ final class Workspace: Identifiable, ObservableObject {
     private var sharedLiveAgentIndexObserver: NSObjectProtocol?
 
     deinit {
+        for task in restoredAgentHibernationAdoptionWaitTasksByGroupId.values {
+            task.cancel()
+        }
         for registrations in pendingTerminalInputObserversByPanelId.values {
             for registration in registrations {
                 if let observer = registration.observer {
@@ -3417,7 +4055,9 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpStalledAttemptCount = 0
     private var pendingReparentFocusSuppressionViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
     private var portalRenderingEnabled = true
-    private var agentHibernationAutoResumePresentationVisible = true
+    private var agentHibernationAutoResumePresentationVisible = false
+    private var isRestoringSessionSnapshot = false
+    private var agentHibernationPresentationVisibilityWasUpdatedDuringSessionRestore = false
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
     /// The pending non-focusing-split focus re-assert request (the value
@@ -4575,6 +5215,11 @@ final class Workspace: Identifiable, ObservableObject {
         if let terminalPanel = panels[panelId] as? TerminalPanel {
             terminalPanel.updateShellActivityState(state)
         }
+        // Shell integration is one of the exact hibernation commit gates.
+        // Invalidate an in-flight teardown synchronously before any async
+        // native-free validation can claim it.
+        recordAgentHibernationLifecycleChange(panelId: panelId)
+        let rootExitCandidate = agentRootExitCandidate(panelId: panelId, previousState: previousState, state: state)
         if let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
             updateRestoredAgentResumeState(
                 panelId: panelId,
@@ -4584,7 +5229,11 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             updateBindingOnlyRestoredAgentResumeState(panelId: panelId, shellState: state)
         }
-        if state == .promptIdle { _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) }
+        recordAgentRootExit(panelId: panelId, binding: rootExitCandidate, isPromptIdle: state == .promptIdle)
+        if state == .promptIdle {
+            _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true)
+            clearDetectedAgentLifecycle(panelId: panelId)
+        }
 #if DEBUG
         cmuxDebugLog(
             "surface.shellState workspace=\(id.uuidString.prefix(5)) " +
@@ -4613,16 +5262,105 @@ final class Workspace: Identifiable, ObservableObject {
         return snapshot
     }
 
+    /// Restores hibernation state for a surface whose native runtime has not
+    /// been created. Live hibernation uses the async overload below.
+    @discardableResult
     func enterAgentHibernation(
         panelId: UUID,
         agent: SessionRestorableAgentSnapshot,
         lastActivityAt: Date
-    ) {
+    ) -> Bool {
         guard let terminalPanel = panels[panelId] as? TerminalPanel,
-              !terminalPanel.isAgentHibernated else {
-            return
+              !terminalPanel.isAgentHibernated,
+              agent.resumeCommand != nil,
+              terminalPanel.enterAgentHibernation(agent: agent, lastActivityAt: lastActivityAt) else {
+            return false
         }
-        guard agent.resumeCommand != nil else { return }
+        commitAgentHibernationMetadata(
+            panelId: panelId,
+            agent: agent
+        )
+        return true
+    }
+
+    func enterAgentHibernation(
+        panelId: UUID,
+        agent: SessionRestorableAgentSnapshot,
+        lastActivityAt: Date,
+        finalValidation: @escaping @Sendable () async -> Bool,
+        finalTeardownPreparation: @escaping @Sendable () -> (@Sendable () -> Void)? = { {} },
+        executableResolver: AgentCommandExecutableResolver = AgentCommandExecutableResolver()
+    ) async -> Bool {
+        guard let terminalPanel = panels[panelId] as? TerminalPanel,
+              !terminalPanel.isAgentHibernated,
+              agent.resumeCommand != nil,
+              let resumeExecutionDescriptor = agent.resumeExecutionDescriptor,
+              executableResolver.resolve(resumeExecutionDescriptor) != nil else {
+            return false
+        }
+        let agentHookBinding = surfaceResumeBindingsByPanelId[panelId].flatMap {
+            $0.isAgentHookBinding ? $0 : nil
+        }
+        if let agentHookBinding,
+           !agentHookBindingMatchesAgent(agentHookBinding, agent: agent) {
+            return false
+        }
+        let workspaceId = id
+        let requiresDurableAuthority = agentHookBinding != nil
+        let hibernationAttemptId = UUID()
+        let hibernatedAtTimestamp = max(
+            Date().timeIntervalSince1970,
+            agentHookBinding?.updatedAt ?? -.infinity
+        )
+        let hibernatedAt = Date(timeIntervalSince1970: hibernatedAtTimestamp)
+        let didHibernate = await terminalPanel.enterAgentHibernation(
+            agent: agent,
+            lastActivityAt: lastActivityAt,
+            hibernatedAt: hibernatedAt,
+            finalValidation: finalValidation,
+            finalTeardownPreparation: finalTeardownPreparation,
+            finalCommit: {
+                guard requiresDurableAuthority else { return true }
+                return AgentHookSessionStateWriter.establishHibernatedAuthority(
+                    agent: agent,
+                    workspaceId: workspaceId,
+                    surfaceId: panelId,
+                    attemptId: hibernationAttemptId,
+                    now: hibernatedAtTimestamp
+                ) == .acquired
+            },
+            executableResolver: executableResolver
+        )
+        guard didHibernate else {
+            if requiresDurableAuthority {
+                await AgentHookSessionStateWriter.releaseFailedHibernationAuthority(
+                    agent: agent,
+                    workspaceId: workspaceId,
+                    surfaceId: panelId,
+                    attemptId: hibernationAttemptId
+                )
+            }
+            return false
+        }
+        commitAgentHibernationMetadata(
+            panelId: panelId,
+            agent: agent,
+            recordLifecycle: !requiresDurableAuthority
+        )
+        if requiresDurableAuthority {
+            AgentHookSessionStateWriter.projectCanonicalLegacy(agent: agent)
+        }
+        if terminalPanel.surface.hasPendingInputForAgentHibernationResume {
+            _ = resumeAgentHibernation(panelId: panelId, focus: false)
+        }
+        return true
+    }
+
+    private func commitAgentHibernationMetadata(
+        panelId: UUID,
+        agent: SessionRestorableAgentSnapshot,
+        recordLifecycle: Bool = true
+    ) {
         restoredAgentSnapshotsByPanelId[panelId] = agent
         restoredAgentResumeStatesByPanelId[panelId] = .manualResumeAvailable
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
@@ -4633,40 +5371,198 @@ final class Workspace: Identifiable, ObservableObject {
         if !keys.isEmpty {
             refreshTrackedAgentPorts()
         }
-        terminalPanel.enterAgentHibernation(agent: agent, lastActivityAt: lastActivityAt)
+        if recordLifecycle {
+            AgentHookSessionStateWriter.recordLifecycle(agent: agent, state: .hibernated)
+        }
     }
 
     @discardableResult
     func resumeAgentHibernation(panelId: UUID, focus: Bool) -> Bool {
-        guard let terminalPanel = panels[panelId] as? TerminalPanel,
-              terminalPanel.isAgentHibernated else {
-            return false
-        }
-        let preparation = terminalPanel.prepareAgentHibernationResume()
-        guard preparation.didResume else { return false }
-        if restoredAgentSnapshotsByPanelId[panelId] != nil {
-            restoredAgentResumeStatesByPanelId[panelId] = preparation.queuedStartupInput
-                ? .awaitingAutoResumeCommand
-                : .manualResumeAvailable
-            invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
-        }
-        clearAgentLifecycleStates(panelId: panelId)
-        AgentHibernationController.shared.recordTerminalFocus(workspaceId: id, panelId: panelId)
-        if focus {
-            focusPanel(panelId)
-        }
-        return true
+        retryPendingRestoredAgentHibernationAdoptions(panelIds: [panelId])
+        let didResume = resumeAgentHibernationPanels(
+            panelIds: [panelId],
+            focusPanelId: focus ? panelId : nil
+        )
+        scheduleRestoredAgentHibernationAdoptionWait(panelIds: [panelId])
+        return didResume
     }
 
     @discardableResult
-    func resumeVisibleAgentHibernationPanels(panelIds: Set<UUID>) -> Bool {
+    func resumeVisibleAgentHibernationPanels(
+        panelIds: Set<UUID>,
+        retryPendingAdoptions: Bool = true,
+        preclaimedResumeAuthorityOutcomes: [
+            UUID: AgentHookSessionStateWriter.HibernatedResumeAuthorityOutcome
+        ]? = nil,
+        authorityClaimHandler: (
+            [AgentHookSessionStateWriter.HibernatedResumeAuthorityRequest]
+        ) -> [UUID: AgentHookSessionStateWriter.HibernatedResumeAuthorityOutcome] = {
+            AgentHookSessionStateWriter.acquireHibernatedResumeAuthorities($0)
+        }
+    ) -> Bool {
+        if retryPendingAdoptions {
+            retryPendingRestoredAgentHibernationAdoptions(panelIds: panelIds)
+        }
+        let didResume = resumeAgentHibernationPanels(
+            panelIds: panelIds,
+            focusPanelId: nil,
+            preclaimedResumeAuthorityOutcomes: preclaimedResumeAuthorityOutcomes,
+            authorityClaimHandler: authorityClaimHandler
+        )
+        scheduleRestoredAgentHibernationAdoptionWait(panelIds: panelIds)
+        return didResume
+    }
+
+    private func agentHibernationResumeCandidate(
+        panelId: UUID,
+        executableResolver: AgentCommandExecutableResolver
+    ) -> AgentHibernationResumeCandidate? {
+        guard pendingRestoredAgentHibernationAdoptionsByPanelId[panelId] == nil,
+              let terminalPanel = panels[panelId] as? TerminalPanel,
+              terminalPanel.isAgentHibernated,
+              let hibernatedAgent = terminalPanel.agentHibernationState?.agent,
+              let plan = terminalPanel.agentHibernationResumePlan(
+                  executableResolver: executableResolver
+              ) else {
+            return nil
+        }
+        guard let agentHookBinding = surfaceResumeBindingsByPanelId[panelId].flatMap({
+            $0.isAgentHookBinding ? $0 : nil
+        }) else {
+            return AgentHibernationResumeCandidate(
+                panelId: panelId,
+                panel: terminalPanel,
+                agent: hibernatedAgent,
+                plan: plan,
+                authority: .untracked
+            )
+        }
+
+        let authority: AgentHibernationResumeAuthority = agentHookBindingMatchesAgent(
+            agentHookBinding,
+            agent: hibernatedAgent
+        )
+            ? .claim(.init(agent: hibernatedAgent, workspaceId: id, surfaceId: panelId))
+            : .rejected
+        return AgentHibernationResumeCandidate(
+            panelId: panelId,
+            panel: terminalPanel,
+            agent: hibernatedAgent,
+            plan: plan,
+            authority: authority
+        )
+    }
+
+    private func agentHookBindingMatchesAgent(
+        _ binding: SurfaceResumeBindingSnapshot,
+        agent: SessionRestorableAgentSnapshot
+    ) -> Bool {
+        let checkpointId = binding.checkpointId?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let kind = binding.kind?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (checkpointId == nil || checkpointId == agent.sessionId)
+            && Self.resumeBindingProviderMatches(kind, agent: agent)
+    }
+
+    @discardableResult
+    private func resumeAgentHibernationPanels(
+        panelIds: Set<UUID>,
+        focusPanelId: UUID?,
+        preclaimedResumeAuthorityOutcomes: [
+            UUID: AgentHookSessionStateWriter.HibernatedResumeAuthorityOutcome
+        ]? = nil,
+        authorityClaimHandler: (
+            [AgentHookSessionStateWriter.HibernatedResumeAuthorityRequest]
+        ) -> [UUID: AgentHookSessionStateWriter.HibernatedResumeAuthorityOutcome] = {
+            AgentHookSessionStateWriter.acquireHibernatedResumeAuthorities($0)
+        }
+    ) -> Bool {
+        let executableResolver = AgentCommandExecutableResolver()
+        let candidates = panelIds
+            .sorted { $0.uuidString < $1.uuidString }
+            .compactMap {
+                agentHibernationResumeCandidate(
+                    panelId: $0,
+                    executableResolver: executableResolver
+                )
+            }
+        let authorityRequests = candidates.compactMap { candidate in
+            if case .claim(let request) = candidate.authority { return request }
+            return nil
+        }
+        let authorityOutcomes: [
+            UUID: AgentHookSessionStateWriter.HibernatedResumeAuthorityOutcome
+        ]
+        if let preclaimedResumeAuthorityOutcomes {
+            authorityOutcomes = preclaimedResumeAuthorityOutcomes
+        } else if authorityRequests.isEmpty {
+            authorityOutcomes = [:]
+        } else {
+            authorityOutcomes = authorityClaimHandler(authorityRequests)
+        }
+
         var didResume = false
-        for panelId in panelIds {
-            guard let terminalPanel = panels[panelId] as? TerminalPanel,
-                  terminalPanel.isAgentHibernated else {
+        for candidate in candidates {
+            let requiresAuthority: Bool
+            let claimedRequest: AgentHookSessionStateWriter.HibernatedResumeAuthorityRequest?
+            let authorityOutcome: AgentHookSessionStateWriter.HibernatedResumeAuthorityOutcome
+            switch candidate.authority {
+            case .untracked:
+                requiresAuthority = false
+                claimedRequest = nil
+                authorityOutcome = .acquired
+            case .claim(let request):
+                requiresAuthority = true
+                claimedRequest = request
+                authorityOutcome = authorityOutcomes[candidate.panelId] ?? .unavailable
+            case .rejected:
+                requiresAuthority = true
+                claimedRequest = nil
+                authorityOutcome = .rejected
+            }
+            if authorityOutcome == .unavailable {
                 continue
             }
-            didResume = resumeAgentHibernation(panelId: panelId, focus: false) || didResume
+            guard authorityOutcome == .acquired else {
+                discardRejectedRestoredAgentHibernation(
+                    panelId: candidate.panelId,
+                    restoredAgent: candidate.agent
+                )
+                if focusPanelId == candidate.panelId { focusPanel(candidate.panelId) }
+                continue
+            }
+            let preparation = candidate.panel.applyAgentHibernationResume(
+                candidate.plan,
+                hibernationResumeAttemptId: claimedRequest?.attemptId
+            )
+            guard preparation.didResume else {
+                if let claimedRequest {
+                    AgentHookSessionStateWriter.releaseFailedHibernatedResumeAuthority(
+                        claimedRequest
+                    )
+                }
+                continue
+            }
+            if !requiresAuthority {
+                AgentHookSessionStateWriter.recordLifecycle(
+                    agent: candidate.agent,
+                    state: .restoring
+                )
+            }
+            if restoredAgentSnapshotsByPanelId[candidate.panelId] != nil {
+                restoredAgentResumeStatesByPanelId[candidate.panelId] = preparation.queuedStartupInput
+                    ? .awaitingAutoResumeCommand
+                    : .manualResumeAvailable
+                invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: candidate.panelId)
+            }
+            clearAgentLifecycleStates(panelId: candidate.panelId)
+            AgentHibernationController.shared.recordTerminalFocus(
+                workspaceId: id,
+                panelId: candidate.panelId
+            )
+            if focusPanelId == candidate.panelId { focusPanel(candidate.panelId) }
+            didResume = true
         }
         return didResume
     }
@@ -9489,10 +10385,13 @@ final class Workspace: Identifiable, ObservableObject {
 
         if let targetPaneId {
             let activationIntent = focusIntent ?? panels[panelId]?.preferredFocusIntentForActivation()
+            let suppressRestoredHibernationFocus =
+                isRestoringSessionSnapshot &&
+                (panels[panelId] as? TerminalPanel)?.isAgentHibernated == true
             applyTabSelection(
                 tabId: tabId,
                 inPane: targetPaneId,
-                reassertAppKitFocus: !shouldSuppressReentrantRefocus,
+                reassertAppKitFocus: !shouldSuppressReentrantRefocus && !suppressRestoredHibernationFocus,
                 focusIntent: activationIntent,
                 resumeHibernatedAgent: true,
                 previousTerminalHostedView: previousTerminalHostedView
@@ -9724,11 +10623,28 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    func setAgentHibernationAutoResumePresentationVisible(_ isVisible: Bool) {
-        guard agentHibernationAutoResumePresentationVisible != isVisible else { return }
+    func setAgentHibernationAutoResumePresentationVisible(
+        _ isVisible: Bool,
+        retryPendingAdoptions: Bool = true
+    ) {
         agentHibernationAutoResumePresentationVisible = isVisible
+        if isRestoringSessionSnapshot {
+            agentHibernationPresentationVisibilityWasUpdatedDuringSessionRestore = true
+            return
+        }
         guard isVisible else { return }
-        _ = resumeVisibleAgentHibernationPanels(panelIds: agentHibernationVisiblePanelIdsForCurrentLayout())
+        // Visibility can become true before a restore installs its hibernated
+        // placeholders. Treat every visible update as an idempotent sweep so
+        // that lifecycle ordering cannot strand a visible agent asleep.
+        _ = resumeVisibleAgentHibernationPanels(
+            panelIds: agentHibernationVisiblePanelIdsForCurrentLayout(),
+            retryPendingAdoptions: retryPendingAdoptions
+        )
+        // Restored focus requests were intentionally suppressed while the
+        // selected terminal was hibernated. Resume (or authority-loss fallback)
+        // changes the hosted view, so converge model focus and first responder
+        // synchronously after that lifecycle transition.
+        reconcileFocusState()
     }
 
     // MARK: - Utility
@@ -9849,8 +10765,14 @@ final class Workspace: Identifiable, ObservableObject {
             panel.unfocus()
         }
 
-        targetPanel.focus()
-        if let terminalPanel = targetPanel as? TerminalPanel {
+        let suppressHibernatedPanelFocus =
+            (targetPanel as? TerminalPanel)?.isAgentHibernated == true &&
+            !agentHibernationAutoResumePresentationVisible
+        if !suppressHibernatedPanelFocus {
+            targetPanel.focus()
+        }
+        if let terminalPanel = targetPanel as? TerminalPanel,
+           !suppressHibernatedPanelFocus {
             terminalPanel.hostedView.ensureFocus(for: id, surfaceId: targetPanelId)
         }
         if let dir = panelDirectories[targetPanelId] {
@@ -10438,7 +11360,14 @@ final class Workspace: Identifiable, ObservableObject {
                 terminalPanel.hostedView.setVisibleInUI(shouldBeVisible)
                 didChange = true
             }
-            let shouldBeActive = shouldBeVisible && focusedPanelId == terminalPanel.id && !rightSidebarOwnsFocus
+            let suppressHibernatedPanelActivation =
+                terminalPanel.isAgentHibernated &&
+                !agentHibernationAutoResumePresentationVisible
+            let shouldBeActive =
+                shouldBeVisible &&
+                focusedPanelId == terminalPanel.id &&
+                !rightSidebarOwnsFocus &&
+                !suppressHibernatedPanelActivation
             if terminalPanel.hostedView.debugPortalActive != shouldBeActive {
                 terminalPanel.hostedView.setActive(shouldBeActive)
                 didChange = true
@@ -11393,6 +12322,9 @@ extension Workspace: BonsplitDelegate {
         guard let panel = panels[effectiveFocusedPanelId] else {
             return
         }
+        let suppressRestoredHibernationActivation =
+            isRestoringSessionSnapshot &&
+            (panel as? TerminalPanel)?.isAgentHibernated == true
 
         if debugStressPreloadSelectionDepth > 0 {
             if let terminalPanel = panel as? TerminalPanel {
@@ -11409,7 +12341,7 @@ extension Workspace: BonsplitDelegate {
         }
         // Selecting a hibernated tab means the user is visiting it again. Resume by
         // default so sidebar/tab selection behaves the same as pressing Resume.
-        let shouldResumeHibernatedAgent = resumeHibernatedAgent ?? true
+        let shouldResumeHibernatedAgent = (resumeHibernatedAgent ?? true) && !isRestoringSessionSnapshot
         let activationIntent = focusIntent ?? panel.preferredFocusIntentForActivation()
         panel.prepareFocusIntentForActivation(activationIntent)
         let panelId = effectiveFocusedPanelId
@@ -11440,7 +12372,8 @@ extension Workspace: BonsplitDelegate {
         hideBrowserPortalsForDeselectedTabs(inPane: focusedPane, selectedTabId: selectedTabId)
         reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
 
-        if let focusWindow = activationWindow(for: panel) {
+        if !suppressRestoredHibernationActivation,
+           let focusWindow = activationWindow(for: panel) {
             yieldForeignOwnedFocusIfNeeded(
                 in: focusWindow,
                 targetPanelId: panelId,
@@ -11448,11 +12381,13 @@ extension Workspace: BonsplitDelegate {
             )
         }
 
-        activatePanel(
-            panel,
-            focusIntent: activationIntent,
-            reassertAppKitFocus: reassertAppKitFocus
-        )
+        if !suppressRestoredHibernationActivation {
+            activatePanel(
+                panel,
+                focusIntent: activationIntent,
+                reassertAppKitFocus: reassertAppKitFocus
+            )
+        }
         let focusIntentAllowsBrowserOmnibarAutofocus =
             explicitFocusIntent ||
             TerminalController.socketCommandAllowsInAppFocusMutations()
@@ -11467,7 +12402,9 @@ extension Workspace: BonsplitDelegate {
 
         // Converge AppKit first responder with bonsplit's selected tab in the focused pane.
         // Without this, keyboard input can remain on a different terminal than the blue tab indicator.
-        if reassertAppKitFocus, let terminalPanel = panel as? TerminalPanel {
+        if reassertAppKitFocus,
+           !suppressRestoredHibernationActivation,
+           let terminalPanel = panel as? TerminalPanel {
             if shouldMoveTerminalSurfaceFocus(for: activationIntent) {
                 if !terminalPanel.hostedView.isSurfaceViewFirstResponder() {
 #if DEBUG
@@ -11491,7 +12428,8 @@ extension Workspace: BonsplitDelegate {
             }
         }
 
-        if shouldRestoreFocusIntentAfterActivation(activationIntent) {
+        if !suppressRestoredHibernationActivation,
+           shouldRestoreFocusIntentAfterActivation(activationIntent) {
             _ = panel.restoreFocusIntent(activationIntent)
         }
 
@@ -12175,7 +13113,7 @@ extension Workspace: BonsplitDelegate {
         if !closedPanelIds.isEmpty {
             if !isDetachingCloseTransaction && !suppressClosedPanelHistory {
                 for entry in closedHistoryEntries {
-                    ClosedItemHistoryStore.shared.push(.panel(entry))
+                    pushClosedPanelHistoryEntryWithAgentEnrichment(entry)
                 }
             }
 

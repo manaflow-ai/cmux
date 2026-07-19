@@ -1,12 +1,12 @@
 import Foundation
 
-enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseIterable {
+public enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseIterable {
     case unknown
     case running
     case idle
     case needsInput
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let rawValue = try container.decode(String.self)
         self = Self.parse(rawValue) ?? .unknown
@@ -16,7 +16,7 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
         self == .idle
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(rawValue)
     }
@@ -57,19 +57,42 @@ enum AgentHibernationLifecycleStatusKeys {
         key == manualKey || key.hasPrefix("\(manualKey):")
     }
 
+    private static let detectionPrefix = "screen:"
+
+    static func detectionKey(familyID: String) -> String {
+        detectionPrefix + familyID
+    }
+
+    static func isDetectionKey(_ key: String) -> Bool {
+        key.hasPrefix(detectionPrefix)
+    }
+
+    static func detectionFamilyID(key: String) -> String? {
+        guard isDetectionKey(key) else { return nil }
+        return String(key.dropFirst(detectionPrefix.count))
+    }
+
     static let allowedStatusKeys: Set<String> = [
         "amp",
         "antigravity",
+        "campfire",
         "claude_code",
+        "cline",
         "codebuddy",
         "codex",
         "copilot",
         "cursor",
+        "devin",
         "factory",
         "gemini",
         "grok",
         "hermes-agent",
+        "kilo",
         "kiro",
+        "kimi",
+        "maki",
+        "mastracode",
+        "ollama",
         "omp",
         "opencode",
         "pi",
@@ -79,5 +102,16 @@ enum AgentHibernationLifecycleStatusKeys {
 
     static func isAllowed(_ key: String) -> Bool {
         allowedStatusKeys.contains(key)
+    }
+}
+
+extension AgentHibernationLifecycleState {
+    static func effective<S: Sequence>(_ states: S) -> AgentHibernationLifecycleState where S.Element == Self {
+        let values = Array(states)
+        if values.contains(.running) { return .running }
+        if values.contains(.needsInput) { return .needsInput }
+        if values.contains(.unknown) { return .unknown }
+        if values.contains(.idle) { return .idle }
+        return .unknown
     }
 }

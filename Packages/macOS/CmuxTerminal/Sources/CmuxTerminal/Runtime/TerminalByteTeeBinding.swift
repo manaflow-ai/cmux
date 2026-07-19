@@ -22,17 +22,21 @@ public protocol TerminalByteTeeBinding: AnyObject, Sendable {
     ///   - surface: The live runtime surface.
     ///   - workspaceID: The workspace that owns the surface.
     ///   - surfaceID: The owning surface id used to key tee state.
+    ///   - surfaceGeneration: The native runtime lifetime being observed.
     /// - Returns: The retained lease the caller releases on teardown.
     @MainActor
     func installTee(
         on surface: ghostty_surface_t,
         workspaceID: UUID,
-        surfaceID: UUID
+        surfaceID: UUID,
+        surfaceGeneration: UInt64
     ) -> any TerminalByteTeeLease
 
     /// Drops all tee/replay state keyed by a surface id.
     ///
-    /// - Parameter surfaceID: The surface id being torn down.
+    /// - Parameters:
+    ///   - surfaceID: The surface id being torn down.
+    ///   - surfaceGeneration: The native runtime lifetime being torn down.
     @MainActor
-    func dropSurface(surfaceID: UUID)
+    func dropSurface(surfaceID: UUID, surfaceGeneration: UInt64)
 }

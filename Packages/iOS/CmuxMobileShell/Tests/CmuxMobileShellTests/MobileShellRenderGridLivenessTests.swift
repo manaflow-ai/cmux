@@ -580,7 +580,6 @@ import Testing
     // The host stops answering two independent mobile.events.subscribe probes,
     // confirming a dead push path rather than a transient stall.
     await router.holdSubscribeRequest(number: 2)
-    await router.holdSubscribeRequest(number: 3)
     clock.advance(by: 10)
     store.debugRunRenderGridLivenessCheckForTesting()
     #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 2))

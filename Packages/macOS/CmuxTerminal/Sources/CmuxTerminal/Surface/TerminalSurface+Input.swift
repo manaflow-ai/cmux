@@ -9,9 +9,15 @@ internal import CMUXDebugLog
 // MARK: - Socket/API input: send paths, pending queues, parsing
 
 extension TerminalSurface {
+    @MainActor
+    private var shouldQueueInputForAgentHibernationTransition: Bool {
+        runtimeSurfaceHibernationTeardownInFlight || runtimeSurfaceHibernationOwnerCommitPending
+    }
+
     /// Notifies the pane host that user-initiated terminal input is about to be sent.
     @MainActor
     public func didReceiveExplicitInput() {
+        invalidateProvisionalAgentHibernation()
         paneHost.terminalSurfaceDidReceiveExplicitInput()
     }
 
@@ -51,6 +57,13 @@ extension TerminalSurface {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return true }
         didReceiveExplicitInput()
         guard surface != nil else {
+            if shouldQueueInputForAgentHibernationTransition {
+                let queued = enqueuePendingSocketInput(.pasteText(data))
+                if queued {
+                    hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
+                }
+                return queued
+            }
             guard allowsRuntimeSurfaceCreation() else { return false }
             let queued = enqueuePendingSocketInput(.pasteText(data))
             if queued {
@@ -76,6 +89,15 @@ extension TerminalSurface {
     public func sendKeyText(_ text: String) -> Bool {
         guard !text.isEmpty else { return true }
         didReceiveExplicitInput()
+        if shouldQueueInputForAgentHibernationTransition,
+           let data = text.data(using: .utf8),
+           !data.isEmpty {
+            let queued = enqueuePendingSocketInput(.inputText(data))
+            if queued {
+                hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
+            }
+            return queued
+        }
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendKeyText") else {
             return false
         }
@@ -102,6 +124,11 @@ extension TerminalSurface {
         guard let event = pendingKeyEvent(for: keyName) else { return .unknownKey }
         didReceiveExplicitInput()
         guard surface != nil else {
+            if shouldQueueInputForAgentHibernationTransition {
+                guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
+                hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
+                return .queued
+            }
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
             hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
@@ -161,6 +188,13 @@ extension TerminalSurface {
         guard !text.isEmpty else { return .sent }
         didReceiveExplicitInput()
         guard surface != nil else {
+            if shouldQueueInputForAgentHibernationTransition {
+                let queued = enqueuePendingSocketInput(text)
+                if queued {
+                    hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
+                }
+                return queued ? .queued : .inputQueueFull
+            }
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             let queued = enqueuePendingSocketInput(text)
             if queued {
@@ -761,6 +795,13 @@ extension TerminalSurface {
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
         pendingSocketInputBytes = 0
         guard !queued.isEmpty else { return }
+
+#if DEBUG
+        if let pendingSocketInputFlushOverrideForTesting {
+            pendingSocketInputFlushOverrideForTesting(queued.count, queuedBytes)
+            return
+        }
+#endif
 
         var queuedKeys = 0
         for item in queued {

@@ -71,6 +71,9 @@ struct CmuxTopProcessInfo: Sendable {
     let residentMemorySource: CmuxTopProcessMemorySource
     let virtualBytes: Int64
     let threadCount: Int
+    /// PID generation captured with the topology fields above. Lifecycle
+    /// authorization must compare this value, because a PID can be reused.
+    let generationIdentity: AgentPIDProcessIdentity?
 
     init(
         pid: Int,
@@ -89,7 +92,8 @@ struct CmuxTopProcessInfo: Sendable {
         residentBytes: Int64,
         residentMemorySource: CmuxTopProcessMemorySource = .residentSize,
         virtualBytes: Int64,
-        threadCount: Int
+        threadCount: Int,
+        generationIdentity: AgentPIDProcessIdentity? = nil
     ) {
         self.pid = pid
         self.parentPID = parentPID
@@ -109,6 +113,7 @@ struct CmuxTopProcessInfo: Sendable {
         self.residentMemorySource = residentMemorySource
         self.virtualBytes = virtualBytes
         self.threadCount = threadCount
+        self.generationIdentity = generationIdentity
     }
 
     var isTerminalForegroundProcessGroup: Bool {

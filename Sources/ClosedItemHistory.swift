@@ -178,15 +178,15 @@ final class ClosedItemHistoryStore: ObservableObject {
         !records.isEmpty
     }
 
-    func push(_ entry: ClosedItemHistoryEntry) {
+    @discardableResult func push(_ entry: ClosedItemHistoryEntry) -> UUID {
         push(ClosedItemHistoryRecord(entry: entry))
     }
-
-    func push(_ record: ClosedItemHistoryRecord) {
+    @discardableResult func push(_ record: ClosedItemHistoryRecord) -> UUID {
         records.append(record)
         trimToCapacityIfNeeded()
         revision &+= 1
         persistRecords()
+        return record.id
     }
 
     @discardableResult

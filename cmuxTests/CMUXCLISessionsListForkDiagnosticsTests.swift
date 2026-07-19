@@ -244,7 +244,7 @@ extension CMUXCLIErrorOutputRegressionTests {
     func sessionsListDiagnosticSession(
         agent: String = "codex", launcher: String, executablePath: String, arguments: [String],
         environment: [String: String] = [:], workingDirectory: String = "/tmp/cmux/debug", pid: Int? = nil,
-        transcriptPath: String? = nil
+        transcriptPath: String? = nil, restoreAuthority: Bool? = nil
     ) throws -> [String: Any] {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -271,6 +271,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         ]
         if let pid { record["pid"] = pid }
         if let transcriptPath { record["transcriptPath"] = transcriptPath }
+        if let restoreAuthority { record["restoreAuthority"] = restoreAuthority }
         let store: [String: Any] = [
             "version": 1,
             "sessions": [sessionId: record],
@@ -289,22 +290,151 @@ extension CMUXCLIErrorOutputRegressionTests {
         return try #require(sessions.first)
     }
 
-    @Test func testSessionsListFailsClosedForUnverifiedPiFamilyVersions() throws {
-        for agent in ["pi", "omp"] {
-            let session = try sessionsListDiagnosticSession(
-                agent: agent,
-                launcher: agent,
-                executablePath: agent,
-                arguments: [agent, "--session", "session-id"]
-            )
-            #expect(session["fork_command_available"] as? Bool == true)
-            #expect(session["fork_supported"] as? Bool == false)
-            #expect(session["fork_unavailable_reason"] as? String == "\(agent)_version_unverified")
-            #expect(session["fork_startup_input_available"] as? Bool == true)
+    @Test func testSessionsListNeverForksNestedRunsWithoutRestoreAuthority() throws {
+        let session = try sessionsListDiagnosticSession(
+            launcher: "codexTeams",
+            executablePath: "/usr/local/bin/cmux",
+            arguments: ["/usr/local/bin/cmux", "codex-teams"],
+            restoreAuthority: false
+        )
+
+        #expect(session["restore_authority"] as? Bool == false)
+        #expect(session["hook_record_restorable"] as? Bool == false)
+        #expect(session["fork_command_available"] as? Bool == false)
+        #expect(session["fork_supported"] as? Bool == false)
+        #expect(session["fork_unavailable_reason"] as? String == "record_marked_non_restorable")
+    }
+
+    @Test func testSessionsListForkDiagnosticsFollowCanonicalRunAuthority() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sessions-list-run-authority-\(UUID().uuidString)", isDirectory: true)
+        let stateDir = root.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let workspaceID = "33B0D372-292E-42BF-97B6-E37CCA79AB84"
+        let sessionIDs = [
+            "019ef275-74e3-7777-9773-9dcb118ed5a1",
+            "019ef275-74e3-7777-9773-9dcb118ed5a2",
+            "019ef275-74e3-7777-9773-9dcb118ed5a3",
+            "019ef275-74e3-7777-9773-9dcb118ed5a4",
+        ]
+        let activeRunIDs: [Any] = ["child-run-1", "missing-run", NSNull(), "root-run-4"]
+        var sessions: [String: Any] = [:]
+        for (index, sessionID) in sessionIDs.enumerated() {
+            let ordinal = index + 1
+            let rootRunID = "root-run-\(ordinal)"
+            let childRunID = "child-run-\(ordinal)"
+            let canonicalRunIsRoot = index == 3
+            let childRunTimestamp = 1_781_996_900.0 + Double(index)
+            let rootRunEndedAt: Any
+            let childRunEndedAt: Any
+            if canonicalRunIsRoot {
+                rootRunEndedAt = NSNull()
+                childRunEndedAt = childRunTimestamp + 1
+            } else {
+                rootRunEndedAt = 1_781_996_850.0
+                childRunEndedAt = NSNull()
+            }
+            let launchCommand: [String: Any] = [
+                "launcher": "codex",
+                "executablePath": "/usr/local/bin/codex",
+                "arguments": ["/usr/local/bin/codex"],
+                "workingDirectory": "/tmp/cmux/debug",
+                "environment": [:],
+                "source": "environment",
+            ]
+            let rootRun: [String: Any] = [
+                "runId": rootRunID,
+                "restoreAuthority": true,
+                "startedAt": 1_781_996_800.0,
+                "updatedAt": 1_781_996_850.0,
+                "endedAt": rootRunEndedAt,
+            ]
+            let childRun: [String: Any] = [
+                "runId": childRunID,
+                "parentRunId": rootRunID,
+                "relationship": "spawned",
+                "restoreAuthority": false,
+                "startedAt": childRunTimestamp,
+                "updatedAt": childRunTimestamp,
+                "endedAt": childRunEndedAt,
+            ]
+            var record: [String: Any] = [
+                "sessionId": sessionID,
+                "workspaceId": workspaceID,
+                "surfaceId": "A2AECAA9-EE1C-4999-B7A9-EE4BB4CDA5D\(ordinal)",
+                "cwd": "/tmp/cmux/debug",
+                "startedAt": 1_781_996_800.0,
+                "updatedAt": childRunTimestamp,
+                // Simulate a stale compatibility field that still describes the
+                // previous root while run history says the projected run is a child.
+                "restoreAuthority": !canonicalRunIsRoot,
+                "launchCommand": launchCommand,
+                "runs": [rootRun, childRun],
+            ]
+            if let activeRunID = activeRunIDs[index] as? String {
+                record["activeRunId"] = activeRunID
+            }
+            sessions[sessionID] = record
+        }
+        let store: [String: Any] = ["version": 1, "sessions": sessions]
+        let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["sessions", "list", "--agent", "codex", "--workspace", workspaceID, "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let outputData = try #require(result.stdout.data(using: .utf8))
+        let object = try #require(JSONSerialization.jsonObject(with: outputData) as? [String: Any])
+        let outputSessions = try #require(object["sessions"] as? [[String: Any]])
+        #expect(Set(outputSessions.compactMap { $0["session_id"] as? String }) == Set(sessionIDs))
+        for session in outputSessions {
+            if session["session_id"] as? String == sessionIDs[3] {
+                #expect(session["run_id"] as? String == "root-run-4")
+                #expect(session["restore_authority"] as? Bool == true)
+                #expect(session["hook_record_restorable"] as? Bool == true)
+                #expect(session["fork_command_available"] as? Bool == true)
+                #expect(session["fork_supported"] as? Bool == true)
+                #expect(session["fork_unavailable_reason"] as? String == "available")
+            } else {
+                #expect(session["restore_authority"] as? Bool == false)
+                #expect(session["hook_record_restorable"] as? Bool == false)
+                #expect(session["fork_command_available"] as? Bool == false)
+                #expect(session["fork_supported"] as? Bool == false)
+                #expect(session["fork_unavailable_reason"] as? String == "run_marked_non_restorable")
+            }
         }
     }
 
-    @Test func testSessionsListUsesRequestedPiFamilyAgentBeforeExecutableBasename() throws {
+    @Test func testSessionsListFailsClosedForUnverifiedPiVersion() throws {
+        let session = try sessionsListDiagnosticSession(
+            agent: "pi",
+            launcher: "pi",
+            executablePath: "pi",
+            arguments: ["pi", "--session", "session-id"]
+        )
+        #expect(session["fork_command_available"] as? Bool == true)
+        #expect(session["fork_supported"] as? Bool == false)
+        #expect(session["fork_unavailable_reason"] as? String == "pi_version_unverified")
+        #expect(session["fork_startup_input_available"] as? Bool == true)
+    }
+
+    @Test func testSessionsListReportsNoForkCommandForOmp() throws {
         let session = try sessionsListDiagnosticSession(
             agent: "omp",
             launcher: "omp",
@@ -312,9 +442,10 @@ extension CMUXCLIErrorOutputRegressionTests {
             arguments: ["/tmp/pi", "--session", "session-id"]
         )
 
-        #expect(session["fork_command_available"] as? Bool == true)
+        #expect(session["fork_command_available"] as? Bool == false)
         #expect(session["fork_supported"] as? Bool == false)
-        #expect(session["fork_unavailable_reason"] as? String == "omp_version_unverified")
+        #expect(session["fork_unavailable_reason"] as? String == "agent_has_no_fork_command")
+        #expect(session["fork_startup_input_available"] as? Bool == false)
     }
 
     @Test func testSessionsListDoesNotInferPiFamilyFromBasenameWhenStructuredIdentityDisagrees() throws {

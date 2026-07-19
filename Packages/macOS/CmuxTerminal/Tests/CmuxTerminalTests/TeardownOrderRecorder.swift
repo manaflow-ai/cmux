@@ -9,7 +9,12 @@ import Foundation
 /// carve-out for off-isolation compare-and-set).
 final class TeardownOrderRecorder: @unchecked Sendable {
     enum Event: Equatable, Sendable {
+        case finalValidation
+        case shellStop
+        case durableCommitRejected
+        case pendingInputFlush
         case nativeFree
+        case shellContinue
         case teeLeaseRelease
     }
 

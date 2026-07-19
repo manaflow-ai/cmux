@@ -383,6 +383,7 @@ class TerminalController {
             events: Self.makeSocketServerEvents(target: serverEventTarget)
         )
         self.socketServer = socketServer
+        AgentHookRuntimeSocketState.install(socketServer: socketServer)
         // Single consumer of the accepted-connection stream, detached so
         // accepts never funnel through the main actor. Each connection still
         // gets a dedicated thread: command bodies block (main-thread sync
@@ -1276,6 +1277,8 @@ class TerminalController {
             return v2Ok(id: request.id, result: ["pong": true])
         case "system.capabilities":
             return v2Ok(id: request.id, result: v2CapabilitiesWithBrowserDesignMode())
+        case "agents.observations":
+            return v2Ok(id: request.id, result: v2AgentObservations())
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case "system.memory":
@@ -2315,6 +2318,7 @@ class TerminalController {
             "system.capabilities",
             "system.identify",
             "system.tree",
+            "agents.observations",
             "sidebar.custom.open",
             "system.top",
             "system.memory",
@@ -2555,9 +2559,9 @@ class TerminalController {
 #endif
 
         return [
-            "protocol": "cmux-socket",
-            "version": 2,
+            "protocol": "cmux-socket", "version": 2,
             "socket_path": socketServer.currentSocketPath,
+            "runtime_id": TerminalSurface.managedCmuxRuntimeId, "bundle_identifier": Bundle.main.bundleIdentifier ?? "",
             "access_mode": socketServer.accessMode.rawValue,
             "methods": methods.sorted()
         ]
@@ -4965,6 +4969,7 @@ class TerminalController {
                 let requestedWorkingDirectory = workspace?.allowsLocalDirectoryFallback(panelId: panelId) == false ? nil : nonEmpty(terminalSurface.requestedWorkingDirectory)
                 let teardownRequest = terminalSurface.debugTeardownRequest()
                 let lastKnownWorkspaceId = terminalSurface.debugLastKnownWorkspaceId()
+                let detectedAgentState = workspace?.observedAgentTerminalState(panelId: panelId)
 
                 var item: [String: Any] = [
                     "index": index,
@@ -5045,6 +5050,10 @@ class TerminalController {
                     "teardown_requested_age_seconds": v2OrNull(ageSeconds(since: teardownRequest.requestedAt)),
                     "teardown_requested_reason": v2OrNull(nonEmpty(teardownRequest.reason))
                 ]
+
+                item["agent_terminal_family"] = v2OrNull(detectedAgentState?.family)
+                item["agent_terminal_state"] = detectedAgentState?.state ?? "unknown"
+                item["agent_terminal_state_source"] = detectedAgentState?.source ?? "none"
 
                 if title == nil, let fallbackTitle = mapped?.terminalPanel.displayTitle, !fallbackTitle.isEmpty {
                     item["surface_title"] = fallbackTitle

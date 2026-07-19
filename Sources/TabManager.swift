@@ -2017,19 +2017,24 @@ class TabManager: ObservableObject {
            let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             // Prefer the warm cached agent index over a synchronous
             // RestorableAgentSessionIndex.load() (sysctl-per-record + disk) so closing a
-            // workspace does not freeze the main thread; fall back to a fresh load only
-            // while the cache has not loaded yet. See closedPanelHistoryEntry.
+            // workspace does not freeze the main thread. During a cold-cache window,
+            // durable history asynchronously backfills agents after the shared load.
             let snapshot = workspace.sessionSnapshot(
                 includeScrollback: true,
                 restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-                    ?? RestorableAgentSessionIndex.load()
+                    ?? .empty
             )
-            ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
+            let completedAgentPanelIds = Set(
+                workspace.restoredAgentResumeStatesByPanelId.compactMap { panelId, state in
+                    state == .completedAgentExit ? panelId : nil
+                }
+            )
+            pushClosedWorkspaceHistoryEntryWithAgentEnrichment(ClosedWorkspaceHistoryEntry(
                 workspaceId: workspace.id,
                 windowId: AppDelegate.shared?.windowId(for: self),
                 workspaceIndex: index,
                 snapshot: snapshot
-            )))
+            ), excludedPanelIds: completedAgentPanelIds)
         }
         sidebarGitMetadataService.clearWorkspaceGitProbes(workspaceId: workspace.id)
         pullRequestProbing.clearWorkspacePullRequestTracking(workspaceId: workspace.id)
@@ -4161,14 +4166,21 @@ class TabManager: ObservableObject {
     @discardableResult
     func restoreClosedWorkspace(_ entry: ClosedWorkspaceHistoryEntry) -> Bool {
         let preRestoreFocus = currentFocusHistoryEntry
+        var reconciledSnapshot = entry.snapshot
+        RestorableAgentSessionIndex.prepareAgentRegistryForSessionRestore(
+            &reconciledSnapshot
+        )
         let workspace = addWorkspace(
-            title: entry.snapshot.customTitle ?? entry.snapshot.processTitle,
-            workingDirectory: entry.snapshot.currentDirectory,
+            title: reconciledSnapshot.customTitle ?? reconciledSnapshot.processTitle,
+            workingDirectory: reconciledSnapshot.currentDirectory,
             select: false,
             autoWelcomeIfNeeded: false
         )
-        let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot, excludingStableIdentities: liveStableIdentitySet())
-        guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
+        let restoredPanelIds = workspace.restoreSessionSnapshot(
+            reconciledSnapshot,
+            excludingStableIdentities: liveStableIdentitySet()
+        )
+        guard !reconciledSnapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
             closeWorkspace(workspace, recordHistory: false)
             return false
         }
@@ -5959,7 +5971,9 @@ extension TabManager {
     @discardableResult
     func restoreSessionSnapshot(
         _ snapshot: SessionTabManagerSnapshot,
-        remapClosedPanelHistory: Bool = true, excludingStableIdentities: Set<UUID> = []
+        remapClosedPanelHistory: Bool = true,
+        excludingStableIdentities: Set<UUID> = [],
+        restoredAgentHibernationAdoptionBatch providedAdoptionBatch: RestoredAgentHibernationAdoptionBatch? = nil
     ) -> [[UUID: UUID]] {
         isRestoringSessionSnapshot = true
         defer { isRestoringSessionSnapshot = false }
@@ -5989,6 +6003,8 @@ extension TabManager {
         // mountedWorkspaceIds empty and cause a frozen blank launch state (#399).
         var newTabs: [Workspace] = []
         var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
+        let restoredAgentHibernationAdoptionBatch = providedAdoptionBatch
+            ?? RestoredAgentHibernationAdoptionBatch()
         let (normalizedWorkspaceSnapshots, selectedWorkspaceIndex) = Self.normalizedCloudVMSessionRestoreWorkspaces(
             snapshot.workspaces.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow),
             selectedWorkspaceIndex: snapshot.selectedWorkspaceIndex
@@ -5996,6 +6012,7 @@ extension TabManager {
         let workspaceSnapshots = normalizedWorkspaceSnapshots
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         var restoredOriginalWorkspaceIds: [UUID?] = []
+        let agentCommandExecutableResolver = AgentCommandExecutableResolver()
         for workspaceSnapshot in workspaceSnapshots {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
@@ -6007,12 +6024,18 @@ extension TabManager {
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             workspace.owningTabManager = self
-            let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot, excludingStableIdentities: excludingStableIdentities)
+            let restoredPanelIds = workspace.restoreSessionSnapshot(
+                workspaceSnapshot,
+                excludingStableIdentities: excludingStableIdentities,
+                restoredAgentHibernationAdoptionBatch: restoredAgentHibernationAdoptionBatch,
+                agentCommandExecutableResolver: agentCommandExecutableResolver
+            )
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)
             restoredPanelIdsByWorkspaceIndex.append(restoredPanelIds)
             restoredOriginalWorkspaceIds.append(workspaceSnapshot.workspaceId)
         }
+        restoredAgentHibernationAdoptionBatch.finalize()
 
         if newTabs.isEmpty {
             let ordinal = Self.nextPortOrdinal

@@ -3,6 +3,7 @@ import Foundation
 extension AgentLaunchSanitizer {
     static let copilotPolicy = Policy(
         valueOptions: [
+            "--attachment",
             "--add-dir",
             "--add-github-mcp-tool",
             "--add-github-mcp-toolset",
@@ -11,7 +12,7 @@ extension AgentLaunchSanitizer {
             "--allow-tool",
             "--allow-url",
             "--available-tools",
-            "--bash-env",
+            "-C",
             "--connect",
             "--deny-tool",
             "--deny-url",
@@ -33,6 +34,7 @@ extension AgentLaunchSanitizer {
             "-p",
             "--reasoning-effort",
             "--resume",
+            "--session-id",
             "--secret-env-vars",
             "--share",
             "--stream"
@@ -41,29 +43,60 @@ extension AgentLaunchSanitizer {
             "--allow-tool",
             "--allow-url",
             "--available-tools",
-            "--bash-env",
             "--connect",
             "--deny-tool",
             "--deny-url",
             "--excluded-tools",
-            "--mouse",
             "--resume",
             "--secret-env-vars",
-            "--share"
+            "--share",
+            "--worktree",
+            "-w"
+        ],
+        booleanOptions: [
+            "--allow-all",
+            "--allow-all-mcp-server-instructions",
+            "--allow-all-paths",
+            "--allow-all-tools",
+            "--allow-all-urls",
+            "--autopilot",
+            "--banner",
+            "--bash-env",
+            "--continue",
+            "--disable-builtin-mcps",
+            "--disallow-temp-dir",
+            "--enable-all-github-mcp-tools",
+            "--enable-memory",
+            "--enable-reasoning-summaries",
+            "--experimental",
+            "--mouse",
+            "--no-ask-user",
+            "--no-auto-update",
+            "--no-banner",
+            "--no-bash-env",
+            "--no-color",
+            "--no-custom-instructions",
+            "--no-experimental",
+            "--no-mouse",
+            "--no-remote",
+            "--no-remote-export",
+            "--no-sandbox",
+            "--plain-diff",
+            "--plan",
+            "--remote",
+            "--remote-export",
+            "--sandbox",
+            "--screen-reader",
+            "--show-secrets",
+            "--yolo",
         ],
         variadicOptions: [
-            "--add-dir",
-            "--add-github-mcp-tool",
-            "--add-github-mcp-toolset",
-            "--additional-mcp-config",
             "--allow-tool",
             "--allow-url",
             "--available-tools",
             "--deny-tool",
             "--deny-url",
-            "--disable-mcp-server",
             "--excluded-tools",
-            "--plugin-dir",
             "--secret-env-vars"
         ],
         nonRestorableCommands: [
@@ -81,13 +114,21 @@ extension AgentLaunchSanitizer {
             "--continue",
             "--interactive",
             "-i",
-            "--resume"
+            "--resume",
+            "--session-id",
+            "--attachment",
+            "--worktree",
+            "-w"
         ],
         droppedOptionPrefixes: [
             "--connect=",
             "--interactive=",
             "-i=",
-            "--resume="
+            "--resume=",
+            "--session-id=",
+            "--attachment=",
+            "--worktree=",
+            "-w="
         ],
         rejectOptions: [
             "--acp",
@@ -122,9 +163,11 @@ extension AgentLaunchSanitizer {
             "--model",
             "--name",
             "--output-format",
+            "--permission-prompt-tool",
             "--permission-mode",
             "--plugin-dir",
             "--port",
+            "--prewarm-id",
             "--resume",
             "-r",
             "--sandbox",
@@ -149,6 +192,22 @@ extension AgentLaunchSanitizer {
             "--sandbox",
             "--worktree",
             "-w"
+        ],
+        booleanOptions: [
+            "--background",
+            "--bg",
+            "--continue",
+            "-c",
+            "--dangerously-skip-permissions",
+            "--fork-session",
+            "--ide",
+            "--include-partial-messages",
+            "--prewarm",
+            "--serve",
+            "--strict-mcp-config",
+            "--tmux",
+            "--tmux-classic",
+            "--verbose",
         ],
         variadicOptions: [
             "--add-dir",
@@ -207,6 +266,7 @@ extension AgentLaunchSanitizer {
             "--output-format",
             "--print",
             "-p",
+            "--prewarm",
             "--serve"
         ]
     )
@@ -215,11 +275,30 @@ extension AgentLaunchSanitizer {
         valueOptions: [
             "--append-system-prompt",
             "--append-system-prompt-file",
+            "--auto",
             "--cwd",
+            "--disabled-tools",
+            "--enabled-tools",
+            "--file",
+            "-f",
             "--fork",
+            "--input-format",
+            "--log-group-id",
+            "--model",
+            "-m",
+            "--output-format",
+            "-o",
+            "--reasoning-effort",
             "--resume",
             "-r",
             "--settings",
+            "--spec-model",
+            "--spec-reasoning-effort",
+            "--tag",
+            "--validator-model",
+            "--validator-reasoning-effort",
+            "--worker-model",
+            "--worker-reasoning-effort",
             "--worktree",
             "-w",
             "--worktree-dir"
@@ -229,6 +308,11 @@ extension AgentLaunchSanitizer {
             "-r",
             "--worktree",
             "-w"
+        ],
+        booleanOptions: [
+            "--mission",
+            "--skip-permissions-unsafe",
+            "--use-spec",
         ],
         nonRestorableCommands: [
             "computer",
@@ -256,11 +340,15 @@ extension AgentLaunchSanitizer {
             "--worktree=",
             "-w=",
             "--worktree-dir="
+        ],
+        rejectOptions: [
+            "--list-tools",
         ]
     )
 
     static let qoderPolicy = Policy(
         valueOptions: [
+            "--add-dir",
             "--agent",
             "--agents",
             "--allowed-mcp-server-names",
@@ -271,6 +359,7 @@ extension AgentLaunchSanitizer {
             "--delete-session",
             "--disallowed-tools",
             "--input-format",
+            "--max-turns",
             "--max-output-tokens",
             "--mcp-config",
             "--model",
@@ -286,6 +375,7 @@ extension AgentLaunchSanitizer {
             "-i",
             "--resume",
             "-r",
+            "--remote",
             "--session-id",
             "--setting-sources",
             "--settings",
@@ -293,6 +383,15 @@ extension AgentLaunchSanitizer {
             "--tools",
             "--workspace",
             "-w"
+        ],
+        optionalValueOptions: [
+            "--worktree",
+        ],
+        booleanOptions: [
+            "--continue",
+            "-c",
+            "--fork-session",
+            "--yolo",
         ],
         variadicOptions: [
             "--allowed-mcp-server-names",
@@ -325,12 +424,14 @@ extension AgentLaunchSanitizer {
             "--fork-session",
             "--resume",
             "-r",
-            "--session-id"
+            "--session-id",
+            "--worktree"
         ],
         droppedOptionPrefixes: [
             "--resume=",
             "-r=",
-            "--session-id="
+            "--session-id=",
+            "--worktree="
         ],
         rejectOptions: [
             "--acp",
@@ -343,7 +444,8 @@ extension AgentLaunchSanitizer {
             "--print",
             "-p",
             "--prompt-interactive",
-            "-i"
+            "-i",
+            "--remote"
         ]
     )
 
@@ -359,11 +461,16 @@ extension AgentLaunchSanitizer {
         valueOptions: [
             "--agent",
             "--delete-session",
+            "--effort",
             "--format",
             "-f",
             "--resume-id",
             "--trust-tools",
             "--wrap"
+        ],
+        booleanOptions: [
+            "--require-mcp-startup",
+            "--trust-all-tools",
         ],
         nonRestorableCommands: [
             "agent",
@@ -413,7 +520,12 @@ extension AgentLaunchSanitizer {
             "--restore"
         ],
         optionalValueOptions: [
-            "--restore"
+            "--restore",
+            "--worktree",
+        ],
+        booleanOptions: [
+            "--web",
+            "--yolo",
         ],
         nonRestorableCommands: [
             "auth",
@@ -421,15 +533,18 @@ extension AgentLaunchSanitizer {
             "help",
             "mcp",
             "server",
+            "serve",
             "update",
             "upgrade",
             "version"
         ],
         droppedOptions: [
-            "--restore"
+            "--restore",
+            "--worktree",
         ],
         droppedOptionPrefixes: [
-            "--restore="
+            "--restore=",
+            "--worktree=",
         ],
         rejectOptions: [
             "--prompt",
@@ -456,19 +571,31 @@ extension AgentLaunchSanitizer {
             "--profile",
             "-p",
             "--provider",
+            "--query",
+            "-q",
             "--resume",
             "-r",
             "--skills",
             "-s",
             "--source",
             "--toolsets",
-            "-t",
-            "--worktree",
-            "-w"
+            "-t"
         ],
         optionalValueOptions: [
             "--continue",
             "-c"
+        ],
+        booleanOptions: [
+            "--accept-hooks",
+            "--checkpoints",
+            "--dev",
+            "--ignore-rules",
+            "--ignore-user-config",
+            "--pass-session-id",
+            "--tui",
+            "--worktree",
+            "-w",
+            "--yolo",
         ],
         nonRestorableCommands: [],
         droppedOptions: [
@@ -503,7 +630,9 @@ extension AgentLaunchSanitizer {
             "--quiet",
             "-Q",
             "--list-tools",
-            "--list-toolsets"
+            "--list-toolsets",
+            "--version",
+            "-V",
         ]
     )
 }

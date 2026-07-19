@@ -89,7 +89,7 @@ public struct AgentForkArgv: Sendable, Equatable {
             guard let preserved = preservedCodexForkArguments(
                 args: parts.tail,
                 preservePromptTags: true,
-                stripCmuxHooks: parts.executable == "codex"
+                stripCmuxHooks: true
             ) else {
                 return nil
             }
@@ -97,25 +97,59 @@ public struct AgentForkArgv: Sendable, Equatable {
                 capturedExecutable: parts.executable,
                 launchTail: parts.tail
             )
-            return [replayExecutable, "fork", sessionId] + preserved
+            return AgentResumeArgv.codexWrapperRoutedArgv(
+                capturedExecutable: replayExecutable,
+                arguments: ["fork", sessionId] + preserved
+            )
         case "opencode":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "opencode")
+            if parts.tail.first == "run" {
+                guard let preserved = AgentLaunchSanitizer.preservedOpenCodeInteractiveRunArguments(
+                    args: parts.tail
+                ) else { return nil }
+                return [
+                    parts.executable,
+                    "run",
+                    "--interactive",
+                    "--session", sessionId,
+                    "--fork",
+                ] + preserved
+            }
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: parts.tail) else {
                 return nil
             }
             return [parts.executable, "--session", sessionId, "--fork"] + preserved
-        case "pi":
-            return withForkSessionValue(
-                kind: "pi",
-                executable: "pi",
-                sessionId: sessionId,
+        case "grok", "codebuddy", "qoder":
+            let fallbackExecutable: String
+            switch kind {
+            case "codebuddy": fallbackExecutable = "codebuddy"
+            case "qoder": fallbackExecutable = "qodercli"
+            default: fallbackExecutable = "grok"
+            }
+            let parts = commandParts(
                 executablePath: executablePath,
-                arguments: arguments
+                arguments: arguments,
+                fallbackExecutable: fallbackExecutable
             )
-        case "omp":
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: kind, args: parts.tail) else {
+                return nil
+            }
+            return [parts.executable, "--resume", sessionId, "--fork-session"] + preserved
+        case "amp":
+            // Amp removed `threads fork`. Its replacement is a new thread with
+            // an @thread mention, which cannot be represented as a faithful,
+            // single-argv fork without synthesizing user prompt content.
+            return nil
+        case "factory":
+            let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "droid")
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "factory", args: parts.tail) else {
+                return nil
+            }
+            return [parts.executable, "--fork", sessionId] + preserved
+        case "pi", "campfire":
             return withForkSessionValue(
-                kind: "omp",
-                executable: "omp",
+                kind: kind,
+                executable: kind,
                 sessionId: sessionId,
                 executablePath: executablePath,
                 arguments: arguments

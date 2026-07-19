@@ -7,6 +7,15 @@ struct CmuxTopProcessArguments: Sendable {
 }
 
 extension CmuxTopProcessSnapshot {
+    static func processExecutablePath(for pid: Int) -> String? {
+        guard pid > 0, pid <= Int(Int32.max) else { return nil }
+        var buffer = [CChar](repeating: 0, count: 4_096)
+        let length = proc_pidpath(pid_t(pid), &buffer, UInt32(buffer.count))
+        guard length > 0 else { return nil }
+        let path = String(cString: buffer).trimmingCharacters(in: .whitespacesAndNewlines)
+        return path.isEmpty ? nil : path
+    }
+
     static func processArgumentsAndEnvironment(for pid: Int) -> CmuxTopProcessArguments? {
         guard pid > 0, pid <= Int(Int32.max),
               let bytes = kernProcArgsBytes(for: pid) else {

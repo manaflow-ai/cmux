@@ -246,6 +246,18 @@ struct FeedEventClassifier {
             "agentSpawn": .sessionStart,
             "stop": .response,
         ],
+        // Copilot's native hook files use lower-camel event names. It has no
+        // dedicated approval event, so preToolUse remains the maybe-approval
+        // bridge while its lifecycle events stay non-blocking telemetry.
+        "copilot": [
+            "preToolUse": .toolStartMaybeApproval,
+            "postToolUse": .toolEnd,
+            "userPromptSubmit": .promptSubmit,
+            "sessionStart": .sessionStart,
+            "sessionEnd": .sessionEnd,
+            "agentStop": .response,
+            "notification": .statusNotification,
+        ],
     ]
 
     /// Fallback table for agents without a dedicated entry in

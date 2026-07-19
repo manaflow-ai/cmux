@@ -186,4 +186,15 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "write").actionable == false)
         #expect(classify("gemini", "PreToolUse", tool: "execute_bash").actionable == false)
     }
+
+    @Test func copilotNativeCamelCaseEventsClassifyCorrectly() {
+        #expect(classify("copilot", "preToolUse", tool: "Bash").name == "PermissionRequest")
+        #expect(classify("copilot", "preToolUse", tool: "Bash").actionable == true)
+        #expect(classify("copilot", "preToolUse", tool: "Read").name == "PreToolUse")
+        #expect(classify("copilot", "preToolUse", tool: "Read").actionable == false)
+        #expect(classify("copilot", "sessionStart").name == "SessionStart")
+        #expect(classify("copilot", "sessionEnd").name == "SessionEnd")
+        #expect(classify("copilot", "agentStop").name == "Stop")
+        #expect(classify("copilot", "notification").name == "Notification")
+    }
 }

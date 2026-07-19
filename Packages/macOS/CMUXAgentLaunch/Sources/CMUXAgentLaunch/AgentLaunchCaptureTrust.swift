@@ -19,22 +19,43 @@ public enum AgentLaunchCaptureTrust {
     ]
 
     private static let nativeProcessAliasesByKind: [String: Set<String>] = [
-        "antigravity": ["agy"],
+        "amp": ["amp"],
+        "antigravity": ["agy", "antigravity"],
         "campfire": ["campfire"],
-        "claude": ["claude"],
+        "claude": ["claude", "claude-code", "claude_code"],
+        "cline": ["cline", "cline-cli"],
         "codex": ["codex"],
         "codebuddy": ["codebuddy"],
-        "copilot": ["copilot"],
+        "copilot": ["copilot", "github-copilot-cli"],
         "cursor": ["cursor-agent", "cursor"],
+        "devin": ["devin", "devin-cli"],
         "factory": ["droid", "factory"],
         "gemini": ["gemini"],
         "grok": ["grok", "grok-macos-aarch64", "grok-macos-aarch"],
+        "hermes-agent": ["hermes", "hermes-agent"],
         "kiro": ["kiro", "kiro-cli"],
+        "kilo": ["kilo", "kilo-code"],
+        "kimi": ["kimi", "kimi-cli", "kimi-code"],
+        "maki": ["maki"],
+        "mastracode": ["mastracode", "mastra-code"],
+        "ollama": ["ollama"],
         "omp": ["omp"],
-        "opencode": ["opencode", "omo", "omx", "omc"],
-        "pi": ["pi", "omp"],
+        "opencode": ["open-code", "opencode", "opencode-ai", "omo", "omx", "omc"],
+        "pi": ["pi", "pi-coding-agent", "omp"],
         "qoder": ["qodercli", "qoder"],
-        "rovodev": ["rovodev", "rovo", "rovo-dev"],
+        "rovodev": ["acli", "rovodev", "rovo", "rovo-dev"],
+    ]
+
+    private static let interpreterHostBases: Set<String> = [
+        "bun", "deno", "node", "python", "python3", "ruby", "ts-node", "tsx",
+    ]
+
+    /// Script paths whose entrypoint name is generic (`cli.js`, `index.ts`, ...).
+    /// Direct entrypoints are recognized from their basename without an entry here.
+    private static let scriptPathMarkersByKind: [String: Set<String>] = [
+        "campfire": ["/packages/session/bin/campfire.ts", "/packages/session/dist/campfire"],
+        "claude": ["/.claude/", "/@anthropic-ai/claude-code/", "/claude/versions/"],
+        "opencode": ["/@opencode-ai/", "/opencode-ai/", "/opencode/"],
     ]
 
     /// True when `launcher` plausibly describes a launch of agent `kind`.
@@ -50,6 +71,35 @@ public enum AgentLaunchCaptureTrust {
             return true
         }
         return wrapperLaunchersByKind[normalizedKind]?.contains(normalizedLauncher) == true
+    }
+
+    /// Validates argv captured under a declared launcher. Wrapper launchers
+    /// legitimately differ from the hook kind and retain their own sanitizer.
+    /// An exact launcher, however, must also have argv that identifies that
+    /// agent. This rejects interpreter-only prefixes such as `node --max-…`
+    /// after Node has hidden the script path from `KERN_PROCARGS2`.
+    public static func capturedArgumentsDescribeKind(
+        launcher: String?,
+        executablePath: String?,
+        arguments: [String],
+        kind: String
+    ) -> Bool {
+        guard launcherDescribesKind(launcher, kind: kind),
+              let normalizedKind = normalizedAgentName(kind) else {
+            return false
+        }
+        // Older hook wrappers can provide argv without a launch-kind marker.
+        // `launcherDescribesKind` intentionally trusts that absence, so treat
+        // it as the hook's own kind rather than invalidating the capture here.
+        let normalizedLauncher = normalizedAgentName(launcher) ?? normalizedKind
+        if normalizedLauncher != normalizedKind {
+            return true
+        }
+        return nativeProcessDescribesKind(
+            processName: executablePath,
+            arguments: arguments,
+            kind: normalizedKind
+        )
     }
 
     /// True when a captured argv describes a shell dispatcher (`sh -c …`,
@@ -89,11 +139,20 @@ public enum AgentLaunchCaptureTrust {
               let arguments else {
             return false
         }
-        return nativeProcessDescriptors(processName: processName, arguments: arguments).contains { descriptor in
+        if nativeProcessDescriptors(processName: processName, arguments: arguments).contains(where: { descriptor in
             descriptor == expectedKind
                 || nativeProcessAliasesByKind[expectedKind]?.contains(descriptor) == true
                 || descriptor == "\(expectedKind)-cli"
+        }) {
+            return true
         }
+        guard let entrypointIndex = interpreterScriptEntrypointIndex(
+            processName: processName,
+            arguments: arguments
+        ) else {
+            return false
+        }
+        return scriptArgument(arguments[entrypointIndex], describes: expectedKind)
     }
 
     public static func nativeProcessDescribesKnownAgent(
@@ -104,6 +163,178 @@ public enum AgentLaunchCaptureTrust {
         return nativeProcessDescriptors(processName: processName, arguments: arguments).contains { descriptor in
             knownNames.contains(descriptor)
         }
+    }
+
+    /// Resolves a live native process to its canonical built-in agent kind.
+    /// Exact kind basenames win over aliases, so `omp` remains OMP even though
+    /// it is also a supported Pi launcher. Ambiguous or unknown descriptors
+    /// fail closed instead of guessing from prompt or option argv tokens.
+    public static func nativeAgentKind(
+        processName: String?,
+        arguments: [String]
+    ) -> String? {
+        let descriptors = nativeProcessDescriptors(
+            processName: processName,
+            arguments: arguments
+        )
+        let exactKinds = descriptors.intersection(nativeProcessAliasesByKind.keys)
+        guard exactKinds.count <= 1 else { return nil }
+        if let exactKind = exactKinds.first { return exactKind }
+
+        let aliasedKinds = Set(descriptors.flatMap { descriptor in
+            nativeProcessAliasesByKind.compactMap { kind, aliases in
+                aliases.contains(descriptor) ? kind : nil
+            }
+        })
+        return aliasedKinds.count == 1 ? aliasedKinds.first : nil
+    }
+
+    /// Returns only the provider-owned argv tail for a trusted live process.
+    /// Interpreter and package-manager flags before the agent script are not
+    /// provider launch options and must not affect restorability classification.
+    static func nativeAgentLaunchArguments(
+        processName: String?,
+        arguments: [String],
+        kind: String
+    ) -> [String]? {
+        guard let normalizedKind = normalizedAgentName(kind),
+              nativeProcessDescribesKind(
+                  processName: processName,
+                  arguments: arguments,
+                  kind: normalizedKind
+              ),
+              !arguments.isEmpty else {
+            return nil
+        }
+        let hostBases = Set([
+            processBasename(processName),
+            processBasename(arguments.first),
+        ].compactMap { $0 })
+        guard hostBases.contains(where: isInterpreterHost) else {
+            return Array(arguments.dropFirst())
+        }
+        if let entrypointIndex = execAInterpreterScriptEntrypointIndex(
+            processName: processName,
+            arguments: arguments,
+            kind: normalizedKind
+        ) {
+            return Array(arguments[arguments.index(after: entrypointIndex)...])
+        }
+        guard let entrypointIndex = interpreterScriptEntrypointIndex(
+            processName: processName,
+            arguments: arguments
+        ), scriptArgument(arguments[entrypointIndex], describes: normalizedKind) else {
+            return nil
+        }
+        return Array(arguments[arguments.index(after: entrypointIndex)...])
+    }
+
+    /// True when `parent` is a thin interpreter launcher that immediately
+    /// relays into the real process for the same agent. Package-manager shims
+    /// commonly use `node <agent>` and then either exec a native binary or
+    /// re-exec Node with runtime options. That relay is one launch, not a
+    /// parent agent session.
+    public static func nativeProcessIsSameAgentLauncherRelay(
+        parentProcessName: String?,
+        parentArguments: [String],
+        childProcessName: String?,
+        childArguments: [String],
+        kind: String
+    ) -> Bool {
+        guard !parentArguments.isEmpty,
+              let parentExecutable = processBasename(parentArguments.first),
+              isInterpreterHost(parentExecutable),
+              let parentEntrypointIndex = interpreterScriptEntrypointIndex(
+                  processName: parentProcessName,
+                  arguments: parentArguments
+              ),
+              nativeProcessDescribesKind(
+                  processName: parentProcessName,
+                  arguments: parentArguments,
+                  kind: kind
+              ),
+              nativeProcessDescribesKind(
+                  processName: childProcessName,
+                  arguments: childArguments,
+                  kind: kind
+              ) else {
+            return false
+        }
+
+        let forwardedArguments = parentArguments[parentEntrypointIndex...]
+        let childHosts = Set([
+            processBasename(childProcessName),
+            processBasename(childArguments.first),
+        ].compactMap { $0 })
+        if !childHosts.contains(where: isInterpreterHost) {
+            // Codex's JavaScript package entrypoint is a known thin shim for
+            // its native worker. Other interpreter-hosted providers may be the
+            // real interactive agent, so treating their native descendants as
+            // relays would hide a nested same-provider session.
+            guard normalizedAgentName(kind) == "codex",
+                  directScriptArgument(parentArguments[parentEntrypointIndex], describes: "codex") else {
+                return false
+            }
+            return true
+        }
+        guard normalizedAgentName(kind) == "gemini",
+              let childEntrypointIndex = interpreterScriptEntrypointIndex(
+                  processName: childProcessName,
+                  arguments: childArguments
+              ),
+              childEntrypointIndex > childArguments.startIndex + 1 else {
+            return false
+        }
+        return childArguments[childEntrypointIndex...].elementsEqual(forwardedArguments)
+    }
+
+    /// True when a process is running a script but its argv cannot identify a
+    /// supported agent. Lineage callers treat this as uncertain ownership and
+    /// fail closed, preventing future interpreter-hosted child agents from
+    /// taking restore authority before a dedicated adapter is added.
+    public static func nativeProcessIsAmbiguousInterpreterHost(
+        processName: String?,
+        arguments: [String]
+    ) -> Bool {
+        let hostBases = Set([processBasename(processName), processBasename(arguments.first)].compactMap { $0 })
+        guard hostBases.contains(where: isInterpreterHost),
+              arguments.dropFirst().contains(where: looksLikeScriptPath) else {
+            return false
+        }
+        return !nativeProcessDescribesKnownAgent(processName: processName, arguments: arguments)
+    }
+
+    /// Node launchers such as Cursor use `exec -a cursor-agent node .../index.js`
+    /// so argv[0] identifies the provider while `proc_pidpath` identifies the
+    /// interpreter. Keep the provider alias as the identity proof, then advance
+    /// past the interpreter's own flags and script path before classifying the
+    /// provider arguments. A generic `index.js` never proves identity by itself.
+    private static func execAInterpreterScriptEntrypointIndex(
+        processName: String?,
+        arguments: [String],
+        kind: String
+    ) -> Int? {
+        guard arguments.count > 1,
+              let interpreter = processBasename(processName),
+              isInterpreterHost(interpreter),
+              let invokedAs = processBasename(arguments.first),
+              !isInterpreterHost(invokedAs) else {
+            return nil
+        }
+        let aliases = nativeProcessAliasesByKind[kind] ?? []
+        guard invokedAs == kind
+                || aliases.contains(invokedAs)
+                || invokedAs == "\(kind)-cli",
+              let entrypointIndex = interpreterScriptEntrypointIndex(
+                  processName: processName,
+                  arguments: arguments,
+                  startingAt: 1
+              ),
+              entrypointIndex > 0,
+              looksLikeScriptPath(arguments[entrypointIndex]) else {
+            return nil
+        }
+        return entrypointIndex
     }
 
     private static func nativeProcessDescriptors(
@@ -119,27 +350,29 @@ public enum AgentLaunchCaptureTrust {
         if let executableBase {
             descriptors.insert(executableBase)
         }
-        // Hosts that can run a Campfire script entrypoint; mirrors
-        // CampfireLaunchArgumentNormalizer's supported runtime set.
-        let scriptHostBases: Set<String> = ["node", "bun", "deno", "tsx", "ts-node"]
         let hostBases = Set([nameBase, executableBase].compactMap { $0 })
-        if !hostBases.isDisjoint(with: scriptHostBases) {
-            if nameBase == "node" || nameBase == "bun" || executableBase == "node" || executableBase == "bun" {
-                if arguments.dropFirst().contains(where: { argument in
-                    let lowered = argument.lowercased()
-                    return processBasename(argument) == "claude"
-                        || lowered.contains("/.claude/")
-                        || lowered.contains("/claude/versions/")
-                }) {
-                    descriptors.insert("claude")
-                }
+        if hostBases.contains(where: isInterpreterHost) {
+            let knownNames = Set(nativeProcessAliasesByKind.keys)
+                .union(nativeProcessAliasesByKind.values.flatMap { $0 })
+            guard let entrypointIndex = interpreterScriptEntrypointIndex(
+                processName: processName,
+                arguments: arguments
+            ) else {
+                return descriptors
             }
-            if arguments.dropFirst().contains(where: { argument in
-                let lowered = argument.replacingOccurrences(of: "\\", with: "/").lowercased()
-                return lowered.contains("packages/session/bin/campfire.ts")
-                    || lowered.contains("packages/session/dist/campfire")
-            }) {
-                descriptors.insert("campfire")
+            let argument = arguments[entrypointIndex]
+            if looksLikeScriptPath(argument) {
+                let normalizedPath = "/" + argument
+                    .replacingOccurrences(of: "\\", with: "/")
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                    .lowercased()
+                if let basename = scriptDescriptorBasename(argument), knownNames.contains(basename) {
+                    descriptors.insert(basename)
+                }
+                for (kind, markers) in scriptPathMarkersByKind
+                    where markers.contains(where: normalizedPath.contains) {
+                    descriptors.insert(kind)
+                }
             }
             return descriptors
         }
@@ -168,5 +401,209 @@ public enum AgentLaunchCaptureTrust {
             return nil
         }
         return URL(fileURLWithPath: value).lastPathComponent.lowercased()
+    }
+
+    private static func isInterpreterHost(_ basename: String) -> Bool {
+        interpreterHostBases.contains(basename) || basename.hasPrefix("python3.")
+    }
+
+    /// Returns the script token interpreted by a runtime, excluding runtime
+    /// flags and their values. Only this token can establish agent identity:
+    /// later argv may be a prompt, input file, or unrelated executable path.
+    private static func interpreterScriptEntrypointIndex(
+        processName: String?,
+        arguments: [String],
+        startingAt requestedStartIndex: Int? = nil
+    ) -> Int? {
+        guard !arguments.isEmpty else { return nil }
+        let argumentHost = processBasename(arguments.first)
+        let host = [argumentHost, processBasename(processName)]
+            .compactMap { $0 }
+            .first(where: isInterpreterHost)
+        guard let host else { return nil }
+
+        var index = requestedStartIndex
+            ?? (argumentHost.map(isInterpreterHost) == true ? 1 : 0)
+        guard index >= 0, index < arguments.count else { return nil }
+        switch normalizedInterpreterHost(host) {
+        case "node":
+            return scriptIndex(
+                in: arguments,
+                startingAt: index,
+                evaluationOptions: ["-c", "--check", "-e", "--eval", "-i", "--interactive", "-p", "--print"],
+                valueOptions: [
+                    "-C", "--conditions", "--diagnostic-dir", "--icu-data-dir", "--import",
+                    "--inspect-port", "--loader", "--openssl-config", "-r", "--require",
+                    "--snapshot-blob", "--test-name-pattern", "--test-reporter",
+                    "--test-reporter-destination", "--title", "--experimental-loader",
+                ],
+                booleanOptions: [
+                    "--enable-source-maps", "--experimental-strip-types",
+                    "--experimental-transform-types", "--no-addons", "--no-deprecation",
+                    "--no-warnings", "--preserve-symlinks", "--preserve-symlinks-main",
+                    "--test", "--trace-deprecation", "--trace-warnings", "--use-bundled-ca",
+                    "--use-openssl-ca", "--use-system-ca", "--watch",
+                ]
+            )
+        case "bun":
+            if index < arguments.count, arguments[index] == "run" { index += 1 }
+            guard index >= arguments.count || !["build", "create", "install", "test", "x"].contains(arguments[index]) else {
+                return nil
+            }
+            return scriptIndex(
+                in: arguments,
+                startingAt: index,
+                evaluationOptions: ["-e", "--eval", "-p", "--print"],
+                valueOptions: ["--config", "--cwd", "--env-file", "--preload", "-r", "--require", "--title"],
+                booleanOptions: [
+                    "--bun", "--hot", "--no-clear-screen", "--no-install", "--silent",
+                    "--smol", "--watch",
+                ]
+            )
+        case "deno":
+            while index < arguments.count {
+                let argument = arguments[index]
+                if argument == "run" {
+                    index += 1
+                    break
+                }
+                if !argument.hasPrefix("-") {
+                    return looksLikeScriptPath(argument) ? index : nil
+                }
+                guard let width = runtimeOptionWidth(
+                    argument,
+                    evaluationOptions: ["eval"],
+                    valueOptions: ["--config", "--import-map", "--location", "--lock", "--node-modules-dir", "--seed"],
+                    booleanOptions: ["--no-config", "--no-lock", "--quiet", "-q", "--unstable"]
+                ) else { return nil }
+                index += width
+            }
+            return scriptIndex(
+                in: arguments,
+                startingAt: index,
+                evaluationOptions: [],
+                valueOptions: ["--cert", "--config", "--env-file", "--import-map", "--location", "--lock", "--seed"],
+                booleanOptions: [
+                    "-A", "--allow-all", "--allow-env", "--allow-ffi", "--allow-hrtime",
+                    "--allow-net", "--allow-read", "--allow-run", "--allow-sys", "--allow-write",
+                    "--cached-only", "--no-check", "--no-config", "--no-lock", "--quiet", "-q",
+                    "--reload", "--unstable", "--watch",
+                ]
+            )
+        case "python":
+            return scriptIndex(
+                in: arguments,
+                startingAt: index,
+                evaluationOptions: ["-c", "-m"],
+                valueOptions: ["-W", "-X"],
+                booleanOptions: ["-B", "-b", "-bb", "-d", "-E", "-I", "-i", "-O", "-OO", "-q", "-s", "-S", "-u", "-v", "-V"]
+            )
+        case "ruby":
+            return scriptIndex(
+                in: arguments,
+                startingAt: index,
+                evaluationOptions: ["-e", "-S"],
+                valueOptions: ["-C", "-I", "-r"],
+                booleanOptions: ["-d", "-w", "-W0", "-W1", "-W2"]
+            )
+        case "ts-node", "tsx":
+            if index < arguments.count, arguments[index] == "watch" { index += 1 }
+            return scriptIndex(
+                in: arguments,
+                startingAt: index,
+                evaluationOptions: ["-e", "--eval", "-i", "--interactive", "-p", "--print"],
+                valueOptions: ["--compiler", "--compiler-options", "--cwd", "--project", "-P", "--require", "-r", "--swc"],
+                booleanOptions: ["--esm", "--files", "--skip-project", "--transpile-only", "-T", "--type-check"]
+            )
+        default:
+            return nil
+        }
+    }
+
+    private static func normalizedInterpreterHost(_ host: String) -> String {
+        host.hasPrefix("python3.") || host == "python3" ? "python" : host
+    }
+
+    private static func scriptIndex(
+        in arguments: [String],
+        startingAt startIndex: Int,
+        evaluationOptions: Set<String>,
+        valueOptions: Set<String>,
+        booleanOptions: Set<String>
+    ) -> Int? {
+        var index = startIndex
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                let scriptIndex = index + 1
+                return scriptIndex < arguments.count ? scriptIndex : nil
+            }
+            if !argument.hasPrefix("-") || argument == "-" {
+                return argument == "-" ? nil : index
+            }
+            guard let width = runtimeOptionWidth(
+                argument,
+                evaluationOptions: evaluationOptions,
+                valueOptions: valueOptions,
+                booleanOptions: booleanOptions
+            ), index + width <= arguments.count else {
+                return nil
+            }
+            index += width
+        }
+        return nil
+    }
+
+    /// Unknown split-form runtime options fail closed because the following
+    /// path could be their value rather than the executed script. Equals-form
+    /// options are self-contained and cannot shift the entrypoint boundary.
+    private static func runtimeOptionWidth(
+        _ argument: String,
+        evaluationOptions: Set<String>,
+        valueOptions: Set<String>,
+        booleanOptions: Set<String>
+    ) -> Int? {
+        let name = argument.split(separator: "=", maxSplits: 1).first.map(String.init) ?? argument
+        if evaluationOptions.contains(name) { return nil }
+        if argument.contains("=") { return 1 }
+        if valueOptions.contains(name) { return 2 }
+        if booleanOptions.contains(name) { return 1 }
+        return nil
+    }
+
+    private static func looksLikeScriptPath(_ argument: String) -> Bool {
+        guard !argument.hasPrefix("-") else { return false }
+        let normalized = argument.replacingOccurrences(of: "\\", with: "/").lowercased()
+        let scriptExtensions = [".cjs", ".js", ".mjs", ".py", ".rb", ".ts"]
+        return normalized.contains("/") || scriptExtensions.contains(where: normalized.hasSuffix)
+    }
+
+    private static func scriptArgument(_ argument: String, describes kind: String) -> Bool {
+        guard looksLikeScriptPath(argument) else { return false }
+        let aliases = nativeProcessAliasesByKind[kind] ?? []
+        if let basename = scriptDescriptorBasename(argument),
+           basename == kind || aliases.contains(basename) || basename == "\(kind)-cli" {
+            return true
+        }
+        let normalizedPath = "/" + argument
+            .replacingOccurrences(of: "\\", with: "/")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            .lowercased()
+        return scriptPathMarkersByKind[kind]?.contains(where: normalizedPath.contains) == true
+    }
+
+    private static func directScriptArgument(_ argument: String, describes kind: String) -> Bool {
+        guard let basename = scriptDescriptorBasename(argument) else { return false }
+        let aliases = nativeProcessAliasesByKind[kind] ?? []
+        return basename == kind || aliases.contains(basename) || basename == "\(kind)-cli"
+    }
+
+    private static func scriptDescriptorBasename(_ argument: String) -> String? {
+        guard var basename = processBasename(argument) else { return nil }
+        for suffix in [".cjs", ".js", ".mjs", ".py", ".rb", ".ts"] where basename.hasSuffix(suffix) {
+            basename.removeLast(suffix.count)
+            break
+        }
+        return basename
     }
 }

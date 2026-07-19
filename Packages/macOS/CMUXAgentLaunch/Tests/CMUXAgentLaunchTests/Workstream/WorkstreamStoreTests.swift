@@ -5,6 +5,44 @@ import Testing
 @MainActor
 @Suite("WorkstreamStore")
 struct WorkstreamStoreTests {
+    @Test("Every hook-backed provider keeps its wire source identity")
+    func allHookProvidersKeepSourceIdentity() {
+        let cases: [(String, WorkstreamSource)] = [
+            ("claude", .claude),
+            ("codex", .codex),
+            ("grok", .grok),
+            ("opencode", .opencode),
+            ("pi", .pi),
+            ("omp", .omp),
+            ("campfire", .campfire),
+            ("amp", .amp),
+            ("cursor", .cursor),
+            ("gemini", .gemini),
+            ("kiro", .kiro),
+            ("antigravity", .antigravity),
+            ("rovodev", .rovodev),
+            ("hermes-agent", .hermesAgent),
+            ("copilot", .copilot),
+            ("codebuddy", .codebuddy),
+            ("factory", .factory),
+            ("qoder", .qoder),
+            ("kimi", .kimi),
+        ]
+        let store = WorkstreamStore(ringCapacity: cases.count)
+
+        for (wireSource, _) in cases {
+            store.ingest(WorkstreamEvent(
+                sessionId: "\(wireSource)-session",
+                hookEventName: .preToolUse,
+                source: wireSource,
+                toolName: "Read"
+            ))
+        }
+
+        #expect(store.items.map(\.source) == cases.map(\.1))
+        #expect(cases.allSatisfy { WorkstreamSource(wireName: $0.0) == $0.1 })
+    }
+
     @Test("ingest creates a pending item for permission requests")
     func ingestPending() {
         let store = WorkstreamStore(ringCapacity: 10)

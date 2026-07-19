@@ -266,7 +266,7 @@ function warn(ctx: ExtensionContext | null, message: string, details: Record<str
 }
 
 function cmuxExecutable(): string {
-  return process.env.CMUX_PI_CMUX_BIN || "cmux";
+  return process.env.CMUX_PI_CMUX_BIN || process.env.CMUX_BUNDLED_CLI_PATH || "cmux";
 }
 
 function runCmux(args: string[], cwd: string, input?: string): CommandResult {

@@ -380,6 +380,18 @@ class GhosttyApp {
     /// The process-wide paced native-surface creation queue for session restore.
     @MainActor
     static let terminalSurfaceRestoreSpawnScheduler = TerminalSurfaceRestoreSpawnScheduler()
+    /// Content-free agent observations are owned by the app composition root
+    /// and injected into the terminal-state runtime that publishes them.
+    nonisolated private let agentTerminalObservationCache: AgentTerminalObservationCache
+    /// Process-wide coding-agent terminal-state runtime, constructed at the app composition root.
+    @MainActor
+    private let agentTerminalStateRuntime: AgentTerminalStateRuntime
+
+    /// Copies cached live-agent metadata without triggering terminal capture.
+    nonisolated
+    func agentTerminalObservationsSnapshot() -> [CmuxAgentTerminalObservation] {
+        agentTerminalObservationCache.snapshot()
+    }
     /// Snapshotted once per app session so all workspaces use consistent values.
     static let terminalSessionPortBase: Int = {
         let val = UserDefaults.standard.integer(forKey: AutomationSettings.portBaseKey)
@@ -399,7 +411,7 @@ class GhosttyApp {
         engine: GhosttyApp.shared,
         viewProvider: TerminalSurfaceViewFactory(),
         spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
-        byteTee: TerminalOutputByteTeeBridge(),
+        byteTee: TerminalOutputByteTeeBridge(agentStateRuntime: GhosttyApp.shared.agentTerminalStateRuntime),
         rendererRealization: RendererRealizationController.shared,
         hibernationRecorder: TerminalAgentHibernationRecorder(),
         runtimeTeardown: GhosttyApp.terminalSurfaceRuntimeTeardown,
@@ -739,6 +751,9 @@ class GhosttyApp {
     }
 
     private init() {
+        let observationCache = AgentTerminalObservationCache()
+        agentTerminalObservationCache = observationCache
+        agentTerminalStateRuntime = AgentTerminalStateRuntime(observationCache: observationCache)
         initializeGhostty()
     }
 

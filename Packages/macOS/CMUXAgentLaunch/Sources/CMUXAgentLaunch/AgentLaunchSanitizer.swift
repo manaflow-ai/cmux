@@ -54,6 +54,14 @@ public enum AgentLaunchSanitizer {
     ) -> [String]? {
         guard let executable = arguments.first, !executable.isEmpty else { return nil }
         var tail = Array(arguments.dropFirst())
+        let metadataKind: String
+        switch launcher {
+        case "claudeTeams": metadataKind = "claude"
+        case "codexTeams": metadataKind = "codex"
+        case "omo": metadataKind = "opencode"
+        default: metadataKind = fallbackKind
+        }
+        guard !containsNonSessionMetadataOption(kind: metadataKind, args: tail) else { return nil }
 
         switch launcher {
         case "claudeTeams":
@@ -104,6 +112,7 @@ public enum AgentLaunchSanitizer {
     }
 
     public static func preservedArguments(kind: String, args: [String]) -> [String]? {
+        guard !containsNonSessionMetadataOption(kind: kind, args: args) else { return nil }
         switch kind {
         case "claude":
             return ClaudeLaunchArgumentsPreserver().preservedArguments(args: args)
@@ -113,26 +122,31 @@ public enum AgentLaunchSanitizer {
         case "codex-fork-restore": return preservedCodexForkArguments(args: args, preservePromptTags: false)
         case "grok":
             return preserveOptions(args, policy: grokPolicy)
-        case "pi", "omp":
+        case "pi":
             return preserveOptions(args, policy: piPolicy)
+        case "omp":
+            return preserveOptions(args, policy: ompPolicy)
         case "campfire":
             return preserveOptions(args, policy: campfirePolicy)
         case "amp":
-            // Strip the `threads continue <id>` resume sub-subcommand if the
-            // captured launch already started by resuming a thread, so we
-            // don't double-add it. Supports the documented short aliases:
-            // `t`/`thread` for `threads`, and `c` for `continue`.
+            // Strip an existing continuation selector before constructing a
+            // fresh resume command. Amp's old `threads fork` form is accepted
+            // here only for restoring legacy captures; current Amp rejects that
+            // command and CMUX no longer offers Amp forks.
             var tail = args
             let threadsAliases: Set<String> = ["threads", "thread", "t"]
-            let continueAliases: Set<String> = ["continue", "c"]
+            let sessionCommandAliases: Set<String> = ["continue", "c", "fork"]
             if let first = tail.first, threadsAliases.contains(first) {
                 tail.removeFirst()
-                if let next = tail.first, continueAliases.contains(next) {
-                    tail.removeFirst()
-                    if let candidate = tail.first, !candidate.hasPrefix("-") {
-                        tail.removeFirst()
-                    }
+                guard let next = tail.first, sessionCommandAliases.contains(next) else {
+                    return nil
                 }
+                tail.removeFirst()
+                if let candidate = tail.first, !candidate.hasPrefix("-") {
+                    tail.removeFirst()
+                }
+            } else if let first = tail.first, ["last", "l"].contains(first) {
+                tail.removeFirst()
             }
             return preserveOptions(tail, policy: ampPolicy)
         case "cursor":
@@ -165,6 +179,16 @@ public enum AgentLaunchSanitizer {
             }
             return preserveOptions(tail, policy: openCodePolicy)
         case "rovodev":
+            // `acli rovodev run <instruction>` is a documented single-instruction
+            // invocation. It still writes a session, but replaying that record as
+            // `run --restore <id>` after the process exits manufactures an
+            // interactive restore for a one-shot command. Keep lifecycle and
+            // replay safety as separate decisions, but reject this replay shape
+            // at the sanitizer boundary too so stale persisted records cannot
+            // resurrect it after an app restart.
+            if AgentLaunchModeClassifier().mode(kind: "rovodev", arguments: args) == .oneShot {
+                return nil
+            }
             var tail = args
             if tail.first == "rovodev" {
                 tail.removeFirst()
@@ -193,6 +217,8 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(args, policy: factoryPolicy)
         case "qoder":
             return preserveOptions(args, policy: qoderPolicy)
+        case "kimi":
+            return preserveOptions(args, policy: kimiPolicy)
         case "ollama":
             return OllamaLaunchArgumentsPreserver().preservedArguments(args)
         default:
@@ -200,8 +226,89 @@ public enum AgentLaunchSanitizer {
         }
     }
 
+    /// Preserves only the replay-safe options from OpenCode's direct
+    /// `run --interactive` mode.
+    ///
+    /// `opencode run` is normally one-shot, while `run --interactive` owns a
+    /// multi-turn split-footer UI. The root TUI sanitizer intentionally rejects
+    /// every `run` subcommand, so this explicit path keeps the interactive mode
+    /// across resume/fork without replaying its startup message, files, command,
+    /// remote credentials, or stale session selector.
+    static func preservedOpenCodeInteractiveRunArguments(args: [String]) -> [String]? {
+        guard args.first == "run",
+              AgentLaunchModeClassifier().mode(kind: "opencode", arguments: args) == .interactive else {
+            return nil
+        }
+        let tail = Array(args.dropFirst())
+        guard openCodeInteractiveRunOptionsAreKnown(tail) else { return nil }
+        return preserveOptions(tail, policy: openCodeInteractiveRunPolicy)
+    }
+
+    private static func openCodeInteractiveRunOptionsAreKnown(_ args: [String]) -> Bool {
+        let policy = openCodeInteractiveRunPolicy
+        let knownOptions = policy.valueOptions
+            .union(policy.booleanOptions)
+            .union(policy.droppedOptions)
+            .union(policy.rejectOptions)
+        var index = 0
+        while index < args.count {
+            let argument = args[index]
+            if argument == "--" || !argument.hasPrefix("-") || argument == "-" {
+                break
+            }
+            let option = argument.split(separator: "=", maxSplits: 1).first.map(String.init) ?? argument
+            guard knownOptions.contains(option) else { return false }
+            if policy.valueOptions.contains(option),
+               !argument.contains("="),
+               (index + 1 >= args.count || args[index + 1].hasPrefix("-")) {
+                return false
+            }
+            index += max(1, optionWidth(args, index: index, policy: policy))
+        }
+        return true
+    }
+
     /// Preserves restorable `claude-teams` `args` with the Teams policy, keeping routing flags while dropping `--tmux` prompt payloads; returns `nil` for unsafe replay shapes.
-    public static func preservedClaudeTeamsLaunchArguments(args: [String]) -> [String]? { preserveOptions(args, policy: claudeTeamsPolicy) }
+    public static func preservedClaudeTeamsLaunchArguments(args: [String]) -> [String]? {
+        guard !containsNonSessionMetadataOption(kind: "claude", args: args) else { return nil }
+        return preserveOptions(args, policy: claudeTeamsPolicy)
+    }
+
+    static func nonSessionMetadataOptions(kind: String) -> Set<String> {
+        var options: Set<String> = ["--help", "-h", "--version"]
+        switch kind {
+        case "claude":
+            options.insert("-v")
+        case "codex", "codex-fork-replay", "codex-fork-restore":
+            options.insert("-V")
+        case "grok", "pi", "omp", "campfire", "opencode", "cursor":
+            options.insert("-v")
+        case "amp":
+            options.formUnion(["-V", "-v"])
+        case "hermes-agent":
+            options.insert("-V")
+        case "gemini":
+            options.insert("-v")
+        case "kimi", "kiro":
+            options.insert("-V")
+        case "copilot", "factory":
+            options.insert("-v")
+        default:
+            break
+        }
+        return options
+    }
+
+    static func containsNonSessionMetadataOption(kind: String, args: [String]) -> Bool {
+        let options = nonSessionMetadataOptions(kind: kind)
+        for argument in args {
+            if argument == "--" { return false }
+            guard argument.hasPrefix("-"), argument != "-" else { continue }
+            let name = argument.split(separator: "=", maxSplits: 1).first.map(String.init) ?? argument
+            if options.contains(name) { return true }
+        }
+        return false
+    }
 
     /// Whether `option` appears as a real Claude *option* in claude-teams launch
     /// `args`. Unlike restore preservation, this does NOT stop at the first

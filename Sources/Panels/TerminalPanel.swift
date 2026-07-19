@@ -31,6 +31,20 @@ enum AgentHibernationResumePreparation: Equatable {
     }
 }
 
+struct AgentHibernationResumePlan: Sendable {
+    let kind: RestorableAgentKind
+    let sessionId: String
+    let hibernatedAt: Date
+    let temporaryDirectory: URL
+    let executableResolution: AgentCommandExecutableResolution
+
+    func matches(_ state: AgentHibernationPanelState) -> Bool {
+        kind == state.agent.kind
+            && sessionId == state.agent.sessionId
+            && hibernatedAt == state.hibernatedAt
+    }
+}
+
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
 @MainActor
@@ -686,35 +700,140 @@ final class TerminalPanel: Panel, ObservableObject {
         surface.teardownSurface()
     }
 
+    /// Restores an already-persisted hibernated model before its native surface
+    /// is created. This path never tears down a live runtime.
+    @discardableResult
     func enterAgentHibernation(
         agent: SessionRestorableAgentSnapshot,
         lastActivityAt: Date,
         hibernatedAt: Date = Date()
+    ) -> Bool {
+        guard surface.markRuntimeSurfaceSuspendedForRestoredAgentHibernation() else { return false }
+        commitAgentHibernationState(
+            agent: agent,
+            lastActivityAt: lastActivityAt,
+            hibernatedAt: hibernatedAt
+        )
+        return true
+    }
+
+    /// Suspends a live runtime only after the serialized native teardown lane
+    /// accepts its final validation and finishes freeing callback userdata.
+    func enterAgentHibernation(
+        agent: SessionRestorableAgentSnapshot,
+        lastActivityAt: Date,
+        hibernatedAt: Date = Date(),
+        finalValidation: @escaping @Sendable () async -> Bool,
+        finalTeardownPreparation: @escaping @Sendable () -> (@Sendable () -> Void)? = { {} },
+        finalCommit: @escaping @Sendable () -> Bool = { true },
+        executableResolver: AgentCommandExecutableResolver = AgentCommandExecutableResolver()
+    ) async -> Bool {
+        guard agentHibernationState == nil,
+              let descriptor = agent.resumeExecutionDescriptor,
+              let executableResolution = executableResolver.resolve(descriptor),
+              await surface.suspendRuntimeSurfaceForAgentHibernation(
+                  reason: "agentHibernation",
+                  finalValidation: finalValidation,
+                  finalTeardownPreparation: {
+                      guard AgentCommandExecutableResolver.revalidate(executableResolution) else {
+                          return nil
+                      }
+                      return finalTeardownPreparation()
+                  },
+                  finalCommit: finalCommit
+              ) else {
+            return false
+        }
+        commitAgentHibernationState(
+            agent: agent,
+            lastActivityAt: lastActivityAt,
+            hibernatedAt: hibernatedAt
+        )
+        return true
+    }
+
+    private func commitAgentHibernationState(
+        agent: SessionRestorableAgentSnapshot,
+        lastActivityAt: Date,
+        hibernatedAt: Date
     ) {
         agentHibernationState = AgentHibernationPanelState(
             agent: agent,
             hibernatedAt: hibernatedAt,
             lastActivityAt: lastActivityAt
         )
+        surface.commitAgentHibernationOwnerState()
         unfocus()
         searchState = nil
         hostedView.setVisibleInUI(false)
         TerminalWindowPortalRegistry.detach(hostedView: hostedView)
-        surface.suspendRuntimeSurfaceForAgentHibernation(reason: "agentHibernation")
         requestViewReattach()
     }
 
     @discardableResult
     func prepareAgentHibernationResume() -> AgentHibernationResumePreparation {
-        guard let state = agentHibernationState else {
+        guard let plan = agentHibernationResumePlan() else {
             return .unavailable
         }
-        let resumeStartupInput = state.agent.resumeStartupInput()
+        return applyAgentHibernationResume(plan)
+    }
+
+    func agentHibernationResumePlan(
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        executableResolver: AgentCommandExecutableResolver = AgentCommandExecutableResolver()
+    ) -> AgentHibernationResumePlan? {
+        guard let state = agentHibernationState,
+              surface.canPrepareAgentHibernationResume,
+              let descriptor = state.agent.resumeExecutionDescriptor,
+              let executableResolution = executableResolver.resolve(descriptor) else {
+            return nil
+        }
+        return AgentHibernationResumePlan(
+            kind: state.agent.kind,
+            sessionId: state.agent.sessionId,
+            hibernatedAt: state.hibernatedAt,
+            temporaryDirectory: temporaryDirectory,
+            executableResolution: executableResolution
+        )
+    }
+
+    @discardableResult
+    func applyAgentHibernationResume(
+        _ plan: AgentHibernationResumePlan,
+        hibernationResumeAttemptId: UUID? = nil
+    ) -> AgentHibernationResumePreparation {
+        guard let state = agentHibernationState,
+              plan.matches(state),
+              surface.canPrepareAgentHibernationResume,
+              AgentCommandExecutableResolver.revalidate(plan.executableResolution),
+              let startupInput = state.agent.resumeStartupInput(
+                  temporaryDirectory: plan.temporaryDirectory,
+                  hibernationResumeAttemptId: hibernationResumeAttemptId
+              ) else {
+            return .unavailable
+        }
         agentHibernationState = nil
-        surface.prepareAgentHibernationResume(initialInput: resumeStartupInput)
+        surface.prepareAgentHibernationResume(initialInput: startupInput)
         requestViewReattach()
         surface.requestBackgroundSurfaceStartIfNeeded()
-        return .resumed(queuedStartupInput: resumeStartupInput != nil)
+        return .resumed(queuedStartupInput: true)
+    }
+
+    var canPrepareAgentHibernationResume: Bool {
+        agentHibernationState != nil && surface.canPrepareAgentHibernationResume
+    }
+
+    /// Abandons a persisted hibernation placeholder whose durable session
+    /// binding could not be adopted. Unlike resume, this never queues the
+    /// agent's resume command, so a newer live owner cannot be duplicated.
+    @discardableResult
+    func discardRestoredAgentHibernation() -> Bool {
+        guard agentHibernationState != nil else { return false }
+        agentHibernationState = nil
+        surface.prepareAgentHibernationResume(initialInput: nil)
+        requestViewReattach()
+        surface.requestBackgroundSurfaceStartIfNeeded()
+        return true
     }
 
     func requestViewReattach() {

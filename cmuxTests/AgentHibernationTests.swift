@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import Testing
 import Bonsplit
@@ -797,6 +798,16 @@ struct AgentHibernationTests {
 
         expectEqual(snapshot.agentDisplayName, "Local Agent")
         expectEqual(snapshot.resumeCommand, "cd -- '/tmp/custom-agent' 2>/dev/null || [ ! -d '/tmp/custom-agent' ] && '/usr/local/bin/local-agent' 'resume' 'custom-session'")
+
+        let attemptID = UUID()
+        let startupInput = snapshot.resumeStartupInput(
+            allowLauncherScript: false,
+            hibernationResumeAttemptId: attemptID
+        )
+        let expectedAssignment = "'\(AgentHibernationResumeEvidence.environmentKey)=\(attemptID.uuidString)'"
+        expectTrue(startupInput?.hasPrefix("/usr/bin/env \(expectedAssignment) /bin/zsh -c ") == true)
+        expectTrue(startupInput?.contains("local-agent") == true)
+        expectTrue(startupInput?.hasSuffix("\n") == true)
     }
 
     @MainActor
@@ -886,6 +897,64 @@ struct AgentHibernationTests {
 
         expectFalse(panel.isAgentHibernated)
         expectEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
+    }
+
+    @MainActor
+    @Test
+    func testUnavailableResumeAuthorityDoesNotLeakOversizedLauncherScripts() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let sessionId = "authority-leak-\(UUID().uuidString.prefix(12))"
+        let launcherPrefix = "codex-\(sessionId)"
+        let launcherDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume", isDirectory: true)
+        func matchingLaunchers() -> [URL] {
+            (try? FileManager.default.contentsOfDirectory(
+                at: launcherDirectory,
+                includingPropertiesForKeys: nil
+            ))?.filter { $0.lastPathComponent.hasPrefix(launcherPrefix) } ?? []
+        }
+        defer {
+            for url in matchingLaunchers() { try? FileManager.default.removeItem(at: url) }
+        }
+
+        let oversizedDirectory = "/tmp/" + String(repeating: "long-resume-directory/", count: 80)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionId,
+            workingDirectory: oversizedDirectory,
+            launchCommand: launch("codex", "/usr/local/bin/codex", cwd: oversizedDirectory)
+        )
+        let resumeCommand = try #require(snapshot.resumeCommand)
+        #expect(resumeCommand.utf8.count > SessionRestorableAgentSnapshot.maxInlineStartupInputBytes)
+        workspace.surfaceResumeBindingsByPanelId[panelId] = SurfaceResumeBindingSnapshot(
+            kind: snapshot.kind.rawValue,
+            command: resumeCommand,
+            cwd: oversizedDirectory,
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: false,
+            updatedAt: 100
+        )
+        expectTrue(workspace.enterAgentHibernation(
+            panelId: panelId,
+            agent: snapshot,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        ))
+
+        for _ in 0..<3 {
+            expectFalse(workspace.resumeVisibleAgentHibernationPanels(
+                panelIds: [panelId],
+                retryPendingAdoptions: false,
+                authorityClaimHandler: { requests in
+                    Dictionary(uniqueKeysWithValues: requests.map {
+                        ($0.surfaceId, .unavailable)
+                    })
+                }
+            ))
+            expectTrue(workspace.terminalPanel(for: panelId)?.isAgentHibernated == true)
+            #expect(matchingLaunchers().isEmpty)
+        }
     }
 
     @MainActor
@@ -1090,7 +1159,7 @@ struct AgentHibernationTests {
 
     @MainActor
     @Test
-    func testResumePreparationWithoutStartupInputStillLeavesHibernation() throws {
+    func testResumePreparationWithoutStartupInputKeepsHibernationRetryable() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
@@ -1109,8 +1178,8 @@ struct AgentHibernationTests {
 
         let preparation = panel.prepareAgentHibernationResume()
 
-        expectEqual(preparation, .resumed(queuedStartupInput: false))
-        expectFalse(panel.isAgentHibernated)
+        expectEqual(preparation, .unavailable)
+        expectTrue(panel.isAgentHibernated)
         expectFalse(panel.surface.debugInitialInputMetadata().hasInitialInput)
     }
 

@@ -7,21 +7,104 @@ struct AgentResumeArgvTests {
         ("claude", "claude", ["claude", "--resume", "SID"]),
         ("grok", "grok", ["grok", "-r", "SID"]),
         ("pi", "pi", ["pi", "--session", "SID"]),
-        ("omp", "omp", ["omp", "--session", "SID"]),
+        ("omp", "omp", ["omp", "--resume", "SID"]),
         ("campfire", "campfire", ["campfire", "--session", "SID"]),
         ("cursor", "cursor-agent", ["cursor-agent", "--resume", "SID"]),
-        ("gemini", "gemini", ["gemini", "--resume", "SID"]),
         ("antigravity", "agy", ["agy", "--conversation", "SID"]),
         ("copilot", "copilot", ["copilot", "--resume", "SID"]),
         ("codebuddy", "codebuddy", ["codebuddy", "--resume", "SID"]),
         ("factory", "droid", ["droid", "--resume", "SID"]),
         ("qoder", "qodercli", ["qodercli", "--resume", "SID"]),
+        ("kimi", "kimi", ["kimi", "--session", "SID"]),
     ])
     func builtInWithOptionKinds(kind: String, executable: String, expected: [String]) {
         #expect(
             AgentResumeArgv().builtInKind(
                 kind: kind, sessionId: "SID", executablePath: nil, arguments: [executable]
             ) == expected
+        )
+    }
+
+    @Test("Gemini resumes from its recorded session file")
+    func geminiUsesSessionFile() {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "gemini",
+                sessionId: "5839bed1-0a60-4c05-b6d1-2410d7a3741e",
+                executablePath: nil,
+                arguments: [
+                    "gemini",
+                    "--session-file", "/tmp/previous.jsonl",
+                    "--model", "gemini-2.5-pro",
+                ],
+                transcriptPath: "/tmp/session-2026-07-18T04-52-5839bed1.jsonl"
+            ) == [
+                "gemini", "--session-file", "/tmp/session-2026-07-18T04-52-5839bed1.jsonl",
+                "--model", "gemini-2.5-pro",
+            ]
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "gemini",
+                sessionId: "5839bed1-0a60-4c05-b6d1-2410d7a3741e",
+                executablePath: nil,
+                arguments: ["gemini"]
+            ) == nil
+        )
+    }
+
+    @Test("Kimi resume removes initial prompts and stale interactive sessions")
+    func kimiResumeSanitizesInteractiveArguments() {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "kimi",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: [
+                    "kimi",
+                    "--session", "OLD",
+                    "--model", "kimi-k2",
+                    "--yolo",
+                    "--prompt", "do not replay this prompt",
+                ]
+            ) == ["kimi", "--session", "SID", "--model", "kimi-k2", "--yolo"]
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "kimi",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: [
+                    "kimi",
+                    "--session", "OLD",
+                    "--model", "kimi-k2",
+                    "--yolo",
+                ]
+            ) == ["kimi", "--session", "SID", "--model", "kimi-k2", "--yolo"]
+        )
+    }
+
+    @Test("Kimi resume drops inline configuration secrets but keeps configuration files")
+    func kimiResumeDropsInlineConfiguration() {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "kimi",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: [
+                    "kimi",
+                    "--config", #"model.api_key = "inline-secret""#,
+                    "--mcp-config", #"{"mcpServers":{"private":{"env":{"TOKEN":"inline-secret"}}}}"#,
+                    "--config-file", "/tmp/kimi.toml",
+                    "--mcp-config-file", "/tmp/mcp.json",
+                    "--model", "kimi-k2",
+                ]
+            ) == [
+                "kimi", "--session", "SID",
+                "--config-file", "/tmp/kimi.toml",
+                "--mcp-config-file", "/tmp/mcp.json",
+                "--model", "kimi-k2",
+            ]
         )
     }
 
@@ -109,16 +192,207 @@ struct AgentResumeArgvTests {
         )
     }
 
-    @Test("Captured executable path overrides the fallback executable")
+    @Test("OpenCode direct interactive run resumes in direct interactive mode")
+    func opencodeInteractiveRunResumesInInteractiveMode() {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "opencode",
+                sessionId: "SID",
+                executablePath: "/opt/bin/opencode",
+                arguments: [
+                    "/opt/bin/opencode",
+                    "run",
+                    "--interactive",
+                    "--session", "OLD",
+                    "--model", "anthropic/claude-sonnet-4-6",
+                    "--auto",
+                    "do not replay this prompt",
+                ]
+            ) == [
+                "/opt/bin/opencode",
+                "run",
+                "--interactive",
+                "--session", "SID",
+                "--model", "anthropic/claude-sonnet-4-6",
+                "--auto",
+            ]
+        )
+    }
+
+    @Test("One-shot provider launches do not manufacture resume commands")
+    func oneShotProviderLaunchesDoNotResume() {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "rovodev",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["acli", "rovodev", "run", "fix this"]
+            ) == nil
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "kimi",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["kimi", "--quiet", "fix this"]
+            ) == nil
+        )
+    }
+
+    @Test("Captured Codex executable is preserved through the wrapper")
     func executablePathOverridesFallback() {
-        // Non-claude kinds replay the captured executable path verbatim.
         #expect(
             AgentResumeArgv().builtInKind(
                 kind: "codex",
                 sessionId: "SID",
                 executablePath: "/opt/bin/codex",
                 arguments: ["/opt/bin/codex"]
-            ) == ["/opt/bin/codex", "resume", "SID", "-c", "check_for_update_on_startup=false"]
+            ) == ["env", "CMUX_CUSTOM_CODEX_PATH=/opt/bin/codex", "codex", "resume", "SID", "-c", "check_for_update_on_startup=false"]
+        )
+    }
+
+    @Test("Captured Codex executable routes resume and fork through the wrapper")
+    func capturedCodexExecutableRoutesThroughWrapper() throws {
+        let executable = "/opt/company/Codex Builds/codex"
+        let wrapperPrefix = [
+            "env",
+            "CMUX_CUSTOM_CODEX_PATH=\(executable)",
+            "codex",
+        ]
+
+        let resume = try #require(AgentResumeArgv().builtInKind(
+            kind: "codex",
+            sessionId: "SID",
+            executablePath: executable,
+            arguments: [executable, "--model", "gpt-5.4"]
+        ))
+        #expect(
+            resume == wrapperPrefix
+                + ["resume", "SID", "-c", "check_for_update_on_startup=false", "--model", "gpt-5.4"]
+        )
+
+        let fork = try #require(AgentForkArgv().builtInKind(
+            kind: "codex",
+            sessionId: "SID",
+            executablePath: executable,
+            arguments: [executable, "--model", "gpt-5.4"]
+        ))
+        #expect(fork == wrapperPrefix + ["fork", "SID", "--model", "gpt-5.4"])
+    }
+
+    @Test("Pi-family replay replaces selectors and preserves provider-specific values")
+    func piFamilyReplayUsesCurrentOptionWidths() throws {
+        let piArguments = [
+            "pi",
+            "--session-id", "OLD",
+            "--name", "refactor auth",
+            "--model", "anthropic/claude-sonnet-4-6",
+        ]
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "pi", sessionId: "SID", executablePath: nil, arguments: piArguments
+            ) == [
+                "pi", "--session", "SID",
+                "--name", "refactor auth",
+                "--model", "anthropic/claude-sonnet-4-6",
+            ]
+        )
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "pi", sessionId: "SID", executablePath: nil, arguments: piArguments
+            ) == [
+                "pi", "--fork", "SID",
+                "--name", "refactor auth",
+                "--model", "anthropic/claude-sonnet-4-6",
+            ]
+        )
+
+        let ompValues = [
+            "--profile", "work",
+            "--smol", "haiku",
+            "--slow", "opus",
+            "--plan", "sonnet",
+            "--max-time", "300",
+            "--approval-mode", "write",
+        ]
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "omp", sessionId: "SID", executablePath: nil, arguments: ["omp"] + ompValues
+            ) == ["omp", "--resume", "SID"] + ompValues
+        )
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "omp", sessionId: "SID", executablePath: nil, arguments: ["omp"] + ompValues
+            ) == nil
+        )
+
+        let campfireArguments = [
+            "campfire",
+            "--session-id", "OLD",
+            "--model", "anthropic/claude-sonnet-4-6",
+        ]
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "campfire", sessionId: "SID", executablePath: nil, arguments: campfireArguments
+            ) == ["campfire", "--session", "SID", "--model", "anthropic/claude-sonnet-4-6"]
+        )
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "campfire", sessionId: "SID", executablePath: nil, arguments: campfireArguments
+            ) == ["campfire", "--fork", "SID", "--model", "anthropic/claude-sonnet-4-6"]
+        )
+    }
+
+    @Test("Pi-family export and list modes are never replayable")
+    func piFamilyUtilityModesAreNotReplayable() {
+        for kind in ["pi", "omp", "campfire"] {
+            #expect(
+                AgentResumeArgv().builtInKind(
+                    kind: kind,
+                    sessionId: "SID",
+                    executablePath: nil,
+                    arguments: [kind, "--export", "/tmp/session.html"]
+                ) == nil,
+                "\(kind) export"
+            )
+            #expect(
+                AgentForkArgv().builtInKind(
+                    kind: kind,
+                    sessionId: "SID",
+                    executablePath: nil,
+                    arguments: [kind, "list"]
+                ) == nil,
+                "\(kind) list"
+            )
+        }
+    }
+
+    @Test("Grok replay preserves value widths and drops worktree selectors")
+    func grokReplayUsesCurrentOptionWidths() {
+        let arguments = [
+            "grok",
+            "--debug-file", "/tmp/grok debug.log",
+            "--json-schema", #"{"type":"object"}"#,
+            "--leader-socket", "/tmp/grok leader.sock",
+            "--worktree", "feature-old",
+            "--worktree-ref", "main",
+            "--model", "grok-code-fast-1",
+        ]
+        let preserved = [
+            "--debug-file", "/tmp/grok debug.log",
+            "--json-schema", #"{"type":"object"}"#,
+            "--leader-socket", "/tmp/grok leader.sock",
+            "--model", "grok-code-fast-1",
+        ]
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "grok", sessionId: "SID", executablePath: nil, arguments: arguments
+            ) == ["grok", "-r", "SID"] + preserved
+        )
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "grok", sessionId: "SID", executablePath: nil, arguments: arguments
+            ) == ["grok", "--resume", "SID", "--fork-session"] + preserved
         )
     }
 

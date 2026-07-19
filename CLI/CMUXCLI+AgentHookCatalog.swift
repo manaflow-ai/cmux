@@ -94,6 +94,7 @@ extension CMUXCLI {
                 .init(agentEvent: "beforeShellExecution", cmuxSubcommand: "shell-exec"),
                 .init(agentEvent: "afterShellExecution", cmuxSubcommand: "shell-done"),
             ],
+            aliases: ["cursor-agent"],
             feedHookEvents: ["beforeShellExecution"]
         ),
         AgentHookDef(
@@ -121,6 +122,7 @@ extension CMUXCLI {
                 .init(agentEvent: "userPromptSubmit", cmuxSubcommand: "prompt-submit"),
                 .init(agentEvent: "stop", cmuxSubcommand: "stop"),
             ],
+            aliases: ["kiro-cli"],
             feedHookEvents: ["preToolUse", "postToolUse"],
             postInstallNote: String(
                 localized: "cli.hooks.kiro.postInstallNote",
@@ -173,21 +175,24 @@ extension CMUXCLI {
                 .init(agentEvent: "on_session_finalize", cmuxSubcommand: "session-finalize"),
                 .init(agentEvent: "on_session_reset", cmuxSubcommand: "session-start"),
             ],
+            aliases: ["hermes"],
             sessionEndIsTurnBoundary: true,
             feedHookEvents: ["pre_tool_call", "post_tool_call", "pre_approval_request", "post_approval_response"]
         ),
         AgentHookDef(
             name: "copilot", displayName: "Copilot", statusKey: "copilot",
-            configDir: ".copilot", configFile: "config.json", configDirEnvOverride: "COPILOT_HOME",
+            configDir: ".copilot/hooks", configFile: "cmux.json",
+            configDirEnvOverride: "COPILOT_HOME", configDirEnvOverrideSubpath: "hooks",
+            createConfigDirIfMissing: true,
             sessionStoreSuffix: "copilot", disableEnvVar: "CMUX_COPILOT_HOOKS_DISABLED",
-            hookMarker: "cmux hooks copilot", format: .nested(timeoutMs: 5000),
+            hookMarker: "cmux hooks copilot", format: .flat,
             events: [
-                .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
-                .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
-                .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
-                .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
+                .init(agentEvent: "sessionStart", cmuxSubcommand: "session-start"),
+                .init(agentEvent: "agentStop", cmuxSubcommand: "stop"),
+                .init(agentEvent: "notification", cmuxSubcommand: "stop"),
+                .init(agentEvent: "sessionEnd", cmuxSubcommand: "session-end"),
             ],
-            feedHookEvents: ["PreToolUse"]
+            feedHookEvents: ["preToolUse"]
         ),
         AgentHookDef(
             name: "codebuddy", displayName: "CodeBuddy", statusKey: "codebuddy",
@@ -213,6 +218,7 @@ extension CMUXCLI {
                 .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
+            aliases: ["droid"],
             feedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
@@ -225,6 +231,7 @@ extension CMUXCLI {
                 .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
+            aliases: ["qodercli"],
             feedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
@@ -241,6 +248,7 @@ extension CMUXCLI {
                 .init(agentEvent: "StopFailure", cmuxSubcommand: "notification"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
+            aliases: ["kimi-cli", "kimi-code"],
             feedHookEvents: ["PreToolUse", "PostToolUse"]
         ),
     ]

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -9,6 +10,124 @@ import Testing
 
 @Suite
 struct AgentHibernationTranscriptGuardScanTests {
+    @Test
+    func liveVersionCheckRevalidatesBytesAfterSameSizeRewriteWithRestoredModificationDate() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let live = directory.appendingPathComponent("live.jsonl")
+        let snapshot = directory.appendingPathComponent("snapshot.jsonl")
+        let original = Data("abcdef".utf8)
+        let replacement = Data("UVWXYZ".utf8)
+        try original.write(to: live)
+        try original.write(to: snapshot)
+        let validated = try #require(AgentHibernationTranscriptGuard.snapshotStillMatchesLive(
+            .init(transcriptPath: live.path, snapshotPath: snapshot.path)
+        ))
+        let originalVersion = try #require(validated.liveFileVersion)
+
+        let handle = try FileHandle(forWritingTo: live)
+        try handle.seek(toOffset: 0)
+        try handle.write(contentsOf: replacement)
+        try handle.truncate(atOffset: UInt64(replacement.count))
+        try handle.close()
+        try FileManager.default.setAttributes(
+            [.modificationDate: originalVersion.modificationDate],
+            ofItemAtPath: live.path
+        )
+        let rewrittenAttributes = try FileManager.default.attributesOfItem(atPath: live.path)
+        #expect((rewrittenAttributes[.systemFileNumber] as? NSNumber)?.uint64Value == originalVersion.fileNumber)
+        #expect((rewrittenAttributes[.size] as? NSNumber)?.uint64Value == originalVersion.size)
+        #expect(rewrittenAttributes[.modificationDate] as? Date == originalVersion.modificationDate)
+
+        #expect(AgentHibernationTranscriptGuard.liveFileVersionStillMatches(validated) == false)
+    }
+
+    @Test
+    func transcriptReadsRejectSymlinksNamedPipesAndDirectories() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let conversation = Data((#"{"type":"user","message":{"content":"protected"}}"# + "\n").utf8)
+        let target = directory.appendingPathComponent("target.jsonl")
+        let symlink = directory.appendingPathComponent("symlink.jsonl")
+        try conversation.write(to: target)
+        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: target)
+        #expect(AgentHibernationTranscriptGuard.transcriptHasConversationTurns(atPath: symlink.path) == false)
+
+        let fifo = directory.appendingPathComponent("transcript.fifo")
+        try #require(mkfifo(fifo.path, S_IRUSR | S_IWUSR) == 0)
+        let fifoDescriptor = open(fifo.path, O_RDWR | O_NONBLOCK | O_CLOEXEC)
+        try #require(fifoDescriptor >= 0)
+        defer { Darwin.close(fifoDescriptor) }
+        let bytesWritten = conversation.withUnsafeBytes { buffer in
+            Darwin.write(fifoDescriptor, buffer.baseAddress, buffer.count)
+        }
+        try #require(bytesWritten == conversation.count)
+        #expect(AgentHibernationTranscriptGuard.transcriptHasConversationTurns(atPath: fifo.path) == false)
+
+        #expect(AgentHibernationTranscriptGuard.transcriptHasConversationTurns(atPath: directory.path) == false)
+    }
+
+    @Test
+    func stableComparisonRejectsSymlinksAndNamedPipesBeforeReading() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        // Keep the relative symlink target and file contents the same byte
+        // length so metadata-only validation cannot reject it by size alone.
+        let target = directory.appendingPathComponent("target")
+        let symlink = directory.appendingPathComponent("live")
+        let snapshot = directory.appendingPathComponent("snapshot")
+        try Data("abcdef".utf8).write(to: target)
+        try Data("abcdef".utf8).write(to: snapshot)
+        try FileManager.default.createSymbolicLink(
+            atPath: symlink.path,
+            withDestinationPath: target.lastPathComponent
+        )
+        #expect(AgentHibernationTranscriptGuard.snapshotStillMatchesLive(
+            .init(transcriptPath: symlink.path, snapshotPath: snapshot.path)
+        ) == nil)
+
+        let fifo = directory.appendingPathComponent("empty.fifo")
+        let emptySnapshot = directory.appendingPathComponent("empty.snapshot")
+        try #require(mkfifo(fifo.path, S_IRUSR | S_IWUSR) == 0)
+        try Data().write(to: emptySnapshot)
+        let writer = Process()
+        writer.executableURL = URL(fileURLWithPath: "/bin/sh")
+        writer.arguments = ["-c", ": > \"$1\"", "fifo-writer", fifo.path]
+        try writer.run()
+        defer {
+            if writer.isRunning {
+                writer.terminate()
+                writer.waitUntilExit()
+            }
+        }
+        #expect(AgentHibernationTranscriptGuard.snapshotStillMatchesLive(
+            .init(transcriptPath: fifo.path, snapshotPath: emptySnapshot.path)
+        ) == nil)
+    }
+
+    @Test
+    func conversationScanStopsAtTotalByteBudget() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let transcript = directory.appendingPathComponent("over-budget.jsonl")
+        _ = FileManager.default.createFile(atPath: transcript.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: transcript)
+        defer { try? handle.close() }
+        var malformedLine = Data(repeating: 120, count: 1024 * 1024)
+        malformedLine.append(10)
+        for _ in 0..<65 {
+            try handle.write(contentsOf: malformedLine)
+        }
+        try handle.write(contentsOf: Data((#"{"type":"user","message":{"content":"too late"}}"# + "\n").utf8))
+        try handle.synchronize()
+
+        #expect(AgentHibernationTranscriptGuard.transcriptHasConversationTurns(atPath: transcript.path) == false)
+    }
+
     @Test
     func oversizedLineDiscardResumesScanningAfterNewline() throws {
         let directory = try temporaryDirectory()
@@ -404,6 +523,79 @@ struct AgentHibernationTranscriptGuardScanTests {
         ) == workflowTranscript.path)
     }
 
+    @Test
+    func resolveTranscriptPathDoesNotScanWorkflowsWhenDirectClaudeTranscriptResolves() throws {
+        let home = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let cwd = "/tmp/direct-before-workflow"
+        let sessionId = "direct-before-workflow-session"
+        let directTranscript = transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
+        try writeFile(#"{"type":"user","message":{"content":"before"}}"# + "\n", to: directTranscript)
+        let projectRoot = directTranscript.deletingLastPathComponent().path
+        let fileManager = DirectoryReadTrackingFileManager(trackedPath: projectRoot)
+
+        #expect(AgentHibernationTranscriptGuard.resolveTranscriptPath(
+            agent: agent(sessionId: sessionId, workingDirectory: cwd),
+            homeDirectory: home.path,
+            fileManager: fileManager
+        ) == directTranscript.path)
+        #expect(fileManager.trackedDirectoryReadCount == 0)
+    }
+
+    @Test
+    func resolveTranscriptPathDoesNotFollowWorkflowDirectorySymlinks() throws {
+        let home = try temporaryDirectory()
+        let externalRoot = try temporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: home)
+            try? FileManager.default.removeItem(at: externalRoot)
+        }
+
+        let cwd = "/tmp/symlinked-workflow"
+        let sessionId = "symlinked-workflow-session"
+        let projectRoot = transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
+            .deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        let externalTranscript = externalRoot
+            .appendingPathComponent("messages", isDirectory: true)
+            .appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+        try writeFile(#"{"type":"user","message":{"content":"outside"}}"# + "\n", to: externalTranscript)
+        try FileManager.default.createSymbolicLink(
+            at: projectRoot.appendingPathComponent("linked-workflow", isDirectory: true),
+            withDestinationURL: externalRoot
+        )
+
+        #expect(AgentHibernationTranscriptGuard.resolveTranscriptPath(
+            agent: agent(sessionId: sessionId, workingDirectory: cwd),
+            homeDirectory: home.path
+        ) == nil)
+    }
+
+    @Test
+    func resolveTranscriptPathRejectsWorkflowCandidateThatExhaustsGlobalByteBudget() throws {
+        let home = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let cwd = "/tmp/oversized-workflow"
+        let sessionId = "oversized-workflow-session"
+        let workflowTranscript = workflowTranscriptURL(
+            home: home,
+            cwd: cwd,
+            containerSessionId: "workflow-container",
+            sessionId: sessionId
+        )
+        try writeFile(#"{"type":"user","message":{"content":"before"}}"# + "\n", to: workflowTranscript)
+        let handle = try FileHandle(forWritingTo: workflowTranscript)
+        try handle.truncate(atOffset: UInt64(64 * 1_024 * 1_024 + 1))
+        try handle.close()
+
+        #expect(AgentHibernationTranscriptGuard.resolveTranscriptPath(
+            agent: agent(sessionId: sessionId, workingDirectory: cwd),
+            homeDirectory: home.path
+        ) == nil)
+    }
+
     private var metadataStub: String {
         [
             #"{"type":"last-prompt","prompt":"continue"}"#,
@@ -492,6 +684,23 @@ struct AgentHibernationTranscriptGuardScanTests {
         override func copyItem(atPath srcPath: String, toPath dstPath: String) throws {
             try replacement.write(toFile: srcPath, atomically: true, encoding: .utf8)
             try super.copyItem(atPath: srcPath, toPath: dstPath)
+        }
+    }
+
+    private final class DirectoryReadTrackingFileManager: FileManager {
+        private let trackedPath: String
+        private(set) var trackedDirectoryReadCount = 0
+
+        init(trackedPath: String) {
+            self.trackedPath = (trackedPath as NSString).standardizingPath
+            super.init()
+        }
+
+        override func contentsOfDirectory(atPath path: String) throws -> [String] {
+            if (path as NSString).standardizingPath == trackedPath {
+                trackedDirectoryReadCount += 1
+            }
+            return try super.contentsOfDirectory(atPath: path)
         }
     }
 }

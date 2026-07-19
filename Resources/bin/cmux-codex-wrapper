@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# cmux codex wrapper - per-invocation Codex hook injection + launch detection.
+# cmux codex wrapper - stable Codex hook setup + launch detection.
 #
 # When running inside a cmux terminal (CMUX_SURFACE_ID is set), this wrapper
-# makes `codex` carry cmux's hooks for THIS invocation only (nothing is written
-# to ~/.codex), so Codex's own SessionStart/UserPromptSubmit/Stop/PreToolUse/
-# PostToolUse/PermissionRequest fire back into cmux with Codex's real session_id.
-# It also fires a best-effort one-way `cmux hooks codex session-start` BEFORE
-# exec so a session is detected at launch even if Codex's own SessionStart is
-# delayed; the registry dedups by session id so the two are idempotent.
+# ensures cmux's stable persistent hooks and their trust hashes are installed,
+# then Codex's SessionStart/UserPromptSubmit/Stop/PreToolUse/PostToolUse/
+# PermissionRequest events fire back into the exact bundled cmux CLI with the
+# real session_id. Codex 0.144+ treats hooks injected through session flags as
+# new, untrusted hooks even with --dangerously-bypass-hook-trust, so persistent
+# hooks are the authoritative path. Session-flag injection remains a fail-open
+# fallback when the persistent installation cannot be prepared.
 #
 # Outside cmux (no CMUX_SURFACE_ID / live socket), or when the user opts out
 # (CMUX_CODEX_HOOKS_DISABLED=1), the wrapper does NOTHING but exec the real
@@ -105,8 +106,8 @@ resolve_hook_cmux_bin() {
     printf '%s' "cmux"
 }
 
-# The interactive session, `exec`/`e`, and `resume` entrypoints all START a
-# Codex session, so all three must receive cmux's hook injection; everything
+# The interactive session, `exec`/`e`, `resume`, and `fork` entrypoints all START a
+# Codex session, so all four must receive cmux's hook injection; everything
 # else (review, login, mcp, doctor, --help, --version, ...) passes through
 # untouched. `resume` is critical: cmux auto-resumes a session as `codex resume
 # <id>` after a Mac relaunch, and without hooks the resumed process fires no
@@ -117,10 +118,10 @@ resolve_hook_cmux_bin() {
 # `--dangerously-bypass-hook-trust` / `-c hooks.X=...` flags before the `resume`
 # subcommand, so prepending them is safe. Mirrors should_inject_claude_hooks: a
 # leading non-option token that is a known Codex subcommand means "not a session"
-# unless it is exec or resume.
+# unless it is exec, resume, or fork.
 codex_subcommand_starts_session() {
     case "$1" in
-        exec|e|resume) return 0 ;;
+        exec|e|resume|fork) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -143,7 +144,29 @@ codex_known_subcommand() {
 codex_option_consumes_value() {
     case "$1" in
         -c|--config|-m|--model|-p|--profile|-C|--cd|--remote|-a|--ask-for-approval|\
-        -s|--sandbox|--output-last-message|--enable|--disable)
+        -s|--sandbox|--output-last-message|--enable|--disable|\
+        --remote-auth-token-env|--local-provider|--add-dir)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+codex_option_consumes_variadic_values() {
+    case "$1" in
+        -i|--image)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+# Clap accepts required short-option values attached to the option token (for
+# example `-mgpt-5.4`, `-cfoo=bar`, and `-i/tmp/a.png`). In that form the value
+# is complete in the current token and the next bare token remains positional.
+codex_option_has_attached_short_value() {
+    case "$1" in
+        -c?*|-m?*|-p?*|-C?*|-a?*|-s?*|-i?*)
             return 0
             ;;
     esac
@@ -162,17 +185,37 @@ codex_passthrough_option_flag() {
 # Decide whether this invocation is a Codex SESSION entrypoint we should inject
 # hooks into. Bare `codex` (no args) and `codex [prompt]` are interactive
 # sessions; `codex exec ...` is a non-interactive session; `codex resume ...`
-# (picker, <id>, --last, --all <id>) resumes a session; any other leading
+# and `codex fork ...` resume or fork a session; any other leading
 # subcommand is not.
 should_inject_codex_hooks() {
     (( $# == 0 )) && return 0
 
+    # Clap accepts global help/version flags after prompts, subcommands, and
+    # variadic image values. They always win over session entrypoint detection.
+    # Tokens after `--` are prompt text and deliberately do not participate.
+    local candidate
+    for candidate in "$@"; do
+        [[ "$candidate" == "--" ]] && break
+        case "$candidate" in
+            --help|-h|--version|-V)
+                return 1
+                ;;
+        esac
+    done
+
     local arg
     local skip_next=false
+    local skip_variadic_values=false
     for arg in "$@"; do
         if [[ "$skip_next" == true ]]; then
             skip_next=false
             continue
+        fi
+        if [[ "$skip_variadic_values" == true ]]; then
+            if [[ "$arg" != -* ]]; then
+                continue
+            fi
+            skip_variadic_values=false
         fi
         case "$arg" in
             --)
@@ -181,6 +224,14 @@ should_inject_codex_hooks() {
             -*)
                 if codex_passthrough_option_flag "$arg"; then
                     return 1
+                fi
+                if codex_option_has_attached_short_value "$arg"; then
+                    continue
+                fi
+                local option_name="${arg%%=*}"
+                if codex_option_consumes_variadic_values "$option_name"; then
+                    [[ "$arg" == *=* ]] || skip_variadic_values=true
+                    continue
                 fi
                 if [[ "$arg" != *=* ]] && codex_option_consumes_value "$arg"; then
                     skip_next=true
@@ -207,23 +258,153 @@ should_inject_codex_hooks() {
 # pre-relaunch record whose pid is already dead, the exit watcher flips it to
 # `.ended`, and the iOS chat shows it read-only with no input bar. The wrapper,
 # unlike codex, knows the resumed id (it is in argv) and the new live pid ($$),
-# so it fires the session-start itself (below). The id is the first UUID-shaped
-# token after the `resume` subcommand; flags (`--all`, `-c k=v`, `--last`, ...)
-# are skipped because they are not UUID-shaped. `codex resume` with no id (the
-# interactive picker) and `--last` carry no id at launch, so this returns
-# non-zero and those are left to codex.
+# so it fires the session-start itself (below). Parse the current root/resume
+# option widths so UUID-shaped option values and prompt text can never be
+# mistaken for the selected session. `codex resume` with no id (the interactive
+# picker), a named selector, and `--last` carry no authoritative UUID at launch,
+# so this returns non-zero and those are left to codex.
+codex_root_boolean_option() {
+    case "$1" in
+        --strict-config|--oss|--yolo|\
+        --dangerously-bypass-approvals-and-sandbox|--dangerously-bypass-hook-trust|\
+        --search|--no-alt-screen)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+codex_resume_boolean_option() {
+    codex_root_boolean_option "$1" && return 0
+    case "$1" in
+        --all|--include-non-interactive|--last)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
 cmux_codex_resume_session_id() {
-    local seen_resume=false arg
+    local seen_resume=false
+    local saw_selector=false
+    local selected_last=false
+    local after_terminator=false
+    local skip_next=false
+    local skip_variadic_values=false
+    local variadic_needs_value=false
+    local candidate=""
+    local arg option_name
+
+    # Codex 0.144.3's Clap contract ends a variadic option's value list when its
+    # first value uses `--option=value`; a following bare token is positional.
+    # Split-form variadics keep consuming bare values until an option boundary.
+    # Keep this in lockstep with should_inject_codex_hooks.
     for arg in "$@"; do
-        if [[ "$seen_resume" == true ]]; then
-            if [[ "$arg" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
-                printf '%s' "$arg"
-                return 0
-            fi
-        elif [[ "$arg" == "resume" ]]; then
-            seen_resume=true
+        if [[ "$skip_next" == true ]]; then
+            # A flag where a required value belongs is invalid. Fail closed
+            # instead of letting a later UUID manufacture a rebind.
+            [[ "$arg" == -* ]] && return 1
+            skip_next=false
+            continue
         fi
+        if [[ "$skip_variadic_values" == true ]]; then
+            if [[ "$arg" != -* ]]; then
+                variadic_needs_value=false
+                continue
+            fi
+            [[ "$variadic_needs_value" == false ]] || return 1
+            skip_variadic_values=false
+            variadic_needs_value=false
+        fi
+
+        if [[ "$seen_resume" == false ]]; then
+            case "$arg" in
+                --)
+                    return 1
+                    ;;
+                -*)
+                    if codex_option_has_attached_short_value "$arg"; then
+                        :
+                    else
+                        option_name="${arg%%=*}"
+                        if codex_option_consumes_variadic_values "$option_name"; then
+                            if [[ "$arg" != *=* ]]; then
+                                skip_variadic_values=true
+                                variadic_needs_value=true
+                            fi
+                        elif codex_option_consumes_value "$option_name"; then
+                            [[ "$arg" == *=* ]] || skip_next=true
+                        elif codex_root_boolean_option "$option_name"; then
+                            # Clap booleans reject `--flag=value`. Do not emit a
+                            # rebind for an invocation Codex will reject.
+                            [[ "$arg" != *=* ]] || return 1
+                        else
+                            return 1
+                        fi
+                    fi
+                    ;;
+                resume)
+                    seen_resume=true
+                    ;;
+                *)
+                    return 1
+                    ;;
+            esac
+            continue
+        fi
+
+        if [[ "$after_terminator" == true ]]; then
+            if [[ "$saw_selector" == false ]]; then
+                saw_selector=true
+                if [[ "$arg" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+                    candidate="$arg"
+                fi
+            fi
+            continue
+        fi
+
+        case "$arg" in
+            --)
+                after_terminator=true
+                ;;
+            --last)
+                selected_last=true
+                ;;
+            -*)
+                if codex_option_has_attached_short_value "$arg"; then
+                    :
+                else
+                    option_name="${arg%%=*}"
+                    if codex_option_consumes_variadic_values "$option_name"; then
+                        if [[ "$arg" != *=* ]]; then
+                            skip_variadic_values=true
+                            variadic_needs_value=true
+                        fi
+                    elif codex_option_consumes_value "$option_name"; then
+                        [[ "$arg" == *=* ]] || skip_next=true
+                    elif codex_resume_boolean_option "$option_name"; then
+                        [[ "$arg" != *=* ]] || return 1
+                    else
+                        return 1
+                    fi
+                fi
+                ;;
+            *)
+                if [[ "$saw_selector" == false ]]; then
+                    saw_selector=true
+                    if [[ "$arg" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+                        candidate="$arg"
+                    fi
+                fi
+                ;;
+        esac
     done
+
+    [[ "$skip_next" == false && "$variadic_needs_value" == false ]] || return 1
+    if [[ "$seen_resume" == true && "$selected_last" == false && -n "$candidate" ]]; then
+        printf '%s' "$candidate"
+        return 0
+    fi
     return 1
 }
 
@@ -268,8 +449,18 @@ fi
 # Export launch identity so the hook subprocesses and cmux's agent-pid /
 # ended-detection can bind this Codex to its surface and pid. Because we exec
 # codex below, $$ becomes the real codex pid.
+#
+# Persistent hooks resolve CMUX_BUNDLED_CLI_PATH from this invocation, so they
+# always call the same cmux version that launched Codex. Older cmux instances
+# may still update their compatibility JSON projection concurrently, but the
+# generation-fenced SQLite registry is authoritative and cannot be downgraded.
+# Explicit opt-out already returned through passthrough above. Normal nested
+# Codex launches inherit this wrapper's zero value and remain instrumented.
+export CMUX_CODEX_HOOKS_DISABLED=0
+export CMUX_CODEX_WRAPPER_HOOK_OWNER=1
 export CMUX_CODEX_PID=$$
-export CMUX_CODEX_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
+CMUX_CODEX_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
+export CMUX_CODEX_HOOK_CMUX_BIN
 export CMUX_AGENT_LAUNCH_KIND="codex"
 export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CODEX"
 export CMUX_AGENT_LAUNCH_CWD="$PWD"
@@ -285,14 +476,25 @@ export CMUX_AGENT_LAUNCH_CWD="$PWD"
     [[ -n "$cmux_codex_argv_b64" ]] && export CMUX_AGENT_LAUNCH_ARGV_B64="$cmux_codex_argv_b64"
 }
 
-# On a FRESH launch, no wrapper-fired session-start: codex's own injected
+# Codex loads hooks and trust state at startup. Prepare the stable persistent
+# entries before exec so a first launch and an upgraded cmux both receive a real
+# SessionStart event without a trust prompt. The installer is local file I/O,
+# atomic, and a no-op when current. Failure falls through to session-flag
+# injection below, and can never prevent Codex from launching.
+cmux_codex_persistent_hooks_ready=0
+if [[ -n "$CMUX_CODEX_HOOK_CMUX_BIN" && -x "$CMUX_CODEX_HOOK_CMUX_BIN" ]] \
+   && "$CMUX_CODEX_HOOK_CMUX_BIN" hooks codex install --yes >/dev/null 2>&1; then
+    cmux_codex_persistent_hooks_ready=1
+fi
+
+# On a FRESH launch, no wrapper-fired session-start: codex's persistent
 # SessionStart hook (below) fires within ~1s carrying codex's REAL session_id, so
 # it is the single authoritative signal. A pre-exec wrapper-fired session-start
 # there had no session id and minted a junk `fallback-*` record (a phantom in the
 # GUI), so it stays omitted for fresh launches.
 #
 # RESUME is different: codex does NOT fire SessionStart when resuming, so the
-# injected hooks alone would never re-bind the session (its only pid-refreshing
+# persistent hooks alone would never re-bind the session (its only pid-refreshing
 # event never arrives), leaving it stuck on the dead pre-relaunch pid -> `.ended`
 # -> read-only with no input bar, with no way out (you cannot submit a prompt
 # from a GUI that has no composer). The wrapper has the resumed id (from argv) and
@@ -304,7 +506,10 @@ export CMUX_AGENT_LAUNCH_CWD="$PWD"
 cmux_codex_resume_sid="$(cmux_codex_resume_session_id "$@")"
 if [[ -n "$cmux_codex_resume_sid" \
       && -n "$CMUX_CODEX_HOOK_CMUX_BIN" && -x "$CMUX_CODEX_HOOK_CMUX_BIN" ]]; then
-    cmux_codex_resume_payload="{\"session_id\":\"$cmux_codex_resume_sid\",\"cwd\":\"$PWD\"}"
+    # The handler already prefers CMUX_AGENT_LAUNCH_CWD/PWD from this exported
+    # launch environment. Keep cwd out of hand-built JSON so quotes, backslashes,
+    # and newlines in a valid project path cannot corrupt the critical rebind.
+    cmux_codex_resume_payload="{\"session_id\":\"$cmux_codex_resume_sid\"}"
     if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
         ( printf '%s' "$cmux_codex_resume_payload" \
             | nohup "$CMUX_CODEX_HOOK_CMUX_BIN" --socket "$CMUX_SOCKET_PATH" hooks codex session-start >/dev/null 2>&1 ) &
@@ -315,7 +520,15 @@ if [[ -n "$cmux_codex_resume_sid" \
     disown 2>/dev/null || true
 fi
 
-# Build the per-invocation [hooks] injection. The cmux CLI emits the exact arg
+# Stable persistent hooks are trusted and active. Avoid duplicate session-flag
+# hooks, which Codex 0.144+ lists as review-required even when the bypass flag is
+# present. Keep the launch identity exports above for the persistent scripts.
+if [[ "$cmux_codex_persistent_hooks_ready" == "1" ]]; then
+    exec "$REAL_CODEX" "$@"
+fi
+
+# Persistent setup failed. Build the per-invocation [hooks] injection as a
+# fail-open compatibility fallback. The cmux CLI emits the exact arg
 # list (NUL-separated) that enables hooks and injects cmux's FIRE-AND-FORGET hook
 # command for each event. Fire-and-forget is critical: codex runs hooks
 # synchronously and BLOCKS until they return, so a synchronous `cmux hooks codex

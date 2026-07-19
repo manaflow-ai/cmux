@@ -324,6 +324,10 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
             originalStartupScript,
             "Restored HUD panes must launch through a fresh script, not a deleted tmux temp script"
         )
+        XCTAssertTrue(
+            restoredStartupScript.hasPrefix("/bin/zsh '") && restoredStartupScript.hasSuffix("'"),
+            "Private 0600 launcher scripts must be read through zsh instead of executed directly"
+        )
         XCTAssertTrue(restoredStartupScript.contains("cmux-session-terminal-command"))
         XCTAssertEqual(restoredHudPanel.requestedWorkingDirectory, requestedDirectory)
     }

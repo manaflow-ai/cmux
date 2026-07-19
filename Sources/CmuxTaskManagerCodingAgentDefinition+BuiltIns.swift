@@ -48,6 +48,14 @@ extension CmuxTaskManagerCodingAgentDefinition {
         .init(id: "qoder", displayName: "Qoder", assetName: nil,
               launchKinds: ["qoder"], directBasenames: ["qoder", "qodercli"], argumentNeedles: ["qoder", "qodercli"]),
         .init(
+            id: "kimi",
+            displayName: String(localized: "agent.kimi.displayName", defaultValue: "Kimi Code"),
+            assetName: nil,
+            launchKinds: ["kimi"],
+            directBasenames: ["kimi", "kimi-cli", "kimi-code"],
+            argumentNeedles: ["kimi-cli", "kimi-code"]
+        ),
+        .init(
             id: "ollama",
             displayName: String(localized: "agent.ollama.displayName", defaultValue: "Ollama"),
             assetName: nil,

@@ -236,6 +236,23 @@ public struct AgentResumeArgv: Sendable, Equatable {
         }
     }
 
+    /// Routes a Codex replay through cmux's logical `codex` wrapper while retaining the
+    /// exact captured real binary. The wrapper validates the custom path and falls back to
+    /// PATH when it moved or is no longer executable.
+    public static func codexWrapperRoutedArgv(
+        capturedExecutable: String,
+        arguments: [String]
+    ) -> [String] {
+        guard capturedExecutable != "codex" else {
+            return ["codex"] + arguments
+        }
+        return [
+            "env",
+            "CMUX_CUSTOM_CODEX_PATH=\(capturedExecutable)",
+            "codex",
+        ] + arguments
+    }
+
     /// The result of resolving a cmux wrapper launcher (the `claude-teams` / `codex-teams` / `omo`
     /// style launchers cmux injects), checked before the per-kind verb.
     public enum LauncherResolution: Sendable, Equatable {
@@ -306,12 +323,14 @@ public struct AgentResumeArgv: Sendable, Equatable {
     ///   - observedPermissionMode: the hook-observed Claude permission mode the session last ran
     ///     in, re-applied via ``claudeArgvApplyingObservedPermissionMode(_:observedPermissionMode:)``
     ///     for user-owned claude restore; ignored for every other kind.
+    ///   - transcriptPath: the recorded session file used by agents whose CLI restores from a file.
     public func builtInKind(
         kind: String,
         sessionId: String,
         executablePath: String?,
         arguments: [String],
-        observedPermissionMode: String? = nil
+        observedPermissionMode: String? = nil,
+        transcriptPath: String? = nil
     ) -> [String]? {
         switch kind {
         case "claude":
@@ -329,20 +348,23 @@ public struct AgentResumeArgv: Sendable, Equatable {
             guard let preserved = preservedCodexForkArguments(
                 args: parts.tail,
                 preservePromptTags: false,
-                stripCmuxHooks: parts.executable == "codex"
+                stripCmuxHooks: true
             ) else { return nil }
             let replayExecutable = codexReplayExecutable(
                 capturedExecutable: parts.executable,
                 launchTail: parts.tail
             )
-            return [replayExecutable, "resume", sessionId]
-                + codexResumeConfigOverrides(preserved: preserved) + preserved
+            return Self.codexWrapperRoutedArgv(
+                capturedExecutable: replayExecutable,
+                arguments: ["resume", sessionId]
+                    + codexResumeConfigOverrides(preserved: preserved) + preserved
+            )
         case "grok":
             return withOption("grok", executable: "grok", option: "-r", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "pi":
             return withOption("pi", executable: "pi", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "omp":
-            return withOption("omp", executable: "omp", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+            return withOption("omp", executable: "omp", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "campfire":
             return withOption("campfire", executable: "campfire", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "amp":
@@ -352,7 +374,16 @@ public struct AgentResumeArgv: Sendable, Equatable {
         case "cursor":
             return withOption("cursor", executable: "cursor-agent", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "gemini":
-            return withOption("gemini", executable: "gemini", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+            guard let transcriptPath = transcriptPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !transcriptPath.isEmpty else { return nil }
+            return withOption(
+                "gemini",
+                executable: "gemini",
+                option: "--session-file",
+                sessionId: transcriptPath,
+                executablePath: executablePath,
+                arguments: arguments
+            )
         case "kiro":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "kiro-cli")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "kiro", args: parts.tail) else { return nil }
@@ -361,6 +392,12 @@ public struct AgentResumeArgv: Sendable, Equatable {
             return withOption("antigravity", executable: "agy", option: "--conversation", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "opencode":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "opencode")
+            if parts.tail.first == "run" {
+                guard let preserved = AgentLaunchSanitizer.preservedOpenCodeInteractiveRunArguments(
+                    args: parts.tail
+                ) else { return nil }
+                return [parts.executable, "run", "--interactive", "--session", sessionId] + preserved
+            }
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: parts.tail) else { return nil }
             return [parts.executable, "--session", sessionId] + preserved
         case "rovodev":
@@ -379,6 +416,8 @@ public struct AgentResumeArgv: Sendable, Equatable {
             return withOption("factory", executable: "droid", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "qoder":
             return withOption("qoder", executable: "qodercli", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+        case "kimi":
+            return withOption("kimi", executable: "kimi", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         default:
             return nil
         }

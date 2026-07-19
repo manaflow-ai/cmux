@@ -1,0 +1,380 @@
+import Foundation
+
+/// A versioned, flat agent-session graph suitable for CLI automation.
+struct AgentSessionGraphSnapshot: Codable, Sendable, Equatable {
+    var schemaVersion: Int = 2
+    var nodes: [AgentSessionGraphNode]
+    var edges: [AgentSessionGraphEdge]
+    var storeWarnings: [AgentHookSessionStoreLoadWarning]? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case nodes
+        case edges
+        case storeWarnings = "store_warnings"
+    }
+}
+
+struct AgentSessionGraphOrdering: Sendable {
+    func nodePrecedes(_ lhs: AgentSessionGraphNode, _ rhs: AgentSessionGraphNode) -> Bool {
+        if lhs.startedAt != rhs.startedAt { return lhs.startedAt < rhs.startedAt }
+        if lhs.runId != rhs.runId { return lhs.runId < rhs.runId }
+        return lhs.nodeId < rhs.nodeId
+    }
+
+    func edgePrecedes(_ lhs: AgentSessionGraphEdge, _ rhs: AgentSessionGraphEdge) -> Bool {
+        if lhs.toNodeId != rhs.toNodeId { return lhs.toNodeId < rhs.toNodeId }
+        if lhs.relationship != rhs.relationship {
+            return lhs.relationship.rawValue < rhs.relationship.rawValue
+        }
+        if lhs.toRunId != rhs.toRunId { return lhs.toRunId < rhs.toRunId }
+        if let result = optionalStringPrecedes(lhs.fromNodeId, rhs.fromNodeId) { return result }
+        if let result = optionalStringPrecedes(lhs.fromRunId, rhs.fromRunId) { return result }
+        if let result = optionalStringPrecedes(lhs.fromSessionId, rhs.fromSessionId) { return result }
+        return false
+    }
+
+    private func optionalStringPrecedes(_ lhs: String?, _ rhs: String?) -> Bool? {
+        if lhs == rhs { return nil }
+        guard let lhs else { return true }
+        guard let rhs else { return false }
+        return lhs < rhs
+    }
+}
+
+struct AgentSessionRunCanonicalizer: Sendable {
+    func runs(
+        record: ClaudeHookSessionRecord,
+        provider: String
+    ) -> [AgentSessionRunRecord] {
+        let rawRuns = if let runs = record.runs, !runs.isEmpty {
+            runs
+        } else {
+            [AgentSessionRunRecord(
+                runId: record.runId ?? "session:\(provider):\(record.sessionId)",
+                pid: record.pid,
+                processStartedAt: nil,
+                cmuxRuntime: record.cmuxRuntime,
+                parentRunId: record.parentRunId,
+                parentSessionId: record.parentSessionId,
+                relationship: record.relationship,
+                restoreAuthority: record.restoreAuthority ?? (record.relationship != .spawned),
+                authorityEvidence: record.authorityEvidence,
+                startedAt: record.startedAt,
+                updatedAt: record.updatedAt,
+                endedAt: record.completedAt
+            )]
+        }
+        var newestByRunID: [String: AgentSessionRunRecord] = [:]
+        newestByRunID.reserveCapacity(rawRuns.count)
+        for run in rawRuns {
+            if let current = newestByRunID[run.runId] {
+                newestByRunID[run.runId] = normalizedAuthority(
+                    canonicalDuplicate(run, current)
+                )
+            } else {
+                newestByRunID[run.runId] = normalizedAuthority(run)
+            }
+        }
+        return newestByRunID.values.sorted { $0.runId < $1.runId }
+    }
+
+    func projectedRun(
+        record: ClaudeHookSessionRecord,
+        provider: String
+    ) -> AgentSessionRunRecord {
+        let canonicalRuns = runs(record: record, provider: provider)
+        return projectedRun(canonicalRuns: canonicalRuns, activeRunID: record.activeRunId)
+    }
+
+    func projectedRun(
+        canonicalRuns: [AgentSessionRunRecord],
+        activeRunID: String?
+    ) -> AgentSessionRunRecord {
+        precondition(!canonicalRuns.isEmpty)
+        if let activeRunID,
+           let active = canonicalRuns.first(where: { $0.runId == activeRunID }) {
+            return active
+        }
+        return canonicalRuns.dropFirst().reduce(canonicalRuns[0]) { newest, candidate in
+            isNewer(candidate, than: newest) ? candidate : newest
+        }
+    }
+
+    private func isNewer(
+        _ candidate: AgentSessionRunRecord,
+        than current: AgentSessionRunRecord
+    ) -> Bool {
+        if candidate.updatedAt != current.updatedAt { return candidate.updatedAt > current.updatedAt }
+        if candidate.startedAt != current.startedAt { return candidate.startedAt > current.startedAt }
+        if (candidate.endedAt == nil) != (current.endedAt == nil) { return candidate.endedAt == nil }
+        if candidate.endedAt != current.endedAt {
+            return (candidate.endedAt ?? -.infinity) > (current.endedAt ?? -.infinity)
+        }
+        if candidate.processStartedAt != current.processStartedAt {
+            return (candidate.processStartedAt ?? -.infinity) > (current.processStartedAt ?? -.infinity)
+        }
+        if candidate.pid != current.pid { return (candidate.pid ?? -1) > (current.pid ?? -1) }
+        if let result = optionalStringPrecedes(candidate.cmuxRuntime?.id, current.cmuxRuntime?.id) {
+            return result
+        }
+        if let result = optionalStringPrecedes(
+            candidate.cmuxRuntime?.socketPath,
+            current.cmuxRuntime?.socketPath
+        ) {
+            return result
+        }
+        if let result = optionalStringPrecedes(
+            candidate.cmuxRuntime?.bundleIdentifier,
+            current.cmuxRuntime?.bundleIdentifier
+        ) {
+            return result
+        }
+        if let result = optionalStringPrecedes(candidate.parentRunId, current.parentRunId) {
+            return result
+        }
+        if let result = optionalStringPrecedes(candidate.parentSessionId, current.parentSessionId) {
+            return result
+        }
+        if let result = optionalStringPrecedes(
+            candidate.relationship?.rawValue,
+            current.relationship?.rawValue
+        ) {
+            return result
+        }
+        if let result = optionalStringPrecedes(
+            candidate.authorityEvidence?.rawValue,
+            current.authorityEvidence?.rawValue
+        ) {
+            return result
+        }
+        if let result = optionalStringPrecedes(
+            candidate.cmuxHibernationResumeAttemptId,
+            current.cmuxHibernationResumeAttemptId
+        ) {
+            return result
+        }
+        if candidate.restoreAuthority != current.restoreAuthority { return !candidate.restoreAuthority }
+        return false
+    }
+
+    private func canonicalDuplicate(
+        _ candidate: AgentSessionRunRecord,
+        _ current: AgentSessionRunRecord
+    ) -> AgentSessionRunRecord {
+        guard candidate.updatedAt == current.updatedAt,
+              candidate.startedAt == current.startedAt else {
+            return canonicalNonEqualDuplicate(candidate, current)
+        }
+
+        let preferred = isNewer(candidate, than: current) ? candidate : current
+        let alternate = preferred == candidate ? current : candidate
+        var merged = preferred
+        // Equal-time duplicate writes describe one logical generation. Preserve
+        // the strongest identity evidence while making restore ownership
+        // monotonic, so corrupted ordering cannot promote a child into an owner.
+        let processIdentityConflict = conflictingProcessIdentity(candidate, current)
+        let runtimeIdentityConflict = conflictingRuntimeIdentity(candidate.cmuxRuntime, current.cmuxRuntime)
+        let resumeProofConflict = if let candidateAttempt = candidate.cmuxHibernationResumeAttemptId,
+                                     let currentAttempt = current.cmuxHibernationResumeAttemptId {
+            candidateAttempt != currentAttempt
+        } else {
+            false
+        }
+        let identityConflict = candidate.identityConflict == true
+            || current.identityConflict == true
+            || processIdentityConflict
+            || runtimeIdentityConflict
+        merged.identityConflict = identityConflict ? true : nil
+        merged.restoreAuthority = candidate.restoreAuthority
+            && current.restoreAuthority
+            && !identityConflict
+        if identityConflict {
+            merged.pid = nil
+            merged.processStartedAt = nil
+            merged.cmuxRuntime = nil
+        } else {
+            // Keep PID/start metadata from one row as a coherent pair. Combining
+            // complementary partial rows could invent a process generation that
+            // neither writer actually observed.
+            if preferred.pid != nil || preferred.processStartedAt != nil {
+                merged.pid = preferred.pid
+                merged.processStartedAt = preferred.processStartedAt
+            } else {
+                merged.pid = alternate.pid
+                merged.processStartedAt = alternate.processStartedAt
+            }
+            merged.cmuxRuntime = preferredRuntime(candidate.cmuxRuntime, current.cmuxRuntime)
+        }
+        merged.parentRunId = preferred.parentRunId ?? alternate.parentRunId
+        merged.parentSessionId = preferred.parentSessionId ?? alternate.parentSessionId
+        if candidate.relationship == .spawned || current.relationship == .spawned {
+            merged.relationship = .spawned
+        } else {
+            merged.relationship = preferred.relationship ?? alternate.relationship
+        }
+        merged.authorityEvidence = preferredAuthorityEvidence(
+            candidate.authorityEvidence,
+            current.authorityEvidence
+        )
+        if resumeProofConflict {
+            merged.cmuxHibernationResumeAttemptId = nil
+            merged.restoreAuthority = false
+        } else {
+            merged.cmuxHibernationResumeAttemptId = candidate.cmuxHibernationResumeAttemptId
+                ?? current.cmuxHibernationResumeAttemptId
+        }
+        if let candidateEndedAt = candidate.endedAt, let currentEndedAt = current.endedAt {
+            merged.endedAt = max(candidateEndedAt, currentEndedAt)
+        } else {
+            merged.endedAt = candidate.endedAt ?? current.endedAt
+        }
+        return normalizedAuthority(merged)
+    }
+
+    private func normalizedAuthority(_ source: AgentSessionRunRecord) -> AgentSessionRunRecord {
+        var run = source
+        run.authorityEvidence = AgentSessionAuthorityTransition().persistedEvidence(for: run)
+        if run.relationship == .spawned
+            || run.authorityEvidence?.prohibitsRestore == true
+            || run.endedAt != nil
+            || run.identityConflict == true {
+            run.restoreAuthority = false
+        }
+        return run
+    }
+
+    private func canonicalNonEqualDuplicate(
+        _ candidate: AgentSessionRunRecord,
+        _ current: AgentSessionRunRecord
+    ) -> AgentSessionRunRecord {
+        let newer = isNewer(candidate, than: current) ? candidate : current
+        let older = newer == candidate ? current : candidate
+        let transition = AgentSessionAuthorityTransition()
+        let newerEvidence = transition.persistedEvidence(for: newer)
+        let olderEvidence = transition.persistedEvidence(for: older)
+        if let durableEvidence = preferredAuthorityEvidence(
+            newerEvidence?.isDurableChild == true ? newerEvidence : nil,
+            olderEvidence?.isDurableChild == true ? olderEvidence : nil
+        ) {
+            var merged = newer
+            merged.parentRunId = newer.parentRunId ?? older.parentRunId
+            merged.parentSessionId = newer.parentSessionId ?? older.parentSessionId
+            merged.relationship = .spawned
+            merged.restoreAuthority = false
+            merged.authorityEvidence = durableEvidence
+            return normalizedAuthority(merged)
+        }
+        if olderEvidence == .provisionalAmbiguousChild {
+            if newerEvidence == .verifiedForkRoot,
+               newer.relationship == .forked,
+               newer.restoreAuthority {
+                return normalizedAuthority(newer)
+            }
+            return provisionalChildProjection(newer: newer, older: older)
+        }
+        if newerEvidence == .provisionalAmbiguousChild {
+            return provisionalChildProjection(newer: newer, older: older)
+        }
+        return normalizedAuthority(newer)
+    }
+
+    private func provisionalChildProjection(
+        newer: AgentSessionRunRecord,
+        older: AgentSessionRunRecord
+    ) -> AgentSessionRunRecord {
+        var merged = newer
+        merged.parentRunId = newer.parentRunId ?? older.parentRunId
+        merged.parentSessionId = newer.parentSessionId ?? older.parentSessionId
+        merged.relationship = .spawned
+        merged.restoreAuthority = false
+        merged.authorityEvidence = .provisionalAmbiguousChild
+        return normalizedAuthority(merged)
+    }
+
+    private func conflictingProcessIdentity(
+        _ lhs: AgentSessionRunRecord,
+        _ rhs: AgentSessionRunRecord
+    ) -> Bool {
+        if let lhsPID = lhs.pid, let rhsPID = rhs.pid, lhsPID != rhsPID { return true }
+        if let lhsStartedAt = lhs.processStartedAt,
+           let rhsStartedAt = rhs.processStartedAt,
+           abs(lhsStartedAt - rhsStartedAt) > 0.001 {
+            return true
+        }
+        return false
+    }
+
+    private func conflictingRuntimeIdentity(
+        _ lhs: AgentCmuxRuntimeIdentity?,
+        _ rhs: AgentCmuxRuntimeIdentity?
+    ) -> Bool {
+        guard let lhs, let rhs else { return false }
+        return lhs.id != rhs.id
+            || optionalValuesConflict(lhs.socketPath, rhs.socketPath)
+            || optionalValuesConflict(lhs.bundleIdentifier, rhs.bundleIdentifier)
+            || optionalValuesConflict(lhs.processId, rhs.processId)
+            || optionalValuesConflict(lhs.processStartSeconds, rhs.processStartSeconds)
+            || optionalValuesConflict(lhs.processStartMicroseconds, rhs.processStartMicroseconds)
+    }
+
+    private func optionalValuesConflict<T: Equatable>(_ lhs: T?, _ rhs: T?) -> Bool {
+        guard let lhs, let rhs else { return false }
+        return lhs != rhs
+    }
+
+    private func preferredRuntime(
+        _ lhs: AgentCmuxRuntimeIdentity?,
+        _ rhs: AgentCmuxRuntimeIdentity?
+    ) -> AgentCmuxRuntimeIdentity? {
+        guard let lhs else { return rhs }
+        guard let rhs else { return lhs }
+        guard lhs.id == rhs.id else { return nil }
+        return AgentCmuxRuntimeIdentity(
+            id: lhs.id,
+            socketPath: mergedRuntimeField(lhs.socketPath, rhs.socketPath),
+            bundleIdentifier: mergedRuntimeField(lhs.bundleIdentifier, rhs.bundleIdentifier),
+            processId: mergedRuntimeField(lhs.processId, rhs.processId),
+            processStartSeconds: mergedRuntimeField(
+                lhs.processStartSeconds,
+                rhs.processStartSeconds
+            ),
+            processStartMicroseconds: mergedRuntimeField(
+                lhs.processStartMicroseconds,
+                rhs.processStartMicroseconds
+            )
+        )
+    }
+
+    private func mergedRuntimeField(_ lhs: String?, _ rhs: String?) -> String? {
+        guard let lhs else { return rhs }
+        guard let rhs else { return lhs }
+        return lhs == rhs ? lhs : nil
+    }
+
+    private func mergedRuntimeField<T: Equatable>(_ lhs: T?, _ rhs: T?) -> T? {
+        guard let lhs else { return rhs }
+        guard let rhs else { return lhs }
+        return lhs == rhs ? lhs : nil
+    }
+
+    private func preferredAuthorityEvidence(
+        _ lhs: AgentSessionAuthorityEvidence?,
+        _ rhs: AgentSessionAuthorityEvidence?
+    ) -> AgentSessionAuthorityEvidence? {
+        let candidates = [lhs, rhs].compactMap { $0 }
+        return candidates.sorted { first, second in
+            if first.isDurableChild != second.isDurableChild { return first.isDurableChild }
+            if first == .provisionalAmbiguousChild && second != .provisionalAmbiguousChild { return true }
+            if second == .provisionalAmbiguousChild && first != .provisionalAmbiguousChild { return false }
+            return first.rawValue < second.rawValue
+        }.first
+    }
+
+    private func optionalStringPrecedes(_ lhs: String?, _ rhs: String?) -> Bool? {
+        if lhs == rhs { return nil }
+        guard let lhs else { return false }
+        guard let rhs else { return true }
+        return lhs < rhs
+    }
+}

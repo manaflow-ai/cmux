@@ -9,6 +9,9 @@ import Foundation
 /// dict with a flat-layout fallback) but surfaces the additional fields the
 /// chat service needs (`cwd`, `transcriptPath`, `pid`).
 struct AgentChatHookSessionStore: Sendable {
+    static let maximumSeedRecords = 512
+    static let maximumSeedBytes: Int64 = 16 * 1_024 * 1_024
+
     /// One hook-store entry's chat-relevant fields.
     struct Entry: Sendable {
         /// The agent's session identifier (the store key).
@@ -28,41 +31,42 @@ struct AgentChatHookSessionStore: Sendable {
     }
 
     private let homeDirectory: URL
+    private let environment: [String: String]
 
     /// Creates a store reader.
     ///
     /// - Parameter homeDirectory: The home directory containing
     ///   `.cmuxterm/`; injectable for tests.
-    init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
+    init(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
         self.homeDirectory = homeDirectory
+        self.environment = environment
     }
 
-    /// Reads one agent's hook session store.
+    /// Reads active sessions plus bounded recent history from one hook store.
     ///
     /// - Parameter agentSource: The agent's `_source` name (`claude`,
     ///   `codex`, ...), which names the store file.
-    /// - Returns: All entries, or empty when the store is absent/malformed.
+    /// - Returns: The bounded seed entries, or empty when the store is absent/malformed.
     func entries(agentSource: String) -> [Entry] {
-        let file = homeDirectory
-            .appendingPathComponent(".cmuxterm", isDirectory: true)
-            .appendingPathComponent("\(agentSource)-hook-sessions.json", isDirectory: false)
-        guard let data = try? Data(contentsOf: file),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard let file = AgentHookSessionRegistryReader.legacyURL(
+            provider: agentSource,
+            homeDirectory: homeDirectory,
+            environment: environment
+        ),
+              let records = AgentHookSessionRegistryReader.recentRecordData(
+                  provider: agentSource,
+                  legacyURL: file,
+                  environment: environment,
+                  maximumRecords: Self.maximumSeedRecords,
+                  maximumBytes: Self.maximumSeedBytes
+              ) else {
             return []
         }
-        let sessions = (root["sessions"] as? [String: Any]) ?? root
-        return sessions.compactMap { key, value in
-            guard let entry = value as? [String: Any] else { return nil }
-            let updatedAt = (entry["updatedAt"] as? TimeInterval).map(Date.init(timeIntervalSince1970:))
-            return Entry(
-                sessionID: key,
-                workspaceID: Self.nonEmpty(entry["workspaceId"] as? String),
-                surfaceID: Self.nonEmpty(entry["surfaceId"] as? String),
-                workingDirectory: Self.nonEmpty(entry["cwd"] as? String),
-                transcriptPath: Self.nonEmpty(entry["transcriptPath"] as? String),
-                pid: entry["pid"] as? Int,
-                updatedAt: updatedAt
-            )
+        return records.compactMap { record in
+            Self.entry(sessionID: record.sessionID, data: record.data)
         }
     }
 
@@ -73,7 +77,41 @@ struct AgentChatHookSessionStore: Sendable {
     ///   - sessionID: The session to look up.
     /// - Returns: The entry, or `nil` when absent.
     func entry(agentSource: String, sessionID: String) -> Entry? {
-        entries(agentSource: agentSource).first { $0.sessionID == sessionID }
+        guard let file = AgentHookSessionRegistryReader.legacyURL(
+            provider: agentSource,
+            homeDirectory: homeDirectory,
+            environment: environment
+        ),
+              let data = AgentHookSessionRegistryReader.recordData(
+                  provider: agentSource,
+                  sessionID: sessionID,
+                  legacyURL: file,
+                  environment: environment
+              ) else {
+            return nil
+        }
+        return Self.entry(sessionID: sessionID, data: data)
+    }
+
+    private static func entry(sessionID: String, data: Data) -> Entry? {
+        guard let entry = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        if let embeddedSessionID = entry["sessionId"] as? String,
+           embeddedSessionID != sessionID {
+            return nil
+        }
+        let updatedAt = (entry["updatedAt"] as? TimeInterval)
+            .map(Date.init(timeIntervalSince1970:))
+        return Entry(
+            sessionID: sessionID,
+            workspaceID: nonEmpty(entry["workspaceId"] as? String),
+            surfaceID: nonEmpty(entry["surfaceId"] as? String),
+            workingDirectory: nonEmpty(entry["cwd"] as? String),
+            transcriptPath: nonEmpty(entry["transcriptPath"] as? String),
+            pid: entry["pid"] as? Int,
+            updatedAt: updatedAt
+        )
     }
 
     private static func nonEmpty(_ value: String?) -> String? {

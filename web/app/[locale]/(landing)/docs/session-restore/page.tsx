@@ -104,7 +104,7 @@ cmux surface resume clear --checkpoint work`}</CodeBlock>
           <tr>
             <td>OMP</td>
             <td><code>omp</code></td>
-            <td><code>omp --session &lt;id&gt;</code></td>
+            <td><code>omp --resume &lt;id&gt;</code></td>
             <td>{t("none")}</td>
           </tr>
           <tr>
@@ -128,7 +128,7 @@ cmux surface resume clear --checkpoint work`}</CodeBlock>
           <tr>
             <td>Gemini</td>
             <td><code>gemini</code></td>
-            <td><code>gemini --resume &lt;id&gt;</code></td>
+            <td><code>gemini --session-file &lt;transcript-path&gt;</code></td>
             <td>{t("feedPreToolUse")}</td>
           </tr>
           <tr>
@@ -172,6 +172,12 @@ cmux surface resume clear --checkpoint work`}</CodeBlock>
             <td><code>qodercli</code></td>
             <td><code>qodercli --resume &lt;id&gt;</code></td>
             <td>{t("feedPreToolUse")}</td>
+          </tr>
+          <tr>
+            <td>Kimi Code</td>
+            <td><code>kimi</code></td>
+            <td><code>kimi --session &lt;id&gt;</code></td>
+            <td>{t("feedPrePostToolUse")}</td>
           </tr>
         </tbody>
       </table>

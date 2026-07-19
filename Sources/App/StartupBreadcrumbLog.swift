@@ -2,6 +2,9 @@ import Darwin
 import Foundation
 import os
 
+typealias StartupBreadcrumbEvent = (event: String, fields: [String: String])
+typealias StartupBreadcrumbBatchWriter = ([StartupBreadcrumbEvent]) -> Void
+
 enum StartupBreadcrumbLog {
     private static let maxFieldLength = 240
     private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app", category: "StartupBreadcrumbLog")
@@ -15,23 +18,33 @@ enum StartupBreadcrumbLog {
     ]
 
     static func append(_ event: String, fields: [String: String] = [:]) {
-        guard isEnabled else { return }
+        append([(event: event, fields: fields)])
+    }
 
-        var payload: [String: Any] = [
-            "timestamp": ISO8601DateFormatter().string(from: Date()),
-            "event": event,
-            "pid": ProcessInfo.processInfo.processIdentifier,
-            "bundleIdentifier": Bundle.main.bundleIdentifier ?? "unknown",
-            "appVersion": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
-            "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
-        ]
-
-        for (key, value) in fields {
-            let payloadKey = reservedFieldKeys.contains(key) ? "custom_\(key)" : key
-            payload[payloadKey] = sanitized(value)
-        }
-
+    static func append(_ events: [StartupBreadcrumbEvent]) {
+        guard isEnabled, !events.isEmpty else { return }
         do {
+            let timestamp = ISO8601DateFormatter().string(from: Date())
+            let basePayload: [String: Any] = [
+                "timestamp": timestamp,
+                "pid": ProcessInfo.processInfo.processIdentifier,
+                "bundleIdentifier": Bundle.main.bundleIdentifier ?? "unknown",
+                "appVersion": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
+                "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+            ]
+            var output = Data()
+            for event in events {
+                var payload = basePayload
+                payload["event"] = event.event
+                for (key, value) in event.fields {
+                    let payloadKey = reservedFieldKeys.contains(key) ? "custom_\(key)" : key
+                    payload[payloadKey] = sanitized(value)
+                }
+                let line = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+                output.append(line)
+                output.append(0x0A)
+            }
+
             let url = logURL
             try FileManager.default.createDirectory(
                 at: url.deletingLastPathComponent(),
@@ -40,7 +53,6 @@ enum StartupBreadcrumbLog {
             if !FileManager.default.fileExists(atPath: url.path) {
                 FileManager.default.createFile(atPath: url.path, contents: nil)
             }
-            let line = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
             let handle = try FileHandle(forWritingTo: url)
             defer { try? handle.close() }
             guard flock(handle.fileDescriptor, LOCK_EX) == 0 else {
@@ -50,8 +62,7 @@ enum StartupBreadcrumbLog {
             defer { flock(handle.fileDescriptor, LOCK_UN) }
             // Startup breadcrumbs are synchronous so the last edge survives immediate launch aborts.
             try handle.seekToEnd()
-            try handle.write(contentsOf: line)
-            try handle.write(contentsOf: Data([0x0A]))
+            try handle.write(contentsOf: output)
         } catch {
             logger.fault("cmux startup breadcrumb failed: \(String(describing: error), privacy: .public)")
         }

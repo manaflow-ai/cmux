@@ -125,35 +125,65 @@ struct CodexHookInjectionStrippingTests {
         )
     }
 
-    @Test("Codex resume preservation keeps hooks with captured executable")
-    func codexResumePreservationKeepsHooksWithCapturedExecutable() throws {
+    @Test("Codex resume through captured executable refreshes cmux hooks")
+    func codexResumeThroughCapturedExecutableRefreshesCmuxHooks() throws {
         let resume = try #require(AgentResumeArgv().builtInKind(
             kind: "codex",
             sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
             executablePath: codexExecutable,
             arguments: realisticCodexHookArgv()
         ))
-        #expect(resume.contains("--dangerously-bypass-hook-trust"))
-        #expect(resume.contains("--enable"))
-        #expect(resume.contains("hooks"))
-        #expect(resume.contains { $0.contains("cmux-codex-hook") })
-        #expect(resume.first == codexExecutable)
+        #expect(Array(resume.prefix(3)) == ["env", "CMUX_CUSTOM_CODEX_PATH=\(codexExecutable)", "codex"])
+        #expect(!resume.contains("--dangerously-bypass-hook-trust"))
+        #expect(!resume.contains { $0.contains("cmux-codex-hook") })
         #expect(resume.contains("--dangerously-bypass-approvals-and-sandbox"))
         #expect(resume.contains("gpt-5.5"))
         #expect(resume.contains("model_reasoning_effort=xhigh"))
     }
 
-    @Test("Codex fork preservation keeps hooks with captured executable")
-    func codexForkPreservationKeepsHooksWithCapturedExecutable() throws {
+    @Test("Codex fork through captured executable refreshes cmux hooks")
+    func codexForkThroughCapturedExecutableRefreshesCmuxHooks() throws {
         let fork = try #require(AgentForkArgv().builtInKind(
             kind: "codex",
             sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
             executablePath: codexExecutable,
             arguments: realisticCodexHookArgv()
         ))
-        #expect(fork.contains("--dangerously-bypass-hook-trust"))
-        #expect(fork.contains { $0.contains("cmux-codex-hook") })
-        #expect(fork.first == codexExecutable)
+        #expect(Array(fork.prefix(3)) == ["env", "CMUX_CUSTOM_CODEX_PATH=\(codexExecutable)", "codex"])
+        #expect(!fork.contains("--dangerously-bypass-hook-trust"))
+        #expect(!fork.contains { $0.contains("cmux-codex-hook") })
+        #expect(fork.contains("--dangerously-bypass-approvals-and-sandbox"))
+    }
+
+    @Test("Wrapper-routed Codex replay drops stale cmux hook injection")
+    func wrapperRoutedReplayDropsStaleCmuxHookInjection() throws {
+        let expectedPrefix = [
+            "env",
+            "CMUX_CUSTOM_CODEX_PATH=\(codexExecutable)",
+            "codex",
+        ]
+        let resume = try #require(AgentResumeArgv().builtInKind(
+            kind: "codex",
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            executablePath: codexExecutable,
+            arguments: realisticCodexHookArgv()
+        ))
+        let fork = try #require(AgentForkArgv().builtInKind(
+            kind: "codex",
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            executablePath: codexExecutable,
+            arguments: realisticCodexHookArgv()
+        ))
+
+        #expect(Array(resume.prefix(expectedPrefix.count)) == expectedPrefix)
+        #expect(Array(fork.prefix(expectedPrefix.count)) == expectedPrefix)
+        for replay in [resume, fork] {
+            #expect(!replay.contains("--dangerously-bypass-hook-trust"))
+            #expect(!replay.contains { $0.contains("/.cmux/hooks/cmux-codex-hook-") })
+            #expect(replay.contains("--dangerously-bypass-approvals-and-sandbox"))
+            #expect(replay.contains("gpt-5.5"))
+            #expect(replay.contains("model_reasoning_effort=xhigh"))
+        }
     }
 
     @Test("Claude cmux hook settings preserve captured executable")

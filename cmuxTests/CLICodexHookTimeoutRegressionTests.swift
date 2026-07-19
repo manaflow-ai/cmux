@@ -39,15 +39,21 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(sessionStartHooks.count == 1, "Installer should install one session-start hook")
         #expect(sessionStartHooks.allSatisfy { $0.body.contains("hooks codex session-start") })
         #expect(sessionStartHooks.allSatisfy { $0.body.contains("nohup sh -c") && $0.body.contains("cat >\"$payload\"") })
-        #expect(sessionStartHooks.allSatisfy { $0.body.contains("agent_pid=") && $0.body.contains("CMUX_CODEX_PID=") })
+        #expect(sessionStartHooks.allSatisfy {
+            $0.body.contains(#"agent_pid="${CMUX_CODEX_PID:-${PPID:-}}""#)
+        })
         #expect(promptHooks.count == 1, "Installer should collapse duplicate prompt hooks")
         #expect(promptHooks.allSatisfy { $0.body.contains("hooks codex prompt-submit") })
         #expect(promptHooks.allSatisfy { $0.body.contains("nohup sh -c") && $0.body.contains("cat >\"$payload\"") })
-        #expect(promptHooks.allSatisfy { $0.body.contains("agent_pid=") && $0.body.contains("CMUX_CODEX_PID=") })
+        #expect(promptHooks.allSatisfy {
+            $0.body.contains(#"agent_pid="${CMUX_CODEX_PID:-${PPID:-}}""#)
+        })
         #expect(stopHooks.count == 1, "Installer should install one stop hook")
         #expect(stopHooks.allSatisfy { $0.body.contains("hooks codex stop") })
         #expect(stopHooks.allSatisfy { $0.body.contains("nohup sh -c") && $0.body.contains("cat >\"$payload\"") })
-        #expect(stopHooks.allSatisfy { $0.body.contains("agent_pid=") && $0.body.contains("CMUX_CODEX_PID=") })
+        #expect(stopHooks.allSatisfy {
+            $0.body.contains(#"agent_pid="${CMUX_CODEX_PID:-${PPID:-}}""#)
+        })
         let expectedFeedEvents: Set<String> = [
             "PreToolUse",
             "PermissionRequest",
@@ -90,7 +96,10 @@ struct CLICodexHookTimeoutRegressionTests {
         let install = runCodexHookProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "install", "--yes"],
-            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome).merging([
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
+            ], uniquingKeysWith: { _, new in new }),
             timeout: 5
         )
         #expect(!install.timedOut, Comment(rawValue: install.stderr))
@@ -108,8 +117,6 @@ struct CLICodexHookTimeoutRegressionTests {
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "TMPDIR": root.path,
                 "CMUX_SURFACE_ID": "surface-123",
-                "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
-                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
                 "CMUX_CODEX_PID": "4242",
                 "CMUX_TEST_STDIN": capturedStdin.path,
                 "CMUX_TEST_ARGS": capturedArgs.path,
@@ -154,7 +161,10 @@ struct CLICodexHookTimeoutRegressionTests {
         let install = runCodexHookProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "install", "--yes"],
-            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome).merging([
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
+            ], uniquingKeysWith: { _, new in new }),
             timeout: 5
         )
         #expect(!install.timedOut, Comment(rawValue: install.stderr))
@@ -172,8 +182,6 @@ struct CLICodexHookTimeoutRegressionTests {
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "TMPDIR": root.path,
                 "CMUX_SURFACE_ID": "surface-123",
-                "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
-                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
                 "CMUX_CODEX_PID": "4242",
                 "CMUX_TEST_STDIN": capturedStdin.path,
                 "CMUX_TEST_ARGS": capturedArgs.path,
@@ -659,7 +667,7 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(session["terminalPromptTurnIds"] as? [String] == ["turn-done"])
     }
 
-    private func bundledCLIPath() throws -> String {
+    func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
     }
 }

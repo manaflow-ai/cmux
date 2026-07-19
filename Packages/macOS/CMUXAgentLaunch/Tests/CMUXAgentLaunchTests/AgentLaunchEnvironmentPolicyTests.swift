@@ -1,8 +1,26 @@
 import CMUXAgentLaunch
+import Foundation
 import Testing
 
 @Suite("AgentLaunchEnvironmentPolicy")
 struct AgentLaunchEnvironmentPolicyTests {
+    @Test("Drops app-issued hibernation resume authority")
+    func dropsHibernationResumeAuthority() {
+        let policy = AgentLaunchEnvironmentPolicy()
+        let environment = [
+            AgentHibernationResumeEvidence.environmentKey: UUID().uuidString,
+            "CODEX_HOME": "/tmp/codex-home",
+        ]
+
+        let selected = policy.selectedEnvironment(from: environment, kind: "codex")
+
+        #expect(selected == ["CODEX_HOME": "/tmp/codex-home"])
+        #expect(policy.sanitizedValue(
+            key: AgentHibernationResumeEvidence.environmentKey,
+            value: environment[AgentHibernationResumeEvidence.environmentKey]
+        ) == nil)
+    }
+
     @Test("Preserves OMP config roots without persisting secrets")
     func preservesOmpConfigRootsWithoutPersistingSecrets() {
         let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(

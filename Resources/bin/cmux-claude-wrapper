@@ -397,12 +397,12 @@ cmux_claude_config_dir_has_session() {
 claude_option_consumes_value() {
     case "$1" in
         --add-dir|--agent|--agents|--allowedTools|--allowed-tools|\
-        --append-system-prompt|--betas|--debug-file|--disallowedTools|\
+        --append-system-prompt|--append-system-prompt-file|--betas|--debug-file|--disallowedTools|\
         --disallowed-tools|--effort|--fallback-model|--file|\
         --input-format|--json-schema|--max-budget-usd|--mcp-config|\
         --model|-m|-n|--name|--output-format|--permission-mode|--plugin-dir|\
         --plugin-url|--remote-control-session-name-prefix|--setting-sources|\
-        --settings|--system-prompt|--tools)
+        --settings|--system-prompt|--system-prompt-file|--teammate-mode|--tools)
             return 0
             ;;
     esac
@@ -754,7 +754,7 @@ claude_interactive_entry_flag() {
     case "$1" in
         --print|--print=*|-p|--resume|--resume=*|-r|--continue|-c|\
         --session-id|--session-id=*|--remote-control|--remote-control=*|\
-        --from-pr|--from-pr=*|--worktree|--worktree=*|-w|-w=*)
+        --from-pr|--from-pr=*|--tmux|--tmux=*|--worktree|--worktree=*|-w|-w=*)
             return 0
             ;;
     esac
@@ -773,7 +773,7 @@ claude_passthrough_option_flag() {
 claude_builtin_command_name() {
     case "$1" in
         agents|auth|auto-mode|config|api-key|daemon|doctor|install|mcp|\
-        experimental-next|plugin|plugins|project|rc|remote-control|setup-token|\
+        experimental-next|gateway|plugin|plugins|project|rc|remote-control|setup-token|\
         ultrareview|update|upgrade)
             return 0
             ;;
@@ -795,12 +795,33 @@ claude_command_like_invocation() {
 should_inject_claude_hooks() {
     (( $# == 0 )) && return 0
 
+    # Help/version win regardless of where Commander accepts them. Do this
+    # before session-entry flags so `claude --resume --help` cannot install or
+    # inject hooks for a command that exits immediately. Tokens after `--` are
+    # prompt text and deliberately do not participate.
+    local candidate
+    for candidate in "$@"; do
+        [[ "$candidate" == "--" ]] && break
+        case "$candidate" in
+            --help|-h|--version|-v)
+                return 1
+                ;;
+        esac
+    done
+
     local arg
     local skip_next=false
+    local skip_optional_value=false
     for arg in "$@"; do
         if [[ "$skip_next" == true ]]; then
             skip_next=false
             continue
+        fi
+        if [[ "$skip_optional_value" == true ]]; then
+            skip_optional_value=false
+            if [[ "$arg" != -* ]]; then
+                continue
+            fi
         fi
         case "$arg" in
             --)
@@ -812,6 +833,10 @@ should_inject_claude_hooks() {
                 fi
                 if claude_interactive_entry_flag "$arg"; then
                     return 0
+                fi
+                if [[ "$arg" != *=* ]] && [[ "$arg" == "--debug" || "$arg" == "-d" || "$arg" == "--prompt-suggestions" ]]; then
+                    skip_optional_value=true
+                    continue
                 fi
                 if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
                     skip_next=true
