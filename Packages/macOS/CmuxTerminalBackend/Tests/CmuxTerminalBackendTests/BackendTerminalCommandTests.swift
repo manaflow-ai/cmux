@@ -821,6 +821,96 @@ struct BackendTerminalCommandTests {
         await client.close()
     }
 
+    @Test("terminal accessibility demand uses exact reversible generation fences")
+    func terminalAccessibilityDemandCommands() async throws {
+        let transport = ScriptedBackendTransport()
+        let client = BackendProtocolClient(transport: transport)
+        try await client.connect()
+        let requestID = try #require(
+            UUID(uuidString: "77777777-7777-4777-8777-777777777777")
+        )
+        let presentationID = PresentationID(
+            rawValue: try #require(
+                UUID(uuidString: "88888888-8888-4888-8888-888888888888")
+            )
+        )
+
+        let acquireTask = Task {
+            try await client.acquireTerminalAccessibilityDemand(
+                requestID: requestID,
+                presentationID: presentationID,
+                expectedGeneration: 7,
+                expectedDemandGeneration: 11
+            )
+        }
+        let acquireRequest = try requestObject(await transport.nextSent())
+        #expect(
+            acquireRequest["cmd"] as? String
+                == "acquire-terminal-accessibility-demand"
+        )
+        #expect(acquireRequest["request_id"] as? String == requestID.uuidString.lowercased())
+        #expect(acquireRequest["presentation_id"] as? String == presentationID.description)
+        #expect(try uint64(acquireRequest, "expected_generation") == 7)
+        #expect(try uint64(acquireRequest, "expected_demand_generation") == 11)
+        await transport.enqueue(try response(to: acquireRequest, data: [
+            "request_id": requestID.uuidString.lowercased(),
+            "presentation_id": presentationID.description,
+            "presentation_generation": 7,
+            "demand_generation": 12,
+        ]))
+        let receipt = try await acquireTask.value
+        #expect(receipt.requestID == requestID)
+        #expect(receipt.presentationID == presentationID)
+        #expect(receipt.presentationGeneration == 7)
+        #expect(receipt.demandGeneration == 12)
+
+        let releaseTask = Task {
+            try await client.releaseTerminalAccessibilityDemand(
+                presentationID: presentationID,
+                expectedGeneration: 7,
+                demandGeneration: 12
+            )
+        }
+        let releaseRequest = try requestObject(await transport.nextSent())
+        #expect(
+            releaseRequest["cmd"] as? String
+                == "release-terminal-accessibility-demand"
+        )
+        #expect(releaseRequest["presentation_id"] as? String == presentationID.description)
+        #expect(try uint64(releaseRequest, "expected_generation") == 7)
+        #expect(try uint64(releaseRequest, "demand_generation") == 12)
+        await transport.enqueue(try response(to: releaseRequest, data: [
+            "presentation_id": presentationID.description,
+            "presentation_generation": 7,
+            "demand_generation": 12,
+            "released": false,
+        ]))
+        let release = try await releaseTask.value
+        #expect(release.presentationID == presentationID)
+        #expect(release.presentationGeneration == 7)
+        #expect(release.demandGeneration == 12)
+        #expect(!release.released)
+
+        let initialAcquireTask = Task {
+            try await client.acquireTerminalAccessibilityDemand(
+                requestID: UUID(),
+                presentationID: presentationID,
+                expectedGeneration: 7,
+                expectedDemandGeneration: nil
+            )
+        }
+        let initialAcquireRequest = try requestObject(await transport.nextSent())
+        #expect(initialAcquireRequest["expected_demand_generation"] == nil)
+        await transport.enqueue(try response(to: initialAcquireRequest, data: [
+            "request_id": try #require(initialAcquireRequest["request_id"] as? String),
+            "presentation_id": presentationID.description,
+            "presentation_generation": 7,
+            "demand_generation": 13,
+        ]))
+        _ = try await initialAcquireTask.value
+        await client.close()
+    }
+
     private func requestObject(_ data: Data) throws -> [String: Any] {
         try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }

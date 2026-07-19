@@ -102,7 +102,7 @@ import Testing
         #expect(view.accessibilityLine(for: 4) == 0)
         #expect(view.accessibilityRange(forLine: 0) == NSRange(location: 0, length: 5))
         #expect(view.accessibilityRange(for: 0) == NSRange(location: 0, length: 2))
-        #expect(runtime.accessibilityEnableCount == 1)
+        #expect(runtime.accessibilityEnableCount == 0)
         #expect(runtime.accessibilityStreamSubscriptionCount == 1)
 
         view.setAccessibilityValue("typed")
@@ -110,6 +110,40 @@ import Testing
             text: "typed",
             kind: .committed
         ))))
+    }
+
+    @Test func AXObservationReleasesStreamDemandWhenUnmountedAndDeinitialized() async {
+        let snapshot = makeAccessibilitySnapshot(contentSequence: 13, text: "owned")
+        let runtime = FakeTerminalExternalRuntime()
+        runtime.snapshot = makeRuntimeSnapshot(accessibility: snapshot)
+        runtime.keepAccessibilityStreamsOpen = true
+        var view: TerminalFrontendInteractionView? = TerminalFrontendInteractionView(
+            runtime: runtime
+        )
+        var window: NSWindow? = view.map(mount)
+
+        _ = view?.accessibilityValue()
+        #expect(runtime.accessibilityStreamSubscriptionCount == 1)
+        #expect(runtime.accessibilityStreamTerminationCount == 0)
+
+        window?.contentView = nil
+        for _ in 0 ..< 4 where runtime.accessibilityStreamTerminationCount == 0 {
+            await Task.yield()
+        }
+        #expect(runtime.accessibilityStreamTerminationCount == 1)
+
+        if let view {
+            window?.contentView = view
+            _ = view.accessibilityValue()
+        }
+        #expect(runtime.accessibilityStreamSubscriptionCount == 2)
+        window?.contentView = nil
+        view = nil
+        window = nil
+        for _ in 0 ..< 4 where runtime.accessibilityStreamTerminationCount < 2 {
+            await Task.yield()
+        }
+        #expect(runtime.accessibilityStreamTerminationCount == 2)
     }
 
     @Test func AXBoundsRoundTripThroughVisibleGridCoordinates() throws {

@@ -57,6 +57,24 @@ struct BackendOnlyPresentedFrameStateTests {
         #expect(state.record(frame))
     }
 
+    @Test("accessibility frame draining is reversible without losing newest metadata")
+    func accessibilityDemandTransitionsFalseTrueFalse() throws {
+        let state = BackendOnlyPresentedFrameState()
+        let beforeDemand = try makeMetadata(terminalSequence: 40, frameSequence: 1)
+        let whileDemanded = try makeMetadata(terminalSequence: 41, frameSequence: 2)
+        let afterRelease = try makeMetadata(terminalSequence: 42, frameSequence: 3)
+
+        #expect(!state.record(beforeDemand))
+        #expect(state.demandAccessibility() == beforeDemand)
+        #expect(state.record(whileDemanded))
+        state.releaseAccessibilityDemand()
+
+        #expect(state.takeScheduledDrain() == nil)
+        #expect(!state.record(afterRelease))
+        #expect(state.latest() == afterRelease)
+        #expect(state.demandAccessibility() == afterRelease)
+    }
+
     private func makeMetadata(
         terminalSequence: UInt64,
         frameSequence: UInt64

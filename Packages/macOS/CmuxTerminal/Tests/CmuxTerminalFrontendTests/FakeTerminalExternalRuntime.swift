@@ -12,7 +12,9 @@ final class FakeTerminalExternalRuntime: TerminalExternalRuntime {
     private(set) var adoptedWorkspaceIDs: [UUID] = []
     private(set) var mutations: [TerminalExternalRuntimeMutation] = []
     private(set) var accessibilityEnableCount = 0
+    private(set) var accessibilityDisableCount = 0
     private(set) var accessibilityStreamSubscriptionCount = 0
+    private(set) var accessibilityStreamTerminationCount = 0
     private(set) var selectionReadCount = 0
     private(set) var accessibilityLinkActivations: [(
         link: TerminalAccessibilityLink,
@@ -29,6 +31,7 @@ final class FakeTerminalExternalRuntime: TerminalExternalRuntime {
     )
     var stubbedAccessibilitySnapshots: [TerminalAccessibilitySnapshot] = []
     var stubbedAccessibilityStream: AsyncStream<TerminalAccessibilitySnapshot>?
+    var keepAccessibilityStreamsOpen = false
     var stubbedAccessibilityLinkTarget: String?
     private var stubbedIngressResultIndex = 0
 
@@ -72,18 +75,31 @@ final class FakeTerminalExternalRuntime: TerminalExternalRuntime {
         accessibilityEnableCount += 1
     }
 
+    func disableAccessibility() {
+        accessibilityDisableCount += 1
+    }
+
     func accessibilitySnapshots() -> AsyncStream<TerminalAccessibilitySnapshot> {
         accessibilityStreamSubscriptionCount += 1
         if let stubbedAccessibilityStream {
             return stubbedAccessibilityStream
         }
         let snapshots = stubbedAccessibilitySnapshots
-        return AsyncStream { continuation in
-            for snapshot in snapshots {
-                continuation.yield(snapshot)
-            }
-            continuation.finish()
+        let pair = AsyncStream<TerminalAccessibilitySnapshot>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        for snapshot in snapshots {
+            pair.continuation.yield(snapshot)
         }
+        if !keepAccessibilityStreamsOpen {
+            pair.continuation.finish()
+        }
+        pair.continuation.onTermination = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.accessibilityStreamTerminationCount += 1
+            }
+        }
+        return pair.stream
     }
 
     func activateAccessibilityLink(

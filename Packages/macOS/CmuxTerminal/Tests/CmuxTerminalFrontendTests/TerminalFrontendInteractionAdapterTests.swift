@@ -342,7 +342,9 @@ import Testing
 
         #expect(view.terminalAccessibilitySnapshot == current)
         view.enableTerminalAccessibility()
+        view.disableTerminalAccessibility()
         #expect(runtime.accessibilityEnableCount == 1)
+        #expect(runtime.accessibilityDisableCount == 1)
 
         var snapshots = view.terminalAccessibilitySnapshots().makeAsyncIterator()
         #expect(await snapshots.next() == current)
