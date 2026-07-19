@@ -762,6 +762,7 @@ final class TerminalPanel: Panel, ObservableObject {
             hibernatedAt: hibernatedAt,
             lastActivityAt: lastActivityAt
         )
+        surface.commitAgentHibernationOwnerState()
         unfocus()
         searchState = nil
         hostedView.setVisibleInUI(false)

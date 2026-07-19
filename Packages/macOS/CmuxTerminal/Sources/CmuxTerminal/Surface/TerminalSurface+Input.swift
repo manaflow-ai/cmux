@@ -10,8 +10,8 @@ internal import CMUXDebugLog
 
 extension TerminalSurface {
     @MainActor
-    private var shouldQueueInputForAgentHibernation: Bool {
-        runtimeSurfaceHibernationTeardownInFlight || runtimeSurfaceSuspendedForAgentHibernation
+    private var shouldQueueInputForAgentHibernationTransition: Bool {
+        runtimeSurfaceHibernationTeardownInFlight || runtimeSurfaceHibernationOwnerCommitPending
     }
 
     /// Notifies the pane host that user-initiated terminal input is about to be sent.
@@ -57,7 +57,7 @@ extension TerminalSurface {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return true }
         didReceiveExplicitInput()
         guard surface != nil else {
-            if shouldQueueInputForAgentHibernation {
+            if shouldQueueInputForAgentHibernationTransition {
                 let queued = enqueuePendingSocketInput(.pasteText(data))
                 if queued {
                     hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
@@ -89,7 +89,7 @@ extension TerminalSurface {
     public func sendKeyText(_ text: String) -> Bool {
         guard !text.isEmpty else { return true }
         didReceiveExplicitInput()
-        if shouldQueueInputForAgentHibernation,
+        if shouldQueueInputForAgentHibernationTransition,
            let data = text.data(using: .utf8),
            !data.isEmpty {
             let queued = enqueuePendingSocketInput(.inputText(data))
@@ -124,7 +124,7 @@ extension TerminalSurface {
         guard let event = pendingKeyEvent(for: keyName) else { return .unknownKey }
         didReceiveExplicitInput()
         guard surface != nil else {
-            if shouldQueueInputForAgentHibernation {
+            if shouldQueueInputForAgentHibernationTransition {
                 guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
                 hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
                 return .queued
@@ -188,7 +188,7 @@ extension TerminalSurface {
         guard !text.isEmpty else { return .sent }
         didReceiveExplicitInput()
         guard surface != nil else {
-            if shouldQueueInputForAgentHibernation {
+            if shouldQueueInputForAgentHibernationTransition {
                 let queued = enqueuePendingSocketInput(text)
                 if queued {
                     hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)

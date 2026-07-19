@@ -233,6 +233,7 @@ extension TerminalSurface {
     public func teardownSurface() {
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
+        runtimeSurfaceHibernationOwnerCommitPending = false
         backgroundSurfaceStartSource = .normal
         cancelClaudeCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
@@ -338,6 +339,7 @@ extension TerminalSurface {
             return false
         }
 
+        runtimeSurfaceHibernationOwnerCommitPending = false
         let validationGate = TerminalSurfaceHibernationValidationGate()
         runtimeSurfaceHibernationValidationGate = validationGate
         runtimeSurfaceHibernationTeardownInFlight = true
@@ -417,6 +419,7 @@ extension TerminalSurface {
             mobileByteTeeLease = teeLease
             registry.registerRuntimeSurface(surfaceToFree, ownerId: id)
             runtimeSurfaceHibernationTeardownInFlight = false
+            runtimeSurfaceHibernationOwnerCommitPending = false
             runtimeSurfaceHibernationValidationGate = nil
             flushPendingRemoteOutput(to: surfaceToFree)
             if pendingSocketInputBytes > 0 {
@@ -471,9 +474,11 @@ extension TerminalSurface {
 
         guard portalLifecycleState == .live, didFree else {
             runtimeSurfaceSuspendedForAgentHibernation = false
+            runtimeSurfaceHibernationOwnerCommitPending = false
             return false
         }
         runtimeSurfaceSuspendedForAgentHibernation = true
+        runtimeSurfaceHibernationOwnerCommitPending = true
         return true
     }
 
@@ -501,7 +506,16 @@ extension TerminalSurface {
     public func prepareAgentHibernationResume(initialInput: String?) {
         guard canPrepareAgentHibernationResume else { return }
         runtimeSurfaceSuspendedForAgentHibernation = false
+        runtimeSurfaceHibernationOwnerCommitPending = false
         prepareNextRuntimeInitialInput(initialInput)
+    }
+
+    /// Completes the handoff from native teardown to the pane owner's durable
+    /// hibernation state. Direct surface input must no longer queue after this
+    /// point because only the pane owner can resume the suspended runtime.
+    @MainActor
+    public func commitAgentHibernationOwnerState() {
+        runtimeSurfaceHibernationOwnerCommitPending = false
     }
 
     /// Applies a persisted hibernation marker to a newly restored surface
@@ -521,6 +535,7 @@ extension TerminalSurface {
             return false
         }
         runtimeSurfaceSuspendedForAgentHibernation = true
+        runtimeSurfaceHibernationOwnerCommitPending = false
         return true
     }
 

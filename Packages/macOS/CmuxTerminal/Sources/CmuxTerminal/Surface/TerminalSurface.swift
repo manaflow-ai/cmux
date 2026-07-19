@@ -312,6 +312,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var requiresRestoreSpawnPacing = false
     var runtimeSurfaceSuspendedForAgentHibernation = false
     var runtimeSurfaceHibernationTeardownInFlight = false
+    var runtimeSurfaceHibernationOwnerCommitPending = false
     var runtimeSurfaceHibernationValidationGate: TerminalSurfaceHibernationValidationGate?
     var headlessStartupWindow: NSWindow?
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
