@@ -8,6 +8,11 @@ final class SidebarWorkspaceReorderDropView: NSView {
     var performDropAtPoint: ((CGPoint, [SidebarWorkspaceReorderDropOverlay.Target]) -> Bool)?
     var clearDropIndicator: (() -> Void)?
     var setWorkspaceDropTargetCollectionActive: ((Bool) -> Void)?
+    /// Lifecycle taps for the local live-reorder preview: entry hides the
+    /// system drag image (destination-side, so it reverts on exit), exit
+    /// restores the un-previewed row order.
+    var draggingDidEnter: ((NSDraggingInfo) -> Void)?
+    var draggingDidExit: (() -> Void)?
     var pointOffset: CGSize = .zero
     private var isRequestingTargets = false
     private var targetRequestId: UInt64 = 0
@@ -31,6 +36,9 @@ final class SidebarWorkspaceReorderDropView: NSView {
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if accepts(sender) {
+            draggingDidEnter?(sender)
+        }
         setTargetCollectionActive(true)
         return update(sender)
     }
@@ -41,6 +49,7 @@ final class SidebarWorkspaceReorderDropView: NSView {
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
+        draggingDidExit?()
         guard pendingDrop == nil else {
             completeOrClearPendingDropAfterDragTeardown()
             clearDropIndicator?()

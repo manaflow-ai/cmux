@@ -21,6 +21,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var resizeDidEndObserver: NSObjectProtocol?
     private let rowHeightCache = SidebarWorkspaceTableRowHeightCache()
     private let dropTargetGeometry = SidebarWorkspaceTableDropTargetGeometryGate()
+    private let localReorder = SidebarWorkspaceTableLocalReorderController()
 
 #if DEBUG
     var reconfigurationProbe: (() -> Void)?
@@ -42,6 +43,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func makeContainerView() -> SidebarWorkspaceTableContainerView {
         let container = SidebarWorkspaceTableContainerView()
         containerView = container
+        localReorder.delegate = self
 
         let table = container.tableView
         table.workspaceController = self
@@ -132,6 +134,23 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         selectedScrollTargetWorkspaceId: UUID?
     ) {
         guard let containerView else { return }
+        // A local drag session owns the visible order: content-only applies
+        // wait until the session ends, structural applies degrade the session
+        // (it tears down synchronously inside shouldDeferApply) and land here.
+        if localReorder.shouldDeferApply(
+            nextRowIds: nextRows.map(\.id),
+            deferred: { [weak self] in
+                self?.apply(
+                    rows: nextRows,
+                    actions: actions,
+                    workspaceIds: nextWorkspaceIds,
+                    selectedWorkspaceId: selectedWorkspaceId,
+                    selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId
+                )
+            }
+        ) {
+            return
+        }
         // Authoritative render: reconciles any optimistic preview, so the
         // preview bailout stands down.
         applyGeneration &+= 1
@@ -396,10 +415,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
-        // Group headers carry their anchor's workspaceId; a header drag would
-        // masquerade as dragging the anchor workspace and tear it out of the
-        // group. Headers are not row-draggable in the SwiftUI sidebar either.
-        guard rows.indices.contains(row), !rows[row].isGroupHeader, let actions else { return nil }
+        // Group headers drag their anchor's workspaceId: the drop resolver
+        // plans anchor drags as whole-block top-level moves, foreign windows
+        // refuse anchors, and every non-sidebar surface ignores this payload
+        // type — so a header drag moves the group as one unit.
+        guard rows.indices.contains(row), let actions else { return nil }
         let workspaceId = rows[row].workspaceId
         actions.beginWorkspaceDrag(workspaceId)
         workspaceDragSessionDidBegin()
@@ -414,9 +434,23 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func tableView(
         _ tableView: NSTableView,
         draggingSession session: NSDraggingSession,
+        willBeginAt screenPoint: NSPoint,
+        forRowIndexes rowIndexes: IndexSet
+    ) {
+        guard let row = rowIndexes.first, rows.indices.contains(row) else { return }
+        localReorder.sessionWillBegin(
+            draggedWorkspaceId: rows[row].workspaceId,
+            at: screenPoint
+        )
+    }
+
+    func tableView(
+        _ tableView: NSTableView,
+        draggingSession session: NSDraggingSession,
         endedAt screenPoint: NSPoint,
         operation: NSDragOperation
     ) {
+        localReorder.sessionEnded(operation: operation)
         actions?.endWorkspaceDrag()
         workspaceDragSessionDidEnd()
     }
@@ -582,6 +616,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func recomputeHoveredRow() {
+        guard !localReorder.isSessionActive else {
+            setHoveredRowId(nil)
+            return
+        }
         guard contextMenuRowId == nil,
               let table = containerView?.tableView else {
             return
@@ -604,6 +642,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         recomputeHoveredRow()
         enforceHoverOnVisibleCells()
         updateDropTargets()
+        localReorder.viewportDidChange()
     }
 
     private let selectionCoalescer = SidebarSelectionCoalescer<ContinuousClock>()
@@ -770,6 +809,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         guard let model = configuration.appKitWorkspaceRowModel,
               let actions = configuration.appKitWorkspaceRowActions else { return }
         let rowId = configuration.id
+        cell.isHidden = localReorder.hiddenRowIds.contains(rowId)
         cell.configure(
             model: model,
             actions: actions,
@@ -816,6 +856,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         guard let model = configuration.appKitGroupHeaderModel,
               let actions = configuration.appKitGroupHeaderActions else { return }
         let rowId = configuration.id
+        cell.isHidden = localReorder.hiddenRowIds.contains(rowId)
         cell.configure(
             model: model,
             actions: actions,
@@ -832,6 +873,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private func configure(cell: SidebarWorkspaceTableCellView, at row: Int) {
         let configuration = rows[row]
         let rowId = configuration.id
+        cell.isHidden = localReorder.hiddenRowIds.contains(rowId)
 #if DEBUG
         cell.reconfigurationProbe = reconfigurationProbe
 #endif
@@ -864,7 +906,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     ) {
         let reorder = container.reorderDropView
         reorder.isValidDrag = actions.isValidWorkspaceDrag
+        reorder.draggingDidEnter = { [weak self] sender in
+            self?.localReorder.draggingEntered(sender)
+        }
+        reorder.draggingDidExit = { [weak self] in
+            self?.localReorder.draggingExited()
+        }
         reorder.updateDrag = { [weak self] point, targets in
+            // Drags that began in this table get the live-reorder preview;
+            // foreign-window drags keep the classic indicator line.
+            if self?.localReorder.handleDragUpdate(point: point, targets: targets) == true {
+                return true
+            }
             let accepted = actions.updateWorkspaceDrag(point, targets)
             self?.setAppKitDropIndicator(
                 actions.currentDropIndicator(),
@@ -874,6 +927,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             return accepted
         }
         reorder.performDropAtPoint = { [weak self] point, targets in
+            if self?.localReorder.handlePerformDrop(point: point, targets: targets) == true {
+                return true
+            }
             let performed = actions.performWorkspaceDrop(point, targets)
             self?.setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
             return performed
@@ -1001,5 +1057,83 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             width: max(0, container.bounds.width - 16 - leadingIndent),
             height: 2
         )
+    }
+}
+
+// MARK: - Local reorder preview
+
+extension SidebarWorkspaceTableController: SidebarWorkspaceTableLocalReorderDelegate {
+    var localReorderContainerView: SidebarWorkspaceTableContainerView? { containerView }
+
+    var localReorderRows: [SidebarWorkspaceTableRowConfiguration] { rows }
+
+    /// Animates the table to a preview permutation of the current rows. The
+    /// permutation must be id-preserving; anything else is refused so a
+    /// stale preview can never desync the data source from the table.
+    func localReorderApplyOrder(_ ids: [SidebarWorkspaceRenderItemID], animated: Bool) {
+        guard let table = containerView?.tableView else { return }
+        let currentIds = rows.map(\.id)
+        guard currentIds != ids,
+              currentIds.count == ids.count,
+              Self.multisetEqual(currentIds, ids) else { return }
+        let rowsById = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let nextRows = ids.compactMap { rowsById[$0] }
+        guard nextRows.count == rows.count else { return }
+        rows = nextRows
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = animated ? 0.16 : 0
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            context.allowsImplicitAnimation = animated
+            table.beginUpdates()
+            var current = currentIds
+            for targetIndex in ids.indices where current[targetIndex] != ids[targetIndex] {
+                guard let fromIndex = current.firstIndex(of: ids[targetIndex]) else { continue }
+                table.moveRow(at: fromIndex, to: targetIndex)
+                current.remove(at: fromIndex)
+                current.insert(ids[targetIndex], at: targetIndex)
+            }
+            table.endUpdates()
+        }
+        // Per-index state (first-row flag, indicator geometry) shifts with
+        // the order even when per-id content didn't.
+        let visible = table.rows(in: table.visibleRect)
+        if visible.length > 0 {
+            reconfigureVisibleRows(
+                IndexSet(integersIn: visible.lowerBound..<(visible.lowerBound + visible.length))
+            )
+        }
+    }
+
+    /// Applies the moving-gap treatment: cells for `ids` hide, everything
+    /// else unhides. Visible cells update immediately; recycled cells pick
+    /// the flag up in configure.
+    func localReorderSetCellsHidden(_ ids: Set<SidebarWorkspaceRenderItemID>) {
+        guard let table = containerView?.tableView else { return }
+        let visible = table.rows(in: table.visibleRect)
+        for row in visible.lowerBound..<(visible.lowerBound + visible.length)
+        where rows.indices.contains(row) {
+            guard let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false) else { continue }
+            cell.isHidden = ids.contains(rows[row].id)
+        }
+    }
+
+    func localReorderResolvePlan(
+        point: CGPoint,
+        targets: [SidebarWorkspaceReorderDropOverlayTarget]
+    ) -> SidebarWorkspaceReorderDropPlan? {
+        actions?.resolveWorkspaceReorderPlan(point, targets)
+    }
+
+    func localReorderCommit(plan: SidebarWorkspaceReorderDropPlan) -> Bool {
+        actions?.commitWorkspaceReorderPlan(plan) ?? false
+    }
+
+    func localReorderUpdateAutoscroll() {
+        actions?.updateDragAutoscroll()
+    }
+
+    func localReorderSessionDidEnd(flushDeferredApply: Bool) {
+        recomputeHoveredRow()
+        enforceHoverOnVisibleCells()
     }
 }

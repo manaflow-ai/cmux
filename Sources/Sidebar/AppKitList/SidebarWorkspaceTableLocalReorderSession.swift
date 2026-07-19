@@ -1,0 +1,553 @@
+import AppKit
+import CmuxFoundation
+
+/// What the local-reorder session needs from the table controller: row state,
+/// animated permutation, plan resolution/commit (both route through the same
+/// resolver the drop path has always used), and lifecycle notifications.
+@MainActor
+protocol SidebarWorkspaceTableLocalReorderDelegate: AnyObject {
+    var localReorderContainerView: SidebarWorkspaceTableContainerView? { get }
+    var localReorderRows: [SidebarWorkspaceTableRowConfiguration] { get }
+    func localReorderApplyOrder(_ ids: [SidebarWorkspaceRenderItemID], animated: Bool)
+    func localReorderSetCellsHidden(_ ids: Set<SidebarWorkspaceRenderItemID>)
+    func localReorderResolvePlan(
+        point: CGPoint,
+        targets: [SidebarWorkspaceReorderDropOverlayTarget]
+    ) -> SidebarWorkspaceReorderDropPlan?
+    func localReorderCommit(plan: SidebarWorkspaceReorderDropPlan) -> Bool
+    func localReorderUpdateAutoscroll()
+    func localReorderSessionDidEnd(flushDeferredApply: Bool)
+}
+
+/// Chrome-style live reorder for drags that originate in this table: the
+/// dragged row (or whole group block) floats under the pointer while sibling
+/// rows animate apart around the moving slot. The system drag session stays
+/// alive underneath — its image is hidden while the drag is over this
+/// sidebar, so cross-window drops keep today's behavior — and the model is
+/// only mutated once, on drop, from the same resolved plan the preview shows.
+@MainActor
+final class SidebarWorkspaceTableLocalReorderController {
+    private enum Phase {
+        case idle
+        /// Drag in flight. `insideSidebar` tracks whether the preview or the
+        /// system drag image is the active visual.
+        case dragging(insideSidebar: Bool)
+        /// Drop committed; the floating row is animating into its slot.
+        case settling
+        /// Cancelled; rows are animating back to the original order.
+        case restoring
+    }
+
+    private struct Session {
+        let draggedWorkspaceId: UUID
+        let isGroupBlock: Bool
+        var blockRowIds: [SidebarWorkspaceRenderItemID]
+        var originalOrder: [SidebarWorkspaceRenderItemID]
+        var grabOffsetY: CGFloat
+        var blockHeight: CGFloat
+        var lastPlan: SidebarWorkspaceReorderDropPlan?
+        var lastPoint: CGPoint?
+        var destinationGroupId: UUID?
+        var floatingView: SidebarWorkspaceReorderFloatingRowView?
+        var hidDragImage = false
+    }
+
+    weak var delegate: SidebarWorkspaceTableLocalReorderDelegate?
+
+    private var phase: Phase = .idle
+    private var session: Session?
+    private var pendingApply: (() -> Void)?
+    private let slideDuration: TimeInterval = 0.16
+
+    /// Rows whose cells stay hidden (they form the moving gap).
+    private(set) var hiddenRowIds: Set<SidebarWorkspaceRenderItemID> = []
+
+    /// Whether a drag that originated in this table is being previewed.
+    var isSessionActive: Bool {
+        if case .idle = phase { return false }
+        return true
+    }
+
+    /// Whether row applies must be deferred (drag in flight or end animation
+    /// still running).
+    var defersApplies: Bool { isSessionActive }
+
+    // MARK: - Session lifecycle (driven by the table controller)
+
+    /// Starts a local session when the system drag begins. `screenPoint` is
+    /// the drag origin used to compute the pointer's grab offset inside the
+    /// dragged block.
+    func sessionWillBegin(draggedWorkspaceId: UUID, at screenPoint: NSPoint) {
+        guard case .idle = phase,
+              let delegate,
+              let container = delegate.localReorderContainerView else { return }
+        let rows = delegate.localReorderRows
+        guard let block = Self.blockRowIndices(rows: rows, draggedWorkspaceId: draggedWorkspaceId),
+              !block.isEmpty else { return }
+
+        let overlay = container.reorderDropView
+        let table = container.tableView
+        let blockRect = block.reduce(CGRect.null) { partial, row in
+            partial.union(table.convert(table.rect(ofRow: row), to: overlay))
+        }
+        guard !blockRect.isNull, blockRect.height > 0 else { return }
+
+        let floating = SidebarWorkspaceReorderFloatingRowView(
+            snapshots: Self.blockSnapshots(table: table, rowIndexes: block),
+            totalRowCount: block.count,
+            frame: blockRect
+        )
+
+        let pointerY: CGFloat
+        if let window = container.window {
+            pointerY = overlay.convert(window.convertPoint(fromScreen: screenPoint), from: nil).y
+        } else {
+            pointerY = blockRect.midY
+        }
+
+        var next = Session(
+            draggedWorkspaceId: draggedWorkspaceId,
+            isGroupBlock: rows[block[0]].isGroupHeader,
+            blockRowIds: block.map { rows[$0].id },
+            originalOrder: rows.map(\.id),
+            grabOffsetY: min(max(pointerY - blockRect.minY, 0), blockRect.height),
+            blockHeight: blockRect.height
+        )
+        next.floatingView = floating
+        session = next
+        phase = .dragging(insideSidebar: true)
+
+        hiddenRowIds = Set(next.blockRowIds)
+        delegate.localReorderSetCellsHidden(hiddenRowIds)
+        overlay.addSubview(floating)
+    }
+
+    /// Destination-side image hiding: while the drag is over this sidebar the
+    /// floating row is the visual, so the system snapshot is suppressed. The
+    /// suppression reverts automatically when the drag exits the destination,
+    /// which is exactly the cross-window behavior we want.
+    func draggingEntered(_ sender: NSDraggingInfo) {
+        guard session != nil, case .dragging = phase else { return }
+        hideDragImage(sender)
+        setInsideSidebar(true)
+    }
+
+    /// Continuous preview: resolve the same plan the drop would commit and
+    /// animate rows to the order that plan produces.
+    /// Returns false when this drag isn't a live local session (foreign drag
+    /// or degraded session) so the caller falls back to the indicator path.
+    func handleDragUpdate(
+        point: CGPoint,
+        targets: [SidebarWorkspaceReorderDropOverlayTarget]
+    ) -> Bool {
+        guard var current = session, case .dragging = phase, let delegate else { return false }
+        setInsideSidebar(true)
+        current.lastPoint = point
+        session = current
+        positionFloatingView(pointerY: point.y)
+        delegate.localReorderUpdateAutoscroll()
+        resolveAndApplyPreview(point: point, targets: targets)
+        return true
+    }
+
+    /// Pointer left the sidebar: the preview restores to the original order
+    /// (the item may be headed to another window) and the system drag image
+    /// takes over as the visual.
+    func draggingExited() {
+        guard session != nil, case .dragging = phase, let delegate else { return }
+        setInsideSidebar(false)
+        delegate.localReorderApplyOrder(session?.originalOrder ?? [], animated: true)
+        session?.lastPlan = nil
+        session?.destinationGroupId = nil
+    }
+
+    /// Drop landed on this sidebar: commit the previewed plan and settle the
+    /// floating row into its slot. Returns false when no local session owns
+    /// this drop (foreign drags keep the existing path).
+    func handlePerformDrop(
+        point: CGPoint,
+        targets: [SidebarWorkspaceReorderDropOverlayTarget]
+    ) -> Bool {
+        guard let current = session, case .dragging = phase, let delegate else { return false }
+        let plan = current.lastPlan ?? delegate.localReorderResolvePlan(point: point, targets: targets)
+        guard let plan else {
+            cancelAndRestore()
+            return true
+        }
+        // Pre-commit deferred applies are superseded by the apply the commit
+        // itself publishes; applies arriving during the settle animation are
+        // deferred and flushed when it completes.
+        pendingApply = nil
+        let committed = delegate.localReorderCommit(plan: plan)
+        guard committed else {
+            cancelAndRestore()
+            return true
+        }
+        phase = .settling
+        settleFloatingViewIntoSlot()
+        return true
+    }
+
+    /// System drag session ended. A `.move` operation means the drop already
+    /// committed (settling); anything else is a cancel (escape, release
+    /// outside every destination) and restores the original order.
+    func sessionEnded(operation: NSDragOperation) {
+        guard session != nil else { return }
+        switch phase {
+        case .dragging:
+            cancelAndRestore()
+        case .idle, .settling, .restoring:
+            break
+        }
+    }
+
+    /// Autoscroll moved rows under a stationary pointer: re-resolve the
+    /// preview against the refreshed target geometry.
+    func viewportDidChange() {
+        guard let current = session, case .dragging(true) = phase,
+              let point = current.lastPoint,
+              let overlay = delegate?.localReorderContainerView?.reorderDropView else { return }
+        resolveAndApplyPreview(point: point, targets: overlay.targets)
+    }
+
+    /// An authoritative apply landed mid-session. Content-only changes are
+    /// deferred (flushed when the session ends); structural changes degrade
+    /// the session so the apply proceeds normally and the rest of the drag
+    /// falls back to the indicator path.
+    /// Returns true when the apply should be deferred.
+    func shouldDeferApply(
+        nextRowIds: [SidebarWorkspaceRenderItemID],
+        deferred: @escaping () -> Void
+    ) -> Bool {
+        guard isSessionActive else { return false }
+        let currentIds = delegate?.localReorderRows.map(\.id) ?? []
+        if Set(nextRowIds) == Set(currentIds), nextRowIds.count == currentIds.count {
+            pendingApply = deferred
+            return true
+        }
+        degrade()
+        return false
+    }
+
+    // MARK: - Internals
+
+    private func setInsideSidebar(_ inside: Bool) {
+        guard case .dragging(let wasInside) = phase, wasInside != inside else { return }
+        phase = .dragging(insideSidebar: inside)
+        session?.floatingView?.isHidden = !inside
+    }
+
+    private func hideDragImage(_ sender: NSDraggingInfo) {
+        guard let container = delegate?.localReorderContainerView else { return }
+        sender.enumerateDraggingItems(
+            options: [],
+            for: container.reorderDropView,
+            classes: [NSPasteboardItem.self],
+            searchOptions: [:]
+        ) { item, _, _ in
+            item.imageComponentsProvider = { [] }
+        }
+        session?.hidDragImage = true
+    }
+
+    private func resolveAndApplyPreview(
+        point: CGPoint,
+        targets: [SidebarWorkspaceReorderDropOverlayTarget]
+    ) {
+        guard let delegate, var current = session else { return }
+        guard let plan = delegate.localReorderResolvePlan(point: point, targets: targets) else {
+            // Dead zone: keep the last valid preview rather than snapping.
+            return
+        }
+        guard case .reorder = plan.action else { return }
+        current.lastPlan = plan
+        let rows = delegate.localReorderRows
+        let previewRows = rows.map {
+            SidebarWorkspaceReorderPreviewRow(
+                workspaceId: $0.workspaceId,
+                groupId: $0.groupId,
+                isGroupHeader: $0.isGroupHeader
+            )
+        }
+        if let indicator = plan.indicator,
+           let preview = SidebarWorkspaceReorderPreviewPermutation().previewOrder(
+               rows: previewRows,
+               draggedWorkspaceId: current.draggedWorkspaceId,
+               indicator: indicator,
+               scope: plan.indicatorScope
+           ) {
+            current.destinationGroupId = preview.destinationGroupId
+            session = current
+            delegate.localReorderApplyOrder(preview.order.map { rows[$0].id }, animated: true)
+            updateFloatingIndent(destinationGroupId: preview.destinationGroupId)
+        } else {
+            session = current
+        }
+    }
+
+    private func positionFloatingView(pointerY: CGFloat) {
+        guard let current = session,
+              let floating = current.floatingView,
+              let overlay = delegate?.localReorderContainerView?.reorderDropView else { return }
+        let minY = overlay.bounds.minY
+        let maxY = max(minY, overlay.bounds.maxY - current.blockHeight)
+        let top = min(max(pointerY - current.grabOffsetY, minY), maxY)
+        var frame = floating.frame
+        frame.origin.y = top
+        floating.frame = frame
+    }
+
+    private func updateFloatingIndent(destinationGroupId: UUID?) {
+        guard let current = session, !current.isGroupBlock,
+              let floating = current.floatingView else { return }
+        let indent: CGFloat = destinationGroupId != nil
+            ? SidebarWorkspaceGroupingMetrics.memberIndent
+            : 0
+        floating.setIndent(indent, animationDuration: slideDuration)
+    }
+
+    private func settleFloatingViewIntoSlot() {
+        guard let delegate,
+              let container = delegate.localReorderContainerView,
+              let current = session else {
+            finish(flushDeferredApply: true)
+            return
+        }
+        let rows = delegate.localReorderRows
+        let table = container.tableView
+        let overlay = container.reorderDropView
+        let blockRowIndexes = rows.indices.filter { current.blockRowIds.contains(rows[$0].id) }
+        let targetRect = blockRowIndexes.reduce(CGRect.null) { partial, row in
+            partial.union(table.convert(table.rect(ofRow: row), to: overlay))
+        }
+        guard let floating = current.floatingView, !targetRect.isNull else {
+            finish(flushDeferredApply: true)
+            return
+        }
+        animateEndOfSession(floating: floating, to: targetRect)
+    }
+
+    private func cancelAndRestore() {
+        guard let delegate, let current = session else {
+            finish(flushDeferredApply: true)
+            return
+        }
+        phase = .restoring
+        delegate.localReorderApplyOrder(current.originalOrder, animated: true)
+        guard let container = delegate.localReorderContainerView,
+              let floating = current.floatingView,
+              !floating.isHidden else {
+            finish(flushDeferredApply: true)
+            return
+        }
+        let rows = delegate.localReorderRows
+        let table = container.tableView
+        let overlay = container.reorderDropView
+        let blockRowIndexes = rows.indices.filter { current.blockRowIds.contains(rows[$0].id) }
+        let targetRect = blockRowIndexes.reduce(CGRect.null) { partial, row in
+            partial.union(table.convert(table.rect(ofRow: row), to: overlay))
+        }
+        guard !targetRect.isNull else {
+            finish(flushDeferredApply: true)
+            return
+        }
+        animateEndOfSession(floating: floating, to: targetRect)
+    }
+
+    /// Slides the floating block into `targetRect`, then unhides the real
+    /// cells underneath and tears the session down.
+    private func animateEndOfSession(
+        floating: SidebarWorkspaceReorderFloatingRowView,
+        to targetRect: CGRect
+    ) {
+        floating.setIndent(0, animationDuration: slideDuration)
+        floating.settle()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = slideDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            context.allowsImplicitAnimation = true
+            floating.animator().frame = targetRect
+        } completionHandler: {
+            MainActor.assumeIsolated { [weak self] in
+                self?.finish(flushDeferredApply: true)
+            }
+        }
+    }
+
+    /// Instant teardown: an authoritative structural apply owns the table
+    /// now. The system drag may still be in flight; without a session the
+    /// update path falls back to the classic indicator handling.
+    private func degrade() {
+        finish(flushDeferredApply: false)
+    }
+
+    private func finish(flushDeferredApply: Bool) {
+        // A degrade can land while an end animation is in flight; its
+        // completion handler must not tear down (and notify for) a session
+        // that already ended.
+        if session == nil, pendingApply == nil, hiddenRowIds.isEmpty {
+            phase = .idle
+            return
+        }
+        session?.floatingView?.removeFromSuperview()
+        session = nil
+        phase = .idle
+        hiddenRowIds = []
+        delegate?.localReorderSetCellsHidden([])
+        let pending = pendingApply
+        pendingApply = nil
+        delegate?.localReorderSessionDidEnd(flushDeferredApply: flushDeferredApply)
+        if flushDeferredApply {
+            pending?()
+        }
+    }
+
+    // MARK: - Block resolution and snapshots
+
+    /// The dragged rows as one unit: a group header plus its contiguous
+    /// member rows, or a single workspace row.
+    static func blockRowIndices(
+        rows: [SidebarWorkspaceTableRowConfiguration],
+        draggedWorkspaceId: UUID
+    ) -> [Int]? {
+        if let headerIndex = rows.firstIndex(where: { $0.isGroupHeader && $0.workspaceId == draggedWorkspaceId }) {
+            let groupId = rows[headerIndex].groupId
+            var block = [headerIndex]
+            var next = headerIndex + 1
+            while next < rows.count,
+                  !rows[next].isGroupHeader,
+                  let memberGroupId = rows[next].groupId,
+                  memberGroupId == groupId {
+                block.append(next)
+                next += 1
+            }
+            return block
+        }
+        guard let rowIndex = rows.firstIndex(where: { !$0.isGroupHeader && $0.workspaceId == draggedWorkspaceId }) else {
+            return nil
+        }
+        return [rowIndex]
+    }
+
+    private static let maxSnapshotRows = 3
+
+    /// Bitmap snapshots of the block's visible cells, captured before the
+    /// cells hide. Large blocks cap at a few rows; the floating view shows a
+    /// count badge for the remainder.
+    private static func blockSnapshots(
+        table: NSTableView,
+        rowIndexes: [Int]
+    ) -> [SidebarWorkspaceReorderFloatingRowView.Snapshot] {
+        var snapshots: [SidebarWorkspaceReorderFloatingRowView.Snapshot] = []
+        for row in rowIndexes.prefix(maxSnapshotRows) {
+            guard let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false),
+                  cell.bounds.width > 0, cell.bounds.height > 0,
+                  let rep = cell.bitmapImageRepForCachingDisplay(in: cell.bounds) else { continue }
+            cell.cacheDisplay(in: cell.bounds, to: rep)
+            let image = NSImage(size: cell.bounds.size)
+            image.addRepresentation(rep)
+            snapshots.append(SidebarWorkspaceReorderFloatingRowView.Snapshot(
+                image: image,
+                height: table.rect(ofRow: row).height
+            ))
+        }
+        return snapshots
+    }
+}
+
+/// The row (or group block) visual that tracks the pointer during a local
+/// reorder: stacked cell snapshots with a lift shadow, X-locked to the list.
+@MainActor
+final class SidebarWorkspaceReorderFloatingRowView: NSView {
+    struct Snapshot {
+        let image: NSImage
+        let height: CGFloat
+    }
+
+    /// Flipped so block snapshots stack top-down like the rows they mirror.
+    private final class FlippedContentView: NSView {
+        override var isFlipped: Bool { true }
+    }
+
+    private let contentView = FlippedContentView()
+    private var indent: CGFloat = 0
+
+    override var isFlipped: Bool { true }
+
+    init(snapshots: [Snapshot], totalRowCount: Int, frame: CGRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        contentView.wantsLayer = true
+        contentView.frame = bounds
+        contentView.autoresizingMask = [.width, .height]
+        addSubview(contentView)
+
+        var y: CGFloat = 0
+        for snapshot in snapshots {
+            let imageView = NSImageView(image: snapshot.image)
+            imageView.imageScaling = .scaleNone
+            imageView.frame = CGRect(x: 0, y: y, width: bounds.width, height: snapshot.height)
+            imageView.autoresizingMask = [.width]
+            contentView.addSubview(imageView)
+            y += snapshot.height
+        }
+
+        let hiddenCount = totalRowCount - snapshots.count
+        if hiddenCount > 0 {
+            let badge = NSTextField(labelWithString: "+\(hiddenCount)")
+            badge.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+            badge.textColor = .secondaryLabelColor
+            badge.wantsLayer = true
+            badge.layer?.backgroundColor = NSColor.quaternaryLabelColor.cgColor
+            badge.layer?.cornerRadius = 8
+            badge.alignment = .center
+            badge.sizeToFit()
+            let size = CGSize(width: badge.frame.width + 12, height: 16)
+            badge.frame = CGRect(
+                x: bounds.width - size.width - 14,
+                y: y - size.height - 6,
+                width: size.width,
+                height: size.height
+            )
+            badge.autoresizingMask = [.minXMargin]
+            contentView.addSubview(badge)
+        }
+
+        let lift = CGFloat(1.02)
+        contentView.layer?.transform = CATransform3DTranslate(
+            CATransform3DMakeScale(lift, lift, 1),
+            -bounds.width * (lift - 1) / (2 * lift),
+            -bounds.height * (lift - 1) / (2 * lift),
+            0
+        )
+        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowOpacity = 0.28
+        layer?.shadowRadius = 8
+        layer?.shadowOffset = CGSize(width: 0, height: 3)
+        layer?.masksToBounds = false
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    /// Slides the snapshot horizontally to preview group-member indent.
+    func setIndent(_ next: CGFloat, animationDuration: TimeInterval) {
+        guard indent != next else { return }
+        indent = next
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = animationDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            var frame = contentView.frame
+            frame.origin.x = next
+            contentView.animator().frame = frame
+        }
+    }
+
+    /// Drops the lift treatment so the settle animation lands flush.
+    func settle() {
+        contentView.layer?.transform = CATransform3DIdentity
+        layer?.shadowOpacity = 0
+    }
+}

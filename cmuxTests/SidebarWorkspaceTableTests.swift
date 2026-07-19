@@ -326,6 +326,8 @@ struct SidebarWorkspaceTableTests {
             isValidWorkspaceDrag: { true },
             updateWorkspaceDrag: { _, _ in false },
             performWorkspaceDrop: { _, _ in false },
+            resolveWorkspaceReorderPlan: { _, _ in nil },
+            commitWorkspaceReorderPlan: { _ in false },
             clearWorkspaceDropIndicator: {},
             currentDropIndicator: { nil },
             currentDropIndicatorScope: { .raw },

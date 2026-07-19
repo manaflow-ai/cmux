@@ -11468,6 +11468,17 @@ struct VerticalTabsSidebar: View, Equatable {
             performWorkspaceDrop: { point, targets in
                 performWorkspaceReorderDrop(point: point, targets: targets, renderContext: renderContext)
             },
+            resolveWorkspaceReorderPlan: { point, targets in
+                guard activateSidebarWorkspaceDragIfNeeded() else { return nil }
+                return workspaceReorderPlan(point: point, targets: targets, renderContext: renderContext)
+            },
+            commitWorkspaceReorderPlan: { plan in
+                defer {
+                    dragState.clearDrag()
+                    dragAutoScrollController.stop()
+                }
+                return performWorkspaceReorderPlan(plan)
+            },
             clearWorkspaceDropIndicator: {
                 dragState.clearDropIndicator()
                 dragAutoScrollController.stop()
