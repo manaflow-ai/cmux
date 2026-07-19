@@ -41,6 +41,23 @@ function resolveDevAPIBaseURL(fallback, override = "") {
   ]);
 }
 
+function removeStaleSocket(socketPath) {
+  return run(
+    "bash",
+    [
+      "-c",
+      [
+        'source "$1"',
+        'cmux_attach_socket_path() { printf "%s" "$CMUX_TEST_SOCKET"; }',
+        'cmux_attach_remove_stale_socket "release-gate"',
+      ].join("; "),
+      "mobile-attach-test",
+      validator,
+    ],
+    { CMUX_TEST_SOCKET: socketPath },
+  );
+}
+
 function extractShellFunction(source, name) {
   const start = source.indexOf(`${name}() {`);
   assert.notEqual(start, -1, `missing shell function ${name}`);
@@ -258,6 +275,43 @@ test("shared dev API origin accepts an explicit trusted backend", () => {
   );
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "https://cmux-staging.vercel.app");
+});
+
+test("tagged stale-socket cleanup removes only the exact Unix socket", async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-stale-socket-test-"));
+  const socketPath = path.join(tempRoot, "release-gate.sock");
+  const neighborPath = path.join(tempRoot, "neighbor.sock");
+  fs.writeFileSync(neighborPath, "keep");
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+
+  try {
+    const result = removeStaleSocket(socketPath);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.existsSync(socketPath), false);
+    assert.equal(fs.readFileSync(neighborPath, "utf8"), "keep");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("tagged stale-socket cleanup refuses a non-socket path", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-stale-socket-test-"));
+  const socketPath = path.join(tempRoot, "release-gate.sock");
+  fs.writeFileSync(socketPath, "keep");
+
+  try {
+    const result = removeStaleSocket(socketPath);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /refusing to remove non-socket/);
+    assert.equal(fs.readFileSync(socketPath, "utf8"), "keep");
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test("macOS and iOS reloads share the dev API backend override", () => {
