@@ -12,9 +12,8 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
-    @Test func resumeExecutableAvailabilityIncludesDirectShebangInterpreter() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-resume-direct-shebang-\(UUID().uuidString)", isDirectory: true)
+    @Test func directShebangAvailabilityMatchesExecveAndTracksSymlinkRetargeting() throws {
+        let root = try makeShortExecutableTestRoot("direct")
         let bin = root.appendingPathComponent("bin", isDirectory: true)
         let interpreter = bin.appendingPathComponent("runtime", isDirectory: false)
         let agent = bin.appendingPathComponent("agent", isDirectory: false)
@@ -31,44 +30,197 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
 
         #expect(AgentCommandExecutableResolver().resolve(descriptor) == nil)
+        #expect(directExecOutcome(agent, path: bin.path) == .launchError(Int(ENOENT)))
 
-        try writeResumeTestExecutable(at: interpreter)
-        let resolution = try #require(
-            AgentCommandExecutableResolver().resolve(descriptor)
-        )
+        try FileManager.default.createSymbolicLink(atPath: interpreter.path, withDestinationPath: "/bin/sh")
+        let resolution = try #require(AgentCommandExecutableResolver().resolve(descriptor))
+        #expect(directExecOutcome(agent, path: bin.path) == .exit(0))
+        #expect(resolution.watchDirectories.contains(bin.path))
+
         try FileManager.default.removeItem(at: interpreter)
-
+        try FileManager.default.createSymbolicLink(atPath: interpreter.path, withDestinationPath: "/bin/zsh")
+        let retargeted = try #require(AgentCommandExecutableResolver().resolve(descriptor))
+        #expect(directExecOutcome(agent, path: bin.path) == .exit(0))
+        #expect(retargeted.cachePart != resolution.cachePart)
         #expect(!AgentCommandExecutableResolver.revalidate(resolution))
+
+        try FileManager.default.removeItem(at: interpreter)
+        #expect(AgentCommandExecutableResolver().resolve(descriptor) == nil)
+        #expect(!AgentCommandExecutableResolver.revalidate(retargeted))
     }
 
-    @Test func resumeExecutableAvailabilityIncludesEnvShebangRuntime() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-resume-env-shebang-\(UUID().uuidString)", isDirectory: true)
+    @Test func envNodeAndBunShebangsTrackRuntimeAndStopAtBrokenFirstPATHCandidate() throws {
+        let root = try makeShortExecutableTestRoot("env")
         let bin = root.appendingPathComponent("bin", isDirectory: true)
-        let runtimeName = "runtime-\(UUID().uuidString)"
-        let runtime = bin.appendingPathComponent(runtimeName, isDirectory: false)
-        let agent = bin.appendingPathComponent("agent", isDirectory: false)
+        let laterBin = root.appendingPathComponent("later", isDirectory: true)
+        let node = bin.appendingPathComponent("node", isDirectory: false)
+        let bun = bin.appendingPathComponent("bun", isDirectory: false)
+        let nodeAgent = bin.appendingPathComponent("node-agent", isDirectory: false)
+        let bunAgent = bin.appendingPathComponent("bun-agent", isDirectory: false)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: laterBin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeResumeTestExecutable(at: nodeAgent, shebang: "#!/usr/bin/env node --plain-tail")
+        try writeResumeTestExecutable(at: bunAgent, shebang: "#!/usr/bin/env -S bun --split-tail")
+
+        func descriptor(_ url: URL, path: String? = nil) -> AgentCommandExecutionDescriptor {
+            AgentCommandExecutionDescriptor(
+                executable: url.path,
+                searchPath: path ?? bin.path,
+                workingDirectory: root.path
+            )
+        }
+
+        #expect(AgentCommandExecutableResolver().resolve(descriptor(nodeAgent)) == nil)
+        #expect(AgentCommandExecutableResolver().resolve(descriptor(bunAgent)) == nil)
+        #expect(directExecOutcome(nodeAgent, path: bin.path) == .exit(127))
+        #expect(directExecOutcome(bunAgent, path: bin.path) == .exit(127))
+
+        // /usr/bin/true proves Darwin passes both plain and -S tails as
+        // separate argv entries. A Linux-style unsplit command name would fail.
+        try FileManager.default.createSymbolicLink(atPath: node.path, withDestinationPath: "/usr/bin/true")
+        try FileManager.default.createSymbolicLink(atPath: bun.path, withDestinationPath: "/usr/bin/true")
+        let nodeResolution = try #require(AgentCommandExecutableResolver().resolve(descriptor(nodeAgent)))
+        let bunResolution = try #require(AgentCommandExecutableResolver().resolve(descriptor(bunAgent)))
+        #expect(directExecOutcome(nodeAgent, path: bin.path) == .exit(0))
+        #expect(directExecOutcome(bunAgent, path: bin.path) == .exit(0))
+
+        try FileManager.default.removeItem(at: node)
+        #expect(!AgentCommandExecutableResolver.revalidate(nodeResolution))
+        #expect(AgentCommandExecutableResolver.revalidate(bunResolution))
+
+        let commandName = "earlier-broken"
+        let broken = bin.appendingPathComponent(commandName)
+        try writeResumeTestExecutable(at: broken, shebang: "#!/usr/bin/env missing-runtime")
+        try writeResumeTestExecutable(at: laterBin.appendingPathComponent(commandName))
+        let searchPath = "\(bin.path):\(laterBin.path)"
+        let lookup = AgentCommandExecutableResolver().lookup(AgentCommandExecutionDescriptor(
+            executable: commandName,
+            searchPath: searchPath,
+            workingDirectory: root.path
+        ))
+        #expect(lookup.candidateLookupPath == broken.path)
+        #expect(lookup.resolution == nil)
+        #expect(directExecOutcome(broken, path: searchPath) == .exit(127))
+
+        #expect(nodeResolution.cachePart != bunResolution.cachePart)
+    }
+
+    @Test func shebangParsingMatchesExecveBoundariesAndNestedInterpreterRule() throws {
+        let root = try makeShortExecutableTestRoot("kernel")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let descriptor: (URL) -> AgentCommandExecutionDescriptor = { url in
+            AgentCommandExecutionDescriptor(
+                executable: url.path,
+                searchPath: "/usr/bin:/bin",
+                workingDirectory: root.path
+            )
+        }
+
+        let crlf = root.appendingPathComponent("crlf")
+        try writeResumeTestExecutable(at: crlf, shebang: "#!/bin/sh\r")
+        #expect(directExecOutcome(crlf) == .exit(0))
+        #expect(AgentCommandExecutableResolver().resolve(descriptor(crlf)) != nil)
+
+        let hashComment = root.appendingPathComponent("hash-comment")
+        try writeResumeTestExecutable(at: hashComment, shebang: "#!/bin/sh#not-a-path")
+        #expect(directExecOutcome(hashComment) == .exit(0))
+        #expect(AgentCommandExecutableResolver().resolve(descriptor(hashComment)) != nil)
+
+        let line512 = root.appendingPathComponent("line-512")
+        let line513 = root.appendingPathComponent("line-513")
+        try writeResumeTestExecutable(
+            at: line512,
+            shebang: "#!/bin/sh" + String(repeating: " ", count: 502)
+        )
+        try writeResumeTestExecutable(
+            at: line513,
+            shebang: "#!/bin/sh" + String(repeating: " ", count: 503)
+        )
+        #expect(directExecOutcome(line512) == .exit(0))
+        #expect(AgentCommandExecutableResolver().resolve(descriptor(line512)) != nil)
+        #expect(directExecOutcome(line513) == .launchError(Int(ENOEXEC)))
+        #expect(AgentCommandExecutableResolver().resolve(descriptor(line513)) == nil)
+
+        let relative = root.appendingPathComponent("relative")
+        try writeResumeTestExecutable(at: relative, shebang: "#!bin/sh")
+        #expect(directExecOutcome(relative) == .launchError(Int(ENOENT)))
+        #expect(AgentCommandExecutableResolver().resolve(descriptor(relative)) == nil)
+
+        let scriptInterpreter = root.appendingPathComponent("script-interpreter")
+        let nested = root.appendingPathComponent("nested")
+        try writeResumeTestExecutable(at: scriptInterpreter)
+        try writeResumeTestExecutable(at: nested, shebang: "#!\(scriptInterpreter.path)")
+        // XNU's IMGPF_INTERPRET permits one script activation per exec.
+        #expect(directExecOutcome(nested) == .launchError(Int(ENOEXEC)))
+        #expect(AgentCommandExecutableResolver().resolve(descriptor(nested)) == nil)
+
+        let plainInterpreter = root.appendingPathComponent("plain-interpreter")
+        let plainNested = root.appendingPathComponent("plain-nested")
+        try "exit 0\n".write(to: plainInterpreter, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: plainInterpreter.path
+        )
+        try writeResumeTestExecutable(at: plainNested, shebang: "#!\(plainInterpreter.path)")
+        #expect(directExecOutcome(plainNested) == .launchError(Int(ENOEXEC)))
+        #expect(AgentCommandExecutableResolver().resolve(descriptor(plainNested)) == nil)
+
+        let unreadable = root.appendingPathComponent("unreadable")
+        try writeResumeTestExecutable(at: unreadable)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o111],
+            ofItemAtPath: unreadable.path
+        )
+        #expect(directExecOutcome(unreadable) == .exit(0))
+        #expect(AgentCommandExecutableResolver().resolve(descriptor(unreadable)) == nil)
+    }
+
+    @Test func envTargetScriptsCyclesAndDefensiveDepthBoundaryFailClosed() throws {
+        let root = try makeShortExecutableTestRoot("cycle")
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        try writeResumeTestExecutable(
-            at: agent,
-            shebang: "#!/usr/bin/env \(runtimeName)"
-        )
-        let descriptor = AgentCommandExecutionDescriptor(
-            executable: agent.path,
-            searchPath: bin.path,
-            workingDirectory: root.path
-        )
+        let descriptor: (URL) -> AgentCommandExecutionDescriptor = { url in
+            AgentCommandExecutionDescriptor(
+                executable: url.path,
+                searchPath: bin.path,
+                workingDirectory: root.path
+            )
+        }
 
-        #expect(AgentCommandExecutableResolver().resolve(descriptor) == nil)
-
-        try writeResumeTestExecutable(at: runtime)
-        let resolution = try #require(
-            AgentCommandExecutableResolver().resolve(descriptor)
+        let target = bin.appendingPathComponent("script-target")
+        let targetAgent = bin.appendingPathComponent("target-agent")
+        try writeResumeTestExecutable(at: target)
+        try writeResumeTestExecutable(at: targetAgent, shebang: "#!/usr/bin/env script-target")
+        #expect(directExecOutcome(targetAgent, path: bin.path) == .exit(0))
+        let targetResolution = try #require(
+            AgentCommandExecutableResolver().resolve(descriptor(targetAgent))
         )
-        try FileManager.default.removeItem(at: runtime)
+        try FileManager.default.removeItem(at: target)
+        #expect(!AgentCommandExecutableResolver.revalidate(targetResolution))
 
-        #expect(!AgentCommandExecutableResolver.revalidate(resolution))
+        let a = bin.appendingPathComponent("a")
+        let b = bin.appendingPathComponent("b")
+        try writeResumeTestExecutable(at: a, shebang: "#!/usr/bin/env b")
+        try writeResumeTestExecutable(at: b, shebang: "#!/usr/bin/env a")
+        #expect(directExecOutcome(a, path: bin.path, timeout: 0.2) == .timedOut)
+        #expect(AgentCommandExecutableResolver().resolve(descriptor(a)) == nil)
+
+        let wrappers = (0...17).map { bin.appendingPathComponent("w\($0)") }
+        for index in 0..<17 {
+            try writeResumeTestExecutable(
+                at: wrappers[index],
+                shebang: "#!/usr/bin/env w\(index + 1)"
+            )
+        }
+        try writeResumeTestExecutable(at: wrappers[17])
+        // Fresh env execs have no Darwin recursion limit. The resolver accepts
+        // 16 hops and conservatively rejects the 17th to bound filesystem work.
+        #expect(directExecOutcome(wrappers[1], path: bin.path) == .exit(0))
+        #expect(AgentCommandExecutableResolver().resolve(descriptor(wrappers[1])) != nil)
+        #expect(directExecOutcome(wrappers[0], path: bin.path) == .exit(0))
+        #expect(AgentCommandExecutableResolver().resolve(descriptor(wrappers[0])) == nil)
     }
 
     @MainActor
@@ -215,6 +367,62 @@ extension CMUXCLIErrorOutputRegressionTests {
                 provider: agent.kind.rawValue,
                 sessionID: agent.sessionId
             ) == "hibernated")
+        }
+    }
+
+    @MainActor
+    @Test func missingEnvRuntimeStaysHibernatedUntilRuntimeIsInstalled() throws {
+        let root = try makeShortExecutableTestRoot("env-retry")
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let executableName = "env-agent"
+        let runtimeName = "env-runtime"
+        try writeResumeTestExecutable(
+            at: bin.appendingPathComponent(executableName),
+            shebang: "#!/usr/bin/env \(runtimeName)"
+        )
+        let agent = resumeExecutableTestAgent(
+            kind: .amp,
+            sessionID: "env-runtime-retry",
+            executable: executableName,
+            workingDirectory: root.path,
+            launchEnvironment: ["PATH": bin.path]
+        )
+
+        try withResumeExecutableEnvironment(root: root, registryURL: registryURL, path: bin.path) {
+            let fixture = try makeRestoredResumeExecutableFixture(
+                root: root,
+                registryURL: registryURL,
+                agent: agent
+            )
+            var claimOperations = 0
+            #expect(!fixture.workspace.resumeVisibleAgentHibernationPanels(
+                panelIds: [fixture.panelID],
+                retryPendingAdoptions: false,
+                authorityClaimHandler: { requests in
+                    claimOperations += 1
+                    return AgentHookSessionStateWriter.acquireHibernatedResumeAuthorities(requests)
+                }
+            ))
+            #expect(claimOperations == 0)
+            #expect(fixture.panel.isAgentHibernated)
+
+            try FileManager.default.createSymbolicLink(
+                atPath: bin.appendingPathComponent(runtimeName).path,
+                withDestinationPath: "/bin/sh"
+            )
+            #expect(fixture.workspace.resumeVisibleAgentHibernationPanels(
+                panelIds: [fixture.panelID],
+                retryPendingAdoptions: false,
+                authorityClaimHandler: { requests in
+                    claimOperations += 1
+                    return AgentHookSessionStateWriter.acquireHibernatedResumeAuthorities(requests)
+                }
+            ))
+            #expect(claimOperations == 1)
+            #expect(!fixture.panel.isAgentHibernated)
         }
     }
 
@@ -547,13 +755,15 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @MainActor
-    @Test func executableRemovedDuringValidationRejectsLiveHibernationBeforeFinalTeardown() async throws {
+    @Test func shebangInterpreterRemovedDuringValidationRejectsLiveHibernationBeforeFinalTeardown() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-live-hibernation-executable-race-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let executable = root.appendingPathComponent("agent", isDirectory: false)
-        try writeResumeTestExecutable(at: executable)
+        let interpreter = root.appendingPathComponent("runtime", isDirectory: false)
+        try FileManager.default.createSymbolicLink(atPath: interpreter.path, withDestinationPath: "/bin/sh")
+        try writeResumeTestExecutable(at: executable, shebang: "#!\(interpreter.path)")
         let agent = resumeExecutableTestAgent(
             kind: .amp,
             sessionID: "live-hibernation-executable-race",
@@ -584,7 +794,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             lastActivityAt: Date(timeIntervalSince1970: 10),
             finalValidation: {
                 validationCalled.storeRelease(true)
-                try? FileManager.default.removeItem(at: executable)
+                try? FileManager.default.removeItem(at: interpreter)
                 return true
             },
             finalTeardownPreparation: {
@@ -1202,6 +1412,44 @@ extension CMUXCLIErrorOutputRegressionTests {
         return try body()
     }
 
+    private enum DirectExecOutcome: Equatable {
+        case exit(Int32)
+        case launchError(Int)
+        case timedOut
+    }
+
+    private func makeShortExecutableTestRoot(_ label: String) throws -> URL {
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cx-\(label)-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    private func directExecOutcome(
+        _ executable: URL,
+        path: String = "/usr/bin:/bin",
+        timeout: TimeInterval = 1
+    ) -> DirectExecOutcome {
+        let process = Process()
+        process.executableURL = executable
+        process.environment = ["PATH": path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            return .launchError((error as NSError).code)
+        }
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.005)
+        }
+        guard process.isRunning else { return .exit(process.terminationStatus) }
+        process.terminate()
+        process.waitUntilExit()
+        return .timedOut
+    }
+
     private func writeResumeTestExecutable(
         at url: URL,
         shebang: String = "#!/bin/sh"
@@ -1318,7 +1566,18 @@ extension WorkspaceForkConversationContextMenuTests {
                 "Explicit remote contexts must not be rejected by local filesystem availability: \(testCase.name)"
             )
 
-            try writeAgentAvailabilityTestExecutable(at: testCase.executable)
+            let runtimeName = "\(testCase.name)-runtime"
+            let runtime = bin.appendingPathComponent(runtimeName)
+            try writeAgentAvailabilityTestExecutable(
+                at: testCase.executable,
+                shebang: "#!/usr/bin/env \(runtimeName)"
+            )
+
+            #expect(
+                !(await AgentForkSupport.supportsFork(snapshot: testCase.snapshot)),
+                "The wrapper alone must not hide its missing runtime: \(testCase.name)"
+            )
+            try fileManager.createSymbolicLink(atPath: runtime.path, withDestinationPath: "/bin/sh")
 
             #expect(
                 await AgentForkSupport.supportsFork(snapshot: testCase.snapshot),
@@ -1328,17 +1587,25 @@ extension WorkspaceForkConversationContextMenuTests {
                 AgentForkSupport.forkValidationExecutableIdentity(snapshot: testCase.snapshot) != nil,
                 "Installing the executable must change the validation identity immediately: \(testCase.name)"
             )
+            try fileManager.removeItem(at: runtime)
+            #expect(
+                !(await AgentForkSupport.supportsFork(snapshot: testCase.snapshot)),
+                "Removing only the shebang runtime must disable fork: \(testCase.name)"
+            )
         }
     }
 
 }
 
-private func writeAgentAvailabilityTestExecutable(at url: URL) throws {
+private func writeAgentAvailabilityTestExecutable(
+    at url: URL,
+    shebang: String = "#!/bin/sh"
+) throws {
     try FileManager.default.createDirectory(
         at: url.deletingLastPathComponent(),
         withIntermediateDirectories: true
     )
-    try "#!/bin/sh\nexit 0\n".write(to: url, atomically: true, encoding: .utf8)
+    try "\(shebang)\nexit 0\n".write(to: url, atomically: true, encoding: .utf8)
     try FileManager.default.setAttributes(
         [.posixPermissions: 0o755],
         ofItemAtPath: url.path
