@@ -8174,6 +8174,18 @@ mod tests {
         .unwrap();
         assert!(app.encode_buf.is_empty());
 
+        app.rendered_terminal_bounds.remove(&surface.id);
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: live.x,
+            row: live.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.encode_buf.is_empty());
+        assert!(app.selection.is_none());
+        assert!(app.drag.is_none());
+
         mux.close_surface(surface.id);
     }
 
