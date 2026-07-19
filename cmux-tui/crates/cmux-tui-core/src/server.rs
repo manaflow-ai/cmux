@@ -1038,8 +1038,15 @@ impl ClientTransport {
 struct AttachedSurface {
     streams: BTreeMap<u64, OutboundStream>,
     pending_streams: BTreeMap<u64, OutboundStream>,
+    size_rollbacks: BTreeMap<u64, crate::mux::ClientSizeRollback>,
     size: Option<(u16, u16)>,
     committed_size: Option<(u16, u16)>,
+    current_report_order: Option<u64>,
+}
+
+struct DetachedSurface {
+    final_stream: bool,
+    rollback: Option<crate::mux::ClientSizeRollback>,
 }
 
 struct ClientRecord {
@@ -1157,7 +1164,13 @@ impl ClientRegistry {
         Ok(())
     }
 
-    fn commit_surface(&self, client: u64, surface: SurfaceId, stream: u64) -> anyhow::Result<()> {
+    fn commit_surface(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        stream: u64,
+        rollback: Option<crate::mux::ClientSizeRollback>,
+    ) -> anyhow::Result<()> {
         let mut clients = self.clients.lock().unwrap();
         let record =
             clients.get_mut(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
@@ -1169,6 +1182,9 @@ impl ClientRegistry {
             anyhow::anyhow!("client {client} has no pending stream {stream} for surface {surface}")
         })?;
         attached.streams.insert(stream, outbound);
+        if let Some(rollback) = rollback {
+            attached.size_rollbacks.insert(stream, rollback);
+        }
         attached.committed_size = attached.size;
         Ok(())
     }
@@ -1188,17 +1204,34 @@ impl ClientRegistry {
         Ok(Some((record.transport.as_str().to_string(), record.name.clone(), record.kind.clone())))
     }
 
-    fn detach_surface(&self, client: u64, surface: SurfaceId, stream: u64) -> bool {
+    fn detach_surface(&self, client: u64, surface: SurfaceId, stream: u64) -> DetachedSurface {
         let mut clients = self.clients.lock().unwrap();
-        let Some(record) = clients.get_mut(&client) else { return false };
-        let Some(attached) = record.attached.get_mut(&surface) else { return false };
+        let Some(record) = clients.get_mut(&client) else {
+            return DetachedSurface { final_stream: false, rollback: None };
+        };
+        let Some(attached) = record.attached.get_mut(&surface) else {
+            return DetachedSurface { final_stream: false, rollback: None };
+        };
         attached.streams.remove(&stream);
         attached.pending_streams.remove(&stream);
+        let rollback = attached.size_rollbacks.remove(&stream);
+        if let Some(removed) = rollback {
+            for remaining in attached.size_rollbacks.values_mut() {
+                if remaining.previous_report_order == Some(removed.applied_report_order) {
+                    remaining.previous_size = removed.previous_size;
+                    remaining.previous_report_order = removed.previous_report_order;
+                    remaining.previous_geometry = removed.previous_geometry;
+                }
+            }
+        }
         if attached.streams.is_empty() && attached.pending_streams.is_empty() {
             record.attached.remove(&surface);
-            return true;
+            return DetachedSurface { final_stream: true, rollback };
         }
-        false
+        let rollback = rollback.filter(|rollback| {
+            attached.current_report_order == Some(rollback.applied_report_order)
+        });
+        DetachedSurface { final_stream: false, rollback }
     }
 
     pub(crate) fn record_size(
@@ -1221,6 +1254,18 @@ impl ClientRegistry {
         Ok(Some((changed, record.name.clone(), record.kind.clone(), previous)))
     }
 
+    pub(crate) fn set_report_order(&self, client: u64, surface: SurfaceId, report_order: u64) {
+        if let Some(attached) = self
+            .clients
+            .lock()
+            .unwrap()
+            .get_mut(&client)
+            .and_then(|record| record.attached.get_mut(&surface))
+        {
+            attached.current_report_order = Some(report_order);
+        }
+    }
+
     pub(crate) fn restore_size(&self, client: u64, surface: SurfaceId, size: Option<(u16, u16)>) {
         if let Some(attached) = self
             .clients
@@ -1236,6 +1281,25 @@ impl ClientRegistry {
         }
     }
 
+    pub(crate) fn restore_size_and_report_order(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        size: Option<(u16, u16)>,
+        report_order: Option<u64>,
+    ) {
+        self.restore_size(client, surface, size);
+        if let Some(attached) = self
+            .clients
+            .lock()
+            .unwrap()
+            .get_mut(&client)
+            .and_then(|record| record.attached.get_mut(&surface))
+        {
+            attached.current_report_order = report_order;
+        }
+    }
+
     fn clear_size(
         &self,
         client: u64,
@@ -1246,6 +1310,7 @@ impl ClientRegistry {
         let attached = record.attached.get_mut(&surface)?;
         let changed = attached.size.take().is_some();
         attached.committed_size = None;
+        attached.current_report_order = None;
         Some((changed, record.name.clone(), record.kind.clone()))
     }
 
@@ -2541,8 +2606,9 @@ fn commit_client_attach(
     surface: SurfaceId,
     stream: u64,
     changed: Option<(Option<String>, Option<String>)>,
+    rollback: Option<crate::mux::ClientSizeRollback>,
 ) -> anyhow::Result<()> {
-    mux.control_clients.commit_surface(client, surface, stream)?;
+    mux.control_clients.commit_surface(client, surface, stream, rollback)?;
     let newly_announced = announce_client_attached(mux, client)?;
     if !newly_announced && let Some((name, kind)) = changed {
         mux.emit(MuxEvent::ClientChanged { client, name, kind });
@@ -2564,7 +2630,9 @@ fn commit_client_attach_and_start_worker(
     stream: u64,
     worker: AttachWorkerCommit,
 ) -> anyhow::Result<()> {
-    if let Err(error) = commit_client_attach(mux, client, surface, stream, worker.changed) {
+    if let Err(error) =
+        commit_client_attach(mux, client, surface, stream, worker.changed, worker.size_rollback)
+    {
         worker.lifecycle.cancel();
         rollback_failed_attach(mux, client, surface, stream, worker.size_rollback);
         return Err(error);
@@ -2578,7 +2646,7 @@ fn commit_client_attach_and_start_worker(
 }
 
 fn cleanup_failed_attach(mux: &Mux, client: u64, surface: SurfaceId, stream: u64) {
-    if mux.control_clients.detach_surface(client, surface, stream) {
+    if mux.control_clients.detach_surface(client, surface, stream).final_stream {
         mux.remove_surface_size_client(surface, client);
     }
 }
@@ -2590,12 +2658,21 @@ fn rollback_failed_attach(
     stream: u64,
     size_rollback: Option<crate::mux::ClientSizeRollback>,
 ) {
-    let final_stream = mux.control_clients.detach_surface(client, surface, stream);
-    if let Some(size_rollback) = size_rollback {
+    let detached = mux.control_clients.detach_surface(client, surface, stream);
+    if let Some(size_rollback) = detached.rollback.or(size_rollback) {
         mux.rollback_surface_size_client(surface, client, size_rollback);
     }
-    if final_stream {
+    if detached.final_stream {
         mux.remove_surface_size_client(surface, client);
+    }
+}
+
+fn detach_committed_attach(mux: &Mux, client: u64, surface: SurfaceId, stream: u64) {
+    let detached = mux.control_clients.detach_surface(client, surface, stream);
+    if detached.final_stream {
+        mux.remove_surface_size_client(surface, client);
+    } else if let Some(rollback) = detached.rollback {
+        mux.rollback_surface_size_client(surface, client, rollback);
     }
 }
 
@@ -3458,13 +3535,7 @@ fn handle_command(
                             );
                         }
                         report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
-                        if mux.control_clients.detach_surface(
-                            client,
-                            surface_id,
-                            outbound_stream.id,
-                        ) {
-                            mux.remove_surface_size_client(surface_id, client);
-                        }
+                        detach_committed_attach(&mux, client, surface_id, outbound_stream.id);
                     });
                 if let Err(error) = spawned {
                     lifecycle.cancel();
@@ -3623,13 +3694,7 @@ fn handle_command(
                             }
                         }
                         report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
-                        if mux.control_clients.detach_surface(
-                            client,
-                            surface_id,
-                            outbound_stream.id,
-                        ) {
-                            mux.remove_surface_size_client(surface_id, client);
-                        }
+                        detach_committed_attach(&mux, client, surface_id, outbound_stream.id);
                     });
                 if let Err(error) = spawned {
                     lifecycle.cancel();
@@ -3767,9 +3832,7 @@ fn handle_command(
                         &attach.lifecycle,
                         &outbound_stream,
                     );
-                    if mux.control_clients.detach_surface(client, surface_id, outbound_stream.id) {
-                        mux.remove_surface_size_client(surface_id, client);
-                    }
+                    detach_committed_attach(&mux, client, surface_id, outbound_stream.id);
                 });
             if let Err(error) = spawned {
                 lifecycle.cancel();
@@ -4168,7 +4231,7 @@ mod tests {
         let stream = writer.start_stream(&attach_overflow_json(41)).unwrap();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         mux.control_clients.attach_surface(client, 41, stream.clone()).unwrap();
-        mux.control_clients.commit_surface(client, 41, stream.id).unwrap();
+        mux.control_clients.commit_surface(client, 41, stream.id, None).unwrap();
         writer.send_initial(&json!({"event": "vt-state", "surface": 41}), &stream).unwrap();
         writer.send_stream(&json!({"event": "output", "surface": 41}), &stream).unwrap();
 
@@ -4397,13 +4460,13 @@ mod tests {
         let first_stream = first_writer.start_stream(&attach_overflow_json(surface.id)).unwrap();
         let first = mux.control_clients.register(ClientTransport::Unix, first_writer.clone());
         mux.control_clients.attach_surface(first, surface.id, first_stream.clone()).unwrap();
-        mux.control_clients.commit_surface(first, surface.id, first_stream.id).unwrap();
+        mux.control_clients.commit_surface(first, surface.id, first_stream.id, None).unwrap();
 
         let second_writer = test_writer();
         let second_stream = second_writer.start_stream(&attach_overflow_json(surface.id)).unwrap();
         let second = mux.control_clients.register(ClientTransport::Unix, second_writer.clone());
         mux.control_clients.attach_surface(second, surface.id, second_stream.clone()).unwrap();
-        mux.control_clients.commit_surface(second, surface.id, second_stream.id).unwrap();
+        mux.control_clients.commit_surface(second, surface.id, second_stream.id, None).unwrap();
 
         let first_result = handle_command(
             &mux,
@@ -4569,7 +4632,7 @@ mod tests {
         let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
         let stream_id = stream.id;
         mux.control_clients.attach_surface(client, surface.id, stream).unwrap();
-        mux.control_clients.commit_surface(client, surface.id, stream_id).unwrap();
+        mux.control_clients.commit_surface(client, surface.id, stream_id, None).unwrap();
         let events = mux.subscribe();
 
         handle_command(
@@ -4675,7 +4738,9 @@ mod tests {
         mux.control_clients.attach_surface(blocker, surface.id, blocker_stream).unwrap();
         mux.resize_surface(surface.id, 100, 40).unwrap();
 
-        assert!(mux.control_clients.detach_surface(blocker, surface.id, blocker_stream_id));
+        assert!(
+            mux.control_clients.detach_surface(blocker, surface.id, blocker_stream_id).final_stream
+        );
         mux.remove_surface_size_client(surface.id, blocker);
 
         assert_eq!(surface.size(), (70, 20));
@@ -4713,7 +4778,11 @@ mod tests {
         mux.control_clients.attach_surface(blocker, blocker_surface.id, blocker_stream).unwrap();
         mux.resize_surface(reported_surface.id, 100, 40).unwrap();
 
-        assert!(mux.control_clients.detach_surface(blocker, blocker_surface.id, blocker_stream_id));
+        assert!(
+            mux.control_clients
+                .detach_surface(blocker, blocker_surface.id, blocker_stream_id)
+                .final_stream
+        );
         mux.remove_surface_size_client(blocker_surface.id, blocker);
 
         assert_eq!(reported_surface.size(), (70, 20));
@@ -4728,7 +4797,7 @@ mod tests {
         let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
         let stream_id = stream.id;
         mux.control_clients.attach_surface(client, missing_surface, stream).unwrap();
-        mux.control_clients.commit_surface(client, missing_surface, stream_id).unwrap();
+        mux.control_clients.commit_surface(client, missing_surface, stream_id, None).unwrap();
 
         assert!(mux
             .resize_surface_for_control_client_with_reservation(
@@ -4774,7 +4843,7 @@ mod tests {
         let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
         let stream_id = stream.id;
         mux.control_clients.attach_surface(client, surface.id, stream).unwrap();
-        mux.control_clients.commit_surface(client, surface.id, stream_id).unwrap();
+        mux.control_clients.commit_surface(client, surface.id, stream_id, None).unwrap();
         mux.resize_surface_for_control_client_with_reservation(surface.id, client, 80, 24).unwrap();
         let changed = mux
             .resize_surface_for_control_client_with_reservation(surface.id, client, 70, 20)
@@ -4986,6 +5055,52 @@ mod tests {
     }
 
     #[test]
+    fn secondary_attach_detach_restores_the_surviving_stream_size() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let first_stream = writer.start_stream(&json!({"event": "first"})).unwrap();
+        let second_stream = writer.start_stream(&json!({"event": "second"})).unwrap();
+
+        let first =
+            mark_client_attached(&mux, client, surface.id, first_stream.clone(), Some((100, 30)))
+                .unwrap();
+        commit_client_attach(
+            &mux,
+            client,
+            surface.id,
+            first_stream.id,
+            first.client_changed,
+            first.size_rollback,
+        )
+        .unwrap();
+        let second =
+            mark_client_attached(&mux, client, surface.id, second_stream.clone(), Some((80, 24)))
+                .unwrap();
+        commit_client_attach(
+            &mux,
+            client,
+            surface.id,
+            second_stream.id,
+            second.client_changed,
+            second.size_rollback,
+        )
+        .unwrap();
+        assert_eq!(surface.size(), (80, 24));
+
+        detach_committed_attach(&mux, client, surface.id, second_stream.id);
+
+        assert_eq!(mux.client_surface_size(surface.id, client), Some((100, 30)));
+        assert_eq!(surface.size(), (100, 30));
+        let listed = mux.control_clients.list_json(client);
+        assert_eq!(listed[0]["sizes"][0]["cols"].as_u64(), Some(100));
+        assert_eq!(listed[0]["sizes"][0]["rows"].as_u64(), Some(30));
+
+        detach_committed_attach(&mux, client, surface.id, first_stream.id);
+    }
+
+    #[test]
     fn failed_attach_cleanup_releases_stream_and_size_lease() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
@@ -5112,7 +5227,7 @@ mod tests {
             event,
             MuxEvent::ClientAttached { .. } | MuxEvent::ClientChanged { .. }
         )));
-        commit_client_attach(&mux, client, surface.id, retry_stream_id, None).unwrap();
+        commit_client_attach(&mux, client, surface.id, retry_stream_id, None, None).unwrap();
 
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)),

@@ -30,6 +30,7 @@ public final class WireCaptureTest {
         assertProtocolV7RejectsSetSplitRatio();
         assertProtocolV8RejectsNewPane();
         assertProtocolV9AllowsSetSplitRatio();
+        assertPartialAttachSizeIsRejected();
     }
 
     private static byte[] captureIdentify() throws Exception {
@@ -122,6 +123,24 @@ public final class WireCaptureTest {
             "{\"split\":4,\"ratio\":0.625,\"id\":2,\"cmd\":\"set-split-ratio\"}\n",
             server.firstLine(1)
         );
+    }
+
+    private static void assertPartialAttachSizeIsRejected() throws Exception {
+        Path socket = freshSocketPath();
+        CaptureServer server = new CaptureServer(socket, new String[0]);
+        server.start();
+        try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+            try {
+                client.attachSurface(9, 120, null);
+                throw new AssertionError("partial attach size must be rejected");
+            } catch (IllegalArgumentException error) {
+                if (!error.getMessage().equals("attach-surface cols and rows must be supplied together")) {
+                    throw error;
+                }
+            }
+        } finally {
+            server.close();
+        }
     }
 
     private static Path freshSocketPath() throws IOException {

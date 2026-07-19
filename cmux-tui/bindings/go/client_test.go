@@ -87,6 +87,18 @@ func TestWorkspaceRegistrySelectorsRejectMissingAndEmptyKeysLocally(t *testing.T
 	}
 }
 
+func TestAttachSurfaceRejectsPartialInitialSizeLocally(t *testing.T) {
+	cols := uint16(80)
+	_, err := (&Client{}).AttachSurfaceWithOptions(
+		context.Background(),
+		1,
+		AttachSurfaceOptions{Cols: &cols},
+	)
+	if !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("partial attach size error = %v", err)
+	}
+}
+
 func TestIdentifyCapabilityStateIsConcurrentSafe(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	defer serverConn.Close()

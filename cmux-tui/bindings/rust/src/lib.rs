@@ -773,6 +773,11 @@ impl CmuxClient {
         surface: u64,
         options: AttachSurfaceOptions,
     ) -> Result<CmuxStream> {
+        if options.cols.is_some() != options.rows.is_some() {
+            return Err(CmuxError::InvalidArgument(
+                "attach-surface cols and rows must be supplied together".to_string(),
+            ));
+        }
         let protocol = match self.protocol {
             Some(protocol) => protocol,
             None => self.identify()?.protocol,
@@ -1200,6 +1205,27 @@ mod tests {
         ));
         validate_workspace_selector(Some(1), None).unwrap();
         validate_workspace_selector(None, Some("stable")).unwrap();
+    }
+
+    #[test]
+    fn attach_surface_rejects_partial_initial_size_locally() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(5),
+            capabilities: Vec::new(),
+        };
+        assert!(matches!(
+            client.attach_surface_with_options(
+                1,
+                AttachSurfaceOptions { cols: Some(80), rows: None },
+            ),
+            Err(CmuxError::InvalidArgument(message))
+                if message == "attach-surface cols and rows must be supplied together"
+        ));
     }
 
     #[test]

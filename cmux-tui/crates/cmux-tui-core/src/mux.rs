@@ -379,9 +379,10 @@ struct ClientSizingRollbackToken {
 
 #[derive(Clone, Copy)]
 pub(crate) struct ClientSizeRollback {
-    previous_size: Option<(u16, u16)>,
-    previous_report_order: Option<u64>,
-    previous_geometry: Option<(u16, u16)>,
+    pub(crate) previous_size: Option<(u16, u16)>,
+    pub(crate) previous_report_order: Option<u64>,
+    pub(crate) previous_geometry: Option<(u16, u16)>,
+    pub(crate) applied_report_order: u64,
 }
 
 pub(crate) struct ControlClientResize {
@@ -493,6 +494,7 @@ pub struct Mux {
     next_active_at: AtomicU64,
     surface_options: Mutex<SurfaceOptions>,
     latest_client_size: Mutex<LatestClientSize>,
+    empty_workspace_materialization: Mutex<()>,
     client_sizing_lifecycle: Mutex<()>,
     client_sizing: Mutex<ClientSizingState>,
     #[cfg(test)]
@@ -501,6 +503,10 @@ pub struct Mux {
     client_rollback_before_wait: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     workspace_close_before_empty_check: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    terminal_create_after_empty_check: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    terminal_create_after_materialization_lock: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
@@ -544,6 +550,7 @@ impl Mux {
             next_active_at: AtomicU64::new(1),
             surface_options: Mutex::new(surface_options),
             latest_client_size: Mutex::new(LatestClientSize::default()),
+            empty_workspace_materialization: Mutex::new(()),
             client_sizing_lifecycle: Mutex::new(()),
             client_sizing: Mutex::new(ClientSizingState::default()),
             #[cfg(test)]
@@ -552,6 +559,10 @@ impl Mux {
             client_rollback_before_wait: Mutex::new(None),
             #[cfg(test)]
             workspace_close_before_empty_check: Mutex::new(None),
+            #[cfg(test)]
+            terminal_create_after_empty_check: Mutex::new(None),
+            #[cfg(test)]
+            terminal_create_after_materialization_lock: Mutex::new(None),
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(DefaultColors::default()),
@@ -955,6 +966,7 @@ impl Mux {
             self.control_clients.restore_size(client, id, *previous);
         }
         let result = result?;
+        self.control_clients.set_report_order(client, id, result.2.applied_report_order);
         self.reconcile_latest_client_size(&sizing, &attached_clients);
         drop(sizing);
         Ok(ControlClientResize {
@@ -996,6 +1008,7 @@ impl Mux {
                     previous_size: previous,
                     previous_report_order: previous_order,
                     previous_geometry,
+                    applied_report_order: report_order,
                 },
             ));
         };
@@ -1013,6 +1026,7 @@ impl Mux {
                     previous_size: previous,
                     previous_report_order: previous_order,
                     previous_geometry,
+                    applied_report_order: report_order,
                 },
             )),
             Err(error) => {
@@ -1050,7 +1064,15 @@ impl Mux {
         let current_size =
             sizing.surfaces.get(&id).and_then(|viewers| viewers.get(&client).copied());
         let current_report_order = sizing.report_order.get(&(id, client)).copied();
-        self.control_clients.restore_size(client, id, rollback.previous_size);
+        if current_report_order != Some(rollback.applied_report_order) {
+            return;
+        }
+        self.control_clients.restore_size_and_report_order(
+            client,
+            id,
+            rollback.previous_size,
+            rollback.previous_report_order,
+        );
         match rollback.previous_size {
             Some(size) => {
                 sizing.surfaces.entry(id).or_default().insert(client, size);
@@ -1126,7 +1148,12 @@ impl Mux {
         // The failed attach already changed the real surface geometry. If
         // restoration fails, retain the pre-rollback report only when no
         // newer sizing mutation superseded this rollback while it was pending.
-        self.control_clients.restore_size(client, id, current_size);
+        self.control_clients.restore_size_and_report_order(
+            client,
+            id,
+            current_size,
+            current_report_order,
+        );
         match current_size {
             Some(size) => {
                 sizing.surfaces.entry(id).or_default().insert(client, size);
@@ -2266,6 +2293,24 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
+        let materializes_empty_workspace = {
+            let state = self.state.lock().unwrap();
+            let Some(workspace) = state.workspace_by_id(workspace) else {
+                anyhow::bail!("unknown workspace {workspace}");
+            };
+            workspace.screens.is_empty()
+        };
+        #[cfg(test)]
+        if let Some(hook) = self.terminal_create_after_empty_check.lock().unwrap().clone() {
+            hook();
+        }
+        let _materialization = materializes_empty_workspace
+            .then(|| self.empty_workspace_materialization.lock().unwrap());
+        #[cfg(test)]
+        if let Some(hook) = self.terminal_create_after_materialization_lock.lock().unwrap().clone()
+        {
+            hook();
+        }
         let inherited_cwd = {
             let state = self.state.lock().unwrap();
             let Some(workspace) = state.workspace_by_id(workspace) else {
@@ -2684,7 +2729,7 @@ impl Mux {
             let active = state.panes.get(&pane)?.active_surface()?;
             state.surfaces.get(&active).cloned()
         };
-        surface.and_then(|s| s.pwd())
+        surface.and_then(|surface| surface.pwd().or_else(|| surface.spawn_cwd()))
     }
 
     /// Split the screen containing `target`, putting a new single-tab
@@ -6197,6 +6242,72 @@ mod tests {
         for surface in surfaces {
             surface.kill();
         }
+    }
+
+    #[test]
+    fn concurrent_empty_workspace_terminal_inherits_the_first_terminals_cwd() {
+        let mux = test_mux();
+        let workspace = mux.create_empty_workspace(Some("shared".into()), None, None).unwrap();
+        let empty_checks = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (second_checked_tx, second_checked_rx) = std::sync::mpsc::sync_channel(1);
+        *mux.terminal_create_after_empty_check.lock().unwrap() = Some(Arc::new({
+            move || {
+                if empty_checks.fetch_add(1, Ordering::SeqCst) == 1 {
+                    second_checked_tx.send(()).unwrap();
+                }
+            }
+        }));
+
+        let first_locked = Arc::new(AtomicBool::new(false));
+        let (first_locked_tx, first_locked_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let release_rx = Arc::new(Mutex::new(release_rx));
+        *mux.terminal_create_after_materialization_lock.lock().unwrap() = Some(Arc::new({
+            move || {
+                if !first_locked.swap(true, Ordering::SeqCst) {
+                    first_locked_tx.send(()).unwrap();
+                    release_rx.lock().unwrap().recv().unwrap();
+                }
+            }
+        }));
+
+        let first = std::thread::spawn({
+            let mux = mux.clone();
+            move || {
+                mux.create_terminal_surface_in_workspace(
+                    workspace.workspace,
+                    None,
+                    Some("/tmp".into()),
+                    None,
+                    Some((80, 24)),
+                )
+                .unwrap()
+            }
+        });
+        first_locked_rx.recv().unwrap();
+        let second = std::thread::spawn({
+            let mux = mux.clone();
+            move || {
+                mux.create_terminal_surface_in_workspace(
+                    workspace.workspace,
+                    None,
+                    None,
+                    None,
+                    Some((80, 24)),
+                )
+                .unwrap()
+            }
+        });
+        second_checked_rx.recv().unwrap();
+        release_tx.send(()).unwrap();
+
+        let (first_surface, _) = first.join().unwrap();
+        let (second_surface, _) = second.join().unwrap();
+        assert_eq!(first_surface.spawn_cwd().as_deref(), Some("/tmp"));
+        assert_eq!(second_surface.spawn_cwd().as_deref(), Some("/tmp"));
+        *mux.terminal_create_after_empty_check.lock().unwrap() = None;
+        *mux.terminal_create_after_materialization_lock.lock().unwrap() = None;
+        mux.shutdown();
     }
 
     #[test]

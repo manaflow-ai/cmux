@@ -1002,20 +1002,23 @@ fn attach_stream_orders_resize_between_output_frames() {
         ),
     );
     let surface = mux.new_workspace(None, None).unwrap();
+    wait_for(
+        || {
+            surface
+                .with_terminal(|terminal| {
+                    terminal.plain_text().ok().filter(|text| text.contains("before-resize"))
+                })
+                .flatten()
+        },
+        Duration::from_secs(10),
+    )
+    .expect("before output");
     let attach = surface.attach_stream().unwrap();
-
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        match attach.stream.recv_timeout(Duration::from_millis(200)) {
-            Ok(AttachFrame::Output(bytes))
-                if bytes.windows(b"before-resize".len()).any(|w| w == b"before-resize") =>
-            {
-                break;
-            }
-            Ok(_) => {}
-            Err(_) => assert!(Instant::now() < deadline, "before output never arrived"),
-        }
-    }
+    let mut initial =
+        ghostty_vt::Terminal::new(attach.cols, attach.rows, 1000, ghostty_vt::Callbacks::default())
+            .unwrap();
+    initial.vt_write(&attach.replay);
+    assert!(initial.plain_text().unwrap().contains("before-resize"));
 
     mux.resize_surface(surface.id, 100, 40).unwrap();
     let resized = wait_for(

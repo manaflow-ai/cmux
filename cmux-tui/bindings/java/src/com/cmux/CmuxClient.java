@@ -372,6 +372,11 @@ public final class CmuxClient implements AutoCloseable {
     }
 
     public CmuxStream attachSurface(long surface, Integer cols, Integer rows) throws CmuxException {
+        if ((cols == null) != (rows == null)) {
+            throw new IllegalArgumentException(
+                "attach-surface cols and rows must be supplied together"
+            );
+        }
         int negotiated = protocol != null ? protocol : identify().protocol();
         if (negotiated > 5 && !allowProtocolV6Attach) {
             throw new CmuxProtocolMismatchException("unsupported attach protocol " + negotiated);

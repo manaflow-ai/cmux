@@ -2,10 +2,19 @@ import unittest
 from unittest.mock import patch
 
 from cmux import CmuxClient, ProtocolError
-from cmux.client import Layout, _parse_tree
+from cmux.client import IdentifyResult, Layout, _parse_tree
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_identify_result_preserves_positional_artifact_revisions(self) -> None:
+        result = IdentifyResult(
+            "cmux-tui", "0.1.2", 7, "main", 42, "cmux-sha", "ghostty-sha"
+        )
+
+        self.assertEqual(result.build_commit, "cmux-sha")
+        self.assertEqual(result.ghostty_commit, "ghostty-sha")
+        self.assertEqual(result.capabilities, ())
+
     def test_identify_and_ping_preserve_artifact_revisions(self) -> None:
         client = CmuxClient.__new__(CmuxClient)
         responses = {
@@ -68,6 +77,14 @@ class ProtocolTests(unittest.TestCase):
             client.attach_surface(1)
 
         attach.assert_called_once_with(client, {"cmd": "attach-surface", "surface": 1})
+
+    def test_attach_rejects_partial_initial_size_locally(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+
+        with self.assertRaisesRegex(
+            ValueError, "attach-surface cols and rows must be supplied together"
+        ):
+            client.attach_surface(1, cols=80)
 
     def test_workspace_registry_fields_and_placements(self) -> None:
         tree = _parse_tree({

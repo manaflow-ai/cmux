@@ -230,6 +230,8 @@ void legacyWorkspaceDelta;
 async function typedAttachModes(client: CmuxClient): Promise<void> {
   const bytes: CmuxStream<DecodedAttachEvent> = await client.attachSurface(1);
   const render: CmuxStream<RenderAttachEvent> = await client.attachSurface(1, { mode: "render" });
+  // @ts-expect-error Initial attach dimensions are an all-or-nothing pair.
+  void client.attachSurface(1, { cols: 80 });
   bytes.close();
   render.close();
 }

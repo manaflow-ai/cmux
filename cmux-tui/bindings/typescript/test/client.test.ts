@@ -573,6 +573,20 @@ test("protocol v7 refuses initial attach sizing without the advertised capabilit
   await client.close();
 });
 
+test("attachSurface rejects partial initial sizing before transport", async () => {
+  let requests = 0;
+  const transport = new ScriptedTransport(() => { requests += 1; });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  await assert.rejects(
+    () => client.attachSurface(7, { cols: 80 } as never),
+    (error: unknown) => error instanceof CmuxProtocolError
+      && error.message === "attach-surface cols and rows must be supplied together",
+  );
+  assert.equal(requests, 0);
+  await client.close();
+});
+
 test("protocol v7 refuses registry CAS mutations without the advertised capability", async () => {
   let mutationRequests = 0;
   const transport = new ScriptedTransport((request, connection) => {

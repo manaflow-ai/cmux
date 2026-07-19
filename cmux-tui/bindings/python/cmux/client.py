@@ -58,9 +58,9 @@ class IdentifyResult:
     protocol: int
     session: str
     pid: int
-    capabilities: tuple[str, ...] = ()
     build_commit: Optional[str] = None
     ghostty_commit: Optional[str] = None
+    capabilities: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -709,6 +709,8 @@ class CmuxClient:
     def attach_surface(
         self, surface: int, *, cols: Optional[int] = None, rows: Optional[int] = None
     ) -> AttachStream:
+        if (cols is None) != (rows is None):
+            raise ValueError("attach-surface cols and rows must be supplied together")
         protocol = self._protocol if self._protocol is not None else self.identify().protocol
         if protocol > 5 and not self.allow_protocol_v6_attach:
             raise ProtocolError("protocol v6+ attach streams require resized replay handling")

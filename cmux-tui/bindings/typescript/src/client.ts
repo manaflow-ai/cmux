@@ -116,7 +116,10 @@ export interface SendOptions {
   paste?: boolean;
 }
 export interface SubscribeOptions { treeEvents?: "coarse" | "deltas" }
-export interface AttachSurfaceOptions { mode?: "bytes" | "render"; cols?: number; rows?: number }
+export type AttachSurfaceOptions = { mode?: "bytes" | "render" } & (
+  | { cols: number; rows: number }
+  | { cols?: never; rows?: never }
+);
 
 interface PendingResponse {
   resolve: (response: CmuxResponse<unknown>) => void;
@@ -569,6 +572,9 @@ export class CmuxClient {
     surface: Id,
     options: AttachSurfaceOptions = {},
   ): Promise<CmuxStream<DecodedAttachEvent> | CmuxStream<RenderAttachEvent>> {
+    if ((options.cols === undefined) !== (options.rows === undefined)) {
+      throw new CmuxProtocolError("attach-surface cols and rows must be supplied together");
+    }
     const mode = options.mode ?? "bytes";
     const protocol = this.identifiedProtocol ?? (await this.identify()).protocol;
     if (mode === "render" && protocol < 7) {

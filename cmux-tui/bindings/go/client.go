@@ -492,6 +492,9 @@ func (c *Client) AttachSurface(ctx context.Context, surface uint64) (*Stream, er
 }
 
 func (c *Client) AttachSurfaceWithOptions(ctx context.Context, surface uint64, opts AttachSurfaceOptions) (*Stream, error) {
+	if (opts.Cols == nil) != (opts.Rows == nil) {
+		return nil, fmt.Errorf("%w: attach-surface cols and rows must be supplied together", ErrInvalidArgument)
+	}
 	protocol, identified, _ := c.negotiatedState("")
 	if !identified {
 		if _, err := c.Identify(ctx); err != nil {
