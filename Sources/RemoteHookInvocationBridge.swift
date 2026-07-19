@@ -46,6 +46,9 @@ nonisolated struct RemoteHookInvocationBridge: Sendable {
                 }
                 try append(chunk, toTransfer: transferID)
                 return .success(["appended": true])
+            case "hooks.invoke.cancel":
+                let transferID = try requiredString("transfer_id", params: params)
+                return .success(["cancelled": try cancelTransfer(transferID)])
             case "hooks.invoke.execute":
                 let transferID = try requiredString("transfer_id", params: params)
                 let invocation = try takeTransfer(transferID)

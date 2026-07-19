@@ -86,6 +86,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "hooks.invoke",
         "hooks.invoke.begin",
         "hooks.invoke.append",
+        "hooks.invoke.cancel",
         "hooks.invoke.execute",
         "browser.download.wait",
         "browser.profiles.list",

@@ -118,6 +118,26 @@ extension RemoteHookInvocationBridge {
         try? FileManager.default.removeItem(at: slotDirectory)
     }
 
+    func cancelTransfer(_ transferID: String) throws -> Bool {
+        let components = try transferComponents(for: transferID)
+        let slotDirectory = transferRoot.appendingPathComponent("slot-\(components.slot)", isDirectory: true)
+        let stagedDirectory = slotDirectory.appendingPathComponent(components.uuid.uuidString, isDirectory: true)
+        let cancelledDirectory = slotDirectory.appendingPathComponent(
+            "cancelled-\(components.uuid.uuidString)",
+            isDirectory: true
+        )
+        do {
+            try FileManager.default.moveItem(at: stagedDirectory, to: cancelledDirectory)
+        } catch {
+            if !FileManager.default.fileExists(atPath: stagedDirectory.path) {
+                return false
+            }
+            throw invalidTransferError()
+        }
+        try? FileManager.default.removeItem(at: slotDirectory)
+        return true
+    }
+
     func removeStaleTransfers(now: Date = Date()) {
         let fileManager = FileManager.default
         guard let slots = try? fileManager.contentsOfDirectory(

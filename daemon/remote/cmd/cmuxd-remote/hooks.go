@@ -18,6 +18,7 @@ import (
 
 const (
 	remoteHookTimeout               = 130 * time.Second
+	remoteHookCleanupTimeout        = 10 * time.Second
 	remoteHookChunkBytes            = 6 * 1024
 	remoteHookDirectBytes           = 3 * 1024
 	remoteHookMaxEventInput         = 8 * 1024 * 1024
@@ -426,6 +427,14 @@ func invokeRemoteHook(socketPath string, arguments []string, stdin []byte, refre
 	if err := json.Unmarshal([]byte(response), &begin); err != nil || begin.TransferID == "" {
 		return remoteHookInvocationResult{}, errors.New("invalid hook transfer response")
 	}
+	cancelPending := true
+	defer func() {
+		if cancelPending {
+			_, _ = socketRoundTripV2WithTimeout(socketPath, "hooks.invoke.cancel", map[string]any{
+				"transfer_id": begin.TransferID,
+			}, refreshAddr, remoteHookCleanupTimeout)
+		}
+	}()
 	for offset := 0; offset < len(stdin); offset += remoteHookChunkBytes {
 		end := min(offset+remoteHookChunkBytes, len(stdin))
 		chunkParams := map[string]any{
@@ -439,6 +448,9 @@ func invokeRemoteHook(socketPath string, arguments []string, stdin []byte, refre
 	response, err = socketRoundTripV2WithTimeout(socketPath, "hooks.invoke.execute", map[string]any{
 		"transfer_id": begin.TransferID,
 	}, refreshAddr, remoteHookTimeout)
+	if err == nil {
+		cancelPending = false
+	}
 	return decodeRemoteHookInvocation(response, err)
 }
 

@@ -155,7 +155,7 @@ struct ControlCommandExecutionPolicyTests {
     }
 
     @Test func remoteHookBridgeRunsOffTheMainActor() {
-        for method in ["hooks.invoke", "hooks.invoke.begin", "hooks.invoke.append", "hooks.invoke.execute"] {
+        for method in ["hooks.invoke", "hooks.invoke.begin", "hooks.invoke.append", "hooks.invoke.cancel", "hooks.invoke.execute"] {
             #expect(ControlCommandExecutionPolicy(forMethod: method) == .socketWorker(mainThreadCallable: false))
         }
     }
