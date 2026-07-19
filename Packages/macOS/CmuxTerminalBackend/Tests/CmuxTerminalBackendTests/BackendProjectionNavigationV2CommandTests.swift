@@ -400,7 +400,7 @@ struct BackendProjectionNavigationV2CommandTests {
         await client.close()
     }
 
-    @Test("list-all returns the fourth restart conflict without sending a fifth attempt")
+    @Test("list-all returns the third-attempt conflict without sending a fourth attempt")
     func listAllRestartBound() async throws {
         let transport = ScriptedBackendTransport()
         let client = BackendProtocolClient(transport: transport)
@@ -413,7 +413,7 @@ struct BackendProjectionNavigationV2CommandTests {
                 expectedTopologyRevision: 41
             )
         }
-        for revision in UInt64(1) ... UInt64(4) {
+        for revision in UInt64(1) ... UInt64(3) {
             let request = try request(await transport.nextSent())
             #expect(request["cursor"] == nil)
             await transport.enqueue(try response(to: request, data: [
@@ -428,7 +428,7 @@ struct BackendProjectionNavigationV2CommandTests {
             Issue.record("expected the bounded restart conflict")
             return
         }
-        #expect(revision == 4)
+        #expect(revision == 3)
         #expect(await transport.sentCount() == 0)
         await client.close()
     }
@@ -437,6 +437,52 @@ struct BackendProjectionNavigationV2CommandTests {
     func listPageValidation() async throws {
         let authority = try authority()
         let identifiers = try identifiers()
+        var nilIdentityState = statePayload(identifiers: identifiers, generation: 1)
+        var nilIdentityWorkspaces = try #require(
+            nilIdentityState["workspaces"] as? [[String: Any]]
+        )
+        var nilIdentityScreens = try #require(
+            nilIdentityWorkspaces[0]["screens"] as? [[String: Any]]
+        )
+        var nilIdentityPanes = try #require(
+            nilIdentityScreens[0]["panes"] as? [[String: Any]]
+        )
+        let nilUUID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        nilIdentityPanes[0]["pane_uuid"] = nilUUID.uuidString
+        nilIdentityScreens[0]["active_pane_uuid"] = nilUUID.uuidString
+        nilIdentityScreens[0]["zoomed_pane_uuid"] = nilUUID.uuidString
+        nilIdentityScreens[0]["panes"] = nilIdentityPanes
+        nilIdentityWorkspaces[0]["screens"] = nilIdentityScreens
+        nilIdentityState["workspaces"] = nilIdentityWorkspaces
+
+        var divergentZoomState = statePayload(identifiers: identifiers, generation: 1)
+        var divergentZoomWorkspaces = try #require(
+            divergentZoomState["workspaces"] as? [[String: Any]]
+        )
+        var divergentZoomScreens = try #require(
+            divergentZoomWorkspaces[0]["screens"] as? [[String: Any]]
+        )
+        var divergentZoomPanes = try #require(
+            divergentZoomScreens[0]["panes"] as? [[String: Any]]
+        )
+        let secondPaneID = try uuid("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2")
+        let secondSurfaceID = try uuid("cccccccc-cccc-4ccc-8ccc-ccccccccccc2")
+        divergentZoomPanes.append([
+            "pane_uuid": secondPaneID.uuidString,
+            "selected_surface_uuid": secondSurfaceID.uuidString,
+        ])
+        divergentZoomScreens[0]["zoomed_pane_uuid"] = secondPaneID.uuidString
+        divergentZoomScreens[0]["panes"] = divergentZoomPanes
+        divergentZoomWorkspaces[0]["screens"] = divergentZoomScreens
+        divergentZoomState["workspaces"] = divergentZoomWorkspaces
+
+        let oversizedPage = try (0 ..< 65).map { index in
+            statePayload(
+                identifiers: identifiers,
+                generation: 1,
+                logicalPresentationID: indexedUUID(index + 1)
+            )
+        }
         let scenarios: [(String, UInt64, UInt64?, [String: Any]?, [[String: Any]])] = [
             (
                 "topology mismatch",
@@ -471,6 +517,27 @@ struct BackendProjectionNavigationV2CommandTests {
                     "after_logical_presentation_id": UUID().uuidString,
                 ],
                 [statePayload(identifiers: identifiers, generation: 1)]
+            ),
+            (
+                "nil canonical identity",
+                41,
+                1,
+                nil,
+                [nilIdentityState]
+            ),
+            (
+                "zoomed pane differs from active pane",
+                41,
+                1,
+                nil,
+                [divergentZoomState]
+            ),
+            (
+                "page exceeds per-client record bound",
+                41,
+                1,
+                nil,
+                oversizedPage
             ),
         ]
 
@@ -552,6 +619,57 @@ struct BackendProjectionNavigationV2CommandTests {
         let capabilities = BackendHandshakePolicy.terminalAuthorityV1.requiredCapabilities
         #expect(capabilities.contains("projection-state-reconnect-v1"))
         #expect(capabilities.contains("projection-navigation-v2"))
+    }
+
+    @Test("mutation rejects nil request, logical-presentation, and claim IDs before dispatch")
+    func mutationRejectsNilIdentities() async throws {
+        let transport = ScriptedBackendTransport()
+        let client = BackendProtocolClient(transport: transport)
+        try await client.connect()
+        let authority = try authority()
+        let identifiers = try identifiers()
+        let nilID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        let scenarios = [
+            (
+                nilID,
+                BackendProjectionNavigationMutation(
+                    logicalPresentationID: identifiers.logicalPresentationID,
+                    claimID: identifiers.claimID,
+                    expectedGeneration: 1,
+                    operations: []
+                )
+            ),
+            (
+                identifiers.requestID,
+                BackendProjectionNavigationMutation(
+                    logicalPresentationID: nilID,
+                    claimID: identifiers.claimID,
+                    expectedGeneration: 1,
+                    operations: []
+                )
+            ),
+            (
+                identifiers.requestID,
+                BackendProjectionNavigationMutation(
+                    logicalPresentationID: identifiers.logicalPresentationID,
+                    claimID: nilID,
+                    expectedGeneration: 1,
+                    operations: []
+                )
+            ),
+        ]
+        for scenario in scenarios {
+            await #expect(throws: BackendProtocolError.malformedMessage) {
+                try await client.mutateProjectionNavigationV2(
+                    requestID: scenario.0,
+                    authority: authority,
+                    expectedTopologyRevision: 41,
+                    projections: [scenario.1]
+                )
+            }
+        }
+        #expect(await transport.sentCount() == 0)
+        await client.close()
     }
 
     @Test("v2 list is rejected locally in diagnostic mode because the daemon may promote state")
@@ -644,11 +762,14 @@ struct BackendProjectionNavigationV2CommandTests {
 
     private func statePayload(
         identifiers: Identifiers,
-        generation: UInt64
+        generation: UInt64,
+        logicalPresentationID: UUID? = nil
     ) -> [String: Any] {
         [
             "schema_version": 2,
-            "logical_presentation_id": identifiers.logicalPresentationID.uuidString,
+            "logical_presentation_id": (
+                logicalPresentationID ?? identifiers.logicalPresentationID
+            ).uuidString,
             "generation": generation,
             "claim_id": identifiers.claimID.uuidString,
             "claimed_process_instance_uuid": identifiers.processInstanceID.uuidString,
@@ -730,5 +851,9 @@ struct BackendProjectionNavigationV2CommandTests {
 
     private func uuid(_ string: String) throws -> UUID {
         try #require(UUID(uuidString: string))
+    }
+
+    private func indexedUUID(_ index: Int) throws -> UUID {
+        try uuid(String(format: "00000000-0000-4000-8000-%012llx", UInt64(index)))
     }
 }
