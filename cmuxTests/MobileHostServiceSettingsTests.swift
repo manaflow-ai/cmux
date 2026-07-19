@@ -11,21 +11,18 @@ import Testing
 #endif
 
 struct MobileHostServiceSettingsTests {
-    @Test func mobileHostListenerHonorsBuildDefaultUntilIOSPairingIsOverridden() throws {
+    @Test func mobileHostListenerHonorsDevelopmentDefaultUntilIOSPairingIsOverridden() throws {
         let suiteName = "MobileHostServiceSettingsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        #expect(
-            MobileHostService.isListeningEnabled(defaults: defaults)
-                == SettingCatalog().mobile.iOSPairingHost.defaultValue
-        )
+        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .dev))
 
         defaults.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
-        #expect(MobileHostService.isListeningEnabled(defaults: defaults))
+        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .dev))
 
         defaults.set(false, forKey: MobileHostService.listeningEnabledDefaultsKey)
-        #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
+        #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .dev))
     }
 
     @Test func signedInIrohStartsWithoutEnablingTheLegacyListener() {
