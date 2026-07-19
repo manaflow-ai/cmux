@@ -38,11 +38,6 @@ struct RemoteInitialCommandBootstrapTests {
             *) shift ;;
           esac
         done
-        for cmux_test_command_file in "${cmux_test_rcfile%/*}"/initial-command.*; do
-          if [ -f "$cmux_test_command_file" ]; then
-            stat -f '%Lp' "$cmux_test_command_file" > "$HOME/initial command mode.txt"
-          fi
-        done
         [ -n "$cmux_test_rcfile" ] && . "$cmux_test_rcfile"
         """.write(to: fakeBash, atomically: true, encoding: .utf8)
         try fileManager.setAttributes(
@@ -144,12 +139,6 @@ struct RemoteInitialCommandBootstrapTests {
         #expect(
             captured == "spaces 'single' \"double\" remote-only remote-substitution\nsecond workspace\nconcurrent reattach\nexec command\n"
         )
-        let mode = try String(
-            contentsOf: home.appendingPathComponent("initial command mode.txt"),
-            encoding: .utf8
-        )
-        #expect(mode == "600\n")
-
         let shellState = home.appendingPathComponent(".cmux/relay/0.shell")
         let shellStateContents = try fileManager.contentsOfDirectory(atPath: shellState.path)
         #expect(shellStateContents.filter { $0.hasPrefix(".initial-command.started.") }.count == 4)
@@ -235,6 +224,7 @@ struct RemoteInitialCommandBootstrapTests {
         #!/bin/sh
         case "${1:-}" in
           -i) exit 0 ;;
+          -c) [ "$#" -eq 2 ] || exit 66; exec /bin/sh -c "$2" ;;
           -*) printf 'unexpected shell option: %s\\n' "$1" >&2; exit 64 ;;
           '') exit 65 ;;
           *) [ "$#" -eq 1 ] || exit 66; exec /bin/sh "$1" ;;

@@ -19,43 +19,42 @@ struct RemoteInitialCommandBootstrap {
     var preparationLines: [String] {
         guard let encodedCommand else { return [] }
         return [
-            "unset CMUX_INITIAL_COMMAND_FILE",
-            "if [ ! -d \"$cmux_shell_dir/.initial-command.started.\(stateKey)\" ]; then",
-            "  cmux_initial_command_b64='\(encodedCommand)'",
-            "  cmux_initial_command_file=\"$cmux_shell_dir/initial-command.\(stateKey).$$\"",
-            "  (umask 077; (printf %s \"$cmux_initial_command_b64\" | base64 -d 2>/dev/null || printf %s \"$cmux_initial_command_b64\" | base64 -D 2>/dev/null) > \"$cmux_initial_command_file\") || { rm -f -- \"$cmux_initial_command_file\"; exit 1; }",
-            "  chmod 600 \"$cmux_initial_command_file\" >/dev/null 2>&1 || true",
-            "  export CMUX_INITIAL_COMMAND_FILE=\"$cmux_initial_command_file\"",
-            "fi",
-            "unset cmux_initial_command_b64 cmux_initial_command_file",
+            "cmux_initial_command_b64='\(encodedCommand)'",
+            "export CMUX_INITIAL_COMMAND_B64=\"$cmux_initial_command_b64\"",
+            "unset cmux_initial_command_b64",
         ]
     }
 
-    /// Atomically claims and sources the command after zsh or bash startup files load.
+    /// Atomically claims and runs the command after zsh or bash startup files load.
     var posixInteractiveShellLines: [String] {
         guard encodedCommand != nil else { return [] }
         return [
-            "cmux_initial_command_file=\"${CMUX_INITIAL_COMMAND_FILE:-}\"",
             "cmux_initial_command_started=\"$CMUX_SHELL_INTEGRATION_DIR/.initial-command.started.\(stateKey)\"",
-            "unset CMUX_INITIAL_COMMAND_FILE",
-            "if [ -r \"$cmux_initial_command_file\" ]; then",
-            "  if mkdir \"$cmux_initial_command_started\" 2>/dev/null; then . \"$cmux_initial_command_file\"; fi",
-            "  rm -f -- \"$cmux_initial_command_file\" 2>/dev/null || true",
+            "unset cmux_initial_command cmux_initial_command_decode_status",
+            "if [ -n \"${CMUX_INITIAL_COMMAND_B64:-}\" ] && mkdir \"$cmux_initial_command_started\" 2>/dev/null; then",
+            "  cmux_initial_command=$(printf %s \"$CMUX_INITIAL_COMMAND_B64\" | base64 -d 2>/dev/null || printf %s \"$CMUX_INITIAL_COMMAND_B64\" | base64 -D 2>/dev/null)",
+            "  cmux_initial_command_decode_status=$?",
+            "  unset CMUX_INITIAL_COMMAND_B64",
+            "  if [ \"$cmux_initial_command_decode_status\" -eq 0 ]; then eval \"$cmux_initial_command\"; fi",
+            "else",
+            "  unset CMUX_INITIAL_COMMAND_B64",
             "fi",
-            "unset cmux_initial_command_file cmux_initial_command_started",
+            "unset cmux_initial_command cmux_initial_command_decode_status cmux_initial_command_started",
         ]
     }
 
-    /// Atomically claims and sources the command from fish's initialization hook.
+    /// Atomically claims and runs the command from fish's initialization hook.
     var fishInteractiveShellCommand: String? {
         guard encodedCommand != nil else { return nil }
         return [
-            "set -l cmux_initial_command_file \"$CMUX_INITIAL_COMMAND_FILE\"",
             "set -l cmux_initial_command_started \"$CMUX_SHELL_INTEGRATION_DIR/.initial-command.started.\(stateKey)\"",
-            "set -e CMUX_INITIAL_COMMAND_FILE",
-            "if test -r \"$cmux_initial_command_file\"",
-            "if command mkdir \"$cmux_initial_command_started\" 2>/dev/null; source \"$cmux_initial_command_file\"; end",
-            "command rm -f -- \"$cmux_initial_command_file\" >/dev/null 2>&1; or true",
+            "if test -n \"$CMUX_INITIAL_COMMAND_B64\"; and command mkdir \"$cmux_initial_command_started\" 2>/dev/null",
+            "set -l cmux_initial_command (begin; printf %s \"$CMUX_INITIAL_COMMAND_B64\" | base64 -d 2>/dev/null; or printf %s \"$CMUX_INITIAL_COMMAND_B64\" | base64 -D 2>/dev/null; end | string collect)",
+            "set -l cmux_initial_command_decode_status $pipestatus[1]",
+            "set -e CMUX_INITIAL_COMMAND_B64",
+            "if test \"$cmux_initial_command_decode_status\" -eq 0; eval \"$cmux_initial_command\"; end",
+            "else",
+            "set -e CMUX_INITIAL_COMMAND_B64",
             "end",
         ].joined(separator: "; ")
     }
@@ -64,20 +63,23 @@ struct RemoteInitialCommandBootstrap {
     var fallbackShellLines: [String] {
         guard encodedCommand != nil else { return [] }
         return [
-            "cmux_initial_command_file=\"${CMUX_INITIAL_COMMAND_FILE:-}\"",
             "cmux_initial_command_started=\"$CMUX_SHELL_INTEGRATION_DIR/.initial-command.started.\(stateKey)\"",
-            "unset CMUX_INITIAL_COMMAND_FILE",
-            "if [ -r \"$cmux_initial_command_file\" ]; then",
-            "  if mkdir \"$cmux_initial_command_started\" 2>/dev/null; then",
+            "unset cmux_initial_command cmux_initial_command_decode_status",
+            "if [ -n \"${CMUX_INITIAL_COMMAND_B64:-}\" ] && mkdir \"$cmux_initial_command_started\" 2>/dev/null; then",
+            "  cmux_initial_command=$(printf %s \"$CMUX_INITIAL_COMMAND_B64\" | base64 -d 2>/dev/null || printf %s \"$CMUX_INITIAL_COMMAND_B64\" | base64 -D 2>/dev/null)",
+            "  cmux_initial_command_decode_status=$?",
+            "  unset CMUX_INITIAL_COMMAND_B64",
+            "  if [ \"$cmux_initial_command_decode_status\" -eq 0 ]; then",
             "    case \"${CMUX_LOGIN_SHELL##*/}\" in",
-            "      csh|tcsh) exec \"$CMUX_LOGIN_SHELL\" -i -c 'source \"$argv[2]\"; /bin/rm -f -- \"$argv[2]\"; exec \"$argv[1]\" -i' \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command_file\" ;;",
-            "      sh|dash|ksh|mksh|ash|yash|posh) exec \"$CMUX_LOGIN_SHELL\" -i -c '. \"$1\"; /bin/rm -f -- \"$1\"; exec \"$0\" -i' \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command_file\" ;;",
-            "      *) \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command_file\" ;;",
+            "      csh|tcsh) exec \"$CMUX_LOGIN_SHELL\" -i -c 'eval \"$argv[2]\"; exec \"$argv[1]\" -i' \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command\" ;;",
+            "      sh|dash|ksh|mksh|ash|yash|posh) exec \"$CMUX_LOGIN_SHELL\" -i -c 'eval \"$1\"; exec \"$0\" -i' \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command\" ;;",
+            "      *) \"$CMUX_LOGIN_SHELL\" -c \"$cmux_initial_command\" ;;",
             "    esac",
             "  fi",
-            "  rm -f -- \"$cmux_initial_command_file\" 2>/dev/null || true",
+            "else",
+            "  unset CMUX_INITIAL_COMMAND_B64",
             "fi",
-            "unset cmux_initial_command_file cmux_initial_command_started",
+            "unset cmux_initial_command cmux_initial_command_decode_status cmux_initial_command_started",
         ]
     }
 }
