@@ -386,9 +386,8 @@ enum SurfaceResizeRestore {
 struct ClientSizingRollbackToken {
     surface_sizes: Option<HashMap<u64, (u16, u16)>>,
     surface_orders: HashMap<u64, u64>,
-    excluded_clients: HashSet<u64>,
-    exclusive_client: Option<u64>,
-    attached_clients: HashSet<u64>,
+    participating_surface_clients: HashSet<u64>,
+    uses_excluded_fallback: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -428,6 +427,14 @@ impl ClientSizingState {
         surface: SurfaceId,
         attached_clients: &HashSet<u64>,
     ) -> ClientSizingRollbackToken {
+        let participating_surface_clients = self
+            .surfaces
+            .get(&surface)
+            .into_iter()
+            .flat_map(HashMap::keys)
+            .filter(|client| self.client_participates(**client))
+            .copied()
+            .collect();
         ClientSizingRollbackToken {
             surface_sizes: self.surfaces.get(&surface).cloned(),
             surface_orders: self
@@ -437,9 +444,8 @@ impl ClientSizingState {
                     (*reported_surface == surface).then_some((*client, *order))
                 })
                 .collect(),
-            excluded_clients: self.excluded_clients.clone(),
-            exclusive_client: self.exclusive_client,
-            attached_clients: attached_clients.clone(),
+            participating_surface_clients,
+            uses_excluded_fallback: self.uses_excluded_fallback(attached_clients),
         }
     }
 
