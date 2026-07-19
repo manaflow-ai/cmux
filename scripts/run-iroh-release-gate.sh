@@ -231,16 +231,32 @@ def version_key(runtime):
 
 runtimes = [
     runtime for runtime in listing("runtimes").get("runtimes", [])
-    if runtime.get("isAvailable", True)
+    if runtime.get("isAvailable", False)
     and runtime.get("identifier", "").startswith("com.apple.CoreSimulator.SimRuntime.iOS")
 ]
-device_types = [
-    device for device in listing("devicetypes").get("devicetypes", [])
-    if device.get("name") in ("iPhone 17", "iPhone 16")
-]
-if not runtimes or not device_types:
-    raise SystemExit("no available iOS runtime or supported iPhone device type")
+if not runtimes:
+    raise SystemExit("no available iOS runtime")
 runtime = max(runtimes, key=version_key)
+preferred_names = (
+    "iPhone 17", "iPhone 17 Pro", "iPhone 16", "iPhone 16 Pro",
+    "iPhone 15", "iPhone 15 Pro", "iPhone 14", "iPhone 14 Pro",
+)
+preference = {name: index for index, name in enumerate(preferred_names)}
+supported_device_types = runtime.get("supportedDeviceTypes")
+if not isinstance(supported_device_types, list):
+    supported_device_types = listing("devicetypes").get("devicetypes", [])
+device_types = sorted(
+    (
+        device for device in supported_device_types
+        if str(device.get("name", "")).startswith("iPhone")
+    ),
+    key=lambda device: (
+        preference.get(str(device.get("name", "")), len(preference)),
+        str(device.get("name", "")),
+    ),
+)
+if not device_types:
+    raise SystemExit("available iOS runtime has no supported iPhone device type")
 device = device_types[0]
 print(subprocess.check_output([
     "xcrun", "simctl", "create", os.environ["SIMULATOR_NAME"],
