@@ -108,9 +108,18 @@ async function mintAttachURL(target, payload, maxAttempts = 1) {
   fs.mkdirSync(payloadDirectory);
   const payloads = Array.isArray(payload) ? payload : [payload];
   payloads.forEach((value, index) => {
+    const response = value?.cliResponse;
     fs.writeFileSync(
-      path.join(payloadDirectory, `${index + 1}`),
-      value == null ? "" : JSON.stringify(value),
+      path.join(payloadDirectory, `${index + 1}.stdout`),
+      response ? (response.stdout ?? "") : (value == null ? "" : JSON.stringify(value)),
+    );
+    fs.writeFileSync(
+      path.join(payloadDirectory, `${index + 1}.stderr`),
+      response?.stderr ?? "",
+    );
+    fs.writeFileSync(
+      path.join(payloadDirectory, `${index + 1}.status`),
+      String(response?.status ?? 0),
     );
   });
   const fakeCLI = path.join(scriptsDir, "cmux-debug-cli.sh");
@@ -122,7 +131,10 @@ async function mintAttachURL(target, payload, maxAttempts = 1) {
       'count="$((count + 1))"',
       'printf "%s" "$count" > "$CMUX_TEST_CALL_COUNTER"',
       'payload="$CMUX_TEST_PAYLOAD_DIRECTORY/$count"',
-      '[[ -f "$payload" ]] && cat "$payload"',
+      '[[ -f "$payload.stdout" ]] && cat "$payload.stdout"',
+      '[[ -f "$payload.stderr" ]] && cat "$payload.stderr" >&2',
+      'status="$(cat "$payload.status" 2>/dev/null || printf 0)"',
+      'exit "$status"',
       "",
     ].join("\n"),
   );
@@ -482,6 +494,31 @@ test("physical-device mint waits for asynchronous Iroh publication", async () =>
   assert.equal(result.callCount, 2);
 });
 
+test("physical-device mint reports a redacted route-readiness timeout", async () => {
+  const result = await mintAttachURL(
+    "physical_device",
+    {
+      cliResponse: {
+        status: 1,
+        stderr: "unavailable: Mobile host routes are not available yet secret-token-value",
+      },
+    },
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /attach readiness exhausted: host_routes_unavailable/);
+  assert.doesNotMatch(result.stderr, /secret-token-value/);
+});
+
+test("physical-device mint distinguishes malformed successful output", async () => {
+  const result = await mintAttachURL(
+    "physical_device",
+    { cliResponse: { status: 0, stdout: "not-json secret-payload-value" } },
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /attach readiness exhausted: malformed_response/);
+  assert.doesNotMatch(result.stderr, /secret-payload-value/);
+});
+
 test("physical-device mint accepts an encrypted Iroh route", async () => {
   const payload = attachPayload("iroh");
   const result = await mintAttachURL("physical_device", payload);
@@ -563,7 +600,11 @@ test("release gate grants asynchronous Iroh publication a bounded startup window
   );
   assert.match(
     gate,
-    /CMUX_ATTACH_MINT_MAX_ATTEMPTS=120 \\[\s\S]{0,320}\.\/scripts\/mobile-dev-launch\.sh/,
+    /CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \\[\s\S]{0,320}\.\/scripts\/mobile-dev-launch\.sh/,
+  );
+  assert.match(
+    gate,
+    /CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \\[\s\S]{0,120}cmux_attach_ensure_mac/,
   );
 });
 
