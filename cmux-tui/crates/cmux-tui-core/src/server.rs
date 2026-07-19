@@ -39,6 +39,7 @@ use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::protocol::{Role, WebSocketConfig};
 use tungstenite::{Message, WebSocket, accept_with_config};
 
+use crate::event_bus::MuxEventReceiver;
 use crate::model::{Screen, State, Workspace};
 use crate::mux::clamp_terminal_size;
 use crate::platform::{self, transport};
@@ -54,6 +55,7 @@ use crate::{
 pub const PROTOCOL_VERSION: u32 = 8;
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
+const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Default socket path for a session.
 pub fn default_socket_path(session: &str) -> PathBuf {
@@ -2359,6 +2361,7 @@ fn handle_attach_send_error(lifecycle: &AttachLifecycle, error: &std::io::Error)
 struct MarkedClientAttach {
     size_rollback: Option<crate::mux::ClientSizeRollback>,
     client_changed: Option<(Option<String>, Option<String>)>,
+    resize_reservation: Option<u64>,
 }
 
 fn mark_client_attached(
@@ -2372,7 +2375,7 @@ fn mark_client_attached(
     if let Some((cols, rows)) = initial_size {
         let cols = cols.max(1);
         let rows = rows.max(1);
-        let (_, _, attached, rollback) = mux
+        let (_, resize_reservation, attached, rollback) = mux
             .resize_surface_for_control_client_with_reservation(surface, client, cols, rows)
             .inspect_err(|_| {
                 cleanup_failed_attach(mux, client, surface, stream.id);
@@ -2384,9 +2387,48 @@ fn mark_client_attached(
         return Ok(MarkedClientAttach {
             size_rollback: Some(rollback),
             client_changed: changed.then_some((name, kind)),
+            resize_reservation,
         });
     }
-    Ok(MarkedClientAttach { size_rollback: None, client_changed: None })
+    Ok(MarkedClientAttach { size_rollback: None, client_changed: None, resize_reservation: None })
+}
+
+fn wait_for_initial_browser_resize(
+    events: &MuxEventReceiver,
+    surface: SurfaceId,
+    reservation: u64,
+) -> anyhow::Result<()> {
+    let deadline = Instant::now() + INITIAL_BROWSER_RESIZE_TIMEOUT;
+    loop {
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            anyhow::bail!("timed out sizing browser surface {surface} before attach");
+        };
+        match events.recv_timeout(remaining) {
+            Ok(MuxEvent::SurfaceResized {
+                surface: resized_surface,
+                reservation_id: Some(resized_reservation),
+                ..
+            }) if resized_surface == surface && resized_reservation == reservation => return Ok(()),
+            Ok(MuxEvent::SurfaceResizeFailed {
+                surface: resized_surface,
+                error,
+                reservation_id: Some(resized_reservation),
+                ..
+            }) if resized_surface == surface && resized_reservation == reservation => {
+                anyhow::bail!("failed to size browser surface {surface} before attach: {error}");
+            }
+            Ok(MuxEvent::SurfaceExited(exited_surface)) if exited_surface == surface => {
+                anyhow::bail!("browser surface {surface} exited while sizing before attach");
+            }
+            Ok(_) => continue,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                anyhow::bail!("timed out sizing browser surface {surface} before attach");
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                anyhow::bail!("browser resize events disconnected before attach");
+            }
+        }
+    }
 }
 
 fn announce_client_attached(mux: &Mux, client: u64) -> anyhow::Result<bool> {
@@ -3194,13 +3236,14 @@ fn handle_command(
             };
             if render_mode {
                 require_pty(&surface)?;
-                let MarkedClientAttach { size_rollback, client_changed } = mark_client_attached(
-                    mux,
-                    client,
-                    surface_id,
-                    outbound_stream.clone(),
-                    initial_size,
-                )?;
+                let MarkedClientAttach { size_rollback, client_changed, .. } =
+                    mark_client_attached(
+                        mux,
+                        client,
+                        surface_id,
+                        outbound_stream.clone(),
+                        initial_size,
+                    )?;
                 let attach = match surface.attach_render_stream() {
                     Ok(attach) => attach,
                     Err(error) => {
@@ -3293,13 +3336,32 @@ fn handle_command(
                 return Ok(json!({}));
             }
             if surface.kind() == SurfaceKind::Browser {
-                let MarkedClientAttach { size_rollback, client_changed } = mark_client_attached(
-                    mux,
-                    client,
-                    surface_id,
-                    outbound_stream.clone(),
-                    initial_size,
-                )?;
+                let resize_events = initial_size.map(|_| mux.subscribe());
+                let MarkedClientAttach { size_rollback, client_changed, resize_reservation } =
+                    mark_client_attached(
+                        mux,
+                        client,
+                        surface_id,
+                        outbound_stream.clone(),
+                        initial_size,
+                    )?;
+                if let Some(reservation) = resize_reservation
+                    && let Err(error) = wait_for_initial_browser_resize(
+                        resize_events.as_ref().expect("sized attach subscribed before resize"),
+                        surface_id,
+                        reservation,
+                    )
+                {
+                    lifecycle.cancel();
+                    rollback_failed_attach(
+                        mux,
+                        client,
+                        surface_id,
+                        outbound_stream.id,
+                        size_rollback,
+                    );
+                    return Err(error);
+                }
                 let (state, frames) = match surface.attach_frames() {
                     Ok(attach) => attach,
                     Err(error) => {
@@ -3418,7 +3480,7 @@ fn handle_command(
                 commit_client_attach(mux, client, client_changed)?;
                 return Ok(json!({}));
             }
-            let MarkedClientAttach { size_rollback, client_changed } = mark_client_attached(
+            let MarkedClientAttach { size_rollback, client_changed, .. } = mark_client_attached(
                 mux,
                 client,
                 surface_id,

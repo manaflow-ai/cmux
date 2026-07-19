@@ -1234,6 +1234,7 @@ impl BrowserSurface {
         state.capture_pixels = geometry.capture_pixels;
         state.capture_scale = geometry.capture_scale;
         if changed {
+            state.latest_frame = None;
             state.live_since = Some(Instant::now());
             state.last_frame_at = None;
             state.stall_nudged = false;

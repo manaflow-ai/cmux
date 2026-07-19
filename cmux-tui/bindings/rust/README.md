@@ -24,6 +24,13 @@ println!("{}", client.read_screen(surface)?.text);
 `ClientConfig::default()` uses `CMUX_TUI_SOCKET` when set, then legacy
 `CMUX_MUX_SOCKET`, then the default session socket path.
 
+## 0.3 migration
+
+Protocol v8 adds `IdentifyResult.capabilities`, `Tree.workspace_revision`, and
+`Workspace.key`. Code that constructs these public structs directly must supply
+the new fields; deserialization remains compatible with older servers through
+Serde defaults.
+
 ## E2E
 
 ```bash
