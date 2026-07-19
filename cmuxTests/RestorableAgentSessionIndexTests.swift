@@ -1405,6 +1405,7 @@ struct RestorableAgentSessionIndexTests {
 
         let cases: [(launcher: String, store: String, verbNeedles: [String])] = [
             ("codex", "codex-hook-sessions.json", ["'fork'"]),
+            ("grok", "grok-hook-sessions.json", ["'--fork-session'"]),
             ("opencode", "opencode-hook-sessions.json", ["'--session'", "'--fork'"]),
             ("pi", "pi-hook-sessions.json", ["'--fork'"]),
         ]
@@ -1455,7 +1456,7 @@ struct RestorableAgentSessionIndexTests {
         let dir = root.appendingPathComponent("repo", isDirectory: true)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
 
-        for launcher in ["gemini", "grok", "amp", "cursor", "omp"] {
+        for launcher in ["gemini", "amp", "cursor", "omp"] {
             let ws = UUID()
             let panel = UUID()
             let sid = "66666666-6666-6666-6666-666666666666"

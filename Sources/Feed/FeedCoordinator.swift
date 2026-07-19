@@ -651,8 +651,8 @@ enum FeedJumpResolver {
         for source in WorkstreamSource.allCases
             .map(\.rawValue)
             .sorted(by: { $0.count > $1.count }) {
-            if let parsed = parse(workstreamId, provider: source) {
-                return parsed
+            if workstreamId.hasPrefix(source + "-") {
+                return parse(workstreamId, provider: source)
             }
         }
 

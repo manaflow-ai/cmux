@@ -75,6 +75,10 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
 final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
     private let agentStateRuntime: AgentTerminalStateRuntime
 
+    private static var isRunningTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
     @MainActor
     init(agentStateRuntime: AgentTerminalStateRuntime) {
         self.agentStateRuntime = agentStateRuntime
@@ -116,12 +120,20 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
             cmuxTerminalOutputTeeCallback,
             teeContext.toOpaque()
         )
-        agentStateRuntime.install(
-            workspaceID: workspaceID,
-            surfaceID: surfaceID,
-            expectedRuntimeGeneration: surfaceGeneration,
-            signal: agentStateSignal
-        )
+        // App-host tests construct hundreds of short-lived terminal surfaces in
+        // one process. The production detector owns persistent per-surface tasks
+        // and mutates shared workspace lifecycle state, so installing it for
+        // those fixtures leaks work across otherwise isolated test cases. Its
+        // scheduler and composition adapter have focused tests with injected
+        // signals instead.
+        if !Self.isRunningTests {
+            agentStateRuntime.install(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                expectedRuntimeGeneration: surfaceGeneration,
+                signal: agentStateSignal
+            )
+        }
         return Lease(context: teeContext)
     }
 
