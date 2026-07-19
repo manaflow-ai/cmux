@@ -7,6 +7,7 @@
 //! different request body.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::fmt;
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
@@ -50,6 +51,10 @@ pub(crate) trait ProjectionNavigationTopology {
     fn screen_order(&self, workspace: WorkspaceUuid) -> Option<&[ScreenUuid]>;
     fn pane_order(&self, screen: ScreenUuid) -> Option<&[PaneUuid]>;
     fn surface_order(&self, pane: PaneUuid) -> Option<&[SurfaceUuid]>;
+    fn workspace_rank(&self, workspace: WorkspaceUuid) -> Option<usize>;
+    fn screen_rank(&self, screen: ScreenUuid) -> Option<usize>;
+    fn pane_rank(&self, pane: PaneUuid) -> Option<usize>;
+    fn surface_rank(&self, surface: SurfaceUuid) -> Option<usize>;
     fn workspace_for_screen(&self, screen: ScreenUuid) -> Option<WorkspaceUuid>;
     fn screen_for_pane(&self, pane: PaneUuid) -> Option<ScreenUuid>;
     fn pane_for_surface(&self, surface: SurfaceUuid) -> Option<PaneUuid>;
@@ -75,6 +80,12 @@ pub(crate) struct ProjectionNavigationTopologyExpectation {
     pub(crate) daemon_instance_id: DaemonInstanceId,
     pub(crate) session_id: SessionId,
     pub(crate) expected_topology_revision: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct ProjectionNavigationListCursor {
+    pub(crate) client_revision: u64,
+    pub(crate) after_logical_presentation_id: Uuid,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -245,6 +256,9 @@ pub(crate) enum ProjectionNavigationConflict {
         logical_presentation_id: Uuid,
         required_capability: &'static str,
     },
+    ClientSchemaPromoted {
+        required_capability: &'static str,
+    },
     LimitExceeded {
         limit: ProjectionNavigationLimit,
         maximum: usize,
@@ -264,16 +278,47 @@ pub(crate) enum ProjectionNavigationConflict {
     RequestIdReused {
         request_id: Uuid,
     },
+    StaleListCursor {
+        expected_client_revision: u64,
+        current_client_revision: u64,
+    },
+    InvalidListCursor {
+        after_logical_presentation_id: Uuid,
+    },
+    ListCursorRestartRequired {
+        current_client_revision: u64,
+    },
+    ClientRevisionExhausted,
     GenerationExhausted {
         logical_presentation_id: Uuid,
     },
 }
 
+impl fmt::Display for ProjectionNavigationConflict {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match serde_json::to_string(self) {
+            Ok(value) => formatter.write_str(&value),
+            Err(_) => formatter.write_str("projection navigation conflict"),
+        }
+    }
+}
+
+impl std::error::Error for ProjectionNavigationConflict {}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "status", rename_all = "kebab-case")]
 pub(crate) enum ProjectionNavigationResponse {
-    Applied { topology_revision: u64, states: Vec<ProjectionNavigationState> },
-    Conflict { conflict: ProjectionNavigationConflict },
+    Applied {
+        topology_revision: u64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        client_revision: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        next_cursor: Option<ProjectionNavigationListCursor>,
+        states: Vec<ProjectionNavigationState>,
+    },
+    Conflict {
+        conflict: ProjectionNavigationConflict,
+    },
 }
 
 impl ProjectionNavigationResponse {
@@ -456,8 +501,9 @@ struct RegistryInner {
     logical_presentations_by_client: HashMap<Uuid, BTreeSet<Uuid>>,
     claims_by_connection: HashMap<Uuid, BTreeSet<ProjectionKey>>,
     workspace_owner: HashMap<(Uuid, WorkspaceUuid), ProjectionKey>,
-    v2_schema_floor_by_client: HashMap<Uuid, Uuid>,
-    v2_schema_floors: usize,
+    v2_schema_floor_clients: HashSet<Uuid>,
+    client_revisions: HashMap<Uuid, u64>,
+    list_snapshot_revisions: HashMap<Uuid, u64>,
     workspace_bindings: usize,
     screen_preferences: usize,
     pane_preferences: usize,
@@ -518,7 +564,7 @@ impl ProjectionNavigationRegistry {
             payload: StoredPayload::V1(StoredV1 { workspaces: normalized }),
         };
         let mut inner = self.inner.lock().unwrap();
-        if client_schema_floor(&inner, key.client_uuid).is_some() {
+        if has_client_schema_floor(&inner, key.client_uuid) {
             return Err(ProjectionNavigationConflict::SchemaPromoted {
                 logical_presentation_id: key.logical_presentation_id,
                 required_capability: "projection-navigation-v2",
@@ -533,7 +579,9 @@ impl ProjectionNavigationRegistry {
         self.validate_new_record_limits(&inner, key.client_uuid)?;
         self.validate_candidate_budgets(&inner, &[(key, record.clone())])?;
         self.validate_candidate_owners(&mut inner, &[(key, record.clone())])?;
+        let revision = prospective_client_revision(&inner, key.client_uuid, true)?;
         insert_record(&mut inner, key, record);
+        set_client_revision(&mut inner, key.client_uuid, revision);
         Ok(())
     }
 
@@ -548,7 +596,7 @@ impl ProjectionNavigationRegistry {
         let key = ProjectionKey { client_uuid: claimant.client_uuid, logical_presentation_id };
         let mut inner = self.inner.lock().unwrap();
         inner.counters.records_touched += 1;
-        if client_schema_floor(&inner, key.client_uuid).is_some() {
+        if has_client_schema_floor(&inner, key.client_uuid) {
             return Err(schema_promoted(logical_presentation_id));
         }
         let is_new = !inner.records.contains_key(&key);
@@ -572,14 +620,19 @@ impl ProjectionNavigationRegistry {
         if is_new || candidate != before {
             candidate.generation = next_generation(before.generation, logical_presentation_id)?;
         }
+        let state_changed = is_new || candidate != before;
         self.validate_candidate_budgets(&inner, &[(key, candidate.clone())])?;
         self.validate_candidate_owners(&mut inner, &[(key, candidate.clone())])?;
         let state = wire_v1_state(key, &candidate, claimant);
         self.validate_serialized_bytes(&state)?;
+        let revision = prospective_client_revision(&inner, claimant.client_uuid, state_changed)?;
         if is_new {
             insert_record(&mut inner, key, candidate);
         } else if candidate != before {
             replace_records(&mut inner, &[(key, candidate)]);
+        }
+        if state_changed {
+            set_client_revision(&mut inner, claimant.client_uuid, revision);
         }
         Ok(state)
     }
@@ -636,7 +689,7 @@ impl ProjectionNavigationRegistry {
 
         let mut inner = self.inner.lock().unwrap();
         inner.counters.records_touched += normalized_updates.len();
-        if client_schema_floor(&inner, claimant.client_uuid).is_some() {
+        if has_client_schema_floor(&inner, claimant.client_uuid) {
             return Err(schema_promoted(normalized_updates[0].0));
         }
         let mut candidates = Vec::with_capacity(normalized_updates.len());
@@ -703,7 +756,12 @@ impl ProjectionNavigationRegistry {
             .into_iter()
             .filter(|(key, _)| changed_keys.contains(key))
             .collect::<Vec<_>>();
+        let revision =
+            prospective_client_revision(&inner, claimant.client_uuid, !replacements.is_empty())?;
         replace_records(&mut inner, &replacements);
+        if !replacements.is_empty() {
+            set_client_revision(&mut inner, claimant.client_uuid, revision);
+        }
         Ok(states)
     }
 
@@ -720,7 +778,7 @@ impl ProjectionNavigationRegistry {
         let key = ProjectionKey { client_uuid: claimant.client_uuid, logical_presentation_id };
         let mut inner = self.inner.lock().unwrap();
         inner.counters.records_touched += 1;
-        if client_schema_floor(&inner, key.client_uuid).is_some() {
+        if has_client_schema_floor(&inner, key.client_uuid) {
             return Err(schema_promoted(logical_presentation_id));
         }
         let Some(record) = inner.records.get(&key) else {
@@ -753,7 +811,9 @@ impl ProjectionNavigationRegistry {
                 current_state: Box::new(wire_v1_state(key, record, claimant)),
             });
         }
+        let revision = prospective_client_revision(&inner, claimant.client_uuid, true)?;
         remove_record(&mut inner, key);
+        set_client_revision(&mut inner, claimant.client_uuid, revision);
         Ok(())
     }
 
@@ -764,8 +824,8 @@ impl ProjectionNavigationRegistry {
     ) -> Result<Vec<ProjectionNavigationV1State>, ProjectionNavigationConflict> {
         validate_claimant(claimant)?;
         let mut inner = self.inner.lock().unwrap();
-        if let Some(logical_presentation_id) = client_schema_floor(&inner, claimant.client_uuid) {
-            return Err(schema_promoted(logical_presentation_id));
+        if has_client_schema_floor(&inner, claimant.client_uuid) {
+            return Err(client_schema_promoted());
         }
         let keys = inner
             .logical_presentations_by_client
@@ -809,7 +869,12 @@ impl ProjectionNavigationRegistry {
             .into_iter()
             .filter(|(key, _)| changed_keys.contains(key))
             .collect::<Vec<_>>();
+        let revision =
+            prospective_client_revision(&inner, claimant.client_uuid, !replacements.is_empty())?;
         replace_records(&mut inner, &replacements);
+        if !replacements.is_empty() {
+            set_client_revision(&mut inner, claimant.client_uuid, revision);
+        }
         Ok(states)
     }
 
@@ -824,7 +889,7 @@ impl ProjectionNavigationRegistry {
         validate_uuid(logical_presentation_id, "logical_presentation_id")?;
         let key = ProjectionKey { client_uuid, logical_presentation_id };
         let inner = self.inner.lock().unwrap();
-        if client_schema_floor(&inner, client_uuid).is_some() {
+        if has_client_schema_floor(&inner, client_uuid) {
             return Err(schema_promoted(logical_presentation_id));
         }
         let Some(record) = inner.records.get(&key) else {
@@ -885,7 +950,7 @@ impl ProjectionNavigationRegistry {
             reconciled_topology_revision: topology.revision(),
             payload: StoredPayload::V2(StoredV2::default()),
         });
-        let needs_schema_floor = !has_schema_floor(&inner, key);
+        let needs_schema_floor = !has_client_schema_floor(&inner, key.client_uuid);
         if needs_schema_floor {
             if let Err(conflict) = self.validate_schema_floor_growth(&inner, key.client_uuid, 1) {
                 return ProjectionNavigationResponse::conflict(conflict);
@@ -924,18 +989,29 @@ impl ProjectionNavigationRegistry {
         }
         let response = ProjectionNavigationResponse::Applied {
             topology_revision: topology.revision(),
+            client_revision: None,
+            next_cursor: None,
             states: vec![wire_state(key, &candidate, claimant, topology)],
         };
         if let Err(conflict) = self.validate_response_bytes(&response) {
             return ProjectionNavigationResponse::conflict(conflict);
         }
+        let state_changed = changed || needs_schema_floor;
+        let revision =
+            match prospective_client_revision(&inner, claimant.client_uuid, state_changed) {
+                Ok(revision) => revision,
+                Err(conflict) => return ProjectionNavigationResponse::conflict(conflict),
+            };
         if is_new {
             insert_record(&mut inner, key, candidate.clone());
         } else if changed {
             replace_records(&mut inner, &[(key, candidate.clone())]);
         }
         if needs_schema_floor {
-            establish_schema_floor(&mut inner, key);
+            establish_schema_floor(&mut inner, key.client_uuid);
+        }
+        if state_changed {
+            set_client_revision(&mut inner, claimant.client_uuid, revision);
         }
         response
     }
@@ -949,6 +1025,16 @@ impl ProjectionNavigationRegistry {
         expectation: ProjectionNavigationTopologyExpectation,
         topology: &T,
     ) -> ProjectionNavigationResponse {
+        self.list_page(claimant, expectation, None, topology)
+    }
+
+    pub(crate) fn list_page<T: ProjectionNavigationTopology>(
+        &self,
+        claimant: ProjectionNavigationClaimant,
+        expectation: ProjectionNavigationTopologyExpectation,
+        cursor: Option<ProjectionNavigationListCursor>,
+        topology: &T,
+    ) -> ProjectionNavigationResponse {
         if let Err(conflict) =
             validate_claimant(claimant).and_then(|()| validate_expectation(expectation))
         {
@@ -958,6 +1044,25 @@ impl ProjectionNavigationRegistry {
             return ProjectionNavigationResponse::conflict(conflict);
         }
         let mut inner = self.inner.lock().unwrap();
+        let current_client_revision = client_revision(&inner, claimant.client_uuid);
+        if let Some(cursor) = cursor
+            && cursor.client_revision != current_client_revision
+        {
+            return ProjectionNavigationResponse::conflict(
+                ProjectionNavigationConflict::StaleListCursor {
+                    expected_client_revision: cursor.client_revision,
+                    current_client_revision,
+                },
+            );
+        }
+        if let Some(cursor) = cursor
+            && inner.list_snapshot_revisions.get(&claimant.client_uuid).copied()
+                != Some(cursor.client_revision)
+        {
+            return ProjectionNavigationResponse::conflict(
+                ProjectionNavigationConflict::ListCursorRestartRequired { current_client_revision },
+            );
+        }
         let keys = inner
             .logical_presentations_by_client
             .get(&claimant.client_uuid)
@@ -971,41 +1076,56 @@ impl ProjectionNavigationRegistry {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        inner.counters.records_touched += keys.len();
+        let start = match cursor {
+            Some(cursor) => {
+                let Some(index) = keys.iter().position(|key| {
+                    key.logical_presentation_id == cursor.after_logical_presentation_id
+                }) else {
+                    return ProjectionNavigationResponse::conflict(
+                        ProjectionNavigationConflict::InvalidListCursor {
+                            after_logical_presentation_id: cursor.after_logical_presentation_id,
+                        },
+                    );
+                };
+                index + 1
+            }
+            None => 0,
+        };
+        inner.counters.records_touched += keys.len().saturating_sub(start);
         let mut candidates = Vec::with_capacity(keys.len());
         let mut changed_keys = HashSet::new();
-        let new_schema_floor = client_schema_floor(&inner, claimant.client_uuid)
-            .is_none()
-            .then(|| keys.first().copied())
-            .flatten();
+        let needs_schema_floor =
+            cursor.is_none() && !has_client_schema_floor(&inner, claimant.client_uuid);
         if let Err(conflict) = self.validate_schema_floor_growth(
             &inner,
             claimant.client_uuid,
-            usize::from(new_schema_floor.is_some()),
+            usize::from(needs_schema_floor),
         ) {
             return ProjectionNavigationResponse::conflict(conflict);
         }
         for key in &keys {
             let mut candidate =
                 inner.records.get(key).expect("client index references projection record").clone();
-            let mut changed = match promote_record(&mut candidate, topology) {
-                Ok(changed) => changed,
-                Err(conflict) => return ProjectionNavigationResponse::conflict(conflict),
-            };
-            match normalize_record(&mut candidate, topology) {
-                Ok(normalized) => changed |= normalized,
-                Err(conflict) => return ProjectionNavigationResponse::conflict(conflict),
-            }
-            if changed {
-                let Some(generation) = candidate.generation.checked_add(1) else {
-                    return ProjectionNavigationResponse::conflict(
-                        ProjectionNavigationConflict::GenerationExhausted {
-                            logical_presentation_id: key.logical_presentation_id,
-                        },
-                    );
+            if cursor.is_none() {
+                let mut changed = match promote_record(&mut candidate, topology) {
+                    Ok(changed) => changed,
+                    Err(conflict) => return ProjectionNavigationResponse::conflict(conflict),
                 };
-                candidate.generation = generation;
-                changed_keys.insert(*key);
+                match normalize_record(&mut candidate, topology) {
+                    Ok(normalized) => changed |= normalized,
+                    Err(conflict) => return ProjectionNavigationResponse::conflict(conflict),
+                }
+                if changed {
+                    let Some(generation) = candidate.generation.checked_add(1) else {
+                        return ProjectionNavigationResponse::conflict(
+                            ProjectionNavigationConflict::GenerationExhausted {
+                                logical_presentation_id: key.logical_presentation_id,
+                            },
+                        );
+                    };
+                    candidate.generation = generation;
+                    changed_keys.insert(*key);
+                }
             }
             candidates.push((*key, candidate));
         }
@@ -1015,26 +1135,112 @@ impl ProjectionNavigationRegistry {
         if let Err(conflict) = self.validate_candidate_owners(&mut inner, &candidates) {
             return ProjectionNavigationResponse::conflict(conflict);
         }
-        let response = ProjectionNavigationResponse::Applied {
-            topology_revision: topology.revision(),
-            states: candidates
-                .iter()
-                .map(|(key, record)| wire_state(*key, record, claimant, topology))
-                .collect(),
+        let state_changed = !changed_keys.is_empty() || needs_schema_floor;
+        let next_client_revision =
+            match prospective_client_revision(&inner, claimant.client_uuid, state_changed) {
+                Ok(revision) => revision,
+                Err(conflict) => return ProjectionNavigationResponse::conflict(conflict),
+            };
+        let response = match self.build_list_page(
+            claimant,
+            topology,
+            next_client_revision,
+            &candidates,
+            start,
+        ) {
+            Ok(response) => response,
+            Err(conflict) => return ProjectionNavigationResponse::conflict(conflict),
         };
-        if let Err(conflict) = self.validate_response_bytes(&response) {
-            return ProjectionNavigationResponse::conflict(conflict);
-        }
         let replacements = candidates
             .iter()
             .filter(|(key, _)| changed_keys.contains(key))
             .cloned()
             .collect::<Vec<_>>();
         replace_records(&mut inner, &replacements);
-        if let Some(key) = new_schema_floor {
-            establish_schema_floor(&mut inner, key);
+        if needs_schema_floor {
+            establish_schema_floor(&mut inner, claimant.client_uuid);
+        }
+        if state_changed {
+            set_client_revision(&mut inner, claimant.client_uuid, next_client_revision);
+        }
+        if cursor.is_none() {
+            inner.list_snapshot_revisions.insert(claimant.client_uuid, next_client_revision);
         }
         response
+    }
+
+    fn build_list_page<T: ProjectionNavigationTopology>(
+        &self,
+        claimant: ProjectionNavigationClaimant,
+        topology: &T,
+        client_revision: u64,
+        candidates: &[(ProjectionKey, StoredRecord)],
+        start: usize,
+    ) -> Result<ProjectionNavigationResponse, ProjectionNavigationConflict> {
+        let remaining = candidates.get(start..).unwrap_or_default();
+        if remaining.is_empty() {
+            let response = ProjectionNavigationResponse::Applied {
+                topology_revision: topology.revision(),
+                client_revision: Some(client_revision),
+                next_cursor: None,
+                states: Vec::new(),
+            };
+            self.validate_response_bytes(&response)?;
+            return Ok(response);
+        }
+
+        let placeholder_cursor = ProjectionNavigationListCursor {
+            client_revision,
+            after_logical_presentation_id: remaining[0].0.logical_presentation_id,
+        };
+        let response_with_cursor_overhead =
+            serialized_response_bytes(&ProjectionNavigationResponse::Applied {
+                topology_revision: topology.revision(),
+                client_revision: Some(client_revision),
+                next_cursor: Some(placeholder_cursor),
+                states: Vec::new(),
+            });
+        let mut states = Vec::new();
+        let mut projected_bytes = response_with_cursor_overhead;
+        for (key, record) in remaining {
+            let state = wire_state(*key, record, claimant, topology);
+            let state_bytes = serde_json::to_vec(&state)
+                .expect("projection navigation state serialization is infallible")
+                .len();
+            let separator = usize::from(!states.is_empty());
+            if projected_bytes.saturating_add(separator).saturating_add(state_bytes)
+                > self.limits.response_bytes
+            {
+                break;
+            }
+            projected_bytes += separator + state_bytes;
+            states.push(state);
+        }
+        if states.is_empty() {
+            return Err(ProjectionNavigationConflict::LimitExceeded {
+                limit: ProjectionNavigationLimit::ResponseBytes,
+                maximum: self.limits.response_bytes,
+                attempted: projected_bytes.saturating_add(1),
+            });
+        }
+        let consumed_all = states.len() == remaining.len();
+        let next_cursor = (!consumed_all).then(|| ProjectionNavigationListCursor {
+            client_revision,
+            after_logical_presentation_id: states
+                .last()
+                .expect("nonempty list page has a final state")
+                .logical_presentation_id,
+        });
+        let response = ProjectionNavigationResponse::Applied {
+            topology_revision: topology.revision(),
+            client_revision: Some(client_revision),
+            next_cursor,
+            states,
+        };
+        // Serialization stays under the canonical+registry guards, but work
+        // is proportional to this bounded page rather than all client state.
+        self.validate_response_bytes(&response)?;
+        Ok(response)
     }
 
     pub(crate) fn mutate<T: ProjectionNavigationTopology>(
@@ -1238,6 +1444,8 @@ impl ProjectionNavigationRegistry {
         }
         let response = ProjectionNavigationResponse::Applied {
             topology_revision: topology.revision(),
+            client_revision: None,
+            next_cursor: None,
             states: candidates
                 .iter()
                 .map(|(key, record)| wire_state(*key, record, claimant, topology))
@@ -1255,7 +1463,18 @@ impl ProjectionNavigationRegistry {
             .filter(|(key, _)| changed_keys.contains(key))
             .cloned()
             .collect::<Vec<_>>();
+        let revision = match prospective_client_revision(
+            inner,
+            claimant.client_uuid,
+            !replacements.is_empty(),
+        ) {
+            Ok(revision) => revision,
+            Err(conflict) => return ProjectionNavigationResponse::conflict(conflict),
+        };
         replace_records(inner, &replacements);
+        if !replacements.is_empty() {
+            set_client_revision(inner, claimant.client_uuid, revision);
+        }
         response
     }
 
@@ -1284,6 +1503,14 @@ impl ProjectionNavigationRegistry {
             client_uuid: claimant.client_uuid,
             logical_presentation_id: request.logical_presentation_id,
         };
+        let needs_schema_floor = !has_client_schema_floor(inner, claimant.client_uuid);
+        if let Err(conflict) = self.validate_schema_floor_growth(
+            inner,
+            claimant.client_uuid,
+            usize::from(needs_schema_floor),
+        ) {
+            return ProjectionNavigationResponse::conflict(conflict);
+        }
         inner.counters.records_touched += 1;
         let Some(record) = inner.records.get(&key) else {
             return ProjectionNavigationResponse::conflict(
@@ -1309,17 +1536,23 @@ impl ProjectionNavigationRegistry {
             );
         }
         if record.generation != request.expected_generation {
+            let current_state = match v2_wire_state(key, record, claimant, topology) {
+                Ok(state) => state,
+                Err(conflict) => return ProjectionNavigationResponse::conflict(conflict),
+            };
             return ProjectionNavigationResponse::conflict(
                 ProjectionNavigationConflict::StaleGeneration {
                     logical_presentation_id: request.logical_presentation_id,
                     expected: request.expected_generation,
                     current: record.generation,
-                    current_state: Box::new(wire_state(key, record, claimant, topology)),
+                    current_state: Box::new(current_state),
                 },
             );
         }
         let response = ProjectionNavigationResponse::Applied {
             topology_revision: topology.revision(),
+            client_revision: None,
+            next_cursor: None,
             states: Vec::new(),
         };
         let response_bytes = match self.validate_response_bytes(&response) {
@@ -1329,7 +1562,15 @@ impl ProjectionNavigationRegistry {
         if let Err(conflict) = self.validate_single_replay_receipt(response_bytes) {
             return ProjectionNavigationResponse::conflict(conflict);
         }
+        let revision = match prospective_client_revision(inner, claimant.client_uuid, true) {
+            Ok(revision) => revision,
+            Err(conflict) => return ProjectionNavigationResponse::conflict(conflict),
+        };
         remove_record(inner, key);
+        if needs_schema_floor {
+            establish_schema_floor(inner, claimant.client_uuid);
+        }
+        set_client_revision(inner, claimant.client_uuid, revision);
         response
     }
 
@@ -1362,7 +1603,19 @@ impl ProjectionNavigationRegistry {
                 replacements.push((key, candidate));
             }
         }
+        let changed_clients =
+            replacements.iter().map(|(key, _)| key.client_uuid).collect::<HashSet<_>>();
+        let revisions = changed_clients
+            .iter()
+            .map(|client_uuid| {
+                prospective_client_revision(&inner, *client_uuid, true)
+                    .map(|revision| (*client_uuid, revision))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         replace_records(&mut inner, &replacements);
+        for (client_uuid, revision) in revisions {
+            set_client_revision(&mut inner, client_uuid, revision);
+        }
         Ok(())
     }
 
@@ -1531,7 +1784,7 @@ impl ProjectionNavigationRegistry {
         client_uuid: Uuid,
         additional: usize,
     ) -> Result<(), ProjectionNavigationConflict> {
-        let client_count = usize::from(inner.v2_schema_floor_by_client.contains_key(&client_uuid));
+        let client_count = usize::from(inner.v2_schema_floor_clients.contains(&client_uuid));
         let attempted_client = client_count.saturating_add(additional);
         if attempted_client > self.limits.schema_floors_per_client {
             return Err(ProjectionNavigationConflict::LimitExceeded {
@@ -1540,7 +1793,7 @@ impl ProjectionNavigationRegistry {
                 attempted: attempted_client,
             });
         }
-        let attempted_global = inner.v2_schema_floors.saturating_add(additional);
+        let attempted_global = inner.v2_schema_floor_clients.len().saturating_add(additional);
         if attempted_global > self.limits.schema_floors_global {
             return Err(ProjectionNavigationConflict::LimitExceeded {
                 limit: ProjectionNavigationLimit::SchemaFloorsGlobal,
@@ -1784,6 +2037,12 @@ fn schema_promoted(logical_presentation_id: Uuid) -> ProjectionNavigationConflic
     }
 }
 
+fn client_schema_promoted() -> ProjectionNavigationConflict {
+    ProjectionNavigationConflict::ClientSchemaPromoted {
+        required_capability: "projection-navigation-v2",
+    }
+}
+
 fn next_generation(
     generation: u64,
     logical_presentation_id: Uuid,
@@ -1843,17 +2102,22 @@ fn promote_record<T: ProjectionNavigationTopology>(
     };
     let legacy = legacy.clone();
     let mut promoted = StoredV2::default();
-    for workspace_uuid in topology.workspace_order() {
-        let Some(selected_screen_uuid) = legacy.workspaces.get(workspace_uuid).copied() else {
-            continue;
-        };
-        seed_workspace(&mut promoted, *workspace_uuid, Some(selected_screen_uuid), topology)?;
+    let mut workspaces = legacy.workspaces.keys().copied().collect::<Vec<_>>();
+    workspaces.retain(|workspace_uuid| topology.workspace_rank(*workspace_uuid).is_some());
+    workspaces.sort_unstable_by_key(|workspace_uuid| {
+        (topology.workspace_rank(*workspace_uuid).unwrap_or(usize::MAX), workspace_uuid.as_uuid())
+    });
+    for workspace_uuid in workspaces {
+        let selected_screen_uuid = legacy.workspaces[&workspace_uuid];
+        seed_workspace(&mut promoted, workspace_uuid, Some(selected_screen_uuid), topology)?;
     }
-    promoted.selected_workspace_uuid = topology
-        .workspace_order()
-        .iter()
-        .copied()
-        .find(|workspace_uuid| promoted.workspaces.contains(workspace_uuid));
+    promoted.selected_workspace_uuid =
+        promoted.workspaces.iter().copied().min_by_key(|workspace_uuid| {
+            (
+                topology.workspace_rank(*workspace_uuid).unwrap_or(usize::MAX),
+                workspace_uuid.as_uuid(),
+            )
+        });
     record.payload = StoredPayload::V2(promoted);
     record.claim = None;
     record.reconciled_topology_revision = topology.revision();
@@ -1984,6 +2248,9 @@ fn normalize_record<T: ProjectionNavigationTopology>(
     record: &mut StoredRecord,
     topology: &T,
 ) -> Result<bool, ProjectionNavigationConflict> {
+    if record.reconciled_topology_revision == topology.revision() {
+        return Ok(false);
+    }
     let StoredPayload::V2(stored) = &mut record.payload else {
         return Ok(false);
     };
@@ -2029,36 +2296,34 @@ fn normalize_record<T: ProjectionNavigationTopology>(
     });
 
     let mut screens_to_seed = BTreeSet::new();
-    for workspace_uuid in topology.workspace_order() {
-        if !stored.workspaces.contains(workspace_uuid) {
-            continue;
-        }
+    let mut retained_workspaces = stored.workspaces.iter().copied().collect::<Vec<_>>();
+    retained_workspaces.sort_unstable_by_key(|workspace_uuid| {
+        (topology.workspace_rank(*workspace_uuid).unwrap_or(usize::MAX), workspace_uuid.as_uuid())
+    });
+    for workspace_uuid in retained_workspaces {
         let screens = topology
-            .screen_order(*workspace_uuid)
+            .screen_order(workspace_uuid)
             .expect("retained canonical workspace has screens");
-        let viable_screens = screens
-            .iter()
-            .copied()
-            .filter(|screen_uuid| {
-                topology.pane_order(*screen_uuid).is_some_and(|panes| !panes.is_empty())
-            })
-            .collect::<Vec<_>>();
-        let Some(first_screen) = viable_screens.first().copied() else {
+        let first_screen = screens.iter().copied().find(|screen_uuid| {
+            topology.pane_order(*screen_uuid).is_some_and(|panes| !panes.is_empty())
+        });
+        let Some(first_screen) = first_screen else {
             continue;
         };
-        stored.selected_screen_by_workspace.entry(*workspace_uuid).or_insert(first_screen);
+        stored.selected_screen_by_workspace.entry(workspace_uuid).or_insert(first_screen);
         screens_to_seed.insert(
             *stored
                 .selected_screen_by_workspace
-                .get(workspace_uuid)
+                .get(&workspace_uuid)
                 .expect("retained workspace has selected screen"),
         );
-        screens_to_seed.extend(
-            viable_screens
-                .into_iter()
-                .filter(|screen_uuid| previously_visited.contains(screen_uuid)),
-        );
     }
+    screens_to_seed.extend(previously_visited.into_iter().filter(|screen_uuid| {
+        topology
+            .workspace_for_screen(*screen_uuid)
+            .is_some_and(|workspace_uuid| stored.workspaces.contains(&workspace_uuid))
+            && topology.pane_order(*screen_uuid).is_some_and(|panes| !panes.is_empty())
+    }));
     for screen_uuid in screens_to_seed {
         seed_screen(stored, screen_uuid, false, topology)?;
     }
@@ -2066,11 +2331,13 @@ fn normalize_record<T: ProjectionNavigationTopology>(
         .selected_workspace_uuid
         .is_some_and(|workspace_uuid| stored.workspaces.contains(&workspace_uuid))
     {
-        stored.selected_workspace_uuid = topology
-            .workspace_order()
-            .iter()
-            .copied()
-            .find(|workspace_uuid| stored.workspaces.contains(workspace_uuid));
+        stored.selected_workspace_uuid =
+            stored.workspaces.iter().copied().min_by_key(|workspace_uuid| {
+                (
+                    topology.workspace_rank(*workspace_uuid).unwrap_or(usize::MAX),
+                    workspace_uuid.as_uuid(),
+                )
+            });
     }
     record.reconciled_topology_revision = topology.revision();
     Ok(*stored != before || before_revision != topology.revision())
@@ -2216,7 +2483,7 @@ fn apply_operations<T: ProjectionNavigationTopology>(
             }
         }
     }
-    Ok(())
+    validate_v2_invariants(stored, logical_presentation_id, topology)
 }
 
 fn operation_target(operation: &ProjectionNavigationOperation) -> OperationTarget {
@@ -2322,6 +2589,97 @@ fn require_pane<T: ProjectionNavigationTopology>(
     }
 }
 
+fn validate_v2_invariants<T: ProjectionNavigationTopology>(
+    stored: &StoredV2,
+    logical_presentation_id: Uuid,
+    topology: &T,
+) -> Result<(), ProjectionNavigationConflict> {
+    match stored.selected_workspace_uuid {
+        Some(workspace_uuid) => {
+            require_assigned_workspace(stored, workspace_uuid, logical_presentation_id)?;
+        }
+        None if !stored.workspaces.is_empty() => {
+            return Err(ProjectionNavigationConflict::InvalidSelection {
+                entity_kind: ProjectionNavigationEntityKind::Workspace,
+                reason: "a non-empty logical presentation must select a workspace",
+            });
+        }
+        None => {}
+    }
+    for workspace_uuid in &stored.workspaces {
+        let Some(selected_screen_uuid) =
+            stored.selected_screen_by_workspace.get(workspace_uuid).copied()
+        else {
+            return Err(ProjectionNavigationConflict::InvalidSelection {
+                entity_kind: ProjectionNavigationEntityKind::Screen,
+                reason: "an assigned workspace must select a screen",
+            });
+        };
+        require_screen(
+            stored,
+            *workspace_uuid,
+            selected_screen_uuid,
+            logical_presentation_id,
+            topology,
+        )?;
+        if !stored.active_pane_by_screen.contains_key(&selected_screen_uuid) {
+            return Err(ProjectionNavigationConflict::InvalidSelection {
+                entity_kind: ProjectionNavigationEntityKind::Pane,
+                reason: "a selected screen must have an active pane",
+            });
+        }
+    }
+    for (screen_uuid, pane_uuid) in &stored.active_pane_by_screen {
+        let Some(workspace_uuid) = topology.workspace_for_screen(*screen_uuid) else {
+            return Err(ProjectionNavigationConflict::EntityMissing {
+                entity_kind: ProjectionNavigationEntityKind::Screen,
+                entity_uuid: screen_uuid.as_uuid(),
+            });
+        };
+        require_pane(
+            stored,
+            workspace_uuid,
+            *screen_uuid,
+            *pane_uuid,
+            logical_presentation_id,
+            topology,
+        )?;
+    }
+    for (screen_uuid, pane_uuid) in &stored.zoomed_pane_by_screen {
+        if stored.active_pane_by_screen.get(screen_uuid) != Some(pane_uuid) {
+            return Err(ProjectionNavigationConflict::InvalidSelection {
+                entity_kind: ProjectionNavigationEntityKind::Pane,
+                reason: "a zoomed pane must also be active",
+            });
+        }
+    }
+    for (pane_uuid, surface_uuid) in &stored.selected_surface_by_pane {
+        if topology.pane_for_surface(*surface_uuid) != Some(*pane_uuid) {
+            return Err(ProjectionNavigationConflict::AncestryMismatch {
+                entity_kind: ProjectionNavigationEntityKind::Surface,
+                entity_uuid: surface_uuid.as_uuid(),
+                parent_kind: ProjectionNavigationEntityKind::Pane,
+                expected_parent_uuid: pane_uuid.as_uuid(),
+                actual_parent_uuid: topology.pane_for_surface(*surface_uuid).map(PaneUuid::as_uuid),
+            });
+        }
+        let Some(screen_uuid) = topology.screen_for_pane(*pane_uuid) else {
+            return Err(ProjectionNavigationConflict::EntityMissing {
+                entity_kind: ProjectionNavigationEntityKind::Pane,
+                entity_uuid: pane_uuid.as_uuid(),
+            });
+        };
+        let Some(workspace_uuid) = topology.workspace_for_screen(screen_uuid) else {
+            return Err(ProjectionNavigationConflict::EntityMissing {
+                entity_kind: ProjectionNavigationEntityKind::Screen,
+                entity_uuid: screen_uuid.as_uuid(),
+            });
+        };
+        require_assigned_workspace(stored, workspace_uuid, logical_presentation_id)?;
+    }
+    Ok(())
+}
+
 fn remove_workspace<T: ProjectionNavigationTopology>(
     stored: &mut StoredV2,
     workspace_uuid: WorkspaceUuid,
@@ -2342,7 +2700,10 @@ fn remove_workspace<T: ProjectionNavigationTopology>(
             != Some(workspace_uuid)
     });
     if stored.selected_workspace_uuid == Some(workspace_uuid) {
-        stored.selected_workspace_uuid = None;
+        stored.selected_workspace_uuid =
+            stored.workspaces.iter().copied().min_by_key(|candidate| {
+                (topology.workspace_rank(*candidate).unwrap_or(usize::MAX), candidate.as_uuid())
+            });
     }
 }
 
@@ -2355,23 +2716,50 @@ fn wire_state<T: ProjectionNavigationTopology>(
     let StoredPayload::V2(stored) = &record.payload else {
         unreachable!("v1 state must be promoted before v2 serialization")
     };
-    let workspaces = topology
-        .workspace_order()
-        .iter()
-        .copied()
-        .filter(|workspace_uuid| stored.workspaces.contains(workspace_uuid))
+    let mut workspace_order = stored.workspaces.iter().copied().collect::<Vec<_>>();
+    workspace_order.sort_unstable_by_key(|workspace_uuid| {
+        (topology.workspace_rank(*workspace_uuid).unwrap_or(usize::MAX), workspace_uuid.as_uuid())
+    });
+    let mut screens_by_workspace = HashMap::<WorkspaceUuid, Vec<ScreenUuid>>::new();
+    for screen_uuid in stored.active_pane_by_screen.keys().copied() {
+        if let Some(workspace_uuid) = topology.workspace_for_screen(screen_uuid)
+            && stored.workspaces.contains(&workspace_uuid)
+        {
+            screens_by_workspace.entry(workspace_uuid).or_default().push(screen_uuid);
+        }
+    }
+    for screens in screens_by_workspace.values_mut() {
+        screens.sort_unstable_by_key(|screen_uuid| {
+            (topology.screen_rank(*screen_uuid).unwrap_or(usize::MAX), screen_uuid.as_uuid())
+        });
+    }
+    let mut panes_by_screen = HashMap::<ScreenUuid, Vec<PaneUuid>>::new();
+    for pane_uuid in stored.selected_surface_by_pane.keys().copied() {
+        if let Some(screen_uuid) = topology.screen_for_pane(pane_uuid)
+            && stored.active_pane_by_screen.contains_key(&screen_uuid)
+        {
+            panes_by_screen.entry(screen_uuid).or_default().push(pane_uuid);
+        }
+    }
+    for panes in panes_by_screen.values_mut() {
+        panes.sort_unstable_by_key(|pane_uuid| {
+            (topology.pane_rank(*pane_uuid).unwrap_or(usize::MAX), pane_uuid.as_uuid())
+        });
+    }
+    let workspaces = workspace_order
+        .into_iter()
         .filter_map(|workspace_uuid| {
-            let screens = topology.screen_order(workspace_uuid)?;
             let selected_screen_uuid = *stored.selected_screen_by_workspace.get(&workspace_uuid)?;
-            let screens = screens
-                .iter()
-                .copied()
+            let screens = screens_by_workspace
+                .remove(&workspace_uuid)
+                .unwrap_or_default()
+                .into_iter()
                 .filter_map(|screen_uuid| {
-                    let panes = topology.pane_order(screen_uuid)?;
                     let active_pane_uuid = *stored.active_pane_by_screen.get(&screen_uuid)?;
-                    let panes = panes
-                        .iter()
-                        .copied()
+                    let panes = panes_by_screen
+                        .remove(&screen_uuid)
+                        .unwrap_or_default()
+                        .into_iter()
                         .filter_map(|pane_uuid| {
                             let selected_surface_uuid =
                                 *stored.selected_surface_by_pane.get(&pane_uuid)?;
@@ -2407,6 +2795,25 @@ fn wire_state<T: ProjectionNavigationTopology>(
     }
 }
 
+fn v2_wire_state<T: ProjectionNavigationTopology>(
+    key: ProjectionKey,
+    record: &StoredRecord,
+    claimant: ProjectionNavigationClaimant,
+    topology: &T,
+) -> Result<ProjectionNavigationState, ProjectionNavigationConflict> {
+    if matches!(record.payload, StoredPayload::V2(_)) {
+        return Ok(wire_state(key, record, claimant, topology));
+    }
+    let mut promoted = record.clone();
+    let claim = promoted.claim.clone();
+    promote_record(&mut promoted, topology)?;
+    // Release validates the legacy claim before this response-only promotion.
+    // Preserve its visibility in a stale-generation conflict without
+    // committing a partial schema conversion.
+    promoted.claim = claim;
+    Ok(wire_state(key, &promoted, claimant, topology))
+}
+
 fn insert_record(inner: &mut RegistryInner, key: ProjectionKey, record: StoredRecord) {
     inner
         .logical_presentations_by_client
@@ -2418,19 +2825,34 @@ fn insert_record(inner: &mut RegistryInner, key: ProjectionKey, record: StoredRe
     debug_assert!(previous.is_none());
 }
 
-fn has_schema_floor(inner: &RegistryInner, key: ProjectionKey) -> bool {
-    inner.v2_schema_floor_by_client.contains_key(&key.client_uuid)
+fn has_client_schema_floor(inner: &RegistryInner, client_uuid: Uuid) -> bool {
+    inner.v2_schema_floor_clients.contains(&client_uuid)
 }
 
-fn client_schema_floor(inner: &RegistryInner, client_uuid: Uuid) -> Option<Uuid> {
-    inner.v2_schema_floor_by_client.get(&client_uuid).copied()
+fn establish_schema_floor(inner: &mut RegistryInner, client_uuid: Uuid) {
+    inner.v2_schema_floor_clients.insert(client_uuid);
 }
 
-fn establish_schema_floor(inner: &mut RegistryInner, key: ProjectionKey) {
-    if !inner.v2_schema_floor_by_client.contains_key(&key.client_uuid) {
-        inner.v2_schema_floor_by_client.insert(key.client_uuid, key.logical_presentation_id);
-        inner.v2_schema_floors += 1;
+fn client_revision(inner: &RegistryInner, client_uuid: Uuid) -> u64 {
+    inner.client_revisions.get(&client_uuid).copied().unwrap_or(0)
+}
+
+fn prospective_client_revision(
+    inner: &RegistryInner,
+    client_uuid: Uuid,
+    changed: bool,
+) -> Result<u64, ProjectionNavigationConflict> {
+    let current = client_revision(inner, client_uuid);
+    if changed {
+        current.checked_add(1).ok_or(ProjectionNavigationConflict::ClientRevisionExhausted)
+    } else {
+        Ok(current)
     }
+}
+
+fn set_client_revision(inner: &mut RegistryInner, client_uuid: Uuid, revision: u64) {
+    inner.client_revisions.insert(client_uuid, revision);
+    inner.list_snapshot_revisions.remove(&client_uuid);
 }
 
 fn replace_records(inner: &mut RegistryInner, replacements: &[(ProjectionKey, StoredRecord)]) {
@@ -2609,7 +3031,8 @@ fn remove_replay_receipt(inner: &mut RegistryInner, key: ReplayKey) {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
     use super::*;
 
@@ -2619,9 +3042,13 @@ mod tests {
         session_id: SessionId,
         revision: u64,
         workspace_order: Vec<WorkspaceUuid>,
+        workspace_rank: HashMap<WorkspaceUuid, usize>,
         screens: HashMap<WorkspaceUuid, Vec<ScreenUuid>>,
+        screen_rank: HashMap<ScreenUuid, usize>,
         panes: HashMap<ScreenUuid, Vec<PaneUuid>>,
+        pane_rank: HashMap<PaneUuid, usize>,
         surfaces: HashMap<PaneUuid, Vec<SurfaceUuid>>,
+        surface_rank: HashMap<SurfaceUuid, usize>,
         workspace_by_screen: HashMap<ScreenUuid, WorkspaceUuid>,
         screen_by_pane: HashMap<PaneUuid, ScreenUuid>,
         pane_by_surface: HashMap<SurfaceUuid, PaneUuid>,
@@ -2638,9 +3065,13 @@ mod tests {
                 session_id: session(2),
                 revision: 1,
                 workspace_order: Vec::new(),
+                workspace_rank: HashMap::new(),
                 screens: HashMap::new(),
+                screen_rank: HashMap::new(),
                 panes: HashMap::new(),
+                pane_rank: HashMap::new(),
                 surfaces: HashMap::new(),
+                surface_rank: HashMap::new(),
                 workspace_by_screen: HashMap::new(),
                 screen_by_pane: HashMap::new(),
                 pane_by_surface: HashMap::new(),
@@ -2686,6 +3117,7 @@ mod tests {
             topology.legacy_zoomed_pane = HashMap::from([(s1, p2)]);
             topology.legacy_selected_surface =
                 HashMap::from([(p1, f2), (p2, f3), (p3, f5), (p4, f4)]);
+            topology.rebuild_ranks();
             topology
         }
 
@@ -2711,13 +3143,91 @@ mod tests {
             if let Some(selected) = screens.last().copied() {
                 topology.legacy_selected_screen.insert(workspace_uuid, selected);
             }
+            topology.rebuild_ranks();
             topology
+        }
+
+        fn many_workspaces(count: usize) -> Self {
+            let mut topology = Self::empty();
+            for index in 0..count as u128 {
+                let workspace_uuid = workspace(100_000 + index);
+                let screen_uuid = screen(200_000 + index);
+                let pane_uuid = pane(300_000 + index);
+                let surface_uuid = surface(400_000 + index);
+                topology.workspace_order.push(workspace_uuid);
+                topology.screens.insert(workspace_uuid, vec![screen_uuid]);
+                topology.panes.insert(screen_uuid, vec![pane_uuid]);
+                topology.surfaces.insert(pane_uuid, vec![surface_uuid]);
+                topology.workspace_by_screen.insert(screen_uuid, workspace_uuid);
+                topology.screen_by_pane.insert(pane_uuid, screen_uuid);
+                topology.pane_by_surface.insert(surface_uuid, pane_uuid);
+                topology.legacy_selected_screen.insert(workspace_uuid, screen_uuid);
+                topology.legacy_active_pane.insert(screen_uuid, pane_uuid);
+                topology.legacy_selected_surface.insert(pane_uuid, surface_uuid);
+            }
+            topology.rebuild_ranks();
+            topology
+        }
+
+        fn many_large_workspaces(workspace_count: usize, panes_per_workspace: usize) -> Self {
+            let mut topology = Self::empty();
+            for workspace_index in 0..workspace_count as u128 {
+                let workspace_uuid = workspace(1_000_000 + workspace_index);
+                let screen_uuid = screen(2_000_000 + workspace_index);
+                topology.workspace_order.push(workspace_uuid);
+                topology.screens.insert(workspace_uuid, vec![screen_uuid]);
+                topology.workspace_by_screen.insert(screen_uuid, workspace_uuid);
+                topology.legacy_selected_screen.insert(workspace_uuid, screen_uuid);
+                let mut panes = Vec::with_capacity(panes_per_workspace);
+                for pane_index in 0..panes_per_workspace as u128 {
+                    let ordinal = workspace_index * panes_per_workspace as u128 + pane_index;
+                    let pane_uuid = pane(3_000_000 + ordinal);
+                    let surface_uuid = surface(6_000_000 + ordinal);
+                    panes.push(pane_uuid);
+                    topology.surfaces.insert(pane_uuid, vec![surface_uuid]);
+                    topology.screen_by_pane.insert(pane_uuid, screen_uuid);
+                    topology.pane_by_surface.insert(surface_uuid, pane_uuid);
+                    topology.legacy_selected_surface.insert(pane_uuid, surface_uuid);
+                }
+                if let Some(active) = panes.first().copied() {
+                    topology.legacy_active_pane.insert(screen_uuid, active);
+                }
+                topology.panes.insert(screen_uuid, panes);
+            }
+            topology.rebuild_ranks();
+            topology
+        }
+
+        fn rebuild_ranks(&mut self) {
+            self.workspace_rank.clear();
+            self.screen_rank.clear();
+            self.pane_rank.clear();
+            self.surface_rank.clear();
+            for (rank, workspace_uuid) in self.workspace_order.iter().copied().enumerate() {
+                self.workspace_rank.insert(workspace_uuid, rank);
+            }
+            for screens in self.screens.values() {
+                for (rank, screen_uuid) in screens.iter().copied().enumerate() {
+                    self.screen_rank.insert(screen_uuid, rank);
+                }
+            }
+            for panes in self.panes.values() {
+                for (rank, pane_uuid) in panes.iter().copied().enumerate() {
+                    self.pane_rank.insert(pane_uuid, rank);
+                }
+            }
+            for surfaces in self.surfaces.values() {
+                for (rank, surface_uuid) in surfaces.iter().copied().enumerate() {
+                    self.surface_rank.insert(surface_uuid, rank);
+                }
+            }
         }
 
         fn move_pane(&mut self, pane: PaneUuid, from: ScreenUuid, to: ScreenUuid) {
             self.panes.get_mut(&from).unwrap().retain(|candidate| *candidate != pane);
             self.panes.get_mut(&to).unwrap().push(pane);
             self.screen_by_pane.insert(pane, to);
+            self.rebuild_ranks();
             self.revision += 1;
         }
 
@@ -2725,11 +3235,13 @@ mod tests {
             self.surfaces.get_mut(&from).unwrap().retain(|candidate| *candidate != value);
             self.surfaces.get_mut(&to).unwrap().push(value);
             self.pane_by_surface.insert(value, to);
+            self.rebuild_ranks();
             self.revision += 1;
         }
 
         fn reorder_workspaces(&mut self, order: Vec<WorkspaceUuid>) {
             self.workspace_order = order;
+            self.rebuild_ranks();
             self.revision += 1;
         }
 
@@ -2738,6 +3250,7 @@ mod tests {
             for screen_uuid in self.screens.remove(&workspace_uuid).unwrap_or_default() {
                 self.workspace_by_screen.remove(&screen_uuid);
             }
+            self.rebuild_ranks();
             self.revision += 1;
         }
 
@@ -2747,6 +3260,7 @@ mod tests {
                     self.screen_by_pane.remove(&pane_uuid);
                 }
             }
+            self.rebuild_ranks();
             self.revision += 1;
         }
     }
@@ -2780,6 +3294,22 @@ mod tests {
             self.surfaces.get(&pane).map(Vec::as_slice)
         }
 
+        fn workspace_rank(&self, workspace: WorkspaceUuid) -> Option<usize> {
+            self.workspace_rank.get(&workspace).copied()
+        }
+
+        fn screen_rank(&self, screen: ScreenUuid) -> Option<usize> {
+            self.screen_rank.get(&screen).copied()
+        }
+
+        fn pane_rank(&self, pane: PaneUuid) -> Option<usize> {
+            self.pane_rank.get(&pane).copied()
+        }
+
+        fn surface_rank(&self, surface: SurfaceUuid) -> Option<usize> {
+            self.surface_rank.get(&surface).copied()
+        }
+
         fn workspace_for_screen(&self, screen: ScreenUuid) -> Option<WorkspaceUuid> {
             self.workspace_by_screen.get(&screen).copied()
         }
@@ -2806,6 +3336,117 @@ mod tests {
 
         fn legacy_selected_surface(&self, pane: PaneUuid) -> Option<SurfaceUuid> {
             self.legacy_selected_surface.get(&pane).copied()
+        }
+    }
+
+    #[derive(Default)]
+    struct TopologyAccessCounts {
+        workspace_order_items: AtomicUsize,
+        screen_order_items: AtomicUsize,
+        pane_order_items: AtomicUsize,
+        surface_order_items: AtomicUsize,
+        rank_lookups: AtomicUsize,
+        ancestry_lookups: AtomicUsize,
+    }
+
+    struct CountingTopology {
+        inner: FixtureTopology,
+        counts: Arc<TopologyAccessCounts>,
+    }
+
+    impl ProjectionNavigationTopology for CountingTopology {
+        fn daemon_instance_id(&self) -> DaemonInstanceId {
+            self.inner.daemon_instance_id()
+        }
+
+        fn session_id(&self) -> SessionId {
+            self.inner.session_id()
+        }
+
+        fn revision(&self) -> u64 {
+            self.inner.revision()
+        }
+
+        fn workspace_order(&self) -> &[WorkspaceUuid] {
+            self.counts
+                .workspace_order_items
+                .fetch_add(self.inner.workspace_order.len(), Ordering::Relaxed);
+            self.inner.workspace_order()
+        }
+
+        fn screen_order(&self, workspace: WorkspaceUuid) -> Option<&[ScreenUuid]> {
+            let value = self.inner.screen_order(workspace);
+            self.counts
+                .screen_order_items
+                .fetch_add(value.map_or(0, |items| items.len()), Ordering::Relaxed);
+            value
+        }
+
+        fn pane_order(&self, screen: ScreenUuid) -> Option<&[PaneUuid]> {
+            let value = self.inner.pane_order(screen);
+            self.counts
+                .pane_order_items
+                .fetch_add(value.map_or(0, |items| items.len()), Ordering::Relaxed);
+            value
+        }
+
+        fn surface_order(&self, pane: PaneUuid) -> Option<&[SurfaceUuid]> {
+            let value = self.inner.surface_order(pane);
+            self.counts
+                .surface_order_items
+                .fetch_add(value.map_or(0, |items| items.len()), Ordering::Relaxed);
+            value
+        }
+
+        fn workspace_rank(&self, workspace: WorkspaceUuid) -> Option<usize> {
+            self.counts.rank_lookups.fetch_add(1, Ordering::Relaxed);
+            self.inner.workspace_rank(workspace)
+        }
+
+        fn screen_rank(&self, screen: ScreenUuid) -> Option<usize> {
+            self.counts.rank_lookups.fetch_add(1, Ordering::Relaxed);
+            self.inner.screen_rank(screen)
+        }
+
+        fn pane_rank(&self, pane: PaneUuid) -> Option<usize> {
+            self.counts.rank_lookups.fetch_add(1, Ordering::Relaxed);
+            self.inner.pane_rank(pane)
+        }
+
+        fn surface_rank(&self, surface: SurfaceUuid) -> Option<usize> {
+            self.counts.rank_lookups.fetch_add(1, Ordering::Relaxed);
+            self.inner.surface_rank(surface)
+        }
+
+        fn workspace_for_screen(&self, screen: ScreenUuid) -> Option<WorkspaceUuid> {
+            self.counts.ancestry_lookups.fetch_add(1, Ordering::Relaxed);
+            self.inner.workspace_for_screen(screen)
+        }
+
+        fn screen_for_pane(&self, pane: PaneUuid) -> Option<ScreenUuid> {
+            self.counts.ancestry_lookups.fetch_add(1, Ordering::Relaxed);
+            self.inner.screen_for_pane(pane)
+        }
+
+        fn pane_for_surface(&self, surface: SurfaceUuid) -> Option<PaneUuid> {
+            self.counts.ancestry_lookups.fetch_add(1, Ordering::Relaxed);
+            self.inner.pane_for_surface(surface)
+        }
+
+        fn legacy_selected_screen(&self, workspace: WorkspaceUuid) -> Option<ScreenUuid> {
+            self.inner.legacy_selected_screen(workspace)
+        }
+
+        fn legacy_active_pane(&self, screen: ScreenUuid) -> Option<PaneUuid> {
+            self.inner.legacy_active_pane(screen)
+        }
+
+        fn legacy_zoomed_pane(&self, screen: ScreenUuid) -> Option<PaneUuid> {
+            self.inner.legacy_zoomed_pane(screen)
+        }
+
+        fn legacy_selected_surface(&self, pane: PaneUuid) -> Option<SurfaceUuid> {
+            self.inner.legacy_selected_surface(pane)
         }
     }
 
@@ -2912,6 +3553,53 @@ mod tests {
             .unwrap();
         assert_eq!(record.counts().screens, 1);
         assert_eq!(record.counts().panes, 1);
+    }
+
+    #[test]
+    fn unchanged_revision_sparse_mutation_does_not_scan_a_thousand_workspace_topology() {
+        let counts = Arc::new(TopologyAccessCounts::default());
+        let topology = CountingTopology {
+            inner: FixtureTopology::many_workspaces(1_000),
+            counts: counts.clone(),
+        };
+        let registry = ProjectionNavigationRegistry::new();
+        let owner = claimant(1, 2, 3);
+        let claimed = claim(&registry, owner, uuid(10), &topology);
+        let assigned = mutate_one(
+            &registry,
+            owner,
+            &claimed,
+            vec![ProjectionNavigationOperation::AssignWorkspace {
+                workspace_uuid: workspace(100_500),
+            }],
+            &topology,
+        );
+        counts.workspace_order_items.store(0, Ordering::Relaxed);
+        counts.screen_order_items.store(0, Ordering::Relaxed);
+        counts.pane_order_items.store(0, Ordering::Relaxed);
+        counts.surface_order_items.store(0, Ordering::Relaxed);
+        counts.rank_lookups.store(0, Ordering::Relaxed);
+        counts.ancestry_lookups.store(0, Ordering::Relaxed);
+
+        let selected = mutate_one(
+            &registry,
+            owner,
+            &assigned,
+            vec![ProjectionNavigationOperation::SelectSurface {
+                workspace_uuid: workspace(100_500),
+                screen_uuid: screen(200_500),
+                pane_uuid: pane(300_500),
+                surface_uuid: surface(400_500),
+            }],
+            &topology,
+        );
+        assert_eq!(selected.workspaces.len(), 1);
+        assert_eq!(counts.workspace_order_items.load(Ordering::Relaxed), 0);
+        assert!(counts.screen_order_items.load(Ordering::Relaxed) <= 1);
+        assert!(counts.pane_order_items.load(Ordering::Relaxed) <= 2);
+        assert!(counts.surface_order_items.load(Ordering::Relaxed) <= 1);
+        assert!(counts.rank_lookups.load(Ordering::Relaxed) <= 8);
+        assert!(counts.ancestry_lookups.load(Ordering::Relaxed) <= 32);
     }
 
     #[test]
@@ -3893,6 +4581,140 @@ mod tests {
     }
 
     #[test]
+    fn empty_v2_list_establishes_a_client_floor_without_a_fake_record_identity() {
+        let topology = FixtureTopology::empty();
+        let registry = ProjectionNavigationRegistry::new();
+        let owner = claimant(1, 2, 3);
+
+        let response = registry.list(owner, expectation(&topology), &topology);
+        assert!(matches!(
+            response,
+            ProjectionNavigationResponse::Applied {
+                client_revision: Some(1),
+                next_cursor: None,
+                states,
+                ..
+            } if states.is_empty()
+        ));
+        assert!(matches!(
+            registry.legacy_claim(owner, uuid(10), &topology),
+            Err(ProjectionNavigationConflict::SchemaPromoted { .. })
+        ));
+        assert!(matches!(
+            registry.legacy_list(owner, &topology),
+            Err(ProjectionNavigationConflict::ClientSchemaPromoted { .. })
+        ));
+        assert_eq!(registry.state_count(), 0);
+    }
+
+    #[test]
+    fn fabricated_first_page_cursor_is_rejected_without_crossing_the_schema_floor() {
+        let topology = FixtureTopology::empty();
+        let registry = ProjectionNavigationRegistry::new();
+        let owner = claimant(1, 2, 3);
+        let response = registry.list_page(
+            owner,
+            expectation(&topology),
+            Some(ProjectionNavigationListCursor {
+                client_revision: 0,
+                after_logical_presentation_id: uuid(10),
+            }),
+            &topology,
+        );
+        assert!(matches!(
+            conflict(response),
+            ProjectionNavigationConflict::ListCursorRestartRequired { current_client_revision: 0 }
+        ));
+        assert!(registry.legacy_claim(owner, uuid(10), &topology).is_ok());
+    }
+
+    #[test]
+    fn claim_of_one_v1_record_requires_fresh_list_before_any_remaining_v1_is_serialized() {
+        let topology = FixtureTopology::empty();
+        let registry = ProjectionNavigationRegistry::new();
+        let owner = claimant(1, 2, 3);
+        for logical_presentation_id in [uuid(10), uuid(11)] {
+            registry
+                .install_v1(ProjectionNavigationV1Seed {
+                    client_uuid: owner.client_uuid,
+                    logical_presentation_id,
+                    generation: 0,
+                    workspaces: Vec::new(),
+                })
+                .unwrap();
+        }
+        let claimed = claim(&registry, owner, uuid(10), &topology);
+        let current_client_revision =
+            client_revision(&registry.inner.lock().unwrap(), owner.client_uuid);
+        let continuation = registry.list_page(
+            owner,
+            expectation(&topology),
+            Some(ProjectionNavigationListCursor {
+                client_revision: current_client_revision,
+                after_logical_presentation_id: claimed.logical_presentation_id,
+            }),
+            &topology,
+        );
+        assert!(matches!(
+            conflict(continuation),
+            ProjectionNavigationConflict::ListCursorRestartRequired { .. }
+        ));
+
+        let states = applied_states(registry.list(owner, expectation(&topology), &topology));
+        assert_eq!(states.len(), 2);
+        assert!(
+            states.iter().all(|state| state.schema_version == PROJECTION_NAVIGATION_SCHEMA_VERSION)
+        );
+    }
+
+    #[test]
+    fn v2_release_of_a_v1_claim_is_panic_free_and_permanently_blocks_downgrade() {
+        let topology = FixtureTopology::empty();
+        let registry = ProjectionNavigationRegistry::new();
+        let owner = claimant(1, 2, 3);
+        let claimed = registry.legacy_claim(owner, uuid(10), &topology).unwrap();
+
+        let stale = registry.release(
+            owner,
+            expectation(&topology),
+            ProjectionNavigationReleaseRequest {
+                request_id: request_id(),
+                logical_presentation_id: claimed.logical_presentation_id,
+                claim_id: claimed.claim_id.unwrap(),
+                expected_generation: claimed.generation + 1,
+            },
+            &topology,
+        );
+        assert!(matches!(
+            stale,
+            ProjectionNavigationResponse::Conflict {
+                conflict: ProjectionNavigationConflict::StaleGeneration {
+                    current_state,
+                    ..
+                },
+            } if current_state.schema_version == PROJECTION_NAVIGATION_SCHEMA_VERSION
+        ));
+
+        let released = registry.release(
+            owner,
+            expectation(&topology),
+            ProjectionNavigationReleaseRequest {
+                request_id: request_id(),
+                logical_presentation_id: claimed.logical_presentation_id,
+                claim_id: claimed.claim_id.unwrap(),
+                expected_generation: claimed.generation,
+            },
+            &topology,
+        );
+        assert!(matches!(released, ProjectionNavigationResponse::Applied { .. }));
+        assert_eq!(registry.state_count(), 0);
+        assert!(matches!(
+            registry.legacy_claim(owner, uuid(11), &topology),
+            Err(ProjectionNavigationConflict::SchemaPromoted { .. })
+        ));
+    }
+
+    #[test]
     fn client_wide_schema_floors_are_bounded_refuse_growth_and_are_never_evicted() {
         let topology = FixtureTopology::empty();
         let registry = ProjectionNavigationRegistry::new_with_limits(ProjectionNavigationLimits {
@@ -3954,6 +4776,92 @@ mod tests {
             }
         ));
         assert_eq!(no_floors.state_count(), 0);
+    }
+
+    #[test]
+    fn aggregate_state_over_eight_mebibytes_recovers_by_stable_pages_and_restarts_on_mutation() {
+        const RECORDS: usize = 64;
+        const PANES_PER_WORKSPACE: usize = 2_000;
+
+        let topology = FixtureTopology::many_large_workspaces(RECORDS, PANES_PER_WORKSPACE);
+        let registry = ProjectionNavigationRegistry::new();
+        let owner = claimant(1, 2, 3);
+        let mut live_states = Vec::with_capacity(RECORDS);
+        for index in 0..RECORDS as u128 {
+            let claimed = claim(&registry, owner, uuid(10_000 + index), &topology);
+            live_states.push(mutate_one(
+                &registry,
+                owner,
+                &claimed,
+                vec![ProjectionNavigationOperation::AssignWorkspace {
+                    workspace_uuid: workspace(1_000_000 + index),
+                }],
+                &topology,
+            ));
+        }
+
+        let mut cursor = None;
+        let mut recovered = Vec::new();
+        let mut page_count = 0;
+        let mut snapshot_revision = None;
+        loop {
+            let response = registry.list_page(owner, expectation(&topology), cursor, &topology);
+            assert!(serialized_response_bytes(&response) <= MAX_RESPONSE_BYTES);
+            let ProjectionNavigationResponse::Applied {
+                client_revision: Some(client_revision),
+                next_cursor,
+                states,
+                ..
+            } = response
+            else {
+                panic!("expected a paginated applied response")
+            };
+            if let Some(snapshot_revision) = snapshot_revision {
+                assert_eq!(client_revision, snapshot_revision);
+            } else {
+                snapshot_revision = Some(client_revision);
+            }
+            recovered.extend(states);
+            page_count += 1;
+            let Some(next_cursor) = next_cursor else { break };
+            cursor = Some(next_cursor);
+        }
+        assert!(page_count > 1);
+        assert_eq!(recovered.len(), RECORDS);
+        assert!(serde_json::to_vec(&recovered).unwrap().len() > MAX_RESPONSE_BYTES);
+        let snapshot_revision = snapshot_revision.unwrap();
+
+        let first_page = registry.list_page(owner, expectation(&topology), None, &topology);
+        let ProjectionNavigationResponse::Applied { next_cursor: Some(stale_cursor), .. } =
+            first_page
+        else {
+            panic!("aggregate state must retain a continuation cursor")
+        };
+        let changed = mutate_one(
+            &registry,
+            owner,
+            &live_states[0],
+            vec![ProjectionNavigationOperation::SetZoomedPane {
+                workspace_uuid: workspace(1_000_000),
+                screen_uuid: screen(2_000_000),
+                pane_uuid: Some(pane(3_000_001)),
+            }],
+            &topology,
+        );
+        assert_eq!(changed.workspaces[0].screens[0].zoomed_pane_uuid, Some(pane(3_000_001)));
+        assert!(matches!(
+            conflict(registry.list_page(
+                owner,
+                expectation(&topology),
+                Some(stale_cursor),
+                &topology,
+            )),
+            ProjectionNavigationConflict::StaleListCursor {
+                expected_client_revision,
+                current_client_revision,
+            } if expected_client_revision == snapshot_revision
+                && current_client_revision == snapshot_revision + 1
+        ));
     }
 
     #[test]
@@ -4267,7 +5175,10 @@ mod tests {
                 schema_floors_global: 1,
                 ..ProjectionNavigationLimits::default()
             });
-        let inner = RegistryInner { v2_schema_floors: 1, ..RegistryInner::default() };
+        let inner = RegistryInner {
+            v2_schema_floor_clients: HashSet::from([uuid(1)]),
+            ..RegistryInner::default()
+        };
         assert!(matches!(
             floor_global.validate_schema_floor_growth(&inner, uuid(2), 1),
             Err(ProjectionNavigationConflict::LimitExceeded {
@@ -4605,11 +5516,11 @@ mod tests {
         screen.panes.iter().find(|pane| pane.pane_uuid == pane_uuid).unwrap()
     }
 
-    fn claim(
+    fn claim<T: ProjectionNavigationTopology>(
         registry: &ProjectionNavigationRegistry,
         claimant: ProjectionNavigationClaimant,
         logical_presentation_id: uuid::Uuid,
-        topology: &FixtureTopology,
+        topology: &T,
     ) -> ProjectionNavigationState {
         applied_states(registry.claim(
             claimant,
@@ -4620,12 +5531,12 @@ mod tests {
         .remove(0)
     }
 
-    fn mutate_one(
+    fn mutate_one<T: ProjectionNavigationTopology>(
         registry: &ProjectionNavigationRegistry,
         claimant: ProjectionNavigationClaimant,
         state: &ProjectionNavigationState,
         operations: Vec<ProjectionNavigationOperation>,
-        topology: &FixtureTopology,
+        topology: &T,
     ) -> ProjectionNavigationState {
         applied_states(registry.mutate(
             claimant,
@@ -4651,11 +5562,13 @@ mod tests {
         }
     }
 
-    fn expectation(topology: &FixtureTopology) -> ProjectionNavigationTopologyExpectation {
+    fn expectation<T: ProjectionNavigationTopology>(
+        topology: &T,
+    ) -> ProjectionNavigationTopologyExpectation {
         ProjectionNavigationTopologyExpectation {
-            daemon_instance_id: topology.daemon_instance_id,
-            session_id: topology.session_id,
-            expected_topology_revision: topology.revision,
+            daemon_instance_id: topology.daemon_instance_id(),
+            session_id: topology.session_id(),
+            expected_topology_revision: topology.revision(),
         }
     }
 

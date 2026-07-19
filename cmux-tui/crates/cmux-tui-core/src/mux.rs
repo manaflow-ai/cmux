@@ -24,7 +24,13 @@ use crate::layout::{Rect, layout_screen};
 use crate::model::{ChangeState, Node, Pane, Screen, State, Workspace};
 use crate::pairing::PairingBroker;
 use crate::presentation::PresentationRegistry;
-use crate::projection_state::ProjectionStateRegistry;
+use crate::projection_navigation_v2::{
+    ProjectionNavigationClaimant, ProjectionNavigationConflict, ProjectionNavigationListCursor,
+    ProjectionNavigationMutationBatch, ProjectionNavigationRegistry,
+    ProjectionNavigationReleaseRequest, ProjectionNavigationResponse, ProjectionNavigationTopology,
+    ProjectionNavigationTopologyExpectation, ProjectionNavigationV1State,
+    ProjectionNavigationV1Update,
+};
 use crate::remote_tmux_producer::{
     ExternalTerminalProvenance, RemoteTmuxProducerClaimReceipt, RemoteTmuxProducerOwner,
     RemoteTmuxProducerRegistry, RemoteTmuxProducerSource, RemoteTmuxProducerSourceUpdateReceipt,
@@ -46,12 +52,11 @@ use crate::semantic_scene::{
 };
 use crate::state_store::{
     DurableAppendOutcome, DurableFailureResolution, DurableSession,
-    MAX_PERSISTED_IDEMPOTENCY_RESULTS,
-    MAX_PERSISTED_TOMBSTONES, PersistedEntityKind, PersistedIdempotencyResult,
-    PersistedLaunchAttempt, PersistedLaunchAttemptPhase, PersistedLaunchRecipe, PersistedNode,
-    PersistedPane, PersistedScreen, PersistedSessionState, PersistedSplitDirection,
-    PersistedSurface, PersistedSurfaceKind, PersistedTombstone, PersistedWorkspace, StateStore,
-    StorageCircuit,
+    MAX_PERSISTED_IDEMPOTENCY_RESULTS, MAX_PERSISTED_TOMBSTONES, PersistedEntityKind,
+    PersistedIdempotencyResult, PersistedLaunchAttempt, PersistedLaunchAttemptPhase,
+    PersistedLaunchRecipe, PersistedNode, PersistedPane, PersistedScreen, PersistedSessionState,
+    PersistedSplitDirection, PersistedSurface, PersistedSurfaceKind, PersistedTombstone,
+    PersistedWorkspace, StateStore, StorageCircuit,
 };
 use crate::surface::{
     DefaultColors, ExternalTerminalClaimReceipt, ExternalTerminalOutputReceipt,
@@ -877,6 +882,19 @@ struct CanonicalTopologyIndexBuildCounts {
 #[derive(Default)]
 struct CanonicalTopologyIndex {
     workspace_index_by_uuid: HashMap<WorkspaceUuid, usize>,
+    workspace_order: Vec<WorkspaceUuid>,
+    workspace_rank_by_uuid: HashMap<WorkspaceUuid, usize>,
+    screen_order_by_workspace: HashMap<WorkspaceUuid, Vec<ScreenUuid>>,
+    screen_rank_by_uuid: HashMap<ScreenUuid, usize>,
+    pane_order_by_screen: HashMap<ScreenUuid, Vec<PaneUuid>>,
+    pane_rank_by_uuid: HashMap<PaneUuid, usize>,
+    surface_order_by_pane: HashMap<PaneUuid, Vec<SurfaceUuid>>,
+    surface_rank_by_uuid: HashMap<SurfaceUuid, usize>,
+    workspace_by_screen: HashMap<ScreenUuid, WorkspaceUuid>,
+    screen_by_pane: HashMap<PaneUuid, ScreenUuid>,
+    pane_by_surface_uuid: HashMap<SurfaceUuid, PaneUuid>,
+    screen_location_by_uuid: HashMap<ScreenUuid, (usize, usize)>,
+    pane_id_by_uuid: HashMap<PaneUuid, PaneId>,
     screen_location_by_pane: HashMap<PaneId, (usize, usize)>,
     pane_by_surface: HashMap<SurfaceId, PaneId>,
     surface_id_by_uuid: HashMap<SurfaceUuid, SurfaceId>,
@@ -902,6 +920,9 @@ impl CanonicalTopologyIndex {
             {
                 anyhow::bail!("canonical topology contains a duplicate workspace identity");
             }
+            index.workspace_order.push(workspace.uuid);
+            index.workspace_rank_by_uuid.insert(workspace.uuid, workspace_index);
+            let mut screen_order = Vec::with_capacity(workspace.screens.len());
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
                 #[cfg(test)]
                 {
@@ -910,11 +931,27 @@ impl CanonicalTopologyIndex {
                 if !screen_ids.insert(screen.id) || !screen_uuids.insert(screen.uuid) {
                     anyhow::bail!("canonical topology contains a duplicate screen identity");
                 }
+                screen_order.push(screen.uuid);
+                index.screen_rank_by_uuid.insert(screen.uuid, screen_index);
+                if index.workspace_by_screen.insert(screen.uuid, workspace.uuid).is_some()
+                    || index
+                        .screen_location_by_uuid
+                        .insert(screen.uuid, (workspace_index, screen_index))
+                        .is_some()
+                {
+                    anyhow::bail!("canonical topology contains a duplicate screen identity");
+                }
                 let mut pane_ids = Vec::new();
                 screen.root.pane_ids(&mut pane_ids);
-                for pane_id in pane_ids {
-                    if !state.panes.contains_key(&pane_id) {
+                let mut pane_order = Vec::with_capacity(pane_ids.len());
+                for (pane_rank, pane_id) in pane_ids.into_iter().enumerate() {
+                    let Some(pane) = state.panes.get(&pane_id) else {
                         anyhow::bail!("canonical screen references missing pane {pane_id}");
+                    };
+                    pane_order.push(pane.uuid);
+                    index.pane_rank_by_uuid.insert(pane.uuid, pane_rank);
+                    if index.screen_by_pane.insert(pane.uuid, screen.uuid).is_some() {
+                        anyhow::bail!("canonical pane identity appears in multiple screens");
                     }
                     if index
                         .screen_location_by_pane
@@ -924,7 +961,9 @@ impl CanonicalTopologyIndex {
                         anyhow::bail!("canonical pane {pane_id} appears in multiple screens");
                     }
                 }
+                index.pane_order_by_screen.insert(screen.uuid, pane_order);
             }
+            index.screen_order_by_workspace.insert(workspace.uuid, screen_order);
         }
 
         for (pane_id, pane) in &state.panes {
@@ -935,18 +974,28 @@ impl CanonicalTopologyIndex {
             if *pane_id != pane.id || !pane_uuids.insert(pane.uuid) {
                 anyhow::bail!("canonical topology contains a duplicate pane identity");
             }
-            for surface_id in &pane.tabs {
+            if index.pane_id_by_uuid.insert(pane.uuid, *pane_id).is_some() {
+                anyhow::bail!("canonical topology contains a duplicate pane identity");
+            }
+            let mut surface_order = Vec::with_capacity(pane.tabs.len());
+            for (surface_rank, surface_id) in pane.tabs.iter().enumerate() {
                 #[cfg(test)]
                 {
                     index.build_counts.tab_visits += 1;
                 }
-                if !state.surfaces.contains_key(surface_id) {
+                let Some(surface) = state.surfaces.get(surface_id) else {
                     anyhow::bail!("canonical pane references missing surface {surface_id}");
+                };
+                surface_order.push(surface.uuid);
+                index.surface_rank_by_uuid.insert(surface.uuid, surface_rank);
+                if index.pane_by_surface_uuid.insert(surface.uuid, pane.uuid).is_some() {
+                    anyhow::bail!("canonical surface identity appears in multiple panes");
                 }
                 if index.pane_by_surface.insert(*surface_id, *pane_id).is_some() {
                     anyhow::bail!("canonical surface {surface_id} appears in multiple panes");
                 }
             }
+            index.surface_order_by_pane.insert(pane.uuid, surface_order);
         }
 
         for (surface_id, surface) in &state.surfaces {
@@ -961,6 +1010,111 @@ impl CanonicalTopologyIndex {
             }
         }
         Ok(index)
+    }
+}
+
+struct CanonicalProjectionNavigationTopology<'a> {
+    daemon_instance_id: DaemonInstanceId,
+    session_id: SessionId,
+    canonical: &'a CanonicalState,
+}
+
+impl ProjectionNavigationTopology for CanonicalProjectionNavigationTopology<'_> {
+    fn daemon_instance_id(&self) -> DaemonInstanceId {
+        self.daemon_instance_id
+    }
+
+    fn session_id(&self) -> SessionId {
+        self.session_id
+    }
+
+    fn revision(&self) -> u64 {
+        self.canonical.topology.revision()
+    }
+
+    fn workspace_order(&self) -> &[WorkspaceUuid] {
+        &self.canonical.topology_index.workspace_order
+    }
+
+    fn screen_order(&self, workspace: WorkspaceUuid) -> Option<&[ScreenUuid]> {
+        self.canonical.topology_index.screen_order_by_workspace.get(&workspace).map(Vec::as_slice)
+    }
+
+    fn pane_order(&self, screen: ScreenUuid) -> Option<&[PaneUuid]> {
+        self.canonical.topology_index.pane_order_by_screen.get(&screen).map(Vec::as_slice)
+    }
+
+    fn surface_order(&self, pane: PaneUuid) -> Option<&[SurfaceUuid]> {
+        self.canonical.topology_index.surface_order_by_pane.get(&pane).map(Vec::as_slice)
+    }
+
+    fn workspace_rank(&self, workspace: WorkspaceUuid) -> Option<usize> {
+        self.canonical.topology_index.workspace_rank_by_uuid.get(&workspace).copied()
+    }
+
+    fn screen_rank(&self, screen: ScreenUuid) -> Option<usize> {
+        self.canonical.topology_index.screen_rank_by_uuid.get(&screen).copied()
+    }
+
+    fn pane_rank(&self, pane: PaneUuid) -> Option<usize> {
+        self.canonical.topology_index.pane_rank_by_uuid.get(&pane).copied()
+    }
+
+    fn surface_rank(&self, surface: SurfaceUuid) -> Option<usize> {
+        self.canonical.topology_index.surface_rank_by_uuid.get(&surface).copied()
+    }
+
+    fn workspace_for_screen(&self, screen: ScreenUuid) -> Option<WorkspaceUuid> {
+        self.canonical.topology_index.workspace_by_screen.get(&screen).copied()
+    }
+
+    fn screen_for_pane(&self, pane: PaneUuid) -> Option<ScreenUuid> {
+        self.canonical.topology_index.screen_by_pane.get(&pane).copied()
+    }
+
+    fn pane_for_surface(&self, surface: SurfaceUuid) -> Option<PaneUuid> {
+        self.canonical.topology_index.pane_by_surface_uuid.get(&surface).copied()
+    }
+
+    fn legacy_selected_screen(&self, workspace: WorkspaceUuid) -> Option<ScreenUuid> {
+        let workspace_index =
+            self.canonical.topology_index.workspace_index_by_uuid.get(&workspace).copied()?;
+        let workspace = self.canonical.value.workspaces.get(workspace_index)?;
+        workspace.screens.get(workspace.active_screen).map(|screen| screen.uuid)
+    }
+
+    fn legacy_active_pane(&self, screen: ScreenUuid) -> Option<PaneUuid> {
+        let (workspace_index, screen_index) =
+            self.canonical.topology_index.screen_location_by_uuid.get(&screen).copied()?;
+        let pane = self
+            .canonical
+            .value
+            .workspaces
+            .get(workspace_index)?
+            .screens
+            .get(screen_index)?
+            .active_pane;
+        self.canonical.value.panes.get(&pane).map(|pane| pane.uuid)
+    }
+
+    fn legacy_zoomed_pane(&self, screen: ScreenUuid) -> Option<PaneUuid> {
+        let (workspace_index, screen_index) =
+            self.canonical.topology_index.screen_location_by_uuid.get(&screen).copied()?;
+        let pane = self
+            .canonical
+            .value
+            .workspaces
+            .get(workspace_index)?
+            .screens
+            .get(screen_index)?
+            .zoomed_pane?;
+        self.canonical.value.panes.get(&pane).map(|pane| pane.uuid)
+    }
+
+    fn legacy_selected_surface(&self, pane: PaneUuid) -> Option<SurfaceUuid> {
+        let pane_id = self.canonical.topology_index.pane_id_by_uuid.get(&pane).copied()?;
+        let surface_id = self.canonical.value.panes.get(&pane_id)?.active_surface()?;
+        self.canonical.value.surfaces.get(&surface_id).map(|surface| surface.uuid)
     }
 }
 
@@ -1327,9 +1481,7 @@ impl CanonicalState {
                     && attempt.phase == PersistedLaunchAttemptPhase::Active
                     && attempt.launch == launch
             }) {
-                anyhow::bail!(
-                    "terminal {surface_uuid} has no activated durable launch attempt"
-                );
+                anyhow::bail!("terminal {surface_uuid} has no activated durable launch attempt");
             }
         }
         attempts.sort_by_key(|attempt| attempt.attempt_id);
@@ -2374,6 +2526,12 @@ impl RendererPresentationWorkspaceIndex {
 struct RendererPresentationRuntimes {
     by_id: BTreeMap<crate::PresentationId, Arc<RendererPresentationRuntime>>,
     by_workspace: RendererPresentationWorkspaceIndex,
+    #[cfg(test)]
+    stale_config_candidate_visits: usize,
+    #[cfg(test)]
+    stale_config_removal_visits: usize,
+    #[cfg(test)]
+    stale_config_consistency_checks: usize,
 }
 
 impl RendererPresentationRuntimes {
@@ -2458,17 +2616,39 @@ impl RendererPresentationRuntimes {
                 (!renderer_runtime_matches_config(runtime, current)).then_some(*presentation_id)
             })
             .collect::<Vec<_>>();
-        stale
-            .into_iter()
-            .filter_map(|presentation_id| {
-                let runtime = self.remove(&presentation_id)?;
-                // The config write lock prevents an activation or frame send
-                // from crossing this map removal. Mark the detached runtime
-                // immediately so paths that already cloned it also fail shut.
-                runtime.removal_pending.store(true, Ordering::Release);
-                Some(runtime)
-            })
-            .collect()
+        #[cfg(test)]
+        {
+            self.stale_config_candidate_visits += self.by_id.len();
+        }
+        self.remove_stale_batch(stale)
+    }
+
+    fn remove_stale_batch(
+        &mut self,
+        presentation_ids: Vec<crate::PresentationId>,
+    ) -> Vec<Arc<RendererPresentationRuntime>> {
+        let mut removed = Vec::with_capacity(presentation_ids.len());
+        for presentation_id in presentation_ids {
+            let Some(runtime) = self.by_id.remove(&presentation_id) else { continue };
+            self.by_workspace.remove(runtime.workspace_uuid, presentation_id);
+            // The config write lock prevents an activation or frame send from
+            // crossing this map removal. Mark every detached runtime before
+            // the bulk operation releases the runtime-map guard.
+            runtime.removal_pending.store(true, Ordering::Release);
+            removed.push(runtime);
+            #[cfg(test)]
+            {
+                self.stale_config_removal_visits += 1;
+            }
+        }
+        // Debug/dev consistency checking is linear, so run it once for the
+        // whole config transaction instead of once per removed presentation.
+        #[cfg(test)]
+        {
+            self.stale_config_consistency_checks += 1;
+        }
+        self.debug_assert_consistent();
+        removed
     }
 
     fn iter(
@@ -2840,12 +3020,15 @@ pub struct Mux {
     frontend_native_browsers: FrontendNativeBrowserRegistry,
     remote_tmux_producers: RemoteTmuxProducerRegistry,
     cell_pixels: Mutex<(u16, u16)>,
+    /// Serializes the complete renderer-config commit and publication. The
+    /// inner RwLock remains the read fence used by activation and frame paths.
+    renderer_config_install: Mutex<()>,
     renderer_config: RwLock<RendererConfigSnapshot>,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<SurfaceId, AgentRecord>>,
     pub(crate) control_clients: crate::server::ClientRegistry,
     pub(crate) presentations: PresentationRegistry,
-    pub(crate) projection_states: ProjectionStateRegistry,
+    projection_states: ProjectionNavigationRegistry,
     pub(crate) terminal_authority: TerminalAuthorityRegistry,
     renderer_supervisor: Mutex<Option<Arc<dyn RendererSupervisorServing>>>,
     renderer_event_dispatcher: Mutex<Option<RendererEventDispatcher>>,
@@ -2863,6 +3046,8 @@ pub struct Mux {
     renderer_activation_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     renderer_configure_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    renderer_config_before_install_lock: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     renderer_config_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -3036,12 +3221,13 @@ impl Mux {
             frontend_native_browsers: FrontendNativeBrowserRegistry::new(),
             remote_tmux_producers: RemoteTmuxProducerRegistry::new(),
             cell_pixels: Mutex::new((8, 16)),
+            renderer_config_install: Mutex::new(()),
             renderer_config: RwLock::new(RendererConfigSnapshot::empty()),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(HashMap::new()),
             control_clients: crate::server::ClientRegistry::new(),
             presentations: PresentationRegistry::new(),
-            projection_states: ProjectionStateRegistry::new(),
+            projection_states: ProjectionNavigationRegistry::new(),
             terminal_authority: TerminalAuthorityRegistry::new(),
             renderer_supervisor: Mutex::new(None),
             renderer_event_dispatcher: Mutex::new(None),
@@ -3058,6 +3244,8 @@ impl Mux {
             renderer_activation_before_commit: Mutex::new(None),
             #[cfg(test)]
             renderer_configure_before_commit: Mutex::new(None),
+            #[cfg(test)]
+            renderer_config_before_install_lock: Mutex::new(None),
             #[cfg(test)]
             renderer_config_after_commit: Mutex::new(None),
             #[cfg(test)]
@@ -3545,10 +3733,8 @@ impl Mux {
         prepared: &mut PreparedTerminalLaunch,
     ) -> anyhow::Result<()> {
         let gate = prepared.gate.take().expect("prepared terminal retains its launch gate");
-        let input_authority = prepared
-            .input_authority
-            .take()
-            .expect("prepared terminal retains input authority");
+        let input_authority =
+            prepared.input_authority.take().expect("prepared terminal retains input authority");
         let had_initial_input = !prepared.initial_input.is_empty();
         let phase = self.terminal_launch_completion_probe(had_initial_input);
         let result = match gate {
@@ -4707,6 +4893,143 @@ impl Mux {
     pub fn topology_revisions(&self) -> (u64, u64) {
         let canonical = self.state.lock().unwrap();
         (canonical.legacy_topology_revision, canonical.topology.revision())
+    }
+
+    fn projection_navigation_topology<'a>(
+        &self,
+        canonical: &'a CanonicalState,
+    ) -> CanonicalProjectionNavigationTopology<'a> {
+        CanonicalProjectionNavigationTopology {
+            daemon_instance_id: self.daemon_instance_id,
+            session_id: self.session_id,
+            canonical,
+        }
+    }
+
+    /// Compatibility lane for the protocol-v9 v1 projection wire. The
+    /// canonical guard stays held through the registry transaction so a
+    /// projection can never validate against one revision and commit into the
+    /// next one.
+    pub(crate) fn claim_projection_state_v1(
+        &self,
+        claimant: ProjectionNavigationClaimant,
+        logical_presentation_id: uuid::Uuid,
+    ) -> Result<ProjectionNavigationV1State, ProjectionNavigationConflict> {
+        let canonical = self.state.lock().unwrap();
+        let topology = self.projection_navigation_topology(&canonical);
+        self.projection_states.legacy_claim(claimant, logical_presentation_id, &topology)
+    }
+
+    pub(crate) fn update_projection_state_v1(
+        &self,
+        claimant: ProjectionNavigationClaimant,
+        update: ProjectionNavigationV1Update,
+    ) -> Result<ProjectionNavigationV1State, ProjectionNavigationConflict> {
+        let canonical = self.state.lock().unwrap();
+        let topology = self.projection_navigation_topology(&canonical);
+        self.projection_states.legacy_update(claimant, update, &topology)
+    }
+
+    pub(crate) fn update_projection_states_v1(
+        &self,
+        claimant: ProjectionNavigationClaimant,
+        updates: Vec<ProjectionNavigationV1Update>,
+    ) -> Result<Vec<ProjectionNavigationV1State>, ProjectionNavigationConflict> {
+        let canonical = self.state.lock().unwrap();
+        let topology = self.projection_navigation_topology(&canonical);
+        self.projection_states.legacy_update_many(claimant, updates, &topology)
+    }
+
+    pub(crate) fn release_projection_state_v1(
+        &self,
+        claimant: ProjectionNavigationClaimant,
+        logical_presentation_id: uuid::Uuid,
+        claim_id: uuid::Uuid,
+        expected_generation: u64,
+    ) -> Result<(), ProjectionNavigationConflict> {
+        let _canonical = self.state.lock().unwrap();
+        self.projection_states.legacy_release(
+            claimant,
+            logical_presentation_id,
+            claim_id,
+            expected_generation,
+        )
+    }
+
+    pub(crate) fn list_projection_states_v1(
+        &self,
+        claimant: ProjectionNavigationClaimant,
+    ) -> Result<Vec<ProjectionNavigationV1State>, ProjectionNavigationConflict> {
+        let canonical = self.state.lock().unwrap();
+        let topology = self.projection_navigation_topology(&canonical);
+        self.projection_states.legacy_list(claimant, &topology)
+    }
+
+    pub(crate) fn claim_projection_navigation_v2(
+        &self,
+        claimant: ProjectionNavigationClaimant,
+        logical_presentation_id: uuid::Uuid,
+        expectation: ProjectionNavigationTopologyExpectation,
+    ) -> ProjectionNavigationResponse {
+        let canonical = self.state.lock().unwrap();
+        let topology = self.projection_navigation_topology(&canonical);
+        self.projection_states.claim(claimant, logical_presentation_id, expectation, &topology)
+    }
+
+    pub(crate) fn list_projection_navigation_v2(
+        &self,
+        claimant: ProjectionNavigationClaimant,
+        expectation: ProjectionNavigationTopologyExpectation,
+        cursor: Option<ProjectionNavigationListCursor>,
+    ) -> ProjectionNavigationResponse {
+        let canonical = self.state.lock().unwrap();
+        let topology = self.projection_navigation_topology(&canonical);
+        self.projection_states.list_page(claimant, expectation, cursor, &topology)
+    }
+
+    pub(crate) fn mutate_projection_navigation_v2(
+        &self,
+        claimant: ProjectionNavigationClaimant,
+        expectation: ProjectionNavigationTopologyExpectation,
+        batch: ProjectionNavigationMutationBatch,
+    ) -> ProjectionNavigationResponse {
+        let canonical = self.state.lock().unwrap();
+        let topology = self.projection_navigation_topology(&canonical);
+        self.projection_states.mutate(claimant, expectation, batch, &topology)
+    }
+
+    pub(crate) fn release_projection_navigation_v2(
+        &self,
+        claimant: ProjectionNavigationClaimant,
+        expectation: ProjectionNavigationTopologyExpectation,
+        request: ProjectionNavigationReleaseRequest,
+    ) -> ProjectionNavigationResponse {
+        let canonical = self.state.lock().unwrap();
+        let topology = self.projection_navigation_topology(&canonical);
+        self.projection_states.release(claimant, expectation, request, &topology)
+    }
+
+    /// Disconnect takes the client-lifecycle write guard before this method.
+    /// Taking the otherwise-unused canonical guard keeps every registry
+    /// mutation on the same lifecycle -> canonical -> projection lock order.
+    pub(crate) fn release_projection_navigation_connection(
+        &self,
+        connection_id: uuid::Uuid,
+    ) -> Result<(), ProjectionNavigationConflict> {
+        let _canonical = self.state.lock().unwrap();
+        self.projection_states.release_connection(connection_id)
+    }
+
+    #[cfg(test)]
+    fn projection_navigation_scale_counters(
+        &self,
+    ) -> crate::projection_navigation_v2::ProjectionNavigationScaleCounters {
+        self.projection_states.scale_counters()
+    }
+
+    #[cfg(test)]
+    fn reset_projection_navigation_scale_counters(&self) {
+        self.projection_states.reset_scale_counters();
     }
 
     pub(crate) fn durable_storage_status(&self) -> DurableStorageStatus {
@@ -6989,6 +7312,15 @@ impl Mux {
         default_colors: DefaultColors,
         reason: Arc<str>,
     ) -> anyhow::Result<bool> {
+        #[cfg(test)]
+        if let Some(before_lock) = self.renderer_config_before_install_lock.lock().unwrap().take() {
+            before_lock();
+        }
+        // Keep this outer lock from validation through retirement, terminal
+        // color propagation, and invalidation publication. The inner config
+        // write guard is still dropped before taking any runtime operation
+        // lock, preserving activation's operation -> config lock order.
+        let _install = self.renderer_config_install.lock().unwrap();
         if resolved_config.len() > MAXIMUM_RESOLVED_CONFIG_LENGTH {
             anyhow::bail!(
                 "resolved renderer config is too large ({} bytes; maximum is {MAXIMUM_RESOLVED_CONFIG_LENGTH})",
@@ -7038,6 +7370,7 @@ impl Mux {
 
     #[cfg(test)]
     pub fn set_default_colors(&self, colors: DefaultColors) {
+        let _install = self.renderer_config_install.lock().unwrap();
         let (snapshot, stale_runtimes) = {
             let mut current = self.renderer_config.write().unwrap();
             if current.default_colors == colors {
@@ -10903,11 +11236,7 @@ impl Mux {
                 }
             };
             self.emit(MuxEvent::TreeDelta(delta));
-            self.start_browser_bootstrap(
-                surface.clone(),
-                BrowserBootstrap::Create { url },
-                None,
-            );
+            self.start_browser_bootstrap(surface.clone(), BrowserBootstrap::Create { url }, None);
             self.reap_if_dead(&surface);
             return Ok(surface);
         };
@@ -10995,10 +11324,7 @@ impl Mux {
                         Some(pane_id),
                         Some(surface.id),
                     );
-                    if state
-                        .commit_topology(TopologyOperation::SurfaceAttached, targets)
-                        .is_err()
-                    {
+                    if state.commit_topology(TopologyOperation::SurfaceAttached, targets).is_err() {
                         BrowserSurfaceAttach::MissingPane
                     } else {
                         let delta = (|| {
@@ -11550,9 +11876,7 @@ impl Mux {
                     };
                     let committed = if change == ChangeState::Changed {
                         let targets = topology_targets(&state, None, None, Some(target), None);
-                        state
-                            .commit_topology(TopologyOperation::PaneRenamed, targets)
-                            .map(|_| ())
+                        state.commit_topology(TopologyOperation::PaneRenamed, targets).map(|_| ())
                     } else {
                         state.commit_legacy_topology().map(|_| ())
                     };
@@ -11594,10 +11918,7 @@ impl Mux {
                     .and_then(|pane| state.screen_of(pane))
                     .map(|(wi, _)| state.workspaces[wi].id);
                 let targets = topology_targets(&state, workspace, screen, pane, Some(target));
-                if state
-                    .commit_topology(TopologyOperation::SurfaceRenamed, targets)
-                    .is_err()
-                {
+                if state.commit_topology(TopologyOperation::SurfaceRenamed, targets).is_err() {
                     surface.set_name(previous_name);
                     return false;
                 }
@@ -11654,9 +11975,7 @@ impl Mux {
             let committed = if change == ChangeState::Changed {
                 let workspace = state.workspaces[wi].id;
                 let targets = topology_targets(&state, Some(workspace), Some(target), None, None);
-                state
-                    .commit_topology(TopologyOperation::ScreenRenamed, targets)
-                    .map(|_| ())
+                state.commit_topology(TopologyOperation::ScreenRenamed, targets).map(|_| ())
             } else {
                 state.commit_legacy_topology().map(|_| ())
             };
@@ -11790,10 +12109,7 @@ impl Mux {
                     .find(|workspace| workspace.screens.iter().any(|item| item.id == screen))
                     .map(|workspace| workspace.id);
                 let targets = topology_targets(&state, workspace, Some(screen), Some(pane), None);
-                if state
-                    .commit_topology(TopologyOperation::SplitRatioChanged, targets)
-                    .is_err()
-                {
+                if state.commit_topology(TopologyOperation::SplitRatioChanged, targets).is_err() {
                     return false;
                 }
             } else if resolved.is_some() {
@@ -13889,10 +14205,7 @@ mod tests {
         assert_eq!(reopened.snapshot.topology_revision, 0);
         assert!(reopened.snapshot.surfaces.is_empty());
         assert_eq!(reopened.launch_attempts.len(), 1);
-        assert_eq!(
-            reopened.launch_attempts[0].phase,
-            PersistedLaunchAttemptPhase::Quarantined
-        );
+        assert_eq!(reopened.launch_attempts[0].phase, PersistedLaunchAttemptPhase::Quarantined);
     }
 
     #[test]
@@ -13959,10 +14272,7 @@ mod tests {
         assert_eq!(reopened.snapshot.topology_revision, 0);
         assert!(reopened.snapshot.surfaces.is_empty());
         assert_eq!(reopened.launch_attempts.len(), 1);
-        assert_eq!(
-            reopened.launch_attempts[0].phase,
-            PersistedLaunchAttemptPhase::Quarantined
-        );
+        assert_eq!(reopened.launch_attempts[0].phase, PersistedLaunchAttemptPhase::Quarantined);
     }
 
     #[cfg(target_os = "macos")]
@@ -13976,20 +14286,20 @@ mod tests {
         let mux = Mux::recover_from_state_store("main", SurfaceOptions::default(), &store).unwrap();
         let error = mux
             .canonical_new_workspace(
-            canonical_expectation(&mux, uuid::Uuid::new_v4(), 0),
-            WorkspaceUuid::new(),
-            SurfaceUuid::new(),
-            None,
-            None,
-            TerminalLaunchRequest {
-                argv: Some(vec!["/usr/bin/true".to_string()]),
-                env: vec![(
-                    crate::launch_gate::test_support::DIE_AFTER_RELEASE_ENV.to_string(),
-                    "1".to_string(),
-                )],
-                ..TerminalLaunchRequest::default()
-            },
-        )
+                canonical_expectation(&mux, uuid::Uuid::new_v4(), 0),
+                WorkspaceUuid::new(),
+                SurfaceUuid::new(),
+                None,
+                None,
+                TerminalLaunchRequest {
+                    argv: Some(vec!["/usr/bin/true".to_string()]),
+                    env: vec![(
+                        crate::launch_gate::test_support::DIE_AFTER_RELEASE_ENV.to_string(),
+                        "1".to_string(),
+                    )],
+                    ..TerminalLaunchRequest::default()
+                },
+            )
             .expect_err("dead launch helper unexpectedly committed topology");
         assert!(error.to_string().contains("activate durably pending terminal launch"));
         assert_eq!(mux.canonical_topology_revision(), 0);
@@ -14004,9 +14314,7 @@ mod tests {
         std::fs::create_dir_all(&directory.0).unwrap();
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .arg("--exact")
-            .arg(
-                "mux::tests::post_release_helper_death_child_returns_error_before_acknowledgement",
-            )
+            .arg("mux::tests::post_release_helper_death_child_returns_error_before_acknowledgement")
             .arg("--nocapture")
             .env("CMUX_TEST_POST_RELEASE_HELPER_DEATH_ROOT", &directory.0)
             .output()
@@ -14021,10 +14329,7 @@ mod tests {
         assert_eq!(reopened.snapshot.topology_revision, 0);
         assert!(reopened.snapshot.surfaces.is_empty());
         assert_eq!(reopened.launch_attempts.len(), 1);
-        assert_eq!(
-            reopened.launch_attempts[0].phase,
-            PersistedLaunchAttemptPhase::Quarantined
-        );
+        assert_eq!(reopened.launch_attempts[0].phase, PersistedLaunchAttemptPhase::Quarantined);
     }
 
     #[test]
@@ -15438,6 +15743,66 @@ mod tests {
     }
 
     #[test]
+    fn renderer_config_stale_runtime_removal_is_linear_and_checks_indexes_once() {
+        const RUNTIME_COUNT: usize = 1_000;
+
+        let fixture = configured_renderer_fixture();
+        let template = fixture
+            .mux
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .get(&fixture.presentation_id)
+            .cloned()
+            .unwrap();
+        let mut inserted = vec![template.clone()];
+        let mut runtimes = fixture.mux.renderer_presentations.lock().unwrap();
+        assert_eq!(runtimes.by_id.len(), 1);
+        for _ in 1..RUNTIME_COUNT {
+            let presentation_id = crate::PresentationId::new();
+            let mut attachment = template.attachment.clone();
+            attachment.presentation_id = presentation_id.as_uuid();
+            let runtime = Arc::new(RendererPresentationRuntime {
+                client: template.client,
+                workspace_uuid: template.workspace_uuid,
+                surface: template.surface.clone(),
+                attachment,
+                resolved_config_digest: template.resolved_config_digest,
+                capture: template.capture,
+                preedit: Mutex::new(template.preedit.lock().unwrap().clone()),
+                operation: Mutex::new(()),
+                scene: Mutex::new(None),
+                activation: Mutex::new(RendererActivationState::default()),
+                published_epoch: Mutex::new(None),
+                removal_pending: AtomicBool::new(false),
+            });
+            runtimes.by_id.insert(presentation_id, runtime.clone());
+            runtimes.by_workspace.insert(template.workspace_uuid, presentation_id);
+            inserted.push(runtime);
+        }
+        drop(runtimes);
+
+        assert!(
+            fixture
+                .mux
+                .install_renderer_config(
+                    b"font-size = 19\n".to_vec(),
+                    DefaultColors::default(),
+                    Arc::<str>::from("large-map-test"),
+                )
+                .unwrap()
+        );
+
+        let runtimes = fixture.mux.renderer_presentations.lock().unwrap();
+        assert_eq!(runtimes.stale_config_candidate_visits, RUNTIME_COUNT);
+        assert_eq!(runtimes.stale_config_removal_visits, RUNTIME_COUNT);
+        assert_eq!(runtimes.stale_config_consistency_checks, 1);
+        assert!(runtimes.by_id.is_empty());
+        assert!(runtimes.by_workspace.presentation_ids.is_empty());
+        assert!(inserted.iter().all(|runtime| runtime.removal_pending.load(Ordering::Acquire)));
+    }
+
+    #[test]
     fn failed_viewer_resize_preserves_previous_report_and_creation_default() {
         let mux = test_mux();
         let missing_surface = 99_999;
@@ -16560,6 +16925,87 @@ mod tests {
         );
         assert_eq!(mux.renderer_config_snapshot(), installed);
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn concurrent_renderer_config_installs_publish_colors_and_events_in_commit_order() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(Some("config-order".into()), None).unwrap();
+        let events = mux.subscribe();
+        let first_colors = DefaultColors {
+            fg: Some(Rgb { r: 0x11, g: 0x22, b: 0x33 }),
+            bg: Some(Rgb { r: 0x44, g: 0x55, b: 0x66 }),
+            ..DefaultColors::default()
+        };
+        let second_colors = DefaultColors {
+            fg: Some(Rgb { r: 0xaa, g: 0xbb, b: 0xcc }),
+            bg: Some(Rgb { r: 0x77, g: 0x88, b: 0x99 }),
+            ..DefaultColors::default()
+        };
+
+        let first_committed = Arc::new(std::sync::Barrier::new(2));
+        let release_first_publication = Arc::new(std::sync::Barrier::new(2));
+        *mux.renderer_config_after_commit.lock().unwrap() = Some(Arc::new({
+            let first_committed = first_committed.clone();
+            let release_first_publication = release_first_publication.clone();
+            move || {
+                first_committed.wait();
+                release_first_publication.wait();
+            }
+        }));
+
+        let first_mux = mux.clone();
+        let first = std::thread::spawn(move || {
+            first_mux.install_renderer_config(
+                b"foreground = #112233\nbackground = #445566\n".to_vec(),
+                first_colors,
+                Arc::<str>::from("first"),
+            )
+        });
+        first_committed.wait();
+        assert_eq!(mux.default_colors_snapshot(), (1, first_colors));
+
+        let second_attempted = Arc::new(std::sync::Barrier::new(2));
+        *mux.renderer_config_before_install_lock.lock().unwrap() = Some(Arc::new({
+            let second_attempted = second_attempted.clone();
+            move || {
+                second_attempted.wait();
+            }
+        }));
+        let (second_done_tx, second_done_rx) = std::sync::mpsc::sync_channel(1);
+        let second_mux = mux.clone();
+        std::thread::spawn(move || {
+            let result = second_mux.install_renderer_config(
+                b"foreground = #aabbcc\nbackground = #778899\n".to_vec(),
+                second_colors,
+                Arc::<str>::from("second"),
+            );
+            second_done_tx.send(result).unwrap();
+        });
+        second_attempted.wait();
+        assert!(matches!(second_done_rx.try_recv(), Err(TryRecvError::Empty)));
+        assert_eq!(mux.default_colors_snapshot(), (1, first_colors));
+
+        release_first_publication.wait();
+        assert!(first.join().unwrap().unwrap());
+        assert!(second_done_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap());
+
+        let invalidations = events
+            .try_iter()
+            .filter_map(|event| match event {
+                MuxEvent::RendererConfigInvalidated { revision, default_colors, .. } => {
+                    Some((revision, default_colors))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(invalidations, vec![(1, first_colors), (2, second_colors)]);
+        assert!(invalidations.windows(2).all(|pair| pair[0].0 < pair[1].0));
+        assert_eq!(mux.default_colors_snapshot(), (2, second_colors));
+
+        let surface_colors = surface.attach_stream().unwrap().colors;
+        assert_eq!(surface_colors.fg, second_colors.fg);
+        assert_eq!(surface_colors.bg, second_colors.bg);
     }
 
     #[test]
@@ -17938,7 +18384,10 @@ mod tests {
 
     impl OccurrenceFaultDurableIo {
         fn new(rules: impl IntoIterator<Item = DurableFaultRule>) -> Arc<Self> {
-            Arc::new(Self { rules: rules.into_iter().collect(), occurrences: Mutex::new(Vec::new()) })
+            Arc::new(Self {
+                rules: rules.into_iter().collect(),
+                occurrences: Mutex::new(Vec::new()),
+            })
         }
 
         fn check(&self, phase: crate::state_store::DurableIoPhase) -> std::io::Result<()> {
@@ -17952,11 +18401,7 @@ mod tests {
                 occurrences.push((phase, 1));
                 1
             };
-            if self
-                .rules
-                .iter()
-                .any(|rule| rule.phase == phase && rule.occurrence == occurrence)
-            {
+            if self.rules.iter().any(|rule| rule.phase == phase && rule.occurrence == occurrence) {
                 Err(std::io::Error::other(format!(
                     "injected {} failure at occurrence {occurrence}",
                     phase.as_str()
@@ -18097,9 +18542,8 @@ mod tests {
             occurrence: 1,
         }]);
         let store = StateStore::with_io(&directory.0, io);
-        let mux =
-            Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
-                .unwrap();
+        let mux = Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
+            .unwrap();
         let before = mux.topology_snapshot();
         let subscription = topology_subscription(&mux, before.revision);
 
@@ -18125,9 +18569,8 @@ mod tests {
             occurrence: 2,
         }]);
         let store = StateStore::with_io(&directory.0, io);
-        let mux =
-            Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
-                .unwrap();
+        let mux = Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
+            .unwrap();
         let before = mux.topology_snapshot();
 
         let error = match mux.new_workspace(Some("rejected-active".into()), None) {
@@ -18168,9 +18611,8 @@ mod tests {
             },
         ]);
         let store = StateStore::with_io(&directory.0, io);
-        let mux =
-            Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
-                .unwrap();
+        let mux = Mux::recover_from_state_store_for_test("main", SurfaceOptions::default(), &store)
+            .unwrap();
         let before = mux.topology_snapshot();
 
         let error = match mux.new_workspace(Some("indeterminate".into()), None) {

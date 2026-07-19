@@ -63,6 +63,11 @@ use crate::mux::{
 use crate::platform::{self, transport};
 use crate::presentation::normalize_presentation;
 use crate::private_runtime::ConnectionPrivateOwner;
+use crate::projection_navigation_v2::{
+    ProjectionNavigationListCursor, ProjectionNavigationMutation,
+    ProjectionNavigationMutationBatch, ProjectionNavigationReleaseRequest,
+    ProjectionNavigationTopologyExpectation,
+};
 use crate::projection_state::{
     ProjectionClaimant, ProjectionStateUpdate, ProjectionWorkspaceState,
 };
@@ -107,6 +112,7 @@ pub const PROTOCOL_CAPABILITIES: &[&str] = &[
     "canonical-topology-snapshot-v1",
     "presentation-registry-v1",
     "projection-state-reconnect-v1",
+    "projection-navigation-v2",
     "service-handoff-v1",
     "remote-tmux-producer-source-v1",
     "renderer-semantic-scene-v1",
@@ -356,6 +362,35 @@ enum Command {
         expected_generation: u64,
     },
     ListProjectionStates,
+    ClaimProjectionNavigationV2 {
+        logical_presentation_id: uuid::Uuid,
+        daemon_instance_id: DaemonInstanceId,
+        session_id: crate::SessionId,
+        expected_topology_revision: u64,
+    },
+    ListProjectionNavigationV2 {
+        daemon_instance_id: DaemonInstanceId,
+        session_id: crate::SessionId,
+        expected_topology_revision: u64,
+        #[serde(default)]
+        cursor: Option<ProjectionNavigationListCursor>,
+    },
+    MutateProjectionNavigationV2 {
+        request_id: uuid::Uuid,
+        daemon_instance_id: DaemonInstanceId,
+        session_id: crate::SessionId,
+        expected_topology_revision: u64,
+        projections: Vec<ProjectionNavigationMutation>,
+    },
+    ReleaseProjectionNavigationV2 {
+        request_id: uuid::Uuid,
+        logical_presentation_id: uuid::Uuid,
+        claim_id: uuid::Uuid,
+        expected_generation: u64,
+        daemon_instance_id: DaemonInstanceId,
+        session_id: crate::SessionId,
+        expected_topology_revision: u64,
+    },
     EnsureTerminal {
         workspace_uuid: WorkspaceUuid,
         surface_uuid: SurfaceUuid,
@@ -1460,18 +1495,21 @@ const MAX_SERVER_CONNECTIONS: usize = 64;
 const MAX_TOPOLOGY_STREAMS: u64 = 256;
 const MAX_RENDERER_LIFECYCLE_STREAMS: u64 = 256;
 const WEBSOCKET_AUTH_MAX_BYTES: usize = 4 * 1024;
-const CONTROL_MESSAGE_MAX_BYTES: usize = 4 * 1024 * 1024;
+const CONTROL_MESSAGE_MAX_BYTES: usize = 16 * 1024 * 1024;
+const BULK_COMMAND_MAX_BYTES: usize = 4 * 1024 * 1024;
+const PROJECTION_NAVIGATION_COMMAND_MAX_BYTES: usize = 16 * 1024 * 1024;
 const EXTERNAL_TERMINAL_PAYLOAD_MAX_BYTES: usize = 2 * 1024 * 1024;
 const WEBSOCKET_MESSAGE_MAX_BYTES: usize = CONTROL_MESSAGE_MAX_BYTES;
 /// One mux-wide ceiling covering Unix line buffers, WebSocket frame reads, and
 /// conservatively estimated allocations made while decoding admitted JSON.
 /// This replaces the old per-connection-only bound, which permitted 64 peers
 /// to materialize independent 4 MiB request trees at once.
-const INBOUND_INFLIGHT_MAX_BYTES: usize = 32 * 1024 * 1024;
+const INBOUND_INFLIGHT_MAX_BYTES: usize = 64 * 1024 * 1024;
 const PRE_REGISTRATION_MESSAGE_MAX_BYTES: usize = 16 * 1024;
 const STANDARD_COMMAND_MAX_BYTES: usize = 256 * 1024;
 const STANDARD_COMMAND_DECODE_MAX_BYTES: usize = 4 * 1024 * 1024;
 const BULK_COMMAND_DECODE_MAX_BYTES: usize = 12 * 1024 * 1024;
+const PROJECTION_NAVIGATION_DECODE_MAX_BYTES: usize = 32 * 1024 * 1024;
 const AUTH_DECODE_MAX_BYTES: usize = 32 * 1024;
 const COMMAND_NAME_MAX_BYTES: usize = 64;
 const WEBSOCKET_BUDGETED_READ_TIMEOUT: Duration = Duration::from_millis(50);
@@ -1692,6 +1730,10 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             policy.wire_max = PRE_REGISTRATION_MESSAGE_MAX_BYTES;
             policy.decoded_max = AUTH_DECODE_MAX_BYTES;
         }
+        "mutate-projection-navigation-v2" => {
+            policy.wire_max = PROJECTION_NAVIGATION_COMMAND_MAX_BYTES;
+            policy.decoded_max = PROJECTION_NAVIGATION_DECODE_MAX_BYTES;
+        }
         "ensure-terminal"
         | "ensure-terminals"
         | "canonical-new-workspace"
@@ -1718,7 +1760,7 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
         | "send"
         | "apply-layout"
         | "browser-insert-text" => {
-            policy.wire_max = CONTROL_MESSAGE_MAX_BYTES;
+            policy.wire_max = BULK_COMMAND_MAX_BYTES;
             policy.decoded_max = BULK_COMMAND_DECODE_MAX_BYTES;
         }
         _ => {}
@@ -1856,6 +1898,10 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             | "update-projection-states"
             | "release-projection-state"
             | "list-projection-states"
+            | "claim-projection-navigation-v2"
+            | "list-projection-navigation-v2"
+            | "mutate-projection-navigation-v2"
+            | "release-projection-navigation-v2"
             | "renderer-workers"
             | "subscribe-renderer-lifecycle"
             | "configure-renderer-presentation"
@@ -1933,6 +1979,10 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             | "update-projection-states"
             | "release-projection-state"
             | "list-projection-states"
+            | "claim-projection-navigation-v2"
+            | "list-projection-navigation-v2"
+            | "mutate-projection-navigation-v2"
+            | "release-projection-navigation-v2"
             | "terminal-accessibility-snapshot"
             | "terminal-accessibility-activate-link"
             | "terminal-link-at-cell"
@@ -3696,7 +3746,8 @@ fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
     };
     mux.cancel_service_handoff_for_connection(record.connection_id);
     mux.terminal_authority.revoke_connection(client);
-    mux.projection_states.release_connection(record.connection_id);
+    let projection_cleanup = mux.release_projection_navigation_connection(record.connection_id);
+    debug_assert!(projection_cleanup.is_ok(), "projection disconnect cleanup failed");
     mux.release_private_runtime_connection(client);
     let presentations = mux.presentations.remove_client(client);
     drop(client_lifecycle);
@@ -5280,16 +5331,17 @@ fn projection_claimant(mux: &Mux, client: u64) -> anyhow::Result<ProjectionClaim
     Ok(ProjectionClaimant { client_uuid, process_instance_uuid, connection_id })
 }
 
-fn projection_live_bindings(mux: &Mux) -> BTreeMap<WorkspaceUuid, BTreeSet<crate::ScreenUuid>> {
-    mux.with_state(|state| {
-        state
-            .workspaces
-            .iter()
-            .map(|workspace| {
-                (workspace.uuid, workspace.screens.iter().map(|screen| screen.uuid).collect())
-            })
-            .collect()
-    })
+fn with_projection_claimant<R>(
+    mux: &Mux,
+    client: u64,
+    apply: impl FnOnce(ProjectionClaimant) -> anyhow::Result<R>,
+) -> anyhow::Result<R> {
+    // Disconnect takes the write side before removing the stable protocol
+    // identity. Keep this read guard through canonical validation and the
+    // registry commit so a claim cannot outlive its connection record.
+    let _client_lifecycle = mux.control_clients.read_lifecycle();
+    let claimant = projection_claimant(mux, client)?;
+    apply(claimant)
 }
 
 const MAX_ENSURE_COMMAND_BYTES: usize = 64 * 1024;
@@ -5577,59 +5629,122 @@ fn handle_command(
             Ok(serde_json::to_value(mux.presentations.list_for_client(client))?)
         }
         Command::ClaimProjectionState { logical_presentation_id } => {
-            let claimant = projection_claimant(mux, client)?;
-            let live_bindings = projection_live_bindings(mux);
-            Ok(serde_json::to_value(mux.projection_states.claim(
-                claimant,
-                logical_presentation_id,
-                &live_bindings,
-            )?)?)
+            with_projection_claimant(mux, client, |claimant| {
+                Ok(serde_json::to_value(
+                    mux.claim_projection_state_v1(claimant, logical_presentation_id)?,
+                )?)
+            })
         }
         Command::UpdateProjectionState {
             logical_presentation_id,
             claim_id,
             expected_generation,
             workspaces,
-        } => {
-            let claimant = projection_claimant(mux, client)?;
-            let live_bindings = projection_live_bindings(mux);
-            Ok(serde_json::to_value(mux.projection_states.update(
+        } => with_projection_claimant(mux, client, |claimant| {
+            Ok(serde_json::to_value(mux.update_projection_state_v1(
                 claimant,
-                logical_presentation_id,
-                claim_id,
-                expected_generation,
-                workspaces,
-                &live_bindings,
+                ProjectionStateUpdate {
+                    logical_presentation_id,
+                    claim_id,
+                    expected_generation,
+                    workspaces,
+                },
             )?)?)
-        }
+        }),
         Command::UpdateProjectionStates { projections } => {
-            let claimant = projection_claimant(mux, client)?;
-            let live_bindings = projection_live_bindings(mux);
-            Ok(serde_json::to_value(mux.projection_states.update_many(
-                claimant,
-                projections,
-                &live_bindings,
-            )?)?)
+            with_projection_claimant(mux, client, |claimant| {
+                Ok(serde_json::to_value(mux.update_projection_states_v1(claimant, projections)?)?)
+            })
         }
         Command::ReleaseProjectionState {
             logical_presentation_id,
             claim_id,
             expected_generation,
-        } => {
-            let claimant = projection_claimant(mux, client)?;
-            mux.projection_states.release(
+        } => with_projection_claimant(mux, client, |claimant| {
+            mux.release_projection_state_v1(
                 claimant,
                 logical_presentation_id,
                 claim_id,
                 expected_generation,
             )?;
             Ok(json!({}))
-        }
-        Command::ListProjectionStates => {
-            let claimant = projection_claimant(mux, client)?;
-            let live_bindings = projection_live_bindings(mux);
-            Ok(serde_json::to_value(mux.projection_states.list(claimant, &live_bindings)?)?)
-        }
+        }),
+        Command::ListProjectionStates => with_projection_claimant(mux, client, |claimant| {
+            Ok(serde_json::to_value(mux.list_projection_states_v1(claimant)?)?)
+        }),
+        Command::ClaimProjectionNavigationV2 {
+            logical_presentation_id,
+            daemon_instance_id,
+            session_id,
+            expected_topology_revision,
+        } => with_projection_claimant(mux, client, |claimant| {
+            Ok(serde_json::to_value(mux.claim_projection_navigation_v2(
+                claimant,
+                logical_presentation_id,
+                ProjectionNavigationTopologyExpectation {
+                    daemon_instance_id,
+                    session_id,
+                    expected_topology_revision,
+                },
+            ))?)
+        }),
+        Command::ListProjectionNavigationV2 {
+            daemon_instance_id,
+            session_id,
+            expected_topology_revision,
+            cursor,
+        } => with_projection_claimant(mux, client, |claimant| {
+            Ok(serde_json::to_value(mux.list_projection_navigation_v2(
+                claimant,
+                ProjectionNavigationTopologyExpectation {
+                    daemon_instance_id,
+                    session_id,
+                    expected_topology_revision,
+                },
+                cursor,
+            ))?)
+        }),
+        Command::MutateProjectionNavigationV2 {
+            request_id,
+            daemon_instance_id,
+            session_id,
+            expected_topology_revision,
+            projections,
+        } => with_projection_claimant(mux, client, |claimant| {
+            Ok(serde_json::to_value(mux.mutate_projection_navigation_v2(
+                claimant,
+                ProjectionNavigationTopologyExpectation {
+                    daemon_instance_id,
+                    session_id,
+                    expected_topology_revision,
+                },
+                ProjectionNavigationMutationBatch { request_id, projections },
+            ))?)
+        }),
+        Command::ReleaseProjectionNavigationV2 {
+            request_id,
+            logical_presentation_id,
+            claim_id,
+            expected_generation,
+            daemon_instance_id,
+            session_id,
+            expected_topology_revision,
+        } => with_projection_claimant(mux, client, |claimant| {
+            Ok(serde_json::to_value(mux.release_projection_navigation_v2(
+                claimant,
+                ProjectionNavigationTopologyExpectation {
+                    daemon_instance_id,
+                    session_id,
+                    expected_topology_revision,
+                },
+                ProjectionNavigationReleaseRequest {
+                    request_id,
+                    logical_presentation_id,
+                    claim_id,
+                    expected_generation,
+                },
+            ))?)
+        }),
         Command::EnsureTerminal {
             workspace_uuid,
             surface_uuid,
@@ -9215,6 +9330,10 @@ mod tests {
             "reset-external-terminal",
             "external-terminal-output",
             "drain-external-terminal-egress",
+            "claim-projection-navigation-v2",
+            "list-projection-navigation-v2",
+            "mutate-projection-navigation-v2",
+            "release-projection-navigation-v2",
         ] {
             assert_eq!(
                 command_admission_policy(command).permission,
@@ -9223,6 +9342,21 @@ mod tests {
             );
         }
         assert!(command_admission_policy("subscribe-renderer-lifecycle").protocol_v9);
+        for command in [
+            "claim-projection-navigation-v2",
+            "list-projection-navigation-v2",
+            "mutate-projection-navigation-v2",
+            "release-projection-navigation-v2",
+        ] {
+            assert!(command_admission_policy(command).protocol_v9, "{command}");
+        }
+        let projection_mutation = command_admission_policy("mutate-projection-navigation-v2");
+        assert_eq!(projection_mutation.wire_max, PROJECTION_NAVIGATION_COMMAND_MAX_BYTES);
+        assert_eq!(projection_mutation.decoded_max, PROJECTION_NAVIGATION_DECODE_MAX_BYTES);
+        assert_eq!(
+            command_admission_policy("update-projection-states").wire_max,
+            BULK_COMMAND_MAX_BYTES
+        );
     }
 
     #[test]
@@ -10639,6 +10773,7 @@ mod tests {
         for capability in [
             "render-attach-v1",
             "presentation-registry-v1",
+            "projection-navigation-v2",
             RENDERER_LIFECYCLE_SUBSCRIPTION_CAPABILITY,
             "renderer-worker-supervision-v1",
             "tree-delta-v1",
@@ -10656,6 +10791,28 @@ mod tests {
         let request: Request = serde_json::from_str(r#"{"id":7,"cmd":"subscribe"}"#).unwrap();
         assert_eq!(request.id, Some(json!(7)));
         assert!(matches!(request.cmd, Command::Subscribe { tree_events: None }));
+
+        let cursor = ProjectionNavigationListCursor {
+            client_revision: 17,
+            after_logical_presentation_id: uuid::Uuid::new_v4(),
+        };
+        let projection_list: Request = serde_json::from_value(json!({
+            "id": 9,
+            "cmd": "list-projection-navigation-v2",
+            "daemon_instance_id": uuid::Uuid::new_v4(),
+            "session_id": uuid::Uuid::new_v4(),
+            "expected_topology_revision": 23,
+            "cursor": cursor,
+        }))
+        .unwrap();
+        assert!(matches!(
+            projection_list.cmd,
+            Command::ListProjectionNavigationV2 {
+                expected_topology_revision: 23,
+                cursor: Some(decoded_cursor),
+                ..
+            } if decoded_cursor == cursor
+        ));
 
         let renderer_lifecycle: Request =
             serde_json::from_str(r#"{"id":8,"cmd":"subscribe-renderer-lifecycle"}"#).unwrap();
@@ -12247,6 +12404,71 @@ mod tests {
         );
         assert_eq!(mux.canonical_topology_revision(), topology_revision);
         assert!(!transient["presentation_id"].is_null());
+    }
+
+    #[test]
+    fn projection_navigation_v2_promotes_v1_through_the_exact_server_wire_and_blocks_downgrade() {
+        let mux = test_mux();
+        mux.new_workspace(Some("projection-v2".into()), None).unwrap();
+        let (workspace_uuid, screen_uuid) = mux.with_state(|state| {
+            let workspace = &state.workspaces[0];
+            (workspace.uuid, workspace.screens[0].uuid)
+        });
+        let writer = test_writer();
+        let (client, _) = register_v9_client(&mux, &writer);
+        let logical_presentation_id = uuid::Uuid::new_v4();
+        let claimed = handle_command(
+            &mux,
+            client,
+            Command::ClaimProjectionState { logical_presentation_id },
+            &writer,
+        )
+        .unwrap();
+        handle_command(
+            &mux,
+            client,
+            Command::UpdateProjectionState {
+                logical_presentation_id,
+                claim_id: claimed["claim_id"].as_str().unwrap().parse().unwrap(),
+                expected_generation: claimed["generation"].as_u64().unwrap(),
+                workspaces: vec![ProjectionWorkspaceState {
+                    workspace_uuid,
+                    selected_screen_uuid: screen_uuid,
+                }],
+            },
+            &writer,
+        )
+        .unwrap();
+
+        let promoted = handle_command(
+            &mux,
+            client,
+            Command::ListProjectionNavigationV2 {
+                daemon_instance_id: mux.daemon_instance_id,
+                session_id: mux.session_id,
+                expected_topology_revision: mux.canonical_topology_revision(),
+                cursor: None,
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(promoted["status"], "applied");
+        assert!(promoted["client_revision"].as_u64().is_some());
+        assert!(promoted["next_cursor"].is_null());
+        assert_eq!(promoted["states"].as_array().unwrap().len(), 1);
+        assert_eq!(promoted["states"][0]["schema_version"], 2);
+        assert_eq!(
+            promoted["states"][0]["logical_presentation_id"],
+            logical_presentation_id.to_string()
+        );
+        assert_eq!(
+            promoted["states"][0]["workspaces"][0]["workspace_uuid"],
+            workspace_uuid.to_string()
+        );
+
+        let downgrade =
+            handle_command(&mux, client, Command::ListProjectionStates, &writer).unwrap_err();
+        assert!(downgrade.to_string().contains("projection-navigation-v2"));
     }
 
     #[test]
