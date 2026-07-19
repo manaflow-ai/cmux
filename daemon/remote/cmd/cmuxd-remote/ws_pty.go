@@ -1362,22 +1362,30 @@ func terminatePTYSessionMembers(sessionID int) {
 	if sessionID <= 0 {
 		return
 	}
-	// The PTY's OS session is the ownership boundary. Iterate because a member
-	// can fork between a process-table snapshot and signal delivery. Killing
-	// every current member first prevents later passes from discovering new
-	// descendants while still allowing an intentionally daemonized process that
-	// created its own session to leave the terminal's lifecycle.
+	// The PTY's OS session is the ownership boundary. A member can fork between
+	// a process-table snapshot and signal delivery, so rescan for previously
+	// unseen members. Once SIGKILL has been sent to a process it cannot create
+	// more descendants, which makes the discovered set converge without waiting
+	// for signaled processes to disappear from the process table. A process that
+	// intentionally created its own session remains outside this lifecycle.
+	signaled := make(map[int]struct{})
 	for attempt := 0; attempt < 8; attempt++ {
 		members := ptySessionMemberPIDs(sessionID)
-		if len(members) == 0 {
+		newMembers := 0
+		for _, pid := range members {
+			if pid == os.Getpid() {
+				continue
+			}
+			if _, alreadySignaled := signaled[pid]; alreadySignaled {
+				continue
+			}
+			signaled[pid] = struct{}{}
+			newMembers++
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+		if newMembers == 0 {
 			return
 		}
-		for _, pid := range members {
-			if pid != os.Getpid() {
-				_ = syscall.Kill(pid, syscall.SIGKILL)
-			}
-		}
-		time.Sleep(10 * time.Millisecond)
 	}
 }
 
