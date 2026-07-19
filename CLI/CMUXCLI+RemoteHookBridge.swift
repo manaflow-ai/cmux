@@ -1,6 +1,12 @@
 import Foundation
 
 extension CMUXCLI {
+    // The nested installer must expire before the app bridge's process deadline.
+    private static let remoteHookInstallerTimeout: TimeInterval = 105
+    private static let remoteHookInstallerMaximumReturnedBytes = 1024 * 1024
+    // `/bin/sh` uses 512-byte blocks; two 16 MiB file caps bound aggregate capture at 32 MiB.
+    private static let remoteHookInstallerOutputLimitScript = "ulimit -f 32768 || exit 125; exec \"$@\""
+
     private static let remoteHookBridgeMaximumBytes = 8 * 1024 * 1024
 
     private struct RemoteHookDescriptor: Codable {
@@ -92,7 +98,7 @@ extension CMUXCLI {
             } catch {
                 throw Self.remoteHookBridgeError("invalid_configuration_snapshot")
             }
-            try Self.printRemoteHookJSON(try Self.buildRemoteHookPlan(snapshot))
+            try Self.printRemoteHookJSON(try buildRemoteHookPlan(snapshot))
         default:
             throw Self.remoteHookBridgeError("unknown_bridge_command")
         }
@@ -143,26 +149,26 @@ extension CMUXCLI {
         )
     }
 
-    private static func buildRemoteHookPlan(_ snapshot: RemoteHookSnapshot) throws -> RemoteHookPlan {
-        guard let definition = agentDef(named: snapshot.agent) else {
-            throw remoteHookBridgeError("unknown_hooks_target")
+    private func buildRemoteHookPlan(_ snapshot: RemoteHookSnapshot) throws -> RemoteHookPlan {
+        guard let definition = Self.agentDef(named: snapshot.agent) else {
+            throw Self.remoteHookBridgeError("unknown_hooks_target")
         }
         guard snapshot.action == "install" || snapshot.action == "uninstall" else {
-            throw remoteHookBridgeError("invalid_configuration_action")
+            throw Self.remoteHookBridgeError("invalid_configuration_action")
         }
         let allowedArguments = snapshot.arguments.filter { $0 == "--project" }
         guard snapshot.arguments.allSatisfy({ $0 == "--project" || $0 == "--yes" || $0 == "-y" }),
               definition.name == "opencode" || allowedArguments.isEmpty else {
-            throw remoteHookBridgeError("invalid_configuration_arguments")
+            throw Self.remoteHookBridgeError("invalid_configuration_arguments")
         }
 
-        let descriptor = remoteHookDescriptor(definition)
+        let descriptor = Self.remoteHookDescriptor(definition)
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-remote-hooks-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
 
-        try restoreRemoteHookSnapshot(snapshot.entries, descriptor: descriptor, under: temporaryDirectory)
+        try Self.restoreRemoteHookSnapshot(snapshot.entries, descriptor: descriptor, under: temporaryDirectory)
         let result = try runRemoteHookInstaller(
             definition: definition,
             action: snapshot.action,
@@ -170,10 +176,10 @@ extension CMUXCLI {
             descriptor: descriptor,
             temporaryDirectory: temporaryDirectory
         )
-        let after = try remoteHookFiles(descriptor: descriptor, under: temporaryDirectory)
+        let after = try Self.remoteHookFiles(descriptor: descriptor, under: temporaryDirectory)
         let before = Dictionary(uniqueKeysWithValues: snapshot.entries.compactMap { entry -> (String, RemoteHookSnapshotEntry)? in
             guard entry.kind == "file" else { return nil }
-            return (normalizedRemoteHookPath(entry.path), entry)
+            return (Self.normalizedRemoteHookPath(entry.path), entry)
         })
         var mutations: [RemoteHookMutation] = []
         for path in Set(before.keys).union(after.keys).sorted() {
@@ -192,8 +198,8 @@ extension CMUXCLI {
             }
         }
         return RemoteHookPlan(
-            stdoutBase64: remoteHookInstallerOutput(result.stdout, temporaryDirectory: temporaryDirectory).base64EncodedString(),
-            stderrBase64: remoteHookInstallerOutput(result.stderr, temporaryDirectory: temporaryDirectory).base64EncodedString(),
+            stdoutBase64: Self.remoteHookInstallerOutput(result.stdout, temporaryDirectory: temporaryDirectory).base64EncodedString(),
+            stderrBase64: Self.remoteHookInstallerOutput(result.stderr, temporaryDirectory: temporaryDirectory).base64EncodedString(),
             exitCode: result.status,
             mutations: mutations
         )
@@ -230,7 +236,7 @@ extension CMUXCLI {
         }
     }
 
-    private static func runRemoteHookInstaller(
+    private func runRemoteHookInstaller(
         definition: AgentHookDef,
         action: String,
         arguments: [String],
@@ -238,7 +244,7 @@ extension CMUXCLI {
         temporaryDirectory: URL
     ) throws -> (stdout: Data, stderr: Data, status: Int32) {
         guard let executablePath = CommandLine.arguments.first, executablePath.hasPrefix("/") else {
-            throw remoteHookBridgeError("bundled_cli_unavailable")
+            throw Self.remoteHookBridgeError("bundled_cli_unavailable")
         }
         let outputURL = temporaryDirectory.appendingPathComponent(".bridge-stdout")
         let errorURL = temporaryDirectory.appendingPathComponent(".bridge-stderr")
@@ -252,29 +258,38 @@ extension CMUXCLI {
         }
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = ["hooks", definition.name, action, "--yes"] + arguments
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            Self.remoteHookInstallerOutputLimitScript,
+            "cmux-remote-hook-installer",
+            executablePath,
+            "hooks",
+            definition.name,
+            action,
+            "--yes",
+        ] + arguments
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = outputHandle
         process.standardError = errorHandle
         var environment = ProcessInfo.processInfo.environment
-        let remoteHome = normalizedRemoteHookPath(environment["HOME"] ?? NSHomeDirectory())
-        environment["HOME"] = try remoteHookMirrorURL(for: remoteHome, under: temporaryDirectory).path
+        let remoteHome = Self.normalizedRemoteHookPath(environment["HOME"] ?? NSHomeDirectory())
+        environment["HOME"] = try Self.remoteHookMirrorURL(for: remoteHome, under: temporaryDirectory).path
         environment["CMUX_HOOK_RELAY_BRIDGE_CHILD"] = "1"
         environment["CMUX_HOOK_INSTALL_PATH_PREFIX"] = temporaryDirectory.standardizedFileURL.path
         environment["CMUX_HOOK_INSTALL_CLI_PATH"] = environment["CMUX_BUNDLED_CLI_PATH"]
             ?? URL(fileURLWithPath: remoteHome).appendingPathComponent(".cmux/bin/cmux").path
         if let override = definition.configDirEnvOverride {
-            let mirroredConfig = try remoteHookMirrorURL(for: descriptor.configDirectory, under: temporaryDirectory)
+            let mirroredConfig = try Self.remoteHookMirrorURL(for: descriptor.configDirectory, under: temporaryDirectory)
             environment[override] = definition.configDirEnvOverrideSubpath == nil
                 ? mirroredConfig.path
                 : mirroredConfig.deletingLastPathComponent().path
         }
         if definition.name == "omp" {
-            environment["PI_CODING_AGENT_DIR"] = try remoteHookMirrorURL(for: descriptor.configDirectory, under: temporaryDirectory).path
+            environment["PI_CODING_AGENT_DIR"] = try Self.remoteHookMirrorURL(for: descriptor.configDirectory, under: temporaryDirectory).path
             environment.removeValue(forKey: "PI_CONFIG_DIR")
         } else if definition.name == "campfire" {
-            environment["CAMPFIRE_CODING_AGENT_DIR"] = try remoteHookMirrorURL(for: descriptor.configDirectory, under: temporaryDirectory).path
+            environment["CAMPFIRE_CODING_AGENT_DIR"] = try Self.remoteHookMirrorURL(for: descriptor.configDirectory, under: temporaryDirectory).path
         } else if definition.name == "kimi" {
             let activePath = URL(fileURLWithPath: descriptor.configDirectory)
                 .appendingPathComponent(definition.configFile).path
@@ -282,31 +297,65 @@ extension CMUXCLI {
                 $0 != activePath && URL(fileURLWithPath: $0).lastPathComponent == definition.configFile
             }
             if let legacyPath {
-                environment["KIMI_CODE_HOME"] = try remoteHookMirrorURL(
+                environment["KIMI_CODE_HOME"] = try Self.remoteHookMirrorURL(
                     for: URL(fileURLWithPath: legacyPath).deletingLastPathComponent().path,
                     under: temporaryDirectory
                 ).path
             }
         }
         process.environment = environment
-        let remoteCWD = normalizedRemoteHookPath(environment["PWD"] ?? remoteHome)
-        let mirroredCWD = try remoteHookMirrorURL(for: remoteCWD, under: temporaryDirectory)
+        let remoteCWD = Self.normalizedRemoteHookPath(environment["PWD"] ?? remoteHome)
+        let mirroredCWD = try Self.remoteHookMirrorURL(for: remoteCWD, under: temporaryDirectory)
         try FileManager.default.createDirectory(at: mirroredCWD, withIntermediateDirectories: true)
         process.currentDirectoryURL = mirroredCWD
 
         do {
             try process.run()
-            process.waitUntilExit()
         } catch {
-            throw remoteHookBridgeError("installer_launch_failed")
+            throw Self.remoteHookBridgeError("installer_launch_failed")
+        }
+        let exited: Bool
+        do {
+            exited = try waitForProcessExit(process, timeout: Self.remoteHookInstallerTimeout)
+        } catch {
+            terminateRemoteHookInstaller(process)
+            throw Self.remoteHookBridgeError("installer_monitor_failed")
+        }
+        guard exited else {
+            terminateRemoteHookInstaller(process)
+            throw Self.remoteHookBridgeError("installer_timed_out")
         }
         try outputHandle.synchronize()
         try errorHandle.synchronize()
+        let outputSize = try remoteHookInstallerOutputSize(at: outputURL)
+        let errorSize = try remoteHookInstallerOutputSize(at: errorURL)
+        guard outputSize + errorSize <= Self.remoteHookInstallerMaximumReturnedBytes else {
+            throw Self.remoteHookBridgeError("installer_output_too_large")
+        }
         return (
-            (try? Data(contentsOf: outputURL)) ?? Data(),
-            (try? Data(contentsOf: errorURL)) ?? Data(),
+            try Data(contentsOf: outputURL),
+            try Data(contentsOf: errorURL),
             process.terminationStatus
         )
+    }
+
+    private func remoteHookInstallerOutputSize(at url: URL) throws -> Int {
+        let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey])
+        guard values.isRegularFile == true,
+              values.isSymbolicLink != true,
+              let size = values.fileSize else {
+            throw Self.remoteHookBridgeError("invalid_installer_output")
+        }
+        return size
+    }
+
+    private func terminateRemoteHookInstaller(_ process: Process) {
+        guard process.isRunning else { return }
+        process.terminate()
+        if ((try? waitForProcessExit(process, timeout: 2)) ?? false) == false {
+            kill(process.processIdentifier, SIGKILL)
+            _ = try? waitForProcessExit(process, timeout: 1)
+        }
     }
 
     private static func remoteHookFiles(

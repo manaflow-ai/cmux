@@ -6,20 +6,34 @@ nonisolated struct RemoteHookInvocationBridge: Sendable {
         let message: String
     }
 
-    private struct Invocation: Sendable {
+    struct Invocation: Sendable {
         let arguments: [String]
         let environment: [String: String]
         let input: Data
     }
 
-    private struct TransferMetadata: Codable, Sendable {
+    struct TransferMetadata: Codable, Sendable {
         let arguments: [String]
         let environment: [String: String]
     }
 
-    private let maximumInputBytes = 8 * 1024 * 1024
+    let maximumInputBytes = 8 * 1024 * 1024
     private let maximumChunkBytes = 6 * 1024
-    private let staleTransferAge: TimeInterval = 300
+    let maximumTransferMetadataBytes = 1024 * 1024
+    let maximumConcurrentTransfers = 8
+    let staleTransferAge: TimeInterval = 300
+    let transferRoot: URL
+    private let maximumHookOutputBytes = 2 * 1024 * 1024
+    private let maximumConfigurationOutputBytes = 16 * 1024 * 1024
+    // Leaves time to terminate the child and answer before the relay's 135-second deadline.
+    private let invocationTimeout: TimeInterval = 120
+
+    init(transferRoot: URL? = nil) {
+        self.transferRoot = transferRoot
+            ?? FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-remote-hook-transfers", isDirectory: true)
+                .appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux", isDirectory: true)
+    }
 
     func handle(
         method: String,
@@ -27,6 +41,7 @@ nonisolated struct RemoteHookInvocationBridge: Sendable {
         localSocketPath: String
     ) -> Result<[String: Any], BridgeError> {
         do {
+            removeStaleTransfers()
             switch method {
             case "hooks.invoke":
                 let invocation = try decodeInvocation(params: params)
@@ -138,123 +153,6 @@ nonisolated struct RemoteHookInvocationBridge: Sendable {
         return !prohibitedActions.contains(arguments[1].lowercased())
     }
 
-    private func beginTransfer(_ invocation: Invocation) throws -> String {
-        try FileManager.default.createDirectory(
-            at: transferRoot,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o700],
-            ofItemAtPath: transferRoot.path
-        )
-        removeStaleTransfers()
-        let transferID = UUID().uuidString
-        let directory = transferRoot.appendingPathComponent(transferID, isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: false,
-            attributes: [.posixPermissions: 0o700]
-        )
-        let metadata = TransferMetadata(
-            arguments: invocation.arguments,
-            environment: invocation.environment
-        )
-        try writePrivate(JSONEncoder().encode(metadata), to: directory.appendingPathComponent("metadata.json"))
-        try writePrivate(Data(), to: directory.appendingPathComponent("stdin"))
-        return transferID
-    }
-
-    private func append(_ chunk: Data, toTransfer transferID: String) throws {
-        let directory = try existingTransferDirectory(for: transferID)
-        let inputURL = directory.appendingPathComponent("stdin")
-        let inputHandle = try FileHandle(forWritingTo: inputURL)
-        defer { try? inputHandle.close() }
-        let currentSize = try inputHandle.seekToEnd()
-        guard currentSize <= UInt64(maximumInputBytes - chunk.count) else {
-            try? FileManager.default.removeItem(at: directory)
-            throw bridgeError(
-                "invalid_params",
-                key: "socket.hooks.remoteBridge.invalidTransfer",
-                fallback: "Remote hook payload transfer is missing or too large."
-            )
-        }
-        try inputHandle.write(contentsOf: chunk)
-    }
-
-    private func takeTransfer(_ transferID: String) throws -> Invocation {
-        let directory = try existingTransferDirectory(for: transferID)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let metadata = try JSONDecoder().decode(
-            TransferMetadata.self,
-            from: Data(contentsOf: directory.appendingPathComponent("metadata.json"))
-        )
-        let input = try Data(contentsOf: directory.appendingPathComponent("stdin"))
-        guard input.count <= maximumInputBytes else {
-            throw bridgeError(
-                "invalid_params",
-                key: "socket.hooks.remoteBridge.invalidTransfer",
-                fallback: "Remote hook payload transfer is missing or too large."
-            )
-        }
-        return Invocation(arguments: metadata.arguments, environment: metadata.environment, input: input)
-    }
-
-    private var transferRoot: URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-remote-hook-transfers", isDirectory: true)
-            .appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux", isDirectory: true)
-    }
-
-    private func existingTransferDirectory(for transferID: String) throws -> URL {
-        guard let uuid = UUID(uuidString: transferID), uuid.uuidString == transferID.uppercased() else {
-            throw bridgeError(
-                "invalid_params",
-                key: "socket.hooks.remoteBridge.invalidTransfer",
-                fallback: "Remote hook payload transfer is missing or too large."
-            )
-        }
-        let directory = transferRoot.appendingPathComponent(uuid.uuidString, isDirectory: true)
-        var isDirectory = ObjCBool(false)
-        guard FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
-            throw bridgeError(
-                "invalid_params",
-                key: "socket.hooks.remoteBridge.invalidTransfer",
-                fallback: "Remote hook payload transfer is missing or too large."
-            )
-        }
-        return directory
-    }
-
-    private func removeStaleTransfers(now: Date = Date()) {
-        let fileManager = FileManager.default
-        guard let directories = try? fileManager.contentsOfDirectory(
-            at: transferRoot,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
-        for directory in directories {
-            guard let modified = try? directory.resourceValues(
-                forKeys: [.contentModificationDateKey]
-            ).contentModificationDate,
-                  now.timeIntervalSince(modified) >= staleTransferAge else { continue }
-            try? fileManager.removeItem(at: directory)
-        }
-    }
-
-    private func writePrivate(_ data: Data, to url: URL) throws {
-        if !FileManager.default.fileExists(atPath: url.deletingLastPathComponent().path) {
-            try FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(),
-                withIntermediateDirectories: true,
-                attributes: [.posixPermissions: 0o700]
-            )
-        }
-        try data.write(to: url, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-    }
-
     private func run(_ invocation: Invocation, localSocketPath: String) throws -> [String: Any] {
         guard let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
               FileManager.default.isExecutableFile(atPath: cliURL.path) else {
@@ -269,26 +167,18 @@ nonisolated struct RemoteHookInvocationBridge: Sendable {
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
         let inputURL = temporaryDirectory.appendingPathComponent("stdin")
-        let outputURL = temporaryDirectory.appendingPathComponent("stdout")
-        let errorURL = temporaryDirectory.appendingPathComponent("stderr")
         try invocation.input.write(to: inputURL)
-        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-        FileManager.default.createFile(atPath: errorURL.path, contents: nil)
         let inputHandle = try FileHandle(forReadingFrom: inputURL)
-        let outputHandle = try FileHandle(forWritingTo: outputURL)
-        let errorHandle = try FileHandle(forWritingTo: errorURL)
-        defer {
-            try? inputHandle.close()
-            try? outputHandle.close()
-            try? errorHandle.close()
-        }
+        defer { try? inputHandle.close() }
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
 
         let process = Process()
         process.executableURL = cliURL
         process.arguments = ["--socket", localSocketPath, "hooks"] + invocation.arguments
         process.standardInput = inputHandle
-        process.standardOutput = outputHandle
-        process.standardError = errorHandle
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
         process.environment = childEnvironment(
             remote: invocation.environment,
             arguments: invocation.arguments,
@@ -297,7 +187,6 @@ nonisolated struct RemoteHookInvocationBridge: Sendable {
         )
         do {
             try process.run()
-            process.waitUntilExit()
         } catch {
             throw bridgeError(
                 "unavailable",
@@ -305,14 +194,22 @@ nonisolated struct RemoteHookInvocationBridge: Sendable {
                 fallback: "The bundled cmux hook command could not be launched."
             )
         }
-        try outputHandle.synchronize()
-        try errorHandle.synchronize()
+        let maximumOutputBytes = invocation.arguments.first == "__remote-configure"
+            ? maximumConfigurationOutputBytes
+            : maximumHookOutputBytes
+        let output = try captureProcessOutput(
+            process,
+            outputPipe: outputPipe,
+            errorPipe: errorPipe,
+            timeout: invocationTimeout,
+            maximumBytes: maximumOutputBytes
+        )
         let status = process.terminationReason == .exit
             ? Int(process.terminationStatus)
             : 128 + Int(process.terminationStatus)
         return [
-            "stdout_base64": ((try? Data(contentsOf: outputURL)) ?? Data()).base64EncodedString(),
-            "stderr_base64": ((try? Data(contentsOf: errorURL)) ?? Data()).base64EncodedString(),
+            "stdout_base64": output.stdout.base64EncodedString(),
+            "stderr_base64": output.stderr.base64EncodedString(),
             "exit_code": status,
         ]
     }
@@ -370,7 +267,7 @@ nonisolated struct RemoteHookInvocationBridge: Sendable {
         return data
     }
 
-    private func bridgeError(_ code: String, key: String, fallback: String) -> BridgeError {
+    func bridgeError(_ code: String, key: String, fallback: String) -> BridgeError {
         BridgeError(code: code, message: Bundle.main.localizedString(forKey: key, value: fallback, table: nil))
     }
 
