@@ -459,6 +459,8 @@ pub struct Mux {
     client_sizing: Mutex<ClientSizingState>,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    workspace_close_before_empty_check: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
@@ -506,6 +508,8 @@ impl Mux {
             client_sizing: Mutex::new(ClientSizingState::default()),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
+            #[cfg(test)]
+            workspace_close_before_empty_check: Mutex::new(None),
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(DefaultColors::default()),
@@ -623,6 +627,20 @@ impl Mux {
         self.emit(MuxEvent::TreeDelta(delta));
         if selection_resync {
             self.emit(MuxEvent::TreeSelectionChanged);
+        }
+    }
+
+    fn emit_empty_if_current(&self, workspace_revision: Option<u64>) {
+        let Some(workspace_revision) = workspace_revision else { return };
+        #[cfg(test)]
+        let before_empty_check = self.workspace_close_before_empty_check.lock().unwrap().clone();
+        #[cfg(test)]
+        if let Some(hook) = before_empty_check {
+            hook();
+        }
+        let state = self.state.lock().unwrap();
+        if state.workspaces.is_empty() && state.workspace_revision == workspace_revision {
+            self.emit(MuxEvent::Empty);
         }
     }
 
@@ -2572,7 +2590,7 @@ impl Mux {
     /// out of its split tree (and emptied screens/workspaces are removed).
     pub fn close_surface(&self, target: SurfaceId) {
         let notifications = self.surface_notifications();
-        let (removed, changed_screens, empty, delta, selection_resync) = {
+        let (removed, changed_screens, empty_revision, delta, selection_resync) = {
             let mut state = self.state.lock().unwrap();
             let changed_screen = surface_screen_id(&state, target);
             let mut delta = close_surface_delta(&state, &notifications, target);
@@ -2589,12 +2607,13 @@ impl Mux {
                     delta.workspace_revision = Some(state.workspace_revision);
                 }
             }
-            let empty = state.workspaces.is_empty();
-            let selection_resync = !empty && delta.as_ref().is_some_and(workspace_close_was_active);
+            let empty_revision = state.workspaces.is_empty().then_some(state.workspace_revision);
+            let selection_resync =
+                empty_revision.is_none() && delta.as_ref().is_some_and(workspace_close_was_active);
             (
                 removed,
                 changed_screen.into_iter().collect::<Vec<_>>(),
-                empty,
+                empty_revision,
                 delta,
                 selection_resync,
             )
@@ -2613,16 +2632,14 @@ impl Mux {
                 self.emit(MuxEvent::LayoutChanged(screen));
             }
         }
-        if empty {
-            self.emit(MuxEvent::Empty);
-        }
+        self.emit_empty_if_current(empty_revision);
     }
 
     /// Close a pane or screen and build its delta in the same critical section
     /// as removal so a concurrent registry mutation cannot stale its index.
     fn close_tree_target(&self, target: TreeCloseTarget) -> bool {
         let notifications = self.surface_notifications();
-        let Some((removed, changed_screens, empty, delta, tree_removed, selection_resync)) =
+        let Some((removed, changed_screens, empty_revision, delta, tree_removed, selection_resync)) =
             (|| {
                 let mut state = self.state.lock().unwrap();
                 let (tabs, mut delta) = match target {
@@ -2674,9 +2691,18 @@ impl Mux {
                     state.workspace_revision = state.workspace_revision.saturating_add(1);
                     delta.workspace_revision = Some(state.workspace_revision);
                 }
-                let empty = state.workspaces.is_empty();
-                let selection_resync = !empty && workspace_close_was_active(&delta);
-                Some((removed, changed_screens, empty, delta, tree_removed, selection_resync))
+                let empty_revision =
+                    state.workspaces.is_empty().then_some(state.workspace_revision);
+                let selection_resync =
+                    empty_revision.is_none() && workspace_close_was_active(&delta);
+                Some((
+                    removed,
+                    changed_screens,
+                    empty_revision,
+                    delta,
+                    tree_removed,
+                    selection_resync,
+                ))
             })()
         else {
             return false;
@@ -2691,9 +2717,7 @@ impl Mux {
                 self.emit(MuxEvent::LayoutChanged(screen));
             }
         }
-        if empty {
-            self.emit(MuxEvent::Empty);
-        }
+        self.emit_empty_if_current(empty_revision);
         true
     }
 
@@ -2734,7 +2758,7 @@ impl Mux {
         expected_revision: Option<u64>,
     ) -> anyhow::Result<Option<(WorkspaceId, String, u64)>> {
         let notifications = self.surface_notifications();
-        let (target, key, removed, delta, empty, revision, selection_resync) = {
+        let (target, key, removed, delta, empty_revision, revision, selection_resync) = {
             let mut state = self.state.lock().unwrap();
             Self::require_workspace_revision(&state, expected_revision)?;
             let Some((target, key)) = Self::resolve_workspace_selector(&state, id, key)? else {
@@ -2768,17 +2792,23 @@ impl Mux {
             state.workspace_revision = state.workspace_revision.saturating_add(1);
             let revision = state.workspace_revision;
             delta.workspace_revision = Some(revision);
-            let empty = state.workspaces.is_empty();
-            (target, key, removed, delta, empty, revision, was_active && !empty)
+            let empty_revision = state.workspaces.is_empty().then_some(state.workspace_revision);
+            (
+                target,
+                key,
+                removed,
+                delta,
+                empty_revision,
+                revision,
+                was_active && empty_revision.is_none(),
+            )
         };
         for surface in removed {
             self.purge_surface_side_tables(surface.id);
             surface.kill();
         }
         self.emit_tree_delta(delta, selection_resync);
-        if empty {
-            self.emit(MuxEvent::Empty);
-        }
+        self.emit_empty_if_current(empty_revision);
         Ok(Some((target, key, revision)))
     }
 
@@ -5120,6 +5150,52 @@ mod tests {
         assert_eq!(closed.kind, TreeDeltaKind::WorkspaceClosed);
         assert_eq!(closed.workspace_revision, Some(3));
         assert!(matches!(events.recv().expect("empty event"), MuxEvent::Empty));
+    }
+
+    #[test]
+    fn concurrent_workspace_creation_suppresses_stale_empty_event() {
+        let mux = test_mux();
+        let initial = mux.create_empty_workspace(None, None, None).unwrap();
+        let events = mux.subscribe();
+        let close_ready = Arc::new(std::sync::Barrier::new(2));
+        let resume_close = Arc::new(std::sync::Barrier::new(2));
+        *mux.workspace_close_before_empty_check.lock().unwrap() = Some(Arc::new({
+            let close_ready = close_ready.clone();
+            let resume_close = resume_close.clone();
+            move || {
+                close_ready.wait();
+                resume_close.wait();
+            }
+        }));
+
+        let close_mux = mux.clone();
+        let close = std::thread::spawn(move || {
+            close_mux.close_workspace_at_revision(initial.workspace, Some(1)).unwrap()
+        });
+        close_ready.wait();
+        let replacement = mux.create_empty_workspace(None, None, Some(2)).unwrap();
+        *mux.workspace_close_before_empty_check.lock().unwrap() = None;
+        resume_close.wait();
+        assert_eq!(close.join().unwrap(), Some(2));
+
+        let emitted = events.try_iter().collect::<Vec<_>>();
+        assert!(emitted.iter().any(|event| matches!(
+            event,
+            MuxEvent::TreeDelta(TreeDelta { kind: TreeDeltaKind::WorkspaceClosed, .. })
+        )));
+        assert!(emitted.iter().any(|event| matches!(
+            event,
+            MuxEvent::TreeDelta(TreeDelta {
+                kind: TreeDeltaKind::WorkspaceAdded,
+                workspace,
+                ..
+            }) if *workspace == replacement.workspace
+        )));
+        assert!(!emitted.iter().any(|event| matches!(event, MuxEvent::Empty)));
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces.len(), 1);
+            assert_eq!(state.workspaces[0].id, replacement.workspace);
+        });
     }
 
     #[test]
