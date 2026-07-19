@@ -76,7 +76,7 @@ func TestRemoteHookSnapshotPayloadAllowsBase64Expansion(t *testing.T) {
 	}
 }
 
-func TestRemoteHookSnapshotEncodesMissingConfigurationAsEmptyArray(t *testing.T) {
+func TestRemoteHookSnapshotEncodesRequiredSlicesAsEmptyArrays(t *testing.T) {
 	entries, err := snapshotRemoteHookPaths(
 		[]string{filepath.Join(t.TempDir(), "missing-hooks.json")},
 		nil,
@@ -91,10 +91,14 @@ func TestRemoteHookSnapshotEncodesMissingConfigurationAsEmptyArray(t *testing.T)
 		t.Fatalf("encode empty hook snapshot: %v", err)
 	}
 	var encoded struct {
-		Entries json.RawMessage `json:"entries"`
+		Arguments json.RawMessage `json:"arguments"`
+		Entries   json.RawMessage `json:"entries"`
 	}
 	if err := json.Unmarshal(payload, &encoded); err != nil {
 		t.Fatalf("decode empty hook snapshot: %v", err)
+	}
+	if string(encoded.Arguments) != "[]" {
+		t.Fatalf("missing hook arguments must encode as an array, got %s", encoded.Arguments)
 	}
 	if string(encoded.Entries) != "[]" {
 		t.Fatalf("missing hook configuration must encode entries as an array, got %s", encoded.Entries)
