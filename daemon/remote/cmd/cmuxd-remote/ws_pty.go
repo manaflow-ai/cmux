@@ -190,6 +190,7 @@ type wsPTYSession struct {
 	idleTimer      *time.Timer
 	closed         bool
 	ptyWriteMu     sync.Mutex
+	ptyFileMu      sync.Mutex
 	closeTTYOnce   sync.Once
 	closePTYOnce   sync.Once
 }
@@ -947,7 +948,7 @@ func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID stri
 
 func persistentPTYCommand(command *exec.Cmd) *exec.Cmd {
 	// A persistent PTY outlives every relay attachment. Make that ownership
-	// boundary apply to the whole process tree. Linux preserves an ignored
+	// boundary apply to the whole process tree. POSIX preserves an ignored
 	// signal across exec, and its interactive shells pass that disposition to
 	// foreground children unless a program explicitly installs its own policy.
 	arguments := []string{"-c", `trap '' HUP; exec "$0" "$@"`, command.Path}
@@ -1317,17 +1318,34 @@ func (session *wsPTYSession) closePTYFiles() {
 }
 
 func (session *wsPTYSession) terminateProcesses() {
-	if session.ptyFile != nil {
-		var foregroundGroup int32
-		_, _, errno := syscall.Syscall(
-			syscall.SYS_IOCTL,
-			session.ptyFile.Fd(),
-			uintptr(syscall.TIOCGPGRP),
-			uintptr(unsafe.Pointer(&foregroundGroup)),
-		)
-		if errno == 0 && foregroundGroup > 0 {
-			_ = syscall.Kill(-int(foregroundGroup), syscall.SIGKILL)
+	session.terminateProcessesWithForegroundGroupLookup(func(ptyFile *os.File) int {
+		rawConn, err := ptyFile.SyscallConn()
+		if err != nil {
+			return 0
 		}
+		var foregroundGroup int32
+		var ioctlErr syscall.Errno
+		if err := rawConn.Control(func(fd uintptr) {
+			_, _, ioctlErr = syscall.Syscall(
+				syscall.SYS_IOCTL,
+				fd,
+				uintptr(syscall.TIOCGPGRP),
+				uintptr(unsafe.Pointer(&foregroundGroup)),
+			)
+		}); err != nil || ioctlErr != 0 {
+			return 0
+		}
+		return int(foregroundGroup)
+	})
+}
+
+func (session *wsPTYSession) terminateProcessesWithForegroundGroupLookup(lookup func(*os.File) int) {
+	foregroundGroup := 0
+	session.withPTYFileLocked(func(ptyFile *os.File) {
+		foregroundGroup = lookup(ptyFile)
+	})
+	if foregroundGroup > 0 {
+		_ = syscall.Kill(-foregroundGroup, syscall.SIGKILL)
 	}
 	if session.cmd != nil && session.cmd.Process != nil {
 		_ = syscall.Kill(-session.cmd.Process.Pid, syscall.SIGKILL)
@@ -1346,10 +1364,30 @@ func (session *wsPTYSession) closeTTYFile() {
 
 func (session *wsPTYSession) closePTYFile() {
 	session.closePTYOnce.Do(func() {
-		if session.ptyFile != nil {
-			_ = session.ptyFile.Close()
+		session.ptyFileMu.Lock()
+		defer session.ptyFileMu.Unlock()
+		ptyFile := session.ptyFile
+		session.ptyFile = nil
+		if ptyFile != nil {
+			_ = ptyFile.Close()
 		}
 	})
+}
+
+func (session *wsPTYSession) withPTYFileLocked(operation func(*os.File)) bool {
+	session.ptyFileMu.Lock()
+	defer session.ptyFileMu.Unlock()
+	if session.ptyFile == nil {
+		return false
+	}
+	operation(session.ptyFile)
+	return true
+}
+
+func (session *wsPTYSession) ptyFileSnapshot() *os.File {
+	session.ptyFileMu.Lock()
+	defer session.ptyFileMu.Unlock()
+	return session.ptyFile
 }
 
 func (h *wsPTYHub) activeSessionCount() int {
@@ -1373,9 +1411,13 @@ func (h *wsPTYHub) maxScrollbackBytes() int {
 func (h *wsPTYHub) pumpSession(session *wsPTYSession) {
 	defer h.finishSession(session)
 
+	ptyFile := session.ptyFileSnapshot()
+	if ptyFile == nil {
+		return
+	}
 	buffer := make([]byte, 32768)
 	for {
-		n, err := session.ptyFile.Read(buffer)
+		n, err := ptyFile.Read(buffer)
 		if n > 0 {
 			chunk := append([]byte(nil), buffer[:n]...)
 			h.recordAndBroadcast(session, chunk)
@@ -1556,14 +1598,18 @@ func (h *wsPTYHub) applyPTYSizeWithWriteLock(session *wsPTYSession, cols int, ro
 	}
 	var lastErr error
 	for attempt := 0; attempt < 8; attempt++ {
-		resizeFile := session.ptyFile
-		lastErr = pty.Setsize(resizeFile, desired)
-		if lastErr != nil {
-			continue
+		var actual *pty.Winsize
+		available := session.withPTYFileLocked(func(resizeFile *os.File) {
+			lastErr = pty.Setsize(resizeFile, desired)
+			if lastErr == nil {
+				actual, lastErr = pty.GetsizeFull(resizeFile)
+			}
+		})
+		if !available {
+			lastErr = os.ErrClosed
+			break
 		}
-		actual, err := pty.GetsizeFull(resizeFile)
-		if err != nil {
-			lastErr = err
+		if lastErr != nil {
 			continue
 		}
 		if int(actual.Cols) == cols && int(actual.Rows) == rows {
@@ -1696,8 +1742,8 @@ func (h *wsPTYHub) writeInputChunkLocked(session *wsPTYSession, chunk wsPTYInput
 	// writeInput still rejects NEW writes from detached attachments.
 	h.mu.Lock()
 	current := h.sessions[session.key] == session && !session.closed
-	ptyFile := session.ptyFile
 	h.mu.Unlock()
+	ptyFile := session.ptyFileSnapshot()
 	if !current || ptyFile == nil {
 		return false, true
 	}

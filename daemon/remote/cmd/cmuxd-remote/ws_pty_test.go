@@ -444,6 +444,52 @@ func TestWebSocketPTYReconnectKeepsForegroundProcessAfterHangup(t *testing.T) {
 	waitForHubSessionCount(t, hub, 0, 5*time.Second)
 }
 
+func TestTerminateProcessesSerializesPTYClose(t *testing.T) {
+	ptyFile, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open PTY stand-in: %v", err)
+	}
+	session := &wsPTYSession{ptyFile: ptyFile}
+	lookupStarted := make(chan struct{})
+	releaseLookup := make(chan struct{})
+	terminated := make(chan struct{})
+	go func() {
+		session.terminateProcessesWithForegroundGroupLookup(func(*os.File) int {
+			close(lookupStarted)
+			<-releaseLookup
+			return 0
+		})
+		close(terminated)
+	}()
+	<-lookupStarted
+
+	closed := make(chan struct{})
+	go func() {
+		session.closePTYFile()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+		t.Fatal("PTY closed while foreground process-group lookup held its descriptor")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(releaseLookup)
+	select {
+	case <-terminated:
+	case <-time.After(5 * time.Second):
+		t.Fatal("process termination did not finish after lookup was released")
+	}
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("PTY close did not finish after process termination released the descriptor")
+	}
+	if session.ptyFileSnapshot() != nil {
+		t.Fatal("closed PTY descriptor remained available to later operations")
+	}
+}
+
 func TestWebSocketPTYReplacedAttachmentCannotWriteInput(t *testing.T) {
 	leasePath := filepath.Join(t.TempDir(), "lease.json")
 	server, hub := newTestWebSocketPTYServer(t, leasePath)
@@ -1612,9 +1658,13 @@ func (h *wsPTYHub) sessionPTYSize(sessionID string) (cols int, rows int, ok bool
 
 	session.ptyWriteMu.Lock()
 	defer session.ptyWriteMu.Unlock()
-	sizeFile := session.ptyFile
-
-	size, err := pty.GetsizeFull(sizeFile)
+	var size *pty.Winsize
+	available := session.withPTYFileLocked(func(sizeFile *os.File) {
+		size, err = pty.GetsizeFull(sizeFile)
+	})
+	if !available {
+		return 0, 0, true, os.ErrClosed
+	}
 	if err != nil {
 		return 0, 0, true, err
 	}
