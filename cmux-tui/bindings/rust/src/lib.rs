@@ -16,6 +16,7 @@ pub enum CmuxError {
     Connection(String),
     Timeout(String),
     ProtocolVersion(String),
+    InvalidArgument(String),
 }
 
 impl fmt::Display for CmuxError {
@@ -25,7 +26,8 @@ impl fmt::Display for CmuxError {
             Self::Decode(message)
             | Self::Connection(message)
             | Self::Timeout(message)
-            | Self::ProtocolVersion(message) => write!(f, "{message}"),
+            | Self::ProtocolVersion(message)
+            | Self::InvalidArgument(message) => write!(f, "{message}"),
         }
     }
 }
@@ -146,6 +148,16 @@ pub struct WorkspaceSelectorOptions<'a> {
     pub workspace: Option<u64>,
     pub key: Option<&'a str>,
     pub expected_revision: Option<u64>,
+}
+
+fn validate_workspace_selector(workspace: Option<u64>, key: Option<&str>) -> Result<()> {
+    if workspace.is_none() && key.is_none_or(|key| key.trim().is_empty()) {
+        return Err(CmuxError::InvalidArgument("workspace or key is required".to_string()));
+    }
+    if key.is_some_and(|key| key.trim().is_empty()) {
+        return Err(CmuxError::InvalidArgument("workspace key cannot be empty".to_string()));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -481,6 +493,7 @@ impl CmuxClient {
         &mut self,
         options: CreateTerminalOptions<'_>,
     ) -> Result<TerminalPlacement> {
+        validate_workspace_selector(options.workspace, options.key)?;
         self.require_capability("workspace-registry-v1", "workspace registry")?;
         let mut params = Map::new();
         insert_opt(&mut params, "workspace", options.workspace);
@@ -571,6 +584,7 @@ impl CmuxClient {
         &mut self,
         options: WorkspaceSelectorOptions<'_>,
     ) -> Result<WorkspaceMutation> {
+        validate_workspace_selector(options.workspace, options.key)?;
         self.require_capability("workspace-registry-v1", "workspace registry")?;
         let mut params = Map::new();
         insert_opt(&mut params, "workspace", options.workspace);
@@ -611,6 +625,7 @@ impl CmuxClient {
         options: WorkspaceSelectorOptions<'_>,
         name: &str,
     ) -> Result<WorkspaceMutation> {
+        validate_workspace_selector(options.workspace, options.key)?;
         self.require_capability("workspace-registry-v1", "workspace registry")?;
         let mut params = Map::new();
         insert_opt(&mut params, "workspace", options.workspace);
@@ -688,6 +703,7 @@ impl CmuxClient {
         options: WorkspaceSelectorOptions<'_>,
         index: usize,
     ) -> Result<WorkspaceMutation> {
+        validate_workspace_selector(options.workspace, options.key)?;
         self.require_capability("workspace-registry-v1", "workspace registry")?;
         let mut params = Map::new();
         insert_opt(&mut params, "workspace", options.workspace);
@@ -1106,6 +1122,20 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(mutation.workspace_revision, 5);
+    }
+
+    #[test]
+    fn workspace_registry_selectors_reject_missing_and_empty_keys_locally() {
+        assert!(matches!(
+            validate_workspace_selector(None, None),
+            Err(CmuxError::InvalidArgument(message)) if message == "workspace or key is required"
+        ));
+        assert!(matches!(
+            validate_workspace_selector(None, Some("  ")),
+            Err(CmuxError::InvalidArgument(message)) if message == "workspace or key is required"
+        ));
+        validate_workspace_selector(Some(1), None).unwrap();
+        validate_workspace_selector(None, Some("stable")).unwrap();
     }
 
     #[test]

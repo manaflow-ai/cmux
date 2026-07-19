@@ -33,6 +33,13 @@ class TimeoutError(CmuxError):
     pass
 
 
+def _validate_workspace_selector(workspace: Optional[int], key: Optional[str]) -> None:
+    if workspace is None and (key is None or not key.strip()):
+        raise ValueError("workspace or key is required")
+    if key is not None and not key.strip():
+        raise ValueError("workspace key cannot be empty")
+
+
 @dataclass(frozen=True)
 class EmptyResult:
     pass
@@ -470,6 +477,7 @@ class CmuxClient:
         cols: Optional[int] = None,
         rows: Optional[int] = None,
     ) -> TerminalPlacement:
+        _validate_workspace_selector(workspace, key)
         self._require_capability("workspace-registry-v1", "workspace registry")
         data = self._request(
             "create-terminal",
@@ -571,6 +579,7 @@ class CmuxClient:
         key: Optional[str] = None,
         expected_revision: Optional[int] = None,
     ) -> WorkspaceMutation:
+        _validate_workspace_selector(workspace, key)
         self._require_capability("workspace-registry-v1", "workspace registry")
         data = self._request(
             "close-workspace",
@@ -603,6 +612,7 @@ class CmuxClient:
         key: Optional[str] = None,
         expected_revision: Optional[int] = None,
     ) -> WorkspaceMutation:
+        _validate_workspace_selector(workspace, key)
         self._require_capability("workspace-registry-v1", "workspace registry")
         data = self._request(
             "rename-workspace",
@@ -656,6 +666,7 @@ class CmuxClient:
         key: Optional[str] = None,
         expected_revision: Optional[int] = None,
     ) -> WorkspaceMutation:
+        _validate_workspace_selector(workspace, key)
         self._require_capability("workspace-registry-v1", "workspace registry")
         data = self._request(
             "move-workspace",

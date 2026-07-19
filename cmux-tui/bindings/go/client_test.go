@@ -69,6 +69,24 @@ func TestCreateTerminalPreservesExplicitlyEmptyArgv(t *testing.T) {
 	}
 }
 
+func TestWorkspaceRegistrySelectorsRejectMissingAndEmptyKeysLocally(t *testing.T) {
+	if err := validateWorkspaceSelector(nil, nil); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("missing selector error = %v", err)
+	}
+	empty := "  "
+	if err := validateWorkspaceSelector(nil, &empty); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("empty key error = %v", err)
+	}
+	workspace := uint64(1)
+	if err := validateWorkspaceSelector(&workspace, nil); err != nil {
+		t.Fatalf("workspace selector error = %v", err)
+	}
+	key := "stable"
+	if err := validateWorkspaceSelector(nil, &key); err != nil {
+		t.Fatalf("key selector error = %v", err)
+	}
+}
+
 func TestIdentifyCapabilityStateIsConcurrentSafe(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	defer serverConn.Close()

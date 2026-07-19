@@ -14,6 +14,10 @@ public record CreateTerminalRequest(
     Integer cols,
     Integer rows
 ) {
+    public CreateTerminalRequest {
+        WorkspaceSelectorRequest.requireWorkspaceOrKey(workspace, key);
+    }
+
     Map<String, Object> toMap() {
         Map<String, Object> params = new LinkedHashMap<>();
         if (workspace != null) params.put("workspace", workspace);

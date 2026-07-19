@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,7 +23,18 @@ var (
 	ErrTimeout          = errors.New("cmux-tui timeout")
 	ErrProtocolMismatch = errors.New("cmux-tui protocol mismatch")
 	ErrDecode           = errors.New("cmux-tui decode error")
+	ErrInvalidArgument  = errors.New("cmux-tui invalid argument")
 )
+
+func validateWorkspaceSelector(workspace *uint64, key *string) error {
+	if workspace == nil && (key == nil || strings.TrimSpace(*key) == "") {
+		return fmt.Errorf("%w: workspace or key is required", ErrInvalidArgument)
+	}
+	if key != nil && strings.TrimSpace(*key) == "" {
+		return fmt.Errorf("%w: workspace key cannot be empty", ErrInvalidArgument)
+	}
+	return nil
+}
 
 type CommandError struct {
 	Message string
@@ -285,6 +297,9 @@ func (c *Client) CreateWorkspace(ctx context.Context, opts CreateWorkspaceOption
 
 func (c *Client) CreateTerminal(ctx context.Context, opts CreateTerminalOptions) (TerminalPlacement, error) {
 	var result TerminalPlacement
+	if err := validateWorkspaceSelector(opts.Workspace, opts.Key); err != nil {
+		return result, err
+	}
 	if err := c.requireCapability(ctx, "workspace-registry-v1", "workspace registry"); err != nil {
 		return result, err
 	}
@@ -389,6 +404,9 @@ func (c *Client) MoveWorkspace(ctx context.Context, workspace uint64, index uint
 }
 
 func (c *Client) MoveWorkspaceRegistry(ctx context.Context, opts WorkspaceSelectorOptions, index uint) (WorkspaceMutation, error) {
+	if err := validateWorkspaceSelector(opts.Workspace, opts.Key); err != nil {
+		return WorkspaceMutation{}, err
+	}
 	if err := c.requireCapability(ctx, "workspace-registry-v1", "workspace registry"); err != nil {
 		return WorkspaceMutation{}, err
 	}
@@ -399,6 +417,9 @@ func (c *Client) MoveWorkspaceRegistry(ctx context.Context, opts WorkspaceSelect
 }
 
 func (c *Client) RenameWorkspaceRegistry(ctx context.Context, opts WorkspaceSelectorOptions, name string) (WorkspaceMutation, error) {
+	if err := validateWorkspaceSelector(opts.Workspace, opts.Key); err != nil {
+		return WorkspaceMutation{}, err
+	}
 	if err := c.requireCapability(ctx, "workspace-registry-v1", "workspace registry"); err != nil {
 		return WorkspaceMutation{}, err
 	}
@@ -410,6 +431,9 @@ func (c *Client) RenameWorkspaceRegistry(ctx context.Context, opts WorkspaceSele
 
 func (c *Client) CloseWorkspaceRegistry(ctx context.Context, opts WorkspaceSelectorOptions) (WorkspaceMutation, error) {
 	var result WorkspaceMutation
+	if err := validateWorkspaceSelector(opts.Workspace, opts.Key); err != nil {
+		return result, err
+	}
 	if err := c.requireCapability(ctx, "workspace-registry-v1", "workspace registry"); err != nil {
 		return result, err
 	}

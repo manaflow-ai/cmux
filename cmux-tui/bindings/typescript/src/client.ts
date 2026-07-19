@@ -78,11 +78,17 @@ export const DEFAULT_MAX_BUFFERED_EVENTS = 256;
 export const DEFAULT_MAX_ATTACH_ENCODED_CHARS = 16 * 1024 * 1024;
 
 function workspaceMutationResult(result: EmptyResult | WorkspaceMutation): WorkspaceMutation {
-  const candidate = result as Partial<WorkspaceMutation>;
-  if (typeof candidate.workspace === "number"
-    && typeof candidate.key === "string"
-    && typeof candidate.workspace_revision === "number") {
-    return candidate as WorkspaceMutation;
+  if ("workspace" in result
+    && "key" in result
+    && "workspace_revision" in result
+    && typeof result.workspace === "number"
+    && typeof result.key === "string"
+    && typeof result.workspace_revision === "number") {
+    return {
+      workspace: result.workspace,
+      key: result.key,
+      workspace_revision: result.workspace_revision,
+    };
   }
   throw new CmuxProtocolError("server returned an invalid workspace registry mutation");
 }

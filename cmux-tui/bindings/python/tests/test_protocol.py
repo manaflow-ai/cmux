@@ -56,6 +56,14 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(client.rename_workspace_registry("two", key="stable").workspace_revision, 6)
         self.assertEqual(client.move_workspace_registry(0, key="stable").workspace_revision, 6)
 
+    def test_workspace_registry_selectors_reject_missing_and_empty_keys_locally(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+
+        with self.assertRaisesRegex(ValueError, "workspace or key is required"):
+            client.create_terminal()
+        with self.assertRaisesRegex(ValueError, "workspace or key is required"):
+            client.close_workspace_registry(key="  ")
+
     def test_set_split_ratio_rejects_servers_older_than_protocol_eight(self) -> None:
         client = CmuxClient.__new__(CmuxClient)
         client._protocol = 7

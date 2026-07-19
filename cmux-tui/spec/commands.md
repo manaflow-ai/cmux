@@ -36,14 +36,18 @@ Common CLI exit codes for every mapping are `0` success, `1` command error, `2` 
 `Tree`:
 
 ```text
-object{workspaces:array<Workspace>}
+object{workspace_revision?:uint64,workspaces:array<Workspace>}
 ```
 
 `Workspace`:
 
 ```text
-object{id:Id,name:string,active:boolean,screens:array<Screen>}
+object{id:Id,key?:string,name:string,active:boolean,screens:array<Screen>}
 ```
+
+`workspace_revision` and `Workspace.key` are present on servers advertising
+`workspace-registry-v1`. They are omitted by older servers, so clients must
+treat a missing revision as `0` and a missing key as unavailable.
 
 `Screen`:
 
