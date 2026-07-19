@@ -4161,6 +4161,25 @@ mod tests {
 
         let third = mux.split(p2, SplitDir::Down, None).unwrap();
         let p3 = mux.with_state(|s| s.pane_of(third.id).unwrap());
+        let nested = mux.with_state(|s| {
+            let Node::Split { b, .. } = &s.workspaces[0].screens[0].root else {
+                panic!("root should remain split");
+            };
+            let Node::Split { id, .. } = b.as_ref() else {
+                panic!("second child should be split");
+            };
+            *id
+        });
+        let split_screens = mux.split_screens.lock().unwrap();
+        assert_eq!(
+            split_screens.get(&original),
+            Some(&mux.with_state(|s| s.workspaces[0].screens[0].id))
+        );
+        assert_eq!(
+            split_screens.get(&nested),
+            Some(&mux.with_state(|s| s.workspaces[0].screens[0].id))
+        );
+        drop(split_screens);
         assert!(mux.swap_panes(p1, p3));
         assert!(mux.set_split_ratio(original, 0.7));
 
@@ -4171,6 +4190,11 @@ mod tests {
             assert_eq!(*id, original);
             assert_eq!(*ratio, 0.7);
         });
+
+        mux.close_surface(third.id);
+        let split_screens = mux.split_screens.lock().unwrap();
+        assert!(split_screens.contains_key(&original));
+        assert!(!split_screens.contains_key(&nested));
     }
 
     #[test]

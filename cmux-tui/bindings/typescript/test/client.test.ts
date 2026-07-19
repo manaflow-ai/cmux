@@ -416,6 +416,31 @@ test("attachSurface render mode yields render-state and render-delta from cached
   await client.close();
 });
 
+test("attachSurface render mode accepts a newer additive protocol", async () => {
+  const main = new ScriptedTransport((request, transport) => {
+    assert.equal(request.cmd, "identify");
+    transport.emit({
+      id: request.id,
+      ok: true,
+      data: { app: "cmux-tui", version: "0.1.2", protocol: 9, session: "main", pid: 1 },
+    });
+  });
+  const attach = new ScriptedTransport((request, transport) => {
+    assert.deepEqual(request, { id: 2, cmd: "attach-surface", surface: 7, mode: "render" });
+    transport.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({
+    transport: main,
+    streamTransportFactory: () => attach,
+    timeoutMs: 100,
+  });
+
+  assert.equal((await client.identify()).protocol, 9);
+  const stream = await client.attachSurface(7, { mode: "render" });
+  stream.close();
+  await client.close();
+});
+
 test("protocol v6 keeps byte attach working and refuses render mode client-side", async () => {
   let attachRequests = 0;
   const transport = new ScriptedTransport((request, connection) => {
