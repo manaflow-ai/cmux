@@ -895,6 +895,27 @@ extension CmuxAgentSessionRegistry {
         }
     }
 
+    /// Finds configured providers that currently own one of the requested
+    /// surfaces without materializing slot or record JSON. Hibernation uses
+    /// this indexed lookup to put known panel owners ahead of unrelated legacy
+    /// sources in the aggregate compatibility-read budget.
+    public func hookHibernationPanelOwnerProviders(
+        providers requestedProviders: Set<String>,
+        panelContexts: Set<HookHibernationPanelContext>
+    ) throws -> Set<String> {
+        guard !requestedProviders.isEmpty, !panelContexts.isEmpty else { return [] }
+        return try withDatabase { database in
+            try ensureHookHotPathSchema(database)
+            return try readTransaction(database) {
+                Set(try hookHibernationSurfaceIDsByProvider(
+                    database: database,
+                    requestedProviders: requestedProviders,
+                    panelContexts: panelContexts
+                ).keys)
+            }
+        }
+    }
+
     /// Finds providers that own an open surface, unions exact process-detected
     /// providers, then materializes only that relevant set. Configuring many
     /// unused adapters therefore has constant registry materialization cost.
@@ -915,33 +936,11 @@ extension CmuxAgentSessionRegistry {
         return try withDatabase { database in
             try ensureHookHotPathSchema(database)
             return try readTransaction(database) {
-                let providerLookup = try prepare(
-                    database,
-                    """
-                    SELECT provider FROM agent_active_slots
-                    WHERE scope = 'surface' AND scope_id = ?1
-                    ORDER BY provider
-                    """
+                let surfaceIDsByProvider = try hookHibernationSurfaceIDsByProvider(
+                    database: database,
+                    requestedProviders: requestedProviders,
+                    panelContexts: panelContexts
                 )
-                defer { sqlite3_finalize(providerLookup) }
-                var surfaceIDsByProvider: [String: Set<String>] = [:]
-                let surfaceIDs = Set(panelContexts.map(\.surfaceID)).sorted()
-                for surfaceID in surfaceIDs {
-                    sqlite3_reset(providerLookup)
-                    sqlite3_clear_bindings(providerLookup)
-                    try bind(surfaceID, to: 1, in: providerLookup)
-                    while try stepRow(
-                        providerLookup,
-                        database: database,
-                        operation: "discover hibernation providers"
-                    ) {
-                        guard let provider = text(providerLookup, column: 0) else {
-                            throw corruptRowError(operation: "discover hibernation providers")
-                        }
-                        guard requestedProviders.contains(provider) else { continue }
-                        surfaceIDsByProvider[provider, default: []].insert(surfaceID)
-                    }
-                }
 
                 var relevantProviders = Set(surfaceIDsByProvider.keys)
                 for (provider, sessionIDs) in exactSessionIDsByProvider
@@ -992,6 +991,41 @@ extension CmuxAgentSessionRegistry {
                 )
             }
         }
+    }
+
+    private func hookHibernationSurfaceIDsByProvider(
+        database: OpaquePointer,
+        requestedProviders: Set<String>,
+        panelContexts: Set<HookHibernationPanelContext>
+    ) throws -> [String: Set<String>] {
+        let providerLookup = try prepare(
+            database,
+            """
+            SELECT provider FROM agent_active_slots
+            WHERE scope = 'surface' AND scope_id = ?1
+            ORDER BY provider
+            """
+        )
+        defer { sqlite3_finalize(providerLookup) }
+        var surfaceIDsByProvider: [String: Set<String>] = [:]
+        let surfaceIDs = Set(panelContexts.map(\.surfaceID)).sorted()
+        for surfaceID in surfaceIDs {
+            sqlite3_reset(providerLookup)
+            sqlite3_clear_bindings(providerLookup)
+            try bind(surfaceID, to: 1, in: providerLookup)
+            while try stepRow(
+                providerLookup,
+                database: database,
+                operation: "discover hibernation providers"
+            ) {
+                guard let provider = text(providerLookup, column: 0) else {
+                    throw corruptRowError(operation: "discover hibernation providers")
+                }
+                guard requestedProviders.contains(provider) else { continue }
+                surfaceIDsByProvider[provider, default: []].insert(surfaceID)
+            }
+        }
+        return surfaceIDsByProvider
     }
 
     private func hookHibernationSnapshot(

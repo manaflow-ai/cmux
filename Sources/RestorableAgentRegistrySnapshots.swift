@@ -586,6 +586,7 @@ extension RestorableAgentSessionIndex {
         maximumPanelContexts: Int = maximumHibernationPanelContexts,
         maximumRecords: Int = maximumHibernationRegistryRecords,
         maximumBytes: Int64 = maximumHibernationRegistryBytes,
+        maximumLegacySourceReadBytes: Int64 = CmuxAgentSessionRegistry.maximumLegacyRefreshReadBytes,
         fileManager: FileManager,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> AgentRegistryHibernationSnapshotResult {
@@ -602,7 +603,8 @@ extension RestorableAgentSessionIndex {
         }
         guard panelKeys.count <= max(0, maximumPanelContexts),
               maximumRecords >= 0,
-              maximumBytes >= 0 else {
+              maximumBytes >= 0,
+              maximumLegacySourceReadBytes >= 0 else {
             return AgentRegistryHibernationSnapshotResult(
                 snapshots: emptySnapshots,
                 failedProviders: allProviders
@@ -623,9 +625,40 @@ extension RestorableAgentSessionIndex {
         let legacySources = uniqueSources.map {
             CmuxAgentSessionRegistry.LegacySource(provider: $0.kind.rawValue, url: $0.fileURL)
         }
+        let panelContexts = Set(panelKeys.map {
+            CmuxAgentSessionRegistry.HookHibernationPanelContext(
+                workspaceID: $0.workspaceId.uuidString,
+                surfaceID: $0.panelId.uuidString
+            )
+        })
+        let exactProviders = Set(exactSessionIDsByProvider.compactMap { entry in
+            allProviders.contains(entry.key) && !entry.value.isEmpty ? entry.key : nil
+        })
+        let panelOwnerProviders: Set<String>
+        do {
+            panelOwnerProviders = try registry.hookHibernationPanelOwnerProviders(
+                providers: allProviders,
+                panelContexts: panelContexts
+            )
+        } catch {
+            return AgentRegistryHibernationSnapshotResult(
+                snapshots: emptySnapshots,
+                failedProviders: allProviders
+            )
+        }
+        // Exact process evidence is strongest and consumes the bounded legacy
+        // read budget first. Existing panel owners follow; speculative adapters
+        // are admitted only from whatever budget remains.
+        let priorityProviders = exactProviders.sorted()
+            + panelOwnerProviders.subtracting(exactProviders).sorted()
         let refresh: CmuxAgentSessionRegistry.LegacyRefreshResult
         do {
-            refresh = try registry.refreshLegacySources(legacySources, fileManager: fileManager)
+            refresh = try registry.refreshLegacySources(
+                legacySources,
+                prioritizingProviders: priorityProviders,
+                maximumReadBytes: maximumLegacySourceReadBytes,
+                fileManager: fileManager
+            )
         } catch {
             return AgentRegistryHibernationSnapshotResult(
                 snapshots: emptySnapshots,
@@ -633,12 +666,6 @@ extension RestorableAgentSessionIndex {
             )
         }
 
-        let panelContexts = Set(panelKeys.map {
-            CmuxAgentSessionRegistry.HookHibernationPanelContext(
-                workspaceID: $0.workspaceId.uuidString,
-                surfaceID: $0.panelId.uuidString
-            )
-        })
         var snapshots = emptySnapshots
         var failedProviders = refresh.failedProviders
         do {

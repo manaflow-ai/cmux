@@ -487,6 +487,8 @@ public struct CmuxAgentSessionRegistry: Sendable {
         _ expectedStamp: LegacyStamp
     ) throws -> HookLegacySourceAdmission
 
+    private struct LegacyRefreshReadBudgetExceededError: Error {}
+
     private enum RetryingHookLegacySourceAdmissionResult {
         case admitted(HookLegacySourceAdmission)
         case stableFailure(stamp: LegacyStamp, error: any Error)
@@ -560,22 +562,32 @@ public struct CmuxAgentSessionRegistry: Sendable {
 
     /// Imports changed compatibility files without materializing provider
     /// snapshots. Session restore uses this bounded preflight before it adopts
-    /// hibernated rows. A malformed provider is isolated from valid peers, while
-    /// database failures still abort the preflight so callers can fail closed.
+    /// hibernated rows. A malformed or read-budget-limited provider is isolated
+    /// from valid peers, while database failures still abort the preflight so
+    /// callers can fail closed. Priority providers consume the aggregate source
+    /// budget first, in caller order, followed by deterministic provider order.
     public func refreshLegacySources(
         _ sources: [LegacySource],
         preservingCanonicalRestoreOwners restoreOwners: Set<RestoreOwnerContext> = [],
+        prioritizingProviders priorityProviders: [String] = [],
+        maximumReadBytes: Int64 = CmuxAgentSessionRegistry.maximumLegacyRefreshReadBytes,
         fileManager: FileManager = .default
     ) throws -> LegacyRefreshResult {
         try refreshLegacySources(
             sources,
             preservingCanonicalRestoreOwners: restoreOwners,
+            prioritizingProviders: priorityProviders,
+            maximumReadBytes: maximumReadBytes,
             fileManager: fileManager,
             legacyAdmissionLoader: { source, stamp in
                 try hookLegacySourceAdmission(
                     source: source,
                     expectedStamp: stamp,
-                    fileManager: fileManager
+                    fileManager: fileManager,
+                    maximumBytes: min(
+                        stamp.size,
+                        CmuxAgentSessionRegistry.maximumLegacyRefreshReadBytes
+                    )
                 )
             }
         )
@@ -584,17 +596,37 @@ public struct CmuxAgentSessionRegistry: Sendable {
     func refreshLegacySources(
         _ sources: [LegacySource],
         preservingCanonicalRestoreOwners restoreOwners: Set<RestoreOwnerContext> = [],
+        prioritizingProviders priorityProviders: [String] = [],
+        maximumReadBytes: Int64 = CmuxAgentSessionRegistry.maximumLegacyRefreshReadBytes,
         fileManager: FileManager = .default,
         legacyAdmissionLoader: HookLegacySourceAdmissionLoader
     ) throws -> LegacyRefreshResult {
+        let priorityRanks = Dictionary(
+            priorityProviders.enumerated().map { ($0.element, $0.offset) },
+            uniquingKeysWith: { min($0, $1) }
+        )
         let uniqueSources = Dictionary(
             sources.map { ($0.provider, $0) },
             uniquingKeysWith: { _, latest in latest }
-        ).values.sorted { $0.provider < $1.provider }
+        ).values.sorted {
+            let leftRank = priorityRanks[$0.provider]
+            let rightRank = priorityRanks[$1.provider]
+            switch (leftRank, rightRank) {
+            case let (.some(left), .some(right)) where left != right:
+                return left < right
+            case (.some(_), .none):
+                return true
+            case (.none, .some(_)):
+                return false
+            default:
+                return $0.provider < $1.provider
+            }
+        }
         let restoreOwnersByProvider = Dictionary(
             grouping: restoreOwners,
             by: \.provider
         )
+        let maximumReadBytes = max(0, maximumReadBytes)
         return try withDatabase { database in
             var changed: [(source: LegacySource, stamp: LegacyStamp, payload: LegacyPayload)] = []
             var malformed: [(
@@ -603,7 +635,22 @@ public struct CmuxAgentSessionRegistry: Sendable {
                 needsQuarantineWrite: Bool
             )] = []
             var failedProviders = Set<String>()
+            var readBudgetExceededProviders = Set<String>()
+            var sourceReadBudgetUsed: Int64 = 0
             var verifiedCanonicalRestoreOwners = Set<RestoreOwnerContext>()
+            let budgetedAdmissionLoader: HookLegacySourceAdmissionLoader = { source, stamp in
+                let next = sourceReadBudgetUsed.addingReportingOverflow(stamp.size)
+                guard stamp.size >= 0,
+                      !next.overflow,
+                      next.partialValue <= maximumReadBytes else {
+                    throw LegacyRefreshReadBudgetExceededError()
+                }
+                // Reserve before opening. A malformed read or first revision
+                // replaced during admission still consumed I/O and cannot give
+                // its budget back to a later provider.
+                sourceReadBudgetUsed = next.partialValue
+                return try legacyAdmissionLoader(source, stamp)
+            }
             for source in uniqueSources {
                 guard let stamp = LegacyStamp.read(path: source.url.path, fileManager: fileManager) else {
                     // SQLite is canonical after migration. A removed
@@ -641,7 +688,7 @@ public struct CmuxAgentSessionRegistry: Sendable {
                     source: source,
                     expectedStamp: stamp,
                     fileManager: fileManager,
-                    loader: legacyAdmissionLoader
+                    loader: budgetedAdmissionLoader
                 ) {
                 case let .admitted(admission):
                     let admittedState = try legacySourceState(
@@ -665,9 +712,16 @@ public struct CmuxAgentSessionRegistry: Sendable {
                         failedProviders.insert(source.provider)
                         malformed.append((source, admission.stamp, true))
                     }
-                case let .stableFailure(failedStamp, _):
+                case let .stableFailure(failedStamp, error):
                     failedProviders.insert(source.provider)
-                    malformed.append((source, failedStamp, true))
+                    if error is LegacyRefreshReadBudgetExceededError {
+                        readBudgetExceededProviders.insert(source.provider)
+                        // Budget exhaustion is transient and must not quarantine
+                        // this exact, otherwise valid, sidecar revision.
+                        malformed.append((source, failedStamp, false))
+                    } else {
+                        malformed.append((source, failedStamp, true))
+                    }
                 case .unstable:
                     failedProviders.insert(source.provider)
                     malformed.append((source, stamp, false))
@@ -724,6 +778,8 @@ public struct CmuxAgentSessionRegistry: Sendable {
             return LegacyRefreshResult(
                 refreshedProviders: Set(changed.map { $0.source.provider }),
                 failedProviders: failedProviders,
+                readBudgetExceededProviders: readBudgetExceededProviders,
+                sourceReadBudgetUsed: sourceReadBudgetUsed,
                 verifiedCanonicalRestoreOwners: verifiedCanonicalRestoreOwners
             )
         }
