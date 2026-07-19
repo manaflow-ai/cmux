@@ -32,6 +32,26 @@ describe("effective terminal colors", () => {
     expect(colorsToThemePatch(colors)).toEqual(expected);
   });
 
+  it("maps sparse standard and extended palette overrides", () => {
+    const patch = colorsToThemePatch({
+      palette: {
+        "1": "#112233",
+        "15": "#445566",
+        "16": "#778899",
+        "255": "#aabbcc",
+        "-1": "#000000",
+        "256": "#ffffff",
+        invalid: "#123456",
+      },
+    });
+
+    expect(patch?.red).toBe("#112233");
+    expect(patch?.brightWhite).toBe("#445566");
+    expect(patch?.extendedAnsi?.[0]).toBe("#778899");
+    expect(patch?.extendedAnsi?.[239]).toBe("#aabbcc");
+    expect(Object.keys(patch ?? {})).toEqual(["red", "brightWhite", "extendedAnsi"]);
+  });
+
   it("returns the same harmless patch when colors-changed repeats current colors", () => {
     const colors = { fg: "#d8d9da", bg: "#131415" } as const;
     expect(colorsToThemePatch(colors)).toEqual(colorsToThemePatch(colors));

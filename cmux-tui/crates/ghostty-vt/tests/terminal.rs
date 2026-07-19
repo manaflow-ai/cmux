@@ -396,6 +396,11 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
 
     term.vt_write(b"\x1b]4;4;#010203\x07");
     assert!(term.palette_overridden(4));
+    term.vt_write(b"\x1b]104;260\x1b\\");
+    assert!(
+        term.palette_overridden(4),
+        "resetting Ghostty's italic special color must not clear palette overrides"
+    );
     term.vt_write(b"\x1bc");
     assert!(!term.palette_overridden(4));
 }

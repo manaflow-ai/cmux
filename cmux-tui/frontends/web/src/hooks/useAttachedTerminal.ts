@@ -82,7 +82,9 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     const input = terminal.onData((text) => {
       void client.send(surface, { text }).catch(onError);
     });
+    let currentColors: DecodedVtStateEvent["colors"] | DecodedColorsChangedEvent;
     const applyColors = (colors: DecodedVtStateEvent["colors"] | DecodedColorsChangedEvent) => {
+      currentColors = colors;
       const themePatch = colorsToThemePatch(colors);
       if (themePatch !== null) {
         terminal.options.theme = { ...baseTheme, ...themePatch };
@@ -94,6 +96,10 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       }
       const cursorPatch = colorsToCursorOptionsPatch(colors);
       if (cursorPatch !== null) Object.assign(terminal.options, cursorPatch);
+    };
+    const writeReplay = async (data: Uint8Array) => {
+      await new Promise<void>((resolve) => terminal.write(data, resolve));
+      if (!cancelled) applyColors(currentColors);
     };
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let stableTimer: ReturnType<typeof setTimeout> | undefined;
@@ -138,9 +144,10 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
             } else if (event.event === "vt-state") {
               const replay = event as DecodedVtStateEvent;
               terminal.reset();
-              applyColors(replay.colors);
+              currentColors = replay.colors;
               terminal.resize(replay.cols, replay.rows);
-              terminal.write(replay.data);
+              await writeReplay(replay.data);
+              if (cancelled) return;
               // Publish this viewport once attached. The server combines it
               // with every other viewer and returns the shared minimum size.
               applyFit();
@@ -156,7 +163,8 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
               const resized = event as DecodedResizedEvent;
               terminal.reset();
               terminal.resize(resized.cols, resized.rows);
-              terminal.write(resized.data);
+              await writeReplay(resized.data);
+              if (cancelled) return;
             } else if (event.event === "colors-changed") {
               applyColors(event as DecodedColorsChangedEvent);
             } else if (event.event === "overflow") {

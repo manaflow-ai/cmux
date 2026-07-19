@@ -5,6 +5,9 @@ import type { CmuxClient, DecodedAttachEvent } from "cmux/browser";
 import { useAttachedTerminal } from "../src/hooks/useAttachedTerminal";
 
 const fitDimensions = { cols: 80, rows: 24 };
+const terminalMocks = vi.hoisted(() => ({
+  instances: [] as Array<{ options: Record<string, unknown> }>,
+}));
 
 vi.mock("@xterm/addon-fit", () => ({
   FitAddon: class {
@@ -20,13 +23,23 @@ vi.mock("@xterm/xterm", () => ({
 
     constructor(options: Record<string, unknown>) {
       this.options = options;
+      terminalMocks.instances.push(this);
     }
 
     loadAddon() {}
     open() {}
     reset() {}
     resize() {}
-    write() {}
+    write(data: Uint8Array, callback?: () => void) {
+      if (data.length > 0) {
+        this.options.theme = {
+          ...(this.options.theme as Record<string, unknown>),
+          red: "#replay-red",
+          extendedAnsi: ["#replay-extended"],
+        };
+      }
+      callback?.();
+    }
     focus() {}
     dispose() {}
     onData() {
@@ -53,6 +66,24 @@ class TestStream {
   close() {}
 }
 
+class GatedTestStream extends TestStream {
+  private releaseNext: (() => void) | undefined;
+  private reads = 0;
+
+  override async next(): Promise<DecodedAttachEvent> {
+    if (this.reads++ === 1) {
+      await new Promise<void>((resolve) => {
+        this.releaseNext = resolve;
+      });
+    }
+    return await super.next();
+  }
+
+  release() {
+    this.releaseNext?.();
+  }
+}
+
 function Harness({ client }: { client: CmuxClient }) {
   const onError = useCallback((error: Error) => {
     throw error;
@@ -66,6 +97,7 @@ describe("attached terminal sizing", () => {
 
   afterEach(() => {
     globalThis.ResizeObserver = originalResizeObserver;
+    terminalMocks.instances.length = 0;
   });
 
   it("reports an unchanged local fit again after overflow reattachment", async () => {
@@ -118,5 +150,56 @@ describe("attached terminal sizing", () => {
     render(<Harness client={client} />);
 
     await waitFor(() => expect(client.releaseSurfaceSize).toHaveBeenCalledWith(7));
+  });
+
+  it("applies sparse palette overrides after replay and on color changes", async () => {
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+    const stream = new GatedTestStream([
+      {
+        event: "vt-state",
+        surface: 7,
+        cols: 80,
+        rows: 24,
+        data: new Uint8Array([1]),
+        colors: { palette: { "1": "#112233", "20": "#445566" } },
+      },
+      {
+        event: "colors-changed",
+        surface: 7,
+        fg: null,
+        bg: null,
+        cursor: null,
+        selection_bg: null,
+        selection_fg: null,
+        palette: { "2": "#778899", "21": "#aabbcc" },
+      },
+    ]);
+    const client = {
+      attachSurface: vi.fn(async () => stream),
+      resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
+      releaseSurfaceSize: vi.fn(async () => ({})),
+      send: vi.fn(async () => ({})),
+    } as unknown as CmuxClient;
+
+    const view = render(<Harness client={client} />);
+
+    await waitFor(() => {
+      const theme = terminalMocks.instances[0]?.options.theme as Record<string, unknown>;
+      expect(theme.red).toBe("#112233");
+      expect((theme.extendedAnsi as string[])[4]).toBe("#445566");
+    });
+    stream.release();
+    await waitFor(() => {
+      const theme = terminalMocks.instances[0]?.options.theme as Record<string, unknown>;
+      expect(theme.green).toBe("#778899");
+      expect((theme.extendedAnsi as string[])[5]).toBe("#aabbcc");
+      expect(theme.red).not.toBe("#replay-red");
+      expect((theme.extendedAnsi as string[])[4]).toBeUndefined();
+    });
+    view.unmount();
   });
 });

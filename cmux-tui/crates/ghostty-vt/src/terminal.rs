@@ -567,7 +567,7 @@ impl PaletteOsc {
         };
         match value {
             0..=255 => PaletteTarget::Palette(value as u8),
-            256..=259 => PaletteTarget::Special,
+            256..=260 => PaletteTarget::Special,
             _ => PaletteTarget::Invalid,
         }
     }
