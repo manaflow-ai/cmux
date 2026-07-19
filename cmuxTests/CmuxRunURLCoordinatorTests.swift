@@ -321,6 +321,7 @@ struct CmuxRunURLCoordinatorTests {
         let app = AppDelegate()
         let manager = TabManager()
         let targetWorkspace = manager.addWorkspace(select: false)
+        targetWorkspace.workspaceEnvironment = ["BASH_ENV": "/tmp/cmux-unreviewed-startup"]
         let sourcePanelId = try #require(targetWorkspace.focusedPanelId)
         let paneId = try #require(targetWorkspace.paneId(forPanelId: sourcePanelId)).id
         let initialPanelCount = targetWorkspace.panels.count
@@ -364,6 +365,7 @@ struct CmuxRunURLCoordinatorTests {
         let terminal = try #require(targetWorkspace.terminalPanel(for: newPanelId)?.surface)
         #expect(terminal.debugInitialCommand() == plan.launchCommand)
         #expect(terminal.debugInitialInputForTesting() == nil)
+        #expect(terminal.respawnAdditionalEnvironment["BASH_ENV"] == nil)
         }
     }
 
@@ -372,6 +374,7 @@ struct CmuxRunURLCoordinatorTests {
         let app = AppDelegate()
         let manager = TabManager()
         let targetWorkspace = manager.addWorkspace(select: false)
+        targetWorkspace.workspaceEnvironment = ["BASH_ENV": "/tmp/cmux-unreviewed-startup"]
         let sourcePanelId = try #require(targetWorkspace.focusedPanelId)
         let sourcePaneId = try #require(targetWorkspace.paneId(forPanelId: sourcePanelId)).id
         let initialPaneCount = targetWorkspace.bonsplitController.allPaneIds.count
@@ -416,6 +419,7 @@ struct CmuxRunURLCoordinatorTests {
         let terminal = try #require(targetWorkspace.terminalPanel(for: newPanelId)?.surface)
         #expect(terminal.debugInitialCommand() == plan.launchCommand)
         #expect(terminal.debugInitialInputForTesting() == nil)
+        #expect(terminal.respawnAdditionalEnvironment["BASH_ENV"] == nil)
         }
     }
 
