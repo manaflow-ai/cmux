@@ -218,7 +218,7 @@ import Testing
         let writer: RemoteTmuxControlPipeWriter
         let pipe: Pipe
 
-        func close() {
+        @MainActor func close() {
             writer.close()
             try? pipe.fileHandleForReading.close()
         }
