@@ -176,6 +176,19 @@ struct ShellStartupMatrixTests {
         }
     }
 
+    @Test
+    func generatedSshBootstrapRunsResumeBeforeUnsupportedInteractiveShell() throws {
+        let result = try runGeneratedBootstrap(
+            shellName: "nu",
+            initialCommand: #"printf 'resumed\n' > "$HOME/.cmux-resume-marker""#
+        )
+
+        expectEqual(result.process.status, 0, result.process.stderr)
+        expectFalse(result.process.timedOut, result.process.stderr)
+        expectTrue(result.capture.contains("ARGS=-i"), result.capture)
+        expectEqual(result.resumeMarker, "resumed\n")
+    }
+
     @Test(arguments: ["zsh", "bash", "fish", "sh", "dash", "ksh", "tcsh", "csh"])
     func generatedSshBootstrapStartupStaysUnderPerformanceBudget(shellName: String) throws {
         let result = try runGeneratedBootstrap(shellName: shellName)
@@ -290,6 +303,7 @@ struct ShellStartupMatrixTests {
     private struct GeneratedBootstrapResult {
         let home: URL
         let capture: String
+        let resumeMarker: String
         let process: ProcessRunResult
     }
 
@@ -298,7 +312,8 @@ struct ShellStartupMatrixTests {
         fakeCmuxDelay: TimeInterval? = nil,
         workspaceID: String? = nil,
         surfaceID: String? = nil,
-        bootstrapTTY: String? = nil
+        bootstrapTTY: String? = nil,
+        initialCommand: String? = nil
     ) throws -> GeneratedBootstrapResult {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-shell-matrix-\(UUID().uuidString)")
@@ -320,7 +335,8 @@ struct ShellStartupMatrixTests {
             ]),
             bundledZshIntegration: "cmux_zsh_marker=1",
             bundledBashIntegration: "cmux_bash_marker=1",
-            bundledFishIntegration: "set -gx CMUX_FISH_MARKER 1"
+            bundledFishIntegration: "set -gx CMUX_FISH_MARKER 1",
+            initialCommand: initialCommand
         )
         if let workspaceID {
             script = script.replacingOccurrences(of: "__CMUX_WORKSPACE_ID__", with: workspaceID)
@@ -351,7 +367,16 @@ struct ShellStartupMatrixTests {
             timeout: 5
         )
         let capture = (try? String(contentsOf: capturePath, encoding: .utf8)) ?? ""
-        return GeneratedBootstrapResult(home: home, capture: capture, process: process)
+        let resumeMarker = (try? String(
+            contentsOf: home.appendingPathComponent(".cmux-resume-marker"),
+            encoding: .utf8
+        )) ?? ""
+        return GeneratedBootstrapResult(
+            home: home,
+            capture: capture,
+            resumeMarker: resumeMarker,
+            process: process
+        )
     }
 
     private func writeExecutableShellFile(at url: URL, capturePath: URL) throws {
