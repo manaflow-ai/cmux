@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  push:
   # CI pause: keep the full suite available for explicit validation without
   # starting it for pull requests or main pushes.
   workflow_dispatch:
