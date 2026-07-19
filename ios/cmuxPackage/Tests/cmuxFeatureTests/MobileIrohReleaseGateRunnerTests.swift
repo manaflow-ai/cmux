@@ -104,7 +104,7 @@ struct MobileIrohReleaseGateRunnerTests {
             dependencies: .init(
                 readinessUpdates: { _ in Self.readyReadinessUpdates() },
                 runProbe: { _, _ in
-                    throw MobileIrohReleaseGateProbeFailure.artifactLaneFailed
+                    throw MobileIrohReleaseGateProbeFailure.artifactCommandNotCompleted
                 },
                 settingsUpdates: { Self.managedRelaySettingsUpdates() },
                 writeReport: { report, url in
@@ -122,7 +122,7 @@ struct MobileIrohReleaseGateRunnerTests {
         #expect(report.passed == false)
         #expect(report.routeKind == CmxAttachTransportKind.iroh.rawValue)
         #expect(report.selectedPath == "managed_relay")
-        #expect(report.failure == MobileIrohReleaseGateProbeFailure.artifactLaneFailed.rawValue)
+        #expect(report.failure == MobileIrohReleaseGateProbeFailure.artifactCommandNotCompleted.rawValue)
     }
 
     @Test

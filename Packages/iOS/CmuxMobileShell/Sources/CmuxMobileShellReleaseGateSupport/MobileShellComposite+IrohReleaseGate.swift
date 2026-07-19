@@ -217,6 +217,7 @@ extension MobileShellComposite {
             suffixText: artifactSuffixText,
             marker: marker
         )
+        mobileIrohReleaseGateProbeLog.info("probe stage=artifact_prepare state=begin")
         var terminalIterator = terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
         await submitTerminalRawInput(
             Data(artifactPreparation.command.utf8),
@@ -240,44 +241,153 @@ extension MobileShellComposite {
             }
         }
         guard sawArtifactCompletion else {
-            await bestEffortEventUnsubscribe(client: client, streamID: streamID)
-            throw MobileIrohReleaseGateProbeFailure.controlStreamContinuityFailed
+            await cleanUpRelayRolloverPreparation(
+                client: client,
+                streamID: streamID,
+                artifactPath: artifactPath,
+                surfaceID: surfaceID
+            )
+            mobileIrohReleaseGateProbeLog.error(
+                "probe stage=artifact_prepare state=failed reason=command_not_completed"
+            )
+            throw MobileIrohReleaseGateProbeFailure.artifactCommandNotCompleted
         }
+        mobileIrohReleaseGateProbeLog.info("probe stage=artifact_prepare state=completed")
 
-        guard try await waitForArtifact(
-            client: client,
-            workspaceID: workspace.rpcWorkspaceID.rawValue,
-            surfaceID: surfaceID,
-            path: artifactPath,
-            expectedSize: Int64(artifactTotalByteCount)
-        ) else {
-            await bestEffortEventUnsubscribe(client: client, streamID: streamID)
-            throw MobileIrohReleaseGateProbeFailure.artifactLaneFailed
+        mobileIrohReleaseGateProbeLog.info("probe stage=artifact_readiness state=begin")
+        let readiness: ArtifactReadiness
+        do {
+            readiness = try await waitForArtifact(
+                client: client,
+                workspaceID: workspace.rpcWorkspaceID.rawValue,
+                surfaceID: surfaceID,
+                path: artifactPath,
+                expectedSize: Int64(artifactTotalByteCount)
+            )
+        } catch {
+            await cleanUpRelayRolloverPreparation(
+                client: client,
+                streamID: streamID,
+                artifactPath: artifactPath,
+                surfaceID: surfaceID
+            )
+            mobileIrohReleaseGateProbeLog.error(
+                "probe stage=artifact_readiness state=failed reason=rpc"
+            )
+            throw MobileIrohReleaseGateProbeFailure.artifactReadinessRPCFailed
         }
-        let descriptorRequest = try MobileCoreRPCClient.requestData(
-            method: "mobile.terminal.artifact.fetch",
-            params: [
-                "workspace_id": workspace.rpcWorkspaceID.rawValue,
-                "surface_id": surfaceID,
-                "path": artifactPath,
-                "transport": "iroh_artifact_v1",
-            ]
-        )
-        let descriptorData = try await client.sendRequest(descriptorRequest)
+        switch readiness {
+        case .ready:
+            mobileIrohReleaseGateProbeLog.info(
+                "probe stage=artifact_readiness state=completed"
+            )
+        case .scanPathMissing:
+            await cleanUpRelayRolloverPreparation(
+                client: client,
+                streamID: streamID,
+                artifactPath: artifactPath,
+                surfaceID: surfaceID
+            )
+            mobileIrohReleaseGateProbeLog.error(
+                "probe stage=artifact_readiness state=failed reason=scan_path_missing"
+            )
+            throw MobileIrohReleaseGateProbeFailure.artifactScanPathMissing
+        case .statSizeMismatch:
+            await cleanUpRelayRolloverPreparation(
+                client: client,
+                streamID: streamID,
+                artifactPath: artifactPath,
+                surfaceID: surfaceID
+            )
+            mobileIrohReleaseGateProbeLog.error(
+                "probe stage=artifact_readiness state=failed reason=stat_size_mismatch"
+            )
+            throw MobileIrohReleaseGateProbeFailure.artifactStatSizeMismatch
+        }
+        let descriptorData: Data
+        do {
+            let descriptorRequest = try MobileCoreRPCClient.requestData(
+                method: "mobile.terminal.artifact.fetch",
+                params: [
+                    "workspace_id": workspace.rpcWorkspaceID.rawValue,
+                    "surface_id": surfaceID,
+                    "path": artifactPath,
+                    "transport": "iroh_artifact_v1",
+                ]
+            )
+            descriptorData = try await client.sendRequest(descriptorRequest)
+        } catch {
+            await cleanUpRelayRolloverPreparation(
+                client: client,
+                streamID: streamID,
+                artifactPath: artifactPath,
+                surfaceID: surfaceID
+            )
+            mobileIrohReleaseGateProbeLog.error(
+                "probe stage=artifact_descriptor state=failed reason=rpc"
+            )
+            throw MobileIrohReleaseGateProbeFailure.artifactDescriptorRPCFailed
+        }
         guard let descriptor = MobileIrohReleaseGateResponseValidator.artifactLaneDescriptor(
             descriptorData
         ), descriptor.totalSize == Int64(artifactTotalByteCount) else {
-            await bestEffortEventUnsubscribe(client: client, streamID: streamID)
-            throw MobileIrohReleaseGateProbeFailure.artifactLaneFailed
+            await cleanUpRelayRolloverPreparation(
+                client: client,
+                streamID: streamID,
+                artifactPath: artifactPath,
+                surfaceID: surfaceID
+            )
+            mobileIrohReleaseGateProbeLog.error(
+                "probe stage=artifact_descriptor state=failed"
+            )
+            throw MobileIrohReleaseGateProbeFailure.artifactDescriptorInvalid
         }
-        let artifactConnection = try await client.openArtifactLane(
-            resourceID: descriptor.resourceID,
-            offset: 0
-        )
-        guard try await artifactConnection.receive(maximumByteCount: 1) == Data([0]) else {
+        let artifactConnection: any MobileArtifactLaneConnection
+        do {
+            artifactConnection = try await client.openArtifactLane(
+                resourceID: descriptor.resourceID,
+                offset: 0
+            )
+        } catch {
+            await cleanUpRelayRolloverPreparation(
+                client: client,
+                streamID: streamID,
+                artifactPath: artifactPath,
+                surfaceID: surfaceID
+            )
+            mobileIrohReleaseGateProbeLog.error(
+                "probe stage=artifact_lane_open state=failed"
+            )
+            throw MobileIrohReleaseGateProbeFailure.artifactLaneOpenFailed
+        }
+        let initialArtifactByte: Data?
+        do {
+            initialArtifactByte = try await artifactConnection.receive(maximumByteCount: 1)
+        } catch {
             await artifactConnection.close()
-            await bestEffortEventUnsubscribe(client: client, streamID: streamID)
-            throw MobileIrohReleaseGateProbeFailure.artifactLaneFailed
+            await cleanUpRelayRolloverPreparation(
+                client: client,
+                streamID: streamID,
+                artifactPath: artifactPath,
+                surfaceID: surfaceID
+            )
+            mobileIrohReleaseGateProbeLog.error(
+                "probe stage=artifact_lane_first_byte state=failed reason=read"
+            )
+            throw MobileIrohReleaseGateProbeFailure.artifactLaneReadFailed
+        }
+        guard initialArtifactByte == Data([0]) else {
+            await artifactConnection.close()
+            await cleanUpRelayRolloverPreparation(
+                client: client,
+                streamID: streamID,
+                artifactPath: artifactPath,
+                surfaceID: surfaceID
+            )
+            mobileIrohReleaseGateProbeLog.error(
+                "probe stage=artifact_lane_first_byte state=failed"
+            )
+            throw MobileIrohReleaseGateProbeFailure.artifactLaneInitialByteMismatch
         }
 
         do {
@@ -346,21 +456,31 @@ extension MobileShellComposite {
 
             var receivedArtifactByteCount = 1
             var receivedArtifactTail = Data()
-            while let chunk = try await artifactConnection.receive(maximumByteCount: 64 * 1_024) {
-                receivedArtifactByteCount += chunk.count
-                guard receivedArtifactByteCount <= artifactTotalByteCount else {
-                    throw MobileIrohReleaseGateProbeFailure.artifactLaneFailed
+            do {
+                while let chunk = try await artifactConnection.receive(
+                    maximumByteCount: 64 * 1_024
+                ) {
+                    receivedArtifactByteCount += chunk.count
+                    guard receivedArtifactByteCount <= artifactTotalByteCount else {
+                        throw MobileIrohReleaseGateProbeFailure.artifactLaneOverrun
+                    }
+                    receivedArtifactTail.append(chunk)
+                    if receivedArtifactTail.count > artifactSuffix.count {
+                        receivedArtifactTail.removeFirst(
+                            receivedArtifactTail.count - artifactSuffix.count
+                        )
+                    }
                 }
-                receivedArtifactTail.append(chunk)
-                if receivedArtifactTail.count > artifactSuffix.count {
-                    receivedArtifactTail.removeFirst(
-                        receivedArtifactTail.count - artifactSuffix.count
-                    )
-                }
+            } catch let failure as MobileIrohReleaseGateProbeFailure {
+                throw failure
+            } catch {
+                throw MobileIrohReleaseGateProbeFailure.artifactLaneReadFailed
             }
-            guard receivedArtifactByteCount == artifactTotalByteCount,
-                  receivedArtifactTail == artifactSuffix else {
-                throw MobileIrohReleaseGateProbeFailure.artifactLaneFailed
+            guard receivedArtifactByteCount == artifactTotalByteCount else {
+                throw MobileIrohReleaseGateProbeFailure.artifactLaneTruncated
+            }
+            guard receivedArtifactTail == artifactSuffix else {
+                throw MobileIrohReleaseGateProbeFailure.artifactLaneTailMismatch
             }
 
             await artifactConnection.close()
@@ -474,13 +594,19 @@ extension MobileShellComposite {
         return await client.transportContinuityID() == nil
     }
 
+    private enum ArtifactReadiness {
+        case ready
+        case scanPathMissing
+        case statSizeMismatch
+    }
+
     private func waitForArtifact(
         client: MobileCoreRPCClient,
         workspaceID: String,
         surfaceID: String,
         path: String,
         expectedSize: Int64
-    ) async throws -> Bool {
+    ) async throws -> ArtifactReadiness {
         let scanRequest = try MobileCoreRPCClient.requestData(
             method: "mobile.terminal.artifact.scan",
             params: [
@@ -496,6 +622,7 @@ extension MobileShellComposite {
                 "path": path,
             ]
         )
+        var sawExpectedPath = false
         var consecutiveStableObservations = 0
         for _ in 0 ..< 100 {
             let scanResponse = try await client.sendRequest(scanRequest)
@@ -503,6 +630,7 @@ extension MobileShellComposite {
                 scanResponse,
                 expectedPath: path
             ) {
+                sawExpectedPath = true
                 let statResponse = try await client.sendRequest(statRequest)
                 if MobileIrohReleaseGateResponseValidator.artifactStat(
                     statResponse,
@@ -511,7 +639,7 @@ extension MobileShellComposite {
                     consecutiveStableObservations += 1
                     if consecutiveStableObservations
                         >= MobileIrohReleaseGateArtifactPreparation.requiredStableStatObservations {
-                        return true
+                        return .ready
                     }
                 } else {
                     consecutiveStableObservations = 0
@@ -521,7 +649,20 @@ extension MobileShellComposite {
             }
             try await Task.sleep(for: .milliseconds(100))
         }
-        return false
+        return sawExpectedPath ? .statSizeMismatch : .scanPathMissing
+    }
+
+    private func cleanUpRelayRolloverPreparation(
+        client: MobileCoreRPCClient,
+        streamID: String,
+        artifactPath: String,
+        surfaceID: String
+    ) async {
+        await bestEffortEventUnsubscribe(client: client, streamID: streamID)
+        await submitTerminalRawInput(
+            Data("rm -f '\(artifactPath)'\n".utf8),
+            surfaceID: surfaceID
+        )
     }
 
     private func renameWorkspaceForEvent(

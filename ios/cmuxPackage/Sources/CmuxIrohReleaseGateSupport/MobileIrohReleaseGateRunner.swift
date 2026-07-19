@@ -317,8 +317,8 @@ final class MobileIrohReleaseGateRunner {
             )
         }
 
-        var pathBeforeExpectedDisconnect: String?
-        if configuration.scenario == .relayExpiry {
+        var pathBeforeProbe: String?
+        if configuration.scenario != .standard {
             for await snapshot in dependencies.settingsUpdates() {
                 guard !Task.isCancelled else {
                     return Self.failureReport(
@@ -331,7 +331,7 @@ final class MobileIrohReleaseGateRunner {
                     snapshot.selectedTransportPath,
                     mode: configuration.mode
                 ) {
-                    pathBeforeExpectedDisconnect = accepted
+                    pathBeforeProbe = accepted
                     break
                 }
             }
@@ -342,7 +342,7 @@ final class MobileIrohReleaseGateRunner {
                     failure: .timeout
                 )
             }
-            guard pathBeforeExpectedDisconnect != nil else {
+            guard pathBeforeProbe != nil else {
                 return Self.failureReport(
                     mode: configuration.mode,
                     scenario: configuration.scenario,
@@ -359,7 +359,8 @@ final class MobileIrohReleaseGateRunner {
             return Self.probeFailureReport(
                 mode: configuration.mode,
                 scenario: configuration.scenario,
-                failure: failure
+                failure: failure,
+                selectedPath: pathBeforeProbe
             )
         } catch {
             return Self.failureReport(
@@ -370,12 +371,12 @@ final class MobileIrohReleaseGateRunner {
         }
         completedProbe = probe
 
-        if let pathBeforeExpectedDisconnect {
+        if let pathBeforeProbe {
             return Self.completedReport(
                 mode: configuration.mode,
                 scenario: configuration.scenario,
                 probe: probe,
-                selectedPath: pathBeforeExpectedDisconnect
+                selectedPath: pathBeforeProbe
             )
         }
 
@@ -551,7 +552,8 @@ final class MobileIrohReleaseGateRunner {
     private static func probeFailureReport(
         mode: CmxIrohTransportVerificationMode,
         scenario: MobileIrohReleaseGateScenario,
-        failure: MobileIrohReleaseGateProbeFailure
+        failure: MobileIrohReleaseGateProbeFailure,
+        selectedPath: String?
     ) -> Report {
         Report(
             schemaVersion: 3,
@@ -573,8 +575,8 @@ final class MobileIrohReleaseGateRunner {
             artifactLaneVerified: false,
             unrefreshedExpiryDisconnectVerified: false,
             soakDurationSeconds: 0,
-            routeKind: nil,
-            selectedPath: nil,
+            routeKind: CmxAttachTransportKind.iroh.rawValue,
+            selectedPath: selectedPath,
             failure: failure.rawValue
         )
     }
