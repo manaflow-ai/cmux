@@ -1,6 +1,6 @@
 # Command Contract
 
-This file specifies the JSON command contract for the cmux-tui protocol. Implemented commands match protocol v8 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
+This file specifies the JSON command contract for the cmux-tui protocol. Implemented commands match protocol v9 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
 
 ## Notation
 
@@ -64,7 +64,10 @@ object{
 ```text
 object{type:"leaf",pane:Id}
 | object{type:"split",split:Id,dir:"right"|"down",ratio:float32,a:Layout,b:Layout}
+| object{type:"stack",panes:array<Id>,expanded:Id}
 ```
+
+Stack `panes` must be non-empty, and `expanded` must identify one of those panes.
 
 `split` is stable for the lifetime of that split node. Ratio changes, pane focus, tab changes, and leaf swaps preserve it. Collapsing the split removes the id. A later split receives a new id. Protocol v7 and older canonical layouts omit this field.
 
@@ -160,10 +163,10 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":8,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":9,"session":"main","pid":12345}}
 ```
 
-The current server reports protocol `8` in this field and in `ping`. Clients must negotiate before requiring stable split ids or sending `set-split-ratio`.
+The current server reports protocol `9` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, and protocol 9 before decoding stack layouts or sending `new-pane`.
 
 ### ping
 
@@ -191,7 +194,7 @@ Example:
 
 ```json
 {"id":2,"cmd":"ping"}
-{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":8}}
+{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":9}}
 ```
 
 ### set-client-info
@@ -899,6 +902,55 @@ Example:
 ```json
 {"id":9,"cmd":"new-screen","workspace":4}
 {"id":9,"ok":true,"data":{"surface":12}}
+```
+
+### new-pane
+
+| Field | Value |
+| --- | --- |
+| name | `new-pane` |
+| status | implemented |
+| since | protocol 9 |
+
+Creates a PTY pane after the current panes in creation order, focuses it, and reapplies the default automatic layout. Panes one through five use one full-height left column and up to four equal right-side rows. Panes six through twelve fill balanced columns of four. Above twelve panes, non-focused panes collapse to one-row headers and the focused pane expands in the remaining stacked area. The new surface inherits the active surface working directory of `pane` when available.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `pane` | `Id` | required | Pane whose screen receives the new pane |
+| `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
+| `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
+
+Result:
+
+```text
+object{surface:Id}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `unknown pane <id>` | Target pane is not in any screen tree |
+| `pane creation failed` | PTY creation or child spawn fails; raw runtime details are logged internally only |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `new-pane` |
+| Flags | `--pane <id> [--cols <n> --rows <n>]` |
+| Plain stdout | new surface id followed by newline |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":10,"cmd":"new-pane","pane":2}
+{"id":10,"ok":true,"data":{"surface":14}}
 ```
 
 ### split
@@ -2586,7 +2638,7 @@ Example:
 
 ## Proposed Hooks Config
 
-Hooks are proposed protocol v8 config, not a socket command. They are declared in `~/.config/cmux/cmux-tui.json` under `hooks`, with legacy `mux.json` still accepted.
+Hooks are proposed protocol v10 config, not a socket command. They are declared in `~/.config/cmux/cmux-tui.json` under `hooks`, with legacy `mux.json` still accepted.
 
 Schema:
 
@@ -2656,3 +2708,5 @@ The following v5 behaviors are awkward for generated bindings and should be norm
 | Error taxonomy | Errors are strings from `anyhow`, IO, base64, and terminal layers | Add stable machine error codes while preserving messages |
 | Optional size pair | Supplying only one of `cols` or `rows` is silently ignored | Reject partial size pairs |
 | Unknown fields | Unknown request fields are ignored by serde | Reject unknown fields or define extension slots |
+
+Protocol v9 adds `new-pane`; its implemented result is `{surface}`. A future result expansion may add `{pane,screen,workspace}` only behind a newer protocol version.

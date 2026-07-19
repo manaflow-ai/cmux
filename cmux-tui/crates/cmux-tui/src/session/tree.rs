@@ -254,6 +254,16 @@ fn parse_layout(value: &Value) -> Option<Node> {
                 b: Box::new(parse_layout(value.get("b")?)?),
             })
         }
+        "stack" => {
+            let panes = value
+                .get("panes")?
+                .as_array()?
+                .iter()
+                .map(Value::as_u64)
+                .collect::<Option<Vec<_>>>()?;
+            let expanded = value.get("expanded")?.as_u64()?;
+            panes.contains(&expanded).then(|| Node::stack(panes)).flatten()
+        }
         _ => None,
     }
 }

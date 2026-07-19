@@ -78,6 +78,7 @@ export type NewTabOptions = CmuxRequestParams<"new-tab">;
 export type NewBrowserTabOptions = Omit<CmuxRequestParams<"new-browser-tab">, "url">;
 export type NewWorkspaceOptions = CmuxRequestParams<"new-workspace">;
 export type NewScreenOptions = CmuxRequestParams<"new-screen">;
+export type NewPaneOptions = Omit<CmuxRequestParams<"new-pane">, "pane">;
 export type SplitOptions = Omit<CmuxRequestParams<"split">, "pane" | "dir">;
 export type SelectOptions = CmuxRequestParams<"select-screen">;
 export type SelectTabOptions = CmuxRequestParams<"select-tab">;
@@ -443,6 +444,10 @@ export class CmuxClient {
   }
   newWorkspace(options: NewWorkspaceOptions = {}): Promise<SurfaceResult> { return this.request("new-workspace", options); }
   newScreen(options: NewScreenOptions = {}): Promise<SurfaceResult> { return this.request("new-screen", options); }
+  async newPane(pane: Id, options: NewPaneOptions = {}): Promise<SurfaceResult> {
+    await this.requireProtocol(9, "new-pane");
+    return this.request("new-pane", { pane, ...options });
+  }
   split(pane: Id, dir: SplitDirection, options: SplitOptions = {}): Promise<SurfaceResult> {
     return this.request("split", { pane, dir, ...options });
   }

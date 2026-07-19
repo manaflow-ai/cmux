@@ -2,7 +2,7 @@ import { useCallback, useReducer, useRef, useState } from "react";
 import type { ClientInfo, CmuxClient, Id, LivePane, Tab } from "cmux/browser";
 import { t } from "../i18n";
 import type { PaneLayoutView } from "../lib/layout";
-import { layoutToViewModel } from "../lib/layout";
+import { layoutToViewModel, visibleStackPanes } from "../lib/layout";
 import type { ScreenView } from "../lib/tree";
 import { contextMenuReducer } from "../lib/contextMenu";
 import { clientSizingMenuItems, paneClientSummary } from "../lib/clientSizing";
@@ -280,6 +280,76 @@ interface LayoutGroupNodeProps extends Omit<LayoutNodeProps, "node"> {
 
 const KEYBOARD_RESIZE_DEBOUNCE_MS = 100;
 
+interface LayoutStackNodeProps extends Omit<LayoutNodeProps, "node"> {
+  node: Extract<PaneLayoutView, { type: "stack" }>;
+}
+
+function useVisibleStackHeaders() {
+  const observer = useRef<ResizeObserver | null>(null);
+  const [visibleHeaders, setVisibleHeaders] = useState<number | null>(null);
+  const ref = useCallback((element: HTMLDivElement | null) => {
+    observer.current?.disconnect();
+    observer.current = null;
+    if (element === null || typeof ResizeObserver === "undefined") return;
+    const update = () => {
+      const headerHeight = Number.parseFloat(
+        getComputedStyle(element).getPropertyValue("--stack-header-height"),
+      ) || 30;
+      setVisibleHeaders(Math.max(0, Math.floor(
+        (element.getBoundingClientRect().height - headerHeight) / (headerHeight + 1),
+      )));
+    };
+    update();
+    observer.current = new ResizeObserver(update);
+    observer.current.observe(element);
+  }, []);
+  return { ref, visibleHeaders };
+}
+
+function LayoutStackNode({ node, screen, basis, ...actions }: LayoutStackNodeProps) {
+  const style = basis === undefined ? undefined : { flex: `0 0 ${basis}%` };
+  const { ref, visibleHeaders } = useVisibleStackHeaders();
+  const panes = visibleStackPanes(node.panes, node.expanded, visibleHeaders);
+  return (
+    <div className="pane-stack" ref={ref} style={style}>
+      {panes.map((pane) => {
+        const livePane = screen.panes.find((candidate) => candidate.id === pane) ?? null;
+        const expanded = pane === node.expanded;
+        const activeTab = livePane?.tabs[livePane.active_tab] ?? null;
+        const label = livePane?.name || activeTab?.name || activeTab?.title || t("pane", { number: pane });
+        return (
+          <div className={`pane-leaf${expanded ? " expanded" : " collapsed"}`} key={pane}>
+            {expanded ? (
+              <PaneLeaf
+                {...actions}
+                pane={livePane}
+                paneId={pane}
+                active={screen.activePane === pane}
+                zoomed={screen.zoomedPane === pane}
+              />
+            ) : (
+              <button
+                aria-label={t("pane", { number: pane })}
+                className="stack-pane-header"
+                onFocus={() => actions.onSelectPane(pane)}
+                onPointerDown={(event) => {
+                  if (event.pointerType === "mouse" && event.button !== 0) return;
+                  actions.onSelectPane(pane);
+                }}
+                type="button"
+              >
+                <span aria-hidden="true">┌</span>
+                <span className="stack-pane-title">{label}</span>
+                <span aria-hidden="true">┐</span>
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodeProps) {
   const style = basis === undefined ? undefined : { flex: `0 0 ${basis}%` };
   const authoritativeRatio = node.firstPercent / 100;
@@ -522,6 +592,9 @@ function LayoutNode({ node, screen, basis, ...actions }: LayoutNodeProps) {
       />
     );
   }
+  if (node.type === "stack") {
+    return <LayoutStackNode {...actions} node={node} screen={screen} basis={basis} />;
+  }
   return (
     <div className="pane-leaf" style={style}>
       <PaneLeaf
@@ -537,6 +610,6 @@ function LayoutNode({ node, screen, basis, ...actions }: LayoutNodeProps) {
 
 export function TerminalPane({ screen, ...props }: TerminalPaneProps) {
   if (!screen) return <section className="terminal-empty terminal-root">{t("noSurface")}</section>;
-  const node = layoutToViewModel(screen.layout, screen.zoomedPane);
+  const node = layoutToViewModel(screen.layout, screen.zoomedPane, screen.activePane);
   return <div className="pane-layout"><LayoutNode {...props} node={node} screen={screen} /></div>;
 }

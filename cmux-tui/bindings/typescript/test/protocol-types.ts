@@ -35,6 +35,7 @@ const requests = [
   { cmd: "new-browser-tab", url: "https://example.com" },
   { cmd: "new-workspace", name: "sdk" },
   { cmd: "new-screen", workspace: 1 },
+  { cmd: "new-pane", pane: 1 },
   { cmd: "split", pane: 1, dir: "right" },
   { cmd: "set-ratio", pane: 1, dir: "down", ratio: 0.5 },
   { cmd: "set-split-ratio", split: 2, ratio: 0.5 },
@@ -77,6 +78,13 @@ const requests = [
 type IdentifyData = CmuxResponseData<(typeof requests)[0]>;
 const identify: IdentifyData = { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 };
 void identify;
+
+const stackLayout = {
+  type: "stack",
+  panes: [1, 2, 3],
+  expanded: 3,
+} as const satisfies import("../src/browser.js").Layout;
+void stackLayout;
 
 function surfaceFromKnownEvent(event: KnownCmuxEvent): number | undefined {
   switch (event.event) {

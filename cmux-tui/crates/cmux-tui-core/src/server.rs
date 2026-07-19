@@ -51,7 +51,9 @@ use crate::{
     ZoomMode, assign_short_ids,
 };
 
-pub const PROTOCOL_VERSION: u32 = 8;
+pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
+pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
+pub const PROTOCOL_VERSION: u32 = STACK_LAYOUT_PROTOCOL_VERSION;
 
 /// Default socket path for a session.
 pub fn default_socket_path(session: &str) -> PathBuf {
@@ -289,6 +291,13 @@ enum Command {
     NewScreen {
         #[serde(default)]
         workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
+    },
+    NewPane {
+        pane: PaneId,
         #[serde(default)]
         cols: Option<u16>,
         #[serde(default)]
@@ -1595,7 +1604,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     difference == 0
 }
 
-fn node_json(node: &Node) -> Value {
+fn node_json(node: &Node, active_pane: PaneId) -> Value {
     match node {
         Node::Leaf(id) => json!({ "type": "leaf", "pane": id }),
         Node::Split { id, dir, ratio, a, b } => json!({
@@ -1603,8 +1612,17 @@ fn node_json(node: &Node) -> Value {
             "split": id,
             "dir": match dir { SplitDir::Right => "right", SplitDir::Down => "down" },
             "ratio": ratio,
-            "a": node_json(a),
-            "b": node_json(b),
+            "a": node_json(a, active_pane),
+            "b": node_json(b, active_pane),
+        }),
+        Node::Stack { panes } => json!({
+            "type": "stack",
+            "panes": panes.as_slice(),
+            "expanded": if panes.contains(&active_pane) {
+                active_pane
+            } else {
+                *panes.last().expect("StackPanes is non-empty")
+            },
         }),
     }
 }
@@ -1671,7 +1689,7 @@ fn export_layout_json(state: &State, screen_id: Option<ScreenId>) -> anyhow::Res
     let mut pane_ids = Vec::new();
     screen.root.pane_ids(&mut pane_ids);
     Ok(json!({
-        "layout": node_json(&screen.root),
+        "layout": node_json(&screen.root, screen.active_pane),
         "panes": pane_ids.iter().map(|pane_id| {
             let surfaces = state
                 .panes
@@ -1742,7 +1760,7 @@ fn screen_json(
         "active": active,
         "active_pane": screen.active_pane,
         "zoomed_pane": screen.zoomed_pane,
-        "layout": node_json(&screen.root),
+        "layout": node_json(&screen.root, screen.active_pane),
         "panes": pane_ids.iter().map(|id| pane_json(state, *id, short_ids, notifications)).collect::<Vec<_>>(),
     })
 }
@@ -2670,6 +2688,10 @@ fn handle_command(
             let surface = mux.new_screen(workspace, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
         }
+        Command::NewPane { pane, cols, rows } => {
+            let surface = mux.new_pane(pane, optional_surface_size(cols, rows))?;
+            Ok(json!({ "surface": surface.id }))
+        }
         Command::Split { pane, dir, cols, rows } => {
             let dir = parse_split_dir(&dir)?;
             let surface = mux.split(pane, dir, optional_surface_size(cols, rows))?;
@@ -3279,6 +3301,14 @@ mod tests {
     }
 
     #[test]
+    fn stack_json_derives_expansion_from_the_active_pane() {
+        let stack = Node::stack(vec![1, 2, 3]).unwrap();
+
+        assert_eq!(node_json(&stack, 2)["expanded"], 2);
+        assert_eq!(node_json(&stack, 9)["expanded"], 3);
+    }
+
+    #[test]
     fn bounded_writer_reserves_a_control_lane_for_responses_and_overflow() {
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
@@ -3591,7 +3621,9 @@ mod tests {
         assert_eq!(data["ok"].as_bool(), Some(true));
         assert_eq!(data["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
-        assert_eq!(PROTOCOL_VERSION, 8);
+        assert_eq!(STABLE_SPLIT_IDS_PROTOCOL_VERSION, 8);
+        assert_eq!(STACK_LAYOUT_PROTOCOL_VERSION, 9);
+        assert_eq!(PROTOCOL_VERSION, 9);
     }
 
     #[test]
