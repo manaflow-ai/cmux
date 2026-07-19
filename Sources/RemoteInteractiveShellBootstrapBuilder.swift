@@ -95,7 +95,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
                 profile: terminalProfile,
                 indentation: "    ",
                 directShellCommand: "exec \"$CMUX_LOGIN_SHELL\" -il",
-                tmuxShellCommand: "export CMUX_REAL_ZDOTDIR=\"${ZDOTDIR:-$HOME}\"; export ZDOTDIR=\"\(shellStateDir)\"; exec \"${SHELL:-/bin/zsh}\" -il"
+                tmuxShellCommand: "export CMUX_REAL_ZDOTDIR=\"${CMUX_REAL_ZDOTDIR:-${ZDOTDIR:-$HOME}}\"; export ZDOTDIR=\"\(shellStateDir)\"; exec \"${SHELL:-/bin/zsh}\" -il"
             ),
             "    ;;",
             "  bash)",
