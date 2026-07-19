@@ -114,6 +114,20 @@ private final class DeferredListFileExplorerProvider: FileExplorerProvider {
     }
 }
 
+private final class CountingFileExplorerOutlineView: NSOutlineView {
+    private(set) var reloadCallCount = 0
+
+    override func reloadData() {
+        reloadCallCount += 1
+        super.reloadData()
+    }
+
+    override func reloadItem(_ item: Any?, reloadChildren: Bool) {
+        reloadCallCount += 1
+        super.reloadItem(item, reloadChildren: reloadChildren)
+    }
+}
+
 // MARK: - Store Tests
 
 /// The store's `@Published` state is driven by unstructured `Task { ... }` calls that
@@ -614,6 +628,39 @@ struct FileExplorerStoreTests {
         let node = FileExplorerNode(name: "file.txt", path: "/project/file.txt", isDirectory: false)
         store.expand(node: node)
         #expect(!(store.isExpanded(node)))
+    }
+
+    @Test
+    func testRedundantCoordinatorUpdatesDoNotReloadOutlineNodes() {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let directory = FileExplorerNode(name: "Sources", path: "/project/Sources", isDirectory: true)
+        directory.children = []
+        store.rootPath = "/project"
+        store.rootNodes = [directory]
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView()
+        outlineView.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files")))
+        outlineView.outlineTableColumn = outlineView.tableColumns[0]
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+
+        coordinator.reloadIfNeeded()
+        let reloadsAfterInitialRender = outlineView.reloadCallCount
+        #expect(reloadsAfterInitialRender > 0)
+
+        coordinator.reloadIfNeeded()
+
+        #expect(
+            outlineView.reloadCallCount == reloadsAfterInitialRender,
+            "An update with no intervening file-explorer store change must not reload visible outline nodes."
+        )
     }
 }
 
