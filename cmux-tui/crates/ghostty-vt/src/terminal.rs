@@ -378,7 +378,6 @@ enum PaletteTrackState {
     Escape,
     EscapeIntermediate,
     Osc(PaletteOsc),
-    OscEscape(PaletteOsc),
     String {
         bell_terminated: bool,
     },
@@ -458,24 +457,16 @@ impl PaletteOverrideTracker {
                         PaletteTrackState::Ground
                     }
                     0x18 | 0x1a => PaletteTrackState::Ground,
-                    0x1b => PaletteTrackState::OscEscape(osc),
+                    0x1b => {
+                        // Ghostty exits and dispatches OSC on the ESC byte
+                        // that begins ST, before the trailing `\\` arrives.
+                        osc.commit(&mut self.active);
+                        PaletteTrackState::Escape
+                    }
                     _ => {
                         osc.feed(byte);
                         PaletteTrackState::Osc(osc)
                     }
-                },
-                PaletteTrackState::OscEscape(osc) => match byte {
-                    b'\\' | 0x9c => {
-                        osc.commit(&mut self.active);
-                        PaletteTrackState::Ground
-                    }
-                    0x07 => {
-                        osc.commit(&mut self.active);
-                        PaletteTrackState::Ground
-                    }
-                    0x18 | 0x1a => PaletteTrackState::Ground,
-                    0x1b => PaletteTrackState::OscEscape(osc),
-                    _ => PaletteTrackState::Osc(osc),
                 },
                 PaletteTrackState::String { bell_terminated } => match byte {
                     0x07 if bell_terminated => PaletteTrackState::Ground,

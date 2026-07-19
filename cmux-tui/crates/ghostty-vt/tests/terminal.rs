@@ -409,6 +409,10 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     assert!(term.palette_overridden(10), "CAN must abort a non-OSC control string");
     term.vt_write(b"\x1bPab\x1b\x1a\x1b]4;11;#0b0b0b\x07");
     assert!(term.palette_overridden(11), "SUB must abort after an escape in a control string");
+    term.vt_write(b"\x1b]4;12;#0c0c0c\x1b");
+    assert!(term.palette_overridden(12), "OSC must commit at a split ST's ESC boundary");
+    term.vt_write(b"\\");
+    assert!(term.palette_overridden(12));
 
     term.vt_write(b"\x1b]104;1\x1b\\");
     assert!(!term.palette_overridden(1));
