@@ -149,6 +149,44 @@ private final class WorkspaceListInteractionTestPanGestureRecognizer: UIPanGestu
         )
     }
 
+    @Test func failedPanFlushesPendingUpdateAfterStateSettles() async {
+        let initial = configuration(workspaceIDs: ["workspace-1"])
+        let coordinator = WorkspaceListTableCoordinator(configuration: initial)
+        let tableView = WorkspaceListInteractionTestTableView(
+            frame: CGRect(x: 0, y: 0, width: 390, height: 844)
+        )
+        coordinator.attach(to: tableView)
+        coordinator.update(configuration: initial, in: tableView)
+
+        tableView.reportsTracking = true
+        coordinator.update(
+            configuration: configuration(workspaceIDs: ["workspace-1", "workspace-2"]),
+            in: tableView
+        )
+        tableView.reportsTracking = false
+
+        let selector = NSSelectorFromString("scrollPanGestureStateChanged:")
+        let panGesture = WorkspaceListInteractionTestPanGestureRecognizer(
+            target: nil,
+            action: nil
+        )
+        tableView.addGestureRecognizer(panGesture)
+        panGesture.reportedState = .failed
+        coordinator.perform(selector, with: panGesture)
+        #expect(
+            tableView.numberOfRows(inSection: 0) == 1,
+            "A failed touch must defer its pending snapshot until UIKit state settles."
+        )
+
+        for _ in 0..<10 where tableView.numberOfRows(inSection: 0) == 1 {
+            await Task.yield()
+        }
+        #expect(
+            tableView.numberOfRows(inSection: 0) == 2,
+            "A failed touch with no continued scrolling must eventually release its staged snapshot."
+        )
+    }
+
     @Test func rebindingDuringInterruptedScrollDoesNotKeepUpdatesStaged() {
         let initial = configuration(workspaceIDs: ["workspace-1"])
         let coordinator = WorkspaceListTableCoordinator(configuration: initial)

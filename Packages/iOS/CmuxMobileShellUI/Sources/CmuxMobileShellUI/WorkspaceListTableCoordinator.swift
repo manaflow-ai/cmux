@@ -118,15 +118,26 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     }
 
     @objc private func scrollPanGestureStateChanged(_ gestureRecognizer: UIPanGestureRecognizer) {
-        switch gestureRecognizer.state {
-        case .ended, .cancelled, .failed:
+        guard
+            gestureRecognizer.state == .cancelled
+                || gestureRecognizer.state == .failed,
+            let tableView = gestureRecognizer.view as? WorkspaceListUITableView
+        else { return }
+
+        // A successful pan's `.ended` target can run before UIScrollView calls
+        // scrollViewDidEndDragging and publishes whether momentum or a boundary
+        // spring follows. Only that delegate callback may finish a successful
+        // pan. Failed/cancelled recognizers have no corresponding callback, so
+        // settle their transient flags for one actor turn before flushing.
+        Task { @MainActor [weak self, weak tableView] in
+            await Task.yield()
             guard
-                let tableView = gestureRecognizer.view as? UITableView,
-                !shouldStageConfiguration(in: tableView)
+                let self,
+                let tableView,
+                self.attachedTableView === tableView,
+                !self.shouldStageConfiguration(in: tableView)
             else { return }
-            applyPendingConfiguration(in: tableView)
-        default:
-            return
+            self.applyPendingConfiguration(in: tableView)
         }
     }
 

@@ -122,7 +122,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testWorkspaceListFastReversalAndBoundariesRemainResponsive() throws {
+    func testWorkspaceListRapidDirectionChangesAndBoundariesRemainResponsive() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "100",
@@ -140,8 +140,10 @@ final class cmuxUITests: XCTestCase {
         ]
         XCTAssertTrue(firstRow.isHittable)
 
-        // Grab the list while the first fast swipe is still decelerating and
-        // immediately reverse it. Live 80 ms row updates continue throughout.
+        // Exercise rapid opposite-direction flicks while live 80 ms row
+        // updates continue. XCUITest waits for UI quiescence between public
+        // swipe calls; the pan-end/deceleration ordering regression lives in
+        // WorkspaceListScrollUpdateTests.
         table.swipeUp(velocity: .fast)
         table.swipeDown(velocity: .fast)
         for _ in 0..<4 where !firstRow.isHittable {
@@ -150,8 +152,14 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(firstRow.isHittable)
         XCTAssertEqual(app.state, .runningForeground)
 
-        // Drive through the real bottom boundary, reverse out of its spring,
-        // and prove that the table accepts the opposite-direction gesture.
+        // Exercise the real top boundary before traversing to the bottom.
+        table.swipeDown(velocity: .fast)
+        table.swipeUp(velocity: .fast)
+        XCTAssertFalse(firstRow.isHittable)
+        XCTAssertEqual(app.state, .runningForeground)
+
+        // Drive through the real bottom boundary, overscroll it, and prove
+        // that the table accepts the next opposite-direction gesture.
         for _ in 0..<20 where !lastRow.isHittable {
             table.swipeUp(velocity: .fast)
         }
@@ -162,7 +170,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "workspace-list-fast-reversal-and-boundaries"
+        attachment.name = "workspace-list-rapid-direction-changes-and-boundaries"
         attachment.lifetime = .keepAlways
         add(attachment)
     }
