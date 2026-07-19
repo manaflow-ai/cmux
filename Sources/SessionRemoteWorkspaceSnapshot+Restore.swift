@@ -61,8 +61,13 @@ extension SessionRemoteWorkspaceSnapshot {
         let managedCloudVMID = normalizedManagedCloudVMID
             ?? Self.legacyDefaultFreestyleVMID(destination: normalizedDestination, skipDaemonBootstrap: skipDaemonBootstrap)
         let defaultFreestyleVMID = skipDaemonBootstrap == true ? managedCloudVMID : nil
-        let restoredTerminalTransport: WorkspaceRemoteTerminalTransport = defaultFreestyleVMID == nil
-            ? (terminalTransport ?? .ssh)
+        let requestedTerminalTransport = terminalTransport ?? .ssh
+        let restoredTerminalTransport: WorkspaceRemoteTerminalTransport = requestedTerminalTransport
+            .isSupportedForRemoteConfiguration(
+                managementTransport: .ssh,
+                skipDaemonBootstrap: skipDaemonBootstrap == true
+            )
+            ? requestedTerminalTransport
             : .ssh
         let restoredTerminalProfile: WorkspaceRemoteTerminalProfile = defaultFreestyleVMID == nil
             ? (terminalProfile ?? .shell)
