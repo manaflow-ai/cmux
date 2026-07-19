@@ -284,11 +284,13 @@ impl CursorOverrideTracker {
                 CursorTrackState::String { bell_terminated } => match byte {
                     0x07 if bell_terminated => CursorTrackState::Ground,
                     0x9c => CursorTrackState::Ground,
+                    0x18 | 0x1a => CursorTrackState::Ground,
                     0x1b => CursorTrackState::StringEscape { bell_terminated },
                     _ => CursorTrackState::String { bell_terminated },
                 },
                 CursorTrackState::StringEscape { bell_terminated } => match byte {
                     b'\\' | 0x9c => CursorTrackState::Ground,
+                    0x18 | 0x1a => CursorTrackState::Ground,
                     0x1b => CursorTrackState::StringEscape { bell_terminated },
                     0x07 if bell_terminated => CursorTrackState::Ground,
                     _ => CursorTrackState::String { bell_terminated },
@@ -433,6 +435,7 @@ struct PaletteCommand {
     captured: usize,
     pending: [u8; 256],
     request_count: usize,
+    kitty_request_count: usize,
     stopped: bool,
     overflowed: bool,
 }
@@ -448,6 +451,7 @@ impl PaletteCommand {
             captured: 0,
             pending: [0; 256],
             request_count: 0,
+            kitty_request_count: 0,
             stopped: false,
             overflowed: false,
         }
@@ -604,6 +608,12 @@ impl PaletteCommand {
             return;
         }
         let token = &self.token[..self.token_len];
+        if matches!(self.mode, PaletteOscMode::Kitty) && self.kitty_request_count >= 526 {
+            self.stopped = true;
+            self.overflowed = true;
+            self.token_len = 0;
+            return;
+        }
         // Ghostty tokenizes OSC color arguments with `tokenizeScalar`, which
         // skips empty parameters without advancing the index/color pairing.
         if token.is_empty() {
@@ -647,11 +657,32 @@ impl PaletteCommand {
                 let separator = token.iter().position(|byte| *byte == b'=').unwrap_or(token.len());
                 let key = &token[..separator];
                 let value = token.get(separator + 1..).unwrap_or_default();
-                if let Ok(index) = std::str::from_utf8(key).unwrap_or_default().parse::<u8>() {
-                    let value = std::str::from_utf8(value).unwrap_or_default().trim();
-                    if value.is_empty() {
+                let key = std::str::from_utf8(key).unwrap_or_default();
+                let index = key.parse::<u8>().ok();
+                let recognized = index.is_some()
+                    || matches!(
+                        key,
+                        "foreground"
+                            | "background"
+                            | "selection_foreground"
+                            | "selection_background"
+                            | "cursor"
+                            | "cursor_text"
+                            | "visual_bell"
+                            | "second_transparent_background"
+                    );
+                let value = std::str::from_utf8(value).unwrap_or_default().trim();
+                let accepted = recognized
+                    && (value.is_empty() || value == "?" || parse_color(value).is_some());
+                if accepted {
+                    self.kitty_request_count += 1;
+                    if value.is_empty()
+                        && let Some(index) = index
+                    {
                         self.pending[index as usize] = 2;
-                    } else if value != "?" && parse_color(value).is_some() {
+                    } else if value != "?"
+                        && let Some(index) = index
+                    {
                         self.pending[index as usize] = 1;
                     }
                 }
@@ -680,6 +711,9 @@ impl PaletteCommand {
             return;
         }
         self.finish_token();
+        if self.overflowed {
+            return;
+        }
         if matches!(self.mode, PaletteOscMode::Reset) && self.request_count == 0 {
             active.fill(false);
             return;

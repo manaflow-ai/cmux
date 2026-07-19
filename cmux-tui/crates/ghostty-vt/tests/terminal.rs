@@ -175,6 +175,13 @@ fn cursor_override_tracker_ignores_control_text() {
 
     term.vt_write(b"\x1b[5 q");
     assert!(term.cursor_overridden());
+    assert_eq!(term.cursor_visual_override(), Some((CursorShape::Bar, true)));
+    term.vt_write(b"\x1bPab\x18\x1b[3 q");
+    assert_eq!(
+        term.cursor_visual_override(),
+        Some((CursorShape::Underline, true)),
+        "CAN must abort DCS before the next DECSCUSR"
+    );
     term.vt_write(b"\x1bc");
     assert!(!term.cursor_overridden());
 }
@@ -430,6 +437,20 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     assert!(term.palette_overridden(15), "valid OSC 4 prefix must survive a malformed pair");
     state.update(&mut term).unwrap();
     assert_eq!(state.palette_color(15), Rgb { r: 15, g: 15, b: 15 });
+
+    term.vt_write(b"\x1b]4;0;#101010\x07");
+    let mut too_many_kitty_requests = b"\x1b]21;".to_vec();
+    for request in 0..527 {
+        if request > 0 {
+            too_many_kitty_requests.push(b';');
+        }
+        too_many_kitty_requests.extend_from_slice(b"0=");
+    }
+    too_many_kitty_requests.extend_from_slice(b"\x1b\\");
+    term.vt_write(&too_many_kitty_requests);
+    assert!(term.palette_overridden(0), "Ghostty rejects OSC 21 beyond 526 requests");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(0), Rgb { r: 0x10, g: 0x10, b: 0x10 });
 
     term.vt_write(b"\x1b]104;1\x1b\\");
     assert!(!term.palette_overridden(1));
