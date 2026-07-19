@@ -22633,6 +22633,25 @@ struct CMUXCLI {
                     parsedInput: parsedInput,
                     sessionRecord: mappedSession
                 )
+                let sendCompletionNotification = {
+                    guard let completion, !suppressNotification else { return }
+                    let title = String(
+                        localized: "cli.claude-hook.notification.title",
+                        defaultValue: "Claude Code"
+                    )
+                    let payload = notificationPayload(
+                        title: title,
+                        subtitle: completion.subtitle,
+                        body: completion.body,
+                        meta: AgentHookNotifyCategory.turnComplete.metaSegment(
+                            pending: hasPendingBackgroundWork
+                        )
+                    )
+                    _ = try? sendV1Command(
+                        "notify_target_async \(workspaceId) \(surfaceId) \(payload)",
+                        client: client
+                    )
+                }
                 var completedPromptStopGeneration = false
                 if !suppressVisibleMutations, let sessionId = parsedInput.sessionId {
                     let promptStopResult = (try? sessionStore.upsertPromptStop(
@@ -22656,6 +22675,13 @@ struct CMUXCLI {
                     completedPromptStopGeneration = promptStopResult.completedGeneration
                     guard promptStopResult.accepted || promptStopResult.completedGeneration else {
                         telemetry.breadcrumb("claude-hook.stop.rejected-generation")
+                        // A Stop can be the first hook observed after install or
+                        // upgrade. It has no generation proof, so it must not
+                        // create lifecycle state, but its routed completion is
+                        // still safe to notify when no saved record was rejected.
+                        if mappedSession == nil {
+                            sendCompletionNotification()
+                        }
                         printClaudeHookAck()
                         return
                     }
@@ -22728,19 +22754,7 @@ struct CMUXCLI {
                         )
                     }
                 }
-                if let completion, !suppressNotification {
-                    let title = String(
-                        localized: "cli.claude-hook.notification.title",
-                        defaultValue: "Claude Code"
-                    )
-                    let payload = notificationPayload(
-                        title: title,
-                        subtitle: completion.subtitle,
-                        body: completion.body,
-                        meta: AgentHookNotifyCategory.turnComplete.metaSegment(pending: hasPendingBackgroundWork)
-                    )
-                    _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
-                }
+                sendCompletionNotification()
                 printClaudeHookAck()
             } catch {
                 if shouldIgnoreClaudeHookTeardownError(error) {
