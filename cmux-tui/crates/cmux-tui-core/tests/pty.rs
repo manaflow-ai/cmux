@@ -1,6 +1,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::TryRecvError;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -607,7 +608,9 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
         ..Default::default()
     });
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
-    surface.try_with_terminal(|term| term.vt_write(b"\x1b]12;rgb:20/40/60\x07")).unwrap();
+    surface
+        .try_with_terminal(|term| term.vt_write(b"\x1b]12;rgb:20/40/60\x07\x1b]4;4;#112233\x07"))
+        .unwrap();
 
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
     let stream = connect(&sock_path);
@@ -626,6 +629,7 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
             "cursor": "#204060",
             "selection_bg": null,
             "selection_fg": null,
+            "palette": {"4": "#112233"},
             "cursor_style": "bar",
             "cursor_blink": false,
         })
@@ -635,12 +639,22 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
     assert_eq!(response["id"], 1);
     assert_eq!(response["ok"], true, "attach failed: {response}");
 
+    mux.resize_surface(surface.id, 100, 40).unwrap();
+    let resized = (0..3)
+        .find_map(|_| {
+            let value = read_json_line(&mut reader)?;
+            (value["event"] == "resized").then_some(value)
+        })
+        .expect("resized attach event");
+    assert_eq!(resized["colors"], vt_state["colors"]);
+    assert!(resized.get("palette").is_none(), "colors must remain nested: {resized}");
+
     mux.close_surface(surface.id);
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
 #[test]
-fn control_socket_attach_vt_state_cursor_is_null_without_config_or_decscusr() {
+fn control_socket_attach_vt_state_reports_builtin_cursor_without_config() {
     let mux = Mux::new(unique_session("test-attach-cursor-null"), shell_opts("cat"));
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
 
@@ -651,8 +665,8 @@ fn control_socket_attach_vt_state_cursor_is_null_without_config_or_decscusr() {
 
     writeln!(writer, r#"{{"id":1,"cmd":"attach-surface","surface":{}}}"#, surface.id).unwrap();
     let vt_state = read_json_line(&mut reader).expect("vt-state event");
-    assert_eq!(vt_state["colors"]["cursor_style"], serde_json::Value::Null);
-    assert_eq!(vt_state["colors"]["cursor_blink"], serde_json::Value::Null);
+    assert_eq!(vt_state["colors"]["cursor_style"], "block");
+    assert_eq!(vt_state["colors"]["cursor_blink"], false);
 
     let response = read_json_line(&mut reader).expect("attach response");
     assert_eq!(response["ok"], true, "attach failed: {response}");
@@ -662,7 +676,7 @@ fn control_socket_attach_vt_state_cursor_is_null_without_config_or_decscusr() {
 }
 
 #[test]
-fn control_socket_attach_vt_state_prefers_surface_decscusr_cursor() {
+fn control_socket_attach_vt_state_reports_authoritative_cursor_before_replay() {
     let mux = Mux::new(unique_session("test-attach-cursor-override"), shell_opts("cat"));
     mux.set_default_colors(DefaultColors {
         cursor_style: Some(CursorShape::Bar),
@@ -691,7 +705,12 @@ fn control_socket_attach_vt_state_prefers_surface_decscusr_cursor() {
 
 #[test]
 fn control_socket_attach_stream_receives_merged_colors_changed() {
-    let mux = Mux::new(unique_session("test-colors-changed"), shell_opts("cat"));
+    let mux = Mux::new(
+        unique_session("test-colors-changed"),
+        shell_opts(
+            "read line; printf '\\033]21;0_1=#112233;foreground=#445566\\033\\\\'; read line; printf '\\033c'; sleep 30",
+        ),
+    );
     mux.set_default_colors(DefaultColors {
         fg: Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }),
         bg: None,
@@ -745,10 +764,43 @@ fn control_socket_attach_stream_receives_merged_colors_changed() {
             "cursor": null,
             "selection_bg": null,
             "selection_fg": null,
+            "palette": {},
             "cursor_style": "bar",
             "cursor_blink": false,
         })
     );
+
+    surface.write_bytes(b"continue\n").unwrap();
+    let live_event = wait_for(
+        || {
+            while let Some(value) = read_json_line(&mut attach_reader) {
+                if value.get("event").and_then(|value| value.as_str()) == Some("colors-changed") {
+                    return Some(value);
+                }
+            }
+            None
+        },
+        Duration::from_secs(5),
+    )
+    .expect("live colors-changed event");
+    assert_eq!(live_event["fg"], "#445566");
+    assert_eq!(live_event["palette"], serde_json::json!({"1": "#112233"}));
+
+    surface.write_bytes(b"reset\n").unwrap();
+    let reset_event = wait_for(
+        || {
+            while let Some(value) = read_json_line(&mut attach_reader) {
+                if value.get("event").and_then(|value| value.as_str()) == Some("colors-changed") {
+                    return Some(value);
+                }
+            }
+            None
+        },
+        Duration::from_secs(5),
+    )
+    .expect("RIS palette reapply event");
+    assert_eq!(reset_event["fg"], "#445566");
+    assert_eq!(reset_event["palette"], serde_json::json!({"1": "#112233"}));
 
     mux.close_surface(surface.id);
     cmux_tui_core::server::cleanup(&sock_path);
@@ -912,7 +964,7 @@ fn attach_stream_replays_then_streams_without_duplication() {
                     break;
                 }
             }
-            Ok(AttachFrame::Resized { cols, rows, replay }) => {
+            Ok(AttachFrame::Resized { cols, rows, replay, .. }) => {
                 assert!(!replay.is_empty());
                 mirror =
                     ghostty_vt::Terminal::new(cols, rows, 1000, ghostty_vt::Callbacks::default())
@@ -930,12 +982,28 @@ fn attach_stream_replays_then_streams_without_duplication() {
 }
 
 #[test]
+fn byte_attach_cursor_snapshot_does_not_fan_out_a_render_frame() {
+    let mux = Mux::new(unique_session("test-attach-no-render-fanout"), shell_opts("cat"));
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+    let render = surface.attach_render_stream().unwrap();
+
+    let _byte_attach = surface.attach_stream().unwrap();
+
+    assert!(matches!(render.stream.try_recv(), Err(TryRecvError::Empty)));
+    mux.close_surface(surface.id);
+}
+
+#[test]
 fn attach_stream_orders_resize_between_output_frames() {
-    let mux = Mux::new(unique_session("test-attach-resize"), shell_opts("cat"));
+    let mux = Mux::new(
+        unique_session("test-attach-resize"),
+        shell_opts(
+            "printf '\\033]4;4;#112233\\007before-resize\\n'; read line; printf 'after-resize\\n'; sleep 30",
+        ),
+    );
     let surface = mux.new_workspace(None, None).unwrap();
     let attach = surface.attach_stream().unwrap();
 
-    surface.write_bytes(b"before-resize\n").unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         match attach.stream.recv_timeout(Duration::from_millis(200)) {
@@ -952,8 +1020,9 @@ fn attach_stream_orders_resize_between_output_frames() {
     mux.resize_surface(surface.id, 100, 40).unwrap();
     let resized = wait_for(
         || match attach.stream.recv_timeout(Duration::from_millis(200)) {
-            Ok(AttachFrame::Resized { cols, rows, replay }) => {
+            Ok(AttachFrame::Resized { cols, rows, replay, colors }) => {
                 assert!(!replay.is_empty());
+                assert_eq!(colors.palette[4], Some(Rgb { r: 0x11, g: 0x22, b: 0x33 }));
                 Some((cols, rows))
             }
             Ok(_) | Err(_) => None,
@@ -963,7 +1032,7 @@ fn attach_stream_orders_resize_between_output_frames() {
     .expect("resize marker");
     assert_eq!(resized, (100, 40));
 
-    surface.write_bytes(b"after-resize\n").unwrap();
+    surface.write_bytes(b"continue\n").unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         match attach.stream.recv_timeout(Duration::from_millis(200)) {

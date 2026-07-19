@@ -73,6 +73,19 @@ public final class JsonTest {
         ResizeSurfaceResult reserved = ResizeSurfaceResult.from(Map.of("accepted", true, "reservation_id", 41));
         assertEquals(41L, reserved.reservationId(), "resize reservation identity");
         assertTrue(ResizeSurfaceResult.from(Map.of()).accepted(), "legacy resize accepted");
+        IdentifyResult identify = IdentifyResult.from((Map<String, Object>) Json.parse(
+            "{\"app\":\"cmux-tui\",\"version\":\"0.1.2\",\"build_commit\":\"cmux-sha\",\"ghostty_commit\":\"ghostty-sha\",\"protocol\":7,\"session\":\"main\",\"pid\":42}"
+        ));
+        assertEquals("cmux-sha", identify.buildCommit(), "identify build commit");
+        assertEquals("ghostty-sha", identify.ghosttyCommit(), "identify Ghostty commit");
+        IdentifyResult legacyIdentify = IdentifyResult.from((Map<String, Object>) Json.parse(
+            "{\"app\":\"cmux-tui\",\"version\":\"0.1.2\",\"protocol\":7,\"session\":\"main\",\"pid\":42}"
+        ));
+        assertEquals(null, legacyIdentify.buildCommit(), "legacy identify build commit");
+        assertEquals(null, legacyIdentify.ghosttyCommit(), "legacy identify Ghostty commit");
+        IdentifyResult sourceCompatible = new IdentifyResult("cmux-tui", "0.1.2", 7, "main", 42);
+        assertEquals(null, sourceCompatible.buildCommit(), "source-compatible build commit");
+        assertEquals(null, sourceCompatible.ghosttyCommit(), "source-compatible Ghostty commit");
     }
 
     private static void assertReject(String input) {

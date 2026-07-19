@@ -109,6 +109,15 @@ struct MobileIrohSettingsView: View {
                 ))
             }
 
+            #if DEBUG
+            if let mode = model.snapshot.debugTransportVerificationMode {
+                MobileIrohDebugTransportSection(
+                    mode: mode,
+                    setMode: model.setDebugTransportVerificationMode
+                )
+            }
+            #endif
+
             MobileIrohDiagnosticsSection(
                 connectionStatus: runtimeStatusText,
                 policyStatus: policyStatusText,
@@ -319,6 +328,56 @@ private extension MobileIrohSettingsView {
         }
     }
 }
+
+#if DEBUG
+@MainActor
+private struct MobileIrohDebugTransportSection: View {
+    let mode: CmxIrohTransportVerificationMode
+    let setMode: (CmxIrohTransportVerificationMode) -> Void
+
+    var body: some View {
+        Section {
+            Picker(
+                L10n.string(
+                    "mobile.iroh.debug.transportMode",
+                    defaultValue: "Transport Mode"
+                ),
+                selection: Binding(
+                    get: { mode },
+                    set: setMode
+                )
+            ) {
+                Text(L10n.string(
+                    "mobile.iroh.debug.transportMode.automatic",
+                    defaultValue: "Automatic"
+                ))
+                .tag(CmxIrohTransportVerificationMode.automatic)
+                Text(L10n.string(
+                    "mobile.iroh.debug.transportMode.relayOnly",
+                    defaultValue: "Relay Only"
+                ))
+                .tag(CmxIrohTransportVerificationMode.relayOnly)
+                Text(L10n.string(
+                    "mobile.iroh.debug.transportMode.directOnly",
+                    defaultValue: "No Relay (Direct Only)"
+                ))
+                .tag(CmxIrohTransportVerificationMode.directOnly)
+            }
+            .accessibilityIdentifier("MobileIrohDebugTransportMode")
+        } header: {
+            Text(L10n.string(
+                "mobile.iroh.debug",
+                defaultValue: "Debug Verification"
+            ))
+        } footer: {
+            Text(L10n.string(
+                "mobile.iroh.debug.footer",
+                defaultValue: "Changing this restarts Iroh without signing out or changing this app's device identity."
+            ))
+        }
+    }
+}
+#endif
 
 @MainActor
 private struct MobileIrohDiagnosticsSection: View {

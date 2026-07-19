@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 @testable import CmuxIrohTransport
 

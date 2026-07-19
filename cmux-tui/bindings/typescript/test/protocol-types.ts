@@ -77,7 +77,15 @@ const requests = [
 ] satisfies CmuxRequest[];
 
 type IdentifyData = CmuxResponseData<(typeof requests)[0]>;
-const identify: IdentifyData = { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 };
+const identify: IdentifyData = {
+  app: "cmux-tui",
+  version: "0.1.2",
+  build_commit: "cmux-sha",
+  ghostty_commit: null,
+  protocol: 8,
+  session: "main",
+  pid: 1,
+};
 void identify;
 
 const stackLayout = {
@@ -116,6 +124,7 @@ const colorsChanged: KnownCmuxEvent = {
   cursor: null,
   selection_bg: null,
   selection_fg: null,
+  palette: { "4": "#ff4f8b" },
   cursor_style: "bar",
   cursor_blink: false,
 };
@@ -134,6 +143,7 @@ const protocolV7Resize: KnownCmuxEvent = {
   cols: 80,
   rows: 24,
   replay: "cmVwbGF5",
+  colors: colorsChanged,
 };
 const clientEvents: KnownCmuxEvent[] = [
   { event: "client-attached", client: 2, transport: "ws", name: "browser", kind: "web" },

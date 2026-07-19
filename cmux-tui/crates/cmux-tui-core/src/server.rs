@@ -2009,12 +2009,21 @@ fn terminal_colors_json(colors: TerminalColors) -> Value {
         ghostty_vt::CursorShape::Underline => "underline",
         ghostty_vt::CursorShape::Block | ghostty_vt::CursorShape::BlockHollow => "block",
     });
+    let palette = colors
+        .palette
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, color)| {
+            color_hex(color).map(|color| (index.to_string(), Value::String(color)))
+        })
+        .collect::<serde_json::Map<String, Value>>();
     json!({
         "fg": color_hex(colors.fg),
         "bg": color_hex(colors.bg),
         "cursor": color_hex(colors.cursor),
         "selection_bg": color_hex(colors.selection_bg),
         "selection_fg": color_hex(colors.selection_fg),
+        "palette": palette,
         "cursor_style": cursor_style,
         "cursor_blink": colors.cursor_blink,
     })
@@ -2276,6 +2285,8 @@ fn handle_command(
         Command::Identify => Ok(json!({
             "app": "cmux-tui",
             "version": env!("CARGO_PKG_VERSION"),
+            "build_commit": stamped_build_commit(),
+            "ghostty_commit": stamped_ghostty_commit(),
             "protocol": PROTOCOL_VERSION,
             "session": mux.session,
             "pid": std::process::id(),
@@ -2283,6 +2294,8 @@ fn handle_command(
         Command::Ping => Ok(json!({
             "ok": true,
             "version": env!("CARGO_PKG_VERSION"),
+            "build_commit": stamped_build_commit(),
+            "ghostty_commit": stamped_ghostty_commit(),
             "protocol": PROTOCOL_VERSION,
         })),
         Command::SetClientInfo { name, kind } => {
@@ -3161,15 +3174,18 @@ fn handle_command(
                             "surface": surface_id,
                             "data": base64::engine::general_purpose::STANDARD.encode(chunk),
                         }),
-                        AttachFrame::Resized { cols, rows, replay } => json!({
-                            "event": "resized",
-                            "surface": surface_id,
-                            "cols": cols,
-                            "rows": rows,
-                            "replay": base64::engine::general_purpose::STANDARD.encode(replay),
-                        }),
+                        AttachFrame::Resized { cols, rows, replay, colors } => {
+                            json!({
+                                "event": "resized",
+                                "surface": surface_id,
+                                "cols": cols,
+                                "rows": rows,
+                                "replay": base64::engine::general_purpose::STANDARD.encode(replay),
+                                "colors": terminal_colors_json(*colors),
+                            })
+                        }
                         AttachFrame::ColorsChanged(colors) => {
-                            let mut value = terminal_colors_json(colors);
+                            let mut value = terminal_colors_json(*colors);
                             value["event"] = json!("colors-changed");
                             value["surface"] = json!(surface_id);
                             value
@@ -3188,6 +3204,16 @@ fn handle_command(
             Ok(json!({}))
         }
     }
+}
+
+fn stamped_build_commit() -> Option<&'static str> {
+    option_env!("CMUX_TUI_BUILD_COMMIT")
+        .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
+        .filter(|commit| !commit.is_empty())
+}
+
+fn stamped_ghostty_commit() -> Option<&'static str> {
+    option_env!("CMUX_TUI_GHOSTTY_COMMIT").filter(|commit| !commit.is_empty())
 }
 
 fn subscribed_event_json(event: &MuxEvent) -> Value {
@@ -3666,11 +3692,20 @@ mod tests {
     }
 
     #[test]
-    fn ping_returns_version_and_protocol() {
+    fn identify_and_ping_return_build_metadata() {
         let mux = test_mux();
+        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+        assert_eq!(identity["app"].as_str(), Some("cmux-tui"));
+        assert_eq!(identity["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
+        assert_eq!(identity["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
+        assert_eq!(identity["build_commit"].as_str(), stamped_build_commit());
+        assert_eq!(identity["ghostty_commit"].as_str(), stamped_ghostty_commit());
+
         let data = handle_command(&mux, 0, Command::Ping, &test_writer()).unwrap();
         assert_eq!(data["ok"].as_bool(), Some(true));
         assert_eq!(data["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
+        assert_eq!(data["build_commit"].as_str(), stamped_build_commit());
+        assert_eq!(data["ghostty_commit"].as_str(), stamped_ghostty_commit());
         assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
         assert_eq!(STABLE_SPLIT_IDS_PROTOCOL_VERSION, 8);
         assert_eq!(STACK_LAYOUT_PROTOCOL_VERSION, 9);
@@ -3732,6 +3767,53 @@ mod tests {
             handle_command(&mux, 0, unknown.cmd, &test_writer()).unwrap_err().to_string(),
             "unknown split 999999"
         );
+    }
+
+    #[test]
+    fn attached_client_resizes_preserve_smallest_grid_and_independent_reports() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+
+        let first_writer = test_writer();
+        let first_stream = first_writer.start_stream(&attach_overflow_json(surface.id)).unwrap();
+        let first = mux.control_clients.register(ClientTransport::Unix, first_writer.clone());
+        mux.control_clients.attach_surface(first, surface.id, first_stream).unwrap();
+
+        let second_writer = test_writer();
+        let second_stream = second_writer.start_stream(&attach_overflow_json(surface.id)).unwrap();
+        let second = mux.control_clients.register(ClientTransport::Unix, second_writer.clone());
+        mux.control_clients.attach_surface(second, surface.id, second_stream).unwrap();
+
+        let first_result = handle_command(
+            &mux,
+            first,
+            Command::ResizeSurface { surface: surface.id, cols: 100, rows: 30 },
+            &first_writer,
+        )
+        .unwrap();
+        assert_eq!(first_result["accepted"].as_bool(), Some(true));
+        assert_eq!(surface.size(), (100, 30));
+
+        let second_result = handle_command(
+            &mux,
+            second,
+            Command::ResizeSurface { surface: surface.id, cols: 132, rows: 44 },
+            &second_writer,
+        )
+        .unwrap();
+        assert_eq!(second_result["accepted"].as_bool(), Some(false));
+        assert_eq!(surface.size(), (100, 30));
+
+        let clients = mux.control_clients.list_json(first);
+        let clients = clients.as_array().unwrap();
+        let recorded_size = |client: u64| {
+            let record =
+                clients.iter().find(|record| record["client"].as_u64() == Some(client)).unwrap();
+            let size = record["sizes"].as_array().unwrap().first().unwrap();
+            (size["cols"].as_u64().unwrap(), size["rows"].as_u64().unwrap())
+        };
+        assert_eq!(recorded_size(first), (100, 30));
+        assert_eq!(recorded_size(second), (132, 44));
     }
 
     #[test]

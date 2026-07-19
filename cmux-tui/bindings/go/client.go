@@ -202,6 +202,16 @@ func (c *Client) Identify(ctx context.Context) (IdentifyResult, error) {
 	return result, err
 }
 
+// IdentifyDetailed identifies the server with optional immutable build revisions.
+func (c *Client) IdentifyDetailed(ctx context.Context) (IdentifyDetails, error) {
+	var result IdentifyDetails
+	err := c.request(ctx, "identify", nil, &result)
+	if err == nil {
+		c.protocol = &result.Protocol
+	}
+	return result, err
+}
+
 func (c *Client) requireProtocol(ctx context.Context, minimum uint32, feature string) error {
 	protocol := c.protocol
 	if protocol == nil {
