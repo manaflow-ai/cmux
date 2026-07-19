@@ -86,7 +86,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
         outerLines += [
             "    export CMUX_REAL_ZDOTDIR=\"${ZDOTDIR:-$HOME}\"",
             "    export ZDOTDIR=\"$cmux_shell_dir\"",
-            loginShellLaunchLine(kind: .zsh, initialCommand: initialCommand),
+            zshLoginShellLaunchLine(initialCommand: initialCommand),
             "    ;;",
             "  bash)",
             "    cat > \"$cmux_shell_dir/.bashrc\" <<'CMUXBASHRC'",
@@ -107,7 +107,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
         ]
         outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
         outerLines += [
-            loginShellLaunchLine(kind: .bash, initialCommand: initialCommand),
+            bashLoginShellLaunchLine(initialCommand: initialCommand),
             "    ;;",
             "  fish)",
         ]
@@ -115,13 +115,13 @@ enum RemoteInteractiveShellBootstrapBuilder {
         outerLines += [
             "    export CMUX_FISH_INTEGRATION_FILE=\"$cmux_shell_dir/fish/config.fish\"",
             "    export CMUX_FISH_USER_CONFIG_ALREADY_LOADED=1",
-            loginShellLaunchLine(kind: .fish, initialCommand: initialCommand),
+            fishLoginShellLaunchLine(initialCommand: initialCommand),
             "    ;;",
             "  *)",
         ]
         outerLines.append(contentsOf: relayWarmupLines)
         outerLines += [
-            loginShellLaunchLine(kind: .other, initialCommand: initialCommand),
+            otherLoginShellLaunchLine(initialCommand: initialCommand),
             ";;",
             "esac",
         ]
@@ -129,45 +129,45 @@ enum RemoteInteractiveShellBootstrapBuilder {
         return outerLines.joined(separator: "\n")
     }
 
-    private enum LoginShellKind {
-        case zsh
-        case bash
-        case fish
-        case other
-    }
-
-    private static func loginShellLaunchLine(
-        kind: LoginShellKind,
-        initialCommand: String?
-    ) -> String {
+    private static func resumeInvocation(_ initialCommand: String?) -> String? {
         let normalizedCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resumeInvocation = normalizedCommand.flatMap { command in
+        return normalizedCommand.flatMap { command in
             command.isEmpty ? nil : "/bin/sh -c \(shellQuote(command))"
         }
-        switch (kind, resumeInvocation) {
-        case (.zsh, .none):
+    }
+
+    private static func zshLoginShellLaunchLine(initialCommand: String?) -> String {
+        guard let resumeInvocation = resumeInvocation(initialCommand) else {
             return "    exec \"$CMUX_LOGIN_SHELL\" -il"
-        case (.zsh, .some(let resumeInvocation)):
-            let command = resumeInvocation + "\nexec \"$CMUX_LOGIN_SHELL\" -il"
-            return "    exec \"$CMUX_LOGIN_SHELL\" -ilc \(shellQuote(command))"
-        case (.bash, .none):
-            return "    exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i"
-        case (.bash, .some(let resumeInvocation)):
-            // The resumed shell only inherits the exported integration-directory variable.
-            let command = resumeInvocation +
-                "\nexec \"$CMUX_LOGIN_SHELL\" --rcfile \"$CMUX_SHELL_INTEGRATION_DIR/.bashrc\" -i"
-            return "    exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -ic \(shellQuote(command))"
-        case (.fish, .none):
-            return "    exec \"$CMUX_LOGIN_SHELL\" -il --init-command 'source \"$CMUX_FISH_INTEGRATION_FILE\"'"
-        case (.fish, .some(let resumeInvocation)):
-            let command = "source \"$CMUX_FISH_INTEGRATION_FILE\"; \(resumeInvocation)"
-            return "    exec \"$CMUX_LOGIN_SHELL\" -il --init-command \(shellQuote(command))"
-        case (.other, .none):
-            return "exec \"$CMUX_LOGIN_SHELL\" -i"
-        case (.other, .some(let resumeInvocation)):
-            let command = resumeInvocation + "\nexec \"$CMUX_LOGIN_SHELL\" -i"
-            return "exec \"$CMUX_LOGIN_SHELL\" -ic \(shellQuote(command))"
         }
+        let command = resumeInvocation + "\nexec \"$CMUX_LOGIN_SHELL\" -il"
+        return "    exec \"$CMUX_LOGIN_SHELL\" -ilc \(shellQuote(command))"
+    }
+
+    private static func bashLoginShellLaunchLine(initialCommand: String?) -> String {
+        guard let resumeInvocation = resumeInvocation(initialCommand) else {
+            return "    exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i"
+        }
+        // The resumed shell only inherits the exported integration-directory variable.
+        let command = resumeInvocation +
+            "\nexec \"$CMUX_LOGIN_SHELL\" --rcfile \"$CMUX_SHELL_INTEGRATION_DIR/.bashrc\" -i"
+        return "    exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -ic \(shellQuote(command))"
+    }
+
+    private static func fishLoginShellLaunchLine(initialCommand: String?) -> String {
+        guard let resumeInvocation = resumeInvocation(initialCommand) else {
+            return "    exec \"$CMUX_LOGIN_SHELL\" -il --init-command 'source \"$CMUX_FISH_INTEGRATION_FILE\"'"
+        }
+        let command = "source \"$CMUX_FISH_INTEGRATION_FILE\"; \(resumeInvocation)"
+        return "    exec \"$CMUX_LOGIN_SHELL\" -il --init-command \(shellQuote(command))"
+    }
+
+    private static func otherLoginShellLaunchLine(initialCommand: String?) -> String {
+        guard let resumeInvocation = resumeInvocation(initialCommand) else {
+            return "exec \"$CMUX_LOGIN_SHELL\" -i"
+        }
+        let command = resumeInvocation + "\nexec \"$CMUX_LOGIN_SHELL\" -i"
+        return "exec \"$CMUX_LOGIN_SHELL\" -ic \(shellQuote(command))"
     }
 
     static func shellFeatures(

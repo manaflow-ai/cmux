@@ -10,11 +10,6 @@ enum SurfaceResumeLaunchFlavor: Equatable, Hashable, Sendable {
         case remoteContext
     }
 
-    private enum Kind: String, Codable {
-        case local
-        case persistentSSH
-    }
-
     var executionLocationRawValue: String {
         switch self {
         case .local:
@@ -33,12 +28,18 @@ enum SurfaceResumeLaunchFlavor: Equatable, Hashable, Sendable {
 extension SurfaceResumeLaunchFlavor: Codable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        switch try container.decode(Kind.self, forKey: .kind) {
-        case .local:
+        switch try container.decode(String.self, forKey: .kind) {
+        case "local":
             self = .local
-        case .persistentSSH:
+        case "persistentSSH":
             self = .persistentSSH(
                 try container.decode(SurfaceResumeRemoteContext.self, forKey: .remoteContext)
+            )
+        default:
+            throw DecodingError.dataCorruptedError(
+                forKey: .kind,
+                in: container,
+                debugDescription: "Unsupported surface resume launch flavor"
             )
         }
     }
@@ -47,9 +48,9 @@ extension SurfaceResumeLaunchFlavor: Codable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case .local:
-            try container.encode(Kind.local, forKey: .kind)
+            try container.encode("local", forKey: .kind)
         case .persistentSSH(let context):
-            try container.encode(Kind.persistentSSH, forKey: .kind)
+            try container.encode("persistentSSH", forKey: .kind)
             try container.encode(context, forKey: .remoteContext)
         }
     }
