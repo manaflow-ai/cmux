@@ -6,6 +6,145 @@ import Testing
 
 @Suite("Agent session registry", .serialized)
 struct CmuxAgentSessionRegistryTests {
+    @Test("provider identifiers enforce the path-safe byte boundary")
+    func providerIdentifierValidationIsPathSafeAndByteBounded() {
+        #expect(CmuxAgentSessionRegistry.isSafeProviderIdentifier(String(repeating: "a", count: 128)))
+        #expect(!CmuxAgentSessionRegistry.isSafeProviderIdentifier(String(repeating: "a", count: 129)))
+        #expect(CmuxAgentSessionRegistry.isSafeProviderIdentifier("custom.agent_v2-beta"))
+        #expect(!CmuxAgentSessionRegistry.isSafeProviderIdentifier("../custom"))
+        #expect(!CmuxAgentSessionRegistry.isSafeProviderIdentifier("custom/agent"))
+        #expect(!CmuxAgentSessionRegistry.isSafeProviderIdentifier("café"))
+    }
+
+    @Test("provider enumeration is sorted, bounded, and rejects unsafe active IDs")
+    func providerEnumerationIsSortedBoundedAndSafe() throws {
+        let fixture = try Fixture()
+        for provider in ["z-provider", "a-provider", "m-provider"] {
+            try fixture.registry.apply(provider: provider, records: [
+                try fixture.record(sessionID: "session-\(provider)", updatedAt: 1, generation: 1),
+            ])
+        }
+        #expect(try fixture.registry.providerIdentifiers() == [
+            "a-provider", "m-provider", "z-provider",
+        ])
+        #expect(throws: CmuxAgentSessionRegistry.ProviderEnumerationLimitError.self) {
+            try fixture.registry.providerIdentifiers(maximumCount: 2)
+        }
+
+        let collisionFixture = try Fixture()
+        for provider in ["Custom", "custom"] {
+            try collisionFixture.registry.apply(provider: provider, records: [
+                try collisionFixture.record(
+                    sessionID: "session-\(provider)",
+                    updatedAt: 1,
+                    generation: 1
+                ),
+            ])
+        }
+        #expect(
+            Set(try collisionFixture.registry.providerIdentifiers(caseInsensitiveTo: "CUSTOM"))
+                == Set(["Custom", "custom"])
+        )
+
+        let unsafeFixture = try Fixture()
+        try unsafeFixture.registry.apply(provider: "../escape", records: [
+            try unsafeFixture.record(sessionID: "unsafe", updatedAt: 1, generation: 1),
+        ])
+        #expect(throws: CmuxAgentSessionRegistry.UnsafeProviderIdentifierError.self) {
+            try unsafeFixture.registry.providerIdentifiers()
+        }
+        #expect(try !unsafeFixture.registry.containsProviderIdentifier("../escape"))
+    }
+
+    @Test("provider enumeration admits 256 current providers and rejects the 257th")
+    func providerEnumerationBoundaryIsExplicit() throws {
+        let fixture = try Fixture()
+        try fixture.registry.withDatabase { database in
+            try fixture.registry.transaction(database) {
+                for index in 0..<CmuxAgentSessionRegistry.maximumProviderEnumerationCount {
+                    let provider = String(format: "provider-%03d", index)
+                    var record = try fixture.record(
+                        sessionID: "session-\(index)",
+                        updatedAt: TimeInterval(index),
+                        generation: 1
+                    )
+                    record.provider = provider
+                    try fixture.registry.upsert(record, database: database)
+                }
+            }
+        }
+        #expect(
+            try fixture.registry.providerIdentifiers().count
+                == CmuxAgentSessionRegistry.maximumProviderEnumerationCount
+        )
+
+        var overflow = try fixture.record(
+            sessionID: "session-overflow",
+            updatedAt: 1_000,
+            generation: 1
+        )
+        overflow.provider = "provider-overflow"
+        try fixture.registry.withDatabase { database in
+            try fixture.registry.transaction(database) {
+                try fixture.registry.upsert(overflow, database: database)
+            }
+        }
+        #expect(throws: CmuxAgentSessionRegistry.ProviderEnumerationLimitError.self) {
+            try fixture.registry.providerIdentifiers()
+        }
+        #expect(try fixture.registry.containsProviderIdentifier("provider-overflow"))
+    }
+
+    @Test("stale provider metadata cannot consume the active enumeration budget")
+    func staleProviderMetadataDoesNotConsumeEnumerationBudget() throws {
+        let fixture = try Fixture()
+        let activeProvider = "zzz-active-provider"
+        try fixture.registry.apply(provider: activeProvider, records: [
+            try fixture.record(sessionID: "active", updatedAt: 1, generation: 1),
+        ])
+        try fixture.registry.apply(provider: "retired-provider", records: [
+            try fixture.record(sessionID: "retired", updatedAt: 1, generation: 1),
+        ])
+        try fixture.registry.apply(
+            provider: "retired-provider",
+            records: [],
+            deletedSessionIDs: ["retired"]
+        )
+        try fixture.registry.withDatabase { database in
+            try fixture.registry.transaction(database) {
+                let statement = try fixture.registry.prepare(
+                    database,
+                    """
+                    INSERT INTO agent_provider_metadata (
+                        provider, revision, projected_revision, last_pruned_at,
+                        record_bytes, slot_bytes
+                    ) VALUES (?1, 1, 0, 0, 0, 0)
+                    """
+                )
+                defer { sqlite3_finalize(statement) }
+                for index in 0..<512 {
+                    sqlite3_reset(statement)
+                    sqlite3_clear_bindings(statement)
+                    try fixture.registry.bind(
+                        String(format: "%03d-stale-provider", index),
+                        to: 1,
+                        in: statement
+                    )
+                    try fixture.registry.stepDone(
+                        statement,
+                        database: database,
+                        operation: "seed stale provider metadata"
+                    )
+                }
+            }
+        }
+
+        #expect(try fixture.registry.providerIdentifiers(maximumCount: 1) == [activeProvider])
+        #expect(try fixture.registry.containsProviderIdentifier(activeProvider))
+        #expect(try !fixture.registry.containsProviderIdentifier("000-stale-provider"))
+        #expect(try !fixture.registry.containsProviderIdentifier("retired-provider"))
+    }
+
     @Test("legacy rewrites cannot erase current session metadata")
     func legacyRewriteDoesNotEraseCurrentMetadata() throws {
         let fixture = try Fixture()

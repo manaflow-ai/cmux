@@ -2,7 +2,6 @@ import CmuxFoundation
 import Foundation
 
 extension CMUXCLI {
-    private typealias SessionListAgentSpec = (name: String, displayName: String, sessionStoreSuffix: String, configDirEnvOverride: String?)
     private typealias CodexSessionListIndex = (indexedSessionIds: Set<String>, transcriptPathBySessionId: [String: String])
 
     func runSessionsCommand(
@@ -107,10 +106,25 @@ extension CMUXCLI {
             terminalObservations
         )
 
-        let agentSpecs = sessionsListAgentSpecs()
+        let agentSpecs: [AgentSessionProviderSpecification]
+        do {
+            agentSpecs = try agentSessionProviderSpecifications(
+                stateDirectory: stateDir,
+                homeDirectory: homeDirectory,
+                requestedAgent: agentRaw,
+                processEnv: processEnv,
+                fileManager: fileManager
+            )
+        } catch {
+            throw agentsProviderCatalogCLIError(
+                error,
+                stateDirectory: stateDir,
+                context: listContext
+            )
+        }
         let requestedAgent = agentRaw.map(agentsNormalizedAgentID)
-        var observationAgentIDs: Set<String> = []
-        let selectedSpecs: [SessionListAgentSpec]
+        var providerSelection: AgentSessionProviderSelection?
+        let selectedSpecs: [AgentSessionProviderSpecification]
         if let agentRaw, let normalized = requestedAgent {
             guard !normalized.isEmpty else {
                 throw CLIError(message: String(
@@ -118,24 +132,29 @@ extension CMUXCLI {
                     commandName
                 ))
             }
-            let providerID = agentSessionProviderID(
-                for: normalized,
+            let selection = agentSessionProviderSelection(
+                for: agentRaw,
+                availableProviderIDs: agentSpecs.map(\.name),
                 terminalObservations: canonicalTerminalObservations
             )
             let hasMatchingObservation = canonicalTerminalObservations.contains {
-                agentTerminalObservation($0, matchesAnyAgentID: [normalized])
+                agentTerminalObservation(
+                    $0,
+                    matches: selection,
+                    requestedNormalizedID: normalized
+                )
             }
-            guard providerID != nil || hasMatchingObservation else {
+            guard selection.providerID != nil || hasMatchingObservation else {
                 throw CLIError(message: String(
                     format: String(localized: "cli.sessions.error.unknownAgent", defaultValue: "%@ list: unknown agent '%@'"),
                     commandName,
                     agentRaw
                 ))
             }
-            selectedSpecs = providerID.map { providerID in
+            selectedSpecs = selection.providerID.map { providerID in
                 agentSpecs.filter { $0.name == providerID }
             } ?? []
-            observationAgentIDs = Set([normalized] + [providerID].compactMap { $0 })
+            providerSelection = selection
         } else {
             selectedSpecs = agentSpecs
         }
@@ -173,8 +192,13 @@ extension CMUXCLI {
         let defersProcessStateProbe = includeAll && stateFilter == nil
         let queryScope = AgentSessionQueryScope(includeHistory: includeAll, environment: processEnv)
         let matchingObservations = canonicalTerminalObservations.filter { observation in
-            if !observationAgentIDs.isEmpty,
-               !agentTerminalObservation(observation, matchesAnyAgentID: observationAgentIDs) {
+            if let providerSelection,
+               let requestedAgent,
+               !agentTerminalObservation(
+                   observation,
+                   matches: providerSelection,
+                   requestedNormalizedID: requestedAgent
+               ) {
                 return false
             }
             if let surfaceFilter,
@@ -203,6 +227,10 @@ extension CMUXCLI {
         let observationsByProcessKey = Dictionary(
             grouping: matchingObservations,
             by: { AgentTerminalObservationJoiner.processKey(observation: $0) }
+        )
+        let observationsByProvider = Dictionary(
+            grouping: matchingObservations,
+            by: \.sessionProviderID
         )
         var codexIndexes: [String: CodexSessionListIndex] = [:]
         let claudeTranscriptLookup = SessionsListClaudeTranscriptLookupCache(homeDirectory: homeDirectory)
@@ -367,9 +395,7 @@ extension CMUXCLI {
                 )] = record.sessionId
             }
 
-            let providerObservations = matchingObservations.filter {
-                $0.sessionProviderID == spec.name
-            }
+            let providerObservations = observationsByProvider[spec.name] ?? []
             processedObservationProviders.insert(spec.name)
             let observationProjection: (
                 nodesByID: [String: AgentSessionGraphNode],
@@ -1089,26 +1115,6 @@ extension CMUXCLI {
             payload["codex_transcript_path"] = NSNull()
         }
         return payload
-    }
-
-    private func sessionsListAgentSpecs() -> [SessionListAgentSpec] {
-        var specs: [SessionListAgentSpec] = [
-            (
-                name: "claude",
-                displayName: "Claude Code",
-                sessionStoreSuffix: "claude",
-                configDirEnvOverride: "CLAUDE_CONFIG_DIR"
-            )
-        ]
-        specs.append(contentsOf: Self.agentDefs.map {
-            (
-                name: $0.name,
-                displayName: $0.displayName,
-                sessionStoreSuffix: $0.sessionStoreSuffix,
-                configDirEnvOverride: $0.configDirEnvOverride
-            )
-        })
-        return specs
     }
 
     private func buildCodexDebugIndex(

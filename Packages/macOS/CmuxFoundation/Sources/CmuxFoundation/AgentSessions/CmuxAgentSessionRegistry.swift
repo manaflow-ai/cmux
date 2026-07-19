@@ -36,8 +36,32 @@ import SQLite3
 public struct CmuxAgentSessionRegistry: Sendable {
     public static let currentWriterGeneration = 1
     public static let filename = "agent-sessions.sqlite3"
+    /// Provider discovery feeds legacy sidecar paths, so identifiers are kept
+    /// deliberately smaller and stricter than arbitrary SQLite text values.
+    public static let maximumProviderIdentifierBytes = 128
+    /// A hard ceiling prevents corrupt or adversarial metadata from amplifying
+    /// one inspection command into an unbounded number of filesystem probes.
+    public static let maximumProviderEnumerationCount = 256
     static let optimisticConflictCode = -7_867
     static let maximumMutationAttempts = 64
+
+    public struct ProviderEnumerationLimitError: Error, Equatable, Sendable {
+        public var maximumCount: Int
+        public var observedAtLeast: Int
+
+        public init(maximumCount: Int, observedAtLeast: Int) {
+            self.maximumCount = maximumCount
+            self.observedAtLeast = observedAtLeast
+        }
+    }
+
+    public struct UnsafeProviderIdentifierError: Error, Equatable, Sendable {
+        public var provider: String
+
+        public init(provider: String) {
+            self.provider = provider
+        }
+    }
 
     public enum Scope: String, Hashable, Sendable {
         case workspace
@@ -244,6 +268,142 @@ public struct CmuxAgentSessionRegistry: Sendable {
                 .appendingPathComponent(".cmuxterm", isDirectory: true)
         }
         return directory.appendingPathComponent(filename, isDirectory: false)
+    }
+
+    /// Returns the registry's distinct providers in primary-key order.
+    ///
+    /// The metadata table has one row per provider and a provider primary key.
+    /// Reading at most one row beyond the effective limit keeps both SQLite work
+    /// and retained memory bounded while still reporting overflow explicitly.
+    public func providerIdentifiers(
+        maximumCount requestedMaximumCount: Int = CmuxAgentSessionRegistry.maximumProviderEnumerationCount
+    ) throws -> [String] {
+        let maximumCount = min(
+            max(0, requestedMaximumCount),
+            Self.maximumProviderEnumerationCount
+        )
+        return try withDatabase { database in
+            try readTransaction(database) {
+                let statement = try prepare(
+                    database,
+                    """
+                    SELECT provider FROM agent_provider_metadata
+                    WHERE record_bytes > 0 OR slot_bytes > 0
+                    ORDER BY provider
+                    LIMIT ?1
+                    """
+                )
+                defer { sqlite3_finalize(statement) }
+                let bindResult = sqlite3_bind_int64(statement, 1, Int64(maximumCount + 1))
+                guard bindResult == SQLITE_OK else {
+                    throw bindingError(bindResult)
+                }
+
+                var providers: [String] = []
+                providers.reserveCapacity(maximumCount)
+                while try stepRow(
+                    statement,
+                    database: database,
+                    operation: "enumerate agent session providers"
+                ) {
+                    guard let provider = text(statement, column: 0) else {
+                        throw corruptRowError(operation: "enumerate agent session providers")
+                    }
+                    guard Self.isSafeProviderIdentifier(provider) else {
+                        throw UnsafeProviderIdentifierError(provider: provider)
+                    }
+                    providers.append(provider)
+                }
+                guard providers.count <= maximumCount else {
+                    throw ProviderEnumerationLimitError(
+                        maximumCount: maximumCount,
+                        observedAtLeast: maximumCount + 1
+                    )
+                }
+                return providers
+            }
+        }
+    }
+
+    /// Performs one primary-key lookup for an exact, safe provider ID. This is
+    /// intentionally independent of full enumeration so a targeted inspection
+    /// still works when the registry contains more providers than the catalog
+    /// is willing to probe at once.
+    public func containsProviderIdentifier(_ provider: String) throws -> Bool {
+        guard Self.isSafeProviderIdentifier(provider) else { return false }
+        return try withDatabase { database in
+            try readTransaction(database) {
+                let statement = try prepare(
+                    database,
+                    """
+                    SELECT 1 FROM agent_provider_metadata
+                    WHERE provider = ?1 AND (record_bytes > 0 OR slot_bytes > 0)
+                    LIMIT 1
+                    """
+                )
+                defer { sqlite3_finalize(statement) }
+                try bind(provider, to: 1, in: statement)
+                return try stepRow(
+                    statement,
+                    database: database,
+                    operation: "find agent session provider"
+                )
+            }
+        }
+    }
+
+    /// Returns at most two active provider IDs that differ only by ASCII case.
+    /// Two rows are enough for callers to reject a sidecar-path collision. The
+    /// matching partial NOCASE index keeps this lookup independent of catalog
+    /// size, including when full enumeration exceeds its hard ceiling.
+    public func providerIdentifiers(caseInsensitiveTo provider: String) throws -> [String] {
+        guard Self.isSafeProviderIdentifier(provider) else { return [] }
+        return try withDatabase { database in
+            try readTransaction(database) {
+                let statement = try prepare(
+                    database,
+                    """
+                    SELECT provider FROM agent_provider_metadata
+                    WHERE provider = ?1 COLLATE NOCASE
+                        AND (record_bytes > 0 OR slot_bytes > 0)
+                    ORDER BY provider
+                    LIMIT 2
+                    """
+                )
+                defer { sqlite3_finalize(statement) }
+                try bind(provider, to: 1, in: statement)
+                var providers: [String] = []
+                while try stepRow(
+                    statement,
+                    database: database,
+                    operation: "find case-insensitive agent session providers"
+                ) {
+                    guard let provider = text(statement, column: 0),
+                          Self.isSafeProviderIdentifier(provider) else {
+                        throw corruptRowError(
+                            operation: "find case-insensitive agent session providers"
+                        )
+                    }
+                    providers.append(provider)
+                }
+                return providers
+            }
+        }
+    }
+
+    public static func isSafeProviderIdentifier(_ value: String) -> Bool {
+        let bytes = value.utf8
+        guard !bytes.isEmpty, bytes.count <= maximumProviderIdentifierBytes else {
+            return false
+        }
+        return bytes.allSatisfy { byte in
+            switch byte {
+            case 48...57, 65...90, 97...122, 45, 46, 95:
+                return true
+            default:
+                return false
+            }
+        }
     }
 
     public func snapshot(provider: String) throws -> Snapshot {

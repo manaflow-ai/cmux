@@ -2,6 +2,36 @@ import CmuxFoundation
 import Darwin
 import Foundation
 
+struct AgentSessionProviderSpecification: Sendable, Equatable {
+    var name: String
+    var displayName: String
+    var sessionStoreSuffix: String
+    var configDirEnvOverride: String?
+}
+
+struct AgentSessionProviderSelection: Sendable, Equatable {
+    var providerID: String?
+    /// Set only when the requested spelling is an exact catalog identifier.
+    /// Exact owners must not inherit live observations through a built-in
+    /// executable/family alias with the same spelling.
+    var exactObservationProviderID: String?
+}
+
+private struct AgentSessionConfiguredProvider: Sendable {
+    var id: String
+    var name: String
+}
+
+struct AgentSessionProviderCatalogLimitError: Error {
+    var maximumCount: Int
+    var observedAtLeast: Int
+}
+
+struct AgentSessionProviderCollisionError: Error {
+    var firstProvider: String
+    var secondProvider: String
+}
+
 struct AgentPrettyJSONStreamWriter {
     private static let flushThresholdBytes = 64 * 1_024
 
@@ -599,31 +629,376 @@ extension CMUXCLI {
         return try JSONDecoder().decode([CmuxAgentTerminalObservation].self, from: data)
     }
 
-    func agentSessionProviderID(
+    func agentSessionProviderSelection(
         for requestedAgent: String,
+        availableProviderIDs: [String] = [],
         terminalObservations: [CmuxAgentTerminalObservation]
-    ) -> String? {
+    ) -> AgentSessionProviderSelection {
+        let trimmed = requestedAgent.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Exact configured/registry ids own their spelling. This must happen
+        // before static alias expansion so a custom provider literally named
+        // `cursor-agent` remains queryable instead of becoming `cursor`.
+        if let exact = availableProviderIDs.first(where: { $0 == trimmed }) {
+            return AgentSessionProviderSelection(
+                providerID: exact,
+                exactObservationProviderID: exact
+            )
+        }
         let normalized = agentsNormalizedAgentID(requestedAgent)
         if normalized == "claude" || normalized == "claude-code" {
-            return "claude"
+            return AgentSessionProviderSelection(
+                providerID: "claude",
+                exactObservationProviderID: nil
+            )
         }
         // Ollama has live terminal observations and native restore support, but
         // no hook sidecar. Accept the canonical filter even when no app socket
         // is available so empty offline list/tree queries remain well-formed.
         if normalized == "ollama" {
-            return "ollama"
+            return AgentSessionProviderSelection(
+                providerID: "ollama",
+                exactObservationProviderID: nil
+            )
         }
         if let definition = Self.agentDef(named: normalized) {
-            return definition.name
+            return AgentSessionProviderSelection(
+                providerID: definition.name,
+                exactObservationProviderID: nil
+            )
+        }
+        let configuredMatches = Set(availableProviderIDs.filter {
+            agentsNormalizedAgentID($0) == normalized
+        })
+        if configuredMatches.count == 1 {
+            return AgentSessionProviderSelection(
+                providerID: configuredMatches.first,
+                exactObservationProviderID: nil
+            )
         }
         let observedProviders = Set(terminalObservations.compactMap { observation -> String? in
             guard agentTerminalObservation(observation, matchesAnyAgentID: [normalized]) else {
                 return nil
             }
-            return agentsNormalizedAgentID(observation.sessionProviderID)
+            return observation.sessionProviderID
         })
-        guard observedProviders.count == 1 else { return nil }
-        return observedProviders.first
+        guard observedProviders.count == 1 else {
+            return AgentSessionProviderSelection(
+                providerID: nil,
+                exactObservationProviderID: nil
+            )
+        }
+        return AgentSessionProviderSelection(
+            providerID: observedProviders.first,
+            exactObservationProviderID: nil
+        )
+    }
+
+    /// Builds the complete offline inspection catalog without enumerating the
+    /// state directory. Static providers win over config, the nearest project
+    /// config wins over the global config, and configured names win over the
+    /// registry's identifier fallback.
+    func agentSessionProviderSpecifications(
+        stateDirectory: String,
+        homeDirectory: String,
+        requestedAgent: String? = nil,
+        processEnv: [String: String],
+        fileManager: FileManager
+    ) throws -> [AgentSessionProviderSpecification] {
+        var specifications = [
+            AgentSessionProviderSpecification(
+                name: "claude",
+                displayName: "Claude Code",
+                sessionStoreSuffix: "claude",
+                configDirEnvOverride: "CLAUDE_CONFIG_DIR"
+            ),
+        ]
+        specifications.append(contentsOf: Self.agentDefs.map {
+            AgentSessionProviderSpecification(
+                name: $0.name,
+                displayName: $0.displayName,
+                sessionStoreSuffix: $0.sessionStoreSuffix,
+                configDirEnvOverride: $0.configDirEnvOverride
+            )
+        })
+        let staticProviderIDs = Set(specifications.map(\.name))
+        // These IDs are built-in hook providers and also own app-side Vault
+        // registrations. Config may rename them for display, but must retain
+        // the built-in sidecar and hook metadata.
+        let configurableStaticProviderIDs: Set<String> = [
+            "pi", "grok", "antigravity", "omp", "campfire",
+        ]
+        let exactRequestedProviderID = requestedAgent?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var staticProviderIDBySidecarKey: [String: String] = [:]
+        for specification in specifications {
+            staticProviderIDBySidecarKey[specification.name.lowercased()] = specification.name
+            staticProviderIDBySidecarKey[specification.sessionStoreSuffix.lowercased()] = specification.name
+        }
+        var indexByProviderID = Dictionary(
+            uniqueKeysWithValues: specifications.enumerated().map { ($0.element.name, $0.offset) }
+        )
+        var providerIDBySidecarKey = Dictionary(
+            uniqueKeysWithValues: specifications.map {
+                ($0.sessionStoreSuffix.lowercased(), $0.name)
+            }
+        )
+        var dynamicProviderCount = 0
+
+        func include(_ provider: AgentSessionConfiguredProvider, replacesConfigured: Bool) throws {
+            if staticProviderIDs.contains(provider.id) {
+                guard replacesConfigured,
+                      configurableStaticProviderIDs.contains(provider.id),
+                      let index = indexByProviderID[provider.id] else { return }
+                specifications[index].displayName = provider.name
+                return
+            }
+            let sidecarKey = provider.id.lowercased()
+            if let staticProviderID = staticProviderIDBySidecarKey[sidecarKey] {
+                throw AgentSessionProviderCollisionError(
+                    firstProvider: staticProviderID,
+                    secondProvider: provider.id
+                )
+            }
+            if let existingProviderID = providerIDBySidecarKey[sidecarKey],
+               existingProviderID != provider.id {
+                throw AgentSessionProviderCollisionError(
+                    firstProvider: existingProviderID,
+                    secondProvider: provider.id
+                )
+            }
+            let specification = AgentSessionProviderSpecification(
+                name: provider.id,
+                displayName: provider.name,
+                sessionStoreSuffix: provider.id,
+                configDirEnvOverride: nil
+            )
+            if let index = indexByProviderID[provider.id] {
+                if replacesConfigured { specifications[index] = specification }
+                return
+            }
+            guard dynamicProviderCount < CmuxAgentSessionRegistry.maximumProviderEnumerationCount else {
+                throw AgentSessionProviderCatalogLimitError(
+                    maximumCount: CmuxAgentSessionRegistry.maximumProviderEnumerationCount,
+                    observedAtLeast: dynamicProviderCount + 1
+                )
+            }
+            indexByProviderID[provider.id] = specifications.count
+            providerIDBySidecarKey[sidecarKey] = provider.id
+            specifications.append(specification)
+            dynamicProviderCount += 1
+        }
+
+        let configURLs = agentSessionProviderConfigURLs(
+            homeDirectory: homeDirectory,
+            workingDirectory: processEnv["PWD"],
+            fileManager: fileManager
+        )
+        for configURL in configURLs {
+            for provider in try agentSessionConfiguredProviders(
+                at: configURL,
+                matchingProviderID: exactRequestedProviderID,
+                fileManager: fileManager
+            ) {
+                try include(provider, replacesConfigured: true)
+            }
+        }
+
+        let registryURL: URL
+        if let explicit = processEnv["CMUX_AGENT_SESSION_REGISTRY_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicit.isEmpty {
+            registryURL = URL(fileURLWithPath: NSString(string: explicit).expandingTildeInPath)
+        } else {
+            registryURL = URL(fileURLWithPath: stateDirectory, isDirectory: true)
+                .appendingPathComponent(CmuxAgentSessionRegistry.filename, isDirectory: false)
+        }
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        let registryProviderIDs: [String]
+        if let exactRequestedProviderID,
+           CmuxAgentSessionRegistry.isSafeProviderIdentifier(exactRequestedProviderID) {
+            registryProviderIDs = try registry.providerIdentifiers(
+                caseInsensitiveTo: exactRequestedProviderID
+            )
+        } else if exactRequestedProviderID == nil {
+            registryProviderIDs = try registry.providerIdentifiers()
+        } else {
+            registryProviderIDs = []
+        }
+        for providerID in registryProviderIDs {
+            try include(
+                AgentSessionConfiguredProvider(id: providerID, name: providerID),
+                replacesConfigured: false
+            )
+        }
+        return specifications
+    }
+
+    func agentsProviderCatalogCLIError(
+        _ error: any Error,
+        stateDirectory: String,
+        context: AgentsValueOptionContext
+    ) -> CLIError {
+        let fallback = agentsStateUnavailableCLIError(
+            stateDirectory: stateDirectory,
+            context: context
+        )
+        switch error {
+        case let error as CmuxAgentSessionRegistry.ProviderEnumerationLimitError:
+            return CLIError(
+                message: fallback.message,
+                v2Code: "agent_provider_catalog_limit_exceeded",
+                structuredFields: CLIErrorStructuredFields(
+                    path: stateDirectory,
+                    maximumCount: Int64(error.maximumCount),
+                    recoveryAction: "narrow_agent_selection",
+                    observedAtLeast: error.observedAtLeast
+                )
+            )
+        case let error as AgentSessionProviderCatalogLimitError:
+            return CLIError(
+                message: fallback.message,
+                v2Code: "agent_provider_catalog_limit_exceeded",
+                structuredFields: CLIErrorStructuredFields(
+                    path: stateDirectory,
+                    maximumCount: Int64(error.maximumCount),
+                    recoveryAction: "narrow_agent_selection",
+                    observedAtLeast: error.observedAtLeast
+                )
+            )
+        case let error as CmuxAgentSessionRegistry.UnsafeProviderIdentifierError:
+            return CLIError(
+                message: fallback.message,
+                v2Code: "agent_provider_identifier_unsafe",
+                structuredFields: CLIErrorStructuredFields(
+                    provider: error.provider,
+                    path: stateDirectory,
+                    recoveryAction: "repair_agent_registry"
+                )
+            )
+        case let error as AgentSessionProviderCollisionError:
+            return CLIError(
+                message: fallback.message,
+                v2Code: "agent_provider_identifier_collision",
+                structuredFields: CLIErrorStructuredFields(
+                    provider: error.secondProvider,
+                    conflictingProvider: error.firstProvider,
+                    path: stateDirectory,
+                    scope: "case_insensitive_sidecar_suffix",
+                    recoveryAction: "rename_agent_provider"
+                )
+            )
+        default:
+            return fallback
+        }
+    }
+
+    private func agentSessionProviderConfigURLs(
+        homeDirectory: String,
+        workingDirectory: String?,
+        fileManager: FileManager
+    ) -> [URL] {
+        let home = (homeDirectory as NSString).standardizingPath
+        var urls = [
+            URL(fileURLWithPath: home, isDirectory: true)
+                .appendingPathComponent(".config/cmux/cmux.json", isDirectory: false),
+        ]
+        if let workingDirectory = workingDirectory?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !workingDirectory.isEmpty,
+           let localURL = agentSessionNearestProviderConfigURL(
+               startingAt: workingDirectory,
+               fileManager: fileManager
+           ) {
+            urls.append(localURL)
+        }
+        var seenPaths: Set<String> = []
+        return urls.filter { seenPaths.insert(($0.path as NSString).standardizingPath).inserted }
+    }
+
+    private func agentSessionNearestProviderConfigURL(
+        startingAt path: String,
+        fileManager: FileManager
+    ) -> URL? {
+        var isDirectory: ObjCBool = false
+        let start = fileManager.fileExists(atPath: path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
+            ? path
+            : (path as NSString).deletingLastPathComponent
+        var current = (start as NSString).standardizingPath
+        // Two exact probes per ancestor are predictable and avoid directory
+        // enumeration. Real paths reach the filesystem root well before 64.
+        for _ in 0..<64 {
+            let candidates = [
+                URL(fileURLWithPath: current, isDirectory: true)
+                    .appendingPathComponent(".cmux/cmux.json", isDirectory: false),
+                URL(fileURLWithPath: current, isDirectory: true)
+                    .appendingPathComponent("cmux.json", isDirectory: false),
+            ]
+            if let candidate = candidates.first(where: { fileManager.fileExists(atPath: $0.path) }) {
+                return candidate
+            }
+            let parent = (current as NSString).deletingLastPathComponent
+            guard parent != current else { return nil }
+            current = parent
+        }
+        return nil
+    }
+
+    private func agentSessionConfiguredProviders(
+        at url: URL,
+        matchingProviderID: String?,
+        fileManager: FileManager
+    ) throws -> [AgentSessionConfiguredProvider] {
+        guard fileManager.fileExists(atPath: url.path),
+              let handle = try? FileHandle(forReadingFrom: url) else {
+            return []
+        }
+        defer { try? handle.close() }
+        let maximumConfigBytes = 1_024 * 1_024
+        guard let data = try? handle.read(upToCount: maximumConfigBytes + 1),
+              !data.isEmpty,
+              data.count <= maximumConfigBytes,
+              let sanitized = try? JSONCParser.preprocess(data: data),
+              let root = try? JSONSerialization.jsonObject(with: sanitized) as? [String: Any],
+              let vault = root["vault"] as? [String: Any],
+              let registrations = vault["agents"] as? [[String: Any]] else {
+            return []
+        }
+        var providers: [AgentSessionConfiguredProvider] = []
+        providers.reserveCapacity(
+            min(registrations.count, CmuxAgentSessionRegistry.maximumProviderEnumerationCount)
+        )
+        var indexByProviderID: [String: Int] = [:]
+        for registration in registrations {
+            guard let rawID = registration["id"] as? String,
+                  let rawName = registration["name"] as? String,
+                  let resumeCommand = registration["resumeCommand"] as? String,
+                  registration["sessionIdSource"] != nil else {
+                continue
+            }
+            let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard CmuxAgentSessionRegistry.isSafeProviderIdentifier(id),
+                  !name.isEmpty,
+                  name.utf8.count <= 256,
+                  resumeCommand.contains("{{sessionId}}")
+                    || resumeCommand.contains("{{sessionPath}}") else {
+                continue
+            }
+            if let matchingProviderID,
+               id != matchingProviderID,
+               agentsNormalizedAgentID(id) != agentsNormalizedAgentID(matchingProviderID) {
+                continue
+            }
+            let provider = AgentSessionConfiguredProvider(id: id, name: name)
+            if let index = indexByProviderID[id] {
+                providers[index] = provider
+            } else {
+                indexByProviderID[id] = providers.count
+                providers.append(provider)
+            }
+        }
+        return providers
     }
 
     func agentTerminalObservation(
@@ -634,6 +1009,23 @@ extension CMUXCLI {
         let provider = agentsNormalizedAgentID(observation.sessionProviderID)
         let family = agentsNormalizedAgentID(observation.familyID)
         return normalizedIDs.contains(provider) || normalizedIDs.contains(family)
+    }
+
+    func agentTerminalObservation(
+        _ observation: CmuxAgentTerminalObservation,
+        matches selection: AgentSessionProviderSelection,
+        requestedNormalizedID: String
+    ) -> Bool {
+        if let exactProviderID = selection.exactObservationProviderID {
+            return observation.sessionProviderID == exactProviderID
+        }
+        return agentTerminalObservation(
+            observation,
+            matchesAnyAgentID: Set([
+                requestedNormalizedID,
+                selection.providerID,
+            ].compactMap { $0 })
+        )
     }
 
     func agentsNormalizedAgentID(_ value: String) -> String {

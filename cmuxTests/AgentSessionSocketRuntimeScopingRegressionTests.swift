@@ -4,6 +4,122 @@ import XCTest
 import Darwin
 
 extension CLINotifyProcessIntegrationRegressionTests {
+    func testExactCustomProviderDoesNotAbsorbBuiltInAliasObservationsInListOrTree() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-exact-observation-owner-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let socketPath = makeSocketPath("agent-exact-observation-owner")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let runtimeID = "target-runtime"
+        let customProvider = "cursor-agent"
+        let customSessionID = "custom-cursor-session"
+        let customRecord = Data("""
+        {"sessionId":"\(customSessionID)","workspaceId":"custom-workspace","surfaceId":"custom-surface","runId":"custom-run","activeRunId":"custom-run","restoreAuthority":true,"sessionState":"active","foregroundState":"idle","startedAt":100,"updatedAt":200,"runs":[{"runId":"custom-run","restoreAuthority":true,"startedAt":100,"updatedAt":200}]}
+        """.utf8)
+        let registry = CmuxAgentSessionRegistry(
+            url: root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        try registry.apply(provider: customProvider, records: [
+            CmuxAgentSessionRegistry.Record(
+                provider: customProvider,
+                sessionID: customSessionID,
+                updatedAt: 200,
+                json: customRecord
+            ),
+        ])
+
+        let observation = CmuxAgentTerminalObservation(
+            runtimeID: runtimeID,
+            workspaceID: UUID(),
+            surfaceID: UUID(),
+            surfaceGeneration: 1,
+            revision: 1,
+            familyID: "cursor-agent",
+            sessionProviderID: "cursor",
+            lifecycleAuthoritative: false,
+            state: .working,
+            pid: 202,
+            processStartSeconds: 200,
+            processStartMicroseconds: 2,
+            cwd: "/tmp/builtin-cursor",
+            publishedAt: 300
+        )
+        let observationObjects = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode([observation])) as? [Any]
+        )
+        let state = MockSocketServerState()
+        let serverHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: 2
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "system.capabilities":
+                return self.v2Response(id: id, ok: true, result: [
+                    "runtime_id": runtimeID,
+                    "socket_path": socketPath,
+                    "bundle_identifier": "com.cmuxterm.app.debug.target",
+                    "methods": ["agents.observations"],
+                ])
+            case "agents.observations":
+                return self.v2Response(id: id, ok: true, result: [
+                    "runtime_id": runtimeID,
+                    "observations": observationObjects,
+                ])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unknown_method", "message": method]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+
+        for (subcommand, resultKey) in [("list", "sessions"), ("tree", "nodes")] {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: [
+                    "agents", subcommand, "--agent", customProvider, "--all", "--json",
+                    "--state-dir", root.path,
+                ],
+                environment: environment,
+                timeout: 5
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+            let payload = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+            )
+            let rows = try XCTUnwrap(payload[resultKey] as? [[String: Any]])
+            XCTAssertEqual(rows.count, 1, result.stdout)
+            XCTAssertEqual(rows.first?["session_id"] as? String, customSessionID)
+            let returnedProvider = rows.first?["agent"] as? String
+                ?? rows.first?["provider"] as? String
+            XCTAssertEqual(returnedProvider, customProvider)
+            XCTAssertFalse(rows.contains { $0["pid"] as? Int == 202 }, result.stdout)
+        }
+        wait(for: [serverHandled], timeout: 1)
+    }
+
     func testAgentsListIncludesLiveProcessOnlyAgentsAndJoinsDurableSessions() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory

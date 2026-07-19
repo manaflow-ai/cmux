@@ -1436,6 +1436,408 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
     }
 
+    @Test func exactCustomProviderIDWinsOverStaticAliasWhileUnclaimedAliasStillWorks() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-exact-alias-\(UUID().uuidString)", isDirectory: true)
+        let customState = root.appendingPathComponent("custom-state", isDirectory: true)
+        let aliasState = root.appendingPathComponent("alias-state", isDirectory: true)
+        try FileManager.default.createDirectory(at: customState, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: aliasState, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let registry = CmuxAgentSessionRegistry(
+            url: customState.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        try seedAuthoritativeAgentSessions(count: 1, provider: "cursor-agent", registry: registry)
+        try writeAgentTreeStore(
+            parentIndices: [nil],
+            to: customState.appendingPathComponent("cursor-agent-hook-sessions.json")
+        )
+        // Keep the aliased built-in sidecar present too, so the selected row
+        // proves which provider the exact filter resolved.
+        try writeAgentTreeStore(
+            parentIndices: [nil],
+            to: customState.appendingPathComponent("cursor-hook-sessions.json")
+        )
+        try writeAgentTreeStore(
+            parentIndices: [nil],
+            to: aliasState.appendingPathComponent("cursor-hook-sessions.json")
+        )
+
+        let cliPath = try bundledCLIPath()
+        let environment = isolatedAgentTreeEnvironment(home: root)
+        for subcommand in ["list", "tree"] {
+            for (stateDirectory, expectedProvider) in [
+                (customState, "cursor-agent"),
+                (aliasState, "cursor"),
+            ] {
+                let result = runProcess(
+                    executablePath: cliPath,
+                    arguments: [
+                        "agents", subcommand, "--agent", "cursor-agent", "--all", "--json",
+                        "--state-dir", stateDirectory.path,
+                    ],
+                    environment: environment,
+                    timeout: 5
+                )
+                let context = "agents \(subcommand) exact alias in \(stateDirectory.lastPathComponent): \(result.stdout)"
+                #expect(!result.timedOut, Comment(rawValue: context))
+                #expect(result.status == 0, Comment(rawValue: context))
+                let payload = try #require(
+                    JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+                    Comment(rawValue: context)
+                )
+                let rows = subcommand == "list"
+                    ? try #require(payload["sessions"] as? [[String: Any]])
+                    : try #require(payload["nodes"] as? [[String: Any]])
+                #expect(rows.count == 1, Comment(rawValue: context))
+                let provider = rows.first?["agent"] as? String
+                    ?? rows.first?["provider"] as? String
+                #expect(provider == expectedProvider, Comment(rawValue: context))
+            }
+        }
+    }
+
+    @Test func configurableBuiltInProviderUsesNearestConfiguredDisplayNameOnly() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-static-display-\(UUID().uuidString)", isDirectory: true)
+        let stateDirectory = root.appendingPathComponent("state", isDirectory: true)
+        let globalConfigDirectory = root.appendingPathComponent(".config/cmux", isDirectory: true)
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let projectConfigDirectory = projectDirectory.appendingPathComponent(".cmux", isDirectory: true)
+        let workingDirectory = projectDirectory.appendingPathComponent("nested", isDirectory: true)
+        for directory in [
+            stateDirectory,
+            globalConfigDirectory,
+            projectConfigDirectory,
+            workingDirectory,
+        ] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        func writeConfig(piName: String, codexName: String, to url: URL) throws {
+            try JSONSerialization.data(withJSONObject: [
+                "vault": [
+                    "agents": [
+                        [
+                            "id": "pi",
+                            "name": piName,
+                            "sessionIdSource": ["type": "argvOption", "argvOption": "--session"],
+                            "resumeCommand": "pi --session {{sessionId}}",
+                        ],
+                        [
+                            "id": "codex",
+                            "name": codexName,
+                            "sessionIdSource": ["type": "argvOption", "argvOption": "--session"],
+                            "resumeCommand": "codex resume {{sessionId}}",
+                        ],
+                    ],
+                ],
+            ], options: [.sortedKeys]).write(to: url, options: .atomic)
+        }
+        try writeConfig(
+            piName: "Global Pi",
+            codexName: "Fake Global Codex",
+            to: globalConfigDirectory.appendingPathComponent("cmux.json")
+        )
+        try writeConfig(
+            piName: "Project Pi",
+            codexName: "Fake Project Codex",
+            to: projectConfigDirectory.appendingPathComponent("cmux.json")
+        )
+        for provider in ["pi", "codex"] {
+            try writeAgentTreeStore(
+                parentIndices: [nil],
+                to: stateDirectory.appendingPathComponent("\(provider)-hook-sessions.json")
+            )
+        }
+
+        var environment = isolatedAgentTreeEnvironment(home: root)
+        environment["PWD"] = workingDirectory.path
+        let cliPath = try bundledCLIPath()
+        for (provider, expectedDisplayName) in [
+            ("pi", "Project Pi"),
+            ("codex", "Codex"),
+        ] {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: [
+                    "agents", "list", "--agent", provider, "--all", "--json",
+                    "--state-dir", stateDirectory.path,
+                ],
+                environment: environment,
+                timeout: 5
+            )
+            let context = "agents list --agent \(provider): \(result.stdout)"
+            #expect(!result.timedOut, Comment(rawValue: context))
+            #expect(result.status == 0, Comment(rawValue: context))
+            let payload = try #require(
+                JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+                Comment(rawValue: context)
+            )
+            let rows = try #require(payload["sessions"] as? [[String: Any]])
+            #expect(rows.count == 1, Comment(rawValue: context))
+            #expect(
+                rows.first?["agent_display_name"] as? String == expectedDisplayName,
+                Comment(rawValue: context)
+            )
+        }
+    }
+
+    @Test func exactAgentInspectionSurvivesRegistryProviderEnumerationOverflow() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-provider-overflow-\(UUID().uuidString)", isDirectory: true)
+        let stateDirectory = root.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: stateDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let targetProvider = "overflow-target"
+        let registry = CmuxAgentSessionRegistry(
+            url: stateDirectory.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        try seedAuthoritativeAgentSessions(count: 1, provider: targetProvider, registry: registry)
+        try seedAuthoritativeAgentProviders(
+            (0..<CmuxAgentSessionRegistry.maximumProviderEnumerationCount).map {
+                String(format: "overflow-provider-%03d", $0)
+            },
+            registry: registry
+        )
+
+        let cliPath = try bundledCLIPath()
+        let environment = isolatedAgentTreeEnvironment(home: root)
+        for subcommand in ["list", "tree"] {
+            let filtered = runProcess(
+                executablePath: cliPath,
+                arguments: [
+                    "agents", subcommand, "--agent", targetProvider, "--all", "--json",
+                    "--state-dir", stateDirectory.path,
+                ],
+                environment: environment,
+                timeout: 5
+            )
+            let filteredContext = "agents \(subcommand) exact overflow: \(filtered.stdout)"
+            #expect(!filtered.timedOut, Comment(rawValue: filteredContext))
+            #expect(filtered.status == 0, Comment(rawValue: filteredContext))
+            let filteredPayload = try #require(
+                JSONSerialization.jsonObject(with: Data(filtered.stdout.utf8)) as? [String: Any],
+                Comment(rawValue: filteredContext)
+            )
+            let rows = subcommand == "list"
+                ? try #require(filteredPayload["sessions"] as? [[String: Any]])
+                : try #require(filteredPayload["nodes"] as? [[String: Any]])
+            #expect(rows.contains {
+                ($0["agent"] as? String) == targetProvider
+                    || ($0["provider"] as? String) == targetProvider
+            }, Comment(rawValue: filteredContext))
+
+            let unfiltered = runProcess(
+                executablePath: cliPath,
+                arguments: [
+                    "agents", subcommand, "--all", "--json",
+                    "--state-dir", stateDirectory.path,
+                ],
+                environment: environment,
+                timeout: 5
+            )
+            let unfilteredContext = "agents \(subcommand) unfiltered overflow: \(unfiltered.stdout)"
+            #expect(!unfiltered.timedOut, Comment(rawValue: unfilteredContext))
+            #expect(unfiltered.status != 0, Comment(rawValue: unfilteredContext))
+            let unfilteredPayload = try #require(
+                JSONSerialization.jsonObject(with: Data(unfiltered.stdout.utf8)) as? [String: Any],
+                Comment(rawValue: unfilteredContext)
+            )
+            let error = try #require(unfilteredPayload["error"] as? [String: Any])
+            #expect(error["code"] as? String == "agent_provider_catalog_limit_exceeded")
+            #expect(
+                error["maximum_count"] as? Int
+                    == CmuxAgentSessionRegistry.maximumProviderEnumerationCount
+            )
+            #expect(
+                error["observed_at_least"] as? Int
+                    == CmuxAgentSessionRegistry.maximumProviderEnumerationCount + 1
+            )
+        }
+    }
+
+    @Test func caseCollidingConfiguredAndRegistryProvidersFailBeforeSidecarImport() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-provider-collision-\(UUID().uuidString)", isDirectory: true)
+        let stateDirectory = root.appendingPathComponent("state", isDirectory: true)
+        let configDirectory = root.appendingPathComponent(".config/cmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try Data("""
+        {
+          "vault": {
+            "agents": [{
+              "id": "Custom",
+              "name": "Configured Custom",
+              "sessionIdSource": { "type": "argvOption", "argvOption": "--session" },
+              "resumeCommand": "custom --session {{sessionId}}"
+            }]
+          }
+        }
+        """.utf8).write(
+            to: configDirectory.appendingPathComponent("cmux.json"),
+            options: .atomic
+        )
+        let registry = CmuxAgentSessionRegistry(
+            url: stateDirectory.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        try seedAuthoritativeAgentSessions(count: 1, provider: "custom", registry: registry)
+        try writeAgentTreeStore(
+            parentIndices: [nil],
+            to: stateDirectory.appendingPathComponent("Custom-hook-sessions.json")
+        )
+
+        let cliPath = try bundledCLIPath()
+        let environment = isolatedAgentTreeEnvironment(home: root)
+        for subcommand in ["list", "tree"] {
+            for filter in [[], ["--agent", "Custom"]] {
+                let result = runProcess(
+                    executablePath: cliPath,
+                    arguments: ["agents", subcommand]
+                        + filter
+                        + ["--all", "--json", "--state-dir", stateDirectory.path],
+                    environment: environment,
+                    timeout: 5
+                )
+                let context = "agents \(subcommand) case collision \(filter): \(result.stdout)"
+                #expect(!result.timedOut, Comment(rawValue: context))
+                #expect(result.status != 0, Comment(rawValue: context))
+                let payload = try #require(
+                    JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+                    Comment(rawValue: context)
+                )
+                let error = try #require(payload["error"] as? [String: Any])
+                #expect(error["code"] as? String == "agent_provider_identifier_collision")
+                #expect(Set([
+                    error["provider"] as? String,
+                    error["conflicting_provider"] as? String,
+                ].compactMap { $0 }) == Set(["Custom", "custom"]))
+            }
+        }
+    }
+
+    @Test func caseDifferentStaticProviderCollisionsFailWhileExactStaticIDsRemainUsable() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-static-provider-collision-\(UUID().uuidString)", isDirectory: true)
+        let stateDirectory = root.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let registry = CmuxAgentSessionRegistry(
+            url: stateDirectory.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        try seedAuthoritativeAgentSessions(count: 1, provider: "codex", registry: registry)
+
+        let cliPath = try bundledCLIPath()
+        let environment = isolatedAgentTreeEnvironment(home: root)
+        for subcommand in ["list", "tree"] {
+            let exactStatic = runProcess(
+                executablePath: cliPath,
+                arguments: [
+                    "agents", subcommand, "--agent", "codex", "--all", "--json",
+                    "--state-dir", stateDirectory.path,
+                ],
+                environment: environment,
+                timeout: 5
+            )
+            let staticContext = "agents \(subcommand) exact static: \(exactStatic.stdout)"
+            #expect(!exactStatic.timedOut, Comment(rawValue: staticContext))
+            #expect(exactStatic.status == 0, Comment(rawValue: staticContext))
+        }
+
+        try seedAuthoritativeAgentSessions(count: 1, provider: "Codex", registry: registry)
+        for subcommand in ["list", "tree"] {
+
+            for filter in [[], ["--agent", "codex"], ["--agent", "Codex"]] {
+                let collision = runProcess(
+                    executablePath: cliPath,
+                    arguments: ["agents", subcommand]
+                        + filter
+                        + ["--all", "--json", "--state-dir", stateDirectory.path],
+                    environment: environment,
+                    timeout: 5
+                )
+                let context = "agents \(subcommand) static collision \(filter): \(collision.stdout)"
+                #expect(!collision.timedOut, Comment(rawValue: context))
+                #expect(collision.status != 0, Comment(rawValue: context))
+                let payload = try #require(
+                    JSONSerialization.jsonObject(with: Data(collision.stdout.utf8)) as? [String: Any],
+                    Comment(rawValue: context)
+                )
+                let error = try #require(payload["error"] as? [String: Any])
+                #expect(error["code"] as? String == "agent_provider_identifier_collision")
+            }
+        }
+    }
+
+    @Test func unsafeConfiguredProviderIDsCannotEscapeTheStateDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-unsafe-provider-\(UUID().uuidString)", isDirectory: true)
+        let stateDirectory = root.appendingPathComponent("state", isDirectory: true)
+        let configDirectory = root.appendingPathComponent(".config/cmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let unsafeProvider = "../escape"
+        try Data("""
+        {
+          "vault": {
+            "agents": [{
+              "id": "\(unsafeProvider)",
+              "name": "Unsafe Provider",
+              "sessionIdSource": { "type": "argvOption", "argvOption": "--session" },
+              "resumeCommand": "unsafe --session {{sessionId}}"
+            }]
+          }
+        }
+        """.utf8).write(
+            to: configDirectory.appendingPathComponent("cmux.json"),
+            options: .atomic
+        )
+        try writeAgentTreeStore(
+            parentIndices: [nil],
+            to: root.appendingPathComponent("escape-hook-sessions.json")
+        )
+
+        let cliPath = try bundledCLIPath()
+        let environment = isolatedAgentTreeEnvironment(home: root)
+        for subcommand in ["list", "tree"] {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: [
+                    "agents", subcommand, "--all", "--json",
+                    "--state-dir", stateDirectory.path,
+                ],
+                environment: environment,
+                timeout: 5
+            )
+            let context = "agents \(subcommand) unsafe provider: \(result.stdout)"
+            #expect(!result.timedOut, Comment(rawValue: context))
+            #expect(result.status == 0, Comment(rawValue: context))
+            let payload = try #require(
+                JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+                Comment(rawValue: context)
+            )
+            let rows = subcommand == "list"
+                ? try #require(payload["sessions"] as? [[String: Any]])
+                : try #require(payload["nodes"] as? [[String: Any]])
+            #expect(!rows.contains {
+                ($0["agent"] as? String) == unsafeProvider
+                    || ($0["provider"] as? String) == unsafeProvider
+            }, Comment(rawValue: context))
+        }
+    }
+
     @Test func providerStopAdapterDistinguishesInterruptionsFromCompletion() throws {
         let adapter = AgentStopStateAdapter()
         let kimiInterrupt = ClaudeHookParsedInput(
@@ -4096,6 +4498,85 @@ private func seedAuthoritativeAgentSessions(
         )
     }
     try registry.apply(provider: provider, records: records)
+}
+
+private func seedAuthoritativeAgentProviders(
+    _ providers: [String],
+    registry: CmuxAgentSessionRegistry
+) throws {
+    guard !providers.isEmpty else { return }
+    // One connection and transaction keep the 256-provider boundary fixture
+    // fast while exercising the same insert triggers as production writes.
+    var database: OpaquePointer?
+    guard sqlite3_open_v2(
+        registry.url.path,
+        &database,
+        SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
+        nil
+    ) == SQLITE_OK, let database else {
+        defer { if let database { sqlite3_close(database) } }
+        throw CocoaError(.fileReadUnknown)
+    }
+    defer { sqlite3_close(database) }
+    var statement: OpaquePointer?
+    guard sqlite3_prepare_v2(
+        database,
+        """
+        INSERT INTO agent_sessions (
+            provider, session_id, updated_at, writer_generation, record_json
+        ) VALUES (?1, ?2, ?3, ?4, ?5)
+        """,
+        -1,
+        &statement,
+        nil
+    ) == SQLITE_OK, let statement else {
+        throw CocoaError(.fileWriteUnknown)
+    }
+    defer { sqlite3_finalize(statement) }
+    guard sqlite3_exec(database, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK else {
+        throw CocoaError(.fileWriteUnknown)
+    }
+    do {
+        for (index, provider) in providers.enumerated() {
+            let sessionID = "provider-session-\(index)"
+            let json = try JSONSerialization.data(withJSONObject: [
+                "sessionId": sessionID,
+                "workspaceId": "provider-workspace-\(index)",
+                "surfaceId": "provider-surface-\(index)",
+                "startedAt": TimeInterval(index),
+                "updatedAt": TimeInterval(index),
+            ], options: [.sortedKeys])
+            sqlite3_reset(statement)
+            sqlite3_clear_bindings(statement)
+            let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+            guard provider.withCString({
+                sqlite3_bind_text(statement, 1, $0, -1, transient)
+            }) == SQLITE_OK,
+            sessionID.withCString({
+                sqlite3_bind_text(statement, 2, $0, -1, transient)
+            }) == SQLITE_OK else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            sqlite3_bind_double(statement, 3, TimeInterval(index))
+            sqlite3_bind_int64(
+                statement,
+                4,
+                sqlite3_int64(CmuxAgentSessionRegistry.currentWriterGeneration)
+            )
+            let blobStatus = json.withUnsafeBytes { bytes in
+                sqlite3_bind_blob(statement, 5, bytes.baseAddress, Int32(bytes.count), transient)
+            }
+            guard blobStatus == SQLITE_OK, sqlite3_step(statement) == SQLITE_DONE else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+        }
+        guard sqlite3_exec(database, "COMMIT", nil, nil, nil) == SQLITE_OK else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+    } catch {
+        sqlite3_exec(database, "ROLLBACK", nil, nil, nil)
+        throw error
+    }
 }
 
 private func agentSessionRegistryRecord(

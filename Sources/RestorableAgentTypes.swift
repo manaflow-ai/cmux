@@ -22,6 +22,40 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
     case ollama
     case custom(String)
 
+    /// Native values that must never be reinterpreted as a custom provider
+    /// solely because persisted state changed their ASCII letter case.
+    private static let nativeRawValues: Set<String> = [
+        "claude",
+        "codex",
+        "grok",
+        "pi",
+        "amp",
+        "cursor",
+        "gemini",
+        "kiro",
+        "antigravity",
+        "opencode",
+        "rovodev",
+        "hermes-agent",
+        "copilot",
+        "codebuddy",
+        "factory",
+        "qoder",
+        "kimi",
+        "ollama",
+    ]
+
+    /// Providers whose native enum case is only a decode compatibility shape.
+    /// Their embedded Vault registration owns resume and fork semantics.
+    static let registryOwnedRawValues: Set<String> = [
+        "grok",
+        "pi",
+        "antigravity",
+        "ollama",
+        "omp",
+        "campfire",
+    ]
+
     static let allCases: [RestorableAgentKind] = [
         .claude,
         .codex,
@@ -68,6 +102,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case "kimi": self = .kimi
         case "ollama": self = .ollama
         default:
+            guard !Self.nativeRawValues.contains(value.lowercased()) else { return nil }
             guard CmuxVaultAgentRegistration.isValidID(value) else { return nil }
             self = .custom(value)
         }

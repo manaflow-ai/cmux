@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import OSLog
 
@@ -56,7 +57,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             throw DecodingError.dataCorruptedError(
                 forKey: .id,
                 in: container,
-                debugDescription: "Vault agent id must contain only letters, numbers, dots, underscores, and hyphens"
+                debugDescription: "Vault agent id must contain only letters, numbers, dots, underscores, and hyphens and must not exceed 128 UTF-8 bytes"
             )
         }
 
@@ -106,8 +107,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
     }
 
     static func isValidID(_ value: String) -> Bool {
-        guard !value.isEmpty else { return false }
-        return value.range(of: #"^[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil
+        CmuxAgentSessionRegistry.isSafeProviderIdentifier(value)
     }
 
     private static func normalizedOptional(_ value: String?) -> String? {
@@ -116,7 +116,9 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
     }
 
     private static func isReservedID(_ value: String) -> Bool {
-        RestorableAgentKind.allCases.contains { $0.rawValue == value }
+        RestorableAgentKind.allCases.contains {
+            $0.rawValue.caseInsensitiveCompare(value) == .orderedSame
+        }
     }
 
     var defaultExecutable: String {
@@ -437,7 +439,24 @@ struct CmuxVaultAgentRegistry: Sendable {
                 ordered.append(registration)
             }
         }
-        self.registrations = ordered
+
+        var exactIDsByCaseFold: [String: Set<String>] = [:]
+        for registration in ordered {
+            exactIDsByCaseFold[registration.id.lowercased(), default: []]
+                .insert(registration.id)
+        }
+        let conflictingCaseFolds = Set(exactIDsByCaseFold.compactMap { key, exactIDs in
+            exactIDs.count > 1 ? key : nil
+        })
+        for caseFold in conflictingCaseFolds.sorted() {
+            let exactIDs = exactIDsByCaseFold[caseFold, default: []].sorted()
+            Self.logger.fault(
+                "Ignoring Vault registrations with case-colliding ids: \(exactIDs.joined(separator: ", "), privacy: .public)"
+            )
+        }
+        self.registrations = ordered.filter {
+            !conflictingCaseFolds.contains($0.id.lowercased())
+        }
     }
 
     func registration(id: String) -> CmuxVaultAgentRegistration? {

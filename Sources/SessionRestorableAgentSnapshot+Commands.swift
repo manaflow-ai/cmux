@@ -18,16 +18,28 @@ extension SessionRestorableAgentSnapshot {
             CmuxVaultAgentRegistration.self,
             forKey: .registration
         )?.migratedPersistedBuiltInRegistration
-        // Registry-detected snapshots persist `.custom(id)`, whose raw string
-        // collapses to the native case on decode when the id matches a
-        // built-in raw value. Restore the write-side identity whenever that
-        // collapse would change command semantics (registry-owned Pi or
-        // relaunch-only natives such as Ollama), so the stored registration
-        // keeps owning resume and fork behavior.
-        if (kind.restoreMode == .relaunchCommand || kind == .pi),
-           let registration,
-           registration.id == kind.rawValue {
-            kind = .custom(registration.id)
+        if let registration {
+            guard registration.id == kind.rawValue else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .registration,
+                    in: container,
+                    debugDescription: "Embedded Vault registration id '\(registration.id)' does not match restorable agent kind '\(kind.rawValue)'"
+                )
+            }
+            // Registry snapshots encode `.custom(id)` as the same string as a
+            // native compatibility case. Restore custom ownership for every
+            // registry-owned id so its persisted registration continues to
+            // define resume and fork behavior after app relaunch.
+            if kind.customAgentID == nil {
+                guard RestorableAgentKind.registryOwnedRawValues.contains(registration.id) else {
+                    throw DecodingError.dataCorruptedError(
+                        forKey: .registration,
+                        in: container,
+                        debugDescription: "Embedded Vault registration cannot override native agent kind '\(kind.rawValue)'"
+                    )
+                }
+                kind = .custom(registration.id)
+            }
         }
         self.init(
             kind: kind,

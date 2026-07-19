@@ -49,6 +49,7 @@ struct CLIError: Error, CustomStringConvertible {
 
 struct CLIErrorStructuredFields: Sendable {
     var provider: String? = nil
+    var conflictingProvider: String? = nil
     var path: String? = nil
     var scope: String? = nil
     var sessionID: String? = nil
@@ -66,6 +67,7 @@ struct CLIErrorStructuredFields: Sendable {
     var jsonObject: [String: Any] {
         var object: [String: Any] = [:]
         object["provider"] = (provider as Any?) ?? NSNull()
+        if let conflictingProvider { object["conflicting_provider"] = conflictingProvider }
         object["path"] = (path as Any?) ?? NSNull()
         object["scope"] = (scope as Any?) ?? NSNull()
         object["session_id"] = (sessionID as Any?) ?? NSNull()

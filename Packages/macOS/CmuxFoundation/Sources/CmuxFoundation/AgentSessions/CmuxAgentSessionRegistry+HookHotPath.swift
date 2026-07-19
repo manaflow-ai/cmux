@@ -1590,6 +1590,20 @@ extension CmuxAgentSessionRegistry {
                 )
             }
         }
+        // Provider discovery ignores historical metadata rows whose canonical
+        // records and slots have both been removed. The partial index lets the
+        // bounded ORDER BY/LIMIT query visit only providers with current data.
+        try execute(
+            database,
+            sql: """
+            CREATE INDEX IF NOT EXISTS agent_provider_metadata_active
+            ON agent_provider_metadata(provider)
+            WHERE record_bytes > 0 OR slot_bytes > 0;
+            CREATE INDEX IF NOT EXISTS agent_provider_metadata_active_nocase
+            ON agent_provider_metadata(provider COLLATE NOCASE)
+            WHERE record_bytes > 0 OR slot_bytes > 0
+            """
+        )
     }
 
     private func hookMutationContext(

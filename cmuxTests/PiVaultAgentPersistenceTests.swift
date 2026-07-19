@@ -9,6 +9,197 @@ import XCTest
 #endif
 
 final class PiVaultAgentPersistenceTests: XCTestCase {
+    func testVaultRegistrationIDsShareProviderPathSafetyAndReservedCaseRules() throws {
+        func payload(id: String) throws -> Data {
+            try JSONSerialization.data(withJSONObject: [
+                "id": id,
+                "name": "Boundary Agent",
+                "sessionIdSource": [
+                    "type": "argvOption",
+                    "argvOption": "--session",
+                ],
+                "resumeCommand": "boundary-agent --session {{sessionId}}",
+            ], options: [.sortedKeys])
+        }
+
+        let boundaryID = String(repeating: "a", count: 128)
+        let decoded = try JSONDecoder().decode(
+            CmuxVaultAgentRegistration.self,
+            from: payload(id: boundaryID)
+        )
+        XCTAssertEqual(decoded.id, boundaryID)
+
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(
+                CmuxVaultAgentRegistration.self,
+                from: payload(id: String(repeating: "a", count: 129))
+            )
+        ) { error in
+            XCTAssertTrue(String(describing: error).contains("128 UTF-8 bytes"))
+        }
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(
+                CmuxVaultAgentRegistration.self,
+                from: payload(id: "Codex")
+            )
+        )
+    }
+
+    func testRestorableAgentKindRejectsNativeCaseVariantsWithoutBreakingCanonicalRegistryKinds() throws {
+        XCTAssertNil(RestorableAgentKind(rawValue: "Codex"))
+        XCTAssertNil(RestorableAgentKind(rawValue: "GROK"))
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(RestorableAgentKind.self, from: Data(#""Codex""#.utf8))
+        )
+
+        let canonicalKinds: [(String, RestorableAgentKind)] = [
+            ("grok", .grok),
+            ("pi", .pi),
+            ("antigravity", .antigravity),
+            ("ollama", .ollama),
+        ]
+        for (rawValue, expected) in canonicalKinds {
+            let encoded = try JSONEncoder().encode(rawValue)
+            XCTAssertEqual(
+                try JSONDecoder().decode(RestorableAgentKind.self, from: encoded),
+                expected
+            )
+        }
+    }
+
+    func testVaultRegistryRejectsCaseCollisionsWithinOneConfigAndAgainstBuiltIns() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-case-collision-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try writeVaultConfig(
+            [
+                makeVaultRegistration(id: "Custom", name: "Upper Custom"),
+                makeVaultRegistration(id: "custom", name: "Lower Custom"),
+                makeVaultRegistration(id: "Pi", name: "Ambiguous Pi"),
+            ],
+            to: root.appendingPathComponent(".config/cmux/cmux.json")
+        )
+
+        let registry = CmuxVaultAgentRegistry.load(
+            homeDirectory: root.path,
+            workingDirectory: nil,
+            environment: [:]
+        )
+        XCTAssertNil(registry.registration(id: "Custom"))
+        XCTAssertNil(registry.registration(id: "custom"))
+        XCTAssertNil(registry.registration(id: "Pi"))
+        XCTAssertNil(registry.registration(id: "pi"))
+
+        let exactRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-exact-override-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: exactRoot) }
+        try writeVaultConfig(
+            [makeVaultRegistration(id: "pi", name: "Project Pi")],
+            to: exactRoot.appendingPathComponent(".config/cmux/cmux.json")
+        )
+        let exactRegistry = CmuxVaultAgentRegistry.load(
+            homeDirectory: exactRoot.path,
+            workingDirectory: nil,
+            environment: [:]
+        )
+        XCTAssertEqual(exactRegistry.registration(id: "pi")?.name, "Project Pi")
+    }
+
+    func testVaultRegistryRejectsGlobalProjectCaseCollisionButKeepsExactProjectOverride() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-layer-collision-\(UUID().uuidString)", isDirectory: true)
+        let project = root.appendingPathComponent("project", isDirectory: true)
+        let globalConfig = root.appendingPathComponent(".config/cmux/cmux.json")
+        let projectConfig = project.appendingPathComponent(".cmux/cmux.json")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try writeVaultConfig(
+            [
+                makeVaultRegistration(id: "Layered", name: "Global Layered"),
+                makeVaultRegistration(id: "exact", name: "Global Exact"),
+            ],
+            to: globalConfig
+        )
+        try writeVaultConfig(
+            [
+                makeVaultRegistration(id: "layered", name: "Project Layered"),
+                makeVaultRegistration(id: "exact", name: "Project Exact"),
+            ],
+            to: projectConfig
+        )
+
+        let registry = CmuxVaultAgentRegistry.load(
+            homeDirectory: root.path,
+            workingDirectory: project.path,
+            environment: [:]
+        )
+        XCTAssertNil(registry.registration(id: "Layered"))
+        XCTAssertNil(registry.registration(id: "layered"))
+        XCTAssertEqual(registry.registration(id: "exact")?.name, "Project Exact")
+    }
+
+    func testRegistryOwnedSnapshotRegistrationRoundTripsPreserveResumeAndForkOwnership() throws {
+        let ollama = makeVaultRegistration(id: "ollama", name: "Ollama")
+        let registrations = [
+            CmuxVaultAgentRegistration.builtInGrok,
+            CmuxVaultAgentRegistration.builtInPi,
+            ollama,
+            CmuxVaultAgentRegistration.builtInOmp,
+            CmuxVaultAgentRegistration.builtInCampfire,
+        ]
+
+        for base in registrations {
+            var project = base
+            project.name = "Project \(base.name)"
+            project.resumeCommand = "{{executable}} --project-resume {{sessionId}}"
+            project.forkCommand = "{{executable}} --project-fork {{sessionId}}"
+            let snapshot = SessionRestorableAgentSnapshot(
+                kind: .custom(project.id),
+                sessionId: "session-123",
+                workingDirectory: "/tmp/project",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: project.id,
+                    executablePath: "/opt/bin/\(project.id)",
+                    arguments: ["/opt/bin/\(project.id)"],
+                    workingDirectory: "/tmp/project",
+                    environment: nil,
+                    capturedAt: 123,
+                    source: "test"
+                ),
+                registration: project
+            )
+
+            let decoded = try JSONDecoder().decode(
+                SessionRestorableAgentSnapshot.self,
+                from: JSONEncoder().encode(snapshot)
+            )
+            XCTAssertEqual(decoded.kind, .custom(project.id), project.id)
+            XCTAssertEqual(decoded.registration, project, project.id)
+            XCTAssertTrue(decoded.resumeCommand?.contains("'--project-resume'") == true, project.id)
+            XCTAssertTrue(decoded.forkCommand?.contains("'--project-fork'") == true, project.id)
+        }
+    }
+
+    func testSnapshotDecodeRejectsMismatchedEmbeddedRegistrationIdentity() throws {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("snapshot-agent"),
+            sessionId: "session-123",
+            workingDirectory: nil,
+            launchCommand: nil,
+            registration: makeVaultRegistration(id: "different-agent", name: "Different Agent")
+        )
+
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(
+                SessionRestorableAgentSnapshot.self,
+                from: JSONEncoder().encode(snapshot)
+            )
+        ) { error in
+            XCTAssertTrue(String(describing: error).contains("does not match"))
+        }
+    }
+
     func testRegisteredSessionAgentCodablePreservesPresentation() throws {
         let encoded = try JSONEncoder().encode(
             SessionAgent.registered(RegisteredSessionAgent(
@@ -1319,5 +1510,31 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
                 )
             ]
         )
+    }
+
+    private func makeVaultRegistration(
+        id: String,
+        name: String
+    ) -> CmuxVaultAgentRegistration {
+        CmuxVaultAgentRegistration(
+            id: id,
+            name: name,
+            detect: CmuxVaultAgentDetectRule(processName: id),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "{{executable}} --resume {{sessionId}}",
+            cwd: .preserve
+        )
+    }
+
+    private func writeVaultConfig(
+        _ registrations: [CmuxVaultAgentRegistration],
+        to url: URL
+    ) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let config = CmuxConfigFile(vault: CmuxVaultConfigDefinition(agents: registrations))
+        try JSONEncoder().encode(config).write(to: url, options: .atomic)
     }
 }

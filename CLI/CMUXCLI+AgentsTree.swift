@@ -144,17 +144,40 @@ extension CMUXCLI {
             terminalObservations
         )
 
-        let specifications = [(name: "claude", suffix: "claude")] + Self.agentDefs.map {
-            (name: $0.name, suffix: $0.sessionStoreSuffix)
+        let homeDirectory = agentsTreeExpandedPath(processEnv["HOME"] ?? NSHomeDirectory())
+        let specifications: [AgentSessionProviderSpecification]
+        do {
+            specifications = try agentSessionProviderSpecifications(
+                stateDirectory: stateDirectory,
+                homeDirectory: homeDirectory,
+                requestedAgent: agentFilter,
+                processEnv: processEnv,
+                fileManager: fileManager
+            )
+        } catch {
+            throw agentsProviderCatalogCLIError(
+                error,
+                stateDirectory: stateDirectory,
+                context: .tree
+            )
         }
-        let providerID = normalizedAgent.flatMap {
-            agentSessionProviderID(for: $0, terminalObservations: canonicalTerminalObservations)
+        let providerSelection = normalizedAgent.map {
+            agentSessionProviderSelection(
+                for: agentFilter ?? $0,
+                availableProviderIDs: specifications.map(\.name),
+                terminalObservations: canonicalTerminalObservations
+            )
         }
         if let normalizedAgent {
             let hasMatchingObservation = canonicalTerminalObservations.contains {
-                agentTerminalObservation($0, matchesAnyAgentID: [normalizedAgent])
+                guard let providerSelection else { return false }
+                return agentTerminalObservation(
+                    $0,
+                    matches: providerSelection,
+                    requestedNormalizedID: normalizedAgent
+                )
             }
-            guard providerID != nil || hasMatchingObservation else {
+            guard providerSelection?.providerID != nil || hasMatchingObservation else {
                 throw CLIError(message: String(
                     format: String(
                         localized: "cli.agents.tree.error.unknownAgent",
@@ -164,13 +187,11 @@ extension CMUXCLI {
                 ))
             }
         }
-        let selectedSpecifications = if let normalizedAgent {
-            specifications.filter { $0.name.lowercased() == (providerID ?? normalizedAgent) }
+        let selectedSpecifications = if let providerID = providerSelection?.providerID {
+            specifications.filter { $0.name == providerID }
         } else {
-            specifications
+            normalizedAgent == nil ? specifications : []
         }
-        let observationAgentIDs = Set([normalizedAgent, providerID].compactMap { $0 })
-        let homeDirectory = agentsTreeExpandedPath(processEnv["HOME"] ?? NSHomeDirectory())
         let claudeTranscriptLookup = SessionsListClaudeTranscriptLookupCache(
             homeDirectory: homeDirectory,
             fileManager: fileManager
@@ -201,8 +222,13 @@ extension CMUXCLI {
             return state
         }
         let matchingObservations = canonicalTerminalObservations.filter { observation in
-            if !observationAgentIDs.isEmpty,
-               !agentTerminalObservation(observation, matchesAnyAgentID: observationAgentIDs) {
+            if let providerSelection,
+               let normalizedAgent,
+               !agentTerminalObservation(
+                   observation,
+                   matches: providerSelection,
+                   requestedNormalizedID: normalizedAgent
+               ) {
                 return false
             }
             if let normalizedSurface,
@@ -219,13 +245,19 @@ extension CMUXCLI {
             grouping: matchingObservations,
             by: { AgentTerminalObservationJoiner.processKey(observation: $0) }
         )
+        let observationsByProvider = Dictionary(
+            grouping: matchingObservations,
+            by: \.sessionProviderID
+        )
         let snapshotLoad: AgentHookSessionRegistrySnapshots
         do {
             // Storage admission has its own hard ceiling. The user-facing node
             // budget is enforced below after provider/session/workspace filters,
             // so narrowing a large registry can actually make the query fit.
             snapshotLoad = try AgentHookSessionRegistryBridge.snapshots(
-                specifications: selectedSpecifications.map { (provider: $0.name, suffix: $0.suffix) },
+                specifications: selectedSpecifications.map {
+                    (provider: $0.name, suffix: $0.sessionStoreSuffix)
+                },
                 stateDirectory: stateDirectory,
                 environment: processEnv,
                 fileManager: fileManager
@@ -256,9 +288,7 @@ extension CMUXCLI {
                     normalizedActivity: normalizedActivity,
                     normalizedWorkKind: normalizedWorkKind,
                     observationsByProcessKey: observationsByProcessKey,
-                    terminalObservations: matchingObservations.filter {
-                        $0.sessionProviderID == specification.name
-                    },
+                    terminalObservations: observationsByProvider[specification.name] ?? [],
                     claudeTranscriptLookup: claudeTranscriptLookup,
                     processStateLookup: processStateLookup,
                     maximumNodes: remainingPreflightNodes
@@ -287,7 +317,10 @@ extension CMUXCLI {
         var storeWarnings = snapshotLoad.warnings
         for specification in selectedSpecifications {
             let url = URL(fileURLWithPath: stateDirectory, isDirectory: true)
-                .appendingPathComponent("\(specification.suffix)-hook-sessions.json", isDirectory: false)
+                .appendingPathComponent(
+                    "\(specification.sessionStoreSuffix)-hook-sessions.json",
+                    isDirectory: false
+                )
             var storeEnvironment = processEnv
             storeEnvironment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDirectory
             storeEnvironment["CMUX_CLAUDE_HOOK_STATE_PATH"] = url.path
@@ -335,9 +368,7 @@ extension CMUXCLI {
                     )] = record.sessionId
                 }
             }
-            let providerObservations = matchingObservations.filter {
-                $0.sessionProviderID == specification.name
-            }
+            let providerObservations = observationsByProvider[specification.name] ?? []
             processedObservationProviders.insert(specification.name)
             var observationCandidates = AgentTerminalObservationCandidateAccumulator(
                 observations: providerObservations,
