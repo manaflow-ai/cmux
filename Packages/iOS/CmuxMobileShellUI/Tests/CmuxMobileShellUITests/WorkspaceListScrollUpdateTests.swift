@@ -5,17 +5,32 @@ import UIKit
 @testable import CmuxMobileShellUI
 
 @MainActor
+private final class WorkspaceListInteractionTestTableView: WorkspaceListUITableView {
+    var reportsTracking = false
+    var reportsDragging = false
+    var reportsDecelerating = false
+
+    override var isTracking: Bool { reportsTracking }
+    override var isDragging: Bool { reportsDragging }
+    override var isDecelerating: Bool { reportsDecelerating }
+}
+
+@MainActor
 @Suite struct WorkspaceListScrollUpdateTests {
     @Test func liveSnapshotWaitsForDirectionReversalToFinish() {
         let initial = configuration(workspaceIDs: ["workspace-1"])
         let coordinator = WorkspaceListTableCoordinator(configuration: initial)
-        let tableView = WorkspaceListUITableView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let tableView = WorkspaceListInteractionTestTableView(
+            frame: CGRect(x: 0, y: 0, width: 390, height: 844)
+        )
         coordinator.attach(to: tableView)
         coordinator.update(configuration: initial, in: tableView)
         #expect(tableView.numberOfRows(inSection: 0) == 1)
 
         let scrollDelegate: any UIScrollViewDelegate = coordinator
-        scrollDelegate.scrollViewWillBeginDragging?(tableView)
+        tableView.reportsDragging = true
+        tableView.reportsDragging = false
+        tableView.reportsDecelerating = true
         scrollDelegate.scrollViewDidEndDragging?(tableView, willDecelerate: true)
 
         let liveUpdate = configuration(workspaceIDs: ["workspace-1", "workspace-2"])
@@ -25,7 +40,10 @@ import UIKit
             "A live workspace update must not mutate the table while the first flick is decelerating."
         )
 
-        scrollDelegate.scrollViewWillBeginDragging?(tableView)
+        tableView.reportsDecelerating = false
+        tableView.reportsTracking = true
+        tableView.reportsDragging = true
+        scrollDelegate.scrollViewDidEndDecelerating?(tableView)
         #expect(
             tableView.numberOfRows(inSection: 0) == 1,
             "Grabbing a decelerating list to reverse direction must keep the pending snapshot staged."
@@ -40,6 +58,8 @@ import UIKit
             "Updates received during the reverse drag must remain staged."
         )
 
+        tableView.reportsTracking = false
+        tableView.reportsDragging = false
         scrollDelegate.scrollViewDidEndDragging?(tableView, willDecelerate: false)
         #expect(
             tableView.numberOfRows(inSection: 0) == 3,
@@ -50,18 +70,21 @@ import UIKit
     @Test func liveSnapshotAppliesAfterDecelerationEnds() {
         let initial = configuration(workspaceIDs: ["workspace-1"])
         let coordinator = WorkspaceListTableCoordinator(configuration: initial)
-        let tableView = WorkspaceListUITableView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let tableView = WorkspaceListInteractionTestTableView(
+            frame: CGRect(x: 0, y: 0, width: 390, height: 844)
+        )
         coordinator.attach(to: tableView)
         coordinator.update(configuration: initial, in: tableView)
 
         let scrollDelegate: any UIScrollViewDelegate = coordinator
-        scrollDelegate.scrollViewWillBeginDragging?(tableView)
+        tableView.reportsDecelerating = true
         scrollDelegate.scrollViewDidEndDragging?(tableView, willDecelerate: true)
         coordinator.update(
             configuration: configuration(workspaceIDs: ["workspace-1", "workspace-2"]),
             in: tableView
         )
 
+        tableView.reportsDecelerating = false
         scrollDelegate.scrollViewDidEndDecelerating?(tableView)
         #expect(
             tableView.numberOfRows(inSection: 0) == 2,
@@ -72,14 +95,14 @@ import UIKit
     @Test func rebindingDuringInterruptedScrollDoesNotKeepUpdatesStaged() {
         let initial = configuration(workspaceIDs: ["workspace-1"])
         let coordinator = WorkspaceListTableCoordinator(configuration: initial)
-        let firstTable = WorkspaceListUITableView(
+        let firstTable = WorkspaceListInteractionTestTableView(
             frame: CGRect(x: 0, y: 0, width: 390, height: 844)
         )
         coordinator.attach(to: firstTable)
         coordinator.update(configuration: initial, in: firstTable)
 
-        let scrollDelegate: any UIScrollViewDelegate = coordinator
-        scrollDelegate.scrollViewWillBeginDragging?(firstTable)
+        firstTable.reportsTracking = true
+        firstTable.reportsDragging = true
         let liveUpdate = configuration(workspaceIDs: ["workspace-1", "workspace-2"])
         coordinator.update(configuration: liveUpdate, in: firstTable)
 
@@ -87,7 +110,6 @@ import UIKit
             frame: CGRect(x: 0, y: 0, width: 390, height: 844)
         )
         coordinator.attach(to: replacementTable)
-        coordinator.update(configuration: liveUpdate, in: replacementTable)
 
         let replacementRowCount = replacementTable.numberOfSections == 0
             ? 0

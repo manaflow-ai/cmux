@@ -9,12 +9,6 @@ import UIKit
 final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     UITableViewDragDelegate, UITableViewDropDelegate
 {
-    private enum ScrollPhase {
-        case idle
-        case dragging
-        case decelerating
-    }
-
     private enum HeightKind: Hashable {
         case workspaceUniform
         case workspaceWrapped(id: MobileWorkspacePreview.ID, name: String, isSelected: Bool)
@@ -42,8 +36,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private let sizingCell = UITableViewCell(style: .default, reuseIdentifier: nil)
     private var heightCache: [HeightCacheKey: CGFloat] = [:]
     private var dropJustCompleted = false
-    private var scrollPhase = ScrollPhase.idle
     private var pendingConfiguration: WorkspaceListTable?
+    private weak var attachedTableView: WorkspaceListUITableView?
 
     init(configuration: WorkspaceListTable) {
         self.configuration = configuration
@@ -51,6 +45,15 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     }
 
     func attach(to tableView: WorkspaceListUITableView) {
+        attachedTableView?.panGestureRecognizer.removeTarget(
+            self,
+            action: #selector(scrollPanGestureStateChanged(_:))
+        )
+        attachedTableView = tableView
+        tableView.panGestureRecognizer.addTarget(
+            self,
+            action: #selector(scrollPanGestureStateChanged(_:))
+        )
         tableView.delegate = self
         tableView.dragDelegate = self
         tableView.dropDelegate = self
@@ -75,6 +78,15 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             self.heightCache.removeAll(keepingCapacity: true)
             tableView.reloadData()
         }
+
+        let latestConfiguration = pendingConfiguration ?? configuration
+        pendingConfiguration = nil
+        previousConfiguration = nil
+        apply(
+            configuration: latestConfiguration,
+            in: tableView,
+            animatingDifferences: false
+        )
     }
 
     func update(configuration next: WorkspaceListTable, in tableView: UITableView) {
@@ -87,36 +99,44 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         apply(configuration: next, in: tableView)
     }
 
-    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-        scrollPhase = .dragging
-    }
-
     func scrollViewDidEndDragging(
         _ scrollView: UIScrollView,
         willDecelerate decelerate: Bool
     ) {
-        if decelerate {
-            scrollPhase = .decelerating
-        } else {
-            finishScrollInteraction(in: scrollView)
-        }
+        guard !decelerate else { return }
+        applyPendingConfiguration(in: scrollView)
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         // UIKit can finish the old deceleration after a new finger has already
         // grabbed the list. Keep the snapshot staged through that reversal.
-        guard scrollPhase != .dragging else { return }
-        finishScrollInteraction(in: scrollView)
+        guard
+            let tableView = scrollView as? UITableView,
+            !shouldStageConfiguration(in: tableView)
+        else { return }
+        applyPendingConfiguration(in: tableView)
+    }
+
+    @objc private func scrollPanGestureStateChanged(_ gestureRecognizer: UIPanGestureRecognizer) {
+        switch gestureRecognizer.state {
+        case .ended, .cancelled, .failed:
+            guard
+                let tableView = gestureRecognizer.view as? UITableView,
+                !shouldStageConfiguration(in: tableView)
+            else { return }
+            applyPendingConfiguration(in: tableView)
+        default:
+            return
+        }
     }
 
     private func shouldStageConfiguration(in tableView: UITableView) -> Bool {
-        scrollPhase != .idle
+        tableView.isTracking
             || tableView.isDragging
             || tableView.isDecelerating
     }
 
-    private func finishScrollInteraction(in scrollView: UIScrollView) {
-        scrollPhase = .idle
+    private func applyPendingConfiguration(in scrollView: UIScrollView) {
         guard
             let tableView = scrollView as? UITableView,
             let pendingConfiguration

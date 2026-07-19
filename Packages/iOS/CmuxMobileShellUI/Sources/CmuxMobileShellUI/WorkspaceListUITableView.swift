@@ -3,7 +3,7 @@ import UIKit
 
 /// Table view that reports the two layout changes which invalidate exact row heights.
 @MainActor
-final class WorkspaceListUITableView: UITableView {
+class WorkspaceListUITableView: UITableView {
     var layoutMetricsDidChange: (() -> Void)?
 
     private var measuredWidth: CGFloat = 0
