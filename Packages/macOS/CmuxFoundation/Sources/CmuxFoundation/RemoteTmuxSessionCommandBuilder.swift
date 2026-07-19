@@ -72,20 +72,33 @@ public struct RemoteTmuxSessionCommandBuilder: Sendable {
         "CMUX_SURFACE_ID",
     ]
 
+    private static let transientEnvironmentKeys = [
+        "CMUX_INITIAL_COMMAND_FILE",
+    ]
+
     private static var workspaceEnvironmentRebindingLines: [String] {
         workspaceEnvironmentKeys.map { key in
             "if [ \"${\(key)+x}\" = x ]; then \"$cmux_tmux\" set-environment -t \"$cmux_session_target\" \(key) \"$\(key)\" >/dev/null || exit $?; else \"$cmux_tmux\" set-environment -t \"$cmux_session_target\" -u \(key) >/dev/null || exit $?; fi"
-        } + surfaceEnvironmentClearingLines
+        } + transientEnvironmentClearingLines + surfaceEnvironmentClearingLines
     }
 
     private static var newSessionEnvironmentArguments: String {
         let workspaceArguments = workspaceEnvironmentKeys.map { key in
             "-e \"\(key)=${\(key)-}\""
         }
+        let transientArguments = transientEnvironmentKeys.map { key in
+            "-e \"\(key)=${\(key)-}\""
+        }
         let surfaceArguments = surfaceEnvironmentKeys.map { key in
             "-e \"\(key)=\""
         }
-        return (workspaceArguments + surfaceArguments).joined(separator: " ")
+        return (workspaceArguments + transientArguments + surfaceArguments).joined(separator: " ")
+    }
+
+    private static var transientEnvironmentClearingLines: [String] {
+        transientEnvironmentKeys.map { key in
+            "\"$cmux_tmux\" set-environment -t \"$cmux_session_target\" -u \(key) >/dev/null || exit $?"
+        }
     }
 
     private static var surfaceEnvironmentClearingLines: [String] {
