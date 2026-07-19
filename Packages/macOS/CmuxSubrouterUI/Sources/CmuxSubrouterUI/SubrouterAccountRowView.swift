@@ -8,6 +8,7 @@ public import CmuxSubrouter
 /// per the sidebar snapshot-boundary rule.
 public struct SubrouterAccountRowView: View {
     private let account: SubrouterAccountUsageStatus
+    private let usageHistory: SubrouterUsageHistory
     private let isSwitchPending: Bool
     private let onSwitch: (() -> Void)?
 
@@ -19,10 +20,12 @@ public struct SubrouterAccountRowView: View {
     ///     or its provider does not support switching.
     public init(
         account: SubrouterAccountUsageStatus,
+        usageHistory: SubrouterUsageHistory = SubrouterUsageHistory(),
         isSwitchPending: Bool,
         onSwitch: (() -> Void)?
     ) {
         self.account = account
+        self.usageHistory = usageHistory
         self.isSwitchPending = isSwitchPending
         self.onSwitch = onSwitch
     }
@@ -57,13 +60,22 @@ public struct SubrouterAccountRowView: View {
             if !account.windows.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(account.windows.enumerated()), id: \.offset) { _, window in
-                        SubrouterUsageBarView(window: window)
+                        SubrouterUsageBarView(
+                            window: window,
+                            historySamples: usageHistory.samples(accountID: account.id, windowName: window.name)
+                        )
                     }
                 }
                 .padding(.leading, 11)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 5)
+        .padding(.horizontal, account.isActive ? 7 : 0)
+        // The active account is the panel's anchor; give it a subtle card.
+        .background(
+            account.isActive ? Color.green.opacity(0.07) : Color.clear,
+            in: RoundedRectangle(cornerRadius: 6)
+        )
         // Expired accounts stay listed (they are still switch targets after
         // a re-login) but recede so healthy accounts carry the panel.
         .opacity(isAuthExpired ? 0.6 : 1)

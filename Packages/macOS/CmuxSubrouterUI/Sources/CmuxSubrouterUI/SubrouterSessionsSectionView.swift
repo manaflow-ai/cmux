@@ -3,6 +3,63 @@ public import CmuxSubrouter
 
 /// The live agent-session → account pinning list. Receives value snapshots
 /// only.
+/// Per-account routing activity over the last week: a compact horizontal
+/// bar chart of session counts. Receives value snapshots only.
+public struct SubrouterActivityChartView: View {
+    /// The aggregation window shown in the header.
+    public static let window: TimeInterval = 7 * 24 * 3600
+    private static let maximumRows = 6
+
+    private let activity: [SubrouterSessionStats.AccountActivity]
+
+    /// Creates the chart from precomputed activity rows.
+    /// - Parameter activity: Rows from ``SubrouterSessionStats``, most
+    ///   active first.
+    public init(activity: [SubrouterSessionStats.AccountActivity]) {
+        self.activity = activity
+    }
+
+    public var body: some View {
+        let rows = Array(activity.prefix(Self.maximumRows))
+        if !rows.isEmpty {
+            let peak = max(1, rows.map(\.sessionCount).max() ?? 1)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(String(localized: "subrouter.activity.header", defaultValue: "Activity (7 days)"))
+                    .font(.system(size: 11, weight: .semibold))
+                ForEach(rows) { row in
+                    HStack(spacing: 6) {
+                        Text(row.accountID)
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .frame(width: 108, alignment: .leading)
+                        GeometryReader { proxy in
+                            Capsule()
+                                .fill(Color.accentColor.gradient)
+                                .frame(width: max(3, proxy.size.width * CGFloat(row.sessionCount) / CGFloat(peak)))
+                                .frame(maxHeight: .infinity, alignment: .center)
+                        }
+                        .frame(height: 5)
+                        Text("\(row.sessionCount)")
+                            .font(.system(size: 9, weight: .medium).monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(minWidth: 18, alignment: .trailing)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(String(
+                        localized: "subrouter.activity.accessibility",
+                        defaultValue: "\(row.accountID): \(row.sessionCount) sessions"
+                    ))
+                }
+            }
+            .padding(9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+}
+
 public struct SubrouterSessionsSectionView: View {
     /// Long-lived daemons accumulate hundreds of session pins; the panel
     /// shows only the most recently routed handful.

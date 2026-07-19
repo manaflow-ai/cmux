@@ -6,6 +6,7 @@ public import CmuxSubrouter
 public struct SubrouterProviderSectionView: View {
     private let provider: SubrouterProvider
     private let accounts: [SubrouterAccountUsageStatus]
+    private let usageHistory: SubrouterUsageHistory
     private let pendingSwitchAccountID: String?
     /// `nil` disables switching entirely (remote-server mode).
     private let onSwitch: ((SubrouterAccountUsageStatus) -> Void)?
@@ -23,20 +24,30 @@ public struct SubrouterProviderSectionView: View {
     public init(
         provider: SubrouterProvider,
         accounts: [SubrouterAccountUsageStatus],
+        usageHistory: SubrouterUsageHistory = SubrouterUsageHistory(),
         pendingSwitchAccountID: String?,
         onSwitch: ((SubrouterAccountUsageStatus) -> Void)?
     ) {
         self.provider = provider
         self.accounts = accounts
+        self.usageHistory = usageHistory
         self.pendingSwitchAccountID = pendingSwitchAccountID
         self.onSwitch = onSwitch
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(provider.displayName)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 5) {
+                Text(provider.displayName)
+                    .font(.system(size: 11, weight: .semibold))
+                Text("\(accounts.count)")
+                    .font(.system(size: 9, weight: .medium).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Color.primary.opacity(0.08), in: Capsule())
+                Spacer(minLength: 0)
+            }
             if onSwitch != nil, let note = provider.switchSideEffectNote {
                 Text(note)
                     .font(.system(size: 9))
@@ -45,6 +56,7 @@ public struct SubrouterProviderSectionView: View {
             ForEach(usableAccounts) { account in
                 SubrouterAccountRowView(
                     account: account,
+                    usageHistory: usageHistory,
                     isSwitchPending: pendingSwitchAccountID == account.id,
                     onSwitch: switchAction(for: account)
                 )
@@ -70,6 +82,7 @@ public struct SubrouterProviderSectionView: View {
                     ForEach(signedOutAccounts) { account in
                         SubrouterAccountRowView(
                             account: account,
+                            usageHistory: usageHistory,
                             isSwitchPending: pendingSwitchAccountID == account.id,
                             onSwitch: switchAction(for: account)
                         )
@@ -85,6 +98,9 @@ public struct SubrouterProviderSectionView: View {
                 .foregroundStyle(.tertiary)
             }
         }
+        .padding(9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
     }
 
     /// The rows shown by default: the active account first, then switchable

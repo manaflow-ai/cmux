@@ -20,7 +20,7 @@ public struct AgentsPanelView: View {
         let snapshot = store.snapshot
         let configuration = store.configuration
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 10) {
                 SubrouterDaemonStatusView(
                     state: snapshot.daemonState,
                     lastErrorDescription: snapshot.lastErrorDescription,
@@ -36,6 +36,7 @@ public struct AgentsPanelView: View {
                     SubrouterProviderSectionView(
                         provider: provider,
                         accounts: snapshot.accounts(for: provider),
+                        usageHistory: store.usageHistory,
                         pendingSwitchAccountID: store.pendingSwitchAccountID,
                         // Remote servers assign accounts per session; there
                         // is no global switch to offer.
@@ -52,6 +53,13 @@ public struct AgentsPanelView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
                 }
+                SubrouterActivityChartView(
+                    activity: SubrouterSessionStats.accountActivity(
+                        sessions: snapshot.sessions,
+                        window: SubrouterActivityChartView.window,
+                        now: Date()
+                    )
+                )
                 if !snapshot.sessions.isEmpty {
                     SubrouterSessionsSectionView(sessions: snapshot.sessions)
                 }

@@ -50,6 +50,11 @@ public final class SubrouterStore {
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private(set) var consecutiveFailureCount = 0
+    @ObservationIgnored private let historyStorageURL: URL?
+
+    /// Rolling usage samples per account window; the panel renders these as
+    /// sparklines. Persisted to ``historyStorageURL`` when provided.
+    public private(set) var usageHistory: SubrouterUsageHistory
 
     /// Creates the store.
     ///
@@ -65,12 +70,15 @@ public final class SubrouterStore {
         switcher: any SubrouterAccountSwitching = SubrouterCommandSwitcher(),
         clock: any SubrouterPollClock = SystemSubrouterPollClock(),
         configuration: SubrouterConfiguration = .disabled,
+        historyStorageURL: URL? = nil,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.client = client
         self.switcher = switcher
         self.clock = clock
         self.configurationStorage = configuration
+        self.historyStorageURL = historyStorageURL
+        self.usageHistory = historyStorageURL.map(SubrouterUsageHistory.load(from:)) ?? SubrouterUsageHistory()
         self.now = now
     }
 
@@ -219,6 +227,11 @@ public final class SubrouterStore {
                 lastUpdatedAt: now(),
                 lastErrorDescription: nil
             )
+            if usageHistory.record(usageStatuses: usage, now: now()),
+               let historyStorageURL {
+                let history = usageHistory
+                Task.detached(priority: .utility) { history.save(to: historyStorageURL) }
+            }
         case .failure(let description):
             consecutiveFailureCount += 1
             snapshot.daemonState = .unreachable(consecutiveFailures: consecutiveFailureCount)

@@ -20,7 +20,11 @@ final class SubrouterAppRuntime {
     private var observationTasks: [Task<Void, Never>] = []
 
     private init() {
-        store = SubrouterStore()
+        let historyURL = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first?
+            .appendingPathComponent("cmux/subrouter-usage-history.json")
+        store = SubrouterStore(historyStorageURL: historyURL)
         store.updateConfiguration(SubrouterIntegrationSettings.currentConfiguration())
         startObservers()
     }

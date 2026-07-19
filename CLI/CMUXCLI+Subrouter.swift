@@ -7,7 +7,11 @@ import Foundation
 // update immediately after a CLI switch or reload.
 extension CMUXCLI {
     static let subrouterUsage = """
-        Usage: cmux subrouter <status|accounts|usage|switch|sessions|reload> [--json]
+        Usage: cmux subrouter [setup|status|accounts|usage|switch|sessions|reload] [--json]
+
+          cmux subrouter
+              First-run welcome: installs the sr CLI if missing, starts the
+              local daemon, and shows how to add accounts. Safe to re-run.
 
         Inspect and switch the AI-agent accounts managed by the local subrouter
         daemon (http://127.0.0.1:31415). Requires the subrouter integration to
@@ -42,13 +46,17 @@ extension CMUXCLI {
 
     func runSubrouterNamespace(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
         guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "subrouter requires a subcommand. Try: status, accounts, usage, switch, sessions, reload")
+            try runSubrouterWelcome(client: client)
+            return
         }
         let rest = Array(commandArgs.dropFirst())
 
         switch sub {
         case "help", "--help", "-h":
             print(Self.subrouterUsage)
+
+        case "setup", "welcome", "install":
+            try runSubrouterWelcome(client: client)
 
         case "status":
             let response = try client.sendV2(method: "subrouter.status")
@@ -129,6 +137,90 @@ extension CMUXCLI {
         default:
             throw CLIError(message: "Unknown subrouter subcommand: \(sub). Try: status, accounts, usage, switch, sessions, reload")
         }
+    }
+
+    /// The bare `cmux subrouter` onboarding flow: install the sr CLI when
+    /// missing (official checksummed installer), start the local daemon when
+    /// unreachable, then show status plus how to add accounts. Idempotent —
+    /// re-running on a healthy setup just prints status and next steps.
+    private func runSubrouterWelcome(client: SocketClient) throws {
+        print("cmux ⨯ subrouter — route agents across subscription accounts")
+        print("")
+
+        // 1. The sr CLI (installs to ~/bin; the daemon and switching use it).
+        var srPath = resolveSubrouterBinary()
+        if srPath == nil {
+            print("subrouter is not installed. Installing from github.com/manaflow-ai/subrouter…")
+            let install = CLIProcessRunner.runProcess(
+                executablePath: "/bin/sh",
+                arguments: ["-c", "curl -fsSL https://github.com/manaflow-ai/subrouter/releases/latest/download/install.sh | sh"],
+                timeout: 120
+            )
+            if install.status == 0 {
+                srPath = resolveSubrouterBinary()
+                print("  ✓ Installed \(srPath ?? "~/bin/subrouter")")
+            } else {
+                let detail = install.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                print("  ✗ Install failed\(detail.isEmpty ? "" : ": \(detail.prefix(200))")")
+                print("    Run it manually: curl -fsSL https://github.com/manaflow-ai/subrouter/releases/latest/download/install.sh | sh")
+            }
+        } else {
+            print("✓ sr CLI installed (\(srPath ?? ""))")
+        }
+
+        // 2. The daemon, through the app (which follows sr's server selection).
+        var statusResponse = try? client.sendV2(method: "subrouter.status")
+        if statusResponse == nil {
+            print("✗ The cmux subrouter integration is disabled.")
+            print("  Enable it in Settings → Agent Accounts, or set {\"subrouter\": {\"enabled\": true}} in ~/.config/cmux/cmux.json.")
+        } else if let daemon = statusResponse?["daemon"] as? [String: Any],
+                  (daemon["state"] as? String) != "healthy",
+                  let srPath {
+            print("Starting the local subrouter daemon…")
+            let daemonSetup = CLIProcessRunner.runProcess(executablePath: srPath, arguments: ["install-daemon"], timeout: 60)
+            if daemonSetup.status == 0 {
+                Thread.sleep(forTimeInterval: 1.5)
+                statusResponse = try? client.sendV2(method: "subrouter.status")
+            } else {
+                print("  ✗ install-daemon failed; run `\(srPath) install-daemon` manually.")
+            }
+        }
+        if let statusResponse {
+            print("")
+            printSubrouterStatus(statusResponse)
+        }
+
+        // 3. Next steps.
+        let accountCount = (statusResponse?["account_count"] as? Int) ?? 0
+        print("")
+        if accountCount == 0 {
+            print("Add your first accounts:")
+        } else {
+            print("Manage accounts:")
+        }
+        print("  sr import                    adopt your current ~/.codex login")
+        print("  sr add                       add another Codex account (OAuth)")
+        print("  sr                           interactive usage overview")
+        print("")
+        print("Then, in cmux:")
+        print("  Ctrl+6 (or the sidebar Subrouter tab)   live usage, switching, sessions")
+        print("  cmux subrouter usage                    quota windows per account")
+        print("  cmux subrouter switch codex <email>     switch the active account")
+        print("")
+        print("Team server? `sr server add <name> --url <url> --default` — cmux follows sr's selection automatically.")
+    }
+
+    /// Mirrors the app's sr resolution order: explicit places first.
+    private func resolveSubrouterBinary() -> String? {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        var candidates = ["\(home)/bin/sr", "\(home)/bin/subrouter", "/opt/homebrew/bin/sr", "/usr/local/bin/sr"]
+        if let pathVariable = ProcessInfo.processInfo.environment["PATH"] {
+            for directory in pathVariable.split(separator: ":") {
+                candidates.append("\(directory)/sr")
+                candidates.append("\(directory)/subrouter")
+            }
+        }
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
     private func printSubrouterStatus(_ response: [String: Any]) {
