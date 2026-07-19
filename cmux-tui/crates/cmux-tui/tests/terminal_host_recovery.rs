@@ -775,6 +775,8 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
         CapabilityRights::RENDERER,
     )
     .unwrap();
+    let initial_colors = renderer.colors.clone();
+    assert!(initial_colors.cursor_visual.is_some(), "v2 snapshot omitted resolved cursor");
     let direct = format!("direct-renderer-{}", std::process::id());
     write_frame(
         &mut renderer.stream,
@@ -798,6 +800,7 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
             foreground: Some(Rgb { r: 17, g: 18, b: 19 }),
             background: Some(Rgb { r: 33, g: 34, b: 35 }),
             cursor: Some(Rgb { r: 49, g: 50, b: 51 }),
+            cursor_visual: Some((ghostty_vt::CursorShape::Bar, true)),
             ..Default::default()
         };
         colors.palette[3] = Some(Rgb { r: 1, g: 2, b: 3 });
@@ -807,12 +810,15 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
         &mut renderer.stream,
         &Frame::new(
             MessageKind::Input,
-            b"\x1b]4;3;#010203\x07\x1b]10;#111213\x07\x1b]11;#212223\x07\x1b]12;#313233\x07\n"
+            b"\x1b]4;3;#010203\x07\x1b]10;#111213\x07\x1b]11;#212223\x07\x1b]12;#313233\x07\x1b[5 q\n"
                 .to_vec(),
         ),
     )
     .unwrap();
     renderer.wait_for_colors(&expected_colors);
+    let state = wait_for_cursor_visual(&harness.socket, original_surface, "bar", true);
+    assert_eq!(state["colors"]["cursor_style"], "bar");
+    assert_eq!(state["colors"]["cursor_blink"], true);
 
     // A fresh renderer receives portable VT state and the complete sparse
     // color state as a separate frame at the same atomic sequence boundary.
@@ -844,11 +850,16 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
         &mut renderer.stream,
         &Frame::new(
             MessageKind::Input,
-            b"\x1b]104;3\x07\x1b]110\x07\x1b]111\x07\x1b]112\x07\n".to_vec(),
+            b"\x1b]104;3\x07\x1b]110\x07\x1b]111\x07\x1b]112\x07\x1b[0 q\n".to_vec(),
         ),
     )
     .unwrap();
-    renderer.wait_for_colors(&TerminalColorOverrides::default());
+    renderer.wait_for_colors(&initial_colors);
+    let mut reconnect_colors = initial_colors.clone();
+    reconnect_colors.cursor_visual = Some((ghostty_vt::CursorShape::Block, true));
+    write_frame(&mut renderer.stream, &Frame::new(MessageKind::Input, b"\x1b[1 q\n".to_vec()))
+        .unwrap();
+    renderer.wait_for_colors(&reconnect_colors);
     drop(renderer);
 
     // Child::kill is SIGKILL on Unix. The mux cannot run shutdown hooks, so
@@ -868,6 +879,9 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
         .expect("durable workspace was not recovered");
     let adopted_surface =
         first_surface(recovered_workspace).expect("terminal host was not adopted");
+    let state = wait_for_cursor_visual(&harness.socket, adopted_surface, "block", true);
+    assert_eq!(state["colors"]["cursor_style"], "block");
+    assert_eq!(state["colors"]["cursor_blink"], true);
     let rebound = request(
         &harness.socket,
         serde_json::json!({"id": 41, "cmd": "resolve-terminal", "terminal_id": &terminal_id}),
@@ -905,6 +919,9 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
     let state = wait_for_vt_size(&harness.socket, adopted_surface, 101, 37);
     assert_eq!(state["cols"].as_u64(), Some(101));
     assert_eq!(state["rows"].as_u64(), Some(37));
+    let cursor_state = wait_for_cursor_visual(&harness.socket, adopted_surface, "block", true);
+    assert_eq!(cursor_state["colors"]["cursor_style"], "block");
+    assert_eq!(cursor_state["colors"]["cursor_blink"], true);
     wait_for_host_size(&harness.host_root(), 101, 37);
 
     let records = wait_for_host_records(&harness.host_root(), 1);
@@ -931,6 +948,9 @@ fn terminal_host_survives_sigkill_and_is_adopted_with_io_and_size() {
     );
     assert_eq!(state["cols"].as_u64(), Some(101));
     assert_eq!(state["rows"].as_u64(), Some(37));
+    let cursor_state = wait_for_cursor_visual(&harness.socket, resized_surface, "block", true);
+    assert_eq!(cursor_state["colors"]["cursor_style"], "block");
+    assert_eq!(cursor_state["colors"]["cursor_blink"], true);
     assert!(wait_for_screen(&harness.socket, resized_surface, &after).contains(&after));
 
     let stale_close = request_response(
@@ -1345,6 +1365,31 @@ fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
         CapabilityRights::RENDERER,
     )
     .unwrap();
+    let hybrid_cursor = TerminalColorOverrides {
+        cursor_visual: Some((ghostty_vt::CursorShape::Bar, false)),
+        ..Default::default()
+    };
+    write_frame(
+        &mut renderer.stream,
+        &Frame::new(
+            MessageKind::Input,
+            b"\x1b[6 q\x1b[?1049h\x1b[3 q\x1b[?12l\x1b[?1049l\n".to_vec(),
+        ),
+    )
+    .unwrap();
+    renderer.wait_for_colors(&hybrid_cursor);
+    let state = wait_for_cursor_visual(&harness.socket, surface, "bar", false);
+    assert_eq!(state["colors"]["cursor_style"], "bar");
+    assert_eq!(state["colors"]["cursor_blink"], false);
+
+    let cursor_colors = TerminalColorOverrides {
+        cursor_visual: Some((ghostty_vt::CursorShape::Underline, true)),
+        ..Default::default()
+    };
+    write_frame(&mut renderer.stream, &Frame::new(MessageKind::Input, b"\x1b[3 q\n".to_vec()))
+        .unwrap();
+    renderer.wait_for_colors(&cursor_colors);
+
     let mut non_minimum = Vec::new();
     non_minimum.extend_from_slice(&120u16.to_le_bytes());
     non_minimum.extend_from_slice(&40u16.to_le_bytes());
@@ -1363,6 +1408,7 @@ fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
     renderer.next_sequence = renderer.next_sequence.wrapping_add(1);
     assert_eq!(colors.kind, MessageKind::Colors);
     assert_eq!(colors.flags, 0);
+    assert_eq!(decode_terminal_color_overrides(&colors.payload).unwrap(), cursor_colors);
 
     let mut oversized = Vec::new();
     oversized.extend_from_slice(&5_000u16.to_le_bytes());
@@ -1379,6 +1425,9 @@ fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
     let state = wait_for_vt_size(&harness.socket, surface, 120, 40);
     assert_eq!(state["cols"], 120);
     assert_eq!(state["rows"], 40);
+    let cursor_state = wait_for_cursor_visual(&harness.socket, surface, "underline", true);
+    assert_eq!(cursor_state["colors"]["cursor_style"], "underline");
+    assert_eq!(cursor_state["colors"]["cursor_blink"], true);
     assert!(record_path.exists());
 
     let marker = format!("after-failed-controls-{}", std::process::id());
@@ -1909,6 +1958,37 @@ fn wait_for_vt_size(path: &Path, surface: u64, cols: u16, rows: u16) -> serde_js
             return state;
         }
         assert!(Instant::now() < deadline, "daemon mirror did not resize to {cols}x{rows}");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
+fn wait_for_cursor_visual(
+    path: &Path,
+    surface: u64,
+    style: &str,
+    blink: bool,
+) -> serde_json::Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let stream = transport::connect(path).unwrap();
+        let mut writer = stream.try_clone_box().unwrap();
+        let mut reader = BufReader::new(stream);
+        writeln!(
+            writer,
+            "{}",
+            serde_json::json!({"id": 9001, "cmd": "attach-surface", "surface": surface})
+        )
+        .unwrap();
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let state: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(state["event"], "vt-state", "unexpected cursor probe: {state}");
+        if state["colors"]["cursor_style"].as_str() == Some(style)
+            && state["colors"]["cursor_blink"].as_bool() == Some(blink)
+        {
+            return state;
+        }
+        assert!(Instant::now() < deadline, "daemon mirror did not apply {style} cursor");
         std::thread::sleep(Duration::from_millis(25));
     }
 }

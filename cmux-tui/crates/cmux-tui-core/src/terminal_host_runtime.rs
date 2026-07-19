@@ -33,8 +33,9 @@ const MAX_HOST_CLIENT_QUEUED_BYTES: usize = 8 * 1024 * 1024;
 const HOST_START_NONCE_LEN: usize = 32;
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
 const TERMINAL_CELL_AREA_MAX: u64 = 4_000_000;
-pub const TERMINAL_COLORS_WIRE_VERSION: u16 = 1;
-pub const MAX_TERMINAL_COLORS_PAYLOAD: usize = 8 + 3 * 3 + 256 * 4;
+const TERMINAL_COLORS_WIRE_VERSION_V1: u16 = 1;
+pub const TERMINAL_COLORS_WIRE_VERSION: u16 = 2;
+pub const MAX_TERMINAL_COLORS_PAYLOAD: usize = 8 + 3 * 3 + 2 + 256 * 4;
 
 pub(crate) fn normalize_terminal_geometry(cols: u16, rows: u16) -> anyhow::Result<(u16, u16)> {
     let cols = cols.clamp(1, TERMINAL_DIMENSION_MAX);
@@ -147,21 +148,26 @@ impl std::fmt::Debug for RendererGrant {
     }
 }
 
-/// Encode a complete sparse application-color state.
+/// Encode a complete dynamic render-metadata state.
 ///
 /// Wire layout is little-endian: schema_version:u16, flags:u16 (foreground,
-/// background, cursor), palette_count:u16, reserved:u16, each flagged RGB in
-/// that order, then palette_count repetitions of index:u8 + RGB. Missing
-/// fields and palette indices mean "reset to the receiving renderer's theme",
-/// not "retain the previous override".
+/// background, cursor color, cursor visual), palette_count:u16, reserved:u16,
+/// each flagged RGB in that order, the atomic cursor style/blink pair when
+/// flagged, then palette_count repetitions of index:u8 + RGB. RGB and palette
+/// fields remain sparse theme overrides. Version 2 producers populate the
+/// host-resolved cursor visual; an absent visual is the version 1 fallback and
+/// resets the receiving renderer's cursor default.
 pub fn encode_terminal_color_overrides(colors: &TerminalColorOverrides) -> Vec<u8> {
+    let cursor_visual =
+        colors.cursor_visual.expect("terminal-host Colors v2 requires a resolved cursor visual");
     let mut flags = 0u16;
     flags |= colors.foreground.is_some() as u16;
     flags |= (colors.background.is_some() as u16) << 1;
     flags |= (colors.cursor.is_some() as u16) << 2;
+    flags |= 1 << 3;
     let palette_count = colors.palette.iter().filter(|color| color.is_some()).count() as u16;
-    let mut payload =
-        Vec::with_capacity(8 + flags.count_ones() as usize * 3 + usize::from(palette_count) * 4);
+    let rgb_bytes = (flags & 0b111).count_ones() as usize * 3;
+    let mut payload = Vec::with_capacity(8 + rgb_bytes + 2 + usize::from(palette_count) * 4);
     payload.extend_from_slice(&TERMINAL_COLORS_WIRE_VERSION.to_le_bytes());
     payload.extend_from_slice(&flags.to_le_bytes());
     payload.extend_from_slice(&palette_count.to_le_bytes());
@@ -169,6 +175,13 @@ pub fn encode_terminal_color_overrides(colors: &TerminalColorOverrides) -> Vec<u
     for color in [colors.foreground, colors.background, colors.cursor].into_iter().flatten() {
         payload.extend_from_slice(&[color.r, color.g, color.b]);
     }
+    let (style, blink) = cursor_visual;
+    let style = match style {
+        ghostty_vt::CursorShape::Block | ghostty_vt::CursorShape::BlockHollow => 1,
+        ghostty_vt::CursorShape::Underline => 2,
+        ghostty_vt::CursorShape::Bar => 3,
+    };
+    payload.extend_from_slice(&[style, blink as u8]);
     for (index, color) in colors.palette.iter().enumerate() {
         if let Some(color) = color {
             payload.extend_from_slice(&[index as u8, color.r, color.g, color.b]);
@@ -186,13 +199,24 @@ pub fn decode_terminal_color_overrides(payload: &[u8]) -> anyhow::Result<Termina
     let flags = u16::from_le_bytes(payload[2..4].try_into().unwrap());
     let palette_count = u16::from_le_bytes(payload[4..6].try_into().unwrap()) as usize;
     let reserved = u16::from_le_bytes(payload[6..8].try_into().unwrap());
-    if version != TERMINAL_COLORS_WIRE_VERSION || flags & !0b111 != 0 || reserved != 0 {
+    let allowed_flags = match version {
+        TERMINAL_COLORS_WIRE_VERSION_V1 => 0b111,
+        TERMINAL_COLORS_WIRE_VERSION if flags & 0b1000 != 0 => 0b1111,
+        TERMINAL_COLORS_WIRE_VERSION => {
+            anyhow::bail!("terminal-host Colors v2 is missing the cursor visual")
+        }
+        _ => anyhow::bail!("unsupported terminal-host Colors payload version"),
+    };
+    if flags & !allowed_flags != 0 || reserved != 0 {
         anyhow::bail!("unsupported terminal-host Colors payload header");
     }
     if palette_count > 256 {
         anyhow::bail!("terminal-host Colors palette count is out of range");
     }
-    let expected = 8 + flags.count_ones() as usize * 3 + palette_count * 4;
+    let expected = 8
+        + (flags & 0b111).count_ones() as usize * 3
+        + usize::from(flags & 0b1000 != 0) * 2
+        + palette_count * 4;
     if payload.len() != expected {
         anyhow::bail!("malformed terminal-host Colors payload");
     }
@@ -205,6 +229,23 @@ pub fn decode_terminal_color_overrides(payload: &[u8]) -> anyhow::Result<Termina
     let foreground = (flags & 1 != 0).then(|| take_rgb(payload, &mut offset));
     let background = (flags & 2 != 0).then(|| take_rgb(payload, &mut offset));
     let cursor = (flags & 4 != 0).then(|| take_rgb(payload, &mut offset));
+    let cursor_visual = if flags & 8 != 0 {
+        let style = match payload[offset] {
+            1 => ghostty_vt::CursorShape::Block,
+            2 => ghostty_vt::CursorShape::Underline,
+            3 => ghostty_vt::CursorShape::Bar,
+            _ => anyhow::bail!("terminal-host Colors cursor style is out of range"),
+        };
+        let blink = match payload[offset + 1] {
+            0 => false,
+            1 => true,
+            _ => anyhow::bail!("terminal-host Colors cursor blink is out of range"),
+        };
+        offset += 2;
+        Some((style, blink))
+    } else {
+        None
+    };
     let mut palette = [None; 256];
     for _ in 0..palette_count {
         let index = payload[offset] as usize;
@@ -215,7 +256,7 @@ pub fn decode_terminal_color_overrides(payload: &[u8]) -> anyhow::Result<Termina
             Some(Rgb { r: payload[offset + 1], g: payload[offset + 2], b: payload[offset + 3] });
         offset += 4;
     }
-    Ok(TerminalColorOverrides { foreground, background, cursor, palette })
+    Ok(TerminalColorOverrides { foreground, background, cursor, cursor_visual, palette })
 }
 
 #[cfg(unix)]
@@ -2000,6 +2041,7 @@ mod unix {
             launch.default_colors.cursor_style,
             launch.default_colors.cursor_blink,
         );
+        let initial_colors = term.color_overrides();
         let shared = Arc::new(HostShared {
             terminal_id: bootstrapped.terminal_id,
             incarnation: bootstrapped.incarnation,
@@ -2034,7 +2076,7 @@ mod unix {
         let reader_host = shared.clone();
         thread::Builder::new().name("terminal-host-pty".into()).spawn(move || {
             let mut buffer = [0u8; 64 * 1024];
-            let mut last_colors = TerminalColorOverrides::default();
+            let mut last_colors = initial_colors;
             let mut forced_at = None;
             let mut pty_drain_waiter = pty_drain_waiter;
             while let Ok(true) = wait_for_pty_readable_or_forced_drain(
@@ -3145,6 +3187,7 @@ pub fn serve_terminal_host_stdio(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ghostty_vt::CursorShape;
 
     #[test]
     fn colors_payload_is_versioned_bounded_full_sparse_state() {
@@ -3152,37 +3195,149 @@ mod tests {
             foreground: Some(Rgb { r: 1, g: 2, b: 3 }),
             background: Some(Rgb { r: 4, g: 5, b: 6 }),
             cursor: Some(Rgb { r: 7, g: 8, b: 9 }),
+            cursor_visual: Some((CursorShape::Underline, true)),
             ..Default::default()
         };
         colors.palette[0] = Some(Rgb { r: 10, g: 11, b: 12 });
         colors.palette[255] = Some(Rgb { r: 13, g: 14, b: 15 });
         let payload = encode_terminal_color_overrides(&colors);
         assert!(payload.len() <= MAX_TERMINAL_COLORS_PAYLOAD);
+        assert_eq!(
+            payload,
+            vec![
+                2, 0, 15, 0, 2, 0, 0, 0, // v2 header, all fields, two palette entries
+                1, 2, 3, 4, 5, 6, 7, 8, 9, // optional RGBs
+                2, 1, // underline, blinking
+                0, 10, 11, 12, 255, 13, 14, 15, // palette entries
+            ]
+        );
+        assert_eq!(&payload[0..2], &TERMINAL_COLORS_WIRE_VERSION.to_le_bytes());
+        assert_eq!(&payload[2..4], &0b1111u16.to_le_bytes());
+        assert_eq!(&payload[17..19], &[2, 1], "cursor visual follows the optional RGBs");
         assert_eq!(decode_terminal_color_overrides(&payload).unwrap(), colors);
-
-        // An empty full-state frame explicitly clears every prior override.
-        let reset = encode_terminal_color_overrides(&Default::default());
-        assert_eq!(reset.len(), 8);
-        assert_eq!(decode_terminal_color_overrides(&reset).unwrap(), Default::default());
     }
 
     #[test]
-    fn colors_payload_rejects_unknown_versions_duplicates_and_trailing_bytes() {
-        let mut colors = TerminalColorOverrides::default();
+    fn colors_payload_v2_requires_resolved_cursor_visual() {
+        assert!(
+            std::panic::catch_unwind(|| {
+                encode_terminal_color_overrides(&TerminalColorOverrides::default())
+            })
+            .is_err()
+        );
+        assert!(
+            decode_terminal_color_overrides(&[2, 0, 0, 0, 0, 0, 0, 0]).is_err(),
+            "v2 without the atomic cursor pair must fail closed"
+        );
+    }
+
+    #[test]
+    fn colors_payload_decodes_v1_without_cursor_visual() {
+        assert_eq!(
+            decode_terminal_color_overrides(&[1, 0, 0, 0, 0, 0, 0, 0]).unwrap(),
+            TerminalColorOverrides::default()
+        );
+        let payload = [
+            1, 0, // schema v1
+            7, 0, // foreground, background, and cursor RGB
+            0, 0, // no palette entries
+            0, 0, // reserved
+            1, 2, 3, // foreground
+            4, 5, 6, // background
+            7, 8, 9, // cursor
+        ];
+        assert_eq!(
+            decode_terminal_color_overrides(&payload).unwrap(),
+            TerminalColorOverrides {
+                foreground: Some(Rgb { r: 1, g: 2, b: 3 }),
+                background: Some(Rgb { r: 4, g: 5, b: 6 }),
+                cursor: Some(Rgb { r: 7, g: 8, b: 9 }),
+                ..Default::default()
+            }
+        );
+
+        let mut v1_with_v2_flag = payload.to_vec();
+        v1_with_v2_flag[2..4].copy_from_slice(&0b1111u16.to_le_bytes());
+        v1_with_v2_flag.extend_from_slice(&[1, 0]);
+        assert!(decode_terminal_color_overrides(&v1_with_v2_flag).is_err());
+    }
+
+    #[test]
+    fn colors_payload_cursor_visual_round_trips_every_v2_value() {
+        for cursor_visual in [
+            (CursorShape::Block, false),
+            (CursorShape::Block, true),
+            (CursorShape::Underline, false),
+            (CursorShape::Underline, true),
+            (CursorShape::Bar, false),
+            (CursorShape::Bar, true),
+        ] {
+            let colors =
+                TerminalColorOverrides { cursor_visual: Some(cursor_visual), ..Default::default() };
+            let payload = encode_terminal_color_overrides(&colors);
+            assert_eq!(payload.len(), 10);
+            assert_eq!(decode_terminal_color_overrides(&payload).unwrap(), colors);
+        }
+
+        // DECSCUSR and the cross-language wire have no hollow-block value.
+        let hollow = TerminalColorOverrides {
+            cursor_visual: Some((CursorShape::BlockHollow, false)),
+            ..Default::default()
+        };
+        let payload = encode_terminal_color_overrides(&hollow);
+        assert_eq!(&payload[8..10], &[1, 0]);
+        assert_eq!(
+            decode_terminal_color_overrides(&payload).unwrap().cursor_visual,
+            Some((CursorShape::Block, false))
+        );
+    }
+
+    #[test]
+    fn colors_payload_rejects_unknown_versions_duplicates_and_malformed_visuals() {
+        let mut colors = TerminalColorOverrides {
+            cursor_visual: Some((CursorShape::Block, false)),
+            ..Default::default()
+        };
         colors.palette[1] = Some(Rgb { r: 1, g: 2, b: 3 });
         colors.palette[2] = Some(Rgb { r: 4, g: 5, b: 6 });
         let payload = encode_terminal_color_overrides(&colors);
 
         let mut bad_version = payload.clone();
-        bad_version[0..2].copy_from_slice(&2u16.to_le_bytes());
+        bad_version[0..2].copy_from_slice(&3u16.to_le_bytes());
         assert!(decode_terminal_color_overrides(&bad_version).is_err());
 
+        let mut bad_flags = payload.clone();
+        bad_flags[2..4].copy_from_slice(&0b1_1000u16.to_le_bytes());
+        assert!(decode_terminal_color_overrides(&bad_flags).is_err());
+
+        let mut bad_reserved = payload.clone();
+        bad_reserved[6] = 1;
+        assert!(decode_terminal_color_overrides(&bad_reserved).is_err());
+
         let mut duplicate = payload.clone();
-        duplicate[12] = duplicate[8];
+        duplicate[14] = duplicate[10];
         assert!(decode_terminal_color_overrides(&duplicate).is_err());
 
         let mut trailing = payload;
         trailing.push(0);
         assert!(decode_terminal_color_overrides(&trailing).is_err());
+
+        let visual = TerminalColorOverrides {
+            cursor_visual: Some((CursorShape::Bar, true)),
+            ..Default::default()
+        };
+        let visual = encode_terminal_color_overrides(&visual);
+        let mut zero_style = visual.clone();
+        zero_style[8] = 0;
+        assert!(decode_terminal_color_overrides(&zero_style).is_err());
+        let mut bad_style = visual.clone();
+        bad_style[8] = 4;
+        assert!(decode_terminal_color_overrides(&bad_style).is_err());
+        let mut bad_blink = visual.clone();
+        bad_blink[9] = 2;
+        assert!(decode_terminal_color_overrides(&bad_blink).is_err());
+        let mut truncated = visual;
+        truncated.pop();
+        assert!(decode_terminal_color_overrides(&truncated).is_err());
     }
 }

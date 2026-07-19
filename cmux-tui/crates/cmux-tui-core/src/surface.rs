@@ -158,26 +158,17 @@ impl Default for TerminalColors {
 }
 
 impl TerminalColors {
-    fn from_terminal(
-        term: &Terminal,
-        defaults: DefaultColors,
-        cursor_visual: Option<(CursorShape, bool)>,
-    ) -> Self {
+    fn from_terminal(term: &Terminal, defaults: DefaultColors) -> Self {
         let (fg, bg, cursor) = term.effective_colors();
-        let effective_palette = term.effective_palette().ok();
-        let palette = std::array::from_fn(|index| {
-            effective_palette.as_ref().and_then(|palette| {
-                let index = index as u8;
-                term.palette_overridden(index).then(|| palette[index as usize])
-            })
-        });
+        let overrides = term.color_overrides();
+        let cursor_visual = overrides.cursor_visual;
         TerminalColors {
             fg,
             bg,
             cursor,
             selection_bg: defaults.selection_bg,
             selection_fg: defaults.selection_fg,
-            palette,
+            palette: overrides.palette,
             cursor_style: cursor_visual.map(|(style, _)| style).or(defaults.cursor_style),
             cursor_blink: cursor_visual.map(|(_, blink)| blink).or(defaults.cursor_blink),
         }
@@ -187,7 +178,7 @@ impl TerminalColors {
     /// Palette OSC commands leave cursor state authoritative in the attached
     /// frontend's existing xterm state.
     fn from_pty_output(term: &Terminal, defaults: DefaultColors) -> Self {
-        let mut colors = Self::from_terminal(term, defaults, None);
+        let mut colors = Self::from_terminal(term, defaults);
         colors.cursor_style = None;
         colors.cursor_blink = None;
         colors
@@ -906,8 +897,7 @@ impl Surface {
             term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
         }
         term.vt_write(&snapshot.replay);
-        let initial_color_delta =
-            terminal_color_override_delta(&Default::default(), &snapshot.colors);
+        let initial_color_delta = terminal_color_override_full_state(&snapshot.colors);
         if !initial_color_delta.is_empty() {
             term.vt_write(&initial_color_delta);
         }
@@ -1101,8 +1091,7 @@ impl Surface {
                                     defaults.cursor_blink,
                                 );
                                 replacement.vt_write(&replay);
-                                let delta =
-                                    terminal_color_override_delta(&Default::default(), &colors);
+                                let delta = terminal_color_override_full_state(&colors);
                                 if !delta.is_empty() {
                                     replacement.vt_write(&delta);
                                 }
@@ -1315,10 +1304,8 @@ impl Surface {
                         replacement_term
                             .set_default_cursor(defaults.cursor_style, defaults.cursor_blink);
                         replacement_term.vt_write(&replacement_snapshot.replay);
-                        let color_delta = terminal_color_override_delta(
-                            &Default::default(),
-                            &replacement_snapshot.colors,
-                        );
+                        let color_delta =
+                            terminal_color_override_full_state(&replacement_snapshot.colors);
                         if !color_delta.is_empty() {
                             replacement_term.vt_write(&color_delta);
                         }
@@ -2271,20 +2258,10 @@ impl ChildKiller for TestChildKiller {
 }
 
 impl PtySurface {
-    /// Snapshot colors from the terminal and the owning shared render state.
-    /// Updating that state keeps Ghostty damage owned by the renderer without
-    /// inventing a generation, building a viewport, or notifying subscribers.
-    fn terminal_colors_locked(
-        &self,
-        term: &mut Terminal,
-        defaults: DefaultColors,
-    ) -> TerminalColors {
-        let cursor_visual = {
-            let mut render = self.render.lock().unwrap();
-            let _ = render.state.update(term);
-            render.state.cursor_visual().ok()
-        };
-        TerminalColors::from_terminal(term, defaults, cursor_visual)
+    /// Snapshot sparse colors and the host-resolved cursor visual without
+    /// touching the shared renderer or consuming its damage.
+    fn terminal_colors_locked(&self, term: &Terminal, defaults: DefaultColors) -> TerminalColors {
+        TerminalColors::from_terminal(term, defaults)
     }
 
     fn broadcast_attach_output(&self, bytes: &[u8]) -> bool {
@@ -2432,6 +2409,12 @@ impl PtySurface {
     }
 }
 
+fn terminal_color_override_full_state(next: &TerminalColorOverrides) -> Vec<u8> {
+    let mut output = b"\x1b[0 q".to_vec();
+    output.extend_from_slice(&terminal_color_override_delta(&Default::default(), next));
+    output
+}
+
 fn terminal_color_override_delta(
     previous: &TerminalColorOverrides,
     next: &TerminalColorOverrides,
@@ -2458,6 +2441,18 @@ fn terminal_color_override_delta(
     }
     if previous.cursor != next.cursor {
         dynamic_color(&mut output, 12, 112, next.cursor);
+    }
+    if previous.cursor_visual != next.cursor_visual {
+        let value = match next.cursor_visual {
+            None => 0,
+            Some((CursorShape::Block | CursorShape::BlockHollow, true)) => 1,
+            Some((CursorShape::Block | CursorShape::BlockHollow, false)) => 2,
+            Some((CursorShape::Underline, true)) => 3,
+            Some((CursorShape::Underline, false)) => 4,
+            Some((CursorShape::Bar, true)) => 5,
+            Some((CursorShape::Bar, false)) => 6,
+        };
+        output.extend_from_slice(format!("\x1b[{value} q").as_bytes());
     }
     for index in 0..256 {
         if previous.palette[index] == next.palette[index] {
@@ -2542,7 +2537,7 @@ mod tests {
         term.set_default_palette(&defaults.palette);
 
         term.vt_write(b"\x1b]4;4;#445566\x07");
-        let colors = TerminalColors::from_terminal(&term, defaults, None);
+        let colors = TerminalColors::from_terminal(&term, defaults);
         assert_eq!(colors.palette[4], Some(color));
         assert!(
             colors
@@ -2553,7 +2548,7 @@ mod tests {
         );
 
         term.vt_write(b"\x1b]104;4\x07");
-        let colors = TerminalColors::from_terminal(&term, defaults, None);
+        let colors = TerminalColors::from_terminal(&term, defaults);
         assert_eq!(colors.palette[4], None);
     }
 
@@ -2565,7 +2560,7 @@ mod tests {
         shared_render.set_clean();
 
         term.vt_write(b"changed");
-        let _ = TerminalColors::from_terminal(&term, DefaultColors::default(), None);
+        let _ = TerminalColors::from_terminal(&term, DefaultColors::default());
 
         shared_render.update(&mut term).unwrap();
         assert_ne!(shared_render.dirty(), ghostty_vt::Dirty::Clean);
@@ -2586,6 +2581,27 @@ mod tests {
         assert_eq!(colors.palette[4], Some(Rgb { r: 0x44, g: 0x55, b: 0x66 }));
         assert_eq!(colors.cursor_style, None);
         assert_eq!(colors.cursor_blink, None);
+    }
+
+    #[test]
+    fn attach_colors_use_decscusr_visual_then_restore_cursor_defaults() {
+        let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        let defaults = DefaultColors {
+            cursor_style: Some(CursorShape::Bar),
+            cursor_blink: Some(false),
+            ..DefaultColors::default()
+        };
+        term.set_default_cursor(defaults.cursor_style, defaults.cursor_blink);
+
+        term.vt_write(b"\x1b[3 q");
+        let colors = TerminalColors::from_terminal(&term, defaults);
+        assert_eq!(colors.cursor_style, Some(CursorShape::Underline));
+        assert_eq!(colors.cursor_blink, Some(true));
+
+        term.vt_write(b"\x1b[0 q");
+        let colors = TerminalColors::from_terminal(&term, defaults);
+        assert_eq!(colors.cursor_style, Some(CursorShape::Bar));
+        assert_eq!(colors.cursor_blink, Some(false));
     }
 
     #[test]
@@ -2674,6 +2690,7 @@ mod tests {
             foreground: Some(Rgb { r: 1, g: 2, b: 3 }),
             background: Some(Rgb { r: 4, g: 5, b: 6 }),
             cursor: Some(Rgb { r: 7, g: 8, b: 9 }),
+            cursor_visual: Some((CursorShape::Underline, true)),
             ..Default::default()
         };
         colors.palette[42] = Some(Rgb { r: 10, g: 11, b: 12 });
@@ -2682,7 +2699,49 @@ mod tests {
         assert_eq!(terminal.color_overrides(), colors);
 
         terminal.vt_write(&terminal_color_override_delta(&colors, &Default::default()));
-        assert_eq!(terminal.color_overrides(), Default::default());
+        assert_eq!(
+            terminal.color_overrides(),
+            TerminalColorOverrides {
+                cursor_visual: Some((CursorShape::Block, false)),
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn terminal_color_override_full_state_resets_then_applies_resolved_cursor() {
+        let colors = TerminalColorOverrides {
+            cursor_visual: Some((CursorShape::Bar, true)),
+            ..Default::default()
+        };
+        assert_eq!(terminal_color_override_full_state(&colors), b"\x1b[0 q\x1b[5 q");
+        assert_eq!(
+            terminal_color_override_full_state(&TerminalColorOverrides::default()),
+            b"\x1b[0 q"
+        );
+    }
+
+    #[test]
+    fn terminal_color_override_delta_maps_every_cursor_visual_and_reset() {
+        let cases = [
+            ((CursorShape::Block, true), b"\x1b[1 q".as_slice()),
+            ((CursorShape::Block, false), b"\x1b[2 q".as_slice()),
+            ((CursorShape::Underline, true), b"\x1b[3 q".as_slice()),
+            ((CursorShape::Underline, false), b"\x1b[4 q".as_slice()),
+            ((CursorShape::Bar, true), b"\x1b[5 q".as_slice()),
+            ((CursorShape::Bar, false), b"\x1b[6 q".as_slice()),
+        ];
+        let mut previous = TerminalColorOverrides::default();
+        for (cursor_visual, expected) in cases {
+            let next =
+                TerminalColorOverrides { cursor_visual: Some(cursor_visual), ..Default::default() };
+            assert_eq!(terminal_color_override_delta(&previous, &next), expected);
+            previous = next;
+        }
+        assert_eq!(
+            terminal_color_override_delta(&previous, &TerminalColorOverrides::default()),
+            b"\x1b[0 q"
+        );
     }
 
     #[test]
@@ -2739,6 +2798,7 @@ mod tests {
 
         let colors = TerminalColorOverrides {
             foreground: Some(Rgb { r: 1, g: 2, b: 3 }),
+            cursor_visual: Some((CursorShape::Bar, true)),
             ..Default::default()
         };
         let mut colors_frame = Frame::new(

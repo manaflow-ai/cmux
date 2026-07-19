@@ -26,19 +26,30 @@ impl From<sys::GhosttyColorRgb> for Rgb {
     }
 }
 
-/// Application-authored dynamic color overrides, excluding embedder theme
-/// defaults. `None` means the renderer must continue using its own theme.
+/// Process-host render metadata. Color and palette entries are sparse
+/// application-authored overrides, while version 2 cursor metadata is the
+/// host-resolved visual pair.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalColorOverrides {
     pub foreground: Option<Rgb>,
     pub background: Option<Rgb>,
     pub cursor: Option<Rgb>,
+    /// Host-resolved cursor shape/blink for the active screen. Version 2
+    /// process-host snapshots always populate this; `None` represents a
+    /// decoded legacy version 1 frame.
+    pub cursor_visual: Option<(CursorShape, bool)>,
     pub palette: [Option<Rgb>; 256],
 }
 
 impl Default for TerminalColorOverrides {
     fn default() -> Self {
-        Self { foreground: None, background: None, cursor: None, palette: [None; 256] }
+        Self {
+            foreground: None,
+            background: None,
+            cursor: None,
+            cursor_visual: None,
+            palette: [None; 256],
+        }
     }
 }
 
@@ -1337,9 +1348,25 @@ impl Terminal {
         )
     }
 
-    /// Sparse dynamic overrides authored by terminal applications through
-    /// OSC 4/10/11/12. Embedder-provided and Ghostty-compiled defaults are
-    /// deliberately excluded so another renderer can retain its own theme.
+    /// Effective cursor visual for the active screen, including DECSCUSR,
+    /// alternate-screen state, DEC mode 12, and embedder defaults.
+    pub fn effective_cursor_visual(&self) -> Result<(CursorShape, bool)> {
+        let shape = match self.get::<sys::GhosttyTerminalCursorStyle>(
+            sys::GHOSTTY_TERMINAL_DATA_CURSOR_VISUAL_STYLE,
+        )? {
+            sys::GHOSTTY_TERMINAL_CURSOR_STYLE_BAR => CursorShape::Bar,
+            sys::GHOSTTY_TERMINAL_CURSOR_STYLE_UNDERLINE => CursorShape::Underline,
+            sys::GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK_HOLLOW => CursorShape::BlockHollow,
+            _ => CursorShape::Block,
+        };
+        let blinking: bool = self.get(sys::GHOSTTY_TERMINAL_DATA_CURSOR_BLINKING)?;
+        Ok((shape, blinking))
+    }
+
+    /// Dynamic state for process-separated renderers. Application-authored
+    /// OSC 4/10/11/12 state remains sparse so the receiving renderer keeps its
+    /// own theme. Cursor visual is host-resolved because shape is per-screen,
+    /// blink is terminal-global, and DECSCUSR and DEC mode 12 interact.
     pub fn color_overrides(&self) -> TerminalColorOverrides {
         let effective_color = |active: bool, data| {
             active.then(|| self.get::<sys::GhosttyColorRgb>(data).ok().map(Rgb::from)).flatten()
@@ -1364,6 +1391,10 @@ impl Terminal {
             cursor: effective_color(
                 self.color_overrides.cursor,
                 sys::GHOSTTY_TERMINAL_DATA_COLOR_CURSOR,
+            ),
+            cursor_visual: Some(
+                self.effective_cursor_visual()
+                    .expect("valid terminals expose an effective cursor visual"),
             ),
             palette,
         }
