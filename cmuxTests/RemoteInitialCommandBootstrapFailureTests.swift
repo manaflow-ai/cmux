@@ -60,7 +60,7 @@ struct RemoteInitialCommandBootstrapFailureTests {
         ]) { _, new in new }
 
         let failedDecode = try runShell(script, environment: environment)
-        #expect(failedDecode.status == 0, failedDecode.stderr)
+        #expect(failedDecode.status == 0, Comment(rawValue: failedDecode.stderr))
         #expect(!fileManager.fileExists(atPath: output.path))
         #expect(try initialCommandMarkerCount(home: home) == 0)
         let startupEnvironment = try String(
@@ -75,9 +75,9 @@ struct RemoteInitialCommandBootstrapFailureTests {
         #expect(payloadMode == "600\n")
 
         let retry = try runShell(script, environment: environment)
-        #expect(retry.status == 0, retry.stderr)
+        #expect(retry.status == 0, Comment(rawValue: retry.stderr))
         let reattach = try runShell(script, environment: environment)
-        #expect(reattach.status == 0, reattach.stderr)
+        #expect(reattach.status == 0, Comment(rawValue: reattach.stderr))
 
         #expect(try String(contentsOf: output, encoding: .utf8) == "decode retry\n")
         #expect(try initialCommandMarkerCount(home: home) == 1)
@@ -118,14 +118,14 @@ struct RemoteInitialCommandBootstrapFailureTests {
         ]) { _, new in new }
 
         let failedDecode = try runShell(script, environment: environment)
-        #expect(failedDecode.status == 0, failedDecode.stderr)
+        #expect(failedDecode.status == 0, Comment(rawValue: failedDecode.stderr))
         #expect(!fileManager.fileExists(atPath: output.path))
         #expect(try initialCommandMarkerCount(home: home) == 0)
 
         let retry = try runShell(script, environment: environment)
-        #expect(retry.status == 0, retry.stderr)
+        #expect(retry.status == 0, Comment(rawValue: retry.stderr))
         let reattach = try runShell(script, environment: environment)
-        #expect(reattach.status == 0, reattach.stderr)
+        #expect(reattach.status == 0, Comment(rawValue: reattach.stderr))
 
         #expect(try String(contentsOf: output, encoding: .utf8) == "fish decode retry\n")
         #expect(try initialCommandMarkerCount(home: home) == 1)
@@ -169,7 +169,7 @@ struct RemoteInitialCommandBootstrapFailureTests {
         ]) { _, new in new }
 
         let unsupported = try runShell(script, environment: unsupportedEnvironment)
-        #expect(unsupported.status == 0, unsupported.stderr)
+        #expect(unsupported.status == 0, Comment(rawValue: unsupported.stderr))
         #expect(try String(contentsOf: invocations, encoding: .utf8) == "1\n-i\n")
         #expect(!fileManager.fileExists(atPath: output.path))
         #expect(try initialCommandMarkerCount(home: home) == 0)
@@ -177,13 +177,13 @@ struct RemoteInitialCommandBootstrapFailureTests {
             localized: "cli.ssh.initialCommand.unsupportedShell",
             defaultValue: "[cmux] Initial command was not run because cmux does not support initial commands for this remote login shell. Reconnect with a supported shell to retry it."
         )
-        #expect(unsupported.stderr.contains(warning), unsupported.stderr)
+        #expect(unsupported.stderr.contains(warning), Comment(rawValue: unsupported.stderr))
 
         let supportedEnvironment = unsupportedEnvironment.merging(["SHELL": "/bin/sh"]) { _, new in new }
         let retry = try runShell(script, environment: supportedEnvironment)
-        #expect(retry.status == 0, retry.stderr)
+        #expect(retry.status == 0, Comment(rawValue: retry.stderr))
         let reattach = try runShell(script, environment: supportedEnvironment)
-        #expect(reattach.status == 0, reattach.stderr)
+        #expect(reattach.status == 0, Comment(rawValue: reattach.stderr))
 
         #expect(try String(contentsOf: output, encoding: .utf8) == "must wait\n")
         #expect(try initialCommandMarkerCount(home: home) == 1)
