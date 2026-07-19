@@ -146,6 +146,47 @@ struct RemoteInitialCommandBootstrapTests {
     }
 
     @Test
+    func generatedZshBootstrapRunsCommandAfterUserZloginOnlyOnce() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-remote-initial-command-zsh-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home")
+        let output = home.appendingPathComponent("zsh initial command.txt")
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try "export CMUX_ZSH_STARTUP_ORDER=zshrc\n".write(
+            to: home.appendingPathComponent(".zshrc"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "export CMUX_ZSH_STARTUP_ORDER=\"$CMUX_ZSH_STARTUP_ORDER,zlogin\"\ncd \"$HOME\"\n".write(
+            to: home.appendingPathComponent(".zlogin"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 0,
+            shellFeatures: "ssh-env,ssh-terminfo",
+            initialCommand: #"printf '%s|%s\n' "$CMUX_ZSH_STARTUP_ORDER" "$PWD" >> "$HOME/zsh initial command.txt""#
+        )
+        let environment = ProcessInfo.processInfo.environment.merging([
+            "HOME": home.path,
+            "PATH": "/usr/bin:/bin",
+            "SHELL": "/bin/zsh",
+        ]) { _, new in new }
+
+        let first = try runShell(script, environment: environment)
+        #expect(first.status == 0, "stdout: \(first.stdout)\nstderr: \(first.stderr)")
+        let second = try runShell(script, environment: environment)
+        #expect(second.status == 0, "stdout: \(second.stdout)\nstderr: \(second.stderr)")
+
+        let captured = try String(contentsOf: output, encoding: .utf8)
+        #expect(captured == "zshrc,zlogin|\(home.path)\n")
+    }
+
+    @Test
     func generatedFallbackBootstrapRunsCommandAsShellScriptOnlyOnce() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
