@@ -4948,6 +4948,51 @@ mod tests {
     }
 
     #[test]
+    fn attach_rollback_wait_does_not_hold_global_sizing_locks() {
+        let mux = test_mux();
+        let failed_surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let unrelated_surface = mux.new_workspace(None, Some((100, 30))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+        mux.control_clients.attach_surface(client, failed_surface.id, stream).unwrap();
+        let resize = mux
+            .resize_surface_for_control_client_with_reservation(failed_surface.id, client, 80, 24)
+            .unwrap();
+
+        let entered = Arc::new(std::sync::Barrier::new(2));
+        let resume = Arc::new(std::sync::Barrier::new(2));
+        mux.set_client_rollback_before_wait(Some(Arc::new({
+            let entered = entered.clone();
+            let resume = resume.clone();
+            move || {
+                entered.wait();
+                resume.wait();
+            }
+        })));
+        let rollback_mux = mux.clone();
+        let rollback = std::thread::spawn(move || {
+            rollback_mux.rollback_surface_size_client(failed_surface.id, client, resize.rollback);
+        });
+        entered.wait();
+
+        let (resized_tx, resized_rx) = std::sync::mpsc::sync_channel(1);
+        let resize_mux = mux.clone();
+        let unrelated = unrelated_surface.id;
+        let resize_thread = std::thread::spawn(move || {
+            resized_tx
+                .send(resize_mux.resize_surface_for_client(unrelated, 9_999, 70, 20))
+                .unwrap();
+        });
+        assert!(resized_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap());
+
+        resume.wait();
+        rollback.join().unwrap();
+        resize_thread.join().unwrap();
+        mux.set_client_rollback_before_wait(None);
+    }
+
+    #[test]
     fn failed_secondary_attach_preserves_surviving_stream_size_lease() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((120, 40))).unwrap();

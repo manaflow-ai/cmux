@@ -360,7 +360,22 @@ enum BrowserSurfaceAttach {
 type ClientSurfaceSizes = HashMap<SurfaceId, HashMap<u64, (u16, u16)>>;
 type SurfaceResizeAcceptance = (bool, Option<u64>);
 type AppliedClientSize = (SurfaceResizeAcceptance, Option<(u16, u16)>, ClientSizeRollback);
-type SurfaceResizeCompletion = SyncSender<Result<(), Arc<str>>>;
+type SurfaceResizeOutcome = Result<(), Arc<str>>;
+type SurfaceResizeCompletion = SyncSender<SurfaceResizeOutcome>;
+
+enum SurfaceResizeRestore {
+    Complete(bool),
+    Pending(Receiver<SurfaceResizeOutcome>),
+}
+
+#[derive(PartialEq, Eq)]
+struct ClientSizingRollbackToken {
+    surface_sizes: Option<HashMap<u64, (u16, u16)>>,
+    surface_orders: HashMap<u64, u64>,
+    excluded_clients: HashSet<u64>,
+    exclusive_client: Option<u64>,
+    attached_clients: HashSet<u64>,
+}
 
 #[derive(Clone, Copy)]
 pub(crate) struct ClientSizeRollback {
@@ -393,6 +408,26 @@ struct ClientSizingState {
 }
 
 impl ClientSizingState {
+    fn rollback_token(
+        &self,
+        surface: SurfaceId,
+        attached_clients: &HashSet<u64>,
+    ) -> ClientSizingRollbackToken {
+        ClientSizingRollbackToken {
+            surface_sizes: self.surfaces.get(&surface).cloned(),
+            surface_orders: self
+                .report_order
+                .iter()
+                .filter_map(|((reported_surface, client), order)| {
+                    (*reported_surface == surface).then_some((*client, *order))
+                })
+                .collect(),
+            excluded_clients: self.excluded_clients.clone(),
+            exclusive_client: self.exclusive_client,
+            attached_clients: attached_clients.clone(),
+        }
+    }
+
     fn client_participates(&self, client: u64) -> bool {
         self.exclusive_client.map_or_else(
             || !self.excluded_clients.contains(&client),
@@ -463,6 +498,8 @@ pub struct Mux {
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
+    client_rollback_before_wait: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
     workspace_close_before_empty_check: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
@@ -511,6 +548,8 @@ impl Mux {
             client_sizing: Mutex::new(ClientSizingState::default()),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
+            #[cfg(test)]
+            client_rollback_before_wait: Mutex::new(None),
             #[cfg(test)]
             workspace_close_before_empty_check: Mutex::new(None),
             browser_runtime: Mutex::new(None),
@@ -1003,7 +1042,7 @@ impl Mux {
         client: u64,
         rollback: ClientSizeRollback,
     ) {
-        let _lifecycle = self.lock_client_sizing_lifecycle();
+        let lifecycle = self.lock_client_sizing_lifecycle();
         if !self.control_clients.contains(client) {
             return;
         }
@@ -1037,53 +1076,76 @@ impl Mux {
         let use_excluded = sizing.uses_excluded_fallback(&attached_clients);
         let desired_geometry =
             sizing.effective_size(id, use_excluded).or(rollback.previous_geometry);
-        let restored = desired_geometry.is_none_or(|(cols, rows)| {
-            let (completion, completed) = std::sync::mpsc::sync_channel(1);
-            match self.resize_surface_with_completion(id, cols, rows, Some(completion)) {
-                Ok((true, Some(_))) => {
-                    matches!(completed.recv_timeout(Duration::from_secs(10)), Ok(Ok(())))
-                }
-                Ok((_, _)) => self.surface(id).is_some_and(|surface| {
-                    if surface.size() == (cols, rows) {
-                        return true;
-                    }
-                    match surface.pending_resize_completion(cols, rows) {
-                        Ok(Some(pending)) => matches!(
-                            pending.completion.recv_timeout(Duration::from_secs(10)),
-                            Ok(Ok(()))
-                        ),
-                        Ok(None) | Err(_) => false,
-                    }
-                }),
-                Err(_) => false,
-            }
-        });
-        if !restored {
-            // The failed attach already changed the real surface geometry. If
-            // the browser rejects restoring the old effective grid, retain
-            // the pre-rollback report so registry state still describes the
-            // geometry that surviving viewers are actually observing.
-            self.control_clients.restore_size(client, id, current_size);
-            match current_size {
-                Some(size) => {
-                    sizing.surfaces.entry(id).or_default().insert(client, size);
-                }
-                None => {
-                    if let Some(viewers) = sizing.surfaces.get_mut(&id) {
-                        viewers.remove(&client);
-                        if viewers.is_empty() {
-                            sizing.surfaces.remove(&id);
+        let restore =
+            desired_geometry.map_or(SurfaceResizeRestore::Complete(true), |(cols, rows)| {
+                let (completion, completed) = std::sync::mpsc::sync_channel(1);
+                match self.resize_surface_with_completion(id, cols, rows, Some(completion)) {
+                    Ok((true, Some(_))) => SurfaceResizeRestore::Pending(completed),
+                    Ok((_, _)) => match self.surface(id) {
+                        Some(surface) if surface.size() == (cols, rows) => {
+                            SurfaceResizeRestore::Complete(true)
                         }
+                        Some(surface) => match surface.pending_resize_completion(cols, rows) {
+                            Ok(Some(pending)) => SurfaceResizeRestore::Pending(pending.completion),
+                            Ok(None) | Err(_) => SurfaceResizeRestore::Complete(false),
+                        },
+                        None => SurfaceResizeRestore::Complete(false),
+                    },
+                    Err(_) => SurfaceResizeRestore::Complete(false),
+                }
+            });
+        let rollback_token = sizing.rollback_token(id, &attached_clients);
+        self.reconcile_latest_client_size(&sizing, &attached_clients);
+        drop(sizing);
+        drop(lifecycle);
+
+        #[cfg(test)]
+        if let Some(hook) = self.client_rollback_before_wait.lock().unwrap().clone() {
+            hook();
+        }
+
+        let restored = match restore {
+            SurfaceResizeRestore::Complete(restored) => restored,
+            SurfaceResizeRestore::Pending(completion) => {
+                matches!(completion.recv_timeout(Duration::from_secs(10)), Ok(Ok(())))
+            }
+        };
+        if restored {
+            return;
+        }
+
+        let _lifecycle = self.lock_client_sizing_lifecycle();
+        if !self.control_clients.contains(client) {
+            return;
+        }
+        let mut sizing = self.client_sizing.lock().unwrap();
+        let attached_clients = self.control_clients.attached_client_ids();
+        if sizing.rollback_token(id, &attached_clients) != rollback_token {
+            return;
+        }
+        // The failed attach already changed the real surface geometry. If
+        // restoration fails, retain the pre-rollback report only when no
+        // newer sizing mutation superseded this rollback while it was pending.
+        self.control_clients.restore_size(client, id, current_size);
+        match current_size {
+            Some(size) => {
+                sizing.surfaces.entry(id).or_default().insert(client, size);
+            }
+            None => {
+                if let Some(viewers) = sizing.surfaces.get_mut(&id) {
+                    viewers.remove(&client);
+                    if viewers.is_empty() {
+                        sizing.surfaces.remove(&id);
                     }
                 }
             }
-            match current_report_order {
-                Some(order) => {
-                    sizing.report_order.insert((id, client), order);
-                }
-                None => {
-                    sizing.report_order.remove(&(id, client));
-                }
+        }
+        match current_report_order {
+            Some(order) => {
+                sizing.report_order.insert((id, client), order);
+            }
+            None => {
+                sizing.report_order.remove(&(id, client));
             }
         }
         self.reconcile_latest_client_size(&sizing, &attached_clients);
@@ -1328,6 +1390,14 @@ impl Mux {
     #[cfg(test)]
     fn set_client_resize_before_apply(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
         *self.client_resize_before_apply.lock().unwrap() = hook;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_client_rollback_before_wait(
+        &self,
+        hook: Option<Arc<dyn Fn() + Send + Sync>>,
+    ) {
+        *self.client_rollback_before_wait.lock().unwrap() = hook;
     }
 
     fn browser_runtime(&self) -> anyhow::Result<Arc<BrowserRuntime>> {
