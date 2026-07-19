@@ -268,40 +268,97 @@ def test_plain_bash_bootstrap_installs_cmux_prompt_command() -> None:
 
 
 def test_cmux_prompt_command_preserves_status_for_downstream_hooks() -> None:
-    """Regression coverage for https://github.com/manaflow-ai/cmux/issues/5389."""
-    env = {
-        key: value
-        for key, value in os.environ.items()
-        if not key.startswith("CMUX")
-    }
-    env.update(
-        {
-            "CMUX_BASH_INTEGRATION": str(INTEGRATION),
-            "CMUX_SOCKET_PATH": "",
-            "CMUX_TAB_ID": "tab-test",
-        }
-    )
+    """Regression coverage for every return path fixed by issue #5389."""
     script = r"""
 source "$CMUX_BASH_INTEGRATION"
+_cmux_tmux_sync_cmux_environment() { :; }
+_cmux_reset_terminal_keyboard_protocols() { :; }
+_cmux_report_shell_activity_state() { :; }
+_cmux_report_tty_once() { :; }
+_cmux_set_git_active_pwd() { :; }
+_cmux_now() { printf '100\n'; }
+_cmux_report_pwd_via_relay() { return 0; }
+_cmux_send_bg() { :; }
+_cmux_stop_pr_poll_loop() { :; }
+_cmux_clear_pr_command_hint_file() { :; }
+_cmux_ports_kick() { :; }
+case "$CMUX_TEST_PATH" in
+    no-tab|no-panel|full)
+        _cmux_socket_is_unix() { return 0; }
+        ;;
+    port-scan)
+        _cmux_socket_is_unix() { return 1; }
+        _cmux_has_port_scan_transport() { return 0; }
+        ;;
+esac
+_CMUX_PWD_LAST_PWD="$PWD"
+_CMUX_PORTS_LAST_RUN=100
 downstream_prompt_hook() { printf 'STATUS=%s\n' "$?"; }
 (exit 7)
 _cmux_prompt_command
 downstream_prompt_hook
 """
-    proc = subprocess.run(
-        ["/bin/bash", "--noprofile", "--norc", "-c", script],
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    assert proc.returncode == 0, (
-        f"bash exited {proc.returncode}\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
-    )
-    assert proc.stdout.splitlines() == ["STATUS=7"], (
-        "downstream PROMPT_COMMAND hook did not receive the user's command status; "
-        f"stdout=<{proc.stdout}> stderr=<{proc.stderr}>"
-    )
+    scenarios = {
+        "no transport": {
+            "CMUX_TEST_PATH": "no-transport",
+            "CMUX_SOCKET_PATH": "",
+            "CMUX_TAB_ID": "tab-test",
+            "CMUX_PANEL_ID": "",
+        },
+        "no tab": {
+            "CMUX_TEST_PATH": "no-tab",
+            "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
+            "CMUX_TAB_ID": "",
+            "CMUX_PANEL_ID": "",
+        },
+        "port scan": {
+            "CMUX_TEST_PATH": "port-scan",
+            "CMUX_SOCKET_PATH": "",
+            "CMUX_TAB_ID": "tab-test",
+            "CMUX_PANEL_ID": "",
+        },
+        "no panel": {
+            "CMUX_TEST_PATH": "no-panel",
+            "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
+            "CMUX_TAB_ID": "tab-test",
+            "CMUX_PANEL_ID": "",
+        },
+        "full path": {
+            "CMUX_TEST_PATH": "full",
+            "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
+            "CMUX_TAB_ID": "tab-test",
+            "CMUX_PANEL_ID": "panel-test",
+        },
+    }
+    for scenario, overrides in scenarios.items():
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith("CMUX")
+        }
+        env.update(
+            {
+                "CMUX_BASH_INTEGRATION": str(INTEGRATION),
+                "CMUX_NO_GIT_WATCH": "1",
+                **overrides,
+            }
+        )
+        proc = subprocess.run(
+            ["/bin/bash", "--noprofile", "--norc", "-c", script],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        assert proc.returncode == 0, (
+            f"{scenario}: bash exited {proc.returncode}\n"
+            f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+        )
+        assert proc.stdout.splitlines() == ["STATUS=7"], (
+            f"{scenario}: downstream PROMPT_COMMAND hook did not receive the user's "
+            f"command status; stdout=<{proc.stdout}> stderr=<{proc.stderr}>"
+        )
 
 
 if __name__ == "__main__":
