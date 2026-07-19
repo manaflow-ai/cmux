@@ -1344,12 +1344,39 @@ func (session *wsPTYSession) terminateProcessesWithForegroundGroupLookup(lookup 
 	session.withPTYFileLocked(func(ptyFile *os.File) {
 		foregroundGroup = lookup(ptyFile)
 	})
+	sessionLeader := 0
+	if session.cmd != nil && session.cmd.Process != nil {
+		sessionLeader = session.cmd.Process.Pid
+		terminatePTYSessionMembers(sessionLeader)
+	}
 	if foregroundGroup > 0 {
 		_ = syscall.Kill(-foregroundGroup, syscall.SIGKILL)
 	}
-	if session.cmd != nil && session.cmd.Process != nil {
-		_ = syscall.Kill(-session.cmd.Process.Pid, syscall.SIGKILL)
+	if sessionLeader > 0 {
+		_ = syscall.Kill(-sessionLeader, syscall.SIGKILL)
 		_ = session.cmd.Process.Kill()
+	}
+}
+
+func terminatePTYSessionMembers(sessionID int) {
+	if sessionID <= 0 {
+		return
+	}
+	// The PTY's OS session is the ownership boundary. Iterate because a member
+	// can fork between a process-table snapshot and signal delivery. Killing
+	// every current member first prevents later passes from discovering new
+	// descendants while still allowing an intentionally daemonized process that
+	// created its own session to leave the terminal's lifecycle.
+	for attempt := 0; attempt < 8; attempt++ {
+		members := ptySessionMemberPIDs(sessionID)
+		if len(members) == 0 {
+			return
+		}
+		for _, pid := range members {
+			if pid != os.Getpid() {
+				_ = syscall.Kill(pid, syscall.SIGKILL)
+			}
+		}
 	}
 }
 
