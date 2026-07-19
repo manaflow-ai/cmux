@@ -96,7 +96,7 @@ struct CmxIrohRelayPolicyServiceTests {
         #expect(active.endpointRelayProfile.activeRelays.first?.authenticationToken
             == "private-secret-token")
         let diagnostic = await stores.service.diagnosticsSnapshot()
-        #expect(diagnostic.selectedRelayURLs == [definition.url])
+        #expect(diagnostic.selectedRelayCount == 1)
         #expect(String(describing: diagnostic).contains(definition.url) == false)
         #expect(String(describing: diagnostic).contains("private-secret-token") == false)
     }
