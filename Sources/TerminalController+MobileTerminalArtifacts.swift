@@ -23,14 +23,21 @@ extension TerminalController {
         return trimmed?.isEmpty == false ? trimmed : nil
     }
 
-    func v2MobileTerminalArtifactDispatch(method: String, params: [String: Any]) async -> V2CallResult {
+    func v2MobileTerminalArtifactDispatch(
+        method: String,
+        params: [String: Any],
+        executionContext: MobileHostRPCExecutionContext? = nil
+    ) async -> V2CallResult {
         switch method {
         case "mobile.terminal.artifact.scan":
             return await v2MobileTerminalArtifactScan(params: params)
         case "mobile.terminal.artifact.stat":
             return await v2MobileTerminalArtifactStat(params: params)
         case "mobile.terminal.artifact.fetch":
-            return await v2MobileTerminalArtifactFetch(params: params)
+            return await v2MobileTerminalArtifactFetch(
+                params: params,
+                executionContext: executionContext
+            )
         case "mobile.terminal.artifact.thumbnail":
             return await v2MobileTerminalArtifactThumbnail(params: params)
         case "mobile.terminal.artifact.list":
@@ -111,7 +118,10 @@ extension TerminalController {
         }
     }
 
-    func v2MobileTerminalArtifactFetch(params: [String: Any]) async -> V2CallResult {
+    func v2MobileTerminalArtifactFetch(
+        params: [String: Any],
+        executionContext: MobileHostRPCExecutionContext? = nil
+    ) async -> V2CallResult {
         let resolution = await mobileTerminalArtifactContext(params: params, requiresPath: true)
         guard case .success(let context) = resolution else {
             return resolution.failureResult
@@ -120,6 +130,26 @@ extension TerminalController {
         let length = ChatArtifactTransferPolicy.defaultPolicy
             .clampedChunkLength(v2Int(params, "length"))
         do {
+            if v2RawString(params, "transport") == "iroh_artifact_v1" {
+                guard let executionContext else {
+                    return .err(
+                        code: "unsupported_transport",
+                        message: String(
+                            localized: "mobile.chat.artifact.error.irohTransportUnavailable",
+                            defaultValue: "Iroh artifact transfer requires an authenticated Iroh session."
+                        ),
+                        data: nil
+                    )
+                }
+                let canonicalPath = try await Task.detached(priority: .utility) {
+                    try context.authorizedRead { _, canonicalPath in canonicalPath }
+                }.value
+                return TerminalArtifactWire.result(
+                    try await executionContext.issueArtifactTransfer(
+                        canonicalPath: canonicalPath
+                    )
+                )
+            }
             let chunk = try await Task.detached(priority: .utility) {
                 try context.authorizedRead { reader, canonicalPath in
                     try reader.fetch(path: canonicalPath, offset: offset, length: length)

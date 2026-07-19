@@ -111,7 +111,10 @@ extension TerminalController {
         }
     }
 
-    func v2MobileChatArtifactFetch(params: [String: Any]) async -> V2CallResult {
+    func v2MobileChatArtifactFetch(
+        params: [String: Any],
+        executionContext: MobileHostRPCExecutionContext? = nil
+    ) async -> V2CallResult {
         let resolution = await mobileChatArtifactResolution(params: params, operation: .file)
         guard case .success(let resolved) = resolution else {
             return resolution.failureResult
@@ -120,6 +123,23 @@ extension TerminalController {
         let length = ChatArtifactTransferPolicy.defaultPolicy
             .clampedChunkLength(v2Int(params, "length"))
         do {
+            if v2RawString(params, "transport") == "iroh_artifact_v1" {
+                guard let executionContext else {
+                    return .err(
+                        code: "unsupported_transport",
+                        message: String(
+                            localized: "mobile.chat.artifact.error.irohTransportUnavailable",
+                            defaultValue: "Iroh artifact transfer requires an authenticated Iroh session."
+                        ),
+                        data: nil
+                    )
+                }
+                return .ok(ChatArtifactWire.payload(
+                    try await executionContext.issueArtifactTransfer(
+                        canonicalPath: resolved.canonicalPath
+                    )
+                ) ?? [:])
+            }
             let chunk = try await Task.detached {
                 try ArtifactByteReader().fetch(path: resolved.canonicalPath, offset: offset, length: length)
             }.value

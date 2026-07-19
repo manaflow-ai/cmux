@@ -378,22 +378,41 @@ extension MobileHostAuthorizationTests {
         let admitted = await MobileHostService.connectionStatusResult(
             for: request,
             authorization: try irohAdmissionContext(),
+            supportsArtifactLane: true,
             stackStatus: { _ in .ok(["routes": []]) }
         )
         guard case let .ok(admittedPayload as [String: Any]) = admitted else {
             return #expect(Bool(false), "Admitted Iroh status must return an object")
         }
         #expect(admittedPayload["mac_device_id"] is String)
+        let admittedCapabilities = try #require(admittedPayload["capabilities"] as? [String])
+        #expect(admittedCapabilities.contains(MobileHostService.irohArtifactLaneCapability))
+
+        let admittedWithoutHandler = await MobileHostService.connectionStatusResult(
+            for: request,
+            authorization: try irohAdmissionContext(),
+            supportsArtifactLane: false,
+            stackStatus: { _ in .ok(["routes": []]) }
+        )
+        guard case let .ok(unownedPayload as [String: Any]) = admittedWithoutHandler else {
+            return #expect(Bool(false), "Admitted Iroh status must return an object")
+        }
+        let unownedCapabilities = try #require(unownedPayload["capabilities"] as? [String])
+        #expect(!unownedCapabilities.contains(MobileHostService.irohArtifactLaneCapability))
 
         let tcp = await MobileHostService.connectionStatusResult(
             for: request,
             authorization: .stackBearer,
-            stackStatus: { _ in .ok(["routes": []]) }
+            stackStatus: { _ in
+                .ok(MobileHostService.publicStatusPayload(routes: []))
+            }
         )
         guard case let .ok(tcpPayload as [String: Any]) = tcp else {
             return #expect(Bool(false), "TCP status must return an object")
         }
         #expect(tcpPayload["mac_device_id"] == nil)
+        let tcpCapabilities = try #require(tcpPayload["capabilities"] as? [String])
+        #expect(!tcpCapabilities.contains(MobileHostService.irohArtifactLaneCapability))
     }
 
     @Test func testIrohTerminalLaneInputFramingSurvivesQUICChunkBoundaries() throws {
@@ -440,12 +459,13 @@ extension MobileHostAuthorizationTests {
         let fixture = try MobileHostIrohArtifactFixture(contents: Data("abcdef".utf8))
         defer { fixture.remove() }
         let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let clock = MobileHostIrohArtifactTestClock(now: now)
         let resourceID = try CmxIrohResourceID(
             "artifact:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         )
         let registry = MobileHostIrohArtifactTransferRegistry(
             timeToLive: 60,
-            now: { now },
+            now: { clock.now },
             resourceID: { resourceID }
         )
         let peer = try irohPeer(endpointCharacter: "a")
@@ -491,6 +511,39 @@ extension MobileHostAuthorizationTests {
         )
         #expect(resumed.offset == 4)
         await registry.release(resumed)
+
+        let unknownResource = try CmxIrohResourceID(
+            "artifact:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        )
+        await #expect(throws: MobileHostIrohArtifactTransferRegistry.Error.unknownResource) {
+            try await registry.claim(
+                resourceID: unknownResource,
+                offset: 0,
+                peer: peer
+            )
+        }
+
+        let separateSessionRegistry = MobileHostIrohArtifactTransferRegistry(
+            timeToLive: 60,
+            now: { clock.now },
+            resourceID: { resourceID }
+        )
+        await #expect(throws: MobileHostIrohArtifactTransferRegistry.Error.unknownResource) {
+            try await separateSessionRegistry.claim(
+                resourceID: resourceID,
+                offset: 0,
+                peer: peer
+            )
+        }
+
+        clock.advance(by: 61)
+        await #expect(throws: MobileHostIrohArtifactTransferRegistry.Error.expired) {
+            try await registry.claim(
+                resourceID: resourceID,
+                offset: 0,
+                peer: peer
+            )
+        }
     }
 
     @Test func testIrohArtifactHandlerStreamsAuthorizedOffsetAtLowPriority() async throws {
@@ -522,15 +575,72 @@ extension MobileHostAuthorizationTests {
 
         #expect(didTakeOwnership)
         #expect(await send.payload() == Data("cdef".utf8))
-        #expect(await send.priorities() == [10])
+        #expect(await send.priorities() == [-10])
         #expect(await send.finishCount() == 1)
         #expect(await receive.stopCodes() == [0])
+    }
+
+    @Test func testIrohArtifactHandlerResetsIfFileChangesDuringTransfer() async throws {
+        let fixture = try MobileHostIrohArtifactFixture(contents: Data("abcdef".utf8))
+        defer { fixture.remove() }
+        let resourceID = try CmxIrohResourceID(
+            "artifact:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        )
+        let registry = MobileHostIrohArtifactTransferRegistry(
+            timeToLive: 60,
+            now: Date.init,
+            resourceID: { resourceID }
+        )
+        let peer = try irohPeer(endpointCharacter: "d")
+        _ = try await registry.issue(canonicalPath: fixture.path, peer: peer)
+        let send = MutatingMobileHostIrohArtifactSendStream(path: fixture.path)
+        let receive = RecordingMobileHostIrohArtifactReceiveStream()
+
+        let didTakeOwnership = await MobileHostIrohArtifactLaneHandler(
+            registry: registry
+        ).handleArtifactLane(
+            resourceID: resourceID,
+            offset: 0,
+            stream: CmxIrohBidirectionalStream(
+                receiveStream: receive,
+                sendStream: send
+            ),
+            peer: peer
+        )
+
+        #expect(didTakeOwnership)
+        #expect(await send.finishCount() == 0)
+        #expect(await send.resetCodes() == [6])
+        #expect(await receive.stopCodes() == [0, 6])
     }
 
     @Test func testIrohApplicationLaneQuotasReserveArtifactCapacity() {
         #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentTerminalLaneCount == 4)
         #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentArtifactLaneCount == 1)
         #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentLaneCount == 5)
+
+        var quota = MobileHostIrohApplicationLaneQuota()
+        let terminalIDs = (0..<5).map { _ in UUID() }
+        for id in terminalIDs.prefix(4) {
+            let didReserve = quota.reserve(id, laneClass: .terminal)
+            #expect(didReserve)
+        }
+        let didReserveFifthTerminal = quota.reserve(terminalIDs[4], laneClass: .terminal)
+        #expect(!didReserveFifthTerminal)
+        let artifactID = UUID()
+        let didReserveArtifact = quota.reserve(artifactID, laneClass: .artifact)
+        #expect(didReserveArtifact)
+        let didReserveSecondArtifact = quota.reserve(UUID(), laneClass: .artifact)
+        #expect(!didReserveSecondArtifact)
+        #expect(quota.terminalCount == 4)
+        #expect(quota.artifactCount == 1)
+
+        quota.release(terminalIDs[0])
+        let didReuseTerminalCredit = quota.reserve(terminalIDs[4], laneClass: .terminal)
+        #expect(didReuseTerminalCredit)
+        quota.release(artifactID)
+        let didReuseArtifactCredit = quota.reserve(UUID(), laneClass: .artifact)
+        #expect(didReuseArtifactCredit)
     }
 
     private func irohPeer(
@@ -587,6 +697,25 @@ private struct MobileHostIrohArtifactFixture {
     }
 }
 
+private final class MobileHostIrohArtifactTestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Date
+
+    init(now: Date) {
+        value = now
+    }
+
+    var now: Date {
+        lock.withLock { value }
+    }
+
+    func advance(by interval: TimeInterval) {
+        lock.withLock {
+            value = value.addingTimeInterval(interval)
+        }
+    }
+}
+
 private actor RecordingMobileHostIrohArtifactSendStream: CmxIrohSendStream {
     private var chunks: [Data] = []
     private var observedPriorities: [Int32] = []
@@ -624,6 +753,39 @@ private actor RecordingMobileHostIrohArtifactReceiveStream: CmxIrohReceiveStream
     }
 
     func stopCodes() -> [UInt64] { observedStopCodes }
+}
+
+private actor MutatingMobileHostIrohArtifactSendStream: CmxIrohSendStream {
+    private let path: String
+    private var didMutate = false
+    private var observedFinishCount = 0
+    private var observedResetCodes: [UInt64] = []
+
+    init(path: String) {
+        self.path = path
+    }
+
+    func send(_: Data) throws {
+        guard !didMutate else { return }
+        didMutate = true
+        guard let handle = FileHandle(forWritingAtPath: path) else { return }
+        defer { try? handle.close() }
+        try handle.truncate(atOffset: 0)
+        try handle.write(contentsOf: Data("changed-size".utf8))
+    }
+
+    func finish() {
+        observedFinishCount += 1
+    }
+
+    func reset(errorCode: UInt64) {
+        observedResetCodes.append(errorCode)
+    }
+
+    func setPriority(_: Int32) {}
+
+    func finishCount() -> Int { observedFinishCount }
+    func resetCodes() -> [UInt64] { observedResetCodes }
 }
 
 private actor MobileHostIrohPersistenceGate {

@@ -77,6 +77,13 @@ struct cmuxApp: App {
                     surfaceID: surfaceUUID,
                     cursor: cursor
                 )
+            },
+            artifactLaneProvider: { request, resourceID, offset in
+                try await iroh.openArtifactLane(
+                    for: request,
+                    resourceID: resourceID,
+                    offset: offset
+                )
             }
         )
 

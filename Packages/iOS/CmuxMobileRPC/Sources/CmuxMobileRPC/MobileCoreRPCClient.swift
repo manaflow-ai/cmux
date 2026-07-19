@@ -122,6 +122,27 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         await session.prepareIndependentServerEvents()
     }
 
+    /// Opens an artifact lane bound to this client's immutable admitted route.
+    public func openArtifactLane(
+        resourceID: String,
+        offset: UInt64
+    ) async throws -> any MobileArtifactLaneConnection {
+        guard route.kind == .iroh,
+              let provider = runtime.artifactLaneProvider else {
+            throw MobileShellConnectionError.connectionClosed
+        }
+        let admission = try lifecycleGate.beginArtifactLaneAdmission()
+        let connection = try await provider(
+            transportRequest,
+            resourceID,
+            offset
+        )
+        return try await lifecycleGate.finishArtifactLaneAdmission(
+            admission,
+            connection: connection
+        )
+    }
+
     /// Build a JSON-RPC request frame with the given method and params.
     /// - Parameters:
     ///   - method: The RPC method name.

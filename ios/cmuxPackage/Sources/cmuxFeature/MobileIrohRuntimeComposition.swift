@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
 public import CmuxIrohTransport
+import CmuxMobileRPC
 import CmuxMobileShell
 import CmuxMobileTransport
 import CryptoKit
@@ -518,6 +519,29 @@ public final class MobileIrohRuntimeComposition:
             priority: priority
         )
         return MobileIrohTerminalLane(stream: stream)
+    }
+
+    /// Opens a low-priority raw artifact lane for an opaque Mac-issued capability.
+    public func openArtifactLane(
+        for request: CmxByteTransportRequest,
+        resourceID: String,
+        offset: UInt64,
+        priority: Int32 = -10
+    ) async throws -> any MobileArtifactLaneConnection {
+        let capability = try CmxIrohResourceID(resourceID)
+        let stream = try await openBidirectionalLane(
+            for: request,
+            lane: .artifact(resourceID: capability, offset: offset),
+            priority: priority
+        )
+        do {
+            try await stream.sendStream.finish()
+            return MobileIrohArtifactLane(stream: stream)
+        } catch {
+            await stream.sendStream.reset(errorCode: 0)
+            await stream.receiveStream.stop(errorCode: 0)
+            throw error
+        }
     }
 
     /// Starts the one server-event byte stream on the pooled admitted connection.
@@ -1604,7 +1628,7 @@ public final class MobileIrohRuntimeComposition:
             alpn: CmxIrohProtocolConfiguration.cmuxMobileV1.alpn,
             maximumHeaderByteCount: CmxIrohProtocolConfiguration.cmuxMobileV1
                 .maximumHeaderByteCount,
-            maximumConcurrentClientApplicationLaneCount: 4,
+            maximumConcurrentClientApplicationLaneCount: 5,
             allowsNATTraversalAfterAdmission: mode.allowsNATTraversalAfterAdmission
         )
     }
