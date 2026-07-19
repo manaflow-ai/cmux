@@ -37,6 +37,7 @@ const requests = [
   { cmd: "new-screen", workspace: 1 },
   { cmd: "split", pane: 1, dir: "right" },
   { cmd: "set-ratio", pane: 1, dir: "down", ratio: 0.5 },
+  { cmd: "set-split-ratio", split: 2, ratio: 0.5 },
   { cmd: "pane-neighbor", pane: 1, dir: "left" },
   { cmd: "focus-direction", dir: "up" },
   { cmd: "swap-pane", pane: 1, target: 2 },
@@ -74,7 +75,7 @@ const requests = [
 ] satisfies CmuxRequest[];
 
 type IdentifyData = CmuxResponseData<(typeof requests)[0]>;
-const identify: IdentifyData = { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 };
+const identify: IdentifyData = { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 };
 void identify;
 
 function surfaceFromKnownEvent(event: KnownCmuxEvent): number | undefined {

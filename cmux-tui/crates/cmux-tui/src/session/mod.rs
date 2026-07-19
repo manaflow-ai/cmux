@@ -15,7 +15,7 @@ use std::sync::atomic::Ordering;
 
 use cmux_tui_core::{
     BrowserFrame, BrowserStatus, DefaultColors, Mux, MuxEventReceiver, PaneId, ScreenId,
-    SidebarPluginStatus, SplitDir, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame,
+    SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame,
     SurfaceResizeReporter, WorkspaceId, ZoomMode,
 };
 use ghostty_vt::{MouseInput, RenderState, Terminal};
@@ -705,21 +705,15 @@ impl Session {
         }
     }
 
-    pub fn set_ratio(&self, pane: PaneId, dir: SplitDir, ratio: f32) -> anyhow::Result<()> {
+    pub fn set_split_ratio(&self, split: SplitId, ratio: f32) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => {
-                mux.set_ratio(pane, dir, ratio);
-                Ok(())
-            }
-            Session::Remote(remote) => {
-                let dir = match dir {
-                    SplitDir::Right => "right",
-                    SplitDir::Down => "down",
-                };
-                remote
-                    .request(json!({"cmd": "set-ratio", "pane": pane, "dir": dir, "ratio": ratio}))
-                    .map(|_| ())
-            }
+            Session::Local(mux) => mux
+                .set_split_ratio(split, ratio)
+                .then_some(())
+                .ok_or_else(|| anyhow::anyhow!("unknown split {split}")),
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "set-split-ratio", "split": split, "ratio": ratio}))
+                .map(|_| ()),
         }
     }
 
@@ -1354,7 +1348,9 @@ impl SurfaceHandle {
 
 #[cfg(test)]
 mod tests {
-    use super::resize_action;
+    use cmux_tui_core::{Mux, SurfaceOptions};
+
+    use super::{Session, resize_action};
 
     #[test]
     fn first_layout_after_attach_sends_ordered_resize() {
@@ -1378,5 +1374,14 @@ mod tests {
     fn steady_state_does_not_send() {
         let desired = (123, 65);
         assert!(!resize_action(desired, Some(desired)));
+    }
+
+    #[test]
+    fn local_set_split_ratio_rejects_an_unknown_split() {
+        let session =
+            Session::Local(Mux::new("unknown-local-split-test", SurfaceOptions::default()));
+
+        let error = session.set_split_ratio(999_999, 0.5).unwrap_err();
+        assert_eq!(error.to_string(), "unknown split 999999");
     }
 }

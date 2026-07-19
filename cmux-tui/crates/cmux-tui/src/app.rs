@@ -17,7 +17,8 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use cmux_tui_core::{
     BrowserSource, BrowserStatus, MuxEvent, PairingChallenge, PaneId, Rect, SplitDir, SplitEdge,
-    SurfaceId, SurfaceKind, WorkspaceId, layout_screen, split_for_pane_edge, split_sides,
+    SplitId, SurfaceId, SurfaceKind, WorkspaceId, exact_split_for_pane_edge, layout_screen,
+    split_sides,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -1655,20 +1656,16 @@ impl OrderedSession {
         Ok(())
     }
 
-    pub fn set_ratio(&self, pane: PaneId, dir: SplitDir, ratio: f32) {
-        self.set_ratio_deferred(pane, dir, ratio);
+    pub fn set_split_ratio(&self, split: SplitId, ratio: f32) {
+        self.set_split_ratio_deferred(split, ratio);
         self.settle_split_ratio();
     }
 
-    fn set_ratio_deferred(&self, pane: PaneId, dir: SplitDir, ratio: f32) {
-        let direction = match dir {
-            SplitDir::Right => "horizontal split ratio",
-            SplitDir::Down => "vertical split ratio",
-        };
+    fn set_split_ratio_deferred(&self, split: SplitId, ratio: f32) {
         self.enqueue_coalescing_session_mutation(
-            "resize pane split",
-            (direction, pane),
-            move |session| session.set_ratio(pane, dir, ratio),
+            "resize exact pane split",
+            ("split id", split),
+            move |session| session.set_split_ratio(split, ratio),
         );
     }
 
@@ -7135,45 +7132,37 @@ impl App {
         let Some((edge, target)) = candidates
             .into_iter()
             .filter_map(|(split_edge, pane_edge)| {
-                split_for_pane_edge(&screen.layout, self.content_area, pane, split_edge)
+                exact_split_for_pane_edge(&screen.layout, self.content_area, pane, split_edge)
                     .map(|target| (pane_edge, target))
             })
             .min_by_key(|(_, target)| target.area.width as u32 * target.area.height as u32)
         else {
             return;
         };
-        let (current, dir, sign) = match edge {
+        let (current, sign) = match edge {
             PaneEdge::Left => (
                 (area.rect.x.saturating_sub(target.area.x)) as f32
                     / target.area.width.max(1) as f32,
-                SplitDir::Right,
                 -1.0,
             ),
             PaneEdge::Right => (
                 (area.rect.x + area.rect.width).saturating_sub(target.area.x) as f32
                     / target.area.width.max(1) as f32,
-                SplitDir::Right,
                 1.0,
             ),
             PaneEdge::Top => (
                 (area.rect.y.saturating_sub(target.area.y)) as f32
                     / target.area.height.max(1) as f32,
-                SplitDir::Down,
                 -1.0,
             ),
             PaneEdge::Bottom => (
                 (area.rect.y + area.rect.height).saturating_sub(target.area.y) as f32
                     / target.area.height.max(1) as f32,
-                SplitDir::Down,
                 1.0,
             ),
         };
         if self.prepare_pty_input_before_mutation() {
-            self.session.set_ratio(
-                target.set_pane,
-                dir,
-                (current + delta * sign).clamp(0.05, 0.95),
-            );
+            self.session.set_split_ratio(target.split, (current + delta * sign).clamp(0.05, 0.95));
         }
     }
 
@@ -7185,26 +7174,23 @@ impl App {
             PaneEdge::Top => SplitEdge::Top,
             PaneEdge::Bottom => SplitEdge::Bottom,
         };
-        let Some(target) = split_for_pane_edge(&screen.layout, self.content_area, pane, split_edge)
+        let Some(target) =
+            exact_split_for_pane_edge(&screen.layout, self.content_area, pane, split_edge)
         else {
             return;
         };
-        let (coord, start, extent, dir) = match edge {
-            PaneEdge::Left => (x, target.area.x, target.area.width, SplitDir::Right),
-            PaneEdge::Right => {
-                (x.saturating_add(1), target.area.x, target.area.width, SplitDir::Right)
-            }
-            PaneEdge::Top => (y, target.area.y, target.area.height, SplitDir::Down),
-            PaneEdge::Bottom => {
-                (y.saturating_add(1), target.area.y, target.area.height, SplitDir::Down)
-            }
+        let (coord, start, extent) = match edge {
+            PaneEdge::Left => (x, target.area.x, target.area.width),
+            PaneEdge::Right => (x.saturating_add(1), target.area.x, target.area.width),
+            PaneEdge::Top => (y, target.area.y, target.area.height),
+            PaneEdge::Bottom => (y.saturating_add(1), target.area.y, target.area.height),
         };
         if extent == 0 {
             return;
         }
         let ratio = (coord.saturating_sub(start) as f32 / extent as f32).clamp(0.05, 0.95);
         if self.prepare_pty_input_before_mutation() {
-            self.session.set_ratio_deferred(target.set_pane, dir, ratio);
+            self.session.set_split_ratio_deferred(target.split, ratio);
         }
     }
 
@@ -10396,6 +10382,13 @@ mod tests {
         mux.new_workspace(None, Some((40, 12))).unwrap();
         let target = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
         mux.split(target, SplitDir::Right, Some((20, 12))).unwrap();
+        let split = mux.with_state(|state| {
+            let root = &state.workspaces[0].screens[0].root;
+            let Node::Split { id, .. } = root else {
+                panic!("expected split root");
+            };
+            *id
+        });
         let (app, events) = test_app_with_events(Session::Local(mux));
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
@@ -10407,7 +10400,7 @@ mod tests {
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
         for ratio in [0.2, 0.4, 0.8] {
-            app.session.set_ratio_deferred(target, SplitDir::Right, ratio);
+            app.session.set_split_ratio_deferred(split, ratio);
         }
         app.session.settle_split_ratio();
         release_tx.send(()).unwrap();

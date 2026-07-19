@@ -20,7 +20,7 @@ import {
   selectionSnapshot,
 } from "../lib/localSelection";
 import { reconnectTransition, type ReconnectState } from "../lib/reconnect";
-import { supportsProtocol } from "../lib/protocol";
+import { SUPPORTED_PROTOCOL, supportsProtocol } from "../lib/protocol";
 import { activeScreen, locateSurface, SurfaceTitleReconciler, treeToViewModel } from "../lib/tree";
 import { t } from "../i18n";
 
@@ -164,7 +164,12 @@ export function useCmuxClient() {
       try {
         const info = await client.identify();
         if (info.app !== "cmux-tui") throw new Error(t("wrongApp", { app: info.app }));
-        if (!supportsProtocol(info.protocol)) throw new Error(t("wrongProtocol", { protocol: info.protocol }));
+        if (!supportsProtocol(info.protocol)) {
+          throw new Error(t("wrongProtocol", {
+            required: SUPPORTED_PROTOCOL,
+            protocol: info.protocol,
+          }));
+        }
         // Presence commands are additive (7c5a9e3e60); a protocol-6 server
         // predating them still serves everything else, so degrade instead of
         // failing the whole connect.
@@ -373,8 +378,8 @@ export function useCmuxClient() {
     zoomPane: (pane: Id) => runMutation((client) => client.zoomPane({ pane, mode: "toggle" })),
     swapPane: (pane: Id, dir: "left" | "right" | "up" | "down") =>
       runMutation((client) => client.swapPane({ pane, dir })),
-    setRatio: (pane: Id, dir: "right" | "down", ratio: number) =>
-      runMutation((client) => client.setRatio(pane, dir, ratio)),
+    setSplitRatio: (split: Id, ratio: number) =>
+      runMutation((client) => client.setSplitRatio(split, ratio)),
     setClientSizing: (clientId: Id, enabled: boolean) => runMutation(async (client) => {
       await client.setClientSizing(clientId, enabled);
     }),

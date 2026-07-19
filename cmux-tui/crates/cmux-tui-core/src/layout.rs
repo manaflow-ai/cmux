@@ -1,7 +1,7 @@
 //! Pure layout math shared by frontends: a screen's split tree plus a
 //! rectangle produce pane rects that tile the area exactly.
 
-use crate::{Node, PaneId, SplitDir};
+use crate::{Node, PaneId, SplitDir, SplitId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Rect {
@@ -155,6 +155,12 @@ pub struct SplitResize {
     pub set_pane: PaneId,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExactSplitResize {
+    pub area: Rect,
+    pub split: SplitId,
+}
+
 /// Compute pane rects for a screen. Panes tile the area exactly; each
 /// pane draws its own border box inside its rect, so no divider cells
 /// are reserved between siblings.
@@ -167,7 +173,7 @@ pub fn layout_screen(root: &Node, area: Rect) -> LayoutResult {
 fn walk(node: &Node, area: Rect, out: &mut LayoutResult) {
     match node {
         Node::Leaf(id) => out.panes.push((*id, area)),
-        Node::Split { dir, ratio, a, b } => {
+        Node::Split { dir, ratio, a, b, .. } => {
             // Too small to hold two panes: give the whole area to the
             // first side and zero-size the second (frontends draw nothing
             // for empty rects; pane sizes clamp to 1).
@@ -201,6 +207,63 @@ pub fn split_for_pane_edge(
     best
 }
 
+/// Find the exact split node behind a concrete pane border edge.
+///
+/// Unlike [`split_for_pane_edge`], this remains unambiguous when both
+/// sides contain nested splits in the same direction.
+pub fn exact_split_for_pane_edge(
+    root: &Node,
+    area: Rect,
+    pane: PaneId,
+    edge: SplitEdge,
+) -> Option<ExactSplitResize> {
+    let pane_rect = layout_screen(root, area).rect_of(pane)?;
+    let mut best = None;
+    exact_split_for_pane_edge_walk(root, area, pane, pane_rect, edge, &mut best);
+    best
+}
+
+fn exact_split_for_pane_edge_walk(
+    node: &Node,
+    area: Rect,
+    pane: PaneId,
+    pane_rect: Rect,
+    edge: SplitEdge,
+    best: &mut Option<ExactSplitResize>,
+) {
+    let Node::Split { id, dir, ratio, a, b } = node else { return };
+    let too_small = match dir {
+        SplitDir::Right => area.width < 2,
+        SplitDir::Down => area.height < 2,
+    };
+    if too_small {
+        return;
+    }
+    let (a_rect, b_rect) = split_sides(area, *dir, *ratio);
+    let pane_in_a = a.contains(pane);
+    let pane_in_b = b.contains(pane);
+    if *dir == edge.dir() {
+        let boundary = match dir {
+            SplitDir::Right => b_rect.x,
+            SplitDir::Down => b_rect.y,
+        };
+        let matches_boundary = match edge {
+            SplitEdge::Right => pane_in_a && pane_rect.x + pane_rect.width == boundary,
+            SplitEdge::Left => pane_in_b && pane_rect.x == boundary,
+            SplitEdge::Bottom => pane_in_a && pane_rect.y + pane_rect.height == boundary,
+            SplitEdge::Top => pane_in_b && pane_rect.y == boundary,
+        };
+        if matches_boundary {
+            *best = Some(ExactSplitResize { area, split: *id });
+        }
+    }
+    if pane_in_a {
+        exact_split_for_pane_edge_walk(a, a_rect, pane, pane_rect, edge, best);
+    } else if pane_in_b {
+        exact_split_for_pane_edge_walk(b, b_rect, pane, pane_rect, edge, best);
+    }
+}
+
 fn split_for_pane_edge_walk(
     node: &Node,
     area: Rect,
@@ -209,7 +272,7 @@ fn split_for_pane_edge_walk(
     edge: SplitEdge,
     best: &mut Option<SplitResize>,
 ) {
-    let Node::Split { dir, ratio, a, b } = node else { return };
+    let Node::Split { dir, ratio, a, b, .. } = node else { return };
     let too_small = match dir {
         SplitDir::Right => area.width < 2,
         SplitDir::Down => area.height < 2,
@@ -287,6 +350,7 @@ mod tests {
     #[test]
     fn splits_tile_exactly() {
         let root = Node::Split {
+            id: 10,
             dir: SplitDir::Right,
             ratio: 0.5,
             a: Box::new(Node::Leaf(1)),
@@ -307,9 +371,11 @@ mod tests {
     fn split_for_pane_edge_avoids_nested_same_direction_representatives() {
         let area = Rect { x: 0, y: 0, width: 100, height: 20 };
         let mut one_nested_side = Node::Split {
+            id: 10,
             dir: SplitDir::Right,
             ratio: 0.5,
             a: Box::new(Node::Split {
+                id: 11,
                 dir: SplitDir::Right,
                 ratio: 0.5,
                 a: Box::new(Node::Leaf(1)),
@@ -331,15 +397,18 @@ mod tests {
         assert_eq!(*inner_ratio, 0.5);
 
         let mut nested_both_sides = Node::Split {
+            id: 20,
             dir: SplitDir::Right,
             ratio: 0.5,
             a: Box::new(Node::Split {
+                id: 21,
                 dir: SplitDir::Right,
                 ratio: 0.5,
                 a: Box::new(Node::Leaf(1)),
                 b: Box::new(Node::Leaf(3)),
             }),
             b: Box::new(Node::Split {
+                id: 22,
                 dir: SplitDir::Right,
                 ratio: 0.5,
                 a: Box::new(Node::Leaf(2)),
@@ -348,6 +417,14 @@ mod tests {
         };
         assert!(split_for_pane_edge(&nested_both_sides, area, 3, SplitEdge::Right).is_none());
         assert!(split_for_pane_edge(&nested_both_sides, area, 2, SplitEdge::Left).is_none());
+        assert_eq!(
+            exact_split_for_pane_edge(&nested_both_sides, area, 3, SplitEdge::Right),
+            Some(ExactSplitResize { area, split: 20 })
+        );
+        assert_eq!(
+            exact_split_for_pane_edge(&nested_both_sides, area, 2, SplitEdge::Left),
+            Some(ExactSplitResize { area, split: 20 })
+        );
 
         let left_inner =
             split_for_pane_edge(&nested_both_sides, area, 1, SplitEdge::Right).unwrap();
@@ -376,10 +453,12 @@ mod tests {
     #[test]
     fn degenerate_areas_do_not_underflow() {
         let root = Node::Split {
+            id: 30,
             dir: SplitDir::Right,
             ratio: 0.5,
             a: Box::new(Node::Leaf(1)),
             b: Box::new(Node::Split {
+                id: 31,
                 dir: SplitDir::Down,
                 ratio: 0.5,
                 a: Box::new(Node::Leaf(2)),
@@ -397,10 +476,12 @@ mod tests {
     #[test]
     fn neighbor_directional() {
         let root = Node::Split {
+            id: 40,
             dir: SplitDir::Right,
             ratio: 0.5,
             a: Box::new(Node::Leaf(1)),
             b: Box::new(Node::Split {
+                id: 41,
                 dir: SplitDir::Down,
                 ratio: 0.5,
                 a: Box::new(Node::Leaf(2)),
