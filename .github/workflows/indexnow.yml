@@ -18,7 +18,7 @@ jobs:
       # Required to start the secret-bearing workflow_dispatch run.
       actions: write
       contents: read
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 2
     steps:
       - name: Dispatch authenticated submission
@@ -33,7 +33,7 @@ jobs:
   notify:
     name: Notify IndexNow
     if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 2
     steps:
       - name: Submit changed URLs
