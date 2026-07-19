@@ -59,6 +59,8 @@ class IdentifyResult:
     session: str
     pid: int
     capabilities: tuple[str, ...] = ()
+    build_commit: Optional[str] = None
+    ghostty_commit: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -66,6 +68,8 @@ class PingResult:
     ok: bool
     version: str
     protocol: int
+    build_commit: Optional[str] = None
+    ghostty_commit: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -366,6 +370,8 @@ class CmuxClient:
             session=str(data["session"]),
             pid=int(data["pid"]),
             capabilities=tuple(str(value) for value in data.get("capabilities", [])),
+            build_commit=str(data["build_commit"]) if data.get("build_commit") is not None else None,
+            ghostty_commit=str(data["ghostty_commit"]) if data.get("ghostty_commit") is not None else None,
         )
         self._protocol = result.protocol
         self._capabilities = set(result.capabilities)
@@ -377,6 +383,8 @@ class CmuxClient:
             ok=bool(data["ok"]),
             version=str(data["version"]),
             protocol=int(data["protocol"]),
+            build_commit=str(data["build_commit"]) if data.get("build_commit") is not None else None,
+            ghostty_commit=str(data["ghostty_commit"]) if data.get("ghostty_commit") is not None else None,
         )
 
     def reload_config(self) -> ReloadConfigResult:

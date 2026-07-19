@@ -19,6 +19,8 @@ export interface IdentifyRequest extends CmuxRequestBase { cmd: "identify" }
 export interface IdentifyResult {
   app: "cmux-tui";
   version: string;
+  build_commit?: string | null;
+  ghostty_commit?: string | null;
   protocol: number;
   capabilities?: string[];
   session: string;
@@ -26,7 +28,13 @@ export interface IdentifyResult {
 }
 
 export interface PingRequest extends CmuxRequestBase { cmd: "ping" }
-export interface PingResult { ok: true; version: string; protocol: number }
+export interface PingResult {
+  ok: true;
+  version: string;
+  build_commit?: string | null;
+  ghostty_commit?: string | null;
+  protocol: number;
+}
 
 export interface SetClientInfoRequest extends CmuxRequestBase {
   cmd: "set-client-info";

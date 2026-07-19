@@ -180,16 +180,18 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
 }
 
 fn version_string() -> String {
-    // CI artifact builds stamp the commit so binaries in cloud snapshots are
-    // traceable back to both the cmux protocol implementation and the exact
-    // Ghostty VT ABI; local builds report the crate version.
-    let cmux = option_env!("CMUX_TUI_BUILD_COMMIT").or(option_env!("CMUX_MUX_BUILD_COMMIT"));
-    let ghostty = option_env!("CMUX_TUI_GHOSTTY_COMMIT");
-    match (cmux, ghostty) {
-        (Some(cmux), Some(ghostty)) => {
-            format!("{} ({cmux}; ghostty {ghostty})", env!("CARGO_PKG_VERSION"))
+    // Packaged builds stamp both source identities so artifact validation can
+    // reject a cmux binary built against a different Ghostty checkout before
+    // it enters an app bundle. Local builds report the crate version alone.
+    let commit = option_env!("CMUX_TUI_BUILD_COMMIT")
+        .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
+        .filter(|commit| !commit.is_empty());
+    let ghostty = option_env!("CMUX_TUI_GHOSTTY_COMMIT").filter(|commit| !commit.is_empty());
+    match (commit, ghostty) {
+        (Some(commit), Some(ghostty)) => {
+            format!("{} ({commit}; ghostty {ghostty})", env!("CARGO_PKG_VERSION"))
         }
-        (Some(cmux), None) => format!("{} ({cmux})", env!("CARGO_PKG_VERSION")),
+        (Some(commit), None) => format!("{} ({commit})", env!("CARGO_PKG_VERSION")),
         (None, _) => env!("CARGO_PKG_VERSION").to_string(),
     }
 }

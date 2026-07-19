@@ -208,7 +208,31 @@ func (c *Client) nextRequestID() uint64 {
 }
 
 func (c *Client) Identify(ctx context.Context) (IdentifyResult, error) {
-	var result IdentifyResult
+	var details IdentifyDetails
+	err := c.request(ctx, "identify", nil, &details)
+	if err == nil {
+		capabilities := make(map[string]struct{}, len(details.Capabilities))
+		for _, capability := range details.Capabilities {
+			capabilities[capability] = struct{}{}
+		}
+		protocol := details.Protocol
+		c.negotiationMu.Lock()
+		c.protocol = &protocol
+		c.capabilities = capabilities
+		c.negotiationMu.Unlock()
+	}
+	return IdentifyResult{
+		App:      details.App,
+		Version:  details.Version,
+		Protocol: details.Protocol,
+		Session:  details.Session,
+		PID:      details.PID,
+	}, err
+}
+
+// IdentifyDetailed identifies the server with optional immutable build revisions.
+func (c *Client) IdentifyDetailed(ctx context.Context) (IdentifyDetails, error) {
+	var result IdentifyDetails
 	err := c.request(ctx, "identify", nil, &result)
 	if err == nil {
 		capabilities := make(map[string]struct{}, len(result.Capabilities))

@@ -89,6 +89,17 @@ pub struct IdentifyResult {
     pub app: String,
     pub version: String,
     pub protocol: u32,
+    pub session: String,
+    pub pid: u32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct IdentifyDetails {
+    pub app: String,
+    pub version: String,
+    pub build_commit: Option<String>,
+    pub ghostty_commit: Option<String>,
+    pub protocol: u32,
     #[serde(default)]
     pub capabilities: Vec<String>,
     pub session: String,
@@ -410,7 +421,21 @@ impl CmuxClient {
     }
 
     pub fn identify(&mut self) -> Result<IdentifyResult> {
-        let result: IdentifyResult = self.request("identify", Map::new())?;
+        let details: IdentifyDetails = self.request("identify", Map::new())?;
+        self.protocol = Some(details.protocol);
+        self.capabilities.clone_from(&details.capabilities);
+        Ok(IdentifyResult {
+            app: details.app,
+            version: details.version,
+            protocol: details.protocol,
+            session: details.session,
+            pid: details.pid,
+        })
+    }
+
+    /// Identify the server with optional immutable build revisions.
+    pub fn identify_details(&mut self) -> Result<IdentifyDetails> {
+        let result: IdentifyDetails = self.request("identify", Map::new())?;
         self.protocol = Some(result.protocol);
         self.capabilities.clone_from(&result.capabilities);
         Ok(result)
@@ -1018,6 +1043,29 @@ fn insert_opt<T: Serialize>(params: &mut Map<String, Value>, key: &str, value: O
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn identify_preserves_legacy_shape_and_exposes_optional_details() {
+        let wire = serde_json::json!({
+            "app": "cmux-tui",
+            "version": "0.1.2",
+            "build_commit": "cmux-sha",
+            "ghostty_commit": "ghostty-sha",
+            "protocol": 7,
+            "session": "main",
+            "pid": 42,
+        });
+        let legacy: IdentifyResult = serde_json::from_value(wire.clone()).unwrap();
+        let IdentifyResult { app, version, protocol, session, pid } = legacy;
+        assert_eq!(
+            (app.as_str(), version.as_str(), protocol, session.as_str(), pid),
+            ("cmux-tui", "0.1.2", 7, "main", 42)
+        );
+
+        let details: IdentifyDetails = serde_json::from_value(wire).unwrap();
+        assert_eq!(details.build_commit.as_deref(), Some("cmux-sha"));
+        assert_eq!(details.ghostty_commit.as_deref(), Some("ghostty-sha"));
+    }
 
     #[test]
     fn title_changed_decodes_authoritative_title() {

@@ -138,6 +138,36 @@ func TestIdentifyCapabilityStateIsConcurrentSafe(t *testing.T) {
 	wait.Wait()
 }
 
+func TestIdentifyDetailsPreservesArtifactRevisions(t *testing.T) {
+	var result IdentifyDetails
+	if err := json.Unmarshal([]byte(`{"app":"cmux-tui","version":"0.1.2","build_commit":"cmux-sha","ghostty_commit":"ghostty-sha","protocol":7,"session":"main","pid":42}`), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.BuildCommit == nil || *result.BuildCommit != "cmux-sha" {
+		t.Fatalf("build commit = %v, want cmux-sha", result.BuildCommit)
+	}
+	if result.GhosttyCommit == nil || *result.GhosttyCommit != "ghostty-sha" {
+		t.Fatalf("ghostty commit = %v, want ghostty-sha", result.GhosttyCommit)
+	}
+}
+
+func TestIdentifyDetailsAcceptsMissingArtifactRevisions(t *testing.T) {
+	var result IdentifyDetails
+	if err := json.Unmarshal([]byte(`{"app":"cmux-tui","version":"0.1.2","protocol":7,"session":"main","pid":42}`), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.BuildCommit != nil || result.GhosttyCommit != nil {
+		t.Fatalf("artifact revisions = %v, %v; want nil", result.BuildCommit, result.GhosttyCommit)
+	}
+}
+
+func TestIdentifyResultPreservesPositionalLiteralCompatibility(t *testing.T) {
+	result := IdentifyResult{"cmux-tui", "0.1.2", 7, "main", 42}
+	if result.Protocol != 7 || result.PID != 42 {
+		t.Fatalf("legacy positional identify result = %#v", result)
+	}
+}
+
 func TestSetSplitRatioRejectsServersOlderThanProtocolEight(t *testing.T) {
 	protocol := uint32(7)
 	client := &Client{protocol: &protocol}

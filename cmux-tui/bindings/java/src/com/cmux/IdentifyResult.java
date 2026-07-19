@@ -10,10 +10,12 @@ public record IdentifyResult(
     int protocol,
     String session,
     long pid,
-    List<String> capabilities
+    List<String> capabilities,
+    String buildCommit,
+    String ghosttyCommit
 ) {
     public IdentifyResult(String app, String version, int protocol, String session, long pid) {
-        this(app, version, protocol, session, pid, List.of());
+        this(app, version, protocol, session, pid, List.of(), null, null);
     }
 
     static IdentifyResult from(Map<String, Object> data) {
@@ -23,7 +25,9 @@ public record IdentifyResult(
             (int) CmuxClient.asLong(data.get("protocol")),
             CmuxClient.asString(data.get("session")),
             CmuxClient.asLong(data.get("pid")),
-            capabilities(data.get("capabilities"))
+            capabilities(data.get("capabilities")),
+            data.get("build_commit") == null ? null : CmuxClient.asString(data.get("build_commit")),
+            data.get("ghostty_commit") == null ? null : CmuxClient.asString(data.get("ghostty_commit"))
         );
     }
 
