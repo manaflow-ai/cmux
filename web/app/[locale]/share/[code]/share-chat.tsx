@@ -23,14 +23,14 @@ export function ChatPanel({
   const t = useTranslations("share");
   const [open, setOpen] = useState(true);
   const [draft, setDraft] = useState("");
-  const seenCountRef = useRef(0);
+  // Message count at the moment the panel was collapsed; unread only exists
+  // while collapsed, so no per-render bookkeeping is needed.
+  const [seenCount, setSeenCount] = useState(0);
   const listRef = useRef<HTMLDivElement | null>(null);
   const byUser = new Map(participants.map((p) => [p.user, p]));
 
-  if (open) seenCountRef.current = chat.length;
-  const unread = Math.max(0, chat.length - seenCountRef.current);
-
   if (!open) {
+    const unread = Math.max(0, chat.length - seenCount);
     return (
       <button
         type="button"
@@ -60,7 +60,10 @@ export function ChatPanel({
         <span className="text-xs font-medium">{t("chatTitle")}</span>
         <button
           type="button"
-          onClick={() => setOpen(false)}
+          onClick={() => {
+            setSeenCount(chat.length);
+            setOpen(false);
+          }}
           aria-label={t("chatCollapse")}
           className="text-xs text-muted hover:text-foreground"
         >
