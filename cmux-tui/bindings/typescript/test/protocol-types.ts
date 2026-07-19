@@ -192,9 +192,21 @@ const treeDelta: TreeDeltaEvent = {
     dead: false,
   },
 };
+const legacyWorkspaceDelta: TreeDeltaEvent = {
+  event: "workspace-added",
+  workspace: 1,
+  index: 0,
+  entity: {
+    id: 1,
+    name: "legacy",
+    active: true,
+    screens: [],
+  },
+};
 void renderState;
 void renderDelta;
 void treeDelta;
+void legacyWorkspaceDelta;
 
 async function typedAttachModes(client: CmuxClient): Promise<void> {
   const bytes: CmuxStream<DecodedAttachEvent> = await client.attachSurface(1);
