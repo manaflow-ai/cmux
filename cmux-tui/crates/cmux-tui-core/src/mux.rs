@@ -1162,7 +1162,7 @@ impl Mux {
     }
 
     pub(crate) fn rollback_surface_size_client(
-        self: &Arc<Self>,
+        &self,
         id: SurfaceId,
         client: u64,
         rollback: ClientSizeRollback,
@@ -1244,23 +1244,11 @@ impl Mux {
                     Ok(Ok(())) => false,
                     Ok(Err(_)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => true,
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        let mux = Arc::downgrade(self);
-                        let _ = std::thread::Builder::new()
-                            .name(format!("cmux-rollback-resize-{id}"))
-                            .spawn(move || {
-                                if matches!(completion.recv(), Ok(Ok(()))) {
-                                    return;
-                                }
-                                if let Some(mux) = mux.upgrade() {
-                                    mux.reconcile_failed_surface_size_rollback(
-                                        id,
-                                        client,
-                                        current_size,
-                                        current_report_order,
-                                        rollback_token,
-                                    );
-                                }
-                            });
+                        // The rolled-back registry remains authoritative while
+                        // the compensating browser reservation stays queued.
+                        // Do not reinstall the failed attach's claim before the
+                        // browser worker reaches a terminal outcome, and do not
+                        // retain the connection or another blocking waiter.
                         return;
                     }
                 }
