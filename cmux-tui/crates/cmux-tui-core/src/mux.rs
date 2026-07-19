@@ -4307,21 +4307,27 @@ mod tests {
             active = mux.with_state(|state| state.pane_of(surface.id).unwrap());
             surfaces.push(surface);
         }
-        let first_pane = mux.with_state(|state| state.pane_of(surfaces[0].id).unwrap());
-        assert!(mux.focus_pane(first_pane));
+        let leading_pane = mux.with_state(|state| state.pane_of(surfaces[0].id).unwrap());
+        let active_stack_pane = mux.with_state(|state| state.pane_of(surfaces[2].id).unwrap());
+        assert!(mux.focus_pane(active_stack_pane));
 
         mux.close_surface(surfaces[1].id);
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
-            assert_eq!(screen.active_pane, first_pane);
-            assert!(matches!(&screen.root, Node::Stack { .. }));
+            assert_eq!(screen.active_pane, active_stack_pane);
+            assert!(matches!(
+                &screen.root,
+                Node::Split { dir: SplitDir::Right, a, b, .. }
+                    if matches!(a.as_ref(), Node::Leaf(pane) if *pane == leading_pane)
+                        && matches!(b.as_ref(), Node::Stack { panes } if panes.contains(&active_stack_pane))
+            ));
             let layout = layout_screen(
                 &screen.root,
                 Rect { x: 0, y: 0, width: 80, height: 40 },
                 Some(screen.active_pane),
             );
-            assert!(!layout.stacked_headers.contains(&first_pane));
-            assert!(layout.rect_of(first_pane).unwrap().height > 1);
+            assert!(!layout.stacked_headers.contains(&active_stack_pane));
+            assert!(layout.rect_of(active_stack_pane).unwrap().height > 1);
         });
     }
 
@@ -4336,14 +4342,20 @@ mod tests {
             active = mux.with_state(|state| state.pane_of(surface.id).unwrap());
             surfaces.push(surface);
         }
-        let target = mux.with_state(|state| state.pane_of(surfaces[0].id).unwrap());
+        let leading_pane = mux.with_state(|state| state.pane_of(surfaces[0].id).unwrap());
+        let target = mux.with_state(|state| state.pane_of(surfaces[2].id).unwrap());
         let events = mux.subscribe();
 
         assert!(mux.move_tab(surfaces[1].id, target, 0));
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
             assert_eq!(screen.active_pane, target);
-            assert!(matches!(&screen.root, Node::Stack { .. }));
+            assert!(matches!(
+                &screen.root,
+                Node::Split { dir: SplitDir::Right, a, b, .. }
+                    if matches!(a.as_ref(), Node::Leaf(pane) if *pane == leading_pane)
+                        && matches!(b.as_ref(), Node::Stack { panes } if panes.contains(&target))
+            ));
             let layout = layout_screen(
                 &screen.root,
                 Rect { x: 0, y: 0, width: 80, height: 40 },
@@ -4412,25 +4424,31 @@ mod tests {
     fn focusing_zellij_stack_header_expands_that_pane() {
         let mux = test_mux();
         let first = mux.new_workspace(None, None).unwrap();
-        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let mut active = first_pane;
+        let mut active = mux.with_state(|state| state.pane_of(first.id).unwrap());
         for _ in 1..13 {
             let surface = mux.new_pane(active, None).unwrap();
             active = mux.with_state(|state| state.pane_of(surface.id).unwrap());
         }
+        let stack_pane = mux.with_state(|state| {
+            state.workspaces[0].screens[0].zellij_auto_layout.as_ref().unwrap()[1]
+        });
 
-        assert!(mux.focus_pane(first_pane));
+        assert!(mux.focus_pane(stack_pane));
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
-            assert_eq!(screen.active_pane, first_pane);
-            assert!(matches!(&screen.root, Node::Stack { .. }));
+            assert_eq!(screen.active_pane, stack_pane);
+            assert!(matches!(
+                &screen.root,
+                Node::Split { dir: SplitDir::Right, b, .. }
+                    if matches!(b.as_ref(), Node::Stack { panes } if panes.contains(&stack_pane))
+            ));
             let layout = layout_screen(
                 &screen.root,
                 Rect { x: 0, y: 0, width: 80, height: 40 },
                 Some(screen.active_pane),
             );
-            assert!(!layout.stacked_headers.contains(&first_pane));
-            assert!(layout.rect_of(first_pane).unwrap().height > 1);
+            assert!(!layout.stacked_headers.contains(&stack_pane));
+            assert!(layout.rect_of(stack_pane).unwrap().height > 1);
         });
     }
 
@@ -4444,9 +4462,12 @@ mod tests {
             let surface = mux.new_pane(active, None).unwrap();
             active = mux.with_state(|state| state.pane_of(surface.id).unwrap());
         }
+        let stack_pane = mux.with_state(|state| {
+            state.workspaces[0].screens[0].zellij_auto_layout.as_ref().unwrap()[1]
+        });
         let outside = mux.split(active, SplitDir::Right, None).unwrap();
         let outside_pane = mux.with_state(|state| state.pane_of(outside.id).unwrap());
-        assert!(mux.focus_pane(first_pane));
+        assert!(mux.focus_pane(stack_pane));
         let events = mux.subscribe();
 
         assert!(mux.focus_pane(outside_pane));
@@ -4457,7 +4478,8 @@ mod tests {
     fn directional_split_of_zellij_stack_preserves_requested_direction() {
         let mux = test_mux();
         let first = mux.new_workspace(None, None).unwrap();
-        let mut active = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let mut active = first_pane;
         for _ in 1..13 {
             let surface = mux.new_pane(active, None).unwrap();
             active = mux.with_state(|state| state.pane_of(surface.id).unwrap());
@@ -4470,8 +4492,13 @@ mod tests {
             assert!(matches!(
                 &screen.root,
                 Node::Split { dir: SplitDir::Right, a, b, .. }
-                    if matches!(a.as_ref(), Node::Stack { .. })
-                        && matches!(b.as_ref(), Node::Leaf(pane) if *pane == split_pane)
+                    if matches!(a.as_ref(), Node::Leaf(pane) if *pane == first_pane)
+                        && matches!(
+                            b.as_ref(),
+                            Node::Split { dir: SplitDir::Right, a, b, .. }
+                                if matches!(a.as_ref(), Node::Stack { .. })
+                                    && matches!(b.as_ref(), Node::Leaf(pane) if *pane == split_pane)
+                        )
             ));
             assert!(screen.zellij_auto_layout.is_none());
         });
