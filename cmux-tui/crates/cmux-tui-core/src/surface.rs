@@ -202,7 +202,7 @@ pub struct AttachStream {
 pub enum AttachFrame {
     Output(Vec<u8>),
     Resized { cols: u16, rows: u16, replay: Vec<u8>, colors: Box<TerminalColors> },
-    ColorsChanged(Box<TerminalColors>),
+    ColorsChanged(Arc<TerminalColors>),
 }
 
 const ATTACH_STREAM_CAPACITY: usize = 256;
@@ -425,6 +425,12 @@ pub struct PtySurface {
     /// the same lock, so a subscriber sees exactly the bytes applied
     /// after its replay snapshot — no gap, no duplication.
     taps: Mutex<Vec<AttachTap>>,
+    /// A PTY color mutation awaiting bounded attach-stream fan-out.
+    attach_colors_pending: AtomicBool,
+    /// Last effective color state emitted to attach streams. This suppresses
+    /// repeated OSC sets that advance Ghostty's revision without changing the
+    /// frontend-visible state.
+    last_attach_colors: Mutex<Option<Box<TerminalColors>>>,
     /// Single consume-once Ghostty render state shared by the local TUI and
     /// every protocol-v7 render attachment.
     render: Mutex<RenderHub>,
@@ -531,6 +537,8 @@ impl Surface {
             size: Mutex::new((opts.cols, opts.rows)),
             mux: mux.clone(),
             taps: Mutex::new(Vec::new()),
+            attach_colors_pending: AtomicBool::new(false),
+            last_attach_colors: Mutex::new(None),
             render: Mutex::new(RenderHub {
                 state: Box::new(render_state),
                 built_generation: 0,
@@ -562,14 +570,9 @@ impl Surface {
                         term.vt_write(&buf[..n]);
                         pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                         let after = terminal_scroll_position(&term);
-                        pty.broadcast_attach_output(&buf[..n]);
-                        if term.color_revision() != color_revision {
-                            let defaults =
-                                mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
-                            let colors = TerminalColors::from_pty_output(&term, defaults);
-                            pty.broadcast_attach_frame(AttachFrame::ColorsChanged(Box::new(
-                                colors,
-                            )));
+                        let has_attach_taps = pty.broadcast_attach_output(&buf[..n]);
+                        if has_attach_taps && term.color_revision() != color_revision {
+                            pty.attach_colors_pending.store(true, Ordering::Release);
                         }
                         if title_changed.swap(false, Ordering::Relaxed) {
                             let title = term.title().unwrap_or_default();
@@ -677,6 +680,8 @@ impl Surface {
             size: Mutex::new((opts.cols, opts.rows)),
             mux,
             taps: Mutex::new(Vec::new()),
+            attach_colors_pending: AtomicBool::new(false),
+            last_attach_colors: Mutex::new(None),
             render: Mutex::new(RenderHub {
                 state: Box::new(render_state),
                 built_generation: 0,
@@ -881,12 +886,11 @@ impl Surface {
             term.set_default_colors(colors.fg, colors.bg, colors.cursor);
             term.set_default_palette(&colors.palette);
             term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
+            let live_colors = TerminalColors::from_pty_output(&term, colors);
             let colors = pty.terminal_colors_locked(&mut term, colors);
-            let mut taps = pty.taps.lock().unwrap();
-            if !taps.is_empty() {
-                taps.retain(|tap| tap.try_send(AttachFrame::ColorsChanged(Box::new(colors))));
-            }
-            drop(taps);
+            pty.attach_colors_pending.store(false, Ordering::Release);
+            *pty.last_attach_colors.lock().unwrap() = Some(Box::new(live_colors));
+            pty.broadcast_attach_frame(AttachFrame::ColorsChanged(Arc::new(colors)));
             let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
             let _ = pty.build_frame_locked(&mut term, generation, false);
             pty.dirty.store(true, Ordering::Release);
@@ -1049,7 +1053,12 @@ impl Surface {
         let (cols, rows) = (term.cols(), term.rows());
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let colors = pty.terminal_colors_locked(&mut term, defaults);
-        pty.taps.lock().unwrap().push(AttachTap {
+        let mut taps = pty.taps.lock().unwrap();
+        if taps.is_empty() {
+            *pty.last_attach_colors.lock().unwrap() =
+                Some(Box::new(TerminalColors::from_pty_output(&term, defaults)));
+        }
+        taps.push(AttachTap {
             sender: tx,
             lifecycle: lifecycle.clone(),
             queued_bytes: queued_bytes.clone(),
@@ -1271,17 +1280,44 @@ impl PtySurface {
         TerminalColors::from_terminal(term, defaults, cursor_visual)
     }
 
-    fn broadcast_attach_output(&self, bytes: &[u8]) {
+    fn broadcast_attach_output(&self, bytes: &[u8]) -> bool {
         let mut taps = self.taps.lock().unwrap();
         if taps.is_empty() {
-            return;
+            return false;
         }
         let frame = AttachFrame::Output(bytes.to_vec());
         taps.retain(|tap| tap.try_send(frame.clone()));
+        !taps.is_empty()
     }
 
     fn broadcast_attach_frame(&self, frame: AttachFrame) {
         self.taps.lock().unwrap().retain(|tap| tap.try_send(frame.clone()));
+    }
+
+    /// Emit at most one latest effective palette snapshot per frame cadence.
+    /// The caller holds `term`, so attach registration cannot interleave with
+    /// the snapshot or miss a state transition.
+    fn flush_attach_colors_locked(&self, term: &Terminal, defaults: DefaultColors) -> bool {
+        if !self.attach_colors_pending.swap(false, Ordering::AcqRel) {
+            return false;
+        }
+        {
+            let mut taps = self.taps.lock().unwrap();
+            taps.retain(|tap| !tap.lifecycle.is_canceled());
+            if taps.is_empty() {
+                return false;
+            }
+        }
+
+        let colors = TerminalColors::from_pty_output(term, defaults);
+        let mut last = self.last_attach_colors.lock().unwrap();
+        if last.as_deref() == Some(&colors) {
+            return false;
+        }
+        *last = Some(Box::new(colors));
+        drop(last);
+        self.broadcast_attach_frame(AttachFrame::ColorsChanged(Arc::new(colors)));
+        true
     }
 
     fn request_frame(&self, generation: u64) {
@@ -1357,7 +1393,10 @@ impl PtySurface {
         let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let _ = self.build_frame_locked(&mut term, generation, false);
+        let live_colors = TerminalColors::from_pty_output(&term, defaults);
         let colors = Box::new(self.terminal_colors_locked(&mut term, defaults));
+        self.attach_colors_pending.store(false, Ordering::Release);
+        *self.last_attach_colors.lock().unwrap() = Some(Box::new(live_colors));
         self.broadcast_attach_frame(AttachFrame::Resized { cols, rows, replay, colors });
         true
     }
@@ -1387,7 +1426,12 @@ fn spawn_frame_producer(surface: &Arc<Surface>, requests: Receiver<u64>) -> anyh
             let Some(pty) = surface.as_pty() else { break };
             let mut term = pty.term.lock().unwrap();
             let generation = requested.max(pty.render_generation.load(Ordering::Acquire));
-            if pty.build_frame_locked(&mut term, generation, true).unwrap_or(false) {
+            let colors_pending = pty.attach_colors_pending.load(Ordering::Acquire);
+            let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+            let _ = pty.flush_attach_colors_locked(&term, defaults);
+            if pty.build_frame_locked(&mut term, generation, true).unwrap_or(false)
+                || colors_pending
+            {
                 last_frame = Instant::now();
             }
         }
@@ -1467,6 +1511,73 @@ mod tests {
         assert_eq!(colors.palette[4], Some(Rgb { r: 0x44, g: 0x55, b: 0x66 }));
         assert_eq!(colors.cursor_style, None);
         assert_eq!(colors.cursor_blink, None);
+    }
+
+    #[test]
+    fn live_palette_snapshots_skip_absent_taps_and_coalesce_effective_state() {
+        let mux = Mux::new_for_test("palette-coalescing", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let pty = surface.as_pty().unwrap();
+
+        {
+            let mut term = pty.term.lock().unwrap();
+            term.vt_write(b"\x1b]4;1;#112233\x07");
+            pty.attach_colors_pending.store(true, Ordering::Release);
+            assert!(!pty.flush_attach_colors_locked(&term, mux.default_colors()));
+            assert!(pty.last_attach_colors.lock().unwrap().is_none());
+        }
+
+        let attach = surface.attach_stream().unwrap();
+        let attach_two = surface.attach_stream().unwrap();
+        {
+            let mut term = pty.term.lock().unwrap();
+            term.vt_write(b"\x1b]4;1;#223344\x07\x1b]4;1;#334455\x07");
+            pty.attach_colors_pending.store(true, Ordering::Release);
+            assert!(pty.flush_attach_colors_locked(&term, mux.default_colors()));
+        }
+        let AttachFrame::ColorsChanged(colors) =
+            attach.stream.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("expected coalesced colors update");
+        };
+        let AttachFrame::ColorsChanged(colors_two) =
+            attach_two.stream.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("expected coalesced colors update for second tap");
+        };
+        assert!(Arc::ptr_eq(&colors, &colors_two));
+        assert_eq!(colors.palette[1], Some(Rgb { r: 0x33, g: 0x44, b: 0x55 }));
+        assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Empty)));
+        assert!(matches!(attach_two.stream.try_recv(), Err(TryRecvError::Empty)));
+
+        {
+            let mut term = pty.term.lock().unwrap();
+            term.vt_write(b"\x1b]4;1;#334455\x07");
+            pty.attach_colors_pending.store(true, Ordering::Release);
+            assert!(!pty.flush_attach_colors_locked(&term, mux.default_colors()));
+        }
+        assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Empty)));
+        assert!(matches!(attach_two.stream.try_recv(), Err(TryRecvError::Empty)));
+
+        {
+            let mut term = pty.term.lock().unwrap();
+            term.vt_write(b"\x1b]4;1;#445566\x07");
+            pty.attach_colors_pending.store(true, Ordering::Release);
+        }
+        let attach_three = surface.attach_stream().unwrap();
+        {
+            let term = pty.term.lock().unwrap();
+            assert!(pty.flush_attach_colors_locked(&term, mux.default_colors()));
+        }
+        for stream in [&attach.stream, &attach_two.stream, &attach_three.stream] {
+            let AttachFrame::ColorsChanged(colors) =
+                stream.recv_timeout(Duration::from_secs(1)).unwrap()
+            else {
+                panic!("an existing tap missed a palette update during another attach");
+            };
+            assert_eq!(colors.palette[1], Some(Rgb { r: 0x44, g: 0x55, b: 0x66 }));
+        }
     }
 
     #[test]
