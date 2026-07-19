@@ -38,7 +38,7 @@ struct RemoteTmuxSessionCommandBuilderTests {
                 ["set-environment", "-t", "=agent main", "-u", "CMUX_WORKSPACE_ID"],
                 ["set-environment", "-t", "=agent main", "-u", "CMUX_PANEL_ID"],
                 ["set-environment", "-t", "=agent main", "-u", "CMUX_SURFACE_ID"],
-                ["set-option", "-t", "=agent main", "default-command", shellCommand],
+                ["set-option", "-t", "=agent main:", "default-command", shellCommand],
                 ["attach-session", "-t", "=agent main"],
             ])
         }
