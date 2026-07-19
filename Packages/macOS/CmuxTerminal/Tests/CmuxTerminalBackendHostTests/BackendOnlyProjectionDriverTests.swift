@@ -66,6 +66,79 @@ struct BackendOnlyProjectionDriverTests {
         ])
     }
 
+    @Test("hydration relists when another logical window wins after list")
+    func hydrationRebasesWorkspaceOwnershipRace() async throws {
+        let fixture = try DriverFixture(workspaceCount: 1)
+        await fixture.rpc.blockNextMutation()
+        let firstHydration = Task {
+            try await fixture.driver.hydrate(
+                topology: fixture.snapshot,
+                legacySelectedWorkspaceID: fixture.workspace(0).uuid
+            )
+        }
+        await fixture.rpc.waitUntilMutationStarted(count: 1)
+        let originalClaim = try #require(
+            await fixture.rpc.record(fixture.logicalPresentationID)?.claimID
+        )
+
+        let winnerLogicalID = driverUUID(901)
+        let winner = try BackendOnlyProjectionDriver(
+            rpc: fixture.rpc,
+            logicalPresentationID: winnerLogicalID,
+            stableClientID: fixture.stableClientID,
+            processInstanceID: fixture.processInstanceID,
+            connectionGeneration: 1
+        )
+        let winnerHydration = try await winner.hydrate(
+            topology: fixture.snapshot,
+            legacySelectedWorkspaceID: nil
+        )
+        #expect(
+            winnerHydration.publication.navigation.workspaces.map(\.workspaceID)
+                == [fixture.workspace(0).uuid]
+        )
+
+        await fixture.rpc.releaseBlockedMutation()
+        let rebased = try await firstHydration.value
+
+        #expect(rebased.publication.navigation.workspaces.isEmpty)
+        #expect(rebased.publication.navigation.selectedWorkspaceID == nil)
+        #expect(rebased.publication.connectionGeneration == 1)
+        #expect(
+            await fixture.rpc.record(fixture.logicalPresentationID)?.claimID
+                == originalClaim
+        )
+        #expect(await fixture.rpc.claimCount(for: fixture.logicalPresentationID) == 1)
+        #expect(await fixture.rpc.claimCount(for: winnerLogicalID) == 1)
+        #expect(await fixture.driver.pendingIntentCount == 0)
+        #expect(await fixture.driver.phase == .ready)
+    }
+
+    @Test("hydration fails closed after three ownership rebases")
+    func hydrationOwnershipRebaseIsBounded() async throws {
+        let fixture = try DriverFixture(workspaceCount: 1)
+        await fixture.rpc.forceWorkspaceOwnedConflicts(
+            count: 4,
+            ownerLogicalPresentationID: driverUUID(902)
+        )
+
+        await #expect(
+            throws: BackendOnlyProjectionDriverError
+                .workspaceOwnershipRetryLimitExceeded(maximum: 3)
+        ) {
+            _ = try await fixture.driver.hydrate(
+                topology: fixture.snapshot,
+                legacySelectedWorkspaceID: nil
+            )
+        }
+
+        #expect(await fixture.driver.phase == .failed)
+        #expect(await fixture.driver.publication == nil)
+        #expect(await fixture.rpc.claimCount(for: fixture.logicalPresentationID) == 1)
+        #expect(await fixture.rpc.calls().filter { $0 == .list }.count == 4)
+        #expect(await fixture.rpc.mutationCount() == 4)
+    }
+
     @Test("hydration batches the 4096 operation limit exactly")
     func hydrationBatchesAtOperationLimit() async throws {
         let fixture = try DriverFixture(workspaceCount: 4_096)
@@ -592,6 +665,7 @@ private actor DriverFakeRPC: BackendOnlyProjectionDriverRPC {
     private let processInstanceID: UUID
     private var records: [UUID: BackendProjectionNavigationState] = [:]
     private var callLog: [Call] = []
+    private var claimedLogicalPresentationIDs: [UUID] = []
     private var mutations: [[BackendProjectionNavigationOperation]] = []
     private var nextMutationConflict: BackendProjectionNavigationConflict?
     private var blockedMutationConflict: BackendProjectionNavigationConflict?
@@ -604,6 +678,8 @@ private actor DriverFakeRPC: BackendOnlyProjectionDriverRPC {
     private var mutationsInFlight = 0
     private var maximumMutationInFlight = 0
     private var claimTopologyRevisionOverride: UInt64?
+    private var forcedWorkspaceOwnedConflictCount = 0
+    private var forcedWorkspaceOwnerLogicalPresentationID: UUID?
 
     init(
         topology: CanonicalTopology,
@@ -647,6 +723,7 @@ private actor DriverFakeRPC: BackendOnlyProjectionDriverRPC {
         expectedTopologyRevision _: UInt64
     ) async throws -> BackendProjectionNavigationResponse {
         callLog.append(.claim)
+        claimedLogicalPresentationIDs.append(logicalPresentationID)
         let existing = records[logicalPresentationID]
         let claimed = BackendProjectionNavigationState(
             logicalPresentationID: logicalPresentationID,
@@ -678,6 +755,7 @@ private actor DriverFakeRPC: BackendOnlyProjectionDriverRPC {
         mutations.append(operations)
         resumeMutationStartWaiters()
         if blockedMutation {
+            blockedMutation = false
             await withCheckedContinuation { continuation in
                 blockedMutationContinuation = continuation
             }
@@ -695,6 +773,37 @@ private actor DriverFakeRPC: BackendOnlyProjectionDriverRPC {
         if nextMutationIsAmbiguous {
             nextMutationIsAmbiguous = false
             throw AmbiguousFailure.transportClosed
+        }
+        if forcedWorkspaceOwnedConflictCount > 0,
+           let ownerLogicalPresentationID =
+            forcedWorkspaceOwnerLogicalPresentationID,
+           let workspaceID = operations.compactMap({ operation -> WorkspaceID? in
+               guard case .assignWorkspace(let workspaceID) = operation else {
+                   return nil
+               }
+               return workspaceID
+           }).first
+        {
+            forcedWorkspaceOwnedConflictCount -= 1
+            return .conflict(.workspaceOwned(
+                workspaceID: workspaceID,
+                ownerLogicalPresentationID: ownerLogicalPresentationID
+            ))
+        }
+        for mutation in projections {
+            for case .assignWorkspace(let workspaceID) in mutation.operations {
+                if let owner = records.values.first(where: { state in
+                    state.logicalPresentationID != mutation.logicalPresentationID
+                        && state.workspaces.contains {
+                            $0.workspaceID == workspaceID
+                        }
+                }) {
+                    return .conflict(.workspaceOwned(
+                        workspaceID: workspaceID,
+                        ownerLogicalPresentationID: owner.logicalPresentationID
+                    ))
+                }
+            }
         }
         let states = projections.map { mutation in
             let current = records[mutation.logicalPresentationID]!
@@ -750,6 +859,14 @@ private actor DriverFakeRPC: BackendOnlyProjectionDriverRPC {
         claimTopologyRevisionOverride = revision
     }
 
+    func forceWorkspaceOwnedConflicts(
+        count: Int,
+        ownerLogicalPresentationID: UUID
+    ) {
+        forcedWorkspaceOwnedConflictCount = count
+        forcedWorkspaceOwnerLogicalPresentationID = ownerLogicalPresentationID
+    }
+
     func installTopologyRevision(_ revision: UInt64) {
         topologyRevision = revision
         records = records.mapValues { state in
@@ -777,6 +894,11 @@ private actor DriverFakeRPC: BackendOnlyProjectionDriverRPC {
     func maximumMutationsInFlight() -> Int { maximumMutationInFlight }
     func calls() -> [Call] { callLog }
     func claimCount() -> Int { callLog.filter { $0 == .claim }.count }
+    func claimCount(for logicalPresentationID: UUID) -> Int {
+        claimedLogicalPresentationIDs.filter {
+            $0 == logicalPresentationID
+        }.count
+    }
 
     private func resumeMutationStartWaiters() {
         var retained: [
