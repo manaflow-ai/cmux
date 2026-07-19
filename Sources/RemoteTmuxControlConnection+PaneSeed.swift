@@ -28,15 +28,15 @@ extension RemoteTmuxControlConnection {
     func appendPaneSeedPrefix(paneId: Int, seedID: UUID, data: Data) {
         guard !data.isEmpty,
               pendingPaneSeeds[paneId]?.first?.id == seedID,
-              pendingPaneSeeds[paneId]?.first?.phase == .awaitingCapture else { return }
+              pendingPaneSeeds[paneId]?.first?.isCaptureInstalled == false else { return }
         pendingPaneSeeds[paneId]![0].snapshot.append(data)
     }
 
     func installPaneSeedCapture(paneId: Int, seedID: UUID, data: Data) {
         guard pendingPaneSeeds[paneId]?.first?.id == seedID,
-              pendingPaneSeeds[paneId]?.first?.phase == .awaitingCapture else { return }
+              pendingPaneSeeds[paneId]?.first?.isCaptureInstalled == false else { return }
         pendingPaneSeeds[paneId]![0].snapshot.append(data)
-        pendingPaneSeeds[paneId]![0].phase = .captured
+        pendingPaneSeeds[paneId]![0].isCaptureInstalled = true
     }
 
     /// Absorbs live bytes until the capture/state transaction resolves. Bytes
@@ -51,11 +51,10 @@ extension RemoteTmuxControlConnection {
             return true
         }
         pendingPaneSeeds[paneId]![0].bufferedLiveByteCount = nextCount
-        switch pendingPaneSeeds[paneId]![0].phase {
-        case .awaitingCapture:
-            pendingPaneSeeds[paneId]![0].discardedOutput.append(data)
-        case .captured:
+        if pendingPaneSeeds[paneId]![0].isCaptureInstalled {
             pendingPaneSeeds[paneId]![0].catchUpOutput.append(data)
+        } else {
+            pendingPaneSeeds[paneId]![0].discardedOutput.append(data)
         }
         return true
     }
@@ -69,7 +68,7 @@ extension RemoteTmuxControlConnection {
         guard var seeds = pendingPaneSeeds[paneId], seeds.first?.id == seedID else { return }
         let completed = seeds.removeFirst()
         pendingPaneSeeds[paneId] = seeds.isEmpty ? nil : seeds
-        guard completed.phase == .captured else {
+        guard completed.isCaptureInstalled else {
             emitBufferedPaneOutput(completed, paneId: paneId)
             return
         }
@@ -102,7 +101,7 @@ extension RemoteTmuxControlConnection {
         switch kind {
         case .capturePane:
             emitBufferedPaneOutput(failed, paneId: paneId)
-        case .paneState where failed.phase == .captured:
+        case .paneState where failed.isCaptureInstalled:
             observers.emitPaneSeed(
                 paneId,
                 RemoteTmuxPaneSeed(
