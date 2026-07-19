@@ -1709,10 +1709,6 @@ impl OrderedSession {
         self.enqueue_routing("focus pane", move |session| session.focus_pane(pane));
     }
 
-    pub fn focus_direction(&self, direction: Direction) {
-        self.enqueue_routing("focus direction", move |session| session.focus_direction(direction));
-    }
-
     pub fn select_tab(&self, pane: Option<PaneId>, index: Option<usize>, delta: Option<isize>) {
         self.enqueue_routing("select tab", move |session| session.select_tab(pane, index, delta));
     }
@@ -2427,6 +2423,34 @@ struct DeferredInput {
     sidebar_focus_intent: bool,
 }
 
+#[derive(Default)]
+struct PaneFocusHistory {
+    next_sequence: u64,
+    recency: HashMap<PaneId, u64>,
+}
+
+impl PaneFocusHistory {
+    fn reconcile(&mut self, panes: impl IntoIterator<Item = PaneId>) {
+        let panes = panes.into_iter().collect::<Vec<_>>();
+        let live = panes.iter().copied().collect::<HashSet<_>>();
+        self.recency.retain(|pane, _| live.contains(pane));
+        for pane in panes {
+            if !self.recency.contains_key(&pane) {
+                self.record(pane);
+            }
+        }
+    }
+
+    fn record(&mut self, pane: PaneId) {
+        self.next_sequence = self.next_sequence.saturating_add(1);
+        self.recency.insert(pane, self.next_sequence);
+    }
+
+    fn recency(&self, pane: PaneId) -> u64 {
+        self.recency.get(&pane).copied().unwrap_or_default()
+    }
+}
+
 pub struct App {
     pub session: OrderedSession,
     pub config: Config,
@@ -2438,6 +2462,7 @@ pub struct App {
     pub graphics_supported: bool,
     stdout_lock: Arc<Mutex<()>>,
     pub pane_areas: Vec<PaneArea>,
+    pane_focus_history: PaneFocusHistory,
     /// Terminal cells actually represented by the last rendered snapshot.
     /// Foreign-viewer padding outside these bounds is display-only.
     pub(crate) rendered_terminal_bounds: HashMap<SurfaceId, Rect>,
@@ -2776,6 +2801,7 @@ pub fn run(
         graphics_supported,
         stdout_lock: stdout_lock.clone(),
         pane_areas: Vec::new(),
+        pane_focus_history: PaneFocusHistory::default(),
         rendered_terminal_bounds: HashMap::new(),
         visible_size_surfaces: HashSet::new(),
         pending_size_releases: HashSet::new(),
@@ -3054,11 +3080,12 @@ impl App {
         let Some(workspace) = self.tree.workspaces.get_mut(workspace_index) else { return };
         workspace.active_screen = screen_index;
         let Some(screen) = workspace.screens.get_mut(screen_index) else { return };
-        let Some(pane) = screen.panes.get(pane_index) else { return };
-        screen.active_pane = pane.id;
+        let Some(pane_id) = screen.panes.get(pane_index).map(|pane| pane.id) else { return };
+        screen.active_pane = pane_id;
         if let Some(pane) = screen.panes.get_mut(pane_index) {
             pane.active_tab = tab_index;
         }
+        self.pane_focus_history.record(pane_id);
     }
 
     fn apply_session_cancellation(&mut self) {
@@ -3152,6 +3179,7 @@ impl App {
     }
 
     fn replace_tree(&mut self, mut tree: TreeView) {
+        let previous_active = self.active_pane();
         if self.session.remote {
             preserve_client_view(&self.tree, &mut tree);
         }
@@ -3179,6 +3207,20 @@ impl App {
             self.browser_input.forget_surface(surface);
         }
         self.tree = tree;
+        let panes = self
+            .tree
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .map(|pane| pane.id)
+            .collect::<Vec<_>>();
+        self.pane_focus_history.reconcile(panes);
+        if self.active_pane() != previous_active
+            && let Some(active) = self.active_pane()
+        {
+            self.pane_focus_history.record(active);
+        }
         self.rebuild_tab_locations();
         self.reapply_mux_titles();
     }
@@ -5372,8 +5414,30 @@ impl App {
     }
 
     fn move_focus(&mut self, direction: Direction) {
-        if self.prepare_pty_input_before_mutation() {
-            self.session.focus_direction(direction);
+        let Some(screen) = self.tree.active_screen() else { return };
+        if screen.zoomed_pane.is_some() {
+            return;
+        }
+        let active = screen.active_pane;
+        let (dx, dy) = match direction {
+            Direction::Left => (-1, 0),
+            Direction::Right => (1, 0),
+            Direction::Up => (0, -1),
+            Direction::Down => (0, 1),
+        };
+        let layout = cmux_tui_core::LayoutResult {
+            panes: self
+                .pane_areas
+                .iter()
+                .filter(|area| area.content.width > 0 && area.content.height > 0)
+                .map(|area| (area.pane, area.rect))
+                .collect(),
+            ..Default::default()
+        };
+        if let Some(next) =
+            layout.neighbor_by_recency(active, dx, dy, |pane| self.pane_focus_history.recency(pane))
+        {
+            self.focus_pane_after_input(next);
         }
     }
 
@@ -6384,14 +6448,20 @@ impl App {
 
     fn focus_pane_after_input(&mut self, pane: PaneId) {
         if self.prepare_pty_input_before_mutation() {
-            if self.session.remote
+            let focused = if self.session.remote
                 && let Some(screen) = self.tree.active_workspace_mut_screen()
                 && screen.panes.iter().any(|candidate| candidate.id == pane)
             {
                 screen.active_pane = pane;
-            }
-            if !self.session.remote {
+                true
+            } else if !self.session.remote {
                 self.session.focus_pane(pane);
+                true
+            } else {
+                false
+            };
+            if focused {
+                self.pane_focus_history.record(pane);
             }
         }
     }
@@ -7533,7 +7603,7 @@ mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag,
         ForwardMuxOutcome, MenuAction, MenuItem, MuxTitleIngress, OrderedSession, PaneArea,
-        PendingSessionMutation, PendingSessionMutationState, PtyFailureIngress,
+        PaneFocusHistory, PendingSessionMutation, PendingSessionMutationState, PtyFailureIngress,
         PtyMousePressResult, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
         SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
         SurfaceResizeOwnership, browser_content_size_for_rect, browser_hover_forward_allowed,
@@ -7549,8 +7619,8 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use cmux_tui_core::{
-        BrowserStatus, Mux, MuxEvent, Node, Rect, SplitDir, SurfaceId, SurfaceKind, SurfaceOptions,
-        layout_screen,
+        BrowserStatus, Direction, Mux, MuxEvent, Node, Rect, SplitDir, SurfaceId, SurfaceKind,
+        SurfaceOptions, layout_screen,
     };
     use crossterm::event::{
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -7599,6 +7669,67 @@ mod tests {
                 MenuItem::Action(MenuAction::CopyPaneId(pane)),
             ]
         );
+    }
+
+    #[test]
+    fn pane_focus_history_only_advances_for_new_or_focused_panes() {
+        let mut history = PaneFocusHistory::default();
+        history.reconcile([1, 2, 3]);
+        history.record(2);
+        let focused = history.recency(2);
+
+        history.reconcile([1, 2, 3]);
+
+        assert_eq!(history.recency(2), focused);
+        assert!(history.recency(2) > history.recency(3));
+    }
+
+    #[test]
+    fn directional_focus_uses_client_history_and_visible_geometry() {
+        let mux = Mux::new("directional-focus-memory-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        let left = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(left, SplitDir::Right, Some((40, 30))).unwrap();
+        let top_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(top_right, SplitDir::Down, Some((40, 15))).unwrap();
+        let bottom_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        assert!(mux.focus_pane(left));
+
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 31));
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            app.handle(event).unwrap();
+        }
+        app.session.remote = true;
+
+        app.move_focus(Direction::Right);
+        assert_eq!(app.active_pane(), Some(bottom_right));
+        app.move_focus(Direction::Left);
+        assert_eq!(app.active_pane(), Some(left));
+        app.focus_pane_after_input(top_right);
+        app.move_focus(Direction::Left);
+        app.move_focus(Direction::Right);
+        assert_eq!(app.active_pane(), Some(top_right));
+
+        app.tree.active_workspace_mut_screen().unwrap().zoomed_pane = Some(top_right);
+        app.move_focus(Direction::Left);
+        assert_eq!(app.active_pane(), Some(top_right));
+
+        app.tree.active_workspace_mut_screen().unwrap().zoomed_pane = None;
+        app.focus_pane_after_input(left);
+        app.pane_areas.iter_mut().find(|area| area.pane == top_right).unwrap().content.height = 0;
+        app.move_focus(Direction::Right);
+        assert_eq!(app.active_pane(), Some(bottom_right));
+        assert_eq!(Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane, left);
+        assert!(!app.session.has_pending_mutations());
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface);
+        }
     }
 
     #[test]
@@ -11102,6 +11233,7 @@ mod tests {
             graphics_supported: false,
             stdout_lock: Arc::new(Mutex::new(())),
             pane_areas: Vec::new(),
+            pane_focus_history: PaneFocusHistory::default(),
             rendered_terminal_bounds: HashMap::new(),
             visible_size_surfaces: HashSet::new(),
             pending_size_releases: HashSet::new(),

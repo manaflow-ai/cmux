@@ -3641,9 +3641,7 @@ impl Mux {
                 Rect { x: 0, y: 0, width: 10_000, height: 10_000 },
                 Some(screen.active_pane),
             );
-            Ok(layout.neighbor_by_recency(pane, dx, dy, |candidate| {
-                state.panes.get(&candidate).map(|pane| pane.active_at).unwrap_or_default()
-            }))
+            Ok(layout.neighbor(pane, dx, dy))
         })
     }
 
@@ -3652,25 +3650,17 @@ impl Mux {
         pane: Option<PaneId>,
         dir: Direction,
     ) -> anyhow::Result<PaneId> {
-        self.focus_direction_if_possible(pane, dir)?.ok_or_else(|| anyhow::anyhow!("no neighbor"))
-    }
-
-    pub fn focus_direction_if_possible(
-        self: &Arc<Self>,
-        pane: Option<PaneId>,
-        dir: Direction,
-    ) -> anyhow::Result<Option<PaneId>> {
         let target = self.with_state(|state| pane.or_else(|| state.active_pane()));
         let Some(target) = target else {
             anyhow::bail!("no active pane");
         };
         let Some(next) = self.pane_neighbor(target, dir)? else {
-            return Ok(None);
+            anyhow::bail!("no neighbor");
         };
         if !self.focus_pane(next) {
             anyhow::bail!("unknown pane {next}");
         }
-        Ok(Some(next))
+        Ok(next)
     }
 
     pub fn swap_panes(&self, pane: PaneId, target: PaneId) -> bool {
@@ -5381,7 +5371,7 @@ mod tests {
         let p2 = applied.panes[1].pane;
         let p3 = applied.panes[2].pane;
 
-        assert_eq!(mux.pane_neighbor(p1, Direction::Right).unwrap(), Some(p3));
+        assert_eq!(mux.pane_neighbor(p1, Direction::Right).unwrap(), Some(p2));
         assert_eq!(mux.pane_neighbor(p2, Direction::Down).unwrap(), Some(p3));
         assert_eq!(mux.pane_neighbor(p1, Direction::Left).unwrap(), None);
     }
@@ -5404,32 +5394,6 @@ mod tests {
         assert_eq!(mux.focus_direction(None, Direction::Right).unwrap(), p2);
         mux.with_state(|s| assert_eq!(s.workspaces[0].screens[0].active_pane, p2));
         assert!(mux.focus_direction(None, Direction::Right).is_err());
-    }
-
-    #[test]
-    fn focus_direction_returns_to_most_recently_used_adjacent_pane() {
-        let mux = test_mux();
-        let applied = mux
-            .apply_layout(
-                None,
-                None,
-                &split_spec(
-                    SplitDir::Right,
-                    0.5,
-                    leaf_spec(),
-                    split_spec(SplitDir::Down, 0.5, leaf_spec(), leaf_spec()),
-                ),
-                None,
-            )
-            .unwrap();
-        let left = applied.panes[0].pane;
-        let top_right = applied.panes[1].pane;
-        let bottom_right = applied.panes[2].pane;
-
-        assert!(mux.focus_pane(top_right));
-        assert!(mux.focus_pane(bottom_right));
-        assert_eq!(mux.focus_direction(None, Direction::Left).unwrap(), left);
-        assert_eq!(mux.focus_direction(None, Direction::Right).unwrap(), bottom_right);
     }
 
     #[test]

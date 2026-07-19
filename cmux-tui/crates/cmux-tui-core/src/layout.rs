@@ -106,7 +106,7 @@ pub fn directional_neighbor_by_recency(
                 .filter(|score| score.distance == 0)
                 .map(|_| (recency(id), order, id))
         })
-        .max_by_key(|(active_at, order, _)| (*active_at, *order))
+        .max_by_key(|(active_at, order, _)| (*active_at, std::cmp::Reverse(*order)))
         .map(|(_, _, id)| id)
 }
 
@@ -816,6 +816,13 @@ mod tests {
         let panes = vec![(1, r(10, 0, 10, 10)), (2, r(0, 0, 5, 10))];
 
         assert_eq!(directional_neighbor_by_recency(&panes, 1, -1, 0, |_| 1), None);
+    }
+
+    #[test]
+    fn directional_focus_by_recency_preserves_layout_order_on_a_tie() {
+        let panes = vec![(1, r(0, 0, 40, 30)), (2, r(40, 0, 40, 18)), (3, r(40, 18, 40, 12))];
+
+        assert_eq!(directional_neighbor_by_recency(&panes, 1, 1, 0, |_| 7), Some(2));
     }
 
     #[test]
