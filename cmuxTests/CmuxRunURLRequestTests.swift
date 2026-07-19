@@ -92,7 +92,7 @@ struct CmuxRunURLRequestTests {
         ).launchCommand
         let script = try #require(decodedGuardedScript(from: launchCommand))
 
-        #expect(launchCommand.hasPrefix("exec /bin/zsh -dflc "))
+        #expect(launchCommand.hasPrefix("/bin/zsh -dflc "))
         #expect(script.contains("cd -- "))
         #expect(script.contains("/tmp/reviewed-directory"))
         #expect(script.contains("|| builtin exit"))
@@ -179,14 +179,11 @@ struct CmuxRunURLRequestTests {
 
         var environment = ProcessInfo.processInfo.environment
         environment["ZDOTDIR"] = root.path
-        let bashEnvironment = root.appendingPathComponent("bash-env")
-        try "exec() { :; }\n".write(
-            to: bashEnvironment,
-            atomically: true,
-            encoding: .utf8
-        )
-        environment["BASH_ENV"] = bashEnvironment.path
-        environment["BASH_FUNC_exec%%"] = "() { :; }"
+        environment.removeValue(forKey: "BASH_ENV")
+        let exportedBashFunctionKeys = environment.keys.filter { $0.hasPrefix("BASH_FUNC_") }
+        for key in exportedBashFunctionKeys {
+            environment.removeValue(forKey: key)
+        }
         for startupFile in [
             "alias exit=':'\nalias builtin=':'\nalias command=':'\n",
             "exit() { :; }\nbuiltin() { :; }\ncommand() { print '0:0'; }\n"
@@ -640,8 +637,8 @@ struct CmuxRunURLRequestTests {
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> Int32 {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", command]
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["--noprofile", "--norc", "-c", "exec -l \(command)"]
         process.environment = environment
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice

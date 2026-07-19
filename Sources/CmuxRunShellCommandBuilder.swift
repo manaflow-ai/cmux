@@ -15,7 +15,7 @@ struct CmuxRunShellCommandBuilder {
         \(command)
         """
         let encodedScript = Data(script.utf8).base64EncodedString()
-        return "exec /bin/zsh -dflc \(shellQuote(Self.guardedScriptDecoder)) cmux-run \(encodedScript)"
+        return "/bin/zsh -dflc \(shellQuote(Self.guardedScriptDecoder)) cmux-run \(encodedScript)"
     }
 
     private func shellQuote(_ value: String) -> String {
