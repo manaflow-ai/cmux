@@ -13,7 +13,11 @@ export class RelayConfigurationError extends Data.TaggedError("RelayConfiguratio
 export class RelayCatalogRollbackError extends Data.TaggedError("RelayCatalogRollbackError")<{
   readonly configuredSequence: number;
   readonly persistedSequence: number;
-  readonly reason: "sequence_regressed" | "sequence_reused_with_different_catalog";
+  readonly reason:
+    | "sequence_regressed"
+    | "sequence_reused_with_different_catalog"
+    | "previous_catalog_unavailable"
+    | "unsafe_transition";
 }> {}
 
 export class RelayDatabaseError extends Data.TaggedError("RelayDatabaseError")<{

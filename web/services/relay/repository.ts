@@ -15,14 +15,21 @@ import {
 import {
   RelayAccountDeletionBlockedError,
   RelayCatalogRollbackError,
+  RelayConfigurationError,
   RelayDatabaseError,
   RelayPreferenceConflictError,
 } from "./errors";
 import {
   defaultRelayPreference,
+  parseRelayCatalog,
   relayPreferenceSchema,
+  type RelayCatalog,
   type RelayPreference,
 } from "./model";
+import {
+  assertSafeRelayCatalogRotation,
+  relayCatalogDigest,
+} from "./catalog";
 
 export type RelayPreferenceRecord = {
   readonly preference: RelayPreference;
@@ -60,8 +67,8 @@ export function assertCatalogAdvance(
 
 export type RelayRepositoryShape = {
   readonly acceptCatalog: (input: {
-    readonly sequence: number;
-    readonly digest: string;
+    readonly catalog: RelayCatalog;
+    readonly nowSeconds: number;
   }) => Effect.Effect<void, RelayCatalogRollbackError | RelayDatabaseError>;
   readonly getPreference: (
     accountId: string,
@@ -118,10 +125,11 @@ function rowPreference(row: {
 }
 
 export const RelayRepositoryLive = Layer.succeed(RelayRepository, {
-  acceptCatalog: ({ sequence, digest }) =>
+  acceptCatalog: ({ catalog, nowSeconds }) =>
     typedDbEffect(
       "acceptCatalog",
       async () => {
+        const digest = relayCatalogDigest(catalog);
         await cloudDb().transaction(async (tx) => {
           await tx.execute(
             sql`select pg_advisory_xact_lock(hashtextextended('cmux/iroh-relay-catalog', 0))`,
@@ -137,15 +145,56 @@ export const RelayRepositoryLive = Layer.succeed(RelayRepository, {
                 sequence: current.catalogSequence,
                 digest: current.catalogDigest,
               },
-              { sequence, digest },
+              { sequence: catalog.sequence, digest },
             );
-            if (sequence > current.catalogSequence) {
+            if (catalog.sequence === current.catalogSequence) {
+              if (current.catalog === null) {
+                await tx
+                  .update(irohRelayCatalogState)
+                  .set({ catalog })
+                  .where(eq(irohRelayCatalogState.id, "managed"));
+              }
+              return;
+            }
+            if (current.catalog === null) {
+              throw new RelayCatalogRollbackError({
+                configuredSequence: catalog.sequence,
+                persistedSequence: current.catalogSequence,
+                reason: "previous_catalog_unavailable",
+              });
+            }
+            const previous = parseRelayCatalog(JSON.stringify(current.catalog));
+            if (relayCatalogDigest(previous) !== current.catalogDigest) {
+              throw new Error("persisted relay catalog digest mismatch");
+            }
+            const overlapSeconds = Math.max(
+              0,
+              nowSeconds - Math.floor(current.updatedAt.getTime() / 1_000),
+            );
+            try {
+              assertSafeRelayCatalogRotation({
+                current: previous,
+                next: catalog,
+                overlapSeconds,
+              });
+            } catch (cause) {
+              if (cause instanceof RelayConfigurationError) {
+                throw new RelayCatalogRollbackError({
+                  configuredSequence: catalog.sequence,
+                  persistedSequence: current.catalogSequence,
+                  reason: "unsafe_transition",
+                });
+              }
+              throw cause;
+            }
+            if (catalog.sequence > current.catalogSequence) {
               await tx
                 .update(irohRelayCatalogState)
                 .set({
-                  catalogSequence: sequence,
+                  catalogSequence: catalog.sequence,
                   catalogDigest: digest,
-                  updatedAt: new Date(),
+                  catalog,
+                  updatedAt: new Date(nowSeconds * 1_000),
                 })
                 .where(eq(irohRelayCatalogState.id, "managed"));
             }
@@ -153,8 +202,10 @@ export const RelayRepositoryLive = Layer.succeed(RelayRepository, {
           }
           await tx.insert(irohRelayCatalogState).values({
             id: "managed",
-            catalogSequence: sequence,
+            catalogSequence: catalog.sequence,
             catalogDigest: digest,
+            catalog,
+            updatedAt: new Date(nowSeconds * 1_000),
           });
         });
       },

@@ -100,6 +100,7 @@ export function relayErrorResponse(error: unknown): Response {
     console.error("relay.policy.catalog_rollback", {
       configuredSequence: (error as { configuredSequence?: unknown }).configuredSequence,
       persistedSequence: (error as { persistedSequence?: unknown }).persistedSequence,
+      reason: (error as { reason?: unknown }).reason,
     });
     return jsonResponse({ error: "relay_policy_unavailable" }, 503);
   }
