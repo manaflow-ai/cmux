@@ -43,8 +43,25 @@ final class SessionPersistenceTests: XCTestCase {
             title: "Scratch",
             frame: CGRect(x: 72, y: 96, width: 640, height: 420),
             isPresented: false,
+            initialContent: .note,
             backgroundTintHex: "#272822"
         ))
+        let screenFrame = CGRect(x: 1_672, y: 256, width: 640, height: 420)
+        let displaySnapshot = SessionDisplaySnapshot(
+            displayID: 42,
+            stableID: "external-display",
+            frame: SessionRectSnapshot(x: 1_440, y: 0, width: 1_920, height: 1_080),
+            visibleFrame: SessionRectSnapshot(x: 1_440, y: 0, width: 1_920, height: 1_040)
+        )
+        let configEntry = SessionConfigFrameEntry(
+            signature: "dual-display",
+            frame: SessionRectSnapshot(screenFrame),
+            display: displaySnapshot,
+            lastUsedAt: 42
+        )
+        dock.screenFrame = screenFrame
+        dock.displaySnapshot = displaySnapshot
+        dock.configFrames = SessionConfigFrameRing(entries: [configEntry])
         let rootPane = try XCTUnwrap(dock.store.bonsplitController.allPaneIds.first)
         let terminal = try XCTUnwrap(dock.store.newSurface(
             kind: .terminal,
@@ -72,6 +89,9 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(restoredDock.frame, CGRect(x: 72, y: 96, width: 640, height: 420))
         XCTAssertFalse(restoredDock.isPresented)
         XCTAssertEqual(restoredDock.backgroundTintHex, "#272822")
+        XCTAssertEqual(restoredDock.screenFrame, screenFrame)
+        XCTAssertEqual(restoredDock.displaySnapshot, displaySnapshot)
+        XCTAssertEqual(restoredDock.configFrames.entries, [configEntry])
         XCTAssertEqual(restoredDock.store.panels.count, 3)
         XCTAssertEqual(restoredDock.store.bonsplitController.allPaneIds.count, 2)
         XCTAssertEqual(
