@@ -12,6 +12,65 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func resumeExecutableAvailabilityIncludesDirectShebangInterpreter() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-resume-direct-shebang-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        let interpreter = bin.appendingPathComponent("runtime", isDirectory: false)
+        let agent = bin.appendingPathComponent("agent", isDirectory: false)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeResumeTestExecutable(
+            at: agent,
+            shebang: "#!\(interpreter.path)"
+        )
+        let descriptor = AgentCommandExecutionDescriptor(
+            executable: agent.path,
+            searchPath: bin.path,
+            workingDirectory: root.path
+        )
+
+        #expect(AgentCommandExecutableResolver().resolve(descriptor) == nil)
+
+        try writeResumeTestExecutable(at: interpreter)
+        let resolution = try #require(
+            AgentCommandExecutableResolver().resolve(descriptor)
+        )
+        try FileManager.default.removeItem(at: interpreter)
+
+        #expect(!AgentCommandExecutableResolver.revalidate(resolution))
+    }
+
+    @Test func resumeExecutableAvailabilityIncludesEnvShebangRuntime() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-resume-env-shebang-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        let runtimeName = "runtime-\(UUID().uuidString)"
+        let runtime = bin.appendingPathComponent(runtimeName, isDirectory: false)
+        let agent = bin.appendingPathComponent("agent", isDirectory: false)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeResumeTestExecutable(
+            at: agent,
+            shebang: "#!/usr/bin/env \(runtimeName)"
+        )
+        let descriptor = AgentCommandExecutionDescriptor(
+            executable: agent.path,
+            searchPath: bin.path,
+            workingDirectory: root.path
+        )
+
+        #expect(AgentCommandExecutableResolver().resolve(descriptor) == nil)
+
+        try writeResumeTestExecutable(at: runtime)
+        let resolution = try #require(
+            AgentCommandExecutableResolver().resolve(descriptor)
+        )
+        try FileManager.default.removeItem(at: runtime)
+
+        #expect(!AgentCommandExecutableResolver.revalidate(resolution))
+    }
+
     @MainActor
     @Test func missingPATHResumeExecutableStaysHibernatedUntilPATHRecovers() throws {
         let root = FileManager.default.temporaryDirectory
@@ -1143,12 +1202,15 @@ extension CMUXCLIErrorOutputRegressionTests {
         return try body()
     }
 
-    private func writeResumeTestExecutable(at url: URL) throws {
+    private func writeResumeTestExecutable(
+        at url: URL,
+        shebang: String = "#!/bin/sh"
+    ) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try "#!/bin/sh\nexit 0\n".write(to: url, atomically: true, encoding: .utf8)
+        try "\(shebang)\nexit 0\n".write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o755],
             ofItemAtPath: url.path
