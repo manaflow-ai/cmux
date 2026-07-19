@@ -1258,20 +1258,35 @@ impl Surface {
                                 continue;
                             }
                         };
-                        {
+                        let installed = {
                             let mut runtime = pty.runtime.lock().unwrap();
                             if pty.owner_detaching.load(Ordering::Acquire) {
                                 replacement.disconnect();
                                 return;
                             }
-                            match &*runtime {
+                            let viewer_size = match &*runtime {
                                 PtyRuntime::Hosted(current) if current.identity() == identity => {
-                                    *runtime = PtyRuntime::Hosted(Box::new(replacement));
+                                    current.viewer_size()
                                 }
                                 PtyRuntime::Hosted(_)
                                 | PtyRuntime::ExitedHosted
                                 | PtyRuntime::Local { .. } => return,
+                            };
+                            if let Some((cols, rows)) = viewer_size
+                                && replacement.send_viewer_size(cols, rows).is_err()
+                            {
+                                false
+                            } else {
+                                // Keep desired-lease capture, replay, and the
+                                // runtime swap atomic with respect to mux
+                                // resize/release operations.
+                                *runtime = PtyRuntime::Hosted(Box::new(replacement));
+                                true
                             }
+                        };
+                        if !installed {
+                            std::thread::sleep(retry_delay);
+                            continue;
                         }
 
                         let defaults =
@@ -1894,6 +1909,21 @@ impl Surface {
         }
     }
 
+    /// Stop the daemon's durable hosted-terminal mirror from constraining the
+    /// host grid when the mux has no size-participating viewer for this
+    /// surface. A later viewer report re-registers through `resize`.
+    pub(crate) fn release_viewer_size(&self) -> anyhow::Result<bool> {
+        let Surface::Pty(pty) = self else { return Ok(false) };
+        #[cfg(unix)]
+        {
+            let runtime = pty.runtime.lock().unwrap();
+            if let PtyRuntime::Hosted(host) = &*runtime {
+                return Ok(host.release_viewer_size()?);
+            }
+        }
+        Ok(false)
+    }
+
     pub fn title(&self) -> String {
         match self {
             Surface::Pty(pty) => pty.title.lock().unwrap().clone(),
@@ -2352,7 +2382,9 @@ impl PtySurface {
         {
             let runtime = self.runtime.lock().unwrap();
             if let PtyRuntime::Hosted(host) = &*runtime {
-                if *self.size.lock().unwrap() == (cols, rows) {
+                if *self.size.lock().unwrap() == (cols, rows)
+                    && host.viewer_size() == Some((cols, rows))
+                {
                     return false;
                 }
                 // Do not speculatively reflow the mirror. The host returns a

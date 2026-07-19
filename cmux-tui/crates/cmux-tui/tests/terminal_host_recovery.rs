@@ -1233,7 +1233,7 @@ fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
     renderer.next_sequence = renderer.next_sequence.wrapping_add(1);
     assert_eq!(resized.kind, MessageKind::Resized);
     assert_eq!(resized.flags, FLAG_COLORS_FOLLOW);
-    assert_eq!(&resized.payload[..4], &[80, 0, 24, 0]);
+    assert_eq!(&resized.payload[..4], &[120, 0, 40, 0]);
     let replay_len = u32::from_le_bytes(resized.payload[4..8].try_into().unwrap()) as usize;
     assert_eq!(resized.payload.len(), 8 + replay_len);
     let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
@@ -1254,10 +1254,9 @@ fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
             Err(error) => panic!("invalid resize produced malformed stream: {error}"),
         }
     }
-    let state =
-        request(&harness.socket, serde_json::json!({"id":3,"cmd":"vt-state","surface":surface}));
-    assert_eq!(state["cols"], 80);
-    assert_eq!(state["rows"], 24);
+    let state = wait_for_vt_size(&harness.socket, surface, 120, 40);
+    assert_eq!(state["cols"], 120);
+    assert_eq!(state["rows"], 40);
     assert!(record_path.exists());
 
     let marker = format!("after-failed-controls-{}", std::process::id());
@@ -1310,10 +1309,71 @@ fn direct_renderer_becomes_sole_viewer_after_control_client_disconnect() {
     let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
     assert_eq!(colors.kind, MessageKind::Colors);
 
-    let state =
-        request(&harness.socket, serde_json::json!({"id":3,"cmd":"vt-state","surface":surface}));
+    let state = wait_for_vt_size(&harness.socket, surface, 120, 40);
     assert_eq!(state["cols"], 120);
     assert_eq!(state["rows"], 40);
+
+    // Re-registering the daemon mirror at the already-canonical grid must
+    // still create a real host viewer lease. Otherwise a later direct resize
+    // would silently bypass the TUI's smallest-viewer arbitration.
+    let attach_stream = transport::connect(&harness.socket).unwrap();
+    let mut attach_writer = attach_stream.try_clone_box().unwrap();
+    let mut attach_reader = BufReader::new(attach_stream);
+    writeln!(
+        attach_writer,
+        "{}",
+        serde_json::json!({
+            "id":4,"cmd":"attach-surface","surface":surface,"cols":120,"rows":40,
+        })
+    )
+    .unwrap();
+    let mut attach_state = String::new();
+    attach_reader.read_line(&mut attach_state).unwrap();
+    let attach_state: serde_json::Value = serde_json::from_str(&attach_state).unwrap();
+    assert_eq!(attach_state["event"], "vt-state");
+    let attach_response = loop {
+        let mut line = String::new();
+        attach_reader.read_line(&mut line).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if value["id"] == 4 {
+            break value;
+        }
+        assert!(value["event"].is_string(), "unexpected attach line: {value}");
+    };
+    assert_eq!(attach_response["ok"], true);
+
+    let mut largest = Vec::new();
+    largest.extend_from_slice(&160u16.to_le_bytes());
+    largest.extend_from_slice(&50u16.to_le_bytes());
+    write_frame(&mut renderer.stream, &Frame::new(MessageKind::ViewerSize, largest)).unwrap();
+    let clamped = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(clamped.kind, MessageKind::Resized);
+    assert_eq!(&clamped.payload[..4], &[120, 0, 40, 0]);
+    let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(colors.kind, MessageKind::Colors);
+    let state = wait_for_vt_size(&harness.socket, surface, 120, 40);
+    assert_eq!(state["cols"], 120);
+    assert_eq!(state["rows"], 40);
+
+    drop(attach_writer);
+    drop(attach_reader);
+    // The legacy renderer stream may still contain an unchanged 120x40
+    // replay acknowledged while the attach lease was being installed. Drain
+    // complete resize/color pairs until detach restores the direct request.
+    loop {
+        let restored = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+        assert_eq!(restored.kind, MessageKind::Resized);
+        assert!(matches!(&restored.payload[..4], [120, 0, 40, 0] | [160, 0, 50, 0]));
+        let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+        assert_eq!(colors.kind, MessageKind::Colors);
+        if &restored.payload[..4] == [160, 0, 50, 0] {
+            break;
+        }
+    }
+    let state = wait_for_vt_size(&harness.socket, surface, 160, 50);
+    assert_eq!(state["cols"], 160);
+    assert_eq!(state["rows"], 50);
+
     request(&harness.socket, serde_json::json!({"id":4,"cmd":"close-surface","surface":surface}));
     wait_for_no_host_records(&harness.host_root());
 }
@@ -1349,8 +1409,8 @@ fn negotiated_viewer_size_ack_skips_unchanged_replay_and_follows_changed_pair() 
 
     let mut unchanged = Frame::new(MessageKind::ViewerSize, Vec::new());
     unchanged.request_id = 42;
-    unchanged.payload.extend_from_slice(&120u16.to_le_bytes());
-    unchanged.payload.extend_from_slice(&40u16.to_le_bytes());
+    unchanged.payload.extend_from_slice(&80u16.to_le_bytes());
+    unchanged.payload.extend_from_slice(&24u16.to_le_bytes());
     write_frame(&mut renderer.stream, &unchanged).unwrap();
     let ack = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
     assert_eq!(ack.kind, MessageKind::ResizeAck);

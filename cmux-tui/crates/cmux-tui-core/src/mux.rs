@@ -554,21 +554,6 @@ impl ClientSizingState {
             .reduce(|smallest, size| (smallest.0.min(size.0), smallest.1.min(size.1)))
     }
 
-    fn effective_sizes(
-        &self,
-        surfaces: impl IntoIterator<Item = SurfaceId>,
-        use_excluded: bool,
-    ) -> Vec<(SurfaceId, (u16, u16))> {
-        let mut effective = surfaces
-            .into_iter()
-            .filter_map(|surface| {
-                self.effective_size(surface, use_excluded).map(|size| (surface, size))
-            })
-            .collect::<Vec<_>>();
-        effective.sort_unstable_by_key(|(surface, _)| *surface);
-        effective
-    }
-
     fn latest_effective_size(&self, attached_clients: &HashSet<u64>) -> Option<(u16, u16)> {
         let use_excluded = self.uses_excluded_fallback(attached_clients);
         let surface = self
@@ -2407,6 +2392,24 @@ impl Mux {
         self.reconcile_latest_client_size(&sizing, &attached_clients);
     }
 
+    fn apply_effective_client_sizes(
+        &self,
+        sizing: &ClientSizingState,
+        affected: impl IntoIterator<Item = SurfaceId>,
+        use_excluded: bool,
+    ) {
+        let mut affected = affected.into_iter().collect::<Vec<_>>();
+        affected.sort_unstable();
+        affected.dedup();
+        for surface_id in affected {
+            if let Some((cols, rows)) = sizing.effective_size(surface_id, use_excluded) {
+                let _ = self.resize_surface(surface_id, cols, rows);
+            } else if let Some(surface) = self.surface(surface_id) {
+                let _ = surface.release_viewer_size();
+            }
+        }
+    }
+
     pub fn remove_surface_size_client(&self, id: SurfaceId, client: u64) {
         // Removal participates in the same ordering as size reports.
         let mut sizing = self.client_sizing.lock().unwrap();
@@ -2431,21 +2434,19 @@ impl Mux {
             return;
         }
         let fallback_changed = fallback_before != fallback_after;
-        let affected = if fallback_changed || fallback_after {
+        let mut affected = if fallback_changed || fallback_after {
             sizing.surfaces.keys().copied().collect::<Vec<_>>()
         } else {
             vec![id]
         };
-        let effective = sizing.effective_sizes(affected, fallback_after);
+        affected.push(id);
         #[cfg(test)]
         let before_apply = self.client_resize_before_apply.lock().unwrap().clone();
         #[cfg(test)]
         if let Some(hook) = before_apply {
             hook();
         }
-        for (surface, (cols, rows)) in effective {
-            let _ = self.resize_surface(surface, cols, rows);
-        }
+        self.apply_effective_client_sizes(&sizing, affected, fallback_after);
         self.reconcile_latest_client_size(&sizing, &attached_clients);
         drop(sizing);
     }
@@ -2473,12 +2474,7 @@ impl Mux {
         if restored_exclusive || fallback_before != fallback_after || fallback_after {
             affected.extend(sizing.surfaces.keys().copied());
         }
-        affected.sort_unstable();
-        affected.dedup();
-        let effective = sizing.effective_sizes(affected, fallback_after);
-        for (surface, (cols, rows)) in effective {
-            let _ = self.resize_surface(surface, cols, rows);
-        }
+        self.apply_effective_client_sizes(&sizing, affected, fallback_after);
         self.reconcile_latest_client_size(&sizing, &attached_clients);
         drop(sizing);
     }
@@ -2522,10 +2518,7 @@ impl Mux {
         sizing.exclusive_client = None;
         let affected = sizing.surfaces.keys().copied().collect::<Vec<_>>();
         let use_excluded = sizing.uses_excluded_fallback(&attached_clients);
-        let effective = sizing.effective_sizes(affected, use_excluded);
-        for (surface, (cols, rows)) in &effective {
-            let _ = self.resize_surface(*surface, *cols, *rows);
-        }
+        self.apply_effective_client_sizes(&sizing, affected, use_excluded);
         self.reconcile_latest_client_size(&sizing, &attached_clients);
         drop(sizing);
         self.emit_client_sizing_changes([client]);
@@ -2560,10 +2553,7 @@ impl Mux {
         sizing.exclusive_client = Some(target);
         let affected = sizing.surfaces.keys().copied().collect::<Vec<_>>();
         let use_excluded = sizing.uses_excluded_fallback(&attached_clients);
-        let effective = sizing.effective_sizes(affected, use_excluded);
-        for (surface, (cols, rows)) in &effective {
-            let _ = self.resize_surface(*surface, *cols, *rows);
-        }
+        self.apply_effective_client_sizes(&sizing, affected, use_excluded);
         self.reconcile_latest_client_size(&sizing, &attached_clients);
         drop(sizing);
         self.emit_client_sizing_changes(known_clients);
@@ -2585,11 +2575,8 @@ impl Mux {
         sizing.excluded_clients.clear();
         sizing.exclusive_client = None;
         let affected = sizing.surfaces.keys().copied().collect::<Vec<_>>();
-        let effective = sizing.effective_sizes(affected, false);
-        debug_assert!(!sizing.uses_excluded_fallback(&attached_clients) || effective.is_empty());
-        for (surface, (cols, rows)) in &effective {
-            let _ = self.resize_surface(*surface, *cols, *rows);
-        }
+        debug_assert!(!sizing.uses_excluded_fallback(&attached_clients) || affected.is_empty());
+        self.apply_effective_client_sizes(&sizing, affected, false);
         self.reconcile_latest_client_size(&sizing, &attached_clients);
         drop(sizing);
         self.emit_client_sizing_changes(known_clients);

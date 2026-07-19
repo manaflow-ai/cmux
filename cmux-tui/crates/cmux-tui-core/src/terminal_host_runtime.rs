@@ -482,6 +482,7 @@ mod unix {
         writer: Arc<Mutex<UnixStream>>,
         capability_responses: Arc<CapabilityResponses>,
         next_request: AtomicU64,
+        viewer_size: Mutex<Option<(u16, u16)>>,
         /// Exact process ownership retained only between a successful launch
         /// handshake and complete Surface materialization. Adoption never
         /// carries this guard.
@@ -520,10 +521,37 @@ mod unix {
             let (cols, rows) = normalize_terminal_geometry(cols, rows).map_err(|error| {
                 std::io::Error::new(std::io::ErrorKind::InvalidInput, error.to_string())
             })?;
+            let mut viewer_size = self.viewer_size.lock().unwrap();
+            if *viewer_size == Some((cols, rows)) {
+                return Ok(());
+            }
+            // This is the daemon's desired logical lease, not an
+            // acknowledgement from the host. Retain it across a failed write
+            // so reconnect can replay the newest mux state instead of a stale
+            // reservation from the dead socket.
+            *viewer_size = Some((cols, rows));
             let mut payload = Vec::with_capacity(4);
             payload.extend_from_slice(&cols.to_le_bytes());
             payload.extend_from_slice(&rows.to_le_bytes());
-            self.send(MessageKind::ViewerSize, &payload)
+            self.send(MessageKind::ViewerSize, &payload)?;
+            Ok(())
+        }
+
+        pub fn release_viewer_size(&self) -> std::io::Result<bool> {
+            let mut viewer_size = self.viewer_size.lock().unwrap();
+            if viewer_size.is_none() {
+                return Ok(false);
+            }
+            // Preserve the desired released state even if this disposable
+            // admin connection has already failed; reconnect starts without
+            // an implicit lease and therefore needs no compensating message.
+            *viewer_size = None;
+            self.send(MessageKind::ReleaseViewer, &[])?;
+            Ok(true)
+        }
+
+        pub fn viewer_size(&self) -> Option<(u16, u16)> {
+            *self.viewer_size.lock().unwrap()
         }
 
         pub fn terminate(&self) -> std::io::Result<()> {
@@ -1093,6 +1121,7 @@ mod unix {
         }
         snapshot.sequence_boundary = snapshot_frame.sequence;
         snapshot.colors = decode_terminal_color_overrides(&colors_frame.payload)?;
+        let snapshot_size = (snapshot.cols, snapshot.rows);
         stream.set_read_timeout(None)?;
         // Keep bounded writes for the lifetime of the disposable admin
         // mirror. A stopped or wedged host must not block a mux/control thread
@@ -1110,9 +1139,14 @@ mod unix {
                 waiters: Mutex::new(HashMap::new()),
             }),
             next_request: AtomicU64::new(2),
+            // New hosts do not register Admin as a viewer. Initialize this as
+            // if they did so the unconditional release below also upgrades
+            // live protocol-v1 hosts whose older implementation registered
+            // every connection at the snapshot grid.
+            viewer_size: Mutex::new(Some(snapshot_size)),
             launch_process: None,
         };
-        attachment.send_viewer_size(attachment.snapshot.cols, attachment.snapshot.rows)?;
+        attachment.release_viewer_size()?;
         Ok(attachment)
     }
 
@@ -2163,7 +2197,15 @@ mod unix {
             if host.dead.load(Ordering::Acquire) {
                 anyhow::bail!("terminal host exited before snapshot");
             }
-            viewer_sizes.insert(client, (cols, rows));
+            // A renderer needs an initial reservation until it reports its
+            // measured grid. Admin and read-only mirror connections are
+            // management/observation channels and must never pin the PTY to
+            // the snapshot size merely by connecting.
+            if hello.role == ClientRole::Renderer
+                && granted_rights.contains(CapabilityRights::RESIZE)
+            {
+                viewer_sizes.insert(client, (cols, rows));
+            }
             host.taps.lock().unwrap().insert(client, tap.clone());
             (
                 HostSnapshot {
