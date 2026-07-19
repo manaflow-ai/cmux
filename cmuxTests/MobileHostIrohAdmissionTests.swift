@@ -455,6 +455,21 @@ extension MobileHostAuthorizationTests {
         )
     }
 
+    @Test func testIrohArtifactDescriptorFailuresPreserveFileAndCapacitySemantics() {
+        #expect(
+            MobileHostIrohArtifactTransferRegistry.Error.invalidFile.issueFailure
+                == .fileNotFound
+        )
+        #expect(
+            MobileHostIrohArtifactTransferRegistry.Error.unavailable.issueFailure
+                == .unavailable
+        )
+        #expect(
+            MobileHostIrohArtifactTransferRegistry.Error.capacityExceeded.issueFailure
+                == .unavailable
+        )
+    }
+
     @Test func testIrohArtifactCapabilityIsOpaquePeerBoundAndSeriallyResumable() async throws {
         let fixture = try MobileHostIrohArtifactFixture(contents: Data("abcdef".utf8))
         defer { fixture.remove() }
