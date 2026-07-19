@@ -222,6 +222,44 @@ struct TerminalRenderMetalBlitterTests {
     }
 
     @Test
+    func replacedLayerCannotPublishLatePresentedMetadata() async throws {
+        let fence = try makeFence(generation: 7)
+        let frame1 = try makeFrame(fence: fence, frameSequence: 1)
+        let frame2 = try makeFrame(fence: fence, frameSequence: 2)
+        let executor = TerminalRenderMetalExecutor(label: "test.cmux.metal.presented-fence")
+        let backend = RecordingMetalSubmissionBackend(
+            executor: executor,
+            results: [.submitted, .submitted]
+        )
+        let releases = ReleaseRecorder()
+        let presented = PresentedRecorder()
+        let oldLayer = TerminalRenderMetalLayerHandle(CAMetalLayer())
+        let replacementLayer = TerminalRenderMetalLayerHandle(CAMetalLayer())
+        let blitter = makeBlitter(
+            executor: executor,
+            backend: backend,
+            releases: releases,
+            layer: oldLayer,
+            presented: presented
+        )
+
+        #expect(await blitter.enqueue(frame1, epoch: 1, layer: oldLayer) == .submitted)
+        blitter.register(epoch: 1, layer: replacementLayer)
+        backend.present(frameSequence: 1)
+        #expect(presented.snapshot().isEmpty)
+
+        #expect(
+            await blitter.enqueue(frame2, epoch: 1, layer: replacementLayer)
+                == .coalesced
+        )
+        backend.complete(frameSequence: 1)
+        await backend.waitForSubmissionCount(2)
+        backend.present(frameSequence: 2)
+        #expect(presented.snapshot() == [2])
+        backend.complete(frameSequence: 2)
+    }
+
+    @Test
     func sourceTextureCacheUsesCompleteProvenanceKeyAndThreeEntryLRUBound() throws {
         let fence = try makeFence(generation: 7)
         let frame1 = try makeFrame(fence: fence, frameSequence: 1)
@@ -268,7 +306,8 @@ struct TerminalRenderMetalBlitterTests {
         executor: TerminalRenderMetalExecutor,
         backend: RecordingMetalSubmissionBackend,
         releases: ReleaseRecorder,
-        layer: TerminalRenderMetalLayerHandle = TerminalRenderMetalLayerHandle(CAMetalLayer())
+        layer: TerminalRenderMetalLayerHandle = TerminalRenderMetalLayerHandle(CAMetalLayer()),
+        presented: PresentedRecorder? = nil
     ) -> TerminalRenderMetalBlitter {
         TerminalRenderMetalBlitter(
             executor: executor,
@@ -278,7 +317,9 @@ struct TerminalRenderMetalBlitterTests {
             releaseHandler: { releases.append($0) },
             dispositionHandler: nil,
             metricEventHandler: nil,
-            presentedHandler: nil
+            presentedHandler: { metadata in
+                presented?.append(metadata.frameSequence)
+            }
         )
     }
 
@@ -373,6 +414,23 @@ private final class ReleaseRecorder: @unchecked Sendable {
     }
 }
 
+private final class PresentedRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var frameSequences: [UInt64] = []
+
+    func append(_ frameSequence: UInt64) {
+        lock.lock()
+        frameSequences.append(frameSequence)
+        lock.unlock()
+    }
+
+    func snapshot() -> [UInt64] {
+        lock.lock()
+        defer { lock.unlock() }
+        return frameSequences
+    }
+}
+
 private final class RecordingMetalSubmissionBackend:
     TerminalRenderMetalSubmitting,
     @unchecked Sendable
@@ -395,6 +453,7 @@ private final class RecordingMetalSubmissionBackend:
     private var storage = Snapshot()
     private var activeSubmissionCount = 0
     private var completions: [UInt64: @Sendable () -> Void] = [:]
+    private var presentations: [UInt64: @Sendable () -> Void] = [:]
     private let submissionEvents: AsyncStream<Int>
     private let submissionContinuation: AsyncStream<Int>.Continuation
     private let invalidationEvents: AsyncStream<Int>
@@ -430,6 +489,7 @@ private final class RecordingMetalSubmissionBackend:
                 activeSubmissionCount
             )
             completions[frame.metadata.frameSequence] = callbacks.completed
+            presentations[frame.metadata.frameSequence] = callbacks.presented
         }
         let count = storage.submissionSequences.count
         lock.unlock()
@@ -453,6 +513,13 @@ private final class RecordingMetalSubmissionBackend:
         }
         lock.unlock()
         completion?()
+    }
+
+    func present(frameSequence: UInt64) {
+        lock.lock()
+        let presented = presentations.removeValue(forKey: frameSequence)
+        lock.unlock()
+        presented?()
     }
 
     func snapshot() -> Snapshot {
