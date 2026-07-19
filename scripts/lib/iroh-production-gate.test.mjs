@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import {
   chmodSync,
   mkdtempSync,
+  mkdirSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -109,6 +111,54 @@ test("production release-gate flags fail before creating runtime state", () => {
   ]);
   assert.equal(productionEnvironmentWithoutProduction.status, 2);
   assert.match(productionEnvironmentWithoutProduction.stderr, /requires --production/u);
+});
+
+test("production release gate gives its account helper a normalized protected state directory", (t) => {
+  const directory = fixtureDirectory();
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+
+  const fakeBin = path.join(directory, "bin");
+  mkdirSync(fakeBin, { mode: 0o700 });
+  const captureFile = path.join(directory, "captured-state.txt");
+  const fakeBun = path.join(fakeBin, "bun");
+  writeFileSync(fakeBun, `#!/usr/bin/env bash
+set -euo pipefail
+state_file=""
+while [[ $# -gt 0 ]]; do
+  if [[ "$1" == "--state-file" ]]; then
+    state_file="\${2:-}"
+    break
+  fi
+  shift
+done
+[[ -n "$state_file" ]]
+state_directory="$(dirname "$state_file")"
+printf '%s\n%s\n' "$state_file" "$(stat -f '%Lp' "$state_directory")" > "$CMUX_TEST_CAPTURE_FILE"
+exit 73
+`, { mode: 0o755 });
+  chmodSync(fakeBun, 0o755);
+
+  const stackEnvironment = path.join(directory, "stack.env");
+  writeFileSync(stackEnvironment, "unused=true\n", { mode: 0o600 });
+  chmodSync(stackEnvironment, 0o600);
+
+  const result = run("bash", [
+    "scripts/run-iroh-release-gate.sh",
+    "--mode", "automatic",
+    "--tag", "prodtmp",
+    "--production",
+    "--stack-env-file", stackEnvironment,
+  ], {
+    CMUX_TEST_CAPTURE_FILE: captureFile,
+    PATH: `${fakeBin}:${process.env.PATH}`,
+    TMPDIR: `${directory}/`,
+  });
+
+  assert.equal(result.status, 73, result.stderr);
+  const [stateFile, mode] = readFileSync(captureFile, "utf8").trimEnd().split("\n");
+  assert.equal(stateFile, path.resolve(stateFile));
+  assert.equal(path.dirname(stateFile).startsWith(`${directory}/`), true);
+  assert.equal(mode, "700");
 });
 
 test("Mac reload documents production auth without accepting secret values", () => {
