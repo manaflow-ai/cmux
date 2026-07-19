@@ -11834,6 +11834,9 @@ struct VerticalTabsSidebar: View, Equatable {
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
+        /// Mirror destinations for the origin-color resolve, walked once for this render
+        /// pass so a row doesn't rescan the session mirrors. Nil when origin colors are off.
+        let mirrorOriginDestinations: [UUID: String]?
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -12021,7 +12024,8 @@ struct VerticalTabsSidebar: View, Equatable {
             memberWorkspaceIdsByGroupId: memberWorkspaceIdsByGroupId,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
             workspaceRenderItems: workspaceRenderItems,
-            visibleWorkspaceRowIds: visibleWorkspaceRowIds
+            visibleWorkspaceRowIds: visibleWorkspaceRowIds,
+            mirrorOriginDestinations: mirrorDestinationsForOriginColors()
         )
         let _ = SidebarProfilingSignposts.end(signpost)
         ZStack(alignment: .bottomLeading) {
@@ -13224,7 +13228,8 @@ struct VerticalTabsSidebar: View, Equatable {
             return makeWorkspaceSnapshot(
                 workspace: workspace,
                 settings: settings,
-                showsAgentActivity: showsAgentActivity
+                showsAgentActivity: showsAgentActivity,
+                mirrorDestinations: mirrorDestinations
             )
         }
     }
@@ -13232,7 +13237,8 @@ struct VerticalTabsSidebar: View, Equatable {
     private func makeWorkspaceSnapshot(
         workspace: Workspace,
         settings: SidebarTabItemSettingsSnapshot,
-        showsAgentActivity: Bool
+        showsAgentActivity: Bool,
+        mirrorDestinations: [UUID: String]?
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
 #if DEBUG
         sidebarLazyContractProbe.workspaceSnapshotBuild?()
@@ -13241,22 +13247,39 @@ struct VerticalTabsSidebar: View, Equatable {
             workspace: workspace,
             settings: settings,
             showsAgentActivity: showsAgentActivity,
-            originColorHex: originColorHex(for: workspace)
+            originColorHex: originColorHex(for: workspace, mirrorDestinations: mirrorDestinations)
         ).makeSnapshot()
     }
 
     /// Per-host origin color (beta), resolved here — above the row boundary — to
-    /// a plain value. Mirror workspaces carry their host only through the session
-    /// mirror, so fall back to the controller lookup when there's no
-    /// remoteConfiguration. Nil when the flag is off or the workspace has no host.
-    private func originColorHex(for workspace: Workspace) -> String? {
+    /// a plain value. Nil when the flag is off or the workspace has no host.
+    ///
+    /// Mirror workspaces carry their host only through the session mirror. A batch
+    /// refresh passes `mirrorDestinations` so the mirrors are walked once for the whole
+    /// batch instead of once per row; a single row passes nil and takes the direct lookup.
+    private func originColorHex(
+        for workspace: Workspace,
+        mirrorDestinations: [UUID: String]?
+    ) -> String? {
         guard remoteTmuxOriginColorsEnabled else { return nil }
-        let destination = workspace.remoteConfiguration?.destination
-            ?? (workspace.isRemoteTmuxMirror
-                ? AppDelegate.shared?.remoteTmuxController.hostDestination(forWorkspaceId: workspace.id)
-                : nil)
+        var destination = workspace.remoteConfiguration?.destination
+        if destination == nil, workspace.isRemoteTmuxMirror {
+            if let mirrorDestinations {
+                destination = mirrorDestinations[workspace.id]
+            } else {
+                destination = AppDelegate.shared?.remoteTmuxController
+                    .hostDestination(forWorkspaceId: workspace.id)
+            }
+        }
         guard let destination, !destination.isEmpty else { return nil }
         return AppDelegate.shared?.remoteTmuxController.hostColorRegistry.colorHex(for: destination)
+    }
+
+    /// The mirror destinations a batch snapshot refresh needs, or nil when origin colors
+    /// are off (then no row resolves a destination and the walk would be wasted).
+    private func mirrorDestinationsForOriginColors() -> [UUID: String]? {
+        guard remoteTmuxOriginColorsEnabled else { return nil }
+        return AppDelegate.shared?.remoteTmuxController.hostDestinationsByWorkspaceId() ?? [:]
     }
 
     private func clearExtensionSidebarObservationPublishers() {
