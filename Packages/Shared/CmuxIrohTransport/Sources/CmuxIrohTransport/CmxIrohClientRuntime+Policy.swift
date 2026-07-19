@@ -147,17 +147,29 @@ extension CmxIrohClientRuntime {
                 localBinding: policy.binding
             )
         }
-        let provider = CmxIrohRegistryContextProvider(
-            supervisor: supervisor,
-            broker: broker,
-            localBindingExpectation: policy.expectation,
-            managedRelayURLs: managedRelayURLs,
-            allowedRouteRelayURLs: endpointRelayProfile.allowedRelayURLs,
-            networkPathSnapshot: networkPathSnapshot,
-            offlinePolicy: offlinePolicy,
-            lanFallback: lanFallback,
-            now: now
-        )
+        let provider: CmxIrohRegistryContextProvider
+        if let registryContextProvider {
+            await registryContextProvider.updatePolicy(
+                localBindingExpectation: policy.expectation,
+                managedRelayURLs: managedRelayURLs,
+                allowedRouteRelayURLs: endpointRelayProfile.allowedRelayURLs,
+                offlinePolicy: offlinePolicy
+            )
+            provider = registryContextProvider
+        } else {
+            provider = CmxIrohRegistryContextProvider(
+                supervisor: supervisor,
+                broker: broker,
+                localBindingExpectation: policy.expectation,
+                managedRelayURLs: managedRelayURLs,
+                allowedRouteRelayURLs: endpointRelayProfile.allowedRelayURLs,
+                networkPathSnapshot: networkPathSnapshot,
+                offlinePolicy: offlinePolicy,
+                lanFallback: lanFallback,
+                now: now
+            )
+            registryContextProvider = provider
+        }
         await contextRouter.install(provider)
         localBinding = policy.binding
 

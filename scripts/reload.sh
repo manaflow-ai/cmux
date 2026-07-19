@@ -20,6 +20,7 @@ CMUX_DEV_PORT_END=""
 CMUX_DEV_PORT_RANGE=""
 CMUX_DEV_ORIGIN=""
 CMUX_DEV_API_BASE_URL_VALUE=""
+CMUX_IROH_BROKER_BASE_URL_VALUE=""
 CLI_PATH=""
 NO_GLOBAL_CLI_LINKS="${CMUX_RELOAD_NO_GLOBAL_CLI_LINKS:-0}"
 # Matches CmuxStateDirectory (non-TCC ~/.local/state/cmux) where the app/CLI now
@@ -552,6 +553,7 @@ CMUX_DEV_PORT_RANGE="$(choose_cmux_dev_port_range)"
 CMUX_DEV_PORT_END="$(choose_cmux_dev_port_end "$CMUX_DEV_PORT" "$CMUX_DEV_PORT_RANGE")"
 CMUX_DEV_ORIGIN="http://localhost:${CMUX_DEV_PORT}"
 CMUX_DEV_API_BASE_URL_VALUE="$(cmux_attach_resolve_dev_api_base_url "$CMUX_DEV_ORIGIN")"
+CMUX_IROH_BROKER_BASE_URL_VALUE="${CMUX_IROH_BROKER_BASE_URL:-https://cmux-staging.vercel.app}"
 
 # Quiet logging: capture all noisy build output (xcodebuild, zig, codesign,
 # plistbuddy, etc.) to a single log file. On success we print only a one-line
@@ -616,6 +618,8 @@ reload_finalize() {
     echo "  $CMUX_DEV_ORIGIN"
     echo "Dev API origin:"
     echo "  $CMUX_DEV_API_BASE_URL_VALUE"
+    echo "Iroh broker origin:"
+    echo "  $CMUX_IROH_BROKER_BASE_URL_VALUE"
     if [[ -n "${TAG_SLUG:-}" ]]; then
       echo "Dev web command:"
       echo "  cd web && CMUX_PORT=$CMUX_DEV_PORT CMUX_PORT_RANGE=$CMUX_DEV_PORT_RANGE CMUX_PORT_END=$CMUX_DEV_PORT_END CMUX_AUTH_CALLBACK_SCHEME=cmux-dev-$TAG_SLUG bun dev"
@@ -969,6 +973,7 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_AUTH_WWW_ORIGIN "$CMUX_DEV_ORIGIN"
       set_plist_env "$INFO_PLIST" CMUX_API_BASE_URL "$CMUX_DEV_API_BASE_URL_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_DEV_API_BASE_URL_VALUE"
+      set_plist_env "$INFO_PLIST" CMUX_IROH_BROKER_BASE_URL "$CMUX_IROH_BROKER_BASE_URL_VALUE"
       if [[ -S "$CMUXD_SOCKET" ]]; then
         for PID in $(lsof -t "$CMUXD_SOCKET" 2>/dev/null); do
           kill "$PID" 2>/dev/null || true
@@ -1126,6 +1131,7 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     CMUX_AUTH_WWW_ORIGIN="$CMUX_DEV_ORIGIN"
     CMUX_API_BASE_URL="$CMUX_DEV_API_BASE_URL_VALUE"
     CMUX_VM_API_BASE_URL="$CMUX_DEV_API_BASE_URL_VALUE"
+    CMUX_IROH_BROKER_BASE_URL="$CMUX_IROH_BROKER_BASE_URL_VALUE"
   )
 
   LAUNCH_CMD=()

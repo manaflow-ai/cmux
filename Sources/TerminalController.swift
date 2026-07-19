@@ -16,6 +16,7 @@ import CmuxSwiftRenderUI
 import Carbon.HIToolbox
 import CMUXMobileCore
 import CMUXAgentLaunch
+import CmuxAgentChat
 import Foundation
 import os
 import Bonsplit
@@ -126,6 +127,7 @@ class TerminalController {
     @MainActor private(set) var authCoordinator: AuthCoordinator?
     @MainActor private(set) var browserSignInFlow: HostBrowserSignInFlow?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
+    nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
     // Sendable value type; injected at construction so socket auth never reaches a global.
     nonisolated let passwordStore: SocketControlPasswordStore
     private nonisolated let socketPasswordFileWatcher: FileWatcher?
@@ -136,6 +138,8 @@ class TerminalController {
     /// `WorkspaceRemoteSessionController`; ownership moves to the composition root with the
     /// planned `RemoteSessionCoordinator` wiring.
     nonisolated let remoteProxyBroker: any RemoteProxyBrokering
+    /// Process-wide native SSH master owner and per-host reconnect coordinator.
+    nonisolated let nativeSSHConnectionBroker: NativeSSHConnectionBroker
     // Stateless Sendable structs from CmuxControlSocket; injected at construction.
     // `transport` is internal so sibling-file extensions (CmuxEventStream) can write through it.
     nonisolated let transport: SocketTransport
@@ -352,9 +356,11 @@ class TerminalController {
         socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter = .init(
             maximumConcurrentClaims: 32
         ),
+        terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
-        )
+        ),
+        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
     ) {
         self.passwordStore = passwordStore
         let socketPasswordFileWatcher = passwordStore.passwordFileURL.map {
@@ -363,8 +369,10 @@ class TerminalController {
         self.socketPasswordFileWatcher = socketPasswordFileWatcher
         self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
+        self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
+        self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         let serverEventTarget = ServerEventTarget()
         let socketServer = SocketControlServer(
             transport: transport,

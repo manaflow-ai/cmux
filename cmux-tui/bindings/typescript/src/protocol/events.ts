@@ -341,7 +341,8 @@ export type KnownRenderAttachEvent =
   | RenderStateEvent
   | RenderDeltaEvent
   | ScrollChangedEvent
-  | DetachedEvent;
+  | DetachedEvent
+  | OverflowEvent;
 
 /** Render attachment events, including unknown future event names. */
 export type RenderAttachEvent = KnownRenderAttachEvent | UnknownEvent;

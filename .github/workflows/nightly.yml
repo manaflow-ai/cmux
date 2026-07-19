@@ -254,7 +254,7 @@ jobs:
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
     # Match the cache warmer and stable release app build exactly. Keeping the
     # runner and pinned Xcode identical makes their compilation caches reusable.
-    runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ vars.MACOS_RUNNER_26_NIGHTLY_BUILD || 'blacksmith-12vcpu-macos-26' }}
     timeout-minutes: 45
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
@@ -337,6 +337,12 @@ jobs:
             echo "Xcode compilation cache exceeds 5 GiB; skipping cache save"
             rm -rf "$cache_path"
           fi
+
+      - name: Strip unsigned nightly app before transfer
+        run: |
+          set -euo pipefail
+          products="build-universal/Build/Products/Release"
+          ./scripts/strip-release-bundle.sh "$products/cmux.app"
 
       - name: Archive unsigned nightly app
         run: |
@@ -686,9 +692,6 @@ jobs:
 
           cp "$TMP_PROFILE" "$PROFILE_PATH"
 
-      - name: Strip nightly release binaries
-        run: ./scripts/strip-release-bundle.sh "build-universal/Build/Products/Release/cmux NIGHTLY.app"
-
       - name: Codesign apps
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -706,74 +709,14 @@ jobs:
               "$APPLE_SIGNING_IDENTITY"
           done
 
-      - name: Notarize apps and dmgs
+      - name: Notarize app ticket through final DMG
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
-          if [ -z "$APPLE_ID" ] || [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
-            echo "Missing notarization secrets (APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID)" >&2
-            exit 1
-          fi
-          notarize_and_package() {
-            local app_path="$1"
-            local dmg_release="$2"
-            local dmg_immutable="$3"
-            local zip_submit="${dmg_release%.dmg}-notary.zip"
-            local dmg_tmp_dir
-            local created_dmg
-
-            ditto -c -k --sequesterRsrc --keepParent "$app_path" "$zip_submit"
-            APP_SUBMIT_JSON="$(xcrun notarytool submit "$zip_submit" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
-            APP_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$APP_SUBMIT_JSON")"
-            APP_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$APP_SUBMIT_JSON")"
-            if [ "$APP_STATUS" != "Accepted" ]; then
-              echo "App notarization failed for $app_path with status: $APP_STATUS" >&2
-              xcrun notarytool log "$APP_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
-              exit 1
-            fi
-            xcrun stapler staple "$app_path"
-            xcrun stapler validate "$app_path"
-            spctl -a -vv --type execute "$app_path"
-            CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 ./scripts/smoke-launch-macos-app.sh "$app_path"
-            CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 ./scripts/smoke-launch-macos-app.sh "$app_path"
-            ./scripts/verify-app-bundle-channel-metadata.sh "$app_path" nightly
-            ./scripts/verify-app-bundle-licenses.sh "$app_path"
-            rm -f "$zip_submit"
-
-            dmg_tmp_dir="$(mktemp -d)"
-            create-dmg \
-              --no-code-sign \
-              "$app_path" \
-              "$dmg_tmp_dir"
-            created_dmg="$(find "$dmg_tmp_dir" -maxdepth 1 -name '*.dmg' | head -n 1)"
-            if [ -z "$created_dmg" ]; then
-              echo "Failed to locate created DMG for $app_path" >&2
-              exit 1
-            fi
-            mv "$created_dmg" "$dmg_release"
-            rm -rf "$dmg_tmp_dir"
-            /usr/bin/codesign --force --timestamp --keychain build.keychain \
-              --sign "$APPLE_SIGNING_IDENTITY" \
-              "$dmg_release"
-            /usr/bin/codesign --verify --verbose=2 "$dmg_release"
-
-            DMG_SUBMIT_JSON="$(xcrun notarytool submit "$dmg_release" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
-            DMG_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$DMG_SUBMIT_JSON")"
-            DMG_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$DMG_SUBMIT_JSON")"
-            if [ "$DMG_STATUS" != "Accepted" ]; then
-              echo "DMG notarization failed for $dmg_release with status: $DMG_STATUS" >&2
-              xcrun notarytool log "$DMG_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
-              exit 1
-            fi
-            xcrun stapler staple "$dmg_release"
-            xcrun stapler validate "$dmg_release"
-            cp "$dmg_release" "$dmg_immutable"
-          }
-
-          notarize_and_package \
+          ./scripts/ci/notarize-nightly-dmg.sh \
             "build-universal/Build/Products/Release/cmux NIGHTLY.app" \
             "cmux-nightly-macos.dmg" \
             "$NIGHTLY_DMG_IMMUTABLE"

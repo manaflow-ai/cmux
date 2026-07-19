@@ -25,6 +25,7 @@ extension MobileHostService {
             "terminal.replay.v1",
             "terminal.viewport.v1",
             "terminal.artifact.v1",
+            "terminal.artifact.list.v1",
             "workspace.actions.v1",
             "workspace.read_state.v1",
             "workspace.close.v1",
@@ -33,6 +34,7 @@ extension MobileHostService {
             "workspace.group_create.v1",
             "workspace.create_in_group.v1",
             "chat.artifact.v1",
+            "chat.artifact.folders.v1",
             "chat.artifact.gallery.v1",
             "dogfood.v1",
             // The workspace list carries group sections (group_id per workspace +

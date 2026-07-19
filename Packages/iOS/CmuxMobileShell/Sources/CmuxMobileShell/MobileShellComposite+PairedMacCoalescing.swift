@@ -44,6 +44,57 @@ extension MobileShellComposite {
             .map(\.value)
     }
 
+    /// Selects one logical client for each cryptographic Iroh endpoint.
+    ///
+    /// Presentation coalescing intentionally includes the reported name and
+    /// instance tag, but the Iroh server admits only one authoritative control
+    /// connection per EndpointID. Stale stored rows must therefore share one
+    /// connection owner even when their presentation metadata differs.
+    static func coalescePairedMacsByIrohEndpointAuthority(
+        _ macs: [MobilePairedMac],
+        supportedKinds: [CmxAttachTransportKind],
+        preferNonLoopback: Bool
+    ) -> [MobilePairedMac] {
+        var selectedByKey: [String: MobilePairedMac] = [:]
+        var orderByKey: [String: Int] = [:]
+
+        for (index, mac) in macs.enumerated() {
+            let key = irohEndpointID(
+                for: mac,
+                supportedKinds: supportedKinds,
+                preferNonLoopback: preferNonLoopback
+            ).map { "iroh-authority:\($0)" } ?? "device:\(mac.id)"
+            orderByKey[key] = min(orderByKey[key] ?? index, index)
+            guard let existing = selectedByKey[key] else {
+                selectedByKey[key] = mac
+                continue
+            }
+            selectedByKey[key] = mac.sortsBeforeDuplicate(existing) ? mac : existing
+        }
+
+        return selectedByKey
+            .sorted { lhs, rhs in
+                (orderByKey[lhs.key] ?? .max) < (orderByKey[rhs.key] ?? .max)
+            }
+            .map(\.value)
+    }
+
+    static func irohEndpointID(
+        for mac: MobilePairedMac,
+        supportedKinds: [CmxAttachTransportKind],
+        preferNonLoopback: Bool
+    ) -> String? {
+        let reconnectRoutes = storedReconnectRoutes(
+            mac.routes,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: preferNonLoopback
+        )
+        guard case let .peer(identity, _)? = reconnectRoutes.first?.endpoint else {
+            return nil
+        }
+        return identity.endpointID
+    }
+
     static func macDeviceIDsForLogicalPairedMac(
         _ macDeviceID: String,
         in macs: [MobilePairedMac],
