@@ -2410,9 +2410,12 @@ mod unix {
     }
 
     fn encode_resize(cols: u16, rows: u16, replay: &[u8]) -> Vec<u8> {
-        let mut output = Vec::with_capacity(4 + replay.len());
+        let replay_len =
+            u32::try_from(replay.len()).expect("terminal-host resize replay exceeds u32");
+        let mut output = Vec::with_capacity(8 + replay.len());
         output.extend_from_slice(&cols.to_le_bytes());
         output.extend_from_slice(&rows.to_le_bytes());
+        output.extend_from_slice(&replay_len.to_le_bytes());
         output.extend_from_slice(replay);
         output
     }
@@ -2661,6 +2664,14 @@ mod unix {
             assert_eq!(decoded.default_colors, default_colors);
             assert_eq!(decoded.command, launch.command);
             assert_eq!(decoded.extra_env, launch.extra_env);
+        }
+
+        #[test]
+        fn resized_payload_is_length_prefixed_for_cross_language_clients() {
+            assert_eq!(
+                encode_resize(0x0123, 0x4567, &[0xaa, 0xbb, 0xcc]),
+                vec![0x23, 0x01, 0x67, 0x45, 3, 0, 0, 0, 0xaa, 0xbb, 0xcc]
+            );
         }
 
         #[test]
