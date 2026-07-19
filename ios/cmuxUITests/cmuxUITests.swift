@@ -29,10 +29,10 @@ final class cmuxUITests: XCTestCase {
     /// Exercises the complete first-run activation path without Stack auth,
     /// a Mac, camera hardware, or network access. The first launch forces the
     /// durable progress key to `welcome`; advancing to Connect writes the real
-    /// `.connect` milestone. Relaunching without that argument must resume at
-    /// Connect, then the final action must hand off directly to the production
-    /// scanner sheet while its capture body uses the deterministic UI-test
-    /// preview.
+    /// `.connect` milestone. The default connection scene must describe
+    /// same-account automatic discovery without presenting QR as the primary
+    /// path. Relaunching after the simulated search finishes must resume at
+    /// Connect and expose QR as an explicit fallback.
     @MainActor
     func testOnboardingScenesReplyResumeAndScannerHandoff() throws {
         let app = XCUIApplication()
@@ -45,6 +45,7 @@ final class cmuxUITests: XCTestCase {
         app.launchEnvironment = [
             "CMUX_UITEST_MOCK_DATA": "1",
             "CMUX_UITEST_ONBOARDING_PREVIEW": "1",
+            "CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK": "0",
             "CMUX_UITEST_SCANNER_PREVIEW": "1",
         ]
         app.launch()
@@ -72,15 +73,22 @@ final class cmuxUITests: XCTestCase {
         let handoffScene = element("MobileOnboardingHandoffScene")
         XCTAssertTrue(handoffScene.waitForExistence(timeout: 4))
         XCTAssertTrue(agentsScene.waitForNonExistence(timeout: 2))
+        XCTAssertTrue(app.staticTexts["Answer agents from your phone"].exists)
+        XCTAssertTrue(app.staticTexts[
+            "Choose an answer when an agent needs a decision. It keeps working on your Mac."
+        ].exists)
         capture("onboarding-02-handoff")
 
         let replyButton = app.buttons["MobileOnboardingDemoReplyButton"]
         XCTAssertTrue(replyButton.waitForExistence(timeout: 4))
+        XCTAssertEqual(replyButton.label, "Open a follow-up PR")
+        XCTAssertTrue(app.buttons["MobileOnboardingDemoReplyAlternativeButton"].exists)
         replyButton.tap()
 
         let sentReply = element("MobileOnboardingDemoReplySent")
         XCTAssertTrue(sentReply.waitForExistence(timeout: 4))
         XCTAssertTrue(replyButton.waitForNonExistence(timeout: 2))
+        XCTAssertTrue(app.staticTexts["Answer sent from iPhone"].exists)
         capture("onboarding-03-reply-sent")
 
         primaryButton.tap()
@@ -88,22 +96,34 @@ final class cmuxUITests: XCTestCase {
         let connectScene = element("MobileOnboardingConnectScene")
         XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
         XCTAssertTrue(handoffScene.waitForNonExistence(timeout: 2))
+        XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].exists)
+        XCTAssertTrue(app.staticTexts[
+            "Keep cmux open on your Mac and sign in with the same account. cmux finds it and connects securely."
+        ].exists)
+        XCTAssertTrue(app.staticTexts["Looking for your Mac…"].exists)
+        XCTAssertFalse(app.buttons["Scan Mac QR"].exists)
+        XCTAssertFalse(app.buttons["Use QR Code Instead"].exists)
         capture("onboarding-04-connect")
 
         // Drop only the launch-domain override. The application-domain value
-        // written while entering Connect must now be the source of truth.
+        // written while entering Connect must now be the source of truth. The
+        // preview marks automatic discovery finished so QR appears only as the
+        // fallback on this second launch.
         app.terminate()
         app.launchArguments = baseArguments
+        app.launchEnvironment["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK"] = "1"
         app.launch()
 
         XCTAssertTrue(connectScene.waitForExistence(timeout: 8))
         XCTAssertFalse(element("MobileOnboardingAgentsScene").exists)
         XCTAssertFalse(element("MobileOnboardingHandoffScene").exists)
+        XCTAssertTrue(app.buttons["Check Again"].exists)
+        XCTAssertTrue(app.buttons["Use QR Code Instead"].exists)
         capture("onboarding-05-resumed-connect")
 
-        let resumedPrimaryButton = app.buttons["MobileOnboardingPrimaryButton"]
-        XCTAssertTrue(resumedPrimaryButton.waitForExistence(timeout: 4))
-        resumedPrimaryButton.tap()
+        let qrFallbackButton = app.buttons["MobileOnboardingSecondaryButton"]
+        XCTAssertTrue(qrFallbackButton.waitForExistence(timeout: 4))
+        qrFallbackButton.tap()
 
         let scannerPreview = element("MobilePairingScannerPreview")
         let scannerCancel = app.buttons["MobileScannerCancelButton"]
