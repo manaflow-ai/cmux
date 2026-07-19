@@ -2640,7 +2640,10 @@ fn clamp_sidebar_width(config: &Config, terminal_width: u16, desired: u16) -> Op
     let configured_max =
         if config.sidebar.max_width > 0 { config.sidebar.max_width } else { u16::MAX };
     let effective_max = terminal_max.min(configured_max);
-    (effective_max >= 10).then_some(desired.clamp(10, effective_max))
+    // bool::then_some evaluates its argument eagerly, so a zero-width startup
+    // would still call clamp(10, 0) before returning None. Attach can observe
+    // that transient geometry before the outer Ghostty view publishes size.
+    (effective_max >= 10).then(|| desired.clamp(10, effective_max))
 }
 
 fn sidebar_drag_width(config: &Config, content: Rect, sidebar_width: u16, x: u16) -> Option<u16> {
