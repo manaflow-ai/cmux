@@ -105,6 +105,12 @@ public final class JsonTest {
         IdentifyResult sourceCompatible = new IdentifyResult("cmux-tui", "0.1.2", 7, "main", 42);
         assertEquals(null, sourceCompatible.buildCommit(), "source-compatible build commit");
         assertEquals(null, sourceCompatible.ghosttyCommit(), "source-compatible Ghostty commit");
+        IdentifyResult stampedSourceCompatible = new IdentifyResult(
+            "cmux-tui", "0.1.2", 7, "main", 42, "cmux-sha", "ghostty-sha"
+        );
+        assertEquals(List.of(), stampedSourceCompatible.capabilities(), "source-compatible capabilities");
+        assertEquals("cmux-sha", stampedSourceCompatible.buildCommit(), "source-compatible stamped build commit");
+        assertEquals("ghostty-sha", stampedSourceCompatible.ghosttyCommit(), "source-compatible stamped Ghostty commit");
     }
 
     private static void assertReject(String input) {

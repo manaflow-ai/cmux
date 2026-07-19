@@ -18,6 +18,18 @@ public record IdentifyResult(
         this(app, version, protocol, session, pid, List.of(), null, null);
     }
 
+    public IdentifyResult(
+        String app,
+        String version,
+        int protocol,
+        String session,
+        long pid,
+        String buildCommit,
+        String ghosttyCommit
+    ) {
+        this(app, version, protocol, session, pid, List.of(), buildCommit, ghosttyCommit);
+    }
+
     static IdentifyResult from(Map<String, Object> data) {
         return new IdentifyResult(
             CmuxClient.asString(data.get("app")),
