@@ -209,6 +209,10 @@ final class MobileIrohReleaseGateRunner {
             guard !Task.isCancelled else {
                 return Self.failureReport(mode: configuration.mode, failure: .timeout)
             }
+            let diagnosticPath = DiagnosticPathKind(snapshot.selectedTransportPath)
+            mobileIrohReleaseGateLog.info(
+                "path observation kind=\(diagnosticPath.rawValue, privacy: .public)"
+            )
             if let selectedPath = Self.acceptedPath(
                 snapshot.selectedTransportPath,
                 mode: configuration.mode
