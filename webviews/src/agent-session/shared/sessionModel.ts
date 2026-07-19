@@ -352,6 +352,8 @@ export function canStopProvider(state: SessionState): boolean {
 
 function applyEvent(state: SessionState, event: AgentEvent): SessionState {
   switch (event.type) {
+    case "composer.setText":
+      return { ...state, input: event.text };
     case "app.theme":
       if (!state.context) {
         return state;

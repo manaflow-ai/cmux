@@ -130,6 +130,56 @@ extension ShareWorkspaceLayout: Codable {
     }
 }
 
+// MARK: - Composer co-editing (slice 2)
+
+/// One text edit at codepoint position `p`: delete `d` codepoints, then
+/// insert `i` (mirrors `ComposeOp` in protocol.ts; indices are codepoints,
+/// i.e. unicode scalars, not UTF-16 units).
+struct ShareComposeOp: Codable, Equatable, Sendable {
+    var p: Int
+    var d: Int?
+    var i: String?
+}
+
+struct ShareCaretRange: Codable, Equatable, Sendable {
+    var start: Int
+    var end: Int
+}
+
+struct ShareComposeCaret: Codable, Equatable, Sendable {
+    var user: String
+    var start: Int
+    var end: Int
+}
+
+/// Guest pointer event over a shared browser pane (normalized coords).
+struct ShareGuestPointer: Codable, Equatable, Sendable {
+    var user: String
+    var ws: String
+    var pane: String
+    /// "move" | "down" | "up" | "wheel"
+    var action: String
+    var x: Double
+    var y: Double
+    var button: Int?
+    var dx: Double?
+    var dy: Double?
+}
+
+/// Guest keyboard event over a shared browser pane.
+struct ShareGuestWebKey: Codable, Equatable, Sendable {
+    var user: String
+    var ws: String
+    var pane: String
+    var key: String
+    var code: String
+    var down: Bool
+    var alt: Bool?
+    var ctrl: Bool?
+    var meta: Bool?
+    var shift: Bool?
+}
+
 // MARK: - Host -> DO
 
 enum ShareHostMessage {
@@ -144,12 +194,15 @@ enum ShareHostMessage {
     case chat(text: String, bubble: ShareCursorPos?)
     /// Which workspace the host is currently viewing (drives follow-the-host).
     case focus(ws: String?)
+    /// Authoritative composer state after applying (rebased) guest ops.
+    case composeState(field: String, rev: Int, text: String, carets: [ShareComposeCaret])
     case end
 }
 
 extension ShareHostMessage: Encodable {
     private enum CodingKeys: String, CodingKey {
         case t, proto, shared, layouts, layout, user, role, pos, text, bubble, ws
+        case field, rev, carets
     }
 
     func encode(to encoder: Encoder) throws {
@@ -198,6 +251,12 @@ extension ShareHostMessage: Encodable {
             } else {
                 try container.encodeNil(forKey: .ws)
             }
+        case .composeState(let field, let rev, let text, let carets):
+            try container.encode("compose-state", forKey: .t)
+            try container.encode(field, forKey: .field)
+            try container.encode(rev, forKey: .rev)
+            try container.encode(text, forKey: .text)
+            try container.encode(carets, forKey: .carets)
         case .end:
             try container.encode("end", forKey: .t)
         }
@@ -232,6 +291,9 @@ enum ShareServerMessage {
     case chat(ShareChatMessage)
     case guestInput(user: String, ws: String, pane: String, data: String)
     case guestSub(ws: String, pane: String, count: Int)
+    case guestCompose(user: String, field: String, rev: Int, ops: [ShareComposeOp], caret: ShareCaretRange?)
+    case guestPointer(ShareGuestPointer)
+    case guestWebKey(ShareGuestWebKey)
     case resync
     case sessionEnded(reason: String)
     case error(code: String, message: String)
@@ -241,6 +303,7 @@ enum ShareServerMessage {
 extension ShareServerMessage: Decodable {
     private enum CodingKeys: String, CodingKey {
         case t, user, email, participants, pos, msg, ws, pane, data, count, reason, code, message
+        case field, rev, ops, caret
     }
 
     init(from decoder: Decoder) throws {
@@ -276,6 +339,18 @@ extension ShareServerMessage: Decodable {
                 pane: try container.decode(String.self, forKey: .pane),
                 count: try container.decode(Int.self, forKey: .count)
             )
+        case "guest-compose":
+            self = .guestCompose(
+                user: try container.decode(String.self, forKey: .user),
+                field: try container.decode(String.self, forKey: .field),
+                rev: try container.decode(Int.self, forKey: .rev),
+                ops: try container.decode([ShareComposeOp].self, forKey: .ops),
+                caret: try container.decodeIfPresent(ShareCaretRange.self, forKey: .caret)
+            )
+        case "guest-pointer":
+            self = .guestPointer(try ShareGuestPointer(from: decoder))
+        case "guest-webkey":
+            self = .guestWebKey(try ShareGuestWebKey(from: decoder))
         case "resync":
             self = .resync
         case "session-ended":

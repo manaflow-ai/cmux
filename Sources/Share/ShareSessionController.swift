@@ -50,11 +50,15 @@ final class ShareSessionController: ObservableObject {
 
     var isSharing: Bool { status != .idle }
 
-    private var sharedWorkspaceIDs: Set<UUID> = []
-    private weak var tabManager: TabManager?
+    private(set) var sharedWorkspaceIDs: Set<UUID> = []
+    private(set) weak var tabManager: TabManager?
     private var api: ShareSessionAPI?
-    private var socket: ShareSocket?
-    private let streamer = ShareGridStreamer()
+    private(set) var socket: ShareSocket?
+    let streamer = ShareGridStreamer()
+    let pixelStreamer = SharePixelStreamer()
+    let composerSync = ShareComposerSync()
+    let browserInput = ShareBrowserInputApplier()
+    var composerHookedPanelIDs = Set<UUID>()
     private let cursorOverlay = ShareCursorOverlayController()
     private lazy var chatWindow = ShareChatWindowController(controller: self)
     private var startTask: Task<Void, Never>?
@@ -126,6 +130,7 @@ final class ShareSessionController: ObservableObject {
             self?.socket?.send(data: data)
         }
         streamer.start()
+        wirePaneStreamsAndComposer()
         attachLayoutObservation(tabManager: tabManager)
 
         let code = created.code
@@ -162,6 +167,11 @@ final class ShareSessionController: ObservableObject {
         socket = nil
         streamer.stop()
         streamer.sendBinary = nil
+        pixelStreamer.stopAll()
+        pixelStreamer.sendBinary = nil
+        composerSync.reset()
+        browserInput.reset()
+        uninstallComposerHooks()
         cursorOverlay.teardown()
         globalCancellables.removeAll()
         perWorkspaceCancellables.removeAll()
@@ -219,6 +229,7 @@ final class ShareSessionController: ObservableObject {
     func kick(user: String) {
         socket?.send(.kick(user: user))
         cursorOverlay.removeRemoteUser(user)
+        composerSync.removeParticipantCarets(user: user)
     }
 
     func setRole(user: String, role: ShareRole) {
@@ -328,6 +339,7 @@ final class ShareSessionController: ObservableObject {
             }
         }
         lastSentLayouts = nextLayouts
+        syncComposerHooks(sharedWorkspaces: sharedWorkspaces)
         cursorOverlay.refreshAll()
         sendFocusIfChanged()
     }
@@ -385,10 +397,17 @@ final class ShareSessionController: ObservableObject {
         case .guestInput(let user, let ws, let pane, let data):
             applyGuestInput(user: user, ws: ws, pane: pane, data: data)
         case .guestSub(let ws, let pane, let count):
-            streamer.setSubscriberCount(ws: ws, pane: pane, count: count)
+            routeGuestSub(ws: ws, pane: pane, count: count)
+        case .guestCompose(let user, let field, let rev, let ops, let caret):
+            applyGuestCompose(user: user, field: field, rev: rev, ops: ops, caret: caret)
+        case .guestPointer(let pointer):
+            applyGuestPointer(pointer)
+        case .guestWebKey(let key):
+            applyGuestWebKey(key)
         case .resync:
             sendHello()
             streamer.resendFullFrames()
+            pixelStreamer.requestKeyframes()
         case .sessionEnded:
             teardownSession()
         case .error(let code, let message):
@@ -398,7 +417,7 @@ final class ShareSessionController: ObservableObject {
         }
     }
 
-    private func participant(_ user: String) -> ShareParticipant? {
+    func participant(_ user: String) -> ShareParticipant? {
         participants.first { $0.user == user }
     }
 

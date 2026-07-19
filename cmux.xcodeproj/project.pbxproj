@@ -1464,8 +1464,10 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D36090010000000000000001 /* SettingsWindowPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090010000000000000002 /* SettingsWindowPresenter.swift */; };
 		D36090010000000000000003 /* SettingsWindowPresenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090010000000000000004 /* SettingsWindowPresenterTests.swift */; };
 		D10000000000000000A0001E /* SettingsWorkspaceColorsBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A0001F /* SettingsWorkspaceColorsBehaviorUITests.swift */; };
+		A85E1000000000000000000F /* ShareBrowserInputApplier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85E0000000000000000000F /* ShareBrowserInputApplier.swift */; };
 		A85E10000000000000000008 /* ShareChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85E00000000000000000008 /* ShareChatView.swift */; };
 		A85E10000000000000000007 /* ShareChatWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85E00000000000000000007 /* ShareChatWindowController.swift */; };
+		A85E1000000000000000000C /* ShareComposerSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85E0000000000000000000C /* ShareComposerSync.swift */; };
 		A85E10000000000000000009 /* ShareCursorOverlayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85E00000000000000000009 /* ShareCursorOverlayController.swift */; };
 		A85E1000000000000000000A /* ShareCursorPointerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85E0000000000000000000A /* ShareCursorPointerView.swift */; };
 		F0ACC0DE0000000000000011 /* SharedLiveAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000012 /* SharedLiveAgentIndex.swift */; };
@@ -1473,8 +1475,11 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F0ACC0DE0000000000000007 /* SharedLiveAgentIndexLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000008 /* SharedLiveAgentIndexLoader.swift */; };
 		A85E10000000000000000005 /* ShareGridStreamer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85E00000000000000000005 /* ShareGridStreamer.swift */; };
 		A85E10000000000000000004 /* ShareLayoutSerializer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85E00000000000000000004 /* ShareLayoutSerializer.swift */; };
+		A85E1000000000000000000D /* SharePixelEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85E0000000000000000000D /* SharePixelEncoder.swift */; };
+		A85E1000000000000000000E /* SharePixelStreamer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85E0000000000000000000E /* SharePixelStreamer.swift */; };
 		A85E10000000000000000001 /* ShareProtocolModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85E00000000000000000001 /* ShareProtocolModels.swift */; };
 		A85E10000000000000000002 /* ShareSessionAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85E00000000000000000002 /* ShareSessionAPI.swift */; };
+		A85E10000000000000000010 /* ShareSessionController+PaneStreams.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85E00000000000000000010 /* ShareSessionController+PaneStreams.swift */; };
 		A85E10000000000000000006 /* ShareSessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85E00000000000000000006 /* ShareSessionController.swift */; };
 		A85E10000000000000000003 /* ShareSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85E00000000000000000003 /* ShareSocket.swift */; };
 		EE45396CAC0142289F52DCA0 /* ShellIntegrationSendTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 831E0F65E3D945CE8970852E /* ShellIntegrationSendTransportTests.swift */; };
@@ -3523,8 +3528,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D36090010000000000000002 /* SettingsWindowPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SettingsWindowPresenter.swift; sourceTree = "<group>"; };
 		D36090010000000000000004 /* SettingsWindowPresenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowPresenterTests.swift; sourceTree = "<group>"; };
 		D10000000000000000A0001F /* SettingsWorkspaceColorsBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWorkspaceColorsBehaviorUITests.swift; sourceTree = "<group>"; };
+		A85E0000000000000000000F /* ShareBrowserInputApplier.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareBrowserInputApplier.swift; sourceTree = "<group>"; };
 		A85E00000000000000000008 /* ShareChatView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareChatView.swift; sourceTree = "<group>"; };
 		A85E00000000000000000007 /* ShareChatWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareChatWindowController.swift; sourceTree = "<group>"; };
+		A85E0000000000000000000C /* ShareComposerSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareComposerSync.swift; sourceTree = "<group>"; };
 		A85E00000000000000000009 /* ShareCursorOverlayController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareCursorOverlayController.swift; sourceTree = "<group>"; };
 		A85E0000000000000000000A /* ShareCursorPointerView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareCursorPointerView.swift; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000012 /* SharedLiveAgentIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndex.swift; sourceTree = "<group>"; };
@@ -3532,8 +3539,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F0ACC0DE0000000000000008 /* SharedLiveAgentIndexLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndexLoader.swift; sourceTree = "<group>"; };
 		A85E00000000000000000005 /* ShareGridStreamer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareGridStreamer.swift; sourceTree = "<group>"; };
 		A85E00000000000000000004 /* ShareLayoutSerializer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareLayoutSerializer.swift; sourceTree = "<group>"; };
+		A85E0000000000000000000D /* SharePixelEncoder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SharePixelEncoder.swift; sourceTree = "<group>"; };
+		A85E0000000000000000000E /* SharePixelStreamer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SharePixelStreamer.swift; sourceTree = "<group>"; };
 		A85E00000000000000000001 /* ShareProtocolModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareProtocolModels.swift; sourceTree = "<group>"; };
 		A85E00000000000000000002 /* ShareSessionAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareSessionAPI.swift; sourceTree = "<group>"; };
+		A85E00000000000000000010 /* ShareSessionController+PaneStreams.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "ShareSessionController+PaneStreams.swift"; sourceTree = "<group>"; };
 		A85E00000000000000000006 /* ShareSessionController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareSessionController.swift; sourceTree = "<group>"; };
 		A85E00000000000000000003 /* ShareSocket.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareSocket.swift; sourceTree = "<group>"; };
 		831E0F65E3D945CE8970852E /* ShellIntegrationSendTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellIntegrationSendTransportTests.swift; sourceTree = "<group>"; };
@@ -4393,6 +4403,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A85E00000000000000000001 /* ShareProtocolModels.swift */,
 				A85E00000000000000000002 /* ShareSessionAPI.swift */,
 				A85E00000000000000000003 /* ShareSocket.swift */,
+				A85E0000000000000000000C /* ShareComposerSync.swift */,
+				A85E0000000000000000000D /* SharePixelEncoder.swift */,
+				A85E0000000000000000000E /* SharePixelStreamer.swift */,
+				A85E0000000000000000000F /* ShareBrowserInputApplier.swift */,
+				A85E00000000000000000010 /* ShareSessionController+PaneStreams.swift */,
 				A85E00000000000000000004 /* ShareLayoutSerializer.swift */,
 				A85E00000000000000000005 /* ShareGridStreamer.swift */,
 				A85E00000000000000000006 /* ShareSessionController.swift */,
@@ -7646,16 +7661,21 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D37777030000000000000001 /* SettingsWindowGeometry.swift in Sources */,
 				D37777070000000000000001 /* SettingsWindowNavigationDelivery.swift in Sources */,
 				D36090010000000000000001 /* SettingsWindowPresenter.swift in Sources */,
+				A85E1000000000000000000F /* ShareBrowserInputApplier.swift in Sources */,
 				A85E10000000000000000008 /* ShareChatView.swift in Sources */,
 				A85E10000000000000000007 /* ShareChatWindowController.swift in Sources */,
+				A85E1000000000000000000C /* ShareComposerSync.swift in Sources */,
 				A85E10000000000000000009 /* ShareCursorOverlayController.swift in Sources */,
 				A85E1000000000000000000A /* ShareCursorPointerView.swift in Sources */,
 				F0ACC0DE0000000000000011 /* SharedLiveAgentIndex.swift in Sources */,
 				F0ACC0DE0000000000000007 /* SharedLiveAgentIndexLoader.swift in Sources */,
 				A85E10000000000000000005 /* ShareGridStreamer.swift in Sources */,
 				A85E10000000000000000004 /* ShareLayoutSerializer.swift in Sources */,
+				A85E1000000000000000000D /* SharePixelEncoder.swift in Sources */,
+				A85E1000000000000000000E /* SharePixelStreamer.swift in Sources */,
 				A85E10000000000000000001 /* ShareProtocolModels.swift in Sources */,
 				A85E10000000000000000002 /* ShareSessionAPI.swift in Sources */,
+				A85E10000000000000000010 /* ShareSessionController+PaneStreams.swift in Sources */,
 				A85E10000000000000000006 /* ShareSessionController.swift in Sources */,
 				A85E10000000000000000003 /* ShareSocket.swift in Sources */,
 				76027A12C93B4538BF22C71E /* ShortcutBareStartRouting.swift in Sources */,

@@ -29,6 +29,19 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         }
     }
     var onProviderIDChanged: ((AgentSessionProviderID) -> Void)?
+    /// Fired when the web composer's text changes locally (host typing).
+    /// Multiplayer share uses this to broadcast authoritative composer state.
+    var onComposerTextChanged: ((String) -> Void)?
+
+    /// Pushes authoritative composer text into the web composer (rebased
+    /// guest edits applied by the multiplayer share host).
+    func setComposerText(_ text: String, caretStart: Int? = nil, caretEnd: Int? = nil) {
+        var event: [String: Any] = ["type": "composer.setText", "text": text]
+        if let caretStart, let caretEnd {
+            event["caret"] = ["start": caretStart, "end": caretEnd]
+        }
+        sendEvent(event)
+    }
 
     func bind(
         panelId: UUID,
@@ -547,6 +560,9 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
                 context["workingDirectory"] = workingDirectory
             }
             return context
+        case "composer.changed":
+            onComposerTextChanged?(try request.requiredRawString("text"))
+            return [:] as [String: Any]
         case "app.pickFiles":
             return await pickLocalFiles()
         case "provider.list":
