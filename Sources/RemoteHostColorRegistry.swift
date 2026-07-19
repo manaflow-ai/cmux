@@ -30,12 +30,12 @@ import Foundation
 /// seen first. Assignments are in-memory and the cache never shrinks (stale hosts
 /// keep reserving a slot); durable persistence and eviction are deliberate
 /// follow-ups.
+/// One instance is owned by ``RemoteTmuxController`` (itself owned by `AppDelegate`
+/// at the app seam) and reached through it, so assignments stay consistent
+/// process-wide without an ambient global. Tests construct their own instance with
+/// an injected `slotCount` to exercise the probing deterministically.
 @MainActor
 final class RemoteHostColorRegistry {
-    /// Process-wide registry used by the app. Tests construct their own instance
-    /// with an injected `slotCount` to exercise the probing deterministically.
-    static let shared = RemoteHostColorRegistry()
-
     /// Number of palette slots to assign over. Defaults to the built-in palette
     /// count; the built-in palette is used for indexing (fixed size/order) so a
     /// user editing custom palette entries can't reshuffle host colors.
