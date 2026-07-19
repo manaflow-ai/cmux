@@ -1509,8 +1509,8 @@ _cmux_prompt_command() {
 
     local cmux_has_unix_socket=0
     _cmux_socket_is_unix && cmux_has_unix_socket=1
-    (( cmux_has_unix_socket )) || _cmux_has_port_scan_transport || return 0
-    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    (( cmux_has_unix_socket )) || _cmux_has_port_scan_transport || return "$last_status"
+    [[ -n "$CMUX_TAB_ID" ]] || return "$last_status"
 
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
@@ -1535,10 +1535,10 @@ _cmux_prompt_command() {
         if (( now - _CMUX_PORTS_LAST_RUN >= 10 )); then
             _cmux_ports_kick refresh
         fi
-        return 0
+        return "$last_status"
     fi
 
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return "$last_status"
     _cmux_set_git_active_pwd "$pwd"
 
     # Post-wake socket writes can occasionally leave a probe process wedged.
@@ -1648,6 +1648,7 @@ _cmux_prompt_command() {
     if (( now - _CMUX_PORTS_LAST_RUN >= 10 )); then
         _cmux_ports_kick refresh
     fi
+    return "$last_status"
 }
 
 _cmux_install_prompt_command() {

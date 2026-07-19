@@ -31,6 +31,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BOOTSTRAP = REPO_ROOT / "Resources/shell-integration/cmux-bash-bootstrap.bash"
 INTEGRATION_DIR = REPO_ROOT / "Resources/shell-integration"
+INTEGRATION = INTEGRATION_DIR / "cmux-bash-integration.bash"
 
 
 def _lean_bootstrap(text: str) -> str:
@@ -266,7 +267,45 @@ def test_plain_bash_bootstrap_installs_cmux_prompt_command() -> None:
         )
 
 
+def test_cmux_prompt_command_preserves_status_for_downstream_hooks() -> None:
+    """Regression coverage for https://github.com/manaflow-ai/cmux/issues/5389."""
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("CMUX")
+    }
+    env.update(
+        {
+            "CMUX_BASH_INTEGRATION": str(INTEGRATION),
+            "CMUX_SOCKET_PATH": "",
+            "CMUX_TAB_ID": "tab-test",
+        }
+    )
+    script = r"""
+source "$CMUX_BASH_INTEGRATION"
+downstream_prompt_hook() { printf 'STATUS=%s\n' "$?"; }
+(exit 7)
+_cmux_prompt_command
+downstream_prompt_hook
+"""
+    proc = subprocess.run(
+        ["/bin/bash", "--noprofile", "--norc", "-c", script],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 0, (
+        f"bash exited {proc.returncode}\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+    )
+    assert proc.stdout.splitlines() == ["STATUS=7"], (
+        "downstream PROMPT_COMMAND hook did not receive the user's command status; "
+        f"stdout=<{proc.stdout}> stderr=<{proc.stderr}>"
+    )
+
+
 if __name__ == "__main__":
     test_starship_precmd_survives_under_cmux_bash_bootstrap()
     test_plain_bash_bootstrap_installs_cmux_prompt_command()
-    print("PASS: cmux bash bootstrap composes with (and without) user prompt hooks")
+    test_cmux_prompt_command_preserves_status_for_downstream_hooks()
+    print("PASS: cmux bash prompt hooks compose and preserve command status")
