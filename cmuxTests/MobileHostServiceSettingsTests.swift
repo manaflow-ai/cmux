@@ -11,21 +11,18 @@ import Testing
 #endif
 
 struct MobileHostServiceSettingsTests {
-    @Test func mobileHostListenerHonorsBuildDefaultUntilIOSPairingIsOverridden() throws {
+    @Test func mobileHostListenerHonorsDevelopmentDefaultUntilIOSPairingIsOverridden() throws {
         let suiteName = "MobileHostServiceSettingsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        #expect(
-            MobileHostService.isListeningEnabled(defaults: defaults)
-                == SettingCatalog().mobile.iOSPairingHost.defaultValue
-        )
+        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .dev))
 
         defaults.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
-        #expect(MobileHostService.isListeningEnabled(defaults: defaults))
+        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .dev))
 
         defaults.set(false, forKey: MobileHostService.listeningEnabledDefaultsKey)
-        #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
+        #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .dev))
     }
 
     @Test func signedInIrohStartsWithoutEnablingTheLegacyListener() {
@@ -61,6 +58,42 @@ struct MobileHostServiceSettingsTests {
 
         defaults.set(false, forKey: MobileHostService.listeningEnabledDefaultsKey)
         #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
+    }
+
+    @Test func nightlyPreservesLegacyListenerWhenNoSettingWasEverWritten() throws {
+        let suiteName = "MobileHostServiceSettingsTests.NightlyCompatibility.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .nightly))
+    }
+
+    @Test func explicitDisableWinsOverNightlyCompatibility() throws {
+        let suiteName = "MobileHostServiceSettingsTests.NightlyDisabled.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(false, forKey: MobileHostService.listeningEnabledDefaultsKey)
+
+        #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .nightly))
+    }
+
+    @Test func legacyExplicitDisableWinsOverNightlyCompatibility() throws {
+        let suiteName = "MobileHostServiceSettingsTests.LegacyNightlyDisabled.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(false, forKey: "cmuxMobilePairingHostEnabled")
+
+        #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .nightly))
+    }
+
+    @Test func stableWithoutExplicitOptInKeepsLegacyListenerOff() throws {
+        let suiteName = "MobileHostServiceSettingsTests.StableDefault.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .stable))
     }
 
     @Test func configuredPortDefaultsToCatalogDefaultWhenUnset() throws {
