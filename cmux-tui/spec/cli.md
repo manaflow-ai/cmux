@@ -70,8 +70,10 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `new-browser-tab` | implemented | `--url <url>` | `--pane <id>`, `--cols <n> --rows <n>` | surface id |
 | `new-workspace` | implemented | none | `--name <name>`, `--cols <n> --rows <n>` | surface id |
 | `new-screen` | implemented | none | `--workspace <id>`, `--cols <n> --rows <n>` | surface id |
+| `new-pane` | implemented | `--pane <id>` | `--cols <n> --rows <n>` | surface id |
 | `split` | implemented | `--pane <id> --dir right|down` | `--cols <n> --rows <n>` | surface id |
 | `set-ratio` | implemented | `--pane <id> --dir right|down --ratio <n>` | none | none |
+| `set-split-ratio` | implemented | `--split <id> --ratio <n>` | none | none |
 | `pane-neighbor` | implemented | `--pane <id> --dir left|right|up|down` | none | pane id or `null` |
 | `focus-direction` | implemented | `--dir left|right|up|down` | `--pane <id>` | pane id |
 | `swap-pane` | implemented | `--pane <id>` plus one of `--dir left|right|up|down`, `--target <id>` | none | none |
@@ -96,7 +98,7 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `move-workspace` | implemented | `--workspace <id> --index <n>` | none | none |
 | `scroll-surface` | implemented | `--surface <id> --delta <n>` | none | none |
 | `subscribe` | implemented; tree deltas protocol 7 | none | `--tree-events coarse|deltas` | event JSON lines |
-| `attach-surface` | implemented; render mode protocol 7 | `--surface <id>` | `--mode bytes\|render` | event JSON lines |
+| `attach-surface` | implemented; render mode protocol 7, initial sizing capability-gated | `--surface <id>` | `--mode bytes\|render`, paired `--cols <n> --rows <n>` | event JSON lines |
 | `wait-for` | implemented | `--surface <id> --pattern <regex> --timeout-ms <n>` | none | none |
 | `run` | implemented | `-- <argv...>` or `--command <cmd>` | `--pane <id>`, `--new-workspace`, `--cwd <path>`, `--name <name>` | surface id |
 | `send-key` | implemented | `--surface <id> <key>...` | none | none |
@@ -164,7 +166,8 @@ done
 
 ```bash
 new_surface=$(cmux-tui split --pane 2 --dir right)
-cmux-tui set-ratio --pane 2 --dir right --ratio 0.65
+split=$(cmux-tui --json export-layout | jq -r '.layout.split')
+cmux-tui set-split-ratio --split "$split" --ratio 0.65
 ```
 
 8. Subscribe to events and react to bells:

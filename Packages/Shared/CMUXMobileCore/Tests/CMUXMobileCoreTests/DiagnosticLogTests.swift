@@ -69,6 +69,50 @@ import Testing
         #expect(lines[3] == "3000,7,7,,10,20,")
     }
 
+    @Test func duplicateSelectedPathNotificationsDoNotExportFalseChanges() async {
+        let log = DiagnosticLog(capacity: 16)
+        log.record(DiagnosticEvent(
+            code: .selectedPathChanged,
+            tNanos: 1_000,
+            a: DiagnosticPathKind.relay.rawValue
+        ))
+        log.record(DiagnosticEvent(
+            code: .transportSessionLifecycle,
+            tNanos: 2_000,
+            a: DiagnosticSessionLifecycleKind.established.rawValue,
+            b: Int(CmxTransportSessionPurpose.foregroundControl.rawValue),
+            c: 1
+        ))
+        log.record(DiagnosticEvent(
+            code: .selectedPathChanged,
+            tNanos: 3_000,
+            a: DiagnosticPathKind.relay.rawValue
+        ))
+        log.record(DiagnosticEvent(
+            code: .selectedPathChanged,
+            tNanos: 4_000,
+            a: DiagnosticPathKind.privateNetwork.rawValue
+        ))
+        log.record(DiagnosticEvent(
+            code: .selectedPathChanged,
+            tNanos: 5_000,
+            a: DiagnosticPathKind.privateNetwork.rawValue
+        ))
+        await waitForProcessed(log, 5)
+
+        let report = await log.snapshot()
+        #expect(report.events.map(\.code) == [
+            .selectedPathChanged,
+            .transportSessionLifecycle,
+            .selectedPathChanged,
+        ])
+        #expect(report.events.compactMap(\.diagnosticPathKind) == [
+            .relay,
+            .privateNetwork,
+        ])
+        #expect(report.events[1].diagnosticSessionLifecycleKind == .established)
+    }
+
     @Test func ringEvictionDropsOldest() async {
         let log = DiagnosticLog(capacity: 3)
         // Drain each event before recording the next so eviction is governed
@@ -183,6 +227,7 @@ import Testing
         #expect(DiagnosticEventCode.admissionFailed.rawValue == 48)
         #expect(DiagnosticEventCode.hostAuthenticationFailed.rawValue == 49)
         #expect(DiagnosticEventCode.rpcFailed.rawValue == 50)
+        #expect(DiagnosticEventCode.transportSessionLifecycle.rawValue == 51)
         #expect(Set(DiagnosticEventCode.allCases.map(\.rawValue)).count == DiagnosticEventCode.allCases.count)
     }
 
@@ -194,6 +239,16 @@ import Testing
         #expect(CmxAttachTransportKind.iroh.diagnosticTransportKind.rawValue == 1)
         #expect(DiagnosticFailureKind.cancelled.rawValue == 20)
         #expect(DiagnosticFailureKind.unknown.rawValue == 255)
+        #expect(DiagnosticSessionLifecycleKind.established.rawValue == 1)
+        #expect(DiagnosticSessionLifecycleKind.controlOwnerReleased.rawValue == 2)
+        #expect(DiagnosticSessionLifecycleKind.controlReadFailed.rawValue == 3)
+        #expect(DiagnosticSessionLifecycleKind.controlWriteFailed.rawValue == 4)
+        #expect(DiagnosticSessionLifecycleKind.remoteClosed.rawValue == 5)
+        #expect(DiagnosticSessionLifecycleKind.closedSessionEvicted.rawValue == 6)
+        #expect(DiagnosticSessionLifecycleKind.applicationLaneFailed.rawValue == 7)
+        #expect(DiagnosticSessionLifecycleKind.runtimeDeactivated.rawValue == 8)
+        #expect(DiagnosticSessionLifecycleKind.runtimeReconfigured.rawValue == 9)
+        #expect(DiagnosticSessionLifecycleKind.explicitlyInvalidated.rawValue == 10)
 
         #expect(DiagnosticPathKind(.unavailable) == .unknown)
         #expect(DiagnosticPathKind(.direct) == .direct)

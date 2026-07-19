@@ -10,42 +10,7 @@ use ratatui::layout::Position;
 use ratatui::style::{Modifier, Style};
 
 use crate::app::{App, ContextMenu, MenuItem};
-
-struct PairingCopy {
-    title: &'static str,
-    confirm: &'static str,
-    peer_prefix: &'static str,
-    deny: &'static str,
-    approve: &'static str,
-}
-
-fn pairing_copy() -> PairingCopy {
-    let locale = std::env::var("LC_ALL")
-        .or_else(|_| std::env::var("LC_MESSAGES"))
-        .or_else(|_| std::env::var("LANG"))
-        .unwrap_or_default();
-    pairing_copy_for_locale(&locale)
-}
-
-fn pairing_copy_for_locale(locale: &str) -> PairingCopy {
-    if locale.to_ascii_lowercase().starts_with("ja") {
-        PairingCopy {
-            title: "ブラウザを承認しますか？",
-            confirm: "ブラウザのコードと一致するか確認:",
-            peer_prefix: "接続元:",
-            deny: "[ 拒否 esc ]",
-            approve: "[ 承認 enter ]",
-        }
-    } else {
-        PairingCopy {
-            title: "Approve browser?",
-            confirm: "Confirm this code matches the browser:",
-            peer_prefix: "from",
-            deny: "[ Deny esc ]",
-            approve: "[ Approve enter ]",
-        }
-    }
-}
+use crate::localization::catalog;
 
 /// Trusted approval dialog for a browser pairing request.
 pub fn draw_pairing_dialog(app: &mut App, frame: &mut Frame) {
@@ -58,7 +23,7 @@ pub fn draw_pairing_dialog(app: &mut App, frame: &mut Frame) {
     let x = (screen.width - width) / 2;
     let y = (screen.height - height) / 2;
     let Some(dialog) = app.pairing_dialog.as_mut() else { return };
-    let copy = pairing_copy();
+    let copy = &catalog().pairing;
     dialog.rect = Rect { x, y, width, height };
 
     let chrome = app.chrome;
@@ -351,11 +316,11 @@ fn label_width(label: &str) -> u16 {
 
 #[cfg(test)]
 mod tests {
-    use super::pairing_copy_for_locale;
+    use crate::localization::catalog_for_locale;
 
     #[test]
     fn pairing_dialog_has_english_and_japanese_copy() {
-        assert_eq!(pairing_copy_for_locale("en_US.UTF-8").title, "Approve browser?");
-        assert_eq!(pairing_copy_for_locale("ja_JP.UTF-8").title, "ブラウザを承認しますか？");
+        assert_eq!(catalog_for_locale("en_US.UTF-8").pairing.title, "Approve browser?");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").pairing.title, "ブラウザを承認しますか？");
     }
 }

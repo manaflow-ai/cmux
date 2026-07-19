@@ -112,7 +112,8 @@ extension MobileShellComposite {
             connectAttemptRegistry: connectAttemptRegistry,
             stackTokenGate: stackTokenGate,
             stackTokenForceRefreshGate: stackTokenForceRefreshGate,
-            transportConnectObserver: transportConnectDiagnosticObserver
+            transportConnectObserver: transportConnectDiagnosticObserver,
+            sessionPurpose: .probe
         )
         let timeoutNanoseconds: UInt64
         if let attemptStartedAt {
