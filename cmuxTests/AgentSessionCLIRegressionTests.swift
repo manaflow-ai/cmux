@@ -1736,35 +1736,43 @@ extension CMUXCLIErrorOutputRegressionTests {
             withIntermediateDirectories: true
         )
         defer { try? FileManager.default.removeItem(at: root) }
-        try Data("{}".utf8).write(
+        try writeAgentTreeStore(
+            parentIndices: [nil],
             to: stateDirectory.appendingPathComponent("cursor-agent-hook-sessions.json")
         )
-        let cli = CMUXCLI(args: [])
-        let specifications = try cli.agentSessionProviderSpecifications(
-            stateDirectory: stateDirectory.path,
-            homeDirectory: root.path,
-            requestedAgent: "cursor-agent",
-            processEnv: ["PWD": root.path],
-            fileManager: .default
+        try writeAgentTreeStore(
+            parentIndices: [nil],
+            to: stateDirectory.appendingPathComponent("ollama-hook-sessions.json")
         )
-        #expect(specifications.contains { $0.name == "cursor-agent" })
-        #expect(cli.agentSessionProviderSelection(
-            for: "cursor-agent",
-            availableProviderIDs: specifications.map(\.name),
-            terminalObservations: []
-        ) == AgentSessionProviderSelection(
-            providerID: "cursor-agent",
-            exactObservationProviderID: "cursor-agent"
-        ))
-        #expect(cli.agentSessionProviderSelection(
-            for: "custom",
-            availableProviderIDs: ["Custom"],
-            terminalObservations: []
-        ) == AgentSessionProviderSelection(
-            providerID: "Custom",
-            exactObservationProviderID: nil,
-            caseFoldedObservationProviderID: "Custom"
-        ))
+
+        let cliPath = try bundledCLIPath()
+        let environment = isolatedAgentTreeEnvironment(home: root)
+        for subcommand in ["list", "tree"] {
+            let exactSidecar = runProcess(
+                executablePath: cliPath,
+                arguments: [
+                    "agents", subcommand, "--agent", "cursor-agent", "--all", "--json",
+                    "--state-dir", stateDirectory.path,
+                ],
+                environment: environment,
+                timeout: 5
+            )
+            let context = "agents \(subcommand) exact cursor-agent sidecar: \(exactSidecar.stdout)"
+            #expect(!exactSidecar.timedOut, Comment(rawValue: context))
+            #expect(exactSidecar.status == 0, Comment(rawValue: context))
+            let payload = try #require(
+                JSONSerialization.jsonObject(with: Data(exactSidecar.stdout.utf8))
+                    as? [String: Any],
+                Comment(rawValue: context)
+            )
+            let rows = subcommand == "list"
+                ? try #require(payload["sessions"] as? [[String: Any]])
+                : try #require(payload["nodes"] as? [[String: Any]])
+            #expect(rows.count == 1, Comment(rawValue: context))
+            let provider = rows.first?["agent"] as? String
+                ?? rows.first?["provider"] as? String
+            #expect(provider == "cursor-agent", Comment(rawValue: context))
+        }
 
         try Data("""
         {"vault":{"agents":[{
@@ -1773,13 +1781,26 @@ extension CMUXCLIErrorOutputRegressionTests {
           "resumeCommand":"ollama --session {{sessionId}}"
         }]}}
         """.utf8).write(to: configURL)
-        #expect(throws: AgentSessionProviderCollisionError.self) {
-            try cli.agentSessionProviderSpecifications(
-                stateDirectory: stateDirectory.path,
-                homeDirectory: root.path,
-                processEnv: ["PWD": root.path],
-                fileManager: .default
+        for subcommand in ["list", "tree"] {
+            let collision = runProcess(
+                executablePath: cliPath,
+                arguments: [
+                    "agents", subcommand, "--agent", "ollama", "--all", "--json",
+                    "--state-dir", stateDirectory.path,
+                ],
+                environment: environment,
+                timeout: 5
             )
+            let context = "agents \(subcommand) configured Ollama collision: \(collision.stdout)"
+            #expect(!collision.timedOut, Comment(rawValue: context))
+            #expect(collision.status != 0, Comment(rawValue: context))
+            let payload = try #require(
+                JSONSerialization.jsonObject(with: Data(collision.stdout.utf8))
+                    as? [String: Any],
+                Comment(rawValue: context)
+            )
+            let error = try #require(payload["error"] as? [String: Any])
+            #expect(error["code"] as? String == "agent_provider_identifier_collision")
         }
 
         try Data("""
@@ -1789,17 +1810,32 @@ extension CMUXCLIErrorOutputRegressionTests {
           "resumeCommand":"ollama --session {{sessionId}}"
         }]}}
         """.utf8).write(to: configURL)
-        let exactOverride = try cli.agentSessionProviderSpecifications(
-            stateDirectory: stateDirectory.path,
-            homeDirectory: root.path,
-            processEnv: ["PWD": root.path],
-            fileManager: .default
+        let exactOverride = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "agents", "list", "--agent", "ollama", "--all", "--json",
+                "--state-dir", stateDirectory.path,
+            ],
+            environment: environment,
+            timeout: 5
         )
-        #expect(exactOverride.first { $0.name == "ollama" }?.displayName == "Project Ollama")
+        let exactOverrideContext = "agents list exact configured ollama: \(exactOverride.stdout)"
+        #expect(!exactOverride.timedOut, Comment(rawValue: exactOverrideContext))
+        #expect(exactOverride.status == 0, Comment(rawValue: exactOverrideContext))
+        let exactOverridePayload = try #require(
+            JSONSerialization.jsonObject(with: Data(exactOverride.stdout.utf8))
+                as? [String: Any],
+            Comment(rawValue: exactOverrideContext)
+        )
+        let exactOverrideRows = try #require(
+            exactOverridePayload["sessions"] as? [[String: Any]]
+        )
+        #expect(exactOverrideRows.count == 1, Comment(rawValue: exactOverrideContext))
+        #expect(exactOverrideRows.first?["agent"] as? String == "ollama")
+        #expect(exactOverrideRows.first?["agent_display_name"] as? String == "Project Ollama")
     }
 
     @Test func uniqueCaseFoldProviderCanonicalizesLiveObservationBeforeDurableJoin() throws {
-        let cli = CMUXCLI(args: [])
         let workspaceID = UUID()
         let surfaceID = UUID()
         let liveObservation = makeTerminalObservation(
@@ -1809,20 +1845,13 @@ extension CMUXCLIErrorOutputRegressionTests {
             surfaceID: surfaceID,
             sessionProviderID: "custom"
         )
-        let selection = cli.agentSessionProviderSelection(
-            for: "custom",
-            availableProviderIDs: ["Custom"],
-            terminalObservations: [liveObservation]
+        let selection = AgentSessionProviderSelection(
+            providerID: "Custom",
+            exactObservationProviderID: nil,
+            caseFoldedObservationProviderID: "Custom"
         )
-        #expect(cli.agentTerminalObservation(
-            liveObservation,
-            matches: selection,
-            requestedNormalizedID: "custom"
-        ))
-        let canonicalObservation = cli.agentTerminalObservation(
-            liveObservation,
-            canonicalizedFor: selection
-        )
+        #expect(selection.ownedProviderMatch(for: liveObservation) == true)
+        let canonicalObservation = selection.canonicalizedObservation(liveObservation)
         #expect(canonicalObservation.sessionProviderID == "Custom")
 
         let durableObservation = makeTerminalObservation(
@@ -1850,24 +1879,18 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(node.identitySource == "hook_session")
         #expect(!merged.contains { $0.identitySource == "terminal_process" })
 
-        let literalAliasSelection = cli.agentSessionProviderSelection(
-            for: "cursor-agent",
-            availableProviderIDs: ["cursor-agent"],
-            terminalObservations: []
+        let literalAliasSelection = AgentSessionProviderSelection(
+            providerID: "cursor-agent",
+            exactObservationProviderID: "cursor-agent"
         )
         let aliasFamilyObservation = makeTerminalObservation(
             state: .working,
             lifecycleAuthoritative: false,
             sessionProviderID: "CURSOR-AGENT"
         )
-        #expect(!cli.agentTerminalObservation(
-            aliasFamilyObservation,
-            matches: literalAliasSelection,
-            requestedNormalizedID: "cursor-agent"
-        ))
-        #expect(cli.agentTerminalObservation(
-            aliasFamilyObservation,
-            canonicalizedFor: literalAliasSelection
+        #expect(literalAliasSelection.ownedProviderMatch(for: aliasFamilyObservation) == false)
+        #expect(literalAliasSelection.canonicalizedObservation(
+            aliasFamilyObservation
         ).sessionProviderID == "CURSOR-AGENT")
     }
 

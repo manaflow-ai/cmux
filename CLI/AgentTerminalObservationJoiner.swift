@@ -1,6 +1,58 @@
 import CmuxFoundation
 import Foundation
 
+struct AgentSessionProviderSelection: Sendable, Equatable {
+    var providerID: String?
+    /// Set only when the requested spelling is an exact catalog identifier.
+    /// Exact owners must not inherit live observations through a built-in
+    /// executable/family alias with the same spelling.
+    var exactObservationProviderID: String?
+    /// Set when a request uniquely matches a catalog identifier after case
+    /// folding. Matching remains provider-only, and accepted live observations
+    /// are rewritten to this catalog spelling before exact grouping and joins.
+    var caseFoldedObservationProviderID: String? = nil
+
+    func ownedProviderMatch(
+        for observation: CmuxAgentTerminalObservation
+    ) -> Bool? {
+        if let exactObservationProviderID {
+            return observation.sessionProviderID == exactObservationProviderID
+        }
+        if let caseFoldedObservationProviderID {
+            return observation.sessionProviderID.caseInsensitiveCompare(
+                caseFoldedObservationProviderID
+            ) == .orderedSame
+        }
+        return nil
+    }
+
+    func canonicalizedObservation(
+        _ observation: CmuxAgentTerminalObservation
+    ) -> CmuxAgentTerminalObservation {
+        guard let providerID = caseFoldedObservationProviderID,
+              observation.sessionProviderID.caseInsensitiveCompare(providerID) == .orderedSame,
+              observation.sessionProviderID != providerID else {
+            return observation
+        }
+        return CmuxAgentTerminalObservation(
+            runtimeID: observation.runtimeID,
+            workspaceID: observation.workspaceID,
+            surfaceID: observation.surfaceID,
+            surfaceGeneration: observation.surfaceGeneration,
+            revision: observation.revision,
+            familyID: observation.familyID,
+            sessionProviderID: providerID,
+            lifecycleAuthoritative: observation.lifecycleAuthoritative,
+            state: observation.state,
+            pid: observation.pid,
+            processStartSeconds: observation.processStartSeconds,
+            processStartMicroseconds: observation.processStartMicroseconds,
+            cwd: observation.cwd,
+            publishedAt: observation.publishedAt
+        )
+    }
+}
+
 /// Retains same-process siblings for exact-session reconciliation without
 /// admitting a different kernel process generation that reused the numeric PID.
 /// Missing start metadata remains a wildcard for compatibility with legacy rows.

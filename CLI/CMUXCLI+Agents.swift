@@ -9,18 +9,6 @@ struct AgentSessionProviderSpecification: Sendable, Equatable {
     var configDirEnvOverride: String?
 }
 
-struct AgentSessionProviderSelection: Sendable, Equatable {
-    var providerID: String?
-    /// Set only when the requested spelling is an exact catalog identifier.
-    /// Exact owners must not inherit live observations through a built-in
-    /// executable/family alias with the same spelling.
-    var exactObservationProviderID: String?
-    /// Set when a request uniquely matches a catalog identifier after case
-    /// folding. Matching remains provider-only, and accepted live observations
-    /// are rewritten to this catalog spelling before exact grouping and joins.
-    var caseFoldedObservationProviderID: String? = nil
-}
-
 private struct AgentSessionConfiguredProvider: Sendable {
     var id: String
     var name: String
@@ -1049,12 +1037,8 @@ extension CMUXCLI {
         matches selection: AgentSessionProviderSelection,
         requestedNormalizedID: String
     ) -> Bool {
-        if let exactProviderID = selection.exactObservationProviderID {
-            return observation.sessionProviderID == exactProviderID
-        }
-        if let caseFoldedProviderID = selection.caseFoldedObservationProviderID {
-            return observation.sessionProviderID.caseInsensitiveCompare(caseFoldedProviderID)
-                == .orderedSame
+        if let ownedProviderMatch = selection.ownedProviderMatch(for: observation) {
+            return ownedProviderMatch
         }
         return agentTerminalObservation(
             observation,
@@ -1069,27 +1053,7 @@ extension CMUXCLI {
         _ observation: CmuxAgentTerminalObservation,
         canonicalizedFor selection: AgentSessionProviderSelection
     ) -> CmuxAgentTerminalObservation {
-        guard let providerID = selection.caseFoldedObservationProviderID,
-              observation.sessionProviderID.caseInsensitiveCompare(providerID) == .orderedSame,
-              observation.sessionProviderID != providerID else {
-            return observation
-        }
-        return CmuxAgentTerminalObservation(
-            runtimeID: observation.runtimeID,
-            workspaceID: observation.workspaceID,
-            surfaceID: observation.surfaceID,
-            surfaceGeneration: observation.surfaceGeneration,
-            revision: observation.revision,
-            familyID: observation.familyID,
-            sessionProviderID: providerID,
-            lifecycleAuthoritative: observation.lifecycleAuthoritative,
-            state: observation.state,
-            pid: observation.pid,
-            processStartSeconds: observation.processStartSeconds,
-            processStartMicroseconds: observation.processStartMicroseconds,
-            cwd: observation.cwd,
-            publishedAt: observation.publishedAt
-        )
+        selection.canonicalizedObservation(observation)
     }
 
     func agentsNormalizedAgentID(_ value: String) -> String {
