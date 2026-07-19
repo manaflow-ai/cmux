@@ -305,14 +305,16 @@ struct FileExplorerPanelView: NSViewRepresentable {
             store.select(nodes: nodes, anchor: anchor ?? nodes.first)
         }
         func outlineViewItemDidExpand(_ notification: Notification) {
-            guard let node = notification.userInfo?["NSObject"] as? FileExplorerNode else { return }
+            guard !isUpdatingOutlineProgrammatically,
+                  let node = notification.userInfo?["NSObject"] as? FileExplorerNode else { return }
             if !store.isExpanded(node) {
                 store.expand(node: node)
             }
         }
 
         func outlineViewItemDidCollapse(_ notification: Notification) {
-            guard let node = notification.userInfo?["NSObject"] as? FileExplorerNode else { return }
+            guard !isUpdatingOutlineProgrammatically,
+                  let node = notification.userInfo?["NSObject"] as? FileExplorerNode else { return }
             if store.isExpanded(node) {
                 store.collapse(node: node)
             }
