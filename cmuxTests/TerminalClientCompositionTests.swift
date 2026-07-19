@@ -192,12 +192,15 @@ struct TerminalClientCompositionTests {
             await returnRendererFrameLease(client: client, release: release)
         }
         await client.waitForReleaseCount(1)
-        await client.publish(.workerChanged(try Self.rendererWorkerChange(
-            workspaceID: workspaceID,
-            priorRendererEpoch: 1,
-            rendererEpoch: 2,
-            state: .ready
-        )))
+        await client.publish(.workerChanged(
+            presentationID: runtime.debugPresentationIDForTesting(),
+            change: try Self.rendererWorkerChange(
+                workspaceID: workspaceID,
+                priorRendererEpoch: 1,
+                rendererEpoch: 2,
+                state: .ready
+            )
+        ))
         for _ in 0..<64 { await Task.yield() }
 
         #expect(await client.releaseAttemptCount() == 1)
@@ -243,19 +246,25 @@ struct TerminalClientCompositionTests {
             configHandler: { _ in }
         )
 
-        await client.publish(.workerChanged(try Self.rendererWorkerChange(
-            workspaceID: workspaceA,
-            priorRendererEpoch: 0,
-            rendererEpoch: nil,
-            state: .starting
-        )))
+        await client.publish(.workerChanged(
+            presentationID: presentationA,
+            change: try Self.rendererWorkerChange(
+                workspaceID: workspaceA,
+                priorRendererEpoch: 0,
+                rendererEpoch: nil,
+                state: .starting
+            )
+        ))
         await probe.waitForRendererCount(1, workspaceID: workspaceA)
-        await client.publish(.workerChanged(try Self.rendererWorkerChange(
-            workspaceID: workspaceB,
-            priorRendererEpoch: 0,
-            rendererEpoch: nil,
-            state: .starting
-        )))
+        await client.publish(.workerChanged(
+            presentationID: presentationB,
+            change: try Self.rendererWorkerChange(
+                workspaceID: workspaceB,
+                priorRendererEpoch: 0,
+                rendererEpoch: nil,
+                state: .starting
+            )
+        ))
         for _ in 0..<128 { await Task.yield() }
 
         #expect(await probe.rendererCount(workspaceID: workspaceB) == 1)
@@ -273,10 +282,11 @@ struct TerminalClientCompositionTests {
         let probe = FrontendRouterDeliveryProbe()
         let gate = FrontendRouterTestGate()
         let workspaceID = UUID()
+        let presentationID = UUID()
         await router.start()
         await client.waitForRendererSubscriberCount(1)
         let route = await router.register(
-            presentationID: UUID(),
+            presentationID: presentationID,
             workspaceID: workspaceID,
             rendererHandler: { event in
                 await probe.recordRenderer(workspaceID: workspaceID, event: event)
@@ -289,20 +299,26 @@ struct TerminalClientCompositionTests {
             },
             configHandler: { _ in }
         )
-        await client.publish(.workerChanged(try Self.rendererWorkerChange(
-            workspaceID: workspaceID,
-            priorRendererEpoch: 0,
-            rendererEpoch: nil,
-            state: .starting
-        )))
+        await client.publish(.workerChanged(
+            presentationID: presentationID,
+            change: try Self.rendererWorkerChange(
+                workspaceID: workspaceID,
+                priorRendererEpoch: 0,
+                rendererEpoch: nil,
+                state: .starting
+            )
+        ))
         await probe.waitForRendererCount(1, workspaceID: workspaceID)
         for epoch in 1...128 {
-            await client.publish(.workerChanged(try Self.rendererWorkerChange(
-                workspaceID: workspaceID,
-                priorRendererEpoch: UInt64(epoch - 1),
-                rendererEpoch: UInt64(epoch),
-                state: .ready
-            )))
+            await client.publish(.workerChanged(
+                presentationID: presentationID,
+                change: try Self.rendererWorkerChange(
+                    workspaceID: workspaceID,
+                    priorRendererEpoch: UInt64(epoch - 1),
+                    rendererEpoch: UInt64(epoch),
+                    state: .ready
+                )
+            ))
         }
         await router.waitForRendererDeliveryCount(129)
 
@@ -952,12 +968,15 @@ struct TerminalClientCompositionTests {
         #expect(router.configDeliveryCounts[firstPresentationID] == 1)
         #expect(router.configDeliveryCounts[secondPresentationID] == 1)
 
-        await client.publish(.workerChanged(try Self.rendererWorkerChange(
-            workspaceID: workspaceIDs[0],
-            priorRendererEpoch: 0,
-            rendererEpoch: nil,
-            state: .starting
-        )))
+        await client.publish(.workerChanged(
+            presentationID: firstPresentationID,
+            change: try Self.rendererWorkerChange(
+                workspaceID: workspaceIDs[0],
+                priorRendererEpoch: 0,
+                rendererEpoch: nil,
+                state: .starting
+            )
+        ))
         await runtimes[0].debugWaitForFrontendRendererDeliveryCountForTesting(1)
 
         router = await runtimes[0].debugFrontendEventRouterSnapshotForTesting()
@@ -1018,25 +1037,31 @@ struct TerminalClientCompositionTests {
         #expect(runtime.enqueue(.reparent(workspaceID: destinationWorkspaceID)).accepted)
         await client.waitForMutationCount(1)
         for _ in 0..<64 { await Task.yield() }
+        let presentationID = runtime.debugPresentationIDForTesting()
 
-        await client.publish(.workerChanged(try Self.rendererWorkerChange(
-            workspaceID: destinationWorkspaceID,
-            priorRendererEpoch: 0,
-            rendererEpoch: nil,
-            state: .starting
-        )))
+        await client.publish(.workerChanged(
+            presentationID: presentationID,
+            change: try Self.rendererWorkerChange(
+                workspaceID: destinationWorkspaceID,
+                priorRendererEpoch: 0,
+                rendererEpoch: nil,
+                state: .starting
+            )
+        ))
         for _ in 0..<128 { await Task.yield() }
         var snapshot = await runtime.debugFrontendEventRouterSnapshotForTesting()
-        let presentationID = runtime.debugPresentationIDForTesting()
         #expect(snapshot.activeRouteCount == 1)
         #expect(snapshot.rendererDeliveryCounts[presentationID] == 1)
 
-        await client.publish(.workerChanged(try Self.rendererWorkerChange(
-            workspaceID: sourceWorkspaceID,
-            priorRendererEpoch: 0,
-            rendererEpoch: nil,
-            state: .starting
-        )))
+        await client.publish(.workerChanged(
+            presentationID: presentationID,
+            change: try Self.rendererWorkerChange(
+                workspaceID: sourceWorkspaceID,
+                priorRendererEpoch: 0,
+                rendererEpoch: nil,
+                state: .starting
+            )
+        ))
         for _ in 0..<128 { await Task.yield() }
         snapshot = await runtime.debugFrontendEventRouterSnapshotForTesting()
         #expect(snapshot.rendererDeliveryCounts[presentationID] == 1)
@@ -1115,12 +1140,15 @@ struct TerminalClientCompositionTests {
             revision: 1,
             data: Data("font-family = Menlo\n".utf8)
         ))
-        await client.publish(.workerChanged(try Self.rendererWorkerChange(
-            workspaceID: workspaceID,
-            priorRendererEpoch: 0,
-            rendererEpoch: nil,
-            state: .starting
-        )))
+        await client.publish(.workerChanged(
+            presentationID: presentationID,
+            change: try Self.rendererWorkerChange(
+                workspaceID: workspaceID,
+                priorRendererEpoch: 0,
+                rendererEpoch: nil,
+                state: .starting
+            )
+        ))
         await router.waitForRendererDeliveryCount(1)
         await router.waitForConfigDeliveryCount(1)
         await router.unregister(route)
@@ -1898,7 +1926,10 @@ struct TerminalClientCompositionTests {
             rendererEpoch: 7,
             state: .ready
         )
-        await runtime.debugHandleRendererEventForTesting(.workerChanged(sameEpoch))
+        await runtime.debugHandleRendererEventForTesting(.workerChanged(
+            presentationID: presentationID,
+            change: sameEpoch
+        ))
         #expect(registry.compositorView(surfaceID: surfaceID) != nil)
 
         let replacedEpoch = try Self.rendererWorkerChange(
@@ -1907,7 +1938,10 @@ struct TerminalClientCompositionTests {
             rendererEpoch: 8,
             state: .ready
         )
-        await runtime.debugHandleRendererEventForTesting(.workerChanged(replacedEpoch))
+        await runtime.debugHandleRendererEventForTesting(.workerChanged(
+            presentationID: presentationID,
+            change: replacedEpoch
+        ))
         #expect(registry.compositorView(surfaceID: surfaceID) == nil)
         #expect(!runtime.debugHasFrameReceiverRetirementForTesting())
     }
@@ -2254,7 +2288,7 @@ struct TerminalClientCompositionTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func rendererDetachWaitsForAnInFlightConfigurationBeforeAcknowledgingQuiescence() async throws {
+    func rendererListenerRegistersBeforeConfigureAndDetachWaitsForQuiescence() async throws {
         let authority = BackendAuthority(
             daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
             sessionID: SessionID(rawValue: UUID())
@@ -2333,6 +2367,11 @@ struct TerminalClientCompositionTests {
             resolvedConfigRevision: 1,
             resolvedConfig: Data("font-family = Menlo\n".utf8)
         )
+        let rendererEvents = await coordinator.rendererEvents()
+        let rendererEvent = Task {
+            var iterator = rendererEvents.makeAsyncIterator()
+            return await iterator.next()
+        }
 
         let configuration = Task {
             try await coordinator.apply(
@@ -2343,6 +2382,35 @@ struct TerminalClientCompositionTests {
             )
         }
         await renderer.waitForConfiguration()
+        #expect(await renderer.events() == ["subscribe", "configure-start"])
+        let changed = try JSONDecoder().decode(
+            BackendRendererWorkerChanged.self,
+            from: Data(
+                """
+                {
+                  "workspace_uuid":"\(workspaceID.description)",
+                  "prior_renderer_epoch":1,
+                  "renderer_epoch":null,
+                  "pid":null,
+                  "process_start_time_seconds":null,
+                  "process_start_time_microseconds":null,
+                  "effective_user_id":null,
+                  "scene_capabilities":null,
+                  "state":"starting",
+                  "restart_count":1
+                }
+                """.utf8
+            )
+        )
+        await renderer.emitRendererEvent(.workerChanged(changed))
+        try await withReconnectTestTimeout(.seconds(5)) {
+            while await coordinator.debugRendererPresentationOperationWaiterCount(
+                appPresentationID
+            ) < 1 {
+                try Task.checkCancellation()
+                await Task.yield()
+            }
+        }
         let detach = Task {
             try await coordinator.detachPresentation(
                 presentationID: appPresentationID,
@@ -2354,11 +2422,23 @@ struct TerminalClientCompositionTests {
 
         await renderer.resumeConfiguration()
         _ = try await configuration.value
+        guard case .workerChanged(let eventPresentationID, let receivedChange)? =
+            try await withReconnectTestTimeout(.seconds(5), operation: {
+                await rendererEvent.value
+            })
+        else {
+            Issue.record("expected exact renderer worker delivery")
+            return
+        }
+        #expect(eventPresentationID == appPresentationID)
+        #expect(receivedChange == changed)
         try await detach.value
         #expect(await renderer.detachCount() == 1)
-        #expect(Array((await renderer.events()).prefix(3)) == [
+        #expect(Array((await renderer.events()).prefix(5)) == [
+            "subscribe",
             "configure-start",
             "configure-finish",
+            "unsubscribe",
             "detach",
         ])
 
@@ -2606,25 +2686,20 @@ struct TerminalClientCompositionTests {
             revision: 1_000,
             topology: emptyTopology
         )
-        let rendererChange = try makeBackendWorkerChange()
         let targets = try TopologyTargets()
         var burst: [BackendCanonicalSessionEvent] = []
         burst.reserveCapacity(600)
         var topologyRevision: UInt64 = 1
-        for index in 0..<600 {
-            if index.isMultiple(of: 2) {
-                topologyRevision += 1
-                burst.append(.delta(TopologyDelta(
-                    authority: firstAuthority,
-                    baseRevision: topologyRevision - 1,
-                    revision: topologyRevision,
-                    operation: .layoutApplied,
-                    targets: targets,
-                    replacement: emptyTopology
-                )))
-            } else {
-                burst.append(.rendererWorkerChanged(rendererChange))
-            }
+        for _ in 0..<600 {
+            topologyRevision += 1
+            burst.append(.delta(TopologyDelta(
+                authority: firstAuthority,
+                baseRevision: topologyRevision - 1,
+                revision: topologyRevision,
+                operation: .layoutApplied,
+                targets: targets,
+                replacement: emptyTopology
+            )))
         }
 
         let lifecycle = BackendSessionLifecycleRecorder()
@@ -2939,27 +3014,6 @@ struct TerminalClientCompositionTests {
                 negotiatedProtocol: 9,
                 requiredCapabilities: BackendHandshakePolicy.terminalAuthorityV1.requiredCapabilities
             ))
-        )
-    }
-
-    private func makeBackendWorkerChange() throws -> BackendRendererWorkerChanged {
-        let workspaceID = WorkspaceID(rawValue: UUID())
-        return try JSONDecoder().decode(
-            BackendRendererWorkerChanged.self,
-            from: Data("""
-                {
-                  "workspace_uuid": "\(workspaceID.description)",
-                  "prior_renderer_epoch": 1,
-                  "renderer_epoch": 2,
-                  "pid": 88,
-                  "process_start_time_seconds": 100,
-                  "process_start_time_microseconds": 200,
-                  "effective_user_id": 501,
-                  "scene_capabilities": 1,
-                  "state": "ready",
-                  "restart_count": 0
-                }
-                """.utf8)
         )
     }
 
@@ -4031,6 +4085,9 @@ private actor RendererSerializationSessionHarness {
         CheckedContinuation<BackendRendererPresentationReceipt, Never>?
     private var pendingConfigurationReceipt: BackendRendererPresentationReceipt?
     private var configurationWaiters: [CheckedContinuation<Void, Never>] = []
+    private var rendererEventContinuations: [
+        UUID: AsyncStream<BackendRendererLifecycleEvent>.Continuation
+    ] = [:]
     private var recordedEvents: [String] = []
     private var recordedDetachCount = 0
 
@@ -4093,6 +4150,46 @@ private actor RendererSerializationSessionHarness {
         }
         recordedEvents.append("configure-finish")
         return resumed
+    }
+
+    func rendererEventSubscription(
+        workspaceID: WorkspaceID,
+        presentationID: PresentationID,
+        bufferingCapacity: Int
+    ) -> BackendRendererEventSubscription {
+        #expect(workspaceID == self.workspaceID)
+        #expect(presentationID == self.presentationID)
+        #expect(bufferingCapacity > 0)
+        let identifier = UUID()
+        let pair = AsyncStream<BackendRendererLifecycleEvent>.makeStream(
+            bufferingPolicy: .bufferingOldest(bufferingCapacity)
+        )
+        rendererEventContinuations[identifier] = pair.continuation
+        recordedEvents.append("subscribe")
+        return BackendRendererEventSubscription(
+            identifier: identifier,
+            events: pair.stream
+        )
+    }
+
+    func cancelRendererEventSubscription(_ identifier: UUID) {
+        guard let continuation = rendererEventContinuations.removeValue(
+            forKey: identifier
+        ) else { return }
+        recordedEvents.append("unsubscribe")
+        continuation.finish()
+    }
+
+    func emitRendererEvent(_ event: BackendRendererLifecycleEvent) {
+        for continuation in rendererEventContinuations.values {
+            continuation.yield(event)
+        }
+    }
+
+    func finishRendererEvents() {
+        let continuations = Array(rendererEventContinuations.values)
+        rendererEventContinuations.removeAll()
+        continuations.forEach { $0.finish() }
     }
 
     func waitForConfiguration() async {
@@ -4192,7 +4289,9 @@ private actor RendererSerializationSessionHarness {
                   "rows":\(configuration.rows),
                   "metrics":\(metrics),
                   "pixel_format":"bgra8-unorm",
-                  "color_space":"srgb"
+                  "color_space":"srgb",
+                  "resolved_config_revision":1,
+                  "resolved_config_digest":"\(String(repeating: "a", count: 64))"
                 }
                 """.utf8
             )
@@ -4258,6 +4357,34 @@ private actor OverflowingBackendSession: TerminalBackendSessionServing {
         return pair.stream
     }
 
+    func rendererEventSubscription(
+        workspaceID: WorkspaceID,
+        presentationID: PresentationID,
+        bufferingCapacity: Int
+    ) async -> BackendRendererEventSubscription {
+        if let rendererSerialization {
+            return await rendererSerialization.rendererEventSubscription(
+                workspaceID: workspaceID,
+                presentationID: presentationID,
+                bufferingCapacity: bufferingCapacity
+            )
+        }
+        let pair = AsyncStream<BackendRendererLifecycleEvent>.makeStream(
+            bufferingPolicy: .bufferingOldest(max(bufferingCapacity, 1))
+        )
+        pair.continuation.finish()
+        return BackendRendererEventSubscription(
+            identifier: UUID(),
+            events: pair.stream
+        )
+    }
+
+    func cancelRendererEventSubscription(_ identifier: UUID) async {
+        if let rendererSerialization {
+            await rendererSerialization.cancelRendererEventSubscription(identifier)
+        }
+    }
+
     func backendCompatibility() async throws -> BackendCompatibilityResult {
         compatibility
     }
@@ -4281,6 +4408,7 @@ private actor OverflowingBackendSession: TerminalBackendSessionServing {
         recordedCloseCount += 1
         stableContinuation?.finish()
         stableContinuation = nil
+        await rendererSerialization?.finishRendererEvents()
         guard isOpen else { return }
         isOpen = false
         await lifecycle.closed(identifier)

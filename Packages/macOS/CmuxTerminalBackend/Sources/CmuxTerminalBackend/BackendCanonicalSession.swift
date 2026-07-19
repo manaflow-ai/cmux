@@ -30,6 +30,12 @@ public actor BackendCanonicalSession {
         var localDeadlineNanoseconds: UInt64
     }
 
+    private struct RendererSubscriber {
+        let workspaceID: WorkspaceID
+        let presentationID: PresentationID
+        let continuation: AsyncStream<BackendRendererLifecycleEvent>.Continuation
+    }
+
     private let client: BackendProtocolClient
     private let transport: any BackendPeerIdentityTransport
     private let expectation: BackendCanonicalSessionExpectation
@@ -40,6 +46,11 @@ public actor BackendCanonicalSession {
     private var activityProjection = BackendTerminalActivityProjection()
     private var eventTask: Task<Void, Never>?
     private var continuations: [UUID: AsyncStream<BackendCanonicalSessionEvent>.Continuation] = [:]
+    private var rendererSubscribers: [UUID: RendererSubscriber] = [:]
+    private var rendererSubscribersByWorkspace: [WorkspaceID: Set<UUID>] = [:]
+    private var rendererSubscribersByPresentation: [PresentationID: Set<UUID>] = [:]
+    private var rendererConfigFloor: BackendRendererConfigIdentity?
+    private var latestRendererConfigInvalidation: BackendRendererConfigInvalidated?
     private var connected = false
     private var terminalError: BackendCanonicalSessionError?
     private var identifiedBackend: BackendIdentifyResponse?
@@ -94,6 +105,59 @@ public actor BackendCanonicalSession {
         return pair.stream
     }
 
+    /// Registers a bounded renderer stream keyed to one workspace presentation.
+    /// Registration completes on this actor before the stream is returned.
+    public func rendererEventSubscription(
+        workspaceID: WorkspaceID,
+        presentationID: PresentationID,
+        bufferingCapacity: Int = 256
+    ) -> BackendRendererEventSubscription {
+        precondition(bufferingCapacity > 0)
+        let identifier = UUID()
+        let pair = AsyncStream<BackendRendererLifecycleEvent>.makeStream(
+            bufferingPolicy: .bufferingOldest(bufferingCapacity)
+        )
+        rendererSubscribers[identifier] = RendererSubscriber(
+            workspaceID: workspaceID,
+            presentationID: presentationID,
+            continuation: pair.continuation
+        )
+        rendererSubscribersByWorkspace[workspaceID, default: []].insert(identifier)
+        rendererSubscribersByPresentation[presentationID, default: []].insert(identifier)
+        if let latestRendererConfigInvalidation {
+            pair.continuation.yield(.configInvalidated(latestRendererConfigInvalidation))
+        }
+        if terminalError != nil {
+            pair.continuation.finish()
+        }
+        pair.continuation.onTermination = { @Sendable _ in
+            Task { await self.removeRendererContinuation(identifier) }
+        }
+        return BackendRendererEventSubscription(
+            identifier: identifier,
+            events: pair.stream
+        )
+    }
+
+    /// Convenience stream for consumers that rely on termination cleanup.
+    public func rendererEvents(
+        workspaceID: WorkspaceID,
+        presentationID: PresentationID,
+        bufferingCapacity: Int = 256
+    ) -> AsyncStream<BackendRendererLifecycleEvent> {
+        rendererEventSubscription(
+            workspaceID: workspaceID,
+            presentationID: presentationID,
+            bufferingCapacity: bufferingCapacity
+        ).events
+    }
+
+    /// Explicitly retires one renderer route before its presentation is replaced.
+    public func cancelRendererEventSubscription(_ identifier: UUID) {
+        guard let subscriber = removeRendererContinuation(identifier) else { return }
+        subscriber.continuation.finish()
+    }
+
     /// Connects and validates identity, then installs canonical topology only
     /// when a mutually understood observational contract is advertised.
     ///
@@ -109,6 +173,8 @@ public actor BackendCanonicalSession {
         negotiatedCompatibility = nil
         advertisedCapabilities.removeAll()
         activityProjection.invalidate()
+        rendererConfigFloor = nil
+        latestRendererConfigInvalidation = nil
         resetTerminalControlState()
         do {
             try await client.connect()
@@ -199,7 +265,10 @@ public actor BackendCanonicalSession {
             negotiatedCompatibility = nil
             advertisedCapabilities.removeAll()
             activityProjection.invalidate()
+            rendererConfigFloor = nil
+            latestRendererConfigInvalidation = nil
             resetTerminalControlState()
+            finishRendererContinuations()
             await client.close()
             if let sessionError = error as? BackendCanonicalSessionError {
                 terminalError = sessionError
@@ -322,8 +391,11 @@ public actor BackendCanonicalSession {
         negotiatedCompatibility = nil
         advertisedCapabilities.removeAll()
         activityProjection.invalidate()
+        rendererConfigFloor = nil
+        latestRendererConfigInvalidation = nil
         resetTerminalControlState()
         await client.close()
+        finishRendererContinuations()
         finishContinuations()
     }
 
@@ -429,11 +501,26 @@ public actor BackendCanonicalSession {
     ) async throws -> BackendRendererPresentationReceipt {
         try requireConnected()
         try requireMutationAccess(command: "configure-renderer-presentation")
-        return try await client.configureRendererPresentation(
+        let receipt = try await client.configureRendererPresentation(
             id: id,
             expectedGeneration: expectedGeneration,
             configuration: configuration
         )
+        do {
+            try acceptRendererConfigIdentity(BackendRendererConfigIdentity(
+                revision: receipt.resolvedConfigRevision,
+                digest: receipt.resolvedConfigDigest
+            ))
+        } catch let error as BackendRendererConfigValidationError {
+            if case .staleReceipt = error {
+                // A config invalidation may legitimately overtake an in-flight
+                // configure response. The caller retries against the new floor.
+            } else {
+                await finish(.topologyStreamFailed(String(describing: error)))
+            }
+            throw error
+        }
+        return receipt
     }
 
     public func activateRendererPresentation(
@@ -2121,7 +2208,11 @@ public actor BackendCanonicalSession {
         }
         if event.name == "renderer-worker-changed" {
             do {
-                publish(.rendererWorkerChanged(try event.rendererWorkerChanged()))
+                let changed = try event.rendererWorkerChanged()
+                publishRenderer(
+                    .workerChanged(changed),
+                    to: rendererSubscribersByWorkspace[changed.workspaceID] ?? []
+                )
             } catch {
                 await finish(.topologyStreamFailed(String(describing: error)))
             }
@@ -2129,7 +2220,11 @@ public actor BackendCanonicalSession {
         }
         if event.name == "renderer-presentation-ready" {
             do {
-                publish(.rendererPresentationReady(try event.rendererPresentationReady()))
+                let ready = try event.rendererPresentationReady()
+                publishRenderer(
+                    .presentationReady(ready),
+                    to: rendererSubscribersByPresentation[ready.presentationID] ?? []
+                )
             } catch {
                 await finish(.topologyStreamFailed(String(describing: error)))
             }
@@ -2137,7 +2232,12 @@ public actor BackendCanonicalSession {
         }
         if event.name == "renderer-config-invalidated" {
             do {
-                publish(.rendererConfigInvalidated(try event.rendererConfigInvalidated()))
+                let invalidation = try event.rendererConfigInvalidated()
+                guard try recordRendererConfigInvalidation(invalidation) else { return }
+                publishRenderer(
+                    .configInvalidated(invalidation),
+                    to: Set(rendererSubscribers.keys)
+                )
             } catch {
                 await finish(.topologyStreamFailed(String(describing: error)))
             }
@@ -2165,6 +2265,57 @@ public actor BackendCanonicalSession {
 
     private func requireConnected() throws {
         guard connected else { throw BackendCanonicalSessionError.notConnected }
+    }
+
+    private func recordRendererConfigInvalidation(
+        _ invalidation: BackendRendererConfigInvalidated
+    ) throws -> Bool {
+        let identity = BackendRendererConfigIdentity(
+            revision: invalidation.revision,
+            digest: invalidation.digest
+        )
+        guard identity.revision > 0 else {
+            throw BackendRendererConfigValidationError.invalidRevision
+        }
+        if let floor = rendererConfigFloor {
+            if identity.revision < floor.revision {
+                return false
+            }
+            if identity.revision == floor.revision,
+               identity.digest != floor.digest {
+                throw BackendRendererConfigValidationError.inconsistentRevision(identity.revision)
+            }
+        }
+        if rendererConfigFloor.map({ identity.revision > $0.revision }) ?? true {
+            rendererConfigFloor = identity
+        }
+        latestRendererConfigInvalidation = invalidation
+        return true
+    }
+
+    private func acceptRendererConfigIdentity(
+        _ identity: BackendRendererConfigIdentity
+    ) throws {
+        guard identity.revision > 0 else {
+            throw BackendRendererConfigValidationError.invalidRevision
+        }
+        if let floor = rendererConfigFloor {
+            if identity.revision < floor.revision {
+                throw BackendRendererConfigValidationError.staleReceipt(
+                    minimumRevision: floor.revision,
+                    actualRevision: identity.revision
+                )
+            }
+            if identity.revision == floor.revision {
+                guard identity.digest == floor.digest else {
+                    throw BackendRendererConfigValidationError.inconsistentRevision(
+                        identity.revision
+                    )
+                }
+                return
+            }
+        }
+        rendererConfigFloor = identity
     }
 
     private func requireMutationAccess(command: String) throws {
@@ -2222,6 +2373,9 @@ public actor BackendCanonicalSession {
         resetTerminalControlState()
         terminalError = error
         publish(.disconnected(error))
+        rendererConfigFloor = nil
+        latestRendererConfigInvalidation = nil
+        finishRendererContinuations()
         await client.close()
     }
 
@@ -2244,6 +2398,30 @@ public actor BackendCanonicalSession {
         }
     }
 
+    private func publishRenderer(
+        _ event: BackendRendererLifecycleEvent,
+        to identifiers: Set<UUID>
+    ) {
+        var retired: [UUID] = []
+        retired.reserveCapacity(identifiers.count)
+        for identifier in identifiers {
+            guard let subscriber = rendererSubscribers[identifier] else { continue }
+            switch subscriber.continuation.yield(event) {
+            case .enqueued:
+                break
+            case .dropped, .terminated:
+                subscriber.continuation.finish()
+                retired.append(identifier)
+            @unknown default:
+                subscriber.continuation.finish()
+                retired.append(identifier)
+            }
+        }
+        for identifier in retired {
+            _ = removeRendererContinuation(identifier)
+        }
+    }
+
     private func finishContinuations() {
         for continuation in continuations.values {
             continuation.finish()
@@ -2251,8 +2429,33 @@ public actor BackendCanonicalSession {
         continuations.removeAll()
     }
 
+    private func finishRendererContinuations() {
+        for subscriber in rendererSubscribers.values {
+            subscriber.continuation.finish()
+        }
+        rendererSubscribers.removeAll()
+        rendererSubscribersByWorkspace.removeAll()
+        rendererSubscribersByPresentation.removeAll()
+    }
+
     private func removeContinuation(_ identifier: UUID) {
         continuations.removeValue(forKey: identifier)
+    }
+
+    @discardableResult
+    private func removeRendererContinuation(_ identifier: UUID) -> RendererSubscriber? {
+        guard let subscriber = rendererSubscribers.removeValue(forKey: identifier) else {
+            return nil
+        }
+        rendererSubscribersByWorkspace[subscriber.workspaceID]?.remove(identifier)
+        if rendererSubscribersByWorkspace[subscriber.workspaceID]?.isEmpty == true {
+            rendererSubscribersByWorkspace.removeValue(forKey: subscriber.workspaceID)
+        }
+        rendererSubscribersByPresentation[subscriber.presentationID]?.remove(identifier)
+        if rendererSubscribersByPresentation[subscriber.presentationID]?.isEmpty == true {
+            rendererSubscribersByPresentation.removeValue(forKey: subscriber.presentationID)
+        }
+        return subscriber
     }
 }
 

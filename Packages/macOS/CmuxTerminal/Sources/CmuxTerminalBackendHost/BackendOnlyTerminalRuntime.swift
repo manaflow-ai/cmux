@@ -142,10 +142,10 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     private let mutationStream: AsyncStream<TerminalExternalRuntimeMutation>
     private let mutationContinuation: AsyncStream<TerminalExternalRuntimeMutation>.Continuation
     private let presentedFrameState = BackendOnlyPresentedFrameState()
+    private let rendererEventListener = BackendOnlyRendererEventListener()
     private var nextIngressSequence: UInt64 = 1
     private var mutationTask: Task<Void, Never>?
-    private var eventTask: Task<Void, Never>?
-    private var eventTaskGeneration = UUID()
+    private var rendererEventSubscription: BackendRendererEventSubscription?
     private var presentationTask: Task<Void, any Error>?
     private var receiveTask: Task<Void, Never>?
     private var accessibilityRefreshTask: Task<Void, Never>?
@@ -212,7 +212,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     deinit {
         mutationContinuation.finish()
         mutationTask?.cancel()
-        eventTask?.cancel()
+        rendererEventListener.cancel()
         presentationTask?.cancel()
         receiveTask?.cancel()
         accessibilityRefreshTask?.cancel()
@@ -747,7 +747,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
             presentationGeneration: opened.generation
         )
         try validateRendererOperation(operationGeneration)
-        startEventTaskIfNeeded()
+        try await startRendererEventListener(for: opened)
+        try validateRendererOperation(operationGeneration)
         try await configureRenderer(viewport: viewport)
         try validateRendererOperation(operationGeneration)
         let state = try await session.terminalState(surfaceID: selection.surfaceID)
@@ -1244,35 +1245,60 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         }
     }
 
-    private func startEventTaskIfNeeded() {
-        guard eventTask == nil else { return }
-        let session = session
-        let generation = UUID()
-        eventTaskGeneration = generation
-        eventTask = Task { @MainActor [weak self] in
-            let events = await session.events()
-            for await event in events {
-                guard let self, self.visible, !self.retired else { return }
-                await self.handleSessionEvent(event)
+    private func startRendererEventListener(
+        for opened: BackendPresentation
+    ) async throws {
+        guard rendererEventSubscription == nil,
+              !rendererEventListener.isActive else {
+            throw BackendOnlyHostConnectionError.backendUnavailable
+        }
+        let subscription = await session.rendererEventSubscription(
+            workspaceID: selection.workspaceID,
+            presentationID: opened.id
+        )
+        guard !retired, !attachmentIDs.isEmpty, visible,
+              presentation?.id == opened.id,
+              presentation?.generation == opened.generation else {
+            await session.cancelRendererEventSubscription(subscription.identifier)
+            throw CancellationError()
+        }
+        rendererEventSubscription = subscription
+        rendererEventListener.start(
+            events: subscription.events,
+            receive: { [weak self] event in
+                guard let self, !self.retired else { return }
+                await self.handleRendererEvent(event)
+            },
+            onEnd: { [weak self] in
+                guard let self else { return }
+                self.rendererEventSubscription = nil
+                await self.handleRendererEventStreamEnded()
             }
-            guard let self, !Task.isCancelled,
-                  self.eventTaskGeneration == generation else { return }
-            self.eventTask = nil
-            await self.handleEventStreamEnded()
+        )
+    }
+
+    private func stopRendererEventListener() async {
+        let subscription = rendererEventSubscription
+        rendererEventSubscription = nil
+        // Retire the generation before finishing the stream. Its consumer may
+        // otherwise resume on MainActor and start recovery during this teardown.
+        rendererEventListener.retire()
+        if let subscription {
+            await session.cancelRendererEventSubscription(subscription.identifier)
         }
     }
 
-    private func handleSessionEvent(_ event: BackendCanonicalSessionEvent) async {
-        if case .rendererConfigInvalidated(let invalidation) = event {
+    private func handleRendererEvent(_ event: BackendRendererLifecycleEvent) async {
+        if case .configInvalidated(let invalidation) = event {
             await handleRendererConfigInvalidation(invalidation)
             return
         }
         do {
             try await withRendererOperation {
                 switch event {
-                case .rendererPresentationReady(let ready):
+                case .presentationReady(let ready):
                     try await self.installReadyEvent(ready)
-                case .rendererWorkerChanged(let changed):
+                case .workerChanged(let changed):
                     guard changed.workspaceID == self.selection.workspaceID,
                           !self.rendererRestarting,
                           BackendOnlyRendererWorkerTransition.action(
@@ -1284,20 +1310,12 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                     self.snapshot = TerminalExternalRuntimeSnapshot(lifecycle: .unavailable)
                     self.rendererRestarting = true
                     self.invalidateRendererOperations()
-                    await self.stopPresentation(keepEventSubscription: true)
+                    await self.stopPresentation()
                     self.rendererRestarting = false
                     if self.visible, !self.retired {
                         try await self.startPresentationIfReady()
                     }
-                case .rendererConfigInvalidated:
-                    return
-                case .disconnected:
-                    self.snapshot = TerminalExternalRuntimeSnapshot(lifecycle: .unavailable)
-                    self.rendererConfigFloor = BackendOnlyRendererConfigFloor()
-                    self.invalidateRendererOperations()
-                    await self.stopPresentation()
-                case .snapshot, .delta, .terminalActivitySnapshot, .terminalActivity,
-                     .terminalActivityReceipt:
+                case .configInvalidated:
                     return
                 }
             }
@@ -1345,7 +1363,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                 self.snapshot = TerminalExternalRuntimeSnapshot(
                     lifecycle: .unavailable
                 )
-                await self.stopPresentation(keepEventSubscription: true)
+                await self.stopPresentation()
                 if self.visible, !self.retired {
                     _ = try? await self.startPresentationIfReady()
                 }
@@ -1353,12 +1371,12 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         }
     }
 
-    private func handleEventStreamEnded() async {
-        guard visible, !retired else { return }
+    private func handleRendererEventStreamEnded() async {
+        guard !retired else { return }
         invalidateRendererOperations()
         await withRendererOperationIgnoringCancellation {
             self.rendererConfigFloor = BackendOnlyRendererConfigFloor()
-            await self.stopPresentation(keepEventSubscription: true)
+            await self.stopPresentation()
             if self.visible, !self.retired {
                 _ = try? await self.startPresentationIfReady()
             }
@@ -1375,7 +1393,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
             self.workerExitFence = nil
             self.rendererRestarting = true
             self.invalidateRendererOperations()
-            await self.stopPresentation(keepEventSubscription: true)
+            await self.stopPresentation()
             self.rendererRestarting = false
             if self.visible, !self.retired {
                 _ = try? await self.startPresentationIfReady()
@@ -1418,7 +1436,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         }
     }
 
-    private func stopPresentation(keepEventSubscription: Bool = false) async {
+    private func stopPresentation() async {
+        await stopRendererEventListener()
         let priorWorkerIdentity = workerIdentity
         workerIdentity = nil
         workerExitFence = nil
@@ -1427,11 +1446,6 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         }
         presentationTask?.cancel()
         presentationTask = nil
-        if !keepEventSubscription {
-            eventTaskGeneration = UUID()
-            eventTask?.cancel()
-            eventTask = nil
-        }
         await retireRendererFrameIngress()
 
         if let presentation {

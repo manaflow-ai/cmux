@@ -1751,8 +1751,9 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         _ event: TerminalBackendRendererEvent
     ) async throws {
         switch event {
-        case .workerChanged(let changed):
-            guard changed.workspaceID.rawValue == currentWorkspaceID else { return }
+        case .workerChanged(let eventPresentationID, let changed):
+            guard eventPresentationID == presentationID,
+                  changed.workspaceID.rawValue == currentWorkspaceID else { return }
             let presentedEpoch = compositor?.fence.rendererEpoch
             let oldWorkerDied = presentedEpoch == changed.priorRendererEpoch
                 && (changed.rendererEpoch != presentedEpoch || changed.state != .ready)
@@ -1798,6 +1799,10 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                     markUnavailable()
                 }
             }
+        case .presentationInvalidated:
+            // The frontend router converts this control event into its route's
+            // renderer-stream-ended handler before it reaches a runtime mailbox.
+            return
         case .connectionLost(let authority):
             guard let lostBinding = binding, lostBinding.authority == authority else { return }
             invalidateRendererStateOperations()

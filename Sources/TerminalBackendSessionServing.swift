@@ -5,6 +5,12 @@ import Foundation
 protocol TerminalBackendSessionServing: Sendable {
     func backendCompatibility() async throws -> BackendCompatibilityResult
     func events() async -> AsyncStream<BackendCanonicalSessionEvent>
+    func rendererEventSubscription(
+        workspaceID: WorkspaceID,
+        presentationID: PresentationID,
+        bufferingCapacity: Int
+    ) async -> BackendRendererEventSubscription
+    func cancelRendererEventSubscription(_ identifier: UUID) async
     func connect() async throws -> TopologySnapshot?
     func close() async
     func currentTerminalActivitySnapshot() async -> BackendTerminalActivitySnapshot?

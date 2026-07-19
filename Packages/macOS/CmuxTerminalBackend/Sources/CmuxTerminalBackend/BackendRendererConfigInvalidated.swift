@@ -35,6 +35,24 @@ public struct BackendRendererConfigDigest: Codable, CustomStringConvertible, Equ
     }
 }
 
+/// Monotonic daemon-owned identity for one resolved renderer configuration.
+public struct BackendRendererConfigIdentity: Equatable, Sendable {
+    public let revision: UInt64
+    public let digest: BackendRendererConfigDigest
+
+    public init(revision: UInt64, digest: BackendRendererConfigDigest) {
+        self.revision = revision
+        self.digest = digest
+    }
+}
+
+/// Fail-closed renderer configuration ordering failures.
+public enum BackendRendererConfigValidationError: Error, Equatable, Sendable {
+    case invalidRevision
+    case staleReceipt(minimumRevision: UInt64, actualRevision: UInt64)
+    case inconsistentRevision(UInt64)
+}
+
 /// Session-wide notice that live renderer presentations use stale configuration.
 public struct BackendRendererConfigInvalidated: Decodable, Equatable, Sendable {
     public let revision: UInt64

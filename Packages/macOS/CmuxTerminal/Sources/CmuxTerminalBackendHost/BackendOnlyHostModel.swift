@@ -313,8 +313,7 @@ public final class BackendOnlyHostModel: ObservableObject {
                     await self.connectionDidEnd(connection, controller: controller)
                     return
                 case .terminalActivitySnapshot, .terminalActivity,
-                     .terminalActivityReceipt, .rendererWorkerChanged,
-                     .rendererPresentationReady, .rendererConfigInvalidated:
+                     .terminalActivityReceipt:
                     continue
                 }
             }

@@ -1,9 +1,6 @@
 internal import CmuxTerminalBackend
 
-struct BackendOnlyRendererConfigIdentity: Equatable, Sendable {
-    let revision: UInt64
-    let digest: BackendRendererConfigDigest
-}
+typealias BackendOnlyRendererConfigIdentity = BackendRendererConfigIdentity
 
 struct BackendOnlyRendererConfigFloor: Equatable, Sendable {
     private(set) var identity: BackendOnlyRendererConfigIdentity?

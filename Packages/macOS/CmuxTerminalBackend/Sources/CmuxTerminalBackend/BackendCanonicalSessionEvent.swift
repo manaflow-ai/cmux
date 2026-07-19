@@ -15,15 +15,6 @@ public enum BackendCanonicalSessionEvent: Equatable, Sendable {
     /// One newly persisted read receipt for this session's stable reader.
     case terminalActivityReceipt(BackendTerminalActivityReceipt)
 
-    /// A disposable renderer changed process identity and needs a fresh frame endpoint.
-    case rendererWorkerChanged(BackendRendererWorkerChanged)
-
-    /// Exact font-grid metrics produced by the worker for one render generation.
-    case rendererPresentationReady(BackendRendererPresentationReady)
-
-    /// Daemon-owned renderer configuration changed and live presentations must upsert.
-    case rendererConfigInvalidated(BackendRendererConfigInvalidated)
-
     /// The connection stopped and must be replaced before state can advance.
     case disconnected(BackendCanonicalSessionError)
 }

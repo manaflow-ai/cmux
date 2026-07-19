@@ -377,10 +377,13 @@ actor TerminalBackendFrontendEventRouter {
     private func routeRenderer(_ event: TerminalBackendRendererEvent) async {
         let routeIDs: Set<UUID>
         switch event {
-        case .workerChanged(let changed):
+        case .workerChanged(let presentationID, let changed):
             advanceWorkspaceLifecycle(changed)
-            routeIDs = routeIDsByWorkspaceID[changed.workspaceID.rawValue] ?? []
+            routeIDs = routeIDsByPresentationID[presentationID] ?? []
         case .presentationReady(let presentationID, _):
+            routeIDs = routeIDsByPresentationID[presentationID] ?? []
+        case .presentationInvalidated(let presentationID):
+            advancePresentationLifecycle(presentationID)
             routeIDs = routeIDsByPresentationID[presentationID] ?? []
         case .connectionLost:
             advanceGlobalLifecycle()
@@ -395,7 +398,11 @@ actor TerminalBackendFrontendEventRouter {
         }
         for identifier in routeIDs {
             guard let route = routes[identifier] else { continue }
-            await route.mailbox.enqueue(.renderer(event))
+            if case .presentationInvalidated = event {
+                await route.mailbox.enqueue(.rendererResync)
+            } else {
+                await route.mailbox.enqueue(.renderer(event))
+            }
             guard let currentRoute = routes[identifier], routeStillMatches(
                 currentRoute,
                 event: event
@@ -419,9 +426,12 @@ actor TerminalBackendFrontendEventRouter {
         event: TerminalBackendRendererEvent
     ) -> Bool {
         switch event {
-        case .workerChanged(let changed):
-            return route.workspaceID == changed.workspaceID.rawValue
+        case .workerChanged(let presentationID, let changed):
+            return route.presentationID == presentationID
+                && route.workspaceID == changed.workspaceID.rawValue
         case .presentationReady(let presentationID, _):
+            return route.presentationID == presentationID
+        case .presentationInvalidated(let presentationID):
             return route.presentationID == presentationID
         case .connectionLost, .reconnected:
             return true
@@ -450,6 +460,15 @@ actor TerminalBackendFrontendEventRouter {
             globalLifecycleRevision = lifecycleRevision
             workspaceLifecycleRevisions.removeAll(keepingCapacity: true)
             rendererEpochLifecycleRevisions.removeAll(keepingCapacity: true)
+        }
+        resumeLifecycleWaiters()
+    }
+
+    private func advancePresentationLifecycle(_ presentationID: UUID) {
+        advanceLifecycleRevision()
+        for identifier in routeIDsByPresentationID[presentationID] ?? [] {
+            guard let route = routes[identifier] else { continue }
+            workspaceLifecycleRevisions[route.workspaceID] = lifecycleRevision
         }
         resumeLifecycleWaiters()
     }
