@@ -110,6 +110,7 @@ public actor CmxIrohClientRuntime {
     ///   - configuration: Stable account-and-build-scoped endpoint inputs.
     ///   - pendingRevocations: Device-only bindings that must be revoked before registration.
     ///   - protocolConfiguration: The cmux ALPN and stream framing configuration.
+    ///   - diagnosticLog: Optional privacy-safe lifecycle sink for pooled sessions.
     ///   - networkPathSnapshot: A generation-aware view of positively identified
     ///     private-network profiles. An empty profile set disables explicit hints.
     ///   - now: Wall-clock injection for route and relay validation.
@@ -124,6 +125,7 @@ public actor CmxIrohClientRuntime {
         configuration: CmxIrohClientRuntimeConfiguration,
         pendingRevocations: CmxIrohPendingRevocationOutbox,
         protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1,
+        diagnosticLog: DiagnosticLog? = nil,
         offlinePolicyCache: CmxIrohClientOfflinePolicyCache? = nil,
         networkPathSnapshot: @escaping @Sendable () async throws -> CmxIrohNetworkPathSnapshot = {
             CmxIrohNetworkPathSnapshot(generation: 1, activeNetworkProfiles: [])
@@ -152,7 +154,8 @@ public actor CmxIrohClientRuntime {
         let sessionPool = CmxIrohClientSessionPool(
             supervisor: supervisor,
             contextProvider: contextRouter,
-            protocolConfiguration: protocolConfiguration
+            protocolConfiguration: protocolConfiguration,
+            diagnosticLog: diagnosticLog
         )
         self.supervisor = supervisor
         self.contextRouter = contextRouter
