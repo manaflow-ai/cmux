@@ -101,6 +101,21 @@ type remoteHookMutation struct {
 	Mode          uint32 `json:"mode,omitempty"`
 }
 
+type preparedRemoteHookMutation struct {
+	path          string
+	delete        bool
+	data          []byte
+	mode          os.FileMode
+	temporaryPath string
+}
+
+type remoteHookFileState struct {
+	path    string
+	existed bool
+	data    []byte
+	mode    os.FileMode
+}
+
 func runHooksRelay(socketPath string, args []string, input io.Reader, refreshAddr func() string) int {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		fmt.Fprintln(os.Stdout, "Usage: cmux hooks <setup|uninstall|agent> [args...]")
@@ -609,55 +624,230 @@ func snapshotRemoteHookFile(path string, info os.FileInfo) (remoteHookSnapshotEn
 }
 
 func applyRemoteHookMutations(mutations []remoteHookMutation, allowedPaths, recursivePaths []string) error {
+	prepared, err := prepareRemoteHookMutations(mutations, allowedPaths, recursivePaths)
+	if err != nil {
+		return err
+	}
+	previous, err := captureRemoteHookFileStates(prepared)
+	if err != nil {
+		return err
+	}
+	createdDirectories, err := stageRemoteHookMutations(prepared)
+	if err != nil {
+		cleanupRemoteHookStaging(prepared, createdDirectories)
+		return err
+	}
+
+	applied := 0
+	for index := range prepared {
+		mutation := &prepared[index]
+		if mutation.delete {
+			err = os.Remove(mutation.path)
+			if errors.Is(err, os.ErrNotExist) {
+				err = nil
+			}
+		} else {
+			err = os.Rename(mutation.temporaryPath, mutation.path)
+			if err == nil {
+				mutation.temporaryPath = ""
+			}
+		}
+		if err != nil {
+			rollbackErr := rollbackRemoteHookMutations(previous[:applied])
+			cleanupRemoteHookStaging(prepared, createdDirectories)
+			if rollbackErr != nil {
+				return errors.Join(err, fmt.Errorf("hook mutation rollback failed: %w", rollbackErr))
+			}
+			return err
+		}
+		applied++
+	}
+	cleanupRemoteHookTemporaryFiles(prepared)
+	return nil
+}
+
+func prepareRemoteHookMutations(
+	mutations []remoteHookMutation,
+	allowedPaths, recursivePaths []string,
+) ([]preparedRemoteHookMutation, error) {
+	if len(mutations) > 4096 {
+		return nil, errors.New("installer returned too many hook mutations")
+	}
+	prepared := make([]preparedRemoteHookMutation, 0, len(mutations))
+	seen := make(map[string]bool, len(mutations))
+	totalBytes := 0
 	for _, mutation := range mutations {
 		path := filepath.Clean(mutation.Path)
 		if !remoteHookMutationAllowed(path, allowedPaths, recursivePaths) {
-			return fmt.Errorf("installer returned an out-of-scope path: %s", path)
+			return nil, fmt.Errorf("installer returned an out-of-scope path: %s", path)
 		}
-		if mutation.Delete {
-			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return err
+		if seen[path] {
+			return nil, fmt.Errorf("installer returned duplicate hook mutation path: %s", path)
+		}
+		seen[path] = true
+		preparedMutation := preparedRemoteHookMutation{path: path, delete: mutation.Delete}
+		if !mutation.Delete {
+			data, err := base64.StdEncoding.DecodeString(mutation.ContentBase64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid content for %s", path)
 			}
+			totalBytes += len(data)
+			if totalBytes > remoteHookMaxInput {
+				return nil, errors.New("hook mutation plan exceeds 8 MiB relay limit")
+			}
+			preparedMutation.data = data
+			preparedMutation.mode = os.FileMode(mutation.Mode).Perm()
+			if preparedMutation.mode == 0 {
+				preparedMutation.mode = 0o600
+			}
+		}
+		prepared = append(prepared, preparedMutation)
+	}
+	return prepared, nil
+}
+
+func captureRemoteHookFileStates(mutations []preparedRemoteHookMutation) ([]remoteHookFileState, error) {
+	states := make([]remoteHookFileState, 0, len(mutations))
+	totalBytes := 0
+	for _, mutation := range mutations {
+		state := remoteHookFileState{path: mutation.path}
+		info, err := os.Lstat(mutation.path)
+		if errors.Is(err, os.ErrNotExist) {
+			states = append(states, state)
 			continue
 		}
-		data, err := base64.StdEncoding.DecodeString(mutation.ContentBase64)
 		if err != nil {
-			return fmt.Errorf("invalid content for %s", path)
+			return nil, err
 		}
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			return err
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("unsupported existing hook config file type at %s", mutation.path)
 		}
-		temporary, err := os.CreateTemp(filepath.Dir(path), ".cmux-hooks-*")
+		state.existed = true
+		state.mode = info.Mode().Perm()
+		state.data, err = os.ReadFile(mutation.path)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		temporaryPath := temporary.Name()
-		cleanup := func() {
+		totalBytes += len(state.data)
+		if totalBytes > remoteHookMaxInput {
+			return nil, errors.New("existing hook configuration exceeds 8 MiB rollback limit")
+		}
+		states = append(states, state)
+	}
+	return states, nil
+}
+
+func stageRemoteHookMutations(mutations []preparedRemoteHookMutation) ([]string, error) {
+	var createdDirectories []string
+	for index := range mutations {
+		mutation := &mutations[index]
+		if mutation.delete {
+			continue
+		}
+		created, err := createRemoteHookParentDirectories(filepath.Dir(mutation.path))
+		createdDirectories = append(createdDirectories, created...)
+		if err != nil {
+			return createdDirectories, err
+		}
+		temporary, err := os.CreateTemp(filepath.Dir(mutation.path), ".cmux-hooks-*")
+		if err != nil {
+			return createdDirectories, err
+		}
+		mutation.temporaryPath = temporary.Name()
+		if _, err := temporary.Write(mutation.data); err != nil {
 			_ = temporary.Close()
-			_ = os.Remove(temporaryPath)
+			return createdDirectories, err
 		}
-		if _, err := temporary.Write(data); err != nil {
-			cleanup()
-			return err
-		}
-		mode := os.FileMode(mutation.Mode)
-		if mode == 0 {
-			mode = 0o600
-		}
-		if err := temporary.Chmod(mode.Perm()); err != nil {
-			cleanup()
-			return err
+		if err := temporary.Chmod(mutation.mode); err != nil {
+			_ = temporary.Close()
+			return createdDirectories, err
 		}
 		if err := temporary.Close(); err != nil {
-			cleanup()
-			return err
-		}
-		if err := os.Rename(temporaryPath, path); err != nil {
-			cleanup()
-			return err
+			return createdDirectories, err
 		}
 	}
-	return nil
+	return createdDirectories, nil
+}
+
+func createRemoteHookParentDirectories(path string) ([]string, error) {
+	var missing []string
+	for current := filepath.Clean(path); ; current = filepath.Dir(current) {
+		info, err := os.Lstat(current)
+		if err == nil {
+			if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+				return missing, fmt.Errorf("unsupported hook config parent at %s", current)
+			}
+			break
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return missing, err
+		}
+		missing = append(missing, current)
+		parent := filepath.Dir(current)
+		if parent == current {
+			return missing, fmt.Errorf("no existing parent for hook config path %s", path)
+		}
+	}
+	var created []string
+	for index := len(missing) - 1; index >= 0; index-- {
+		if err := os.Mkdir(missing[index], 0o700); err != nil {
+			return created, err
+		}
+		created = append(created, missing[index])
+	}
+	return created, nil
+}
+
+func rollbackRemoteHookMutations(states []remoteHookFileState) error {
+	var rollbackErr error
+	for index := len(states) - 1; index >= 0; index-- {
+		state := states[index]
+		if state.existed {
+			rollbackErr = errors.Join(rollbackErr, writeRemoteHookFileAtomically(state.path, state.data, state.mode))
+			continue
+		}
+		if err := os.Remove(state.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			rollbackErr = errors.Join(rollbackErr, err)
+		}
+	}
+	return rollbackErr
+}
+
+func writeRemoteHookFileAtomically(path string, data []byte, mode os.FileMode) error {
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".cmux-hooks-rollback-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer func() {
+		_ = temporary.Close()
+		_ = os.Remove(temporaryPath)
+	}()
+	if _, err := temporary.Write(data); err != nil {
+		return err
+	}
+	if err := temporary.Chmod(mode.Perm()); err != nil {
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, path)
+}
+
+func cleanupRemoteHookStaging(mutations []preparedRemoteHookMutation, createdDirectories []string) {
+	cleanupRemoteHookTemporaryFiles(mutations)
+	for index := len(createdDirectories) - 1; index >= 0; index-- {
+		_ = os.Remove(createdDirectories[index])
+	}
+}
+
+func cleanupRemoteHookTemporaryFiles(mutations []preparedRemoteHookMutation) {
+	for _, mutation := range mutations {
+		if mutation.temporaryPath != "" {
+			_ = os.Remove(mutation.temporaryPath)
+		}
+	}
 }
 
 func remoteHookMutationAllowed(path string, allowedPaths, recursivePaths []string) bool {
