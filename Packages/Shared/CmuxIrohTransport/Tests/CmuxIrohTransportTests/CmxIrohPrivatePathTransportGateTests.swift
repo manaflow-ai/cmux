@@ -25,7 +25,11 @@ struct CmxIrohPrivatePathTransportGateTests {
     @Test
     func brokerAuthorizedCustomAddressCarriesPrivateRPC() async throws {
         let now = Date()
-        let fixture = try RegistryFixture(now: now)
+        let fixture = try RegistryFixture(
+            now: now,
+            initiatorSecretKey: Data(repeating: 1, count: 32),
+            acceptorSecretKey: Data(repeating: 10, count: 32)
+        )
         let ipAddress = try privateIPv4Address()
         let profile = try privateNetworkProfile(id: "release-gate")
         let customPath = try CmxIrohCustomPrivatePathBootstrap(
@@ -137,7 +141,11 @@ struct CmxIrohPrivatePathTransportGateTests {
     @Test
     func wrongEndpointIdentityCannotUseTheLivePrivateCoordinate() async throws {
         let now = Date()
-        let fixture = try RegistryFixture(now: now)
+        let fixture = try RegistryFixture(
+            now: now,
+            initiatorSecretKey: Data(repeating: 2, count: 32),
+            acceptorSecretKey: Data(repeating: 11, count: 32)
+        )
         let ipAddress = try privateIPv4Address()
         let clientSupervisor = try await realClientSupervisor(fixture: fixture)
         let server = try await realServerEndpoint(
@@ -155,20 +163,15 @@ struct CmxIrohPrivatePathTransportGateTests {
         )
         let wrongIdentity = try peerIdentity(secretByte: 8)
 
-        do {
-            #expect(wrongIdentity != fixture.acceptor.endpointID)
-            #expect(try await connectionIsRejected(
-                endpoint: clientEndpoint,
-                address: CmxIrohEndpointAddress(
-                    identity: wrongIdentity,
-                    pathHints: [hint]
-                )
-            ))
-        } catch {
-            await clientSupervisor.deactivate()
-            await serverEndpoint.close()
-            throw error
-        }
+        #expect(wrongIdentity != fixture.acceptor.endpointID)
+        let outcome = await connectionAttemptOutcome(
+            endpoint: clientEndpoint,
+            address: CmxIrohEndpointAddress(
+                identity: wrongIdentity,
+                pathHints: [hint]
+            )
+        )
+        #expect(outcome == .observationElapsed || outcome == .remoteIdentityMismatch)
 
         await clientSupervisor.deactivate()
         await serverEndpoint.close()
@@ -177,7 +180,11 @@ struct CmxIrohPrivatePathTransportGateTests {
     @Test
     func brokerWrongPortCannotReachTheLivePrivateEndpoint() async throws {
         let now = Date()
-        let fixture = try RegistryFixture(now: now)
+        let fixture = try RegistryFixture(
+            now: now,
+            initiatorSecretKey: Data(repeating: 3, count: 32),
+            acceptorSecretKey: Data(repeating: 12, count: 32)
+        )
         let ipAddress = try privateIPv4Address()
         let server = try await realServerEndpoint(
             fixture: fixture,
@@ -229,13 +236,14 @@ struct CmxIrohPrivatePathTransportGateTests {
             #expect(context.dialPlan.privateFallbackPaths.map(\.value) == [
                 "\(ipAddress):\(wrongPort)",
             ])
-            #expect(try await connectionIsRejected(
+            let outcome = await connectionAttemptOutcome(
                 endpoint: clientEndpoint,
                 address: CmxIrohEndpointAddress(
                     identity: fixture.acceptor.endpointID,
                     pathHints: context.dialPlan.privateFallbackPaths
                 )
-            ))
+            )
+            #expect(outcome == .observationElapsed || outcome == .dialFailed)
         } catch {
             await clientSupervisor.deactivate()
             await serverEndpoint.close()
@@ -313,7 +321,7 @@ struct CmxIrohPrivatePathTransportGateTests {
         fixture: RegistryFixture
     ) async throws -> CmxIrohEndpointSupervisor {
         let configuration = try CmxIrohEndpointConfiguration(
-            secretKey: CmxIrohSecretKey(bytes: Data((0 ..< 32).map(UInt8.init))),
+            secretKey: CmxIrohSecretKey(bytes: fixture.privateKey.rawRepresentation),
             alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
             managedRelayURLs: [fixture.relayURL],
             relays: []
@@ -353,7 +361,7 @@ struct CmxIrohPrivatePathTransportGateTests {
         port: UInt16
     ) async throws -> any CmxIrohEndpoint {
         let configuration = try CmxIrohEndpointConfiguration(
-            secretKey: CmxIrohSecretKey(bytes: Data(repeating: 9, count: 32)),
+            secretKey: CmxIrohSecretKey(bytes: fixture.acceptorSecretKey),
             alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
             bindPolicy: .required(CmxIrohBindAddress(ipAddress: ipAddress, port: port)),
             managedRelayURLs: [fixture.relayURL],
@@ -454,11 +462,11 @@ struct CmxIrohPrivatePathTransportGateTests {
         }
     }
 
-    private func connectionIsRejected(
+    private func connectionAttemptOutcome(
         endpoint: any CmxIrohEndpoint,
         address: CmxIrohEndpointAddress
-    ) async throws -> Bool {
-        await withTaskGroup(of: Bool.self) { group in
+    ) async -> ConnectionAttemptOutcome {
+        await withTaskGroup(of: ConnectionAttemptOutcome.self) { group in
             group.addTask {
                 do {
                     let connection = try await endpoint.connect(
@@ -466,21 +474,36 @@ struct CmxIrohPrivatePathTransportGateTests {
                         alpn: CmxIrohProtocolConfiguration.cmuxMobileV1.alpn
                     )
                     await connection.close(errorCode: 1, reason: "gate_unexpected_connection")
-                    return false
+                    return .connected
+                } catch CmxIrohLibError.remoteIdentityMismatch {
+                    return .remoteIdentityMismatch
                 } catch {
-                    return true
+                    return .dialFailed
                 }
             }
             group.addTask {
-                // A closed endpoint makes the wrong-coordinate deadline deterministic.
+                // Iroh rejects an unknown cryptographic EndpointID before a
+                // connection exists, so a wrong live coordinate can remain pending.
+                // The same release-gate suite proves an authorized private
+                // coordinate carries bidirectional RPC, so this is not the only
+                // evidence used to assess network health.
                 try? await ContinuousClock().sleep(for: .seconds(5))
-                await endpoint.close()
-                return true
+                return .observationElapsed
             }
-            let rejected = await group.next() ?? false
+            let outcome = await group.next() ?? .observationElapsed
             group.cancelAll()
-            return rejected
+            if outcome == .observationElapsed {
+                await endpoint.close()
+            }
+            return outcome
         }
+    }
+
+    private enum ConnectionAttemptOutcome: Equatable, Sendable {
+        case connected
+        case remoteIdentityMismatch
+        case dialFailed
+        case observationElapsed
     }
 
     private func privateIPv4Address() throws -> String {
