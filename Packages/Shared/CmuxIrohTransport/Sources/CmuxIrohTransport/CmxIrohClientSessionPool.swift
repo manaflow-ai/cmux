@@ -355,7 +355,7 @@ actor CmxIrohClientSessionPool {
             if existing.id == ownerID { return }
         } else {
             controlOwners[key] = ControlOwner(id: ownerID, purpose: purpose)
-            publishSelectedPathChange()
+            publishSelectedPathChangeIfEstablished(for: key)
             return
         }
 
@@ -379,7 +379,7 @@ actor CmxIrohClientSessionPool {
                     }
                 } else {
                     controlOwners[key] = ControlOwner(id: ownerID, purpose: purpose)
-                    publishSelectedPathChange()
+                    publishSelectedPathChangeIfEstablished(for: key)
                     continuation.resume()
                 }
             }
@@ -415,14 +415,19 @@ actor CmxIrohClientSessionPool {
         guard controlOwners[key]?.id == ownerID else { return }
         controlOwners[key] = nil
         guard var waiters = controlWaiters[key], !waiters.isEmpty else {
-            publishSelectedPathChange()
+            publishSelectedPathChangeIfEstablished(for: key)
             return
         }
         let next = waiters.removeFirst()
         controlWaiters[key] = waiters.isEmpty ? nil : waiters
         controlOwners[key] = ControlOwner(id: next.ownerID, purpose: next.purpose)
-        publishSelectedPathChange()
+        publishSelectedPathChangeIfEstablished(for: key)
         next.continuation.resume()
+    }
+
+    private func publishSelectedPathChangeIfEstablished(for key: SessionKey) {
+        guard sessions[key] != nil else { return }
+        publishSelectedPathChange()
     }
 
     private func publishSelectedPathChange() {
