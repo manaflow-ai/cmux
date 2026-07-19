@@ -1179,7 +1179,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let completedRoot = AgentSessionRunRecord(
             runId: "stable-root-run",
             pid: 101,
-            processStartedAt: 100,
+            processStartedAt: nil,
             parentRunId: nil,
             parentSessionId: nil,
             relationship: nil,
@@ -1209,6 +1209,132 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(run.restoreAuthority)
         #expect(run.relationship == nil)
         #expect(run.endedAt == nil)
+    }
+
+    @Test func verifiedReplacementResetsStaleActiveRootWithoutRecordedStartTime() throws {
+        let staleRoot = AgentSessionRunRecord(
+            runId: "stable-active-root-run",
+            pid: 101,
+            processStartedAt: nil,
+            parentRunId: nil,
+            parentSessionId: nil,
+            relationship: nil,
+            restoreAuthority: false,
+            startedAt: 100,
+            updatedAt: 110,
+            endedAt: nil
+        )
+        let replacement = AgentHookSessionLineage(
+            runId: staleRoot.runId,
+            pid: 202,
+            processStartedAt: 200,
+            parentRunId: nil,
+            parentSessionId: nil,
+            relationship: nil,
+            restoreAuthority: true
+        )
+
+        let runs = AgentSessionRunReconciler(maximumRecords: 128).reconciling(
+            [staleRoot],
+            activeRunId: staleRoot.runId,
+            lineage: replacement,
+            now: 210
+        )
+        let run = try #require(runs.first)
+
+        #expect(run.pid == 202)
+        #expect(run.processStartedAt == 200)
+        #expect(run.restoreAuthority)
+        #expect(run.startedAt == 210)
+        #expect(run.updatedAt == 210)
+        #expect(run.endedAt == nil)
+    }
+
+    @Test func legacyRunReplacementRequiresDifferentPIDAndVerifiedStartTime() throws {
+        let legacyRoot = AgentSessionRunRecord(
+            runId: "legacy-root-run",
+            pid: 101,
+            processStartedAt: nil,
+            parentRunId: nil,
+            parentSessionId: nil,
+            relationship: nil,
+            restoreAuthority: false,
+            startedAt: 100,
+            updatedAt: 110,
+            endedAt: 110
+        )
+
+        let incompleteReplacements: [(pid: Int, processStartedAt: TimeInterval?)] = [
+            (101, 200),
+            (202, nil),
+        ]
+        for (pid, processStartedAt) in incompleteReplacements {
+            let incoming = AgentHookSessionLineage(
+                runId: legacyRoot.runId,
+                pid: pid,
+                processStartedAt: processStartedAt,
+                parentRunId: nil,
+                parentSessionId: nil,
+                relationship: nil,
+                restoreAuthority: true
+            )
+            let runs = AgentSessionRunReconciler(maximumRecords: 128).reconciling(
+                [legacyRoot],
+                activeRunId: legacyRoot.runId,
+                lineage: incoming,
+                now: 210
+            )
+            let run = try #require(runs.first)
+
+            #expect(run.restoreAuthority == false)
+            #expect(run.startedAt == 100)
+        }
+    }
+
+    @Test func childEvidenceSurvivesReplacementWhenRecordedStartTimeIsMissing() throws {
+        for evidence in [
+            AgentSessionAuthorityEvidence.managedChild,
+            .provisionalAmbiguousChild,
+        ] {
+            let child = AgentSessionRunRecord(
+                runId: "stable-\(evidence.rawValue)-run",
+                pid: 101,
+                processStartedAt: nil,
+                parentRunId: "root-run",
+                parentSessionId: "root-session",
+                relationship: .spawned,
+                restoreAuthority: false,
+                authorityEvidence: evidence,
+                startedAt: 100,
+                updatedAt: 110,
+                endedAt: nil
+            )
+            let replacement = AgentHookSessionLineage(
+                runId: child.runId,
+                pid: 202,
+                processStartedAt: 200,
+                parentRunId: nil,
+                parentSessionId: nil,
+                relationship: nil,
+                restoreAuthority: true
+            )
+
+            let runs = AgentSessionRunReconciler(maximumRecords: 128).reconciling(
+                [child],
+                activeRunId: child.runId,
+                lineage: replacement,
+                now: 210
+            )
+            let run = try #require(runs.first)
+
+            #expect(run.pid == 202)
+            #expect(run.processStartedAt == 200)
+            #expect(run.parentRunId == "root-run")
+            #expect(run.parentSessionId == "root-session")
+            #expect(run.relationship == .spawned)
+            #expect(run.restoreAuthority == false)
+            #expect(run.authorityEvidence == evidence)
+        }
     }
 
     @Test func replacingActiveRunCreatesResumedEdge() throws {
