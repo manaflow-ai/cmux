@@ -268,7 +268,14 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         }
 
         XCTAssertFalse(registration("codex").processDetectedSnapshotIsRestorable(
-            for: observed("codex", ["/opt/bin/codex", "exec", "fix this"])
+            for: observed(
+                "codex",
+                ["/opt/bin/codex", "exec", "fix this"],
+                environment: capturedEnvironment(
+                    kind: "codex",
+                    arguments: ["/opt/bin/codex"]
+                )
+            )
         ))
         XCTAssertFalse(registration("claude").processDetectedSnapshotIsRestorable(
             for: observed("claude", ["/opt/bin/claude", "--print", "fix this"])

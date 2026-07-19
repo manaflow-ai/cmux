@@ -1725,6 +1725,78 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
     }
 
+    @Test func providerSelectionPreservesCanonicalCaseAndExactSidecarOwnership() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-provider-selection-canonical-\(UUID().uuidString)", isDirectory: true)
+        let stateDirectory = root.appendingPathComponent("state", isDirectory: true)
+        let configURL = root.appendingPathComponent(".config/cmux/cmux.json")
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: configURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("{}".utf8).write(
+            to: stateDirectory.appendingPathComponent("cursor-agent-hook-sessions.json")
+        )
+        let cli = CMUXCLI(args: [])
+        let specifications = try cli.agentSessionProviderSpecifications(
+            stateDirectory: stateDirectory.path,
+            homeDirectory: root.path,
+            requestedAgent: "cursor-agent",
+            processEnv: ["PWD": root.path],
+            fileManager: .default
+        )
+        #expect(specifications.contains { $0.name == "cursor-agent" })
+        #expect(cli.agentSessionProviderSelection(
+            for: "cursor-agent",
+            availableProviderIDs: specifications.map(\.name),
+            terminalObservations: []
+        ) == AgentSessionProviderSelection(
+            providerID: "cursor-agent",
+            exactObservationProviderID: "cursor-agent"
+        ))
+        #expect(cli.agentSessionProviderSelection(
+            for: "custom",
+            availableProviderIDs: ["Custom"],
+            terminalObservations: []
+        ) == AgentSessionProviderSelection(
+            providerID: "Custom",
+            exactObservationProviderID: "Custom"
+        ))
+
+        try Data("""
+        {"vault":{"agents":[{
+          "id":"Ollama","name":"Ambiguous Ollama",
+          "sessionIdSource":{"type":"argvOption","argvOption":"--session"},
+          "resumeCommand":"ollama --session {{sessionId}}"
+        }]}}
+        """.utf8).write(to: configURL)
+        #expect(throws: AgentSessionProviderCollisionError.self) {
+            try cli.agentSessionProviderSpecifications(
+                stateDirectory: stateDirectory.path,
+                homeDirectory: root.path,
+                processEnv: ["PWD": root.path],
+                fileManager: .default
+            )
+        }
+
+        try Data("""
+        {"vault":{"agents":[{
+          "id":"ollama","name":"Project Ollama",
+          "sessionIdSource":{"type":"argvOption","argvOption":"--session"},
+          "resumeCommand":"ollama --session {{sessionId}}"
+        }]}}
+        """.utf8).write(to: configURL)
+        let exactOverride = try cli.agentSessionProviderSpecifications(
+            stateDirectory: stateDirectory.path,
+            homeDirectory: root.path,
+            processEnv: ["PWD": root.path],
+            fileManager: .default
+        )
+        #expect(exactOverride.first { $0.name == "ollama" }?.displayName == "Project Ollama")
+    }
+
     @Test func caseDifferentStaticProviderCollisionsFailWhileExactStaticIDsRemainUsable() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-static-provider-collision-\(UUID().uuidString)", isDirectory: true)
