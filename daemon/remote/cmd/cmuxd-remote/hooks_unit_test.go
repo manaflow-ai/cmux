@@ -57,6 +57,24 @@ func TestRemoteHookAncestorEnvironmentFiltersUnlistedPIDs(t *testing.T) {
 	}
 }
 
+func TestRemoteHookSnapshotPayloadAllowsBase64Expansion(t *testing.T) {
+	content := make([]byte, remoteHookMaxConfigurationBytes)
+	payload, err := encodeRemoteHookSnapshot(remoteHookSnapshot{
+		Agent:  "omp",
+		Action: "install",
+		Entries: []remoteHookSnapshotEntry{{
+			Path: "/home/test/.omp/config.json", Kind: "file",
+			ContentBase64: base64.StdEncoding.EncodeToString(content), Mode: 0o600,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("8 MiB decoded snapshot should fit its transport envelope: %v", err)
+	}
+	if len(payload) <= remoteHookMaxConfigurationBytes {
+		t.Fatalf("test payload did not exercise base64 expansion: %d bytes", len(payload))
+	}
+}
+
 func TestApplyRemoteHookMutationsPreservesUnrelatedFiles(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "hooks.json")

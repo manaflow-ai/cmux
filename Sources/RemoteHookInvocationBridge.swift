@@ -17,10 +17,11 @@ nonisolated struct RemoteHookInvocationBridge: Sendable {
         let environment: [String: String]
     }
 
-    let maximumInputBytes = 8 * 1024 * 1024
+    let maximumInputBytes = 16 * 1024 * 1024
+    private let maximumHookInputBytes = 8 * 1024 * 1024
     private let maximumChunkBytes = 6 * 1024
     let maximumTransferMetadataBytes = 1024 * 1024
-    let maximumConcurrentTransfers = 8
+    let maximumConcurrentTransfers = 4
     let staleTransferAge: TimeInterval = 300
     let transferRoot: URL
     private let maximumHookOutputBytes = 2 * 1024 * 1024
@@ -124,7 +125,10 @@ nonisolated struct RemoteHookInvocationBridge: Sendable {
         } else {
             input = Data()
         }
-        guard input.count <= maximumInputBytes else {
+        let maximumBytes = arguments.first == "__remote-configure"
+            ? maximumInputBytes
+            : maximumHookInputBytes
+        guard input.count <= maximumBytes else {
             throw bridgeError(
                 "invalid_params",
                 key: "socket.hooks.remoteBridge.payloadTooLarge",

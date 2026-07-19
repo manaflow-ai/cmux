@@ -1,7 +1,7 @@
 import Foundation
 
 extension RemoteHookInvocationBridge {
-    // Fixed slots plus the per-transfer caps bound aggregate staging to 72 MiB.
+    // Fixed slots plus the per-transfer caps bound aggregate staging to 68 MiB.
     func beginTransfer(_ invocation: Invocation) throws -> String {
         try FileManager.default.createDirectory(
             at: transferRoot,

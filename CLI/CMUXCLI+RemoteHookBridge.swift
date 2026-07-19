@@ -7,7 +7,8 @@ extension CMUXCLI {
     // `/bin/sh` uses 512-byte blocks; two 16 MiB file caps bound aggregate capture at 32 MiB.
     private static let remoteHookInstallerOutputLimitScript = "ulimit -f 32768 || exit 125; exec \"$@\""
 
-    private static let remoteHookBridgeMaximumBytes = 8 * 1024 * 1024
+    private static let remoteHookBridgeMaximumConfigurationBytes = 8 * 1024 * 1024
+    private static let remoteHookBridgeMaximumPayloadBytes = 16 * 1024 * 1024
 
     private struct RemoteHookDescriptor: Codable {
         let name: String
@@ -89,7 +90,7 @@ extension CMUXCLI {
         case "__remote-configure":
             guard arguments.count == 1 else { throw Self.remoteHookBridgeError("invalid_configure_request") }
             let input = FileHandle.standardInput.readDataToEndOfFile()
-            guard input.count <= Self.remoteHookBridgeMaximumBytes else {
+            guard input.count <= Self.remoteHookBridgeMaximumPayloadBytes else {
                 throw Self.remoteHookBridgeError("configuration_too_large")
             }
             let snapshot: RemoteHookSnapshot
@@ -234,7 +235,7 @@ extension CMUXCLI {
                 throw remoteHookBridgeError("invalid_snapshot_file")
             }
             totalBytes += content.count
-            guard totalBytes <= remoteHookBridgeMaximumBytes else {
+            guard totalBytes <= remoteHookBridgeMaximumConfigurationBytes else {
                 throw remoteHookBridgeError("configuration_too_large")
             }
             try FileManager.default.createDirectory(at: mirrorURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -401,7 +402,7 @@ extension CMUXCLI {
                 guard values.isRegularFile == true else { continue }
                 let content = try Data(contentsOf: candidate)
                 totalBytes += content.count
-                guard totalBytes <= remoteHookBridgeMaximumBytes else {
+                guard totalBytes <= remoteHookBridgeMaximumConfigurationBytes else {
                     throw remoteHookBridgeError("install_plan_too_large")
                 }
                 let attributes = try FileManager.default.attributesOfItem(atPath: candidate.path)

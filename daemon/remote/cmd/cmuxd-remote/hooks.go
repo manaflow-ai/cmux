@@ -17,10 +17,12 @@ import (
 )
 
 const (
-	remoteHookTimeout     = 130 * time.Second
-	remoteHookChunkBytes  = 6 * 1024
-	remoteHookDirectBytes = 3 * 1024
-	remoteHookMaxInput    = 8 * 1024 * 1024
+	remoteHookTimeout               = 130 * time.Second
+	remoteHookChunkBytes            = 6 * 1024
+	remoteHookDirectBytes           = 3 * 1024
+	remoteHookMaxEventInput         = 8 * 1024 * 1024
+	remoteHookMaxConfigurationBytes = 8 * 1024 * 1024
+	remoteHookMaxBridgePayload      = 16 * 1024 * 1024
 )
 
 var remoteHookRoutingEnvironmentKeys = []string{
@@ -316,15 +318,11 @@ func configureRemoteHook(socketPath string, descriptor remoteHookDescriptor, act
 		fmt.Fprintf(os.Stderr, "cmux hooks %s: %v\n", descriptor.Name, err)
 		return 1
 	}
-	payload, err := json.Marshal(remoteHookSnapshot{
+	payload, err := encodeRemoteHookSnapshot(remoteHookSnapshot{
 		Agent: descriptor.Name, Action: action, Arguments: arguments, Entries: entries,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cmux hooks %s: %v\n", descriptor.Name, err)
-		return 1
-	}
-	if len(payload) > remoteHookMaxInput {
-		fmt.Fprintf(os.Stderr, "cmux hooks %s: hook configuration snapshot exceeds 8 MiB relay limit\n", descriptor.Name)
 		return 1
 	}
 	result, err := invokeRemoteHook(socketPath, []string{"__remote-configure"}, payload, refreshAddr)
@@ -366,12 +364,23 @@ func configureRemoteHook(socketPath string, descriptor remoteHookDescriptor, act
 	return 0
 }
 
-func readRemoteHookStdin(input io.Reader) ([]byte, error) {
-	data, err := io.ReadAll(io.LimitReader(input, remoteHookMaxInput+1))
+func encodeRemoteHookSnapshot(snapshot remoteHookSnapshot) ([]byte, error) {
+	payload, err := json.Marshal(snapshot)
 	if err != nil {
 		return nil, err
 	}
-	if len(data) > remoteHookMaxInput {
+	if len(payload) > remoteHookMaxBridgePayload {
+		return nil, errors.New("encoded hook configuration snapshot exceeds 16 MiB relay limit")
+	}
+	return payload, nil
+}
+
+func readRemoteHookStdin(input io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(input, remoteHookMaxEventInput+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > remoteHookMaxEventInput {
 		return nil, errors.New("hook payload exceeds 8 MiB relay limit")
 	}
 	return data, nil
@@ -556,7 +565,7 @@ func snapshotRemoteHookPaths(paths, recursivePaths []string) ([]remoteHookSnapsh
 				return nil, err
 			}
 			total += size
-			if total > remoteHookMaxInput {
+			if total > remoteHookMaxConfigurationBytes {
 				return nil, errors.New("hook configuration exceeds 8 MiB relay limit")
 			}
 			entries = append(entries, entry)
@@ -589,7 +598,7 @@ func snapshotRemoteHookPaths(paths, recursivePaths []string) ([]remoteHookSnapsh
 				return err
 			}
 			total += size
-			if total > remoteHookMaxInput {
+			if total > remoteHookMaxConfigurationBytes {
 				return errors.New("hook configuration exceeds 8 MiB relay limit")
 			}
 			entries = append(entries, fileEntry)
@@ -617,7 +626,7 @@ func snapshotRemoteHookFile(path string, info os.FileInfo) (remoteHookSnapshotEn
 	if !info.Mode().IsRegular() {
 		return remoteHookSnapshotEntry{}, 0, fmt.Errorf("unsupported hook config file type at %s", path)
 	}
-	if info.Size() > remoteHookMaxInput {
+	if info.Size() > remoteHookMaxConfigurationBytes {
 		return remoteHookSnapshotEntry{}, 0, fmt.Errorf("hook configuration file exceeds 8 MiB: %s", path)
 	}
 	data, err := os.ReadFile(path)
@@ -706,7 +715,7 @@ func prepareRemoteHookMutations(
 				return nil, fmt.Errorf("invalid content for %s", path)
 			}
 			totalBytes += len(data)
-			if totalBytes > remoteHookMaxInput {
+			if totalBytes > remoteHookMaxConfigurationBytes {
 				return nil, errors.New("hook mutation plan exceeds 8 MiB relay limit")
 			}
 			preparedMutation.data = data
@@ -769,7 +778,7 @@ func captureRemoteHookFileStates(
 			return nil, err
 		}
 		totalBytes += len(state.data)
-		if totalBytes > remoteHookMaxInput {
+		if totalBytes > remoteHookMaxConfigurationBytes {
 			return nil, errors.New("existing hook configuration exceeds 8 MiB rollback limit")
 		}
 		expectedData, err := base64.StdEncoding.DecodeString(expected.ContentBase64)
