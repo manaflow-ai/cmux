@@ -1,9 +1,12 @@
-// Mint a guest token for an existing share code. Cookie auth is allowed —
+// Mint a connection token for an existing share code. Cookie auth is allowed —
 // this is the browser path behind cmux.com/share/<code>. Whether the code
 // refers to a live session is the Durable Object's decision at connect time;
-// a token for a dead code is a signed 404. The host also uses this route to
-// refresh its connection token after the create-time one expires (host=true
-// only matters for the first connect, which creates the session).
+// a token for a dead code is a signed 404.
+//
+// A `{"host": true}` body asks for a host-claim token; the host Mac uses this
+// to reconnect after its create-time token expires. Minting it for any caller
+// is safe: the session DO rejects a host-claim connection whose user id is
+// not the session creator, so the claim only works for the actual host.
 
 import type { KeyObject } from "node:crypto";
 
@@ -51,11 +54,18 @@ export async function handleShareGuestToken(
   if (!user) return unauthorized();
   const key = deps.signingKey();
   if (!key) return json({ error: "share_not_configured" }, 503);
+  let host = false;
+  try {
+    const body = (await request.json()) as { host?: unknown };
+    host = body.host === true;
+  } catch {
+    // No/invalid body means a plain guest token.
+  }
   const { token, expiresAt } = mintShareToken({
     sub: user.id,
     email: user.primaryEmail ?? "",
     code,
-    host: false,
+    host,
     key,
     nowSeconds: deps.nowSeconds(),
   });
