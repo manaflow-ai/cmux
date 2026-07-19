@@ -109,7 +109,9 @@ The fork must expose cancellation for an in-progress connect. Closing a QUIC con
 
 ## Relay fleet and preferences
 
-`CMUX_RELAY_CATALOG_JSON` is the server-owned managed fleet. Every catalog has a strictly increasing sequence and at most sixteen unique credential-free HTTPS origins. The backend rejects sequence rollback and same-sequence content changes. It signs a five-minute policy with an Ed25519 key whose public half is pinned by clients. A cached policy remains usable only until its signed expiry. Invalid, expired, rolled-back, or unverifiable policy fails closed to direct Iroh paths.
+`config/iroh/managed-relay-catalog.json` is the committed, server-owned source of truth for the managed fleet. `web/tools/generate-managed-iroh-relay-catalog.ts` validates it and writes the generated TypeScript consumed by the web API and presence worker. Build checks reject generated-file drift. Managed relay URLs do not come from deployment environment variables, and signing keys and relay credentials never enter the catalog or generated files.
+
+Every catalog has a strictly increasing sequence and at most sixteen unique credential-free HTTPS origins. The backend rejects sequence rollback and same-sequence content changes. It signs a five-minute policy with an Ed25519 key whose public half is pinned by clients. A cached policy remains usable only until its signed expiry. Invalid, expired, rolled-back, or unverifiable policy fails closed to direct Iroh paths. Fleet rotations are add-before-remove: bump the sequence and add relays, regenerate and deploy both server consumers, wait at least one signed-policy lifetime, then bump the sequence again before regenerating, deploying, and removing the retired relays. A stable relay ID never changes meaning in place.
 
 The server may add, remove, or replace relays without a client update. A remote `EndpointAddr` contains only the remote endpoint's advertised home relay or relays, validated against the signed fleet. Fleet configuration and remote reachability remain separate wire fields.
 
