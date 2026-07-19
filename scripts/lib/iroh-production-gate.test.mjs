@@ -133,7 +133,12 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "$state_file" ]]
 state_directory="$(dirname "$state_file")"
-printf '%s\n%s\n' "$state_file" "$(stat -f '%Lp' "$state_directory")" > "$CMUX_TEST_CAPTURE_FILE"
+if [[ "$(uname)" == "Darwin" ]]; then
+  mode="$(stat -f '%Lp' "$state_directory")"
+else
+  mode="$(stat -c '%a' "$state_directory")"
+fi
+printf '%s\n%s\n' "$state_file" "$mode" > "$CMUX_TEST_CAPTURE_FILE"
 exit 73
 `, { mode: 0o755 });
   chmodSync(fakeBun, 0o755);
