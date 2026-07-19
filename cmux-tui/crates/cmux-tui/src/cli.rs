@@ -79,6 +79,12 @@ const VERBS: &[VerbSpec] = &[
         kind: socket(build_detach_client, print_empty, false),
     },
     VerbSpec {
+        name: "set-client-sizing",
+        help: "Include or exclude a client from shared terminal sizing.",
+        allowed: &["client", "enabled"],
+        kind: socket(build_set_client_sizing, print_empty, false),
+    },
+    VerbSpec {
         name: "reload-config",
         help: "Ask a running TUI to reload its config file.",
         allowed: &[],
@@ -211,6 +217,12 @@ const VERBS: &[VerbSpec] = &[
         kind: socket(build_new_screen, print_surface, false),
     },
     VerbSpec {
+        name: "new-pane",
+        help: "Create a pane with automatic distribution.",
+        allowed: &["pane", "cols", "rows"],
+        kind: socket(build_new_pane, print_surface, false),
+    },
+    VerbSpec {
         name: "split",
         help: "Split a pane.",
         allowed: &["pane", "dir", "cols", "rows"],
@@ -221,6 +233,12 @@ const VERBS: &[VerbSpec] = &[
         help: "Set a split ratio.",
         allowed: &["pane", "dir", "ratio"],
         kind: socket(build_set_ratio, print_empty, false),
+    },
+    VerbSpec {
+        name: "set-split-ratio",
+        help: "Set a split ratio by stable split id.",
+        allowed: &["split", "ratio"],
+        kind: socket(build_set_split_ratio, print_empty, false),
     },
     VerbSpec {
         name: "pane-neighbor",
@@ -311,6 +329,12 @@ const VERBS: &[VerbSpec] = &[
         help: "Resize a surface PTY.",
         allowed: &["surface", "cols", "rows"],
         kind: socket(build_resize_surface, print_empty, false),
+    },
+    VerbSpec {
+        name: "release-surface-size",
+        help: "Stop this client from sizing a surface.",
+        allowed: &["surface"],
+        kind: socket(build_surface, print_empty, false),
     },
     VerbSpec {
         name: "focus-pane",
@@ -741,6 +765,16 @@ fn build_detach_client(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(json!({ "client": flags.required_u64("client")? }))
 }
 
+fn build_set_client_sizing(flags: &FlagMap) -> Result<Value, UsageError> {
+    let enabled_value = flags.required("enabled")?;
+    let enabled = match enabled_value.as_str() {
+        "true" => true,
+        "false" => false,
+        _ => return Err(UsageError("--enabled must be true or false".to_string())),
+    };
+    Ok(json!({ "client": flags.required_u64("client")?, "enabled": enabled }))
+}
+
 fn build_surface(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(json!({ "surface": flags.required_u64("surface")? }))
 }
@@ -948,6 +982,12 @@ fn build_new_screen(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(value)
 }
 
+fn build_new_pane(flags: &FlagMap) -> Result<Value, UsageError> {
+    let mut value = json!({ "pane": flags.required_u64("pane")? });
+    flags.insert_optional_size(&mut value)?;
+    Ok(value)
+}
+
 fn build_export_layout(flags: &FlagMap) -> Result<Value, UsageError> {
     let mut value = json!({});
     flags.insert_optional_u64(&mut value, "screen")?;
@@ -973,6 +1013,13 @@ fn build_set_ratio(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(json!({
         "pane": flags.required_u64("pane")?,
         "dir": flags.required_dir()?,
+        "ratio": flags.required_f32("ratio")?,
+    }))
+}
+
+fn build_set_split_ratio(flags: &FlagMap) -> Result<Value, UsageError> {
+    Ok(json!({
+        "split": flags.required_u64("split")?,
         "ratio": flags.required_f32("ratio")?,
     }))
 }
@@ -1273,7 +1320,7 @@ fn print_clients(data: &Value, out: &mut dyn Write) -> io::Result<()> {
             .unwrap_or_else(|| "-".to_string());
         writeln!(
             out,
-            "{} {} {} {} connected={}s attached={} sizes={} self={}",
+            "{} {} {} {} connected={}s attached={} sizes={} self={} sizing={}",
             client.get("client").and_then(Value::as_u64).unwrap_or(0),
             client.get("transport").and_then(Value::as_str).unwrap_or(""),
             client.get("name").and_then(Value::as_str).unwrap_or("-"),
@@ -1282,6 +1329,7 @@ fn print_clients(data: &Value, out: &mut dyn Write) -> io::Result<()> {
             attached,
             sizes,
             client.get("self").and_then(Value::as_bool).unwrap_or(false),
+            client.get("size_participating").and_then(Value::as_bool).unwrap_or(true),
         )?;
     }
     Ok(())

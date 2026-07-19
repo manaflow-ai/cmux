@@ -1,6 +1,6 @@
 # Control Socket Protocol
 
-As of protocol v7, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
+As of protocol v9, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
 
 For shell use, prefer `cmux-tui <verb>`; it wraps the same socket commands and preserves JSON output with `--json`.
 
@@ -14,7 +14,7 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":7,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":9,"session":"main","pid":12345}}
 ```
 
 Responses have this shape:
@@ -28,7 +28,7 @@ Bad JSON returns `ok:false` with no request id.
 
 ## Command Contract
 
-The full API contract is intended to live in `cmux-tui/spec/`, but that directory is not present in this checkout. Until it lands, `cmux-tui-core/src/server.rs` is the command source of truth.
+The full API contract lives in [`../spec/commands.md`](../spec/commands.md). `cmux-tui-core/src/server.rs` is the implementation source of truth.
 
 The server command set in this branch is:
 
@@ -42,8 +42,10 @@ new-tab
 new-browser-tab
 new-workspace
 new-screen
+new-pane
 split
 set-ratio
+set-split-ratio
 move-tab
 move-workspace
 set-default-colors
@@ -56,6 +58,7 @@ rename-surface
 rename-screen
 rename-workspace
 resize-surface
+release-surface-size
 focus-pane
 select-tab
 select-screen
@@ -86,6 +89,12 @@ scroll-surface
 {"id":11,"cmd":"move-workspace","workspace":3,"index":0}
 ```
 
+Protocol-v8 split nodes serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. The `split` value remains stable until that node collapses. Resize an exact divider with:
+
+```json
+{"id":12,"cmd":"set-split-ratio","split":9,"ratio":0.65}
+```
+
 ## Events
 
 `subscribe` starts event streaming:
@@ -111,9 +120,9 @@ Subscribed event lines are:
 
 `surface-resized` reports the final clamped cell size and is emitted only when the surface size actually changes. `surface-resize-failed` reports an asynchronous browser resize failure and the delay before an automatic retry, or `null` after retries are exhausted. Browser resize completions repeat the numeric `reservation_id` returned by the accepted request so clients can ignore stale completions.
 
-Protocol v7 `title-changed` carries the authoritative current `title`. Slow subscribers coalesce repeated pending title changes per surface to the latest value.
+Protocol v7 and newer `title-changed` events carry the authoritative current `title`. Slow subscribers coalesce repeated pending title changes per surface to the latest value.
 
-Browser input, navigation, activation, and browser reconfigure work from `resize-surface` enqueue per-surface CDP work. Protocol v7 `resize-surface` responses include `data.accepted` and `data.reservation_id`; `true` means the resize was applied or queued, and `false` means it was already satisfied, pending, or waiting for its retry backoff. Completion arrives as `surface-resized`, and asynchronous failure arrives as `surface-resize-failed`. Two consecutive CDP call timeouts mark only that browser surface failed with `browser is not responding`.
+Browser input, navigation, activation, and browser reconfigure work from `resize-surface` enqueue per-surface CDP work. Protocol v7 and newer `resize-surface` responses include `data.accepted` and `data.reservation_id`; `true` means the resize was applied or queued, and `false` means it was already satisfied, pending, or waiting for its retry backoff. Completion arrives as `surface-resized`, and asynchronous failure arrives as `surface-resize-failed`. Two consecutive CDP call timeouts mark only that browser surface failed with `browser is not responding`.
 
 ## Attach Surface
 
@@ -148,7 +157,9 @@ When the stream ends, it sends:
 
 ## Client Compatibility
 
-The remote TUI requires protocol v7. It refuses servers reporting any other protocol version because it relies on resized attach replays and authoritative title events.
+The remote TUI requires protocol v9. It rejects protocol-v8 servers before loading their workspace tree because v8 does not define stack layout nodes or `new-pane`.
+
+Existing `set-ratio` clients remain source-compatible and the server keeps the pane-and-direction command unchanged. Protocol-v8 and newer frontends should read `layout.split` and send `set-split-ratio` so nested same-direction dividers are addressed exactly. Protocol v9 adds stack layout nodes and `new-pane`; clients must not send `new-pane` to a protocol-v8 server.
 
 Attach clients mirror PTY surfaces locally. On first render, a client can resize the server surface before requesting `attach-surface`, so the initial VT replay is captured at the visible geometry.
 

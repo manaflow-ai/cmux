@@ -3,7 +3,16 @@ import type { Id, Size, SplitDirection } from "./common.js";
 /** The canonical pane split tree. */
 export type Layout =
   | { type: "leaf"; pane: Id }
-  | { type: "split"; dir: SplitDirection; ratio: number; a: Layout; b: Layout };
+  | {
+      type: "split";
+      /** Stable split id. Absent only when connected to a pre-v8 server. */
+      split?: Id;
+      dir: SplitDirection;
+      ratio: number;
+      a: Layout;
+      b: Layout;
+    }
+  | { type: "stack"; panes: [Id, ...Id[]]; expanded: Id };
 
 /** A declarative split tree used by `apply-layout`. */
 export type DeclarativeLayout =
@@ -14,7 +23,8 @@ export type DeclarativeLayout =
       ratio: number;
       a: DeclarativeLayout;
       b: DeclarativeLayout;
-    };
+    }
+  | { type: "stack"; panes: [Id, ...Id[]]; expanded: Id };
 
 /** A live PTY or browser tab. */
 export interface Tab {

@@ -28,7 +28,7 @@ export interface SetClientInfoRequest extends CmuxRequestBase {
 }
 
 export interface ListClientsRequest extends CmuxRequestBase { cmd: "list-clients" }
-export type ClientTransport = "unix" | "ws";
+export type ClientTransport = "local" | "unix" | "ws";
 export interface ClientSize {
   surface: Id;
   cols: number | null;
@@ -43,10 +43,17 @@ export interface ClientInfo {
   attached: Id[];
   sizes: ClientSize[];
   self: boolean;
+  size_participating: boolean;
 }
 export type ListClientsResult = ClientInfo[];
 
 export interface DetachClientRequest extends CmuxRequestBase { cmd: "detach-client"; client: Id }
+export interface SetClientSizingRequest extends CmuxRequestBase {
+  cmd: "set-client-sizing";
+  client?: Id;
+  enabled: boolean;
+  exclusive?: boolean;
+}
 
 export interface ReloadConfigRequest extends CmuxRequestBase { cmd: "reload-config" }
 export interface ReloadConfigResult { reloaded: true; path: string | null }
@@ -143,6 +150,13 @@ export interface NewScreenRequest extends CmuxRequestBase {
   rows?: number | null;
 }
 
+export interface NewPaneRequest extends CmuxRequestBase {
+  cmd: "new-pane";
+  pane: Id;
+  cols?: number | null;
+  rows?: number | null;
+}
+
 export interface SplitRequest extends CmuxRequestBase {
   cmd: "split";
   pane: Id;
@@ -157,6 +171,13 @@ export interface SetRatioRequest extends CmuxRequestBase {
   cmd: "set-ratio";
   pane: Id;
   dir: SplitDirection;
+  /** The server clamps this value to `0.05..0.95`. */
+  ratio: number;
+}
+
+export interface SetSplitRatioRequest extends CmuxRequestBase {
+  cmd: "set-split-ratio";
+  split: Id;
   /** The server clamps this value to `0.05..0.95`. */
   ratio: number;
 }
@@ -209,6 +230,10 @@ export interface ResizeSurfaceRequest extends CmuxRequestBase {
   rows: number;
 }
 export interface ResizeSurfaceResult { accepted: boolean; reservation_id?: number | null }
+export interface ReleaseSurfaceSizeRequest extends CmuxRequestBase {
+  cmd: "release-surface-size";
+  surface: Id;
+}
 
 export interface FocusPaneRequest extends CmuxRequestBase { cmd: "focus-pane"; pane: Id }
 
@@ -321,6 +346,7 @@ export type CmuxRequest =
   | SetClientInfoRequest
   | ListClientsRequest
   | DetachClientRequest
+  | SetClientSizingRequest
   | ReloadConfigRequest
   | SetWindowTitleRequest
   | ClearWindowTitleRequest
@@ -336,8 +362,10 @@ export type CmuxRequest =
   | NewBrowserTabRequest
   | NewWorkspaceRequest
   | NewScreenRequest
+  | NewPaneRequest
   | SplitRequest
   | SetRatioRequest
+  | SetSplitRatioRequest
   | PaneNeighborRequest
   | FocusDirectionRequest
   | SwapPaneRequest
@@ -353,6 +381,7 @@ export type CmuxRequest =
   | RenameScreenRequest
   | RenameWorkspaceRequest
   | ResizeSurfaceRequest
+  | ReleaseSurfaceSizeRequest
   | FocusPaneRequest
   | SelectTabRequest
   | SelectScreenRequest
@@ -378,6 +407,7 @@ export interface CmuxResponseDataMap {
   "set-client-info": EmptyResult;
   "list-clients": ListClientsResult;
   "detach-client": EmptyResult;
+  "set-client-sizing": EmptyResult;
   "reload-config": ReloadConfigResult;
   "set-window-title": EmptyResult;
   "clear-window-title": EmptyResult;
@@ -393,8 +423,10 @@ export interface CmuxResponseDataMap {
   "new-browser-tab": SurfaceResult;
   "new-workspace": SurfaceResult;
   "new-screen": SurfaceResult;
+  "new-pane": SurfaceResult;
   split: SurfaceResult;
   "set-ratio": EmptyResult;
+  "set-split-ratio": EmptyResult;
   "pane-neighbor": PaneNeighborResult;
   "focus-direction": FocusDirectionResult;
   "swap-pane": EmptyResult;
@@ -410,6 +442,7 @@ export interface CmuxResponseDataMap {
   "rename-screen": EmptyResult;
   "rename-workspace": EmptyResult;
   "resize-surface": ResizeSurfaceResult;
+  "release-surface-size": EmptyResult;
   "focus-pane": EmptyResult;
   "select-tab": EmptyResult;
   "select-screen": EmptyResult;

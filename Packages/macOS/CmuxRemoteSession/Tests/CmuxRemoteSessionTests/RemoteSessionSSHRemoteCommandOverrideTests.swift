@@ -111,6 +111,7 @@ struct RemoteSessionSSHRemoteCommandOverrideTests {
             host: NoopRemoteSessionHost(),
             configuration: configuration,
             proxyBroker: UnusedRemoteProxyBroker(),
+            connectionBroker: NativeSSHConnectionBroker(),
             manifestRepository: RemoteDaemonManifestRepository(
                 homeDirectory: FileManager.default.temporaryDirectory
             ),

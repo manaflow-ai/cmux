@@ -22,10 +22,16 @@ import { tryLoadWebglRenderer } from "../lib/webglRenderer";
 interface AttachedTerminalOptions {
   client: CmuxClient | null;
   surface: Id | null;
+  focusOnMount?: boolean;
   onError(error: Error): void;
 }
 
-export function useAttachedTerminal({ client, surface, onError }: AttachedTerminalOptions) {
+export function useAttachedTerminal({
+  client,
+  surface,
+  focusOnMount = false,
+  onError,
+}: AttachedTerminalOptions) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [focused, setFocused] = useState(false);
   const terminalRef = useCallback((node: HTMLDivElement | null) => setHost(node), []);
@@ -39,7 +45,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       allowProposedApi: true,
       convertEol: false,
       disableStdin: true,
-      fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
+      fontFamily: 'Menlo, "SFMono-Regular", Consolas, "Liberation Mono", monospace',
       fontSize: 13,
       lineHeight: 1.15,
       theme: baseTheme,
@@ -59,6 +65,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     host.addEventListener("focusin", handleFocusIn);
     host.addEventListener("focusout", handleFocusOut);
     host.addEventListener("touchend", focusOnTouch, { passive: true });
+    if (focusOnMount) terminal.focus();
     let stream: Awaited<ReturnType<CmuxClient["attachSurface"]>> | null = null;
     let reportedFit: TerminalSize | null = null;
 
@@ -117,6 +124,9 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
           // Cleanup may have raced the attach round-trip; close the stream we
           // just opened or its buffered events leak for the surface's lifetime.
           if (cancelled) return;
+          // Closing the previous attachment removes this client's report on
+          // the server. Re-publish even when the viewport did not change.
+          reportedFit = null;
           let overflowed = false;
           for (;;) {
             let event;
@@ -130,7 +140,9 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
               throw error;
             }
             if (cancelled) return;
-            if (event.event === "vt-state") {
+            if (event.event === "detached") {
+              return;
+            } else if (event.event === "vt-state") {
               const replay = event as DecodedVtStateEvent;
               terminal.reset();
               applyColors(replay.colors);
@@ -181,6 +193,14 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
         if (!cancelled) onError(error instanceof Error ? error : new Error(String(error)));
       } finally {
         stream?.close();
+        if (!cancelled) {
+          reportedFit = null;
+          try {
+            await client.releaseSurfaceSize(surface);
+          } catch (error) {
+            onError(error instanceof Error ? error : new Error(String(error)));
+          }
+        }
       }
     })();
 
@@ -198,12 +218,14 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       if (stableTimer !== undefined) clearTimeout(stableTimer);
       wakeRetry?.();
       stream?.close();
+      reportedFit = null;
+      void client.releaseSurfaceSize(surface).catch(onError);
       webgl?.dispose();
       terminal.dispose();
       stage?.style.removeProperty("--surface-background");
       setFocused(false);
     };
-  }, [client, host, onError, surface]);
+  }, [client, focusOnMount, host, onError, surface]);
 
   return { terminalRef, focused };
 }

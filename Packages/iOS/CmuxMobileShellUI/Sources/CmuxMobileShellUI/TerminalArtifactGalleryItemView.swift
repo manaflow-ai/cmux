@@ -18,6 +18,9 @@ struct TerminalArtifactGalleryItemView: View {
     let open: () -> Void
 
     @State private var thumbnail: ChatArtifactThumbnail?
+    @State private var fileActionPresentation: ChatArtifactFileActionPresentation?
+    @State private var isFileActionRunning = false
+    @State private var showsFileActionError = false
     @ScaledMetric(relativeTo: .subheadline) private var gridNameMinHeight: CGFloat = 38
     @ScaledMetric(relativeTo: .caption2) private var gridMetadataMinHeight: CGFloat = 28
     @ScaledMetric(relativeTo: .body) private var gridSymbolSize: CGFloat = 48
@@ -37,6 +40,65 @@ struct TerminalArtifactGalleryItemView: View {
         .accessibilityLabel(artifact.displayName)
         .accessibilityValue(accessibilityDetail)
         .opacity(artifact.exists ? 1 : 0.5)
+        .contextMenu {
+            if artifact.kind != .directory {
+                Button {
+                    shareFile()
+                } label: {
+                    Label(
+                        String(
+                            localized: "terminal.artifact.gallery.share",
+                            defaultValue: "Share",
+                            bundle: .module
+                        ),
+                        systemImage: "square.and.arrow.up"
+                    )
+                }
+                .disabled(!artifact.exists || isFileActionRunning)
+            }
+            Button {
+                UIPasteboard.general.string = artifact.path
+            } label: {
+                Label(
+                    String(
+                        localized: "terminal.artifact.gallery.copy_path",
+                        defaultValue: "Copy path",
+                        bundle: .module
+                    ),
+                    systemImage: "link"
+                )
+            }
+            if artifact.kind == .directory {
+                Button(action: open) {
+                    Label(
+                        String(
+                            localized: "terminal.artifact.gallery.browse_folder",
+                            defaultValue: "Browse folder",
+                            bundle: .module
+                        ),
+                        systemImage: "folder"
+                    )
+                }
+                .disabled(!artifact.exists)
+            }
+        }
+        .chatArtifactFileActionPresentation($fileActionPresentation)
+        .alert(
+            String(
+                localized: "terminal.artifact.gallery.action_failed.title",
+                defaultValue: "Couldn't complete action",
+                bundle: .module
+            ),
+            isPresented: $showsFileActionError
+        ) {
+            Button(String(localized: "terminal.artifact.gallery.ok", defaultValue: "OK", bundle: .module)) {}
+        } message: {
+            Text(String(
+                localized: "terminal.artifact.gallery.action_failed.message",
+                defaultValue: "Check the connection to your Mac and try again.",
+                bundle: .module
+            ))
+        }
         .task(id: "\(artifact.path)#\(Self.thumbnailDimension)") {
             guard artifact.kind == .image, artifact.exists else { return }
             thumbnail = try? await loader.thumbnail(
@@ -45,6 +107,26 @@ struct TerminalArtifactGalleryItemView: View {
                 modifiedAt: artifact.modifiedAt,
                 size: artifact.size
             )
+        }
+    }
+
+    private func shareFile() {
+        guard !isFileActionRunning else { return }
+        isFileActionRunning = true
+        Task {
+            do {
+                let fileURL = try await ChatArtifactFileActionStore.applicationDefault.materialize(
+                    path: artifact.path,
+                    loader: loader
+                )
+                try Task.checkCancellation()
+                fileActionPresentation = .share(fileURL)
+            } catch is CancellationError {
+                // The row disappeared while its file was being prepared.
+            } catch {
+                showsFileActionError = true
+            }
+            isFileActionRunning = false
         }
     }
 
@@ -154,24 +236,38 @@ struct TerminalArtifactGalleryItemView: View {
     }
 
     private var placeholderSymbol: some View {
-        Image(systemName: symbolName)
+        let glyph = ChatArtifactGalleryClassifier().glyphPresentation(
+            for: artifact.kind,
+            path: artifact.path
+        )
+        return Image(systemName: glyph.systemImageName)
             .font(.system(size: layout == .grid ? gridSymbolSize : listSymbolSize, weight: .regular))
             .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(symbolTint)
+            .foregroundStyle(glyph.tint.swiftUIColor)
     }
 
     private var metadataText: String? {
         var components: [String] = []
+        if artifact.kind == .directory, let childCount = artifact.childCount {
+            components.append(childCountText(childCount))
+        }
         if let modifiedAt = artifact.modifiedAt {
             components.append(modifiedAt.formatted(date: .abbreviated, time: .omitted))
         }
-        if let size = artifact.size {
+        if artifact.kind != .directory, let size = artifact.size {
             components.append(ByteCountFormatter.string(
                 fromByteCount: max(0, size),
                 countStyle: .file
             ))
         }
         return components.isEmpty ? nil : components.joined(separator: " · ")
+    }
+
+    private func childCountText(_ childCount: Int) -> String {
+        TerminalArtifactChildCountFormatter().string(
+            count: childCount,
+            isCapped: artifact.childCountIsCapped
+        )
     }
 
     private var detailText: String? {
@@ -207,28 +303,6 @@ struct TerminalArtifactGalleryItemView: View {
             String(localized: "terminal.artifact.gallery.kind.binary", defaultValue: "Binary file", bundle: .module)
         case .directory:
             String(localized: "terminal.artifact.gallery.kind.directory", defaultValue: "Folder", bundle: .module)
-        }
-    }
-
-    private var symbolTint: Color {
-        switch artifact.kind {
-        case .image, .binary:
-            .secondary
-        case .text, .directory:
-            .blue
-        }
-    }
-
-    private var symbolName: String {
-        switch artifact.kind {
-        case .image:
-            return "photo"
-        case .text:
-            return "doc.text"
-        case .binary:
-            return "doc.fill"
-        case .directory:
-            return "folder"
         }
     }
 

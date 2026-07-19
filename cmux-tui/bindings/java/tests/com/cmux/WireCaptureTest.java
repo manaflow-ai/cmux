@@ -20,6 +20,9 @@ public final class WireCaptureTest {
         printCapture("JAVA attach", attach);
         assertLine("identify", "{\"id\":1,\"cmd\":\"identify\"}\n", identify);
         assertLine("attach", "{\"cmd\":\"attach-surface\",\"surface\":9,\"id\":2}\n", attach);
+        assertProtocolV7RejectsSetSplitRatio();
+        assertProtocolV8RejectsNewPane();
+        assertProtocolV9AllowsSetSplitRatio();
     }
 
     private static byte[] captureIdentify() throws Exception {
@@ -51,6 +54,67 @@ public final class WireCaptureTest {
             server.close();
         }
         return server.firstLine(1);
+    }
+
+    private static void assertProtocolV7RejectsSetSplitRatio() throws Exception {
+        Path socket = freshSocketPath();
+        CaptureServer server = new CaptureServer(socket, new String[] {
+            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":7,\"session\":\"wire\",\"pid\":1}}"
+        });
+        server.start();
+        try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+            try {
+                client.setSplitRatio(1, 0.5);
+                throw new AssertionError("protocol 7 setSplitRatio must fail before sending the command");
+            } catch (CmuxProtocolMismatchException error) {
+                if (!error.getMessage().contains("set-split-ratio requires protocol 8")) {
+                    throw error;
+                }
+            }
+        } finally {
+            server.close();
+        }
+        assertLine("set-split-ratio identify", "{\"id\":1,\"cmd\":\"identify\"}\n", server.firstLine(0));
+    }
+
+    private static void assertProtocolV8RejectsNewPane() throws Exception {
+        Path socket = freshSocketPath();
+        CaptureServer server = new CaptureServer(socket, new String[] {
+            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":8,\"session\":\"wire\",\"pid\":1}}"
+        });
+        server.start();
+        try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+            try {
+                client.newPane(1, null, null);
+                throw new AssertionError("protocol 8 newPane must fail before sending the command");
+            } catch (CmuxProtocolMismatchException error) {
+                if (!error.getMessage().contains("new-pane requires protocol 9")) {
+                    throw error;
+                }
+            }
+        } finally {
+            server.close();
+        }
+        assertLine("new-pane identify", "{\"id\":1,\"cmd\":\"identify\"}\n", server.firstLine(0));
+    }
+
+    private static void assertProtocolV9AllowsSetSplitRatio() throws Exception {
+        Path socket = freshSocketPath();
+        CaptureServer server = new CaptureServer(socket, new String[] {
+            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":9,\"session\":\"wire\",\"pid\":1}}",
+            "{\"id\":2,\"ok\":true,\"data\":{}}"
+        }, true);
+        server.start();
+        try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+            client.setSplitRatio(4, 0.625);
+        } finally {
+            server.close();
+        }
+        assertLine(
+            "protocol 9 set-split-ratio",
+            "{\"split\":4,\"ratio\":0.625,\"id\":2,\"cmd\":\"set-split-ratio\"}\n",
+            server.firstLine(1)
+        );
     }
 
     private static Path freshSocketPath() throws IOException {
@@ -86,13 +150,19 @@ public final class WireCaptureTest {
         private final Path socket;
         private final String[] responses;
         private final byte[][] lines;
+        private final boolean reuseConnection;
         private Thread thread;
         private ServerSocketChannel server;
 
         CaptureServer(Path socket, String[] responses) {
+            this(socket, responses, false);
+        }
+
+        CaptureServer(Path socket, String[] responses, boolean reuseConnection) {
             this.socket = socket;
             this.responses = responses;
             this.lines = new byte[responses.length][];
+            this.reuseConnection = reuseConnection;
         }
 
         void start() throws Exception {
@@ -115,6 +185,15 @@ public final class WireCaptureTest {
 
         private void run() {
             try {
+                if (reuseConnection) {
+                    try (SocketChannel client = server.accept()) {
+                        for (int i = 0; i < responses.length; i++) {
+                            lines[i] = readLine(client);
+                            writeLine(client, responses[i]);
+                        }
+                    }
+                    return;
+                }
                 for (int i = 0; i < responses.length; i++) {
                     try (SocketChannel client = server.accept()) {
                         lines[i] = readLine(client);

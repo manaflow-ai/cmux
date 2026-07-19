@@ -18,12 +18,14 @@ const requests = [
   { cmd: "set-client-info", name: "browser", kind: "web" },
   { cmd: "list-clients" },
   { cmd: "detach-client", client: 2 },
+  { cmd: "set-client-sizing", client: 2, enabled: false },
   { cmd: "reload-config" },
   { cmd: "set-window-title", title: "cmux" },
   { cmd: "clear-window-title" },
   { cmd: "list-workspaces" },
   { cmd: "export-layout", screen: 1 },
   { cmd: "apply-layout", layout: { type: "leaf" } },
+  { cmd: "apply-layout", layout: { type: "stack", panes: [1, 2], expanded: 2 } },
   { cmd: "send", surface: 1, text: "ls\r" },
   { cmd: "send", surface: 1, bytes: "AAEC", paste: true },
   { cmd: "read-screen", surface: 1 },
@@ -34,8 +36,10 @@ const requests = [
   { cmd: "new-browser-tab", url: "https://example.com" },
   { cmd: "new-workspace", name: "sdk" },
   { cmd: "new-screen", workspace: 1 },
+  { cmd: "new-pane", pane: 1 },
   { cmd: "split", pane: 1, dir: "right" },
   { cmd: "set-ratio", pane: 1, dir: "down", ratio: 0.5 },
+  { cmd: "set-split-ratio", split: 2, ratio: 0.5 },
   { cmd: "pane-neighbor", pane: 1, dir: "left" },
   { cmd: "focus-direction", dir: "up" },
   { cmd: "swap-pane", pane: 1, target: 2 },
@@ -51,6 +55,7 @@ const requests = [
   { cmd: "rename-screen", screen: 1, name: "screen" },
   { cmd: "rename-workspace", workspace: 1, name: "workspace" },
   { cmd: "resize-surface", surface: 1, cols: 80, rows: 24 },
+  { cmd: "release-surface-size", surface: 1 },
   { cmd: "focus-pane", pane: 1 },
   { cmd: "select-tab", pane: 1, index: 0 },
   { cmd: "select-screen", delta: 1 },
@@ -72,8 +77,15 @@ const requests = [
 ] satisfies CmuxRequest[];
 
 type IdentifyData = CmuxResponseData<(typeof requests)[0]>;
-const identify: IdentifyData = { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 };
+const identify: IdentifyData = { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 };
 void identify;
+
+const stackLayout = {
+  type: "stack",
+  panes: [1, 2, 3],
+  expanded: 3,
+} as const satisfies import("../src/browser.js").Layout;
+void stackLayout;
 
 function surfaceFromKnownEvent(event: KnownCmuxEvent): number | undefined {
   switch (event.event) {

@@ -12,6 +12,7 @@ mod cli;
 mod config;
 mod host_colors;
 mod keys;
+mod localization;
 mod plugin_manager;
 mod pty_input;
 mod session;
@@ -71,7 +72,8 @@ OPTIONS:
   -V, --version      Print the cmux-tui version.
 
 KEYS (prefix: Ctrl-b)
-  t  new tab in pane   B    new browser tab    Tab/BackTab  next/prev tab
+  t  new tab in pane   B    new browser tab    Alt-n  auto-layout new pane
+  Tab/BackTab  next/prev tab
   1-9  select screen
   %  split right       \"  split down          x/X  close pane/tab
   ,  rename screen     $    rename workspace   c    new screen
@@ -91,15 +93,15 @@ MOUSE
   screen entries to switch screens (+ for a new screen).
 
 CLI VERBS
-  identify, ping, set-client-info, list-clients, detach-client,
+  identify, ping, set-client-info, list-clients, detach-client, set-client-sizing,
   reload-config, set-window-title, clear-window-title,
   list-workspaces, export-layout, apply-layout, send,
   read-screen, read-scrollback, vt-state, new-tab, new-browser-tab, new-workspace,
-  new-screen, split, set-ratio, pane-neighbor, focus-direction,
+  new-screen, new-pane, split, set-ratio, set-split-ratio, pane-neighbor, focus-direction,
   swap-pane, zoom-pane, process-info, set-default-colors,
   close-surface, close-pane, close-screen, close-workspace,
   rename-pane, rename-surface, rename-screen, rename-workspace,
-  resize-surface, focus-pane, select-tab, select-screen,
+  resize-surface, release-surface-size, focus-pane, select-tab, select-screen,
   select-workspace, move-tab, move-workspace, scroll-surface,
   subscribe, attach-surface, wait-for, run, send-key, copy, ids,
   notify, list-agents, report-agent

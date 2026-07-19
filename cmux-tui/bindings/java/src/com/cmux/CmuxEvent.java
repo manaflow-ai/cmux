@@ -2,13 +2,14 @@ package com.cmux;
 
 import java.util.Map;
 
-public sealed interface CmuxEvent permits TreeChangedEvent, EmptyEvent, SurfaceEvent, TitleChangedEvent, SurfaceResizedEvent, SurfaceResizeFailedEvent, VtStateEvent, OutputEvent, ResizedEvent, OverflowEvent, UnknownEvent {
+public sealed interface CmuxEvent permits TreeChangedEvent, LayoutChangedEvent, EmptyEvent, SurfaceEvent, TitleChangedEvent, SurfaceResizedEvent, SurfaceResizeFailedEvent, VtStateEvent, OutputEvent, ResizedEvent, OverflowEvent, UnknownEvent {
     String event();
 
     static CmuxEvent from(Map<String, Object> raw) {
         String event = CmuxClient.asString(raw.get("event"));
         return switch (event) {
             case "tree-changed" -> new TreeChangedEvent();
+            case "layout-changed" -> new LayoutChangedEvent(CmuxClient.asLong(raw.get("screen")));
             case "empty" -> new EmptyEvent();
             case "overflow" -> new OverflowEvent(
                 CmuxClient.asString(raw.get("error")),

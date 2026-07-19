@@ -71,6 +71,15 @@ impl TreeView {
         self.workspaces.get(self.active_workspace)
     }
 
+    pub fn active_workspace_mut(&mut self) -> Option<&mut WorkspaceView> {
+        self.workspaces.get_mut(self.active_workspace)
+    }
+
+    pub fn active_workspace_mut_screen(&mut self) -> Option<&mut ScreenView> {
+        let workspace = self.workspaces.get_mut(self.active_workspace)?;
+        workspace.screens.get_mut(workspace.active_screen)
+    }
+
     /// The active screen of the active workspace.
     pub fn active_screen(&self) -> Option<&ScreenView> {
         self.active_workspace()?.active_screen_ref()
@@ -82,6 +91,14 @@ impl TreeView {
             .flat_map(|ws| ws.screens.iter())
             .flat_map(|screen| screen.panes.iter())
             .find(|p| p.id == id)
+    }
+
+    pub fn pane_mut(&mut self, id: PaneId) -> Option<&mut PaneView> {
+        self.workspaces
+            .iter_mut()
+            .flat_map(|workspace| workspace.screens.iter_mut())
+            .flat_map(|screen| screen.panes.iter_mut())
+            .find(|pane| pane.id == id)
     }
 
     /// The active surface of the active pane of the active screen.
@@ -230,11 +247,22 @@ fn parse_layout(value: &Value) -> Option<Node> {
                 _ => return None,
             };
             Some(Node::Split {
+                id: value.get("split")?.as_u64()?,
                 dir,
                 ratio: value.get("ratio")?.as_f64()? as f32,
                 a: Box::new(parse_layout(value.get("a")?)?),
                 b: Box::new(parse_layout(value.get("b")?)?),
             })
+        }
+        "stack" => {
+            let panes = value
+                .get("panes")?
+                .as_array()?
+                .iter()
+                .map(Value::as_u64)
+                .collect::<Option<Vec<_>>>()?;
+            let expanded = value.get("expanded")?.as_u64()?;
+            Node::stack_with_expanded(panes, expanded)
         }
         _ => None,
     }
@@ -346,4 +374,52 @@ pub fn parse_tree(data: &Value) -> TreeView {
         tree.workspaces.push(view);
     }
     tree
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn protocol_v8_parser_preserves_split_ids() {
+        let tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "name": "one",
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {
+                        "type": "split",
+                        "split": 9,
+                        "dir": "right",
+                        "ratio": 0.5,
+                        "a": {"type": "leaf", "pane": 3},
+                        "b": {"type": "leaf", "pane": 4}
+                    },
+                    "panes": []
+                }]
+            }]
+        }));
+
+        let Node::Split { id, .. } = &tree.workspaces[0].screens[0].layout else {
+            panic!("layout should be split");
+        };
+        assert_eq!(*id, 9);
+    }
+
+    #[test]
+    fn protocol_v9_parser_preserves_stack_expansion() {
+        let layout = parse_layout(&json!({
+            "type": "stack",
+            "panes": [3, 4, 5],
+            "expanded": 4
+        }))
+        .unwrap();
+
+        assert!(matches!(layout, Node::Stack { expanded: 4, .. }));
+    }
 }

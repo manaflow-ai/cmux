@@ -78,6 +78,7 @@ export type NewTabOptions = CmuxRequestParams<"new-tab">;
 export type NewBrowserTabOptions = Omit<CmuxRequestParams<"new-browser-tab">, "url">;
 export type NewWorkspaceOptions = CmuxRequestParams<"new-workspace">;
 export type NewScreenOptions = CmuxRequestParams<"new-screen">;
+export type NewPaneOptions = Omit<CmuxRequestParams<"new-pane">, "pane">;
 export type SplitOptions = Omit<CmuxRequestParams<"split">, "pane" | "dir">;
 export type SelectOptions = CmuxRequestParams<"select-screen">;
 export type SelectTabOptions = CmuxRequestParams<"select-tab">;
@@ -405,6 +406,15 @@ export class CmuxClient {
   }
   listClients(): Promise<ListClientsResult> { return this.request("list-clients"); }
   detachClient(client: Id): Promise<EmptyResult> { return this.request("detach-client", { client }); }
+  setClientSizing(client: Id, enabled: boolean): Promise<EmptyResult> {
+    return this.request("set-client-sizing", { client, enabled });
+  }
+  useOnlyClientSizing(client: Id): Promise<EmptyResult> {
+    return this.request("set-client-sizing", { client, enabled: true, exclusive: true });
+  }
+  useAllClientSizing(): Promise<EmptyResult> {
+    return this.request("set-client-sizing", { enabled: true });
+  }
   reloadConfig(): Promise<ReloadConfigResult> { return this.request("reload-config"); }
   setWindowTitle(title: string): Promise<EmptyResult> { return this.request("set-window-title", { title }); }
   clearWindowTitle(): Promise<EmptyResult> { return this.request("clear-window-title"); }
@@ -434,11 +444,19 @@ export class CmuxClient {
   }
   newWorkspace(options: NewWorkspaceOptions = {}): Promise<SurfaceResult> { return this.request("new-workspace", options); }
   newScreen(options: NewScreenOptions = {}): Promise<SurfaceResult> { return this.request("new-screen", options); }
+  async newPane(pane: Id, options: NewPaneOptions = {}): Promise<SurfaceResult> {
+    await this.requireProtocol(9, "new-pane");
+    return this.request("new-pane", { pane, ...options });
+  }
   split(pane: Id, dir: SplitDirection, options: SplitOptions = {}): Promise<SurfaceResult> {
     return this.request("split", { pane, dir, ...options });
   }
   setRatio(pane: Id, dir: SplitDirection, ratio: number): Promise<EmptyResult> {
     return this.request("set-ratio", { pane, dir, ratio });
+  }
+  async setSplitRatio(split: Id, ratio: number): Promise<EmptyResult> {
+    await this.requireProtocol(8, "set-split-ratio");
+    return this.request("set-split-ratio", { split, ratio });
   }
   paneNeighbor(pane: Id, dir: PaneDirection): Promise<PaneNeighborResult> {
     return this.request("pane-neighbor", { pane, dir });
@@ -463,6 +481,9 @@ export class CmuxClient {
   async resizeSurface(surface: Id, cols: number, rows: number): Promise<ResizeSurfaceResult> {
     const result = await this.request("resize-surface", { surface, cols, rows });
     return { ...result, accepted: result.accepted ?? true };
+  }
+  releaseSurfaceSize(surface: Id): Promise<EmptyResult> {
+    return this.request("release-surface-size", { surface });
   }
   focusPane(pane: Id): Promise<EmptyResult> { return this.request("focus-pane", { pane }); }
   selectTab(options: SelectTabOptions = {}): Promise<EmptyResult> { return this.request("select-tab", options); }
@@ -525,6 +546,15 @@ export class CmuxClient {
         retainedBytes: (event) => this.attachEventRetainedBytes(event),
       },
     );
+  }
+
+  private async requireProtocol(minimum: number, feature: string): Promise<void> {
+    const protocol = this.protocol ?? (await this.identify()).protocol;
+    if (protocol < minimum) {
+      throw new CmuxProtocolError(
+        `${feature} requires protocol ${minimum}; server uses protocol ${protocol}`,
+      );
+    }
   }
 
   waitFor(surface: IdRef, pattern: string, timeoutMs: number): Promise<WaitForResult> {

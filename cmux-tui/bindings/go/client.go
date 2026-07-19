@@ -202,6 +202,24 @@ func (c *Client) Identify(ctx context.Context) (IdentifyResult, error) {
 	return result, err
 }
 
+func (c *Client) requireProtocol(ctx context.Context, minimum uint32, feature string) error {
+	protocol := c.protocol
+	if protocol == nil {
+		info, err := c.Identify(ctx)
+		if err != nil {
+			return err
+		}
+		protocol = &info.Protocol
+	}
+	if *protocol < minimum {
+		return &protocolError{msg: fmt.Sprintf(
+			"%s requires protocol %d; server uses protocol %d",
+			feature, minimum, *protocol,
+		)}
+	}
+	return nil
+}
+
 func (c *Client) ListWorkspaces(ctx context.Context) (Tree, error) {
 	var result Tree
 	return result, c.request(ctx, "list-workspaces", nil, &result)
@@ -253,6 +271,16 @@ func (c *Client) NewScreen(ctx context.Context, opts NewScreenOptions) (SurfaceR
 	return result, c.request(ctx, "new-screen", commandMap(opts), &result)
 }
 
+func (c *Client) NewPane(ctx context.Context, pane uint64, opts NewPaneOptions) (SurfaceResult, error) {
+	if err := c.requireProtocol(ctx, 9, "new-pane"); err != nil {
+		return SurfaceResult{}, err
+	}
+	params := commandMap(opts)
+	params["pane"] = pane
+	var result SurfaceResult
+	return result, c.request(ctx, "new-pane", params, &result)
+}
+
 func (c *Client) Split(ctx context.Context, pane uint64, dir string, opts SplitOptions) (SurfaceResult, error) {
 	params := commandMap(opts)
 	params["pane"] = pane
@@ -263,6 +291,13 @@ func (c *Client) Split(ctx context.Context, pane uint64, dir string, opts SplitO
 
 func (c *Client) SetRatio(ctx context.Context, pane uint64, dir string, ratio float32) error {
 	return c.request(ctx, "set-ratio", map[string]any{"pane": pane, "dir": dir, "ratio": ratio}, nil)
+}
+
+func (c *Client) SetSplitRatio(ctx context.Context, split uint64, ratio float32) error {
+	if err := c.requireProtocol(ctx, 8, "set-split-ratio"); err != nil {
+		return err
+	}
+	return c.request(ctx, "set-split-ratio", map[string]any{"split": split, "ratio": ratio}, nil)
 }
 
 func (c *Client) SetDefaultColors(ctx context.Context, fg, bg *string) error {
@@ -355,7 +390,7 @@ func (c *Client) AttachSurface(ctx context.Context, surface uint64) (*Stream, er
 		}
 		protocol = &info.Protocol
 	}
-	if *protocol > 7 || (*protocol > 5 && !c.allowProtocolV6Attach) {
+	if *protocol > 5 && !c.allowProtocolV6Attach {
 		return nil, &protocolError{msg: fmt.Sprintf("unsupported attach protocol %d", *protocol)}
 	}
 	return c.openStream(ctx, map[string]any{"id": c.nextRequestID(), "cmd": "attach-surface", "surface": surface})

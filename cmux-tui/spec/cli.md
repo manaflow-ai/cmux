@@ -70,8 +70,10 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `new-browser-tab` | implemented | `--url <url>` | `--pane <id>`, `--cols <n> --rows <n>` | surface id |
 | `new-workspace` | implemented | none | `--name <name>`, `--cols <n> --rows <n>` | surface id |
 | `new-screen` | implemented | none | `--workspace <id>`, `--cols <n> --rows <n>` | surface id |
+| `new-pane` | implemented | `--pane <id>` | `--cols <n> --rows <n>` | surface id |
 | `split` | implemented | `--pane <id> --dir right|down` | `--cols <n> --rows <n>` | surface id |
 | `set-ratio` | implemented | `--pane <id> --dir right|down --ratio <n>` | none | none |
+| `set-split-ratio` | implemented | `--split <id> --ratio <n>` | none | none |
 | `pane-neighbor` | implemented | `--pane <id> --dir left|right|up|down` | none | pane id or `null` |
 | `focus-direction` | implemented | `--dir left|right|up|down` | `--pane <id>` | pane id |
 | `swap-pane` | implemented | `--pane <id>` plus one of `--dir left|right|up|down`, `--target <id>` | none | none |
@@ -87,6 +89,7 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `rename-screen` | implemented | `--screen <id> --name <name>` | none | none |
 | `rename-workspace` | implemented | `--workspace <id> --name <name>` | none | none |
 | `resize-surface` | implemented | `--surface <id> --cols <n> --rows <n>` | none | none |
+| `release-surface-size` | implemented | `--surface <id>` | none | none |
 | `focus-pane` | implemented | `--pane <id>` | none | none |
 | `select-tab` | implemented | one of `--index`, `--delta` | `--pane <id>` | none |
 | `select-screen` | implemented | one of `--index`, `--delta` | none | none |
@@ -163,7 +166,8 @@ done
 
 ```bash
 new_surface=$(cmux-tui split --pane 2 --dir right)
-cmux-tui set-ratio --pane 2 --dir right --ratio 0.65
+split=$(cmux-tui --json export-layout | jq -r '.layout.split')
+cmux-tui set-split-ratio --split "$split" --ratio 0.65
 ```
 
 8. Subscribe to events and react to bells:
