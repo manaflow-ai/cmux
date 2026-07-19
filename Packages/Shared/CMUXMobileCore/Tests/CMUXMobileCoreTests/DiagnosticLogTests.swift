@@ -69,6 +69,50 @@ import Testing
         #expect(lines[3] == "3000,7,7,,10,20,")
     }
 
+    @Test func duplicateSelectedPathNotificationsDoNotExportFalseChanges() async {
+        let log = DiagnosticLog(capacity: 16)
+        log.record(DiagnosticEvent(
+            code: .selectedPathChanged,
+            tNanos: 1_000,
+            a: DiagnosticPathKind.relay.rawValue
+        ))
+        log.record(DiagnosticEvent(
+            code: .transportSessionLifecycle,
+            tNanos: 2_000,
+            a: DiagnosticSessionLifecycleKind.established.rawValue,
+            b: Int(CmxTransportSessionPurpose.foregroundControl.rawValue),
+            c: 1
+        ))
+        log.record(DiagnosticEvent(
+            code: .selectedPathChanged,
+            tNanos: 3_000,
+            a: DiagnosticPathKind.relay.rawValue
+        ))
+        log.record(DiagnosticEvent(
+            code: .selectedPathChanged,
+            tNanos: 4_000,
+            a: DiagnosticPathKind.privateNetwork.rawValue
+        ))
+        log.record(DiagnosticEvent(
+            code: .selectedPathChanged,
+            tNanos: 5_000,
+            a: DiagnosticPathKind.privateNetwork.rawValue
+        ))
+        await waitForProcessed(log, 5)
+
+        let report = await log.snapshot()
+        #expect(report.events.map(\.code) == [
+            .selectedPathChanged,
+            .transportSessionLifecycle,
+            .selectedPathChanged,
+        ])
+        #expect(report.events.compactMap(\.diagnosticPathKind) == [
+            .relay,
+            .privateNetwork,
+        ])
+        #expect(report.events[1].diagnosticSessionLifecycleKind == .established)
+    }
+
     @Test func ringEvictionDropsOldest() async {
         let log = DiagnosticLog(capacity: 3)
         // Drain each event before recording the next so eviction is governed
