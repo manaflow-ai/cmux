@@ -23,6 +23,10 @@ enum AgentSessionAuthorityEvidence: String, Codable, Sendable, Equatable {
             false
         }
     }
+
+    var prohibitsRestore: Bool {
+        self != .verifiedForkRoot
+    }
 }
 
 struct AgentSessionAuthorityTransition: Sendable {

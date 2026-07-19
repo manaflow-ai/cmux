@@ -67,9 +67,11 @@ struct AgentSessionRunCanonicalizer: Sendable {
         newestByRunID.reserveCapacity(rawRuns.count)
         for run in rawRuns {
             if let current = newestByRunID[run.runId] {
-                newestByRunID[run.runId] = canonicalDuplicate(run, current)
+                newestByRunID[run.runId] = normalizedAuthority(
+                    canonicalDuplicate(run, current)
+                )
             } else {
-                newestByRunID[run.runId] = run
+                newestByRunID[run.runId] = normalizedAuthority(run)
             }
         }
         return newestByRunID.values.sorted { $0.runId < $1.runId }
@@ -225,8 +227,18 @@ struct AgentSessionRunCanonicalizer: Sendable {
         } else {
             merged.endedAt = candidate.endedAt ?? current.endedAt
         }
-        if merged.endedAt != nil { merged.restoreAuthority = false }
-        return merged
+        return normalizedAuthority(merged)
+    }
+
+    private func normalizedAuthority(_ source: AgentSessionRunRecord) -> AgentSessionRunRecord {
+        var run = source
+        if run.relationship == .spawned
+            || run.authorityEvidence?.prohibitsRestore == true
+            || run.endedAt != nil
+            || run.identityConflict == true {
+            run.restoreAuthority = false
+        }
+        return run
     }
 
     private func conflictingProcessIdentity(

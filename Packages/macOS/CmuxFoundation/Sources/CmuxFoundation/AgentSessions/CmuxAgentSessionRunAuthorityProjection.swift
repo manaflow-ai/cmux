@@ -65,6 +65,10 @@ public struct CmuxAgentSessionRunAuthorityProjection: Sendable {
                 false
             }
         }
+
+        fileprivate var prohibitsRestore: Bool {
+            self != .verifiedForkRoot
+        }
     }
 
     public struct Run: Codable, Equatable, Sendable {
@@ -186,9 +190,11 @@ public struct CmuxAgentSessionRunAuthorityProjection: Sendable {
         newestByRunID.reserveCapacity(runs.count)
         for run in runs {
             if let current = newestByRunID[run.runId] {
-                newestByRunID[run.runId] = canonicalDuplicate(run, current)
+                newestByRunID[run.runId] = normalizedAuthority(
+                    canonicalDuplicate(run, current)
+                )
             } else {
-                newestByRunID[run.runId] = run
+                newestByRunID[run.runId] = normalizedAuthority(run)
             }
         }
         return newestByRunID.values.sorted { $0.runId < $1.runId }
@@ -310,8 +316,20 @@ public struct CmuxAgentSessionRunAuthorityProjection: Sendable {
         } else {
             merged.endedAt = candidate.endedAt ?? current.endedAt
         }
-        if merged.endedAt != nil { merged.restoreAuthority = false }
-        return merged
+        return normalizedAuthority(merged)
+    }
+
+    /// Persisted compatibility booleans are untrusted when structural run
+    /// evidence proves the process generation cannot own restoration.
+    private func normalizedAuthority(_ source: Run) -> Run {
+        var run = source
+        if run.relationship == .spawned
+            || run.authorityEvidence?.prohibitsRestore == true
+            || run.endedAt != nil
+            || run.identityConflict == true {
+            run.restoreAuthority = false
+        }
+        return run
     }
 
     private func conflictingProcessIdentity(_ lhs: Run, _ rhs: Run) -> Bool {
