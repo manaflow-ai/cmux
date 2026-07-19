@@ -69,11 +69,7 @@ struct RemoteResumeBindingTests {
         #expect(liveFirstCommand.contains("ssh-pty-attach"), "\(liveFirstCommand)")
         #expect(liveFirstCommand.contains("--require-existing"), "\(liveFirstCommand)")
         let liveFirstRemoteCommand = try decodedRemoteCommand(from: liveFirstCommand)
-        try expectRemoteResumeBootstrap(
-            liveFirstRemoteCommand,
-            workspaceID: restoredWorkspace.id,
-            surfaceID: restoredSurfaceID
-        )
+        try expectRemoteResumeBootstrap(liveFirstRemoteCommand)
         #expect(restoredPanel.surface.debugInitialInputForTesting() == nil)
 
         let roundTrip = restoredWorkspace.sessionSnapshot(includeScrollback: false)
@@ -108,11 +104,7 @@ struct RemoteResumeBindingTests {
         )
         #expect(!gonePTYCommand.contains("--require-existing"), "\(gonePTYCommand)")
         let gonePTYRemoteCommand = try decodedRemoteCommand(from: gonePTYCommand)
-        try expectRemoteResumeBootstrap(
-            gonePTYRemoteCommand,
-            workspaceID: restoredWorkspace.id,
-            surfaceID: restoredSurfaceID
-        )
+        try expectRemoteResumeBootstrap(gonePTYRemoteCommand)
     }
 
     @Test
@@ -134,11 +126,7 @@ struct RemoteResumeBindingTests {
             restoredWorkspace.terminalPanel(for: restoredSurfaceID)?.surface.debugInitialCommand()
         )
         let remoteCommand = try decodedRemoteCommand(from: startupCommand)
-        try expectRemoteResumeBootstrap(
-            remoteCommand,
-            workspaceID: restoredWorkspace.id,
-            surfaceID: restoredSurfaceID
-        )
+        try expectRemoteResumeBootstrap(remoteCommand)
 
         let roundTripBinding = try #require(
             restoredWorkspace.sessionSnapshot(includeScrollback: false)
@@ -359,11 +347,7 @@ struct RemoteResumeBindingTests {
         return try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: legacyData)
     }
 
-    private func expectRemoteResumeBootstrap(
-        _ command: String,
-        workspaceID: UUID,
-        surfaceID: UUID
-    ) throws {
+    private func expectRemoteResumeBootstrap(_ command: String) throws {
         #expect(command.contains("export CMUX_SOCKET_PATH=127.0.0.1:\(relayPort)"), "\(command)")
         #expect(command.contains("__CMUX_WORKSPACE_ID__"), "\(command)")
         #expect(command.contains("__CMUX_SURFACE_ID__"), "\(command)")
@@ -371,8 +355,6 @@ struct RemoteResumeBindingTests {
         #expect(command.contains("REMOTE_FLAG=value with spaces"), "\(command)")
         #expect(command.contains("session-remote-7989"), "\(command)")
         #expect(!command.contains("ANTHROPIC_API_KEY"), "\(command)")
-        _ = workspaceID
-        _ = surfaceID
     }
 
     private func reserveRemoteRestoreSocket() -> String {
