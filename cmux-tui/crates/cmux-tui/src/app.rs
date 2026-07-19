@@ -6485,17 +6485,23 @@ impl App {
     }
 
     fn select_screen_for_client(&mut self, index: Option<usize>, delta: Option<isize>) {
+        let mut selected = false;
         if self.session.remote
             && let Some(workspace) = self.tree.active_workspace_mut()
             && !workspace.screens.is_empty()
         {
             if let Some(index) = index.filter(|index| *index < workspace.screens.len()) {
                 workspace.active_screen = index;
+                selected = true;
             } else if let Some(delta) = delta {
                 workspace.active_screen = ((workspace.active_screen as isize + delta)
                     .rem_euclid(workspace.screens.len() as isize))
                     as usize;
+                selected = true;
             }
+        }
+        if selected && let Some(active) = self.active_pane() {
+            self.pane_focus_history.record(active);
         }
         if !self.session.remote {
             self.session.select_screen(index, delta);
@@ -6503,14 +6509,20 @@ impl App {
     }
 
     fn select_workspace_for_client(&mut self, index: Option<usize>, delta: Option<isize>) {
+        let mut selected = false;
         if self.session.remote && !self.tree.workspaces.is_empty() {
             if let Some(index) = index.filter(|index| *index < self.tree.workspaces.len()) {
                 self.tree.active_workspace = index;
+                selected = true;
             } else if let Some(delta) = delta {
                 self.tree.active_workspace = ((self.tree.active_workspace as isize + delta)
                     .rem_euclid(self.tree.workspaces.len() as isize))
                     as usize;
+                selected = true;
             }
+        }
+        if selected && let Some(active) = self.active_pane() {
+            self.pane_focus_history.record(active);
         }
         if !self.session.remote {
             self.session.select_workspace(index, delta);
@@ -7728,6 +7740,67 @@ mod tests {
         assert_eq!(app.active_pane(), Some(bottom_right));
         assert_eq!(Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane, left);
         assert!(!app.session.has_pending_mutations());
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface);
+        }
+    }
+
+    #[test]
+    fn remote_screen_switch_records_the_new_active_pane() {
+        let mux = Mux::new("remote-screen-focus-memory-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        let workspace = Session::Local(mux.clone()).tree().active_workspace().unwrap().id;
+        mux.new_screen(Some(workspace), Some((80, 30))).unwrap();
+        let left = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(left, SplitDir::Right, Some((40, 30))).unwrap();
+        let top_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(top_right, SplitDir::Down, Some((40, 15))).unwrap();
+        let bottom_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.select_screen(Some(0), None);
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.session.remote = true;
+        app.select_screen_for_client(Some(1), None);
+        app.sync_layout((80, 31));
+
+        app.move_focus(Direction::Left);
+        assert_eq!(app.active_pane(), Some(left));
+        app.move_focus(Direction::Right);
+        assert_eq!(app.active_pane(), Some(bottom_right));
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface);
+        }
+    }
+
+    #[test]
+    fn remote_workspace_switch_records_the_new_active_pane() {
+        let mux = Mux::new("remote-workspace-focus-memory-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        let left = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(left, SplitDir::Right, Some((40, 30))).unwrap();
+        let top_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(top_right, SplitDir::Down, Some((40, 15))).unwrap();
+        let bottom_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.select_workspace(Some(0), None);
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.session.remote = true;
+        app.select_workspace_for_client(Some(1), None);
+        app.sync_layout((80, 31));
+
+        app.move_focus(Direction::Left);
+        assert_eq!(app.active_pane(), Some(left));
+        app.move_focus(Direction::Right);
+        assert_eq!(app.active_pane(), Some(bottom_right));
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
