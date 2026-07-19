@@ -163,6 +163,10 @@ struct AgentSessionGraphEdgeResolver: Sendable {
 
     func parentNodeId(for edge: AgentSessionGraphEdge) -> String? {
         guard let child = nodesByNodeID[edge.toNodeId] else { return nil }
+        if let fromNodeID = edge.fromNodeId {
+            guard fromNodeID != edge.toNodeId, nodesByNodeID[fromNodeID] != nil else { return nil }
+            return fromNodeID
+        }
         if let fromRunID = edge.fromRunId {
             let runMatchesChild = child.runID == fromRunID
             if let fromSessionID = edge.fromSessionId {
@@ -286,8 +290,10 @@ struct AgentSessionGraphEdgeSanitizer: Sendable {
                   parentNodeIndex != childNodeIndex else {
                 continue
             }
+            var resolvedEdge = edge
+            resolvedEdge.fromNodeId = parentNodeID
             resolvedEdges.append(ResolvedEdge(
-                edge: edge,
+                edge: resolvedEdge,
                 parentNodeIndex: parentNodeIndex,
                 childNodeIndex: childNodeIndex
             ))

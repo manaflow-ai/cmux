@@ -1431,6 +1431,7 @@ final class ClaudeHookSessionStore {
             surfaceID: normalizedSurface,
             decoder: decoder
         )
+        let canonicalizer = AgentSessionRunCanonicalizer()
         for candidate in candidates {
             guard candidate.sessionId != excluded else { continue }
             if onlyNewerThanExcludedSession, let excludedUpdatedAt,
@@ -1438,9 +1439,23 @@ final class ClaudeHookSessionStore {
                 continue
             }
             guard requireLiveProcess else { return true }
-            guard !Self.processExists(candidate.pid) else { return true }
+            let observedRun = canonicalizer.projectedRun(record: candidate, provider: agentName)
+            let processIsLive = if observedRun.processStartedAt != nil {
+                lineageResolver.processState(
+                    pid: candidate.pid,
+                    expectedStartedAt: observedRun.processStartedAt
+                ) == .alive
+            } else {
+                Self.processExists(candidate.pid)
+            }
+            if observedRun.pid == candidate.pid,
+               processIsLive {
+                return true
+            }
 
             let observedPID = candidate.pid
+            let observedRunID = observedRun.runId
+            let observedProcessStartedAt = observedRun.processStartedAt
             try withLockedSessionState(
                 sessionID: candidate.sessionId,
                 workspaceID: candidate.workspaceId,
@@ -1449,6 +1464,10 @@ final class ClaudeHookSessionStore {
                 guard var current = state.sessions[candidate.sessionId],
                       current.runtimeStatus == .running,
                       current.pid == observedPID else { return }
+                let currentRun = canonicalizer.projectedRun(record: current, provider: agentName)
+                guard currentRun.runId == observedRunID,
+                      currentRun.pid == observedPID,
+                      currentRun.processStartedAt == observedProcessStartedAt else { return }
                 current.runtimeStatus = nil
                 current.updatedAt = Date().timeIntervalSince1970
                 state.sessions[candidate.sessionId] = current

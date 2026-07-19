@@ -2,7 +2,7 @@ import Foundation
 
 extension CMUXCLI {
     func hooksUsage() -> String {
-        """
+        String(localized: "cli.hooks.usage", defaultValue: """
         Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]
                cmux hooks uninstall [agent] [--agent <name>] [--yes|-y]
                cmux hooks <agent> install [--yes|-y] (opencode supports --project)
@@ -44,6 +44,6 @@ extension CMUXCLI {
           cmux hooks codex install
           cmux hooks opencode install --project
           cmux hooks uninstall
-        """
+        """)
     }
 }

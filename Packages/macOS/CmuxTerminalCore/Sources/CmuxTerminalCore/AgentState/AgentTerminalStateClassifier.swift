@@ -18,6 +18,12 @@ public struct AgentTerminalStateClassifier: Sendable {
         "npx": ["--cache", "--package", "--prefix", "--registry", "--userconfig"],
         "uvx": ["--from", "--python", "--with"],
     ]
+    private static let wrapperSubcommandsByBasename: [String: Set<String>] = [
+        "bun": ["x"],
+        "npm": ["exec", "x"],
+        "pnpm": ["dlx", "exec", "x"],
+        "yarn": ["dlx", "exec"],
+    ]
     private static let shellBasenames: Set<String> = ["bash", "fish", "nu", "sh", "zsh"]
 
     /// Creates a classifier that reuses a catalog across evaluations.
@@ -111,6 +117,8 @@ public struct AgentTerminalStateClassifier: Sendable {
     ) -> ArraySlice<String>.Index? {
         let flagOptions = wrapperFlagOptionsByBasename[wrapperExecutable] ?? []
         let valueOptions = wrapperValueOptionsByBasename[wrapperExecutable] ?? []
+        let wrapperSubcommands = wrapperSubcommandsByBasename[wrapperExecutable] ?? []
+        var skippedWrapperSubcommand = false
         var index = arguments.startIndex
         while index < arguments.endIndex {
             let argument = arguments[index]
@@ -129,6 +137,11 @@ public struct AgentTerminalStateClassifier: Sendable {
                 continue
             }
             if valueOptions.contains(where: { argument.hasPrefix("\($0)=") }) {
+                index = arguments.index(after: index)
+                continue
+            }
+            if !skippedWrapperSubcommand, wrapperSubcommands.contains(argument) {
+                skippedWrapperSubcommand = true
                 index = arguments.index(after: index)
                 continue
             }

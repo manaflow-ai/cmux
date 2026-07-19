@@ -28,6 +28,7 @@ struct AgentSessionGraphOrdering: Sendable {
             return lhs.relationship.rawValue < rhs.relationship.rawValue
         }
         if lhs.toRunId != rhs.toRunId { return lhs.toRunId < rhs.toRunId }
+        if let result = optionalStringPrecedes(lhs.fromNodeId, rhs.fromNodeId) { return result }
         if let result = optionalStringPrecedes(lhs.fromRunId, rhs.fromRunId) { return result }
         if let result = optionalStringPrecedes(lhs.fromSessionId, rhs.fromSessionId) { return result }
         return false
