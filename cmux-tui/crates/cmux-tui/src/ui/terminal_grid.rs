@@ -423,9 +423,12 @@ mod tests {
         let rect = Rect { x: 0, y: 0, width: 80, height: 10 };
         let terminal = draw_grid(&render, rect, ChromeTheme::dark(), "ja_JP.UTF-8");
         let buffer = terminal.backend().buffer();
+        let expected = crate::localization::catalog_for_locale("ja_JP.UTF-8")
+            .foreign_viewport
+            .hint(12, 5)
+            .expect("Japanese hint fits inline");
 
-        assert_eq!(buffer[(13, 1)].symbol(), "別");
-        assert_eq!(buffer[(15, 1)].symbol(), "の");
+        assert!(row_text(buffer, 1, 13, rect.width - 13).starts_with(expected.as_str()));
     }
 
     #[test]
