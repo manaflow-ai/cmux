@@ -1,4 +1,9 @@
+use std::io::{Cursor, Write};
 use std::sync::OnceLock;
+
+use unicode_width::UnicodeWidthStr;
+
+const FOREIGN_VIEWPORT_HINT_CAPACITY: usize = 64;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct PairingMessages {
@@ -11,13 +16,45 @@ pub(crate) struct PairingMessages {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ForeignViewportMessages {
-    pub sized_by_another_client: &'static str,
+    pub terminal_grid: &'static str,
 }
 
 impl ForeignViewportMessages {
-    pub fn hint(&self, cols: u16, rows: u16) -> String {
-        format!("{} ({cols}x{rows})", self.sized_by_another_client)
+    pub fn hint(&self, cols: u16, rows: u16) -> Option<ForeignViewportHint> {
+        let mut bytes = [0_u8; FOREIGN_VIEWPORT_HINT_CAPACITY];
+        let len = {
+            let mut cursor = Cursor::new(bytes.as_mut_slice());
+            write!(&mut cursor, "{} ({cols}x{rows})", self.terminal_grid).ok()?;
+            cursor.position() as usize
+        };
+        Some(ForeignViewportHint { bytes, len })
     }
+
+    pub fn hint_width(&self, cols: u16, rows: u16) -> usize {
+        self.terminal_grid.width() + 4 + decimal_width(cols) + decimal_width(rows)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ForeignViewportHint {
+    bytes: [u8; FOREIGN_VIEWPORT_HINT_CAPACITY],
+    len: usize,
+}
+
+impl ForeignViewportHint {
+    pub fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.bytes[..self.len])
+            .expect("foreign viewport hint is assembled from UTF-8 strings and ASCII digits")
+    }
+}
+
+const fn decimal_width(mut value: u16) -> usize {
+    let mut width = 1;
+    while value >= 10 {
+        value /= 10;
+        width += 1;
+    }
+    width
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -34,9 +71,7 @@ static ENGLISH: Catalog = Catalog {
         deny: "[ Deny esc ]",
         approve: "[ Approve enter ]",
     },
-    foreign_viewport: ForeignViewportMessages {
-        sized_by_another_client: "sized by another client",
-    },
+    foreign_viewport: ForeignViewportMessages { terminal_grid: "terminal grid" },
 };
 
 static JAPANESE: Catalog = Catalog {
@@ -47,9 +82,7 @@ static JAPANESE: Catalog = Catalog {
         deny: "[ 拒否 esc ]",
         approve: "[ 承認 enter ]",
     },
-    foreign_viewport: ForeignViewportMessages {
-        sized_by_another_client: "別のクライアントがサイズを決定中",
-    },
+    foreign_viewport: ForeignViewportMessages { terminal_grid: "端末グリッド" },
 };
 
 pub(crate) fn catalog() -> &'static Catalog {
@@ -83,12 +116,12 @@ mod tests {
     fn foreign_viewport_hints_are_neutral_and_stack_backed() {
         let english = ENGLISH.foreign_viewport.hint(12, 5).expect("English hint fits inline");
         assert_eq!(english.as_str(), "terminal grid (12x5)");
-        assert_eq!(english.inline_capacity(), 64);
+        assert_eq!(english.bytes.len(), 64);
         assert_eq!(ENGLISH.foreign_viewport.hint_width(12, 5), 20);
 
         let japanese = JAPANESE.foreign_viewport.hint(12, 5).expect("Japanese hint fits inline");
         assert_eq!(japanese.as_str(), "端末グリッド (12x5)");
-        assert_eq!(japanese.inline_capacity(), 64);
+        assert_eq!(japanese.bytes.len(), 64);
         assert_eq!(JAPANESE.foreign_viewport.hint_width(12, 5), 19);
     }
 }

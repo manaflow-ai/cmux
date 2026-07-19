@@ -3,10 +3,9 @@ use ghostty_vt::{Cell as VtCell, ColorSpec, Rgb};
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Modifier, Style};
-use unicode_width::UnicodeWidthStr;
 
 use crate::config::{ChromeTheme, Theme};
-use crate::localization::{Catalog, catalog};
+use crate::localization::{Catalog, ForeignViewportMessages, catalog};
 
 pub fn draw_render_frame(
     frame: &mut Frame,
@@ -123,7 +122,6 @@ fn draw_foreign_viewport(
             .set_style(boundary_style);
     }
 
-    let hint = catalog.foreign_viewport.hint(snap_cols, snap_rows);
     draw_foreign_size_hint(
         buf,
         rect,
@@ -133,7 +131,9 @@ fn draw_foreign_viewport(
         live_rows,
         has_right_band,
         has_bottom_band,
-        &hint,
+        &catalog.foreign_viewport,
+        snap_cols,
+        snap_rows,
         dead_style.fg(chrome.foreign_viewport_hint_fg),
     );
 }
@@ -148,37 +148,39 @@ fn draw_foreign_size_hint(
     live_rows: usize,
     has_right_band: bool,
     has_bottom_band: bool,
-    hint: &str,
+    messages: &ForeignViewportMessages,
+    snap_cols: u16,
+    snap_rows: u16,
     style: Style,
 ) {
-    let hint_width = hint.width();
+    let hint_width = messages.hint_width(snap_cols, snap_rows);
     let right_width = max_cols.saturating_sub(live_cols);
     let bottom_height = max_rows.saturating_sub(live_rows);
 
-    if has_right_band && (right_width >= hint_width.saturating_add(2) || !has_bottom_band) {
-        // Match the native frontend: one-cell padding from the right hairline
-        // and, when possible, from the live viewport's top edge.
-        let x = live_cols.saturating_add(1);
-        let y = usize::from(live_rows > 2);
-        let trailing_padding = usize::from(right_width > 2);
-        let available = max_cols.saturating_sub(x.saturating_add(trailing_padding));
-        if available > 0 && y < live_rows {
-            buf.set_stringn(rect.x + x as u16, rect.y + y as u16, hint, available, style);
-        }
-        return;
-    }
+    let placement =
+        if has_right_band && (right_width >= hint_width.saturating_add(2) || !has_bottom_band) {
+            // Match the native frontend: one-cell padding from the right hairline
+            // and, when possible, from the live viewport's top edge.
+            let x = live_cols.saturating_add(1);
+            let y = usize::from(live_rows > 2);
+            let trailing_padding = usize::from(right_width > 2);
+            let available = max_cols.saturating_sub(x.saturating_add(trailing_padding));
+            if available > 0 && y < live_rows { Some((x, y, available)) } else { None }
+        } else if has_bottom_band && bottom_height >= 2 && max_cols >= 3 {
+            // If the right band cannot hold the explanation, put it one row below
+            // the bottom hairline and end it at the live viewport's bottom-right
+            // corner when space allows.
+            let available = max_cols - 2;
+            let width = hint_width.min(available);
+            let x = live_cols.saturating_sub(width.saturating_add(1)).max(1);
+            Some((x, live_rows + 1, width))
+        } else {
+            None
+        };
 
-    if !has_bottom_band || bottom_height < 2 || max_cols < 3 {
-        return;
-    }
-
-    // If the right band cannot hold the explanation, put it one row below
-    // the bottom hairline and end it at the live viewport's bottom-right
-    // corner when space allows.
-    let available = max_cols - 2;
-    let width = hint_width.min(available);
-    let x = live_cols.saturating_sub(width.saturating_add(1)).max(1);
-    buf.set_stringn(rect.x + x as u16, rect.y + live_rows as u16 + 1, hint, width, style);
+    let Some((x, y, width)) = placement else { return };
+    let Some(hint) = messages.hint(snap_cols, snap_rows) else { return };
+    buf.set_stringn(rect.x + x as u16, rect.y + y as u16, hint.as_str(), width, style);
 }
 
 struct PaletteResolver<'a> {
@@ -333,8 +335,14 @@ mod tests {
         (x..x + width).map(|cell_x| buffer[(cell_x, y)].symbol()).collect()
     }
 
-    fn english_foreign_viewport_hint(cols: u16, rows: u16) -> String {
-        crate::localization::catalog_for_locale("en_US.UTF-8").foreign_viewport.hint(cols, rows)
+    fn english_foreign_viewport_hint(
+        cols: u16,
+        rows: u16,
+    ) -> crate::localization::ForeignViewportHint {
+        crate::localization::catalog_for_locale("en_US.UTF-8")
+            .foreign_viewport
+            .hint(cols, rows)
+            .expect("English hint fits inline")
     }
 
     #[test]
@@ -405,7 +413,7 @@ mod tests {
         let expected_hint = english_foreign_viewport_hint(12, 5);
         assert!(
             row_text(buffer, rect.y + 1, boundary_x + 1, rect.width - 13)
-                .starts_with(&expected_hint)
+                .starts_with(expected_hint.as_str())
         );
     }
 
@@ -488,12 +496,8 @@ mod tests {
                 assert!(!matches!(cell.symbol(), "│" | "─" | "┘"));
             }
         }
-        assert!(
-            !row_text(buffer, 0, 0, rect.width).contains(
-                crate::localization::catalog_for_locale("en_US.UTF-8")
-                    .foreign_viewport
-                    .sized_by_another_client
-            )
-        );
+        assert!(!row_text(buffer, 0, 0, rect.width).contains(
+            crate::localization::catalog_for_locale("en_US.UTF-8").foreign_viewport.terminal_grid
+        ));
     }
 }
