@@ -4358,6 +4358,9 @@ impl App {
                     ..
                 }),
                 Some(Drag::PtyMouse { .. })
+            ) | (
+                Event::Mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), .. }),
+                Some(Drag::WorkspaceArm { .. } | Drag::TabArm { .. })
             )
         )
     }
@@ -9416,6 +9419,196 @@ mod tests {
 
         let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
         mux.close_workspace(workspace);
+    }
+
+    #[test]
+    fn attached_workspace_mouse_click_uses_both_rendered_rows_and_survives_routing_refresh() {
+        let mux = Mux::new(
+            "attached-workspace-mouse-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        mux.new_workspace(Some("Alpha".to_string()), Some((80, 24))).unwrap();
+        mux.new_workspace(Some("Beta".to_string()), Some((80, 24))).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+
+        // Exercise the attached-client branch while keeping a local owner mux
+        // available for an immediate authoritative-state assertion.
+        app.session.remote = true;
+        app.sidebar_width = 18;
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+
+        for row in 0..2 {
+            mux.select_workspace(Some(1), None);
+            // A remote replace deliberately preserves this client's view, so
+            // install the owner's reset snapshot directly between subcases.
+            app.tree = app.session.tree();
+            app.rebuild_tab_locations();
+            terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+            let mut alpha_rows = app
+                .hits
+                .iter()
+                .filter_map(|(rect, hit)| match hit {
+                    super::Hit::Workspace { index: 0, .. } => Some(*rect),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            alpha_rows.sort_by_key(|rect| rect.y);
+            assert_eq!(alpha_rows.len(), 2, "name and subtitle must both be clickable");
+            let hit = alpha_rows[row];
+            let event = |kind| {
+                AppEvent::Input(Event::Mouse(MouseEvent {
+                    kind,
+                    column: hit.x + hit.width.saturating_sub(1) / 2,
+                    row: hit.y,
+                    modifiers: KeyModifiers::NONE,
+                }))
+            };
+
+            app.handle(event(MouseEventKind::Down(MouseButton::Left))).unwrap();
+            assert!(matches!(app.drag, Some(Drag::WorkspaceArm { .. })));
+
+            // A concurrent frontend can invalidate routing after the press.
+            // The release still belongs to the armed stable workspace ID.
+            app.routing_refresh_pending = true;
+            app.handle(event(MouseEventKind::Up(MouseButton::Left))).unwrap();
+            assert_eq!(app.tree.active_workspace, 0);
+
+            let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            app.handle(settled).unwrap();
+            app.routing_refresh_pending = false;
+            assert_eq!(mux.with_state(|state| state.active_workspace), 0);
+        }
+
+        let workspaces: Vec<_> =
+            mux.with_state(|state| state.workspaces.iter().map(|workspace| workspace.id).collect());
+        for workspace in workspaces {
+            mux.close_workspace(workspace);
+        }
+    }
+
+    #[test]
+    fn attached_tab_mouse_click_uses_rendered_hit_and_survives_routing_refresh() {
+        let mux = Mux::new(
+            "attached-tab-mouse-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.session.remote = true;
+        app.replace_tree(app.session.tree());
+
+        let rect = Rect { x: 0, y: 0, width: 80, height: 23 };
+        let (bar, omnibar, content, track) =
+            pane_parts_for_rect(rect, app.config.scrollbar.position, false);
+        app.sidebar_visible = false;
+        app.sidebar_width = 0;
+        app.content_area = rect;
+        app.pane_areas =
+            vec![PaneArea { pane, surface: second.id, rect, bar, omnibar, content, track }];
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let first_tab = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| match hit {
+                super::Hit::Tab { pane: hit_pane, index: 0 } if *hit_pane == pane => Some(*rect),
+                _ => None,
+            })
+            .expect("first rendered tab hit");
+        let event = |kind| {
+            AppEvent::Input(Event::Mouse(MouseEvent {
+                kind,
+                column: first_tab.x + first_tab.width.saturating_sub(1) / 2,
+                row: first_tab.y,
+                modifiers: KeyModifiers::NONE,
+            }))
+        };
+
+        app.handle(event(MouseEventKind::Down(MouseButton::Left))).unwrap();
+        assert!(matches!(app.drag, Some(Drag::TabArm { surface, .. }) if surface == first.id));
+
+        app.routing_refresh_pending = true;
+        app.handle(event(MouseEventKind::Up(MouseButton::Left))).unwrap();
+        assert_eq!(app.active_surface(), Some(first.id));
+
+        while app.session.has_pending_mutations() {
+            let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            app.handle(settled).unwrap();
+        }
+        app.routing_refresh_pending = false;
+        assert_eq!(mux.active_surface(), Some(first.id));
+
+        let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
+        mux.close_workspace(workspace);
+    }
+
+    #[test]
+    fn attached_workspace_release_without_press_is_a_no_op() {
+        let mux = Mux::new(
+            "attached-workspace-release-only-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        mux.new_workspace(Some("Alpha".to_string()), Some((80, 24))).unwrap();
+        mux.new_workspace(Some("Beta".to_string()), Some((80, 24))).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.session.remote = true;
+        app.sidebar_width = 18;
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let alpha = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| match hit {
+                super::Hit::Workspace { index: 0, .. } => Some(*rect),
+                _ => None,
+            })
+            .expect("rendered Alpha workspace hit");
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: alpha.x + alpha.width.saturating_sub(1) / 2,
+            row: alpha.y,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        assert_eq!(app.tree.active_workspace, 1);
+        assert_eq!(mux.with_state(|state| state.active_workspace), 1);
+        assert!(events.try_recv().is_err());
+
+        let workspaces: Vec<_> =
+            mux.with_state(|state| state.workspaces.iter().map(|workspace| workspace.id).collect());
+        for workspace in workspaces {
+            mux.close_workspace(workspace);
+        }
     }
 
     #[test]
