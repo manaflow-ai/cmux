@@ -6,6 +6,7 @@ usage() {
 Usage: scripts/run-iroh-release-gate.sh --mode <automatic|relay-only|direct-only> --tag <tag>
        [--staging-base-url <url>] [--skip-build] [--keep-simulator]
        [--report-output <path>]
+       [--production [--stack-env-file <secure-path>]]
 
 Builds a tagged Mac app and an isolated iOS Simulator app, signs both into the
 same staging account, pairs only over Iroh, and verifies host status, terminal
@@ -13,6 +14,9 @@ input/output, one restored workspace rename, independent events, notification
 reconcile, chat sessions, artifact count, and the redacted selected path.
 
 Credentials resolve through scripts/lib/dev-secrets.sh and are never printed.
+`--production` creates a verified temporary production Stack account, runs the
+same gate against https://cmux.com, then deletes the account. Production account
+API cleanup failures fail the gate even when direct Stack cleanup succeeds.
 EOF
 }
 
@@ -22,12 +26,17 @@ STAGING_BASE_URL="${CMUX_IROH_RELEASE_GATE_BASE_URL:-https://cmux-staging.vercel
 SKIP_BUILD=0
 KEEP_SIMULATOR=0
 REPORT_OUTPUT=""
+PRODUCTION=0
+STACK_ENV_FILE=""
+BASE_URL_WAS_EXPLICIT=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --mode) MODE="${2:-}"; shift 2 ;;
     --tag) TAG="${2:-}"; shift 2 ;;
-    --staging-base-url) STAGING_BASE_URL="${2:-}"; shift 2 ;;
+    --staging-base-url) STAGING_BASE_URL="${2:-}"; BASE_URL_WAS_EXPLICIT=1; shift 2 ;;
+    --production) PRODUCTION=1; shift ;;
+    --stack-env-file) STACK_ENV_FILE="${2:-}"; shift 2 ;;
     --skip-build) SKIP_BUILD=1; shift ;;
     --keep-simulator) KEEP_SIMULATOR=1; shift ;;
     --report-output) REPORT_OUTPUT="${2:-}"; shift 2 ;;
@@ -38,6 +47,21 @@ done
 
 [[ -n "$MODE" ]] || { echo "error: --mode is required" >&2; exit 2; }
 [[ -n "$TAG" ]] || { echo "error: --tag is required" >&2; exit 2; }
+if [[ "$PRODUCTION" -eq 1 && "$BASE_URL_WAS_EXPLICIT" -eq 1 ]]; then
+  echo "error: --production cannot be combined with --staging-base-url" >&2
+  exit 2
+fi
+if [[ "$PRODUCTION" -eq 0 && -n "$STACK_ENV_FILE" ]]; then
+  echo "error: --stack-env-file requires --production" >&2
+  exit 2
+fi
+if [[ "$PRODUCTION" -eq 1 && "$SKIP_BUILD" -eq 1 ]]; then
+  echo "error: --production cannot reuse a build because each run bakes a new protected credential-file path" >&2
+  exit 2
+fi
+if [[ "$PRODUCTION" -eq 1 ]]; then
+  STAGING_BASE_URL="https://cmux.com"
+fi
 
 case "$MODE" in
   automatic) RAW_MODE="automatic" ;;
@@ -57,6 +81,8 @@ cd "$REPO_ROOT"
 
 # shellcheck source=scripts/lib/mobile-attach.sh
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
+# shellcheck source=scripts/lib/dev-secrets.sh
+source "$SCRIPT_DIR/lib/dev-secrets.sh"
 cmux_attach_validate_dev_tag "$TAG"
 
 SLUG="$(cmux_attach__slug "$TAG")"
@@ -69,22 +95,108 @@ SIMULATOR_ID=""
 REPORT_FILENAME="cmux-iroh-release-gate.json"
 REPORT_READY_NOTIFICATION="dev.cmux.ios.iroh-release-gate.report-ready"
 REPORT_WAITER_PID=""
+STATE_DIR=""
+PROD_ENV_FILE=""
+PROD_CREDENTIALS_FILE=""
+PROD_ACCOUNT_STATE_FILE=""
+PROD_RECOVERY_FILE=""
+VERCEL_DIR=""
 
 cleanup() {
+  local exit_code=$?
+  local cleanup_code=0
+  trap - EXIT INT TERM
+  set +e
   if [[ -n "$REPORT_WAITER_PID" ]]; then
     kill "$REPORT_WAITER_PID" >/dev/null 2>&1 || true
   fi
-  if [[ "$KEEP_SIMULATOR" -eq 1 ]]; then
-    return
+  # The helper commits protected recovery state immediately after Stack creates
+  # the user. Retry cleanup whenever that state exists, including a partial
+  # create whose session-token step failed.
+  if [[ -n "$PROD_ACCOUNT_STATE_FILE" && -e "$PROD_ACCOUNT_STATE_FILE" ]]; then
+    bun scripts/lib/temporary-stack-user.mjs cleanup \
+      --environment-file "$PROD_ENV_FILE" \
+      --state-file "$PROD_ACCOUNT_STATE_FILE" \
+      --credentials-file "$PROD_CREDENTIALS_FILE" \
+      --api-base-url "$STAGING_BASE_URL" \
+      --recovery-file "$PROD_RECOVERY_FILE" >/dev/null
+    cleanup_code=$?
+    if [[ "$cleanup_code" -ne 0 ]]; then
+      echo "error: production account cleanup gate failed; redacted report: $PROD_RECOVERY_FILE" >&2
+      exit_code=1
+    fi
+  fi
+  if [[ -n "$PROD_ENV_FILE" && "$PROD_ENV_FILE" == "$STATE_DIR/"* ]]; then
+    rm -f "$PROD_ENV_FILE"
+  fi
+  if [[ -n "$VERCEL_DIR" ]]; then
+    rm -rf "$VERCEL_DIR"
   fi
   defaults delete "$MAC_BUNDLE_ID" cmux.iroh.debug.transport-mode >/dev/null 2>&1 || true
   pkill -f "cmux DEV ${SLUG}.app/Contents/MacOS/cmux DEV" 2>/dev/null || true
-  if [[ -n "$SIMULATOR_ID" ]]; then
+  rm -rf "$HOME/Library/Application Support/cmux/$MAC_BUNDLE_ID"
+  security delete-generic-password -s "$MAC_BUNDLE_ID.auth" -a cmux-auth-access-token >/dev/null 2>&1 || true
+  security delete-generic-password -s "$MAC_BUNDLE_ID.auth" -a cmux-auth-refresh-token >/dev/null 2>&1 || true
+  if [[ "$KEEP_SIMULATOR" -ne 1 && -n "$SIMULATOR_ID" ]]; then
     xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
     xcrun simctl delete "$SIMULATOR_ID" >/dev/null 2>&1 || true
   fi
+  if [[ -n "$STATE_DIR" ]]; then
+    if [[ -e "$PROD_ACCOUNT_STATE_FILE" ]]; then
+      echo "error: temporary Stack user still exists; protected recovery state retained at $PROD_ACCOUNT_STATE_FILE" >&2
+      exit_code=1
+    else
+      rm -rf "$STATE_DIR"
+    fi
+  fi
+  exit "$exit_code"
 }
+
+handle_interrupt() {
+  exit 130
+}
+
+handle_termination() {
+  exit 143
+}
+
 trap cleanup EXIT
+trap handle_interrupt INT
+trap handle_termination TERM
+
+if [[ "$PRODUCTION" -eq 1 ]]; then
+  STATE_DIR="$(mktemp -d "${TMPDIR:-/private/tmp}/cmux-iroh-production-${SLUG}.XXXXXX")"
+  chmod 700 "$STATE_DIR"
+  PROD_ACCOUNT_STATE_FILE="$STATE_DIR/account.json"
+  PROD_CREDENTIALS_FILE="$STATE_DIR/credentials.env"
+  RECOVERY_DIR="${TMPDIR:-/private/tmp}/cmux-iroh-production-gate-recovery-$(id -u)"
+  mkdir -p "$RECOVERY_DIR"
+  chmod 700 "$RECOVERY_DIR"
+  PROD_RECOVERY_FILE="$RECOVERY_DIR/${SLUG}.json"
+
+  if [[ -n "$STACK_ENV_FILE" ]]; then
+    cmux_dev_secrets_validate_file "$STACK_ENV_FILE"
+    PROD_ENV_FILE="$STACK_ENV_FILE"
+  else
+    VERCEL_DIR="$STATE_DIR/vercel-project"
+    mkdir -p "$VERCEL_DIR"
+    chmod 700 "$VERCEL_DIR"
+    PROD_ENV_FILE="$STATE_DIR/vercel-production.env"
+    bunx vercel link --yes --project cmux --scope manaflow --cwd "$VERCEL_DIR"
+    bunx vercel env pull "$PROD_ENV_FILE" \
+      --environment production \
+      --yes \
+      --scope manaflow \
+      --cwd "$VERCEL_DIR"
+    chmod 600 "$PROD_ENV_FILE"
+  fi
+
+  bun scripts/lib/temporary-stack-user.mjs create \
+    --environment-file "$PROD_ENV_FILE" \
+    --state-file "$PROD_ACCOUNT_STATE_FILE" \
+    --credentials-file "$PROD_CREDENTIALS_FILE" >/dev/null
+  echo "==> temporary production Stack account ready (credentials redacted)"
+fi
 
 SIMULATOR_ID="$(SIMULATOR_NAME="$SIMULATOR_NAME" /usr/bin/python3 <<'PY'
 import json
@@ -121,15 +233,31 @@ xcrun simctl boot "$SIMULATOR_ID"
 xcrun simctl bootstatus "$SIMULATOR_ID" -b
 
 if [[ "$SKIP_BUILD" -ne 1 ]]; then
-  CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
-  CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
-    ./scripts/reload.sh --tag "$TAG"
-  CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
-  CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
-    ./ios/scripts/reload.sh \
-      --tag "$TAG" \
-      --simulator "$SIMULATOR_NAME" \
-      --no-launch
+  if [[ "$PRODUCTION" -eq 1 ]]; then
+    CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
+    CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+      ./scripts/reload.sh \
+        --tag "$TAG" \
+        --prod-auth \
+        --credentials-file "$PROD_CREDENTIALS_FILE"
+    CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
+    CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+      ./ios/scripts/reload.sh \
+        --tag "$TAG" \
+        --simulator "$SIMULATOR_NAME" \
+        --prod-auth \
+        --no-launch
+  else
+    CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
+    CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+      ./scripts/reload.sh --tag "$TAG"
+    CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
+    CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+      ./ios/scripts/reload.sh \
+        --tag "$TAG" \
+        --simulator "$SIMULATOR_NAME" \
+        --no-launch
+  fi
 else
   [[ -d "$IOS_APP" ]] || { echo "error: tagged iOS app is missing: $IOS_APP" >&2; exit 1; }
   xcrun simctl install "$SIMULATOR_ID" "$IOS_APP"
@@ -225,13 +353,18 @@ except subprocess.TimeoutExpired:
 PY
 REPORT_WAITER_PID=$!
 
+MOBILE_LAUNCH_ARGS=(
+  --tag "$TAG"
+  --simulator-id "$SIMULATOR_ID"
+  --ensure-mac
+  --detach
+  --iroh-release-gate "$RAW_MODE"
+)
+if [[ "$PRODUCTION" -eq 1 ]]; then
+  MOBILE_LAUNCH_ARGS+=(--credentials-file "$PROD_CREDENTIALS_FILE")
+fi
 CMUX_ATTACH_MINT_MAX_ATTEMPTS=120 \
-./scripts/mobile-dev-launch.sh \
-  --tag "$TAG" \
-  --simulator-id "$SIMULATOR_ID" \
-  --ensure-mac \
-  --detach \
-  --iroh-release-gate "$RAW_MODE" \
+./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}" \
   2>&1 | sed -E \
     -e 's/^(==> dev sign-in account:).*/\1 [redacted]/' \
     -e 's/(signed in as )[^,)]+/\1[redacted]/'
