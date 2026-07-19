@@ -2792,7 +2792,7 @@ pub fn run(
         return Err(e);
     }
 
-    let cell_pixels = crate::ui::graphics::detect_cell_pixels(true);
+    let cell_pixels = crate::ui::graphics::detect_cell_pixels(None, true);
     session.set_cell_pixel_size(cell_pixels.0, cell_pixels.1);
     let graphics_supported = crate::ui::graphics::probe_kitty_graphics();
 
@@ -3512,7 +3512,7 @@ impl App {
     }
 
     fn refresh_cell_pixels(&mut self, query_fallback: bool) {
-        let next = crate::ui::graphics::detect_cell_pixels(query_fallback);
+        let next = crate::ui::graphics::detect_cell_pixels(Some(self.cell_pixels), query_fallback);
         if self.cell_pixels != next {
             if !self.prepare_pty_input_before_mutation() {
                 return;

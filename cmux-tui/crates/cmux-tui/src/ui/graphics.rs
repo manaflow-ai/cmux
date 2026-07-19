@@ -110,26 +110,39 @@ pub fn probe_kitty_graphics() -> bool {
     }
 }
 
-pub fn detect_cell_pixels(query_fallback: bool) -> (u16, u16) {
-    if let Some(cell) = ioctl_cell_pixels() {
-        return cell;
+const FALLBACK_CELL_PIXELS: (u16, u16) = (8, 16);
+
+/// Resolve host cell metrics without treating an absent resize-time ioctl
+/// value as a new measurement. Some outer terminals zero `ws_xpixel` and
+/// `ws_ypixel` after `TIOCSWINSZ`; in that case the last real measurement is
+/// more accurate than the synthetic startup fallback.
+pub fn detect_cell_pixels(known: Option<(u16, u16)>, query_fallback: bool) -> (u16, u16) {
+    let detected = ioctl_cell_pixels().or_else(|| query_fallback.then(query_cell_pixels).flatten());
+    resolve_cell_pixels(known, detected)
+}
+
+fn resolve_cell_pixels(known: Option<(u16, u16)>, detected: Option<(u16, u16)>) -> (u16, u16) {
+    detected.or(known).unwrap_or(FALLBACK_CELL_PIXELS)
+}
+
+fn cell_pixels_from_terminal_size(
+    cols: u16,
+    rows: u16,
+    width_px: u16,
+    height_px: u16,
+) -> Option<(u16, u16)> {
+    if cols == 0 || rows == 0 || width_px == 0 || height_px == 0 {
+        return None;
     }
-    if query_fallback && let Some(cell) = query_cell_pixels() {
-        return cell;
-    }
-    (8, 16)
+    Some(((width_px / cols).max(1), (height_px / rows).max(1)))
 }
 
 #[cfg(unix)]
 fn ioctl_cell_pixels() -> Option<(u16, u16)> {
     let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
     let ok = unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut ws) } == 0;
-    if !ok || ws.ws_col == 0 || ws.ws_row == 0 || ws.ws_xpixel == 0 || ws.ws_ypixel == 0 {
-        return None;
-    }
-    let w = (ws.ws_xpixel / ws.ws_col).max(1);
-    let h = (ws.ws_ypixel / ws.ws_row).max(1);
-    Some((w, h))
+    ok.then(|| cell_pixels_from_terminal_size(ws.ws_col, ws.ws_row, ws.ws_xpixel, ws.ws_ypixel))
+        .flatten()
 }
 
 #[cfg(not(unix))]
@@ -206,6 +219,23 @@ fn find_da1(bytes: &[u8]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zero_pixel_resize_preserves_known_cell_metrics() {
+        let detected = cell_pixels_from_terminal_size(120, 40, 0, 0);
+        assert_eq!(detected, None);
+        assert_eq!(resolve_cell_pixels(Some((11, 23)), detected), (11, 23));
+    }
+
+    #[test]
+    fn missing_initial_metrics_use_synthetic_fallback() {
+        assert_eq!(resolve_cell_pixels(None, None), FALLBACK_CELL_PIXELS);
+    }
+
+    #[test]
+    fn newly_detected_metrics_replace_known_metrics() {
+        assert_eq!(resolve_cell_pixels(Some((8, 16)), Some((11, 23))), (11, 23));
+    }
 
     #[test]
     fn transmits_png_in_quiet_chunks() {
