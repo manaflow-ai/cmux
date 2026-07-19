@@ -250,6 +250,101 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(result.snapshots["codex"]?.activeSlots.isEmpty == true)
     }
 
+    @Test func hibernationRegistryLoadIgnoresIrrelevantProviderCap() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hibernation-registry-provider-cap-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let provider = "provider-64"
+        let sessionID = "relevant-owner"
+        let recordJSON = try JSONSerialization.data(withJSONObject: [
+            "sessionId": sessionID,
+            "workspaceId": workspaceID.uuidString,
+            "surfaceId": panelID.uuidString,
+            "updatedAt": 100.0,
+        ], options: [.sortedKeys])
+        let slotJSON = try JSONSerialization.data(withJSONObject: [
+            "sessionId": sessionID,
+            "updatedAt": 100.0,
+        ], options: [.sortedKeys])
+        try registry.apply(
+            provider: provider,
+            records: [.init(
+                provider: provider,
+                sessionID: sessionID,
+                updatedAt: 100,
+                json: recordJSON
+            )],
+            activeSlots: [.init(
+                provider: provider,
+                scope: .surface,
+                scopeID: panelID.uuidString,
+                sessionID: sessionID,
+                updatedAt: 100,
+                json: slotJSON
+            )]
+        )
+        let sources: [(kind: RestorableAgentKind, fileURL: URL)] = (0..<65).map { index in
+            let id = "provider-\(index)"
+            return (.custom(id), root.appendingPathComponent("\(id)-hook-sessions.json"))
+        }
+
+        let result = RestorableAgentSessionIndex.agentRegistryHibernationSnapshots(
+            sources,
+            panelKeys: [.init(workspaceId: workspaceID, panelId: panelID)],
+            exactSessionIDsByProvider: [:],
+            fileManager: .default,
+            environment: ["CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path]
+        )
+
+        #expect(!result.failedProviders.contains(provider))
+        #expect(result.snapshots[provider]?.records.map(\.sessionID) == [sessionID])
+        #expect(result.snapshots[provider]?.activeSlots.map(\.sessionID) == [sessionID])
+    }
+
+    @Test func hibernationRegistrySnapshotDoesNotFallBackAfterMalformedCanonicalProjection() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hibernation-registry-malformed-provider-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let legacyURL = root.appendingPathComponent("broken-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": ["stale": [
+                "sessionId": "stale",
+                "workspaceId": UUID().uuidString,
+                "surfaceId": UUID().uuidString,
+                "startedAt": 1.0,
+                "updatedAt": 1.0,
+            ]],
+        ], options: [.sortedKeys]).write(to: legacyURL)
+        let snapshots = [
+            "broken": CmuxAgentSessionRegistry.Snapshot(
+                records: [.init(
+                    provider: "broken",
+                    sessionID: "malformed",
+                    updatedAt: 2,
+                    json: Data("{}".utf8)
+                )],
+                activeSlots: []
+            ),
+        ]
+
+        let state = RestorableAgentSessionIndex.agentHookState(
+            kind: .custom("broken"),
+            fileURL: legacyURL,
+            snapshots: snapshots,
+            fileManager: .default,
+            decoder: JSONDecoder()
+        )
+
+        #expect(state == nil, "A malformed canonical provider must not revive stale sidecar state.")
+    }
+
     @Test func hibernationIndexDoesNotInspectUnrelatedHistoricalProcesses() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hibernation-index-projection-\(UUID().uuidString)", isDirectory: true)
