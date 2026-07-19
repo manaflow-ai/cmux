@@ -1,4 +1,6 @@
 #if DEBUG
+import CmuxAgentChat
+import CmuxMobileShell
 import Foundation
 import Testing
 @testable import CmuxMobileShellReleaseGateSupport
@@ -57,6 +59,25 @@ struct MobileIrohReleaseGateResponseValidatorTests {
 
         #expect(MobileIrohReleaseGateResponseValidator.chatSessions(valid))
         #expect(!MobileIrohReleaseGateResponseValidator.chatSessions(invalid))
+    }
+
+    @Test
+    func chatSessionsAcceptProductWireDates() throws {
+        let descriptor = ChatSessionDescriptor(
+            id: "release-gate-session",
+            agentKind: .codex,
+            title: "Iroh release gate",
+            workspaceID: "workspace",
+            terminalID: "terminal",
+            workingDirectory: "/tmp",
+            state: .idle,
+            lastActivityAt: Date(timeIntervalSince1970: 1_784_432_789)
+        )
+        let payload = try ChatWireCoding().encode(
+            MobileChatSessionsResponse(sessions: [descriptor])
+        )
+
+        #expect(MobileIrohReleaseGateResponseValidator.chatSessions(payload))
     }
 
     @Test
