@@ -67,27 +67,31 @@ export interface WorkspaceAddedEvent {
   event: "workspace-added";
   workspace: Id;
   index: number;
-  workspace_revision: number;
+  /** Absent when the server does not advertise `workspace-registry-v1`. */
+  workspace_revision?: number;
   entity: Workspace;
 }
 export interface WorkspaceClosedEvent {
   event: "workspace-closed";
   workspace: Id;
   index: number;
-  workspace_revision: number;
+  /** Absent when the server does not advertise `workspace-registry-v1`. */
+  workspace_revision?: number;
   entity: Workspace;
 }
 export interface WorkspaceRenamedEvent {
   event: "workspace-renamed";
   workspace: Id;
-  workspace_revision: number;
+  /** Absent when the server does not advertise `workspace-registry-v1`. */
+  workspace_revision?: number;
   entity: Workspace;
 }
 export interface WorkspaceMovedEvent {
   event: "workspace-moved";
   workspace: Id;
   index: number;
-  workspace_revision: number;
+  /** Absent when the server does not advertise `workspace-registry-v1`. */
+  workspace_revision?: number;
   entity: Workspace;
 }
 export interface ScreenAddedEvent {
