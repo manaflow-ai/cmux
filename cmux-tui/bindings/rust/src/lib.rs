@@ -157,6 +157,8 @@ pub enum Layout {
         a: Box<Layout>,
         b: Box<Layout>,
     },
+    #[serde(rename = "stack")]
+    Stack { panes: Vec<u64>, expanded: u64 },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -430,6 +432,20 @@ impl CmuxClient {
         insert_opt(&mut params, "cols", cols);
         insert_opt(&mut params, "rows", rows);
         self.request("new-screen", params)
+    }
+
+    pub fn new_pane(
+        &mut self,
+        pane: u64,
+        cols: Option<u16>,
+        rows: Option<u16>,
+    ) -> Result<SurfaceResult> {
+        self.require_protocol(9, "new-pane")?;
+        let mut params = Map::new();
+        params.insert("pane".to_string(), Value::from(pane));
+        insert_opt(&mut params, "cols", cols);
+        insert_opt(&mut params, "rows", rows);
+        self.request("new-pane", params)
     }
 
     pub fn split(
@@ -943,6 +959,20 @@ mod tests {
     }
 
     #[test]
+    fn stack_layout_decodes_protocol_v9_shape() {
+        let layout: Layout = serde_json::from_value(serde_json::json!({
+            "type": "stack",
+            "panes": [1, 2, 3],
+            "expanded": 2,
+        }))
+        .unwrap();
+        assert!(matches!(
+            layout,
+            Layout::Stack { panes, expanded } if panes == vec![1, 2, 3] && expanded == 2
+        ));
+    }
+
+    #[test]
     fn set_split_ratio_requires_protocol_eight() {
         let (socket, _peer) = UnixStream::pair().unwrap();
         let writer = socket.try_clone().unwrap();
@@ -970,6 +1000,20 @@ mod tests {
             protocol: Some(9),
         };
         client.require_protocol(8, "set-split-ratio").unwrap();
+    }
+
+    #[test]
+    fn new_pane_requires_protocol_nine() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(8),
+        };
+        let error = client.require_protocol(9, "new-pane").unwrap_err();
+        assert_eq!(error.to_string(), "new-pane requires protocol 9; server uses protocol 8");
     }
 
     #[test]

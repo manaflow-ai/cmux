@@ -164,6 +164,13 @@ export interface NewScreenRequest extends CmuxRequestBase {
   rows?: number | null;
 }
 
+export interface NewPaneRequest extends CmuxRequestBase {
+  cmd: "new-pane";
+  pane: Id;
+  cols?: number | null;
+  rows?: number | null;
+}
+
 export interface SplitRequest extends CmuxRequestBase {
   cmd: "split";
   pane: Id;
@@ -369,6 +376,7 @@ export type CmuxRequest =
   | NewBrowserTabRequest
   | NewWorkspaceRequest
   | NewScreenRequest
+  | NewPaneRequest
   | SplitRequest
   | SetRatioRequest
   | SetSplitRatioRequest
@@ -429,6 +437,7 @@ export interface CmuxResponseDataMap {
   "new-browser-tab": SurfaceResult;
   "new-workspace": SurfaceResult;
   "new-screen": SurfaceResult;
+  "new-pane": SurfaceResult;
   split: SurfaceResult;
   "set-ratio": EmptyResult;
   "set-split-ratio": EmptyResult;

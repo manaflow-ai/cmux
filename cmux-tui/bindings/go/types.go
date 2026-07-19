@@ -123,6 +123,11 @@ type NewScreenOptions struct {
 	Rows      *uint16 `json:"rows,omitempty"`
 }
 
+type NewPaneOptions struct {
+	Cols *uint16 `json:"cols,omitempty"`
+	Rows *uint16 `json:"rows,omitempty"`
+}
+
 type SplitOptions struct {
 	Cols *uint16 `json:"cols,omitempty"`
 	Rows *uint16 `json:"rows,omitempty"`

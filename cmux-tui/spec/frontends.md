@@ -1,6 +1,6 @@
 # Build a cmux-tui Frontend
 
-This is the canonical integration path for an external cmux-tui frontend. This document narrates the protocol-v8 flow, so its capability examples report protocol 8. Protocol v8 rich frontends should consume the server's authoritative render state: draw runs, place the cursor, and send keys. Byte attach remains the terminal-piping path for clients that intentionally run a terminal emulator or forward raw PTY state elsewhere.
+This is the canonical integration path for an external cmux-tui frontend. This document narrates the complete protocol-v9 flow. Rich frontends should consume the server's authoritative render state: draw runs, place the cursor, and send keys. Byte attach remains the terminal-piping path for clients that intentionally run a terminal emulator or forward raw PTY state elsewhere.
 
 The complete command schemas are in [`commands.md`](commands.md), event schemas and scoping are in [`events.md`](events.md), and styled-cell details are in [`render.md`](render.md).
 
@@ -20,24 +20,24 @@ Only then send protocol requests. See [`transports.md`](transports.md#authentica
 
 ## 2. Identify And Select Capabilities
 
-Send [`identify`](commands.md#identify) immediately after connecting. Verify `data.app == "cmux-tui"` and `data.protocol == 8` before enabling protocol-v8 behavior. Preserve request `id` values and route every non-event response back to the pending request with that id.
+Send [`identify`](commands.md#identify) immediately after connecting. Verify `data.app == "cmux-tui"` and `data.protocol == 9` before enabling protocol-v9 behavior. Preserve request `id` values and route every non-event response back to the pending request with that id.
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":8,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":9,"session":"main","pid":12345}}
 ```
 
-Require `protocol >= 7` before requesting render mode, `read-scrollback`, or bracketed-paste handling. A frontend may fall back to protocol-v6 byte attach; it must not send v7-only fields to an older server.
+Require `protocol == 9` for the complete flow in this guide, including stack layouts and `new-pane`. Stable split ids and `set-split-ratio` remain available on protocol 8. Render mode, `read-scrollback`, bracketed-paste handling, and lifecycle deltas remain available on protocol 7. A frontend may fall back to protocol-v6 byte attach; it must not send newer fields to an older server.
 
 ## 3. Load And Track The Workspace Tree
 
 Open [`subscribe`](commands.md#subscribe) with `tree_events:"deltas"`, buffer events as soon as the request is sent, then fetch [`list-workspaces`](commands.md#list-workspaces). Apply the snapshot before draining the buffer. The subscribe receiver is registered before its success response, so responses and events may race. Omitting `tree_events` selects the protocol-v6-compatible coarse stream instead.
 
-Protocol v7 lifecycle events (`workspace-*`, `screen-*`, `pane-*`, and `tab-*`) carry subject ids, parent ids, and exact `list-workspaces` entity payloads. Apply those deltas in stream order. `layout-changed`, surface events, and title events retain their documented focused invalidation paths.
+Protocol v7 and newer lifecycle events (`workspace-*`, `screen-*`, `pane-*`, and `tab-*`) carry subject ids, parent ids, and exact `list-workspaces` entity payloads. Apply those deltas in stream order. `layout-changed`, surface events, and title events retain their documented focused invalidation paths.
 
 Always implement `tree-changed`: it is the delta stream's coarse resync fallback for churn and changes not represented by lifecycle deltas. Do not rely on it for ordinary delta-representable mutations. On receipt, fetch a new `list-workspaces` snapshot and treat it as authoritative over older buffered deltas. See the [event-scoping table](events.md#event-scoping) before routing events from a connection with streams.
 
-Every protocol-v8 split layout node has a stable `split` id. Preserve that id as the UI key for the divider and call [`set-split-ratio`](commands.md#set-split-ratio) while dragging. Do not derive divider identity from child panes or tree position. Ratio changes, focus changes, tab changes, and leaf swaps preserve the id; collapsing that node removes it.
+Every protocol-v8 and newer split layout node has a stable `split` id. Preserve that id as the UI key for the divider and call [`set-split-ratio`](commands.md#set-split-ratio) while dragging. Do not derive divider identity from child panes or tree position. Ratio changes, focus changes, tab changes, and leaf swaps preserve the id; collapsing that node removes it. Protocol-v9 stack nodes require at least one pane and identify an expanded pane that belongs to that list.
 
 Initial surface dimensions and smallest-client resize reporting follow the consolidated [`Sizing`](commands.md#sizing) contract.
 
@@ -58,6 +58,8 @@ render-state -> (render-delta | scroll-changed)* -> detached
 ```
 
 The initial snapshot and render tap are registered under one lock, so there is no missing or duplicated frame between them. Attach events may arrive before the attach command response.
+
+Call [`list-agents`](commands.md#list-agents) to read current agent records, optionally filtered by surface or state. Agent producers report state through [`report-agent`](commands.md#report-agent); a presentation-only frontend normally reads and displays these records rather than inventing its own agent state. There is no dedicated agent-change event in protocol v9, so re-fetch after a frontend reports state and when tree or surface lifecycle events make the presentation stale.
 
 `render-state.scrollback_rows` and later count changes tell the frontend whether history exists. Fetch visible history in bounded pages with [`read-scrollback`](commands.md#read-scrollback); do not assume indexes remain stable across eviction or resize reflow.
 
@@ -92,7 +94,7 @@ Each line is one WebSocket text frame. `C>` is client-to-server and `S>` is serv
 ```text
 C> {"auth":{"token":"secret"}}
 C> {"id":1,"cmd":"identify"}
-S> {"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":8,"session":"main","pid":12345}}
+S> {"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":9,"session":"main","pid":12345}}
 C> {"id":2,"cmd":"subscribe","tree_events":"deltas"}
 S> {"id":2,"ok":true,"data":{}}
 C> {"id":3,"cmd":"list-workspaces"}

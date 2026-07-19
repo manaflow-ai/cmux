@@ -421,6 +421,77 @@ describe("TerminalPane split dividers", () => {
   });
 });
 
+describe("TerminalPane stacks", () => {
+  it("renders collapsed title rows around the expanded pane", () => {
+    const props = terminalPaneProps(vi.fn(async () => true));
+    props.client = { protocol: 9 } as CmuxClient;
+    const screen: ScreenView = {
+      ...screenView(0.5),
+      layout: { type: "stack", panes: [1, 2, 3], expanded: 2 },
+      activePane: 2,
+      panes: [1, 2, 3].map((id) => ({
+        id,
+        name: null,
+        active_tab: 0,
+        tabs: [{
+          surface: id + 10,
+          kind: "pty" as const,
+          browser_source: null,
+          name: null,
+          title: `shell ${id}`,
+          size: { cols: 80, rows: 24 },
+          dead: false,
+        }],
+      })),
+    };
+
+    const { container, queryByRole, rerender } = render(<TerminalPane {...props} screen={screen} />);
+    const stack = container.querySelector(".pane-stack");
+    expect(stack).toBeInTheDocument();
+    expect(stack?.querySelectorAll(".pane-leaf.collapsed")).toHaveLength(2);
+    expect(stack?.querySelectorAll(":scope > .pane-leaf.expanded")).toHaveLength(1);
+    expect(stack?.querySelectorAll(":scope > .stack-pane-headers")).toHaveLength(2);
+    expect(stack?.children[0]).toHaveClass("stack-pane-headers", "before");
+    expect(stack?.children[1]).toHaveClass("expanded");
+    expect(stack?.children[2]).toHaveClass("stack-pane-headers", "after");
+    expect(attachedTerminal.renderHook).toHaveBeenCalledTimes(1);
+
+    const firstHeader = stack!.children[0]!.querySelector(".stack-pane-header")!;
+    fireEvent.click(firstHeader);
+    expect(props.onSelectPane).toHaveBeenCalledWith(1);
+
+    props.onSelectPane.mockClear();
+    fireEvent.contextMenu(firstHeader);
+    expect(props.onSelectPane).not.toHaveBeenCalled();
+
+    fireEvent.focusIn(stack!.children[2]!.querySelector(".stack-pane-header")!);
+    expect(props.onSelectPane).not.toHaveBeenCalled();
+
+    fireEvent.click(stack!.children[2]!.querySelector(".stack-pane-header")!);
+    expect(props.onSelectPane).toHaveBeenCalledWith(3);
+
+    fireEvent.contextMenu(stack!.querySelector(".pane-leaf.expanded .terminal-panel")!, {
+      clientX: 10,
+      clientY: 10,
+    });
+    expect(queryByRole("menu")).toBeInTheDocument();
+    rerender(
+      <TerminalPane
+        {...props}
+        screen={{
+          ...screen,
+          activePane: 3,
+          layout: { type: "stack", panes: [1, 2, 3], expanded: 3 },
+        }}
+      />,
+    );
+    expect(queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(
+      container.querySelector(".pane-leaf.expanded [data-render-input]"),
+    );
+  });
+});
+
 describe("TerminalPane shared minimum size", () => {
   it("shows the exact surface viewers in the bottom-left border", () => {
     const props = terminalPaneProps(vi.fn(async () => true));
@@ -609,5 +680,45 @@ describe("TerminalPane renderer selection", () => {
     rerender(<TerminalPane {...props} screen={terminalScreenView()} />);
     expect(attachedTerminal.byteHook).toHaveBeenCalledTimes(1);
     expect(attachedTerminal.renderHook).not.toHaveBeenCalled();
+  });
+});
+
+describe("TerminalPane stack indexing", () => {
+  it("does not scan the full pane list for every stack row", () => {
+    const panes: ScreenView["panes"] = Array.from({ length: 13 }, (_, index) => ({
+      id: index + 1,
+      name: null,
+      active_tab: 0,
+      tabs: [{
+        surface: index + 100,
+        kind: "pty" as const,
+        browser_source: null,
+        name: null,
+        title: `pane ${index + 1}`,
+        size: { cols: 80, rows: 24 },
+        dead: false,
+      }],
+    }));
+    let findCalls = 0;
+    const trackedPanes = new Proxy(panes, {
+      get(target, property, receiver) {
+        if (property === "find") findCalls += 1;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const screen: ScreenView = {
+      ...screenView(0.5),
+      panes: trackedPanes,
+      layout: {
+        type: "stack",
+        panes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+        expanded: 7,
+      },
+      activePane: 7,
+    };
+
+    render(<TerminalPane {...terminalPaneProps(vi.fn(async () => true))} screen={screen} />);
+
+    expect(findCalls).toBe(0);
   });
 });

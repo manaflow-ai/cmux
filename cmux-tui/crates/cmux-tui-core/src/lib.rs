@@ -25,6 +25,7 @@ pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 pub use layout::{
     ExactSplitResize, LayoutResult, Rect, SplitEdge, SplitResize, directional_neighbor,
     exact_split_for_pane_edge, layout_screen, split_for_pane_edge, split_sides,
+    zellij_default_pane_layout,
 };
 pub use model::{Node, Pane, Screen, State, Workspace};
 pub use mux::{

@@ -26,10 +26,16 @@ import { tryLoadWebglRenderer } from "../lib/webglRenderer";
 interface AttachedTerminalOptions {
   client: CmuxClient | null;
   surface: Id | null;
+  focusOnMount?: boolean;
   onError(error: Error): void;
 }
 
-export function useAttachedTerminal({ client, surface, onError }: AttachedTerminalOptions) {
+export function useAttachedTerminal({
+  client,
+  surface,
+  focusOnMount = false,
+  onError,
+}: AttachedTerminalOptions) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [focused, setFocused] = useState(false);
   const terminalRef = useCallback((node: HTMLDivElement | null) => setHost(node), []);
@@ -63,6 +69,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     host.addEventListener("focusin", handleFocusIn);
     host.addEventListener("focusout", handleFocusOut);
     host.addEventListener("touchend", focusOnTouch, { passive: true });
+    if (focusOnMount) terminal.focus();
     let stream: Awaited<ReturnType<CmuxClient["attachSurface"]>> | null = null;
     let reportedFit: TerminalSize | null = null;
 
@@ -249,7 +256,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       stage?.style.removeProperty("--surface-background");
       setFocused(false);
     };
-  }, [client, host, onError, surface]);
+  }, [client, focusOnMount, host, onError, surface]);
 
   return { terminalRef, focused };
 }
