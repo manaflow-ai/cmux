@@ -79,21 +79,14 @@ extension RestorableAgentSessionIndex {
         )) { existing, _ in existing }
         resolved.merge(processDetectedForkParentFallbackSnapshots(processSnapshot: processSnapshot, capturedAt: capturedAt, scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey, processArgumentsProvider: cachedProcessArguments)) { existing, _ in existing }
         guard !registry.registrations.isEmpty else { return resolved }
-        var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
+        var projectConfigCache = CmuxVaultAgentRegistry.ProjectConfigCache(base: registry)
         var piSessionDirectoryIndex = PiSessionDirectoryIndex(fileManager: fileManager)
 
         func registryForWorkingDirectory(_ workingDirectory: String?) -> CmuxVaultAgentRegistry {
-            guard let workingDirectory else { return registry }
-            let key = (workingDirectory as NSString).standardizingPath
-            if let cached = registriesByWorkingDirectory[key] {
-                return cached
-            }
-            let resolved = registry.mergingProjectConfig(
-                workingDirectory: key,
+            projectConfigCache.registry(
+                forWorkingDirectory: workingDirectory,
                 fileManager: fileManager
             )
-            registriesByWorkingDirectory[key] = resolved
-            return resolved
         }
 
         for process in processSnapshot.cmuxScopedProcesses() {
@@ -110,7 +103,7 @@ extension RestorableAgentSessionIndex {
             )
             let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"])
             let processRegistry = registryForWorkingDirectory(cwd)
-            guard let registration = processRegistry.registrations.first(where: { $0.detect.matches(observed) }),
+            guard let registration = processRegistry.matchingRegistration(for: observed),
                   registration.processDetectedSnapshotIsRestorable(for: observed),
                   let sessionIDResolution = registration.sessionIdSource.sessionIDResolution(
                       from: observed,
@@ -274,7 +267,11 @@ extension RestorableAgentSessionIndex {
                 arguments: processArguments.arguments,
                 environment: processArguments.environment
             )
-            guard observed.isOpenCodeProcess else { continue }
+            guard observed.isOpenCodeProcess,
+                  CmuxVaultAgentRegistration.processDetectedSnapshotIsRestorable(
+                      kind: "opencode",
+                      for: observed
+                  ) else { continue }
 
             let cwd = openCodeWorkingDirectory(observed: observed)
             let cwdKey = cwd.map { ($0 as NSString).standardizingPath } ?? ""

@@ -15,6 +15,10 @@ struct AgentSessionProviderSelection: Sendable, Equatable {
     /// Exact owners must not inherit live observations through a built-in
     /// executable/family alias with the same spelling.
     var exactObservationProviderID: String?
+    /// Set when a request uniquely matches a catalog identifier after case
+    /// folding. Matching remains provider-only, and accepted live observations
+    /// are rewritten to this catalog spelling before exact grouping and joins.
+    var caseFoldedObservationProviderID: String? = nil
 }
 
 private struct AgentSessionConfiguredProvider: Sendable {
@@ -670,9 +674,11 @@ extension CMUXCLI {
             agentsNormalizedAgentID($0) == normalized
         })
         if configuredMatches.count == 1 {
+            let providerID = configuredMatches.first
             return AgentSessionProviderSelection(
-                providerID: configuredMatches.first,
-                exactObservationProviderID: nil
+                providerID: providerID,
+                exactObservationProviderID: nil,
+                caseFoldedObservationProviderID: providerID
             )
         }
         let observedProviders = Set(terminalObservations.compactMap { observation -> String? in
@@ -711,6 +717,12 @@ extension CMUXCLI {
                 sessionStoreSuffix: "claude",
                 configDirEnvOverride: "CLAUDE_CONFIG_DIR"
             ),
+            AgentSessionProviderSpecification(
+                name: "ollama",
+                displayName: "Ollama",
+                sessionStoreSuffix: "ollama",
+                configDirEnvOverride: nil
+            ),
         ]
         specifications.append(contentsOf: Self.agentDefs.map {
             AgentSessionProviderSpecification(
@@ -725,7 +737,7 @@ extension CMUXCLI {
         // registrations. Config may rename them for display, but must retain
         // the built-in sidecar and hook metadata.
         let configurableStaticProviderIDs: Set<String> = [
-            "pi", "grok", "antigravity", "omp", "campfire",
+            "pi", "grok", "antigravity", "ollama", "omp", "campfire",
         ]
         let exactRequestedProviderID = requestedAgent?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -786,6 +798,27 @@ extension CMUXCLI {
             providerIDBySidecarKey[sidecarKey] = provider.id
             specifications.append(specification)
             dynamicProviderCount += 1
+        }
+
+        // A narrowed query can adopt one exact sidecar-only provider without
+        // enumerating the state directory. Probe this spelling before static
+        // executable aliases so `cursor-agent` can own its literal sidecar.
+        if let exactRequestedProviderID,
+           CmuxAgentSessionRegistry.isSafeProviderIdentifier(exactRequestedProviderID) {
+            let exactSidecarURL = URL(fileURLWithPath: stateDirectory, isDirectory: true)
+                .appendingPathComponent(
+                    "\(exactRequestedProviderID)-hook-sessions.json",
+                    isDirectory: false
+                )
+            if fileManager.fileExists(atPath: exactSidecarURL.path) {
+                try include(
+                    AgentSessionConfiguredProvider(
+                        id: exactRequestedProviderID,
+                        name: exactRequestedProviderID
+                    ),
+                    replacesConfigured: false
+                )
+            }
         }
 
         let configURLs = agentSessionProviderConfigURLs(
@@ -1019,12 +1052,43 @@ extension CMUXCLI {
         if let exactProviderID = selection.exactObservationProviderID {
             return observation.sessionProviderID == exactProviderID
         }
+        if let caseFoldedProviderID = selection.caseFoldedObservationProviderID {
+            return observation.sessionProviderID.caseInsensitiveCompare(caseFoldedProviderID)
+                == .orderedSame
+        }
         return agentTerminalObservation(
             observation,
             matchesAnyAgentID: Set([
                 requestedNormalizedID,
                 selection.providerID,
             ].compactMap { $0 })
+        )
+    }
+
+    func agentTerminalObservation(
+        _ observation: CmuxAgentTerminalObservation,
+        canonicalizedFor selection: AgentSessionProviderSelection
+    ) -> CmuxAgentTerminalObservation {
+        guard let providerID = selection.caseFoldedObservationProviderID,
+              observation.sessionProviderID.caseInsensitiveCompare(providerID) == .orderedSame,
+              observation.sessionProviderID != providerID else {
+            return observation
+        }
+        return CmuxAgentTerminalObservation(
+            runtimeID: observation.runtimeID,
+            workspaceID: observation.workspaceID,
+            surfaceID: observation.surfaceID,
+            surfaceGeneration: observation.surfaceGeneration,
+            revision: observation.revision,
+            familyID: observation.familyID,
+            sessionProviderID: providerID,
+            lifecycleAuthoritative: observation.lifecycleAuthoritative,
+            state: observation.state,
+            pid: observation.pid,
+            processStartSeconds: observation.processStartSeconds,
+            processStartMicroseconds: observation.processStartMicroseconds,
+            cwd: observation.cwd,
+            publishedAt: observation.publishedAt
         )
     }
 

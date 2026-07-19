@@ -116,7 +116,11 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
     }
 
     private static func isReservedID(_ value: String) -> Bool {
-        RestorableAgentKind.allCases.contains {
+        let caseFolded = value.lowercased()
+        if RestorableAgentKind.registryOwnedRawValues.contains(caseFolded) {
+            return value != caseFolded
+        }
+        return RestorableAgentKind.allCases.contains {
             $0.rawValue.caseInsensitiveCompare(value) == .orderedSame
         }
     }
@@ -425,8 +429,75 @@ enum CmuxVaultAgentCWDPolicy: String, Codable, Hashable, Sendable {
 
 struct CmuxVaultAgentRegistry: Sendable {
     private static let logger = Logger(subsystem: "ai.manaflow.cmux", category: "VaultAgentRegistry")
+    private static let maximumConfigBytes = 1_024 * 1_024
+    private static let maximumConfigAncestorCount = 64
+    private static let maximumDynamicRegistrationCount =
+        CmuxAgentSessionRegistry.maximumProviderEnumerationCount
+    private static let builtInRegistrationIDs: Set<String> = [
+        "pi", "omp", "campfire", "antigravity", "grok",
+    ]
 
     var registrations: [CmuxVaultAgentRegistration]
+    private var detectionIndexesByExecutableName: [String: [Int]]
+    private var fallbackDetectionIndexes: [Int]
+
+    struct ProjectConfigCache {
+        private let base: CmuxVaultAgentRegistry
+        private var registryByDirectory: [String: CmuxVaultAgentRegistry] = [:]
+        private(set) var directoryProbeCount = 0
+        private(set) var configDecodeCount = 0
+
+        init(base: CmuxVaultAgentRegistry) {
+            self.base = base
+        }
+
+        mutating func registry(
+            forWorkingDirectory workingDirectory: String?,
+            fileManager: FileManager
+        ) -> CmuxVaultAgentRegistry {
+            guard let workingDirectory = workingDirectory?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                !workingDirectory.isEmpty else {
+                return base
+            }
+            var isDirectory: ObjCBool = false
+            let start = fileManager.fileExists(
+                atPath: workingDirectory,
+                isDirectory: &isDirectory
+            ) && isDirectory.boolValue
+                ? workingDirectory
+                : (workingDirectory as NSString).deletingLastPathComponent
+            var current = (start as NSString).standardizingPath
+            var visited: [String] = []
+            visited.reserveCapacity(CmuxVaultAgentRegistry.maximumConfigAncestorCount)
+            for _ in 0..<CmuxVaultAgentRegistry.maximumConfigAncestorCount {
+                if let cached = registryByDirectory[current] {
+                    for directory in visited { registryByDirectory[directory] = cached }
+                    return cached
+                }
+                directoryProbeCount += 1
+                visited.append(current)
+                let candidates = [
+                    ((current as NSString).appendingPathComponent(".cmux") as NSString)
+                        .appendingPathComponent("cmux.json"),
+                    (current as NSString).appendingPathComponent("cmux.json"),
+                ]
+                if let path = candidates.first(where: {
+                    fileManager.fileExists(atPath: $0)
+                }) {
+                    configDecodeCount += 1
+                    let resolved = base.mergingProjectConfig(at: path, fileManager: fileManager)
+                    for directory in visited { registryByDirectory[directory] = resolved }
+                    return resolved
+                }
+                let parent = (current as NSString).deletingLastPathComponent
+                guard parent != current else { break }
+                current = parent
+            }
+            for directory in visited { registryByDirectory[directory] = base }
+            return base
+        }
+    }
 
     init(registrations: [CmuxVaultAgentRegistration]) {
         var ordered: [CmuxVaultAgentRegistration] = []
@@ -454,13 +525,52 @@ struct CmuxVaultAgentRegistry: Sendable {
                 "Ignoring Vault registrations with case-colliding ids: \(exactIDs.joined(separator: ", "), privacy: .public)"
             )
         }
-        self.registrations = ordered.filter {
+        let filtered = ordered.filter {
             !conflictingCaseFolds.contains($0.id.lowercased())
         }
+        var indexesByExecutableName: [String: [Int]] = [:]
+        var fallbackIndexes: [Int] = []
+        for (index, registration) in filtered.enumerated() {
+            var requiresFallback = registration.detect.needsUnindexedDetectionFallback
+            for processName in registration.detect.detectionIndexProcessNames {
+                guard let key = Self.detectionIndexKey(processName) else {
+                    requiresFallback = true
+                    continue
+                }
+                indexesByExecutableName[key, default: []].append(index)
+            }
+            if requiresFallback {
+                guard fallbackIndexes.count < Self.maximumDynamicRegistrationCount else {
+                    continue
+                }
+                fallbackIndexes.append(index)
+            }
+        }
+        if filtered.filter({ $0.detect.needsUnindexedDetectionFallback }).count
+            > fallbackIndexes.count {
+            Self.logger.fault(
+                "Vault argv-only detection exceeded the bounded fallback catalog"
+            )
+        }
+        self.registrations = filtered
+        detectionIndexesByExecutableName = indexesByExecutableName
+        fallbackDetectionIndexes = fallbackIndexes
     }
 
     func registration(id: String) -> CmuxVaultAgentRegistration? {
         registrations.first { $0.id == id }
+    }
+
+    func matchingRegistration(
+        for process: VaultObservedAgentProcess
+    ) -> CmuxVaultAgentRegistration? {
+        detectionCandidateIndexes(for: process).lazy
+            .map { registrations[$0] }
+            .first { $0.detect.matches(process) }
+    }
+
+    func detectionCandidateCount(for process: VaultObservedAgentProcess) -> Int {
+        detectionCandidateIndexes(for: process).count
     }
 
     func mergingProjectConfig(
@@ -469,10 +579,22 @@ struct CmuxVaultAgentRegistry: Sendable {
     ) -> CmuxVaultAgentRegistry {
         guard let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
               !workingDirectory.isEmpty,
-              let path = Self.findLocalConfig(startingAt: workingDirectory, fileManager: fileManager),
-              let config = Self.decodeConfig(at: path, fileManager: fileManager),
+              let path = Self.findLocalConfig(startingAt: workingDirectory, fileManager: fileManager) else {
+            return self
+        }
+        return mergingProjectConfig(at: path, fileManager: fileManager)
+    }
+
+    private func mergingProjectConfig(
+        at path: String,
+        fileManager: FileManager
+    ) -> CmuxVaultAgentRegistry {
+        guard let config = Self.decodeConfig(at: path, fileManager: fileManager),
               let agents = config.vault?.agents,
-              !agents.isEmpty else {
+              !agents.isEmpty,
+              Self.dynamicRegistrationIDs(in: registrations)
+                .union(Self.dynamicRegistrationIDs(in: agents)).count
+                <= Self.maximumDynamicRegistrationCount else {
             return self
         }
         return CmuxVaultAgentRegistry(registrations: registrations + agents)
@@ -491,9 +613,21 @@ struct CmuxVaultAgentRegistry: Sendable {
             CmuxVaultAgentRegistration.builtInAntigravity,
             CmuxVaultAgentRegistration.builtInGrok,
         ]
+        var dynamicRegistrationIDs = Set<String>()
         for path in configPaths(homeDirectory: homeDirectory, workingDirectory: workingDirectory, environment: environment, fileManager: fileManager) {
             guard let config = decodeConfig(at: path, fileManager: fileManager) else { continue }
-            registrations.append(contentsOf: config.vault?.agents ?? [])
+            let agents = config.vault?.agents ?? []
+            let candidateIDs = dynamicRegistrationIDs.union(
+                Self.dynamicRegistrationIDs(in: agents)
+            )
+            guard candidateIDs.count <= maximumDynamicRegistrationCount else {
+                logger.fault(
+                    "Ignoring Vault config whose merged dynamic catalog exceeds \(maximumDynamicRegistrationCount) registrations: \(path, privacy: .public)"
+                )
+                continue
+            }
+            dynamicRegistrationIDs = candidateIDs
+            registrations.append(contentsOf: agents)
         }
         return CmuxVaultAgentRegistry(registrations: registrations)
     }
@@ -522,7 +656,7 @@ struct CmuxVaultAgentRegistry: Sendable {
             ? path
             : (path as NSString).deletingLastPathComponent
         var current = (start as NSString).standardizingPath
-        while true {
+        for _ in 0..<maximumConfigAncestorCount {
             let candidates = [
                 ((current as NSString).appendingPathComponent(".cmux") as NSString).appendingPathComponent("cmux.json"),
                 (current as NSString).appendingPathComponent("cmux.json"),
@@ -534,22 +668,60 @@ struct CmuxVaultAgentRegistry: Sendable {
             if parent == current { return nil }
             current = parent
         }
+        return nil
     }
 
     private static func decodeConfig(at path: String, fileManager: FileManager) -> CmuxConfigFile? {
         guard fileManager.fileExists(atPath: path),
-              let data = fileManager.contents(atPath: path),
-              !data.isEmpty else {
+              let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else {
             return nil
         }
+        defer { try? handle.close() }
         do {
+            guard let data = try handle.read(upToCount: maximumConfigBytes + 1),
+                  !data.isEmpty,
+                  data.count <= maximumConfigBytes else {
+                return nil
+            }
             let sanitized = try JSONCParser.preprocess(data: data)
-            return try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
+            let config = try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
+            guard (config.vault?.agents.count ?? 0) <= maximumDynamicRegistrationCount else {
+                return nil
+            }
+            return config
         } catch {
             logger.fault(
                 "Failed to decode config at \(path, privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
             return nil
         }
+    }
+
+    private func detectionCandidateIndexes(
+        for process: VaultObservedAgentProcess
+    ) -> [Int] {
+        var indexes = Set(fallbackDetectionIndexes)
+        for basename in process.executableBasenames {
+            guard let key = Self.detectionIndexKey(basename) else { continue }
+            indexes.formUnion(detectionIndexesByExecutableName[key] ?? [])
+        }
+        return indexes.sorted()
+    }
+
+    private static func detectionIndexKey(_ value: String) -> String? {
+        let basename = (value as NSString).lastPathComponent
+        guard !basename.isEmpty,
+              basename.unicodeScalars.allSatisfy({ $0.isASCII }) else {
+            return nil
+        }
+        return basename.lowercased()
+    }
+
+    private static func dynamicRegistrationIDs(
+        in registrations: [CmuxVaultAgentRegistration]
+    ) -> Set<String> {
+        Set(registrations.compactMap {
+            builtInRegistrationIDs.contains($0.id) ? nil : $0.id
+        })
     }
 }

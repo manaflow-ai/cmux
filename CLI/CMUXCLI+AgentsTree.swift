@@ -221,7 +221,7 @@ extension CMUXCLI {
             processStateByIdentity[identity] = state
             return state
         }
-        let matchingObservations = canonicalTerminalObservations.filter { observation in
+        let matchingObservations = canonicalTerminalObservations.compactMap { observation in
             if let providerSelection,
                let normalizedAgent,
                !agentTerminalObservation(
@@ -229,16 +229,23 @@ extension CMUXCLI {
                    matches: providerSelection,
                    requestedNormalizedID: normalizedAgent
                ) {
-                return false
+                return nil
             }
             if let normalizedSurface,
-               observation.surfaceID.uuidString.lowercased() != normalizedSurface { return false }
+               observation.surfaceID.uuidString.lowercased() != normalizedSurface { return nil }
             switch queryScope {
             case .history, .legacyUnscoped:
-                return true
+                break
             case let .currentRuntime(runtimeID):
-                return observation.runtimeID == runtimeID
+                guard observation.runtimeID == runtimeID else { return nil }
             }
+            if let providerSelection {
+                return agentTerminalObservation(
+                    observation,
+                    canonicalizedFor: providerSelection
+                )
+            }
+            return observation
         }
         let observationJoiner = AgentTerminalObservationJoiner()
         let observationsByProcessKey = Dictionary(

@@ -191,7 +191,7 @@ extension CMUXCLI {
         // Defer sysctl work until after top-K selection in that common path.
         let defersProcessStateProbe = includeAll && stateFilter == nil
         let queryScope = AgentSessionQueryScope(includeHistory: includeAll, environment: processEnv)
-        let matchingObservations = canonicalTerminalObservations.filter { observation in
+        let matchingObservations = canonicalTerminalObservations.compactMap { observation in
             if let providerSelection,
                let requestedAgent,
                !agentTerminalObservation(
@@ -199,16 +199,23 @@ extension CMUXCLI {
                    matches: providerSelection,
                    requestedNormalizedID: requestedAgent
                ) {
-                return false
+                return nil
             }
             if let surfaceFilter,
-               observation.surfaceID.uuidString.lowercased() != surfaceFilter { return false }
+               observation.surfaceID.uuidString.lowercased() != surfaceFilter { return nil }
             switch queryScope {
             case .history, .legacyUnscoped:
-                return true
+                break
             case let .currentRuntime(runtimeID):
-                return observation.runtimeID == runtimeID
+                guard observation.runtimeID == runtimeID else { return nil }
             }
+            if let providerSelection {
+                return agentTerminalObservation(
+                    observation,
+                    canonicalizedFor: providerSelection
+                )
+            }
+            return observation
         }
         // The history-only, unfiltered top-K query has no predicate that needs a
         // decoded record. Read K candidates per provider and merge them globally;
