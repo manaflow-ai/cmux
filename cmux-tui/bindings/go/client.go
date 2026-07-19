@@ -212,6 +212,23 @@ func (c *Client) Identify(ctx context.Context) (IdentifyResult, error) {
 	return result, err
 }
 
+func (c *Client) requireProtocol(ctx context.Context, minimum uint32, feature string) error {
+	protocol, identified, _ := c.negotiatedState("")
+	if !identified {
+		if _, err := c.Identify(ctx); err != nil {
+			return err
+		}
+		protocol, _, _ = c.negotiatedState("")
+	}
+	if protocol < minimum {
+		return &protocolError{msg: fmt.Sprintf(
+			"%s requires protocol %d; server uses protocol %d",
+			feature, minimum, protocol,
+		)}
+	}
+	return nil
+}
+
 func (c *Client) ListWorkspaces(ctx context.Context) (Tree, error) {
 	var result Tree
 	return result, c.request(ctx, "list-workspaces", nil, &result)
@@ -289,6 +306,13 @@ func (c *Client) Split(ctx context.Context, pane uint64, dir string, opts SplitO
 
 func (c *Client) SetRatio(ctx context.Context, pane uint64, dir string, ratio float32) error {
 	return c.request(ctx, "set-ratio", map[string]any{"pane": pane, "dir": dir, "ratio": ratio}, nil)
+}
+
+func (c *Client) SetSplitRatio(ctx context.Context, split uint64, ratio float32) error {
+	if err := c.requireProtocol(ctx, 8, "set-split-ratio"); err != nil {
+		return err
+	}
+	return c.request(ctx, "set-split-ratio", map[string]any{"split": split, "ratio": ratio}, nil)
 }
 
 func (c *Client) SetDefaultColors(ctx context.Context, fg, bg *string) error {
@@ -417,7 +441,7 @@ func (c *Client) AttachSurfaceWithOptions(ctx context.Context, surface uint64, o
 		}
 		protocol, _, _ = c.negotiatedState("")
 	}
-	if protocol > 7 || (protocol > 5 && !c.allowProtocolV6Attach) {
+	if protocol > 5 && !c.allowProtocolV6Attach {
 		return nil, &protocolError{msg: fmt.Sprintf("unsupported attach protocol %d", protocol)}
 	}
 	if (opts.Cols != nil || opts.Rows != nil) && !c.hasCapability("attach-initial-size") {

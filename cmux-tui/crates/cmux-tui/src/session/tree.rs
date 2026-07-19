@@ -253,6 +253,7 @@ fn parse_layout(value: &Value) -> Option<Node> {
                 _ => return None,
             };
             Some(Node::Split {
+                id: value.get("split")?.as_u64()?,
                 dir,
                 ratio: value.get("ratio")?.as_f64()? as f32,
                 a: Box::new(parse_layout(value.get("a")?)?),
@@ -376,4 +377,40 @@ pub fn parse_tree(data: &Value) -> TreeView {
         tree.workspaces.push(view);
     }
     tree
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn protocol_v8_parser_preserves_split_ids() {
+        let tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "name": "one",
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {
+                        "type": "split",
+                        "split": 9,
+                        "dir": "right",
+                        "ratio": 0.5,
+                        "a": {"type": "leaf", "pane": 3},
+                        "b": {"type": "leaf", "pane": 4}
+                    },
+                    "panes": []
+                }]
+            }]
+        }));
+
+        let Node::Split { id, .. } = &tree.workspaces[0].screens[0].layout else {
+            panic!("layout should be split");
+        };
+        assert_eq!(*id, 9);
+    }
 }

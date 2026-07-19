@@ -209,6 +209,13 @@ export interface SetRatioRequest extends CmuxRequestBase {
   ratio: number;
 }
 
+export interface SetSplitRatioRequest extends CmuxRequestBase {
+  cmd: "set-split-ratio";
+  split: Id;
+  /** The server clamps this value to `0.05..0.95`. */
+  ratio: number;
+}
+
 export interface PaneNeighborRequest extends CmuxRequestBase { cmd: "pane-neighbor"; pane: Id; dir: PaneDirection }
 export interface PaneNeighborResult { pane: Id | null }
 
@@ -417,6 +424,7 @@ export type CmuxRequest =
   | NewScreenRequest
   | SplitRequest
   | SetRatioRequest
+  | SetSplitRatioRequest
   | PaneNeighborRequest
   | FocusDirectionRequest
   | SwapPaneRequest
@@ -478,6 +486,7 @@ export interface CmuxResponseDataMap {
   "new-screen": SurfaceResult;
   split: SurfaceResult;
   "set-ratio": EmptyResult;
+  "set-split-ratio": EmptyResult;
   "pane-neighbor": PaneNeighborResult;
   "focus-direction": FocusDirectionResult;
   "swap-pane": EmptyResult;

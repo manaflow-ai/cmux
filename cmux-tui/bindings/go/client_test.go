@@ -120,6 +120,23 @@ func TestIdentifyCapabilityStateIsConcurrentSafe(t *testing.T) {
 	wait.Wait()
 }
 
+func TestSetSplitRatioRejectsServersOlderThanProtocolEight(t *testing.T) {
+	protocol := uint32(7)
+	client := &Client{protocol: &protocol}
+	err := client.SetSplitRatio(context.Background(), 1, 0.5)
+	if err == nil || !errors.Is(err, ErrProtocolMismatch) {
+		t.Fatalf("SetSplitRatio() error = %v, want protocol mismatch", err)
+	}
+}
+
+func TestSetSplitRatioAcceptsNewerAdditiveProtocols(t *testing.T) {
+	protocol := uint32(9)
+	client := &Client{protocol: &protocol}
+	if err := client.requireProtocol(context.Background(), 8, "set-split-ratio"); err != nil {
+		t.Fatalf("requireProtocol() error = %v, want protocol 9 accepted", err)
+	}
+}
+
 func TestStreamYieldsBufferedOverflowOnceThenStops(t *testing.T) {
 	client, server := net.Pipe()
 	defer server.Close()

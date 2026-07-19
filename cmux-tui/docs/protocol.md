@@ -14,7 +14,7 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":7,"capabilities":["attach-initial-size","workspace-registry-v1"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":8,"capabilities":["attach-initial-size","workspace-registry-v1"],"session":"main","pid":12345}}
 ```
 
 Responses have this shape:
@@ -28,7 +28,7 @@ Bad JSON returns `ok:false` with no request id.
 
 ## Command Contract
 
-The full API contract is intended to live in `cmux-tui/spec/`, but that directory is not present in this checkout. Until it lands, `cmux-tui-core/src/server.rs` is the command source of truth.
+The full API contract lives in [`../spec/commands.md`](../spec/commands.md). `cmux-tui-core/src/server.rs` is the implementation source of truth.
 
 The server command set in this branch is:
 
@@ -44,6 +44,7 @@ new-workspace
 new-screen
 split
 set-ratio
+set-split-ratio
 move-tab
 move-workspace
 set-default-colors
@@ -87,6 +88,12 @@ the source workspace is removed first.
 
 ```json
 {"id":11,"cmd":"move-workspace","workspace":3,"index":0}
+```
+
+Protocol-v8 split nodes serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. The `split` value remains stable until that node collapses. Resize an exact divider with:
+
+```json
+{"id":12,"cmd":"set-split-ratio","split":9,"ratio":0.65}
 ```
 
 ## Events
@@ -151,7 +158,9 @@ When the stream ends, it sends:
 
 ## Client Compatibility
 
-The remote TUI requires protocol v7. It refuses servers reporting any other protocol version because it relies on resized attach replays and authoritative title events.
+The remote TUI requires protocol v8. It rejects protocol-v7 servers before loading their workspace tree because v7 split nodes have no stable `split` id.
+
+Existing `set-ratio` clients remain source-compatible and the server keeps the pane-and-direction command unchanged. Protocol-v8 frontends should read `layout.split` and send `set-split-ratio` so nested same-direction dividers are addressed exactly.
 
 Attach clients mirror PTY surfaces locally. After `identify` advertises `attach-initial-size`, a client can include paired `cols` and `rows` in `attach-surface`, so the server records its initial size claim before capturing the first VT replay or render state. Older servers that omit the capability must receive neither field.
 

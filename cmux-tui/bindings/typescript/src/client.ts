@@ -477,6 +477,10 @@ export class CmuxClient {
   setRatio(pane: Id, dir: SplitDirection, ratio: number): Promise<EmptyResult> {
     return this.request("set-ratio", { pane, dir, ratio });
   }
+  async setSplitRatio(split: Id, ratio: number): Promise<EmptyResult> {
+    await this.requireProtocol(8, "set-split-ratio");
+    return this.request("set-split-ratio", { split, ratio });
+  }
   paneNeighbor(pane: Id, dir: PaneDirection): Promise<PaneNeighborResult> {
     return this.request("pane-neighbor", { pane, dir });
   }
@@ -602,6 +606,15 @@ export class CmuxClient {
     }
     if (!this.identifiedCapabilities.has(capability)) {
       throw new CmuxProtocolError(`${feature} is not supported by this server`);
+    }
+  }
+
+  private async requireProtocol(minimum: number, feature: string): Promise<void> {
+    const protocol = this.protocol ?? (await this.identify()).protocol;
+    if (protocol < minimum) {
+      throw new CmuxProtocolError(
+        `${feature} requires protocol ${minimum}; server uses protocol ${protocol}`,
+      );
     }
   }
 

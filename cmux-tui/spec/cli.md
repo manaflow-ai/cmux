@@ -72,6 +72,7 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `new-screen` | implemented | none | `--workspace <id>`, `--cols <n> --rows <n>` | surface id |
 | `split` | implemented | `--pane <id> --dir right|down` | `--cols <n> --rows <n>` | surface id |
 | `set-ratio` | implemented | `--pane <id> --dir right|down --ratio <n>` | none | none |
+| `set-split-ratio` | implemented | `--split <id> --ratio <n>` | none | none |
 | `pane-neighbor` | implemented | `--pane <id> --dir left|right|up|down` | none | pane id or `null` |
 | `focus-direction` | implemented | `--dir left|right|up|down` | `--pane <id>` | pane id |
 | `swap-pane` | implemented | `--pane <id>` plus one of `--dir left|right|up|down`, `--target <id>` | none | none |
@@ -164,7 +165,8 @@ done
 
 ```bash
 new_surface=$(cmux-tui split --pane 2 --dir right)
-cmux-tui set-ratio --pane 2 --dir right --ratio 0.65
+split=$(cmux-tui --json export-layout | jq -r '.layout.split')
+cmux-tui set-split-ratio --split "$split" --ratio 0.65
 ```
 
 8. Subscribe to events and react to bells:
