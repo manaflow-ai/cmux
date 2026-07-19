@@ -307,6 +307,8 @@ function makeLiveRepository(): IrohRepositoryShape {
               displayName: input.payload.displayName ?? null,
               pairingEnabled: input.payload.pairingEnabled,
               capabilities: [...input.payload.capabilities],
+              directPortV4: input.payload.directPorts?.ipv4 ?? null,
+              directPortV6: input.payload.directPorts?.ipv6 ?? null,
               pathHints: accountPrivatePathHints,
               pathHintsNextExpiry: nextPathHintExpiry(accountPrivatePathHints),
               lastSeenAt: input.now,
@@ -401,6 +403,8 @@ function makeLiveRepository(): IrohRepositoryShape {
             identityGeneration: input.payload.identityGeneration,
             pairingEnabled: input.payload.pairingEnabled,
             capabilities: [...input.payload.capabilities],
+            directPortV4: input.payload.directPorts?.ipv4 ?? null,
+            directPortV6: input.payload.directPorts?.ipv6 ?? null,
             pathHints: accountPrivatePathHints,
             pathHintsNextExpiry: nextPathHintExpiry(accountPrivatePathHints),
             deviceLimitOverrideUsed: usesDeviceOverride,
@@ -933,6 +937,8 @@ async function revokeActiveBindings(
     .set({
       revokedAt: input.now,
       revokedReason: input.reason,
+      directPortV4: null,
+      directPortV6: null,
       pathHints: [],
       pathHintsNextExpiry: null,
       updatedAt: input.now,
@@ -1008,7 +1014,11 @@ async function drainIrohRetention(input: {
           select id
           from iroh_endpoint_bindings
           where revoked_at is not null
-            and path_hints_next_expiry is not null
+            and (
+              path_hints_next_expiry is not null
+              or direct_port_v4 is not null
+              or direct_port_v6 is not null
+            )
           order by revoked_at, id
           limit ${limit}
           for update skip locked
@@ -1016,6 +1026,8 @@ async function drainIrohRetention(input: {
           update iroh_endpoint_bindings as binding
           set path_hints = '[]'::jsonb,
               path_hints_next_expiry = null,
+              direct_port_v4 = null,
+              direct_port_v6 = null,
               updated_at = ${nowIso}::timestamptz
           from candidates
           where binding.id = candidates.id
