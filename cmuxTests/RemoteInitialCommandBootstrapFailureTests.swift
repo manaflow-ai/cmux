@@ -37,6 +37,12 @@ struct RemoteInitialCommandBootstrapFailureTests {
                 *) shift ;;
               esac
             done
+            env > "$HOME/bash startup environment.txt"
+            for cmux_test_payload in "${cmux_test_rcfile%/*}"/.initial-command.payload.*; do
+              [ -f "$cmux_test_payload" ] || continue
+              stat -f '%Lp' "$cmux_test_payload" > "$HOME/initial command payload mode.txt"
+              break
+            done
             [ -n "${cmux_test_rcfile:-}" ] && . "$cmux_test_rcfile"
             """
         )
@@ -57,6 +63,16 @@ struct RemoteInitialCommandBootstrapFailureTests {
         #expect(failedDecode.status == 0, failedDecode.stderr)
         #expect(!fileManager.fileExists(atPath: output.path))
         #expect(try initialCommandMarkerCount(home: home) == 0)
+        let startupEnvironment = try String(
+            contentsOf: home.appendingPathComponent("bash startup environment.txt"),
+            encoding: .utf8
+        )
+        #expect(!startupEnvironment.contains("CMUX_INITIAL_COMMAND_B64="))
+        let payloadMode = try String(
+            contentsOf: home.appendingPathComponent("initial command payload mode.txt"),
+            encoding: .utf8
+        )
+        #expect(payloadMode == "600\n")
 
         let retry = try runShell(script, environment: environment)
         #expect(retry.status == 0, retry.stderr)
@@ -65,6 +81,11 @@ struct RemoteInitialCommandBootstrapFailureTests {
 
         #expect(try String(contentsOf: output, encoding: .utf8) == "decode retry\n")
         #expect(try initialCommandMarkerCount(home: home) == 1)
+        let shellStateContents = try fileManager.contentsOfDirectory(
+            atPath: home.appendingPathComponent(".cmux/relay/0.shell").path
+        )
+        #expect(!shellStateContents.contains { $0.hasPrefix(".initial-command.payload.") })
+        #expect(!shellStateContents.contains { $0.hasPrefix("initial-command.") })
     }
 
     @Test(.enabled(if: RemoteInitialCommandBootstrapFailureTests.fishExecutablePath != nil))
@@ -186,7 +207,10 @@ struct RemoteInitialCommandBootstrapFailureTests {
             [ ! -f "$HOME/base64-attempts" ] || cmux_test_attempt=$(cat "$HOME/base64-attempts")
             cmux_test_attempt=$((cmux_test_attempt + 1))
             printf '%s\n' "$cmux_test_attempt" > "$HOME/base64-attempts"
-            [ "$cmux_test_attempt" -gt 2 ] || exit 1
+            if [ "$cmux_test_attempt" -le 2 ]; then
+              printf partial-output
+              exit 1
+            fi
             exec /usr/bin/base64 "$@"
             """
         )
