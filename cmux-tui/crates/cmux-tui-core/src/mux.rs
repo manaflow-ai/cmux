@@ -5199,6 +5199,81 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_browser_tabs_materialize_one_empty_workspace_screen() {
+        let mux = test_mux();
+        let target = mux.create_empty_workspace(Some("browser".into()), None, None).unwrap();
+        let barrier = Arc::new(std::sync::Barrier::new(9));
+        let mut threads = Vec::new();
+        for index in 0..8 {
+            let mux = mux.clone();
+            let barrier = barrier.clone();
+            threads.push(std::thread::spawn(move || {
+                barrier.wait();
+                mux.new_browser_tab(
+                    format!("about:blank#{index}"),
+                    None,
+                    Some((80, 24)),
+                )
+            }));
+        }
+        barrier.wait();
+        let surfaces = threads
+            .into_iter()
+            .map(|thread| thread.join().unwrap().expect("concurrent browser creation"))
+            .collect::<Vec<_>>();
+
+        mux.with_state(|state| {
+            let workspace = state.workspace_by_id(target.workspace).unwrap();
+            assert_eq!(workspace.screens.len(), 1);
+            let pane = workspace.screens[0].active_pane;
+            assert_eq!(state.panes[&pane].tabs.len(), surfaces.len());
+        });
+        mux.shutdown();
+    }
+
+    #[test]
+    fn concurrent_browser_and_terminal_share_empty_workspace_screen() {
+        let mux = test_mux();
+        let target = mux.create_empty_workspace(Some("mixed".into()), None, None).unwrap();
+        let barrier = Arc::new(std::sync::Barrier::new(3));
+        let browser = {
+            let mux = mux.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                mux.new_browser_tab("about:blank".into(), None, Some((80, 24)))
+            })
+        };
+        let terminal = {
+            let mux = mux.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                mux.create_terminal_in_workspace(
+                    target.workspace,
+                    None,
+                    None,
+                    None,
+                    Some((80, 24)),
+                )
+            })
+        };
+        barrier.wait();
+        let browser = browser.join().unwrap().expect("concurrent browser creation");
+        let terminal = terminal.join().unwrap().expect("concurrent terminal creation");
+
+        mux.with_state(|state| {
+            let workspace = state.workspace_by_id(target.workspace).unwrap();
+            assert_eq!(workspace.screens.len(), 1);
+            let pane = workspace.screens[0].active_pane;
+            assert_eq!(state.panes[&pane].tabs.len(), 2);
+            assert_eq!(state.pane_of(browser.id), Some(pane));
+            assert_eq!(state.pane_of(terminal.surface), Some(pane));
+        });
+        mux.shutdown();
+    }
+
+    #[test]
     fn move_workspace_reorders_and_tracks_active_workspace() {
         let mux = test_mux();
         let events = mux.subscribe();

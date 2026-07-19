@@ -1580,7 +1580,81 @@ fn atom(value: Option<&Value>) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+    use std::net::Shutdown;
+
     use super::*;
+
+    struct ScriptedStream {
+        reads: VecDeque<Result<Vec<u8>, io::ErrorKind>>,
+        current: io::Cursor<Vec<u8>>,
+        writes: Vec<u8>,
+    }
+
+    impl Read for ScriptedStream {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if self.current.position() < self.current.get_ref().len() as u64 {
+                return self.current.read(buf);
+            }
+            match self.reads.pop_front() {
+                Some(Ok(bytes)) => {
+                    self.current = io::Cursor::new(bytes);
+                    self.current.read(buf)
+                }
+                Some(Err(kind)) => Err(io::Error::from(kind)),
+                None => Ok(0),
+            }
+        }
+    }
+
+    impl Write for ScriptedStream {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.writes.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl transport::Stream for ScriptedStream {
+        fn try_clone_box(&self) -> io::Result<Box<dyn transport::Stream>> {
+            Err(io::Error::new(io::ErrorKind::Unsupported, "test stream is not cloneable"))
+        }
+
+        fn set_read_timeout(&self, _timeout: Option<Duration>) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn set_write_timeout(&self, _timeout: Option<Duration>) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn shutdown(&self, _how: Shutdown) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn capability_probe_tolerates_polling_timeouts() {
+        let stream = ScriptedStream {
+            reads: VecDeque::from([
+                Err(io::ErrorKind::WouldBlock),
+                Err(io::ErrorKind::TimedOut),
+                Ok(br#"{"id":0,"ok":true,"data":{"capabilities":["attach-initial-size"]}}\n"#
+                    .to_vec()),
+            ]),
+            current: io::Cursor::new(Vec::new()),
+            writes: Vec::new(),
+        };
+        let mut reader = BufReader::new(Box::new(stream) as Box<dyn transport::Stream>);
+
+        assert_eq!(
+            server_supports_capability(&mut reader, ATTACH_INITIAL_SIZE_CAPABILITY),
+            Ok(true)
+        );
+    }
 
     #[test]
     fn plugin_verb_is_registered_as_local_with_help() {
