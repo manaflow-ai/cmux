@@ -141,38 +141,40 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     return
                 }
 
-                func fulfillOnce() {
-                    fulfillmentGate.fulfill(handled)
-                }
-
-                defer {
-                    Darwin.close(clientFD)
-                    fulfillOnce()
-                }
-
-                var pending = Data()
-                var buffer = [UInt8](repeating: 0, count: 4096)
-                while true {
-                    let count = Darwin.read(clientFD, &buffer, buffer.count)
-                    if count < 0 {
-                        if errno == EINTR { continue }
-                        return
+                DispatchQueue.global(qos: .userInitiated).async {
+                    func fulfillOnce() {
+                        fulfillmentGate.fulfill(handled)
                     }
-                    if count == 0 { break }
-                    pending.append(buffer, count: count)
 
-                    while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                        let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                        pending.removeSubrange(0...newlineRange.lowerBound)
-                        guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                        state.append(line)
-                        if fulfillWhen?(line) == true {
-                            fulfillOnce()
+                    defer {
+                        Darwin.close(clientFD)
+                        fulfillOnce()
+                    }
+
+                    var pending = Data()
+                    var buffer = [UInt8](repeating: 0, count: 4096)
+                    while true {
+                        let count = Darwin.read(clientFD, &buffer, buffer.count)
+                        if count < 0 {
+                            if errno == EINTR { continue }
+                            return
                         }
-                        guard let responsePayload = handler(line) else { continue }
-                        let response = responsePayload + "\n"
-                        _ = response.withCString { ptr in
-                            Darwin.write(clientFD, ptr, strlen(ptr))
+                        if count == 0 { return }
+                        pending.append(buffer, count: count)
+
+                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                            pending.removeSubrange(0...newlineRange.lowerBound)
+                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                            state.append(line)
+                            if fulfillWhen?(line) == true {
+                                fulfillOnce()
+                            }
+                            guard let responsePayload = handler(line) else { continue }
+                            let response = responsePayload + "\n"
+                            _ = response.withCString { ptr in
+                                Darwin.write(clientFD, ptr, strlen(ptr))
+                            }
                         }
                     }
                 }
@@ -199,29 +201,31 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 guard clientFD >= 0 else {
                     return
                 }
-                defer {
-                    Darwin.close(clientFD)
-                }
-
-                var pending = Data()
-                var buffer = [UInt8](repeating: 0, count: 4096)
-                while true {
-                    let count = Darwin.read(clientFD, &buffer, buffer.count)
-                    if count < 0 {
-                        if errno == EINTR { continue }
-                        return
+                DispatchQueue.global(qos: .userInitiated).async {
+                    defer {
+                        Darwin.close(clientFD)
                     }
-                    if count == 0 { break }
-                    pending.append(buffer, count: count)
 
-                    while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                        let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                        pending.removeSubrange(0...newlineRange.lowerBound)
-                        guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                        state.append(line)
-                        let response = handler(line) + "\n"
-                        _ = response.withCString { ptr in
-                            Darwin.write(clientFD, ptr, strlen(ptr))
+                    var pending = Data()
+                    var buffer = [UInt8](repeating: 0, count: 4096)
+                    while true {
+                        let count = Darwin.read(clientFD, &buffer, buffer.count)
+                        if count < 0 {
+                            if errno == EINTR { continue }
+                            return
+                        }
+                        if count == 0 { return }
+                        pending.append(buffer, count: count)
+
+                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                            pending.removeSubrange(0...newlineRange.lowerBound)
+                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                            state.append(line)
+                            let response = handler(line) + "\n"
+                            _ = response.withCString { ptr in
+                                Darwin.write(clientFD, ptr, strlen(ptr))
+                            }
                         }
                     }
                 }
