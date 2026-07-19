@@ -426,6 +426,11 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     state.update(&mut term).unwrap();
     assert_ne!(state.palette_color(14), Rgb { r: 14, g: 14, b: 14 });
 
+    term.vt_write(b"\x1b]4;15;#0f0f0f;bad;#010101\x07");
+    assert!(term.palette_overridden(15), "valid OSC 4 prefix must survive a malformed pair");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(15), Rgb { r: 15, g: 15, b: 15 });
+
     term.vt_write(b"\x1b]104;1\x1b\\");
     assert!(!term.palette_overridden(1));
     assert!(term.palette_overridden(2));

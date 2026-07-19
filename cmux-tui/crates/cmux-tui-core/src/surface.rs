@@ -150,22 +150,14 @@ impl Default for TerminalColors {
 }
 
 impl TerminalColors {
-    fn from_terminal(term: &mut Terminal, defaults: DefaultColors) -> Self {
+    fn from_terminal(term: &Terminal, defaults: DefaultColors) -> Self {
         let (fg, bg, cursor) = term.effective_colors();
-        let render_state = RenderState::new()
-            .and_then(|mut state| {
-                state.update(term)?;
-                Ok(state)
-            })
-            .ok();
-        let cursor_visual = term
-            .cursor_overridden()
-            .then(|| render_state.as_ref().and_then(|state| state.cursor_visual().ok()))
-            .flatten();
+        let effective_palette = term.effective_palette().ok();
+        let cursor_visual = term.cursor_visual_override();
         let palette = std::array::from_fn(|index| {
-            render_state.as_ref().and_then(|state| {
+            effective_palette.as_ref().and_then(|palette| {
                 let index = index as u8;
-                term.palette_overridden(index).then(|| state.palette_color(index))
+                term.palette_overridden(index).then(|| palette[index as usize])
             })
         });
         TerminalColors {
@@ -1406,6 +1398,20 @@ mod tests {
         term.vt_write(b"\x1b]104;4\x07");
         let colors = TerminalColors::from_terminal(&mut term, defaults);
         assert_eq!(colors.palette[4], None);
+    }
+
+    #[test]
+    fn attach_colors_do_not_consume_shared_render_damage() {
+        let mut term = Terminal::new(5, 1, 0, Callbacks::default()).unwrap();
+        let mut shared_render = RenderState::new().unwrap();
+        shared_render.update(&mut term).unwrap();
+        shared_render.set_clean();
+
+        term.vt_write(b"changed");
+        let _ = TerminalColors::from_terminal(&term, DefaultColors::default());
+
+        shared_render.update(&mut term).unwrap();
+        assert_ne!(shared_render.dirty(), ghostty_vt::Dirty::Clean);
     }
 
     #[test]

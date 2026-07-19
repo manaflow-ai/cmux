@@ -242,6 +242,7 @@ pub struct Terminal {
 struct CursorOverrideTracker {
     state: CursorTrackState,
     active: bool,
+    visual: Option<(CursorShape, bool)>,
 }
 
 #[derive(Default)]
@@ -315,6 +316,7 @@ impl CursorOverrideTracker {
             b'P' | b'X' | b'^' | b'_' => CursorTrackState::String { bell_terminated: false },
             b'c' => {
                 self.active = false;
+                self.visual = None;
                 CursorTrackState::Ground
             }
             0x1b => CursorTrackState::Escape,
@@ -345,8 +347,34 @@ impl CursorOverrideTracker {
             b'q' => {
                 if csi.space && !csi.invalid {
                     match (csi.digits, csi.value) {
-                        (false, _) | (true, 0) => self.active = false,
-                        (true, 1..=6) => self.active = true,
+                        (false, _) | (true, 0) => {
+                            self.active = false;
+                            self.visual = None;
+                        }
+                        (true, 1) => {
+                            self.active = true;
+                            self.visual = Some((CursorShape::Block, true));
+                        }
+                        (true, 2) => {
+                            self.active = true;
+                            self.visual = Some((CursorShape::Block, false));
+                        }
+                        (true, 3) => {
+                            self.active = true;
+                            self.visual = Some((CursorShape::Underline, true));
+                        }
+                        (true, 4) => {
+                            self.active = true;
+                            self.visual = Some((CursorShape::Underline, false));
+                        }
+                        (true, 5) => {
+                            self.active = true;
+                            self.visual = Some((CursorShape::Bar, true));
+                        }
+                        (true, 6) => {
+                            self.active = true;
+                            self.visual = Some((CursorShape::Bar, false));
+                        }
                         _ => {}
                     }
                 }
@@ -406,6 +434,7 @@ struct PaletteCommand {
     pending: [u8; 256],
     request_count: usize,
     stopped: bool,
+    overflowed: bool,
 }
 
 impl PaletteCommand {
@@ -420,6 +449,7 @@ impl PaletteCommand {
             pending: [0; 256],
             request_count: 0,
             stopped: false,
+            overflowed: false,
         }
     }
 }
@@ -555,6 +585,7 @@ impl PaletteCommand {
         }
         if self.captured == Self::MAX_CAPTURE_BYTES {
             self.stopped = true;
+            self.overflowed = true;
             self.token_len = 0;
             return;
         }
@@ -645,7 +676,7 @@ impl PaletteCommand {
     }
 
     fn commit(mut self: Box<Self>, active: &mut [bool; 256]) {
-        if self.stopped {
+        if self.overflowed {
             return;
         }
         self.finish_token();
@@ -766,9 +797,19 @@ impl Terminal {
         self.cursor_override.active
     }
 
+    /// Current DECSCUSR-authored cursor shape and blink mode, if active.
+    pub fn cursor_visual_override(&self) -> Option<(CursorShape, bool)> {
+        self.cursor_override.visual
+    }
+
     /// Whether a PTY has an active OSC 4 override for this palette index.
     pub fn palette_overridden(&self, index: u8) -> bool {
         self.palette_override.active[index as usize]
+    }
+
+    /// Current effective terminal palette without consuming render damage.
+    pub fn effective_palette(&self) -> Result<[Rgb; 256]> {
+        terminal_palette(self.raw, sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)
     }
 
     /// Set host-provided default foreground, background, and cursor colors.
