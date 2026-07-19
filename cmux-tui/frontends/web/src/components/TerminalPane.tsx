@@ -304,6 +304,11 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
     initialRatio: number;
     lastRatio: number;
   } | null>(null);
+  const cancelKeyboardResize = useCallback((divider: HTMLDivElement | null) => {
+    if (divider !== null) return;
+    keyboardGeneration.current += 1;
+    keyboardResize.current = null;
+  }, []);
 
   // Derived, not effect-driven: a pending commit is only trusted while it
   // still addresses this divider and the authoritative ratio hasn't moved
@@ -378,6 +383,7 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
           aria-valuenow={Math.round(firstPercent)}
           aria-orientation={node.direction === "row" ? "vertical" : "horizontal"}
           className="split-divider"
+          ref={cancelKeyboardResize}
           role="separator"
           style={dividerStyle}
           tabIndex={0}

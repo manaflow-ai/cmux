@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientInfo, CmuxClient } from "cmux/browser";
 import { TerminalPane } from "../src/components/TerminalPane";
@@ -204,6 +204,30 @@ describe("TerminalPane split dividers", () => {
     });
 
     expect(setPointerCapture).toHaveBeenCalledWith(12);
+  });
+
+  it("cancels a queued keyboard adjustment when its split is replaced", async () => {
+    let resolveFirst: (succeeded: boolean) => void = (_succeeded) => {
+      throw new Error("first request was not started");
+    };
+    const onSetSplitRatio = vi.fn(() => new Promise<boolean>((resolve) => {
+      resolveFirst = resolve;
+    }));
+    const props = terminalPaneProps(onSetSplitRatio);
+    const { getByRole, rerender } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
+    const divider = getByRole("separator");
+
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(1));
+
+    const replacement = screenView(0.5);
+    if (replacement.layout?.type !== "split") throw new Error("expected split layout");
+    replacement.layout.split = 43;
+    rerender(<TerminalPane {...props} screen={replacement} />);
+    await act(async () => resolveFirst(true));
+
+    expect(onSetSplitRatio).toHaveBeenCalledTimes(1);
   });
 
   it("previews pointer movement, commits once, and reconciles to server layout", async () => {
