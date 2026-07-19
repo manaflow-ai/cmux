@@ -219,3 +219,13 @@ void typedAttachModes;
 // @ts-expect-error `read-screen` requires a surface id.
 const invalidRequest: CmuxRequest = { cmd: "read-screen" };
 void invalidRequest;
+
+// @ts-expect-error Registry terminal creation requires a workspace id or stable key.
+const invalidTerminalSelector: CmuxRequest = { cmd: "create-terminal" };
+// @ts-expect-error Workspace close requires a workspace id or stable key.
+const invalidCloseSelector: CmuxRequest = { cmd: "close-workspace" };
+// @ts-expect-error Workspace move requires a workspace id or stable key.
+const invalidMoveSelector: CmuxRequest = { cmd: "move-workspace", index: 0 };
+void invalidTerminalSelector;
+void invalidCloseSelector;
+void invalidMoveSelector;

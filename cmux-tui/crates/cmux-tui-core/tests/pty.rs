@@ -1301,7 +1301,25 @@ fn tree_event_modes_receive_delta_or_exact_coarse_fallback() {
             .any(|tab| tab["surface"] == surface)
     );
 
+    let second = socket_request(
+        &mut command_writer,
+        &mut command_reader,
+        serde_json::json!({"id": 4, "cmd": "new-workspace", "name": "selection-resync"}),
+    );
+    let second_surface = second["data"]["surface"].as_u64().unwrap();
+    let coarse_event = wait_for(|| read_json_line(&mut coarse_reader), Duration::from_secs(5))
+        .expect("coarse selection-resync event");
+    assert_eq!(coarse_event, serde_json::json!({"event": "tree-changed"}));
+    assert_eq!(read_json_line(&mut coarse_reader), None, "coarse subscriber got a duplicate");
+    let delta = wait_for(|| read_json_line(&mut deltas_reader), Duration::from_secs(5))
+        .expect("second workspace-added event");
+    assert_eq!(delta["event"], "workspace-added");
+    let resync = wait_for(|| read_json_line(&mut deltas_reader), Duration::from_secs(5))
+        .expect("delta subscriber selection resync");
+    assert_eq!(resync, serde_json::json!({"event": "tree-changed"}));
+
     mux.close_surface(surface);
+    mux.close_surface(second_surface);
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
