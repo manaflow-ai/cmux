@@ -3701,7 +3701,7 @@ mod tests {
         ));
         assert!(matches!(
             registry.legacy_list(owner, &topology),
-            Err(ProjectionNavigationConflict::SchemaPromoted { .. })
+            Err(ProjectionNavigationConflict::ClientSchemaPromoted { .. })
         ));
         assert!(matches!(
             registry.legacy_release(owner, logical, updated.claim_id.unwrap(), updated.generation,),
@@ -4077,9 +4077,9 @@ mod tests {
             ],
             &topology,
         );
-        let screen = screen_state(&activated_after_zoom, screen(201));
-        assert_eq!(screen.active_pane_uuid, pane(302));
-        assert_eq!(screen.zoomed_pane_uuid, None);
+        let screen_state_value = screen_state(&activated_after_zoom, screen(201));
+        assert_eq!(screen_state_value.active_pane_uuid, pane(302));
+        assert_eq!(screen_state_value.zoomed_pane_uuid, None);
 
         let zoomed_after_activation = mutate_one(
             &registry,
@@ -4099,9 +4099,9 @@ mod tests {
             ],
             &topology,
         );
-        let screen = screen_state(&zoomed_after_activation, screen(201));
-        assert_eq!(screen.active_pane_uuid, pane(301));
-        assert_eq!(screen.zoomed_pane_uuid, Some(pane(301)));
+        let screen_state_value = screen_state(&zoomed_after_activation, screen(201));
+        assert_eq!(screen_state_value.active_pane_uuid, pane(301));
+        assert_eq!(screen_state_value.zoomed_pane_uuid, Some(pane(301)));
     }
 
     #[test]
