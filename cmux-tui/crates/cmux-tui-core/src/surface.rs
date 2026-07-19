@@ -4207,6 +4207,33 @@ mod tests {
     }
 
     #[test]
+    fn interaction_mode_revision_exhaustion_invalidates_without_panicking() {
+        let mux = Mux::new_for_test("interaction-mode-exhaustion", SurfaceOptions::default());
+        let events = mux.subscribe_terminal_interaction_modes();
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let initial = surface.terminal_interaction_snapshot().unwrap();
+        surface.force_interaction_mode_revision_for_test(u64::MAX);
+
+        surface.inject_terminal_output(b"\x1b[?1000h").unwrap();
+
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::TerminalInteractionModeInvalidated {
+                surface_uuid,
+                terminal_epoch,
+                reason,
+            } if surface_uuid == surface.uuid
+                && terminal_epoch == initial.terminal_epoch
+                && reason.as_ref() == "revision-exhausted"
+        ));
+        let state = surface.terminal_interaction_snapshot().unwrap();
+        assert!(state.mouse_tracking, "the parser operation must still complete");
+        assert_eq!(state.interaction_revision, u64::MAX);
+        assert!(state.interaction_revision_exhausted);
+    }
+
+    #[test]
     fn external_terminal_has_no_child_and_fences_ordered_output() {
         let surface = Surface::spawn_external_with_uuid(
             71,
