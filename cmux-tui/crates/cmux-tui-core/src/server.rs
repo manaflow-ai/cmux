@@ -9322,6 +9322,7 @@ mod tests {
             "open-presentation",
             "renderer-workers",
             "subscribe-renderer-lifecycle",
+            "subscribe-terminal-interaction-modes",
             "configure-renderer-presentation",
             "activate-renderer-presentation",
             "list-clients",
@@ -9342,6 +9343,7 @@ mod tests {
             );
         }
         assert!(command_admission_policy("subscribe-renderer-lifecycle").protocol_v9);
+        assert!(command_admission_policy("subscribe-terminal-interaction-modes").protocol_v9);
         for command in [
             "claim-projection-navigation-v2",
             "list-projection-navigation-v2",
@@ -9375,6 +9377,26 @@ mod tests {
         let error = preflight_request(&mux, automation, &request, None)
             .err()
             .expect("automation must not read renderer lifecycle events");
+        assert!(error.to_string().contains("trusted frontend"));
+    }
+
+    #[test]
+    fn terminal_interaction_mode_subscription_requires_a_registered_v9_frontend() {
+        let mux = test_mux();
+        let request =
+            json!({"id": 7, "cmd": "subscribe-terminal-interaction-modes"}).to_string();
+
+        let frontend_writer = test_writer();
+        let (frontend, _) = register_v9_client(&mux, &frontend_writer);
+        drop(preflight_request(&mux, frontend, &request, None).unwrap());
+
+        let automation_writer = test_writer();
+        let (automation, _, registration) =
+            register_v9_client_kind(&mux, &automation_writer, ClientTransport::Unix, "automation");
+        assert_eq!(registration["role"], "trusted-automation");
+        let error = preflight_request(&mux, automation, &request, None)
+            .err()
+            .expect("automation must not read terminal interaction mode events");
         assert!(error.to_string().contains("trusted frontend"));
     }
 
@@ -10225,6 +10247,40 @@ mod tests {
     }
 
     #[test]
+    fn terminal_interaction_mode_transport_overflow_requires_cache_invalidation() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let stream = writer.start_stream(&terminal_interaction_mode_overflow_json()).unwrap();
+
+        for sequence in 0..OUTBOUND_CAPACITY {
+            writer
+                .send_stream(
+                    &json!({
+                        "event": "terminal-interaction-mode-changed",
+                        "interaction_revision": sequence,
+                    }),
+                    &stream,
+                )
+                .unwrap();
+        }
+        let error = writer
+            .send_stream(
+                &json!({
+                    "event": "terminal-interaction-mode-changed",
+                    "interaction_revision": OUTBOUND_CAPACITY,
+                }),
+                &stream,
+            )
+            .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+
+        let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(terminal, json!({"event": "terminal-interaction-mode-overflow"}));
+        assert!(outbound.try_pop().is_none());
+        assert!(writer.is_open());
+    }
+
+    #[test]
     fn initial_stream_state_precedes_its_response_and_overflows_only_its_stream() {
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
@@ -10349,6 +10405,54 @@ mod tests {
                 .to_string()
                 .contains("already has")
         );
+    }
+
+    #[test]
+    fn terminal_interaction_mode_streams_allow_one_per_connection_and_release_the_global_cap() {
+        let registry = ClientRegistry::new();
+        let first = registry.register(ClientTransport::Unix, test_writer());
+        let first_permit = registry.claim_terminal_interaction_mode_stream(first).unwrap();
+        assert!(
+            registry
+                .claim_terminal_interaction_mode_stream(first)
+                .err()
+                .expect("second stream must fail")
+                .to_string()
+                .contains("already has")
+        );
+
+        let mut permits = vec![first_permit];
+        for _ in 1..MAX_TERMINAL_INTERACTION_MODE_STREAMS {
+            let client = registry.register(ClientTransport::Unix, test_writer());
+            permits.push(registry.claim_terminal_interaction_mode_stream(client).unwrap());
+        }
+        assert_eq!(
+            registry.active_terminal_interaction_mode_streams(),
+            MAX_TERMINAL_INTERACTION_MODE_STREAMS
+        );
+        let excess = registry.register(ClientTransport::Unix, test_writer());
+        assert!(
+            registry
+                .claim_terminal_interaction_mode_stream(excess)
+                .err()
+                .expect("global overflow must fail")
+                .to_string()
+                .contains("limit reached")
+        );
+
+        drop(permits.pop());
+        assert_eq!(
+            registry.active_terminal_interaction_mode_streams(),
+            MAX_TERMINAL_INTERACTION_MODE_STREAMS - 1
+        );
+        let replacement = registry.register(ClientTransport::Unix, test_writer());
+        permits.push(registry.claim_terminal_interaction_mode_stream(replacement).unwrap());
+        assert_eq!(
+            registry.active_terminal_interaction_mode_streams(),
+            MAX_TERMINAL_INTERACTION_MODE_STREAMS
+        );
+        drop(permits);
+        assert_eq!(registry.active_terminal_interaction_mode_streams(), 0);
     }
 
     #[test]
@@ -10775,6 +10879,7 @@ mod tests {
             "presentation-registry-v1",
             "projection-navigation-v2",
             RENDERER_LIFECYCLE_SUBSCRIPTION_CAPABILITY,
+            TERMINAL_INTERACTION_MODE_SUBSCRIPTION_CAPABILITY,
             "renderer-worker-supervision-v1",
             "tree-delta-v1",
             "canonical-topology-snapshot-v1",
@@ -10818,6 +10923,16 @@ mod tests {
             serde_json::from_str(r#"{"id":8,"cmd":"subscribe-renderer-lifecycle"}"#).unwrap();
         assert_eq!(renderer_lifecycle.id, Some(json!(8)));
         assert!(matches!(renderer_lifecycle.cmd, Command::SubscribeRendererLifecycle));
+
+        let interaction_modes: Request = serde_json::from_str(
+            r#"{"id":10,"cmd":"subscribe-terminal-interaction-modes"}"#,
+        )
+        .unwrap();
+        assert_eq!(interaction_modes.id, Some(json!(10)));
+        assert!(matches!(
+            interaction_modes.cmd,
+            Command::SubscribeTerminalInteractionModes
+        ));
 
         let presentation_id = PresentationId::new();
         let accessibility: Request = serde_json::from_value(json!({
@@ -13549,6 +13664,94 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         assert_eq!(mux.control_clients.active_renderer_lifecycle_streams(), 0);
+    }
+
+    #[test]
+    fn terminal_interaction_mode_stream_excludes_frame_noise_and_releases_on_disconnect() {
+        let mux = test_mux();
+        let (writer, outbound) = test_writer_and_outbound();
+        let (client, _) = register_v9_client(&mux, &writer);
+
+        let response = handle_command(
+            &mux,
+            client,
+            Command::SubscribeTerminalInteractionModes,
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(response["status"], "subscribed");
+        assert_eq!(mux.control_clients.active_terminal_interaction_mode_streams(), 1);
+
+        mux.emit(MuxEvent::SurfaceOutput(7));
+        mux.emit(MuxEvent::TreeChanged);
+        mux.emit(MuxEvent::ConfigReloadRequested);
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(outbound.try_pop().is_none());
+
+        let surface_uuid = SurfaceUuid::new();
+        mux.emit(MuxEvent::TerminalInteractionModeChanged {
+            surface_uuid,
+            terminal_epoch: 17,
+            interaction_revision: 4,
+            mouse_tracking: true,
+        });
+        let event = (0..100)
+            .find_map(|_| {
+                let event = outbound.try_pop();
+                if event.is_none() {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                event
+            })
+            .expect("terminal interaction mode event");
+        let event: Value = serde_json::from_str(&event).unwrap();
+        assert_eq!(event["event"], "terminal-interaction-mode-changed");
+        assert_eq!(event["surface_uuid"], surface_uuid.to_string());
+        assert_eq!(event["terminal_epoch"], 17);
+        assert_eq!(event["interaction_revision"], 4);
+        assert_eq!(event["mouse_tracking"], true);
+
+        assert!(disconnect_client(&mux, client, false));
+        for _ in 0..100 {
+            if mux.control_clients.active_terminal_interaction_mode_streams() == 0 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(mux.control_clients.active_terminal_interaction_mode_streams(), 0);
+    }
+
+    #[test]
+    fn terminal_state_and_mutation_responses_share_the_interaction_revision_fence() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+        let surface_uuid = surface.uuid;
+
+        let initial =
+            handle_command(&mux, 0, Command::TerminalState { surface_uuid }, &test_writer())
+                .unwrap();
+        assert!(initial["terminal_epoch"].as_u64().is_some_and(|epoch| epoch != 0));
+        assert_eq!(initial["interaction_revision"], 1);
+        assert_eq!(initial["mouse_tracking"], false);
+
+        surface.inject_terminal_output(b"\x1b[?1000h").unwrap();
+        let changed =
+            handle_command(&mux, 0, Command::TerminalState { surface_uuid }, &test_writer())
+                .unwrap();
+        assert_eq!(changed["terminal_epoch"], initial["terminal_epoch"]);
+        assert_eq!(changed["interaction_revision"], 2);
+        assert_eq!(changed["mouse_tracking"], true);
+
+        let selected = handle_command(
+            &mux,
+            0,
+            Command::TerminalSelection { surface_uuid, operation: "clear".to_owned() },
+            &test_writer(),
+        )
+        .unwrap();
+        assert_eq!(selected["state"]["terminal_epoch"], changed["terminal_epoch"]);
+        assert_eq!(selected["state"]["interaction_revision"], 2);
+        assert_eq!(selected["state"]["mouse_tracking"], true);
     }
 
     #[test]

@@ -429,6 +429,122 @@ mod tests {
     }
 
     #[test]
+    fn terminal_interaction_mode_subscription_filters_noise_and_coalesces_each_runtime() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe_terminal_interaction_modes();
+
+        for surface in 0..=MAX_PENDING_EVENTS {
+            broadcaster.emit(MuxEvent::SurfaceOutput(surface as SurfaceId));
+            broadcaster.emit(MuxEvent::TreeChanged);
+        }
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+        assert!(!events.overflowed());
+
+        let first = crate::SurfaceUuid::new();
+        let second = crate::SurfaceUuid::new();
+        for revision in 2..=10_001 {
+            broadcaster.emit(MuxEvent::TerminalInteractionModeChanged {
+                surface_uuid: first,
+                terminal_epoch: 11,
+                interaction_revision: revision,
+                mouse_tracking: revision % 2 == 0,
+            });
+            broadcaster.emit(MuxEvent::TerminalInteractionModeChanged {
+                surface_uuid: second,
+                terminal_epoch: 22,
+                interaction_revision: revision,
+                mouse_tracking: revision % 2 != 0,
+            });
+        }
+
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::TerminalInteractionModeChanged {
+                surface_uuid,
+                terminal_epoch: 11,
+                interaction_revision: 10_001,
+                mouse_tracking: false,
+            } if surface_uuid == first
+        ));
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::TerminalInteractionModeChanged {
+                surface_uuid,
+                terminal_epoch: 22,
+                interaction_revision: 10_001,
+                mouse_tracking: true,
+            } if surface_uuid == second
+        ));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+        assert!(!events.overflowed());
+    }
+
+    #[test]
+    fn terminal_interaction_mode_mailbox_retains_new_runtime_when_old_runtime_reports_late() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe_terminal_interaction_modes();
+        let surface_uuid = crate::SurfaceUuid::new();
+
+        broadcaster.emit(MuxEvent::TerminalInteractionModeChanged {
+            surface_uuid,
+            terminal_epoch: 1,
+            interaction_revision: 2,
+            mouse_tracking: true,
+        });
+        broadcaster.emit(MuxEvent::TerminalInteractionModeChanged {
+            surface_uuid,
+            terminal_epoch: 2,
+            interaction_revision: 2,
+            mouse_tracking: true,
+        });
+        broadcaster.emit(MuxEvent::TerminalInteractionModeChanged {
+            surface_uuid,
+            terminal_epoch: 1,
+            interaction_revision: 3,
+            mouse_tracking: false,
+        });
+
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::TerminalInteractionModeChanged {
+                terminal_epoch: 2,
+                interaction_revision: 2,
+                mouse_tracking: true,
+                ..
+            }
+        ));
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::TerminalInteractionModeChanged {
+                terminal_epoch: 1,
+                interaction_revision: 3,
+                mouse_tracking: false,
+                ..
+            }
+        ));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn terminal_interaction_mode_unique_runtime_overflow_disconnects_fail_closed() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe_terminal_interaction_modes();
+
+        for _ in 0..=MAX_PENDING_EVENTS {
+            broadcaster.emit(MuxEvent::TerminalInteractionModeChanged {
+                surface_uuid: crate::SurfaceUuid::new(),
+                terminal_epoch: 1,
+                interaction_revision: 2,
+                mouse_tracking: true,
+            });
+        }
+
+        assert_eq!(events.try_iter().count(), MAX_PENDING_EVENTS);
+        assert!(events.overflowed());
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Disconnected)));
+    }
+
+    #[test]
     fn title_churn_keeps_one_latest_value_per_surface_and_subscriber() {
         let broadcaster = MuxEventBroadcaster::default();
         let fast = broadcaster.subscribe();

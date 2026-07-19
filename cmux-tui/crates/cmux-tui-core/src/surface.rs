@@ -4024,6 +4024,189 @@ mod tests {
     }
 
     #[test]
+    fn interaction_mode_events_follow_only_false_true_false_parser_transitions() {
+        let mux = Mux::new_for_test("interaction-mode-transitions", SurfaceOptions::default());
+        let events = mux.subscribe_terminal_interaction_modes();
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let initial = surface.terminal_interaction_snapshot().unwrap();
+
+        assert!(!initial.mouse_tracking);
+        assert_eq!(initial.interaction_revision, 1);
+        assert_ne!(initial.terminal_epoch, 0);
+
+        surface.inject_terminal_output(b"ordinary output").unwrap();
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+
+        surface.inject_terminal_output(b"\x1b[?1000h").unwrap();
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::TerminalInteractionModeChanged {
+                surface_uuid,
+                terminal_epoch,
+                interaction_revision: 2,
+                mouse_tracking: true,
+            } if surface_uuid == surface.uuid && terminal_epoch == initial.terminal_epoch
+        ));
+
+        surface.inject_terminal_output(b"same mode\x1b[?1000h").unwrap();
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+
+        surface.inject_terminal_output(b"\x1b[?1000l").unwrap();
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::TerminalInteractionModeChanged {
+                surface_uuid,
+                terminal_epoch,
+                interaction_revision: 3,
+                mouse_tracking: false,
+            } if surface_uuid == surface.uuid && terminal_epoch == initial.terminal_epoch
+        ));
+        let final_state = surface.terminal_interaction_snapshot().unwrap();
+        assert_eq!(final_state.interaction_revision, 3);
+        assert!(!final_state.mouse_tracking);
+    }
+
+    #[test]
+    fn external_reset_and_output_publish_revisioned_interaction_mode_changes() {
+        let mux = Mux::new_for_test("external-interaction-mode", SurfaceOptions::default());
+        let events = mux.subscribe_terminal_interaction_modes();
+        let surface = Surface::spawn_external_with_uuid(
+            71,
+            crate::SurfaceUuid::new(),
+            SurfaceOptions::default(),
+            true,
+            Arc::downgrade(&mux),
+        )
+        .unwrap();
+        let initial = surface.terminal_interaction_snapshot().unwrap();
+        let owner = external_owner(9);
+        let first = surface.claim_external_terminal(owner, uuid::Uuid::new_v4()).unwrap();
+
+        surface
+            .reset_external_terminal(
+                owner,
+                first.owner_generation,
+                uuid::Uuid::new_v4(),
+                first.required_output_generation,
+                80,
+                24,
+                true,
+                b"\x1b[?1000h",
+            )
+            .unwrap();
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::TerminalInteractionModeChanged {
+                terminal_epoch,
+                interaction_revision: 2,
+                mouse_tracking: true,
+                ..
+            } if terminal_epoch == initial.terminal_epoch
+        ));
+
+        let second = surface.claim_external_terminal(owner, uuid::Uuid::new_v4()).unwrap();
+        surface
+            .reset_external_terminal(
+                owner,
+                second.owner_generation,
+                uuid::Uuid::new_v4(),
+                second.required_output_generation,
+                80,
+                24,
+                true,
+                b"",
+            )
+            .unwrap();
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::TerminalInteractionModeChanged {
+                interaction_revision: 3,
+                mouse_tracking: false,
+                ..
+            }
+        ));
+
+        surface
+            .apply_external_terminal_output(
+                owner,
+                second.owner_generation,
+                uuid::Uuid::new_v4(),
+                second.required_output_generation,
+                1,
+                b"\x1b[?1002h",
+            )
+            .unwrap();
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::TerminalInteractionModeChanged {
+                interaction_revision: 4,
+                mouse_tracking: true,
+                ..
+            }
+        ));
+        surface
+            .apply_external_terminal_output(
+                owner,
+                second.owner_generation,
+                uuid::Uuid::new_v4(),
+                second.required_output_generation,
+                2,
+                b"ordinary output",
+            )
+            .unwrap();
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn replacement_runtime_identity_fences_late_interaction_mode_events() {
+        let mux = Mux::new_for_test("interaction-mode-runtime-fence", SurfaceOptions::default());
+        let events = mux.subscribe_terminal_interaction_modes();
+        let surface_uuid = crate::SurfaceUuid::new();
+        let old = Surface::spawn_for_test_with_uuid(
+            1,
+            surface_uuid,
+            SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+        )
+        .unwrap();
+        let replacement = Surface::spawn_for_test_with_uuid(
+            1,
+            surface_uuid,
+            SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+        )
+        .unwrap();
+        let old_epoch = old.terminal_interaction_snapshot().unwrap().terminal_epoch;
+        let replacement_state = replacement.terminal_interaction_snapshot().unwrap();
+        assert_ne!(old_epoch, replacement_state.terminal_epoch);
+        assert_eq!(replacement_state.interaction_revision, 1);
+
+        replacement.inject_terminal_output(b"\x1b[?1000h").unwrap();
+        old.inject_terminal_output(b"\x1b[?1000h").unwrap();
+
+        let received = [events.recv().unwrap(), events.recv().unwrap()];
+        assert!(received.iter().any(|event| matches!(
+            event,
+            MuxEvent::TerminalInteractionModeChanged {
+                terminal_epoch,
+                interaction_revision: 2,
+                mouse_tracking: true,
+                ..
+            } if *terminal_epoch == replacement_state.terminal_epoch
+        )));
+        assert!(received.iter().any(|event| matches!(
+            event,
+            MuxEvent::TerminalInteractionModeChanged {
+                terminal_epoch,
+                interaction_revision: 2,
+                mouse_tracking: true,
+                ..
+            } if *terminal_epoch == old_epoch
+        )));
+    }
+
+    #[test]
     fn external_terminal_has_no_child_and_fences_ordered_output() {
         let surface = Surface::spawn_external_with_uuid(
             71,
