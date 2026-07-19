@@ -4,7 +4,7 @@ Global app preferences live in `~/.config/cmux/cmux.json`.
 
 ## `shortcuts.bindings.newWorkspaceFloatingDock`
 
-Creates a floating Dock in the current workspace. The default shortcut is `cmd+ctrl+n`. Rebind it in **Settings > Keyboard Shortcuts** or `cmux.json`:
+Creates a terminal floating window in the current workspace. If another floating window is active, macOS cascades the new one from it. The default shortcut is `cmd+ctrl+n`. Rebind it in **Settings > Keyboard Shortcuts** or `cmux.json`:
 
 ```json
 {

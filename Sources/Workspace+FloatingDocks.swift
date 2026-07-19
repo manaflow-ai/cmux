@@ -3,19 +3,22 @@ import CoreGraphics
 import Foundation
 
 extension Workspace {
-    /// Creates a workspace-scoped floating Dock with a native autosaving note.
+    /// Creates a workspace-scoped floating window with one native Bonsplit surface.
     @discardableResult
     func createFloatingDock(
         id: UUID = UUID(),
         title: String? = nil,
         frame: CGRect? = nil,
         isPresented: Bool = true,
+        initialContent: DockSurfaceKind = .terminal,
+        initialURL: URL? = nil,
+        backgroundTintHex: String? = nil,
         sessionContent: SessionFloatingDockContentSnapshot? = nil
     ) -> WorkspaceFloatingDock? {
         let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayTitle = resolvedTitle?.isEmpty == false
             ? resolvedTitle!
-            : String(localized: "floatingDock.defaultTitle", defaultValue: "Notes")
+            : Self.defaultFloatingDockTitle(for: initialContent)
         guard let noteFileURL = floatingDockNoteFileURL(dockId: id) else { return nil }
         let dock = WorkspaceFloatingDock(
             id: id,
@@ -24,7 +27,9 @@ extension Workspace {
             frame: Self.sanitizedFloatingDockFrame(frame ?? nextFloatingDockFrame),
             isPresented: isPresented,
             noteFilePath: noteFileURL.path,
-            seedsDefaultNote: sessionContent == nil,
+            backgroundTintHex: WorkspaceFloatingDockBackgroundColor.normalized(backgroundTintHex),
+            initialContent: sessionContent == nil ? initialContent : nil,
+            initialURL: initialURL,
             baseDirectoryProvider: { [weak self] in self?.currentDirectory },
             remoteBrowserSettingsProvider: { [weak self] in
                 self?.dockRemoteBrowserSettingsSnapshot() ?? .local
@@ -75,6 +80,7 @@ extension Workspace {
                 width: dock.frame.width,
                 height: dock.frame.height,
                 isPresented: dock.isPresented,
+                backgroundTintHex: dock.backgroundTintHex,
                 content: dock.sessionContentSnapshot()
             )
         }
@@ -95,6 +101,7 @@ extension Workspace {
                     height: snapshot.height
                 ),
                 isPresented: snapshot.isPresented,
+                backgroundTintHex: snapshot.backgroundTintHex,
                 sessionContent: snapshot.content
             )
         }
@@ -127,6 +134,17 @@ extension Workspace {
         return CGRect(x: 36 + cascade, y: 80 - cascade, width: 520, height: 380)
     }
 
+    private static func defaultFloatingDockTitle(for kind: DockSurfaceKind) -> String {
+        switch kind {
+        case .note:
+            String(localized: "floatingDock.defaultTitle", defaultValue: "Notes")
+        case .browser:
+            String(localized: "floatingDock.defaultBrowserTitle", defaultValue: "Browser")
+        case .terminal:
+            String(localized: "floatingDock.defaultTerminalTitle", defaultValue: "Terminal")
+        }
+    }
+
     static func sanitizedFloatingDockFrame(_ frame: CGRect) -> CGRect {
         CGRect(
             x: frame.origin.x.isFinite ? frame.origin.x : 36,
@@ -134,6 +152,21 @@ extension Workspace {
             width: max(320, frame.width.isFinite ? frame.width : 520),
             height: max(220, frame.height.isFinite ? frame.height : 380)
         )
+    }
+}
+
+enum WorkspaceFloatingDockBackgroundColor {
+    private static let hexadecimalScalars = CharacterSet(charactersIn: "0123456789abcdefABCDEF")
+
+    static func normalized(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let digits = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
+        guard digits.count == 6,
+              digits.unicodeScalars.allSatisfy({ hexadecimalScalars.contains($0) }) else {
+            return nil
+        }
+        return "#\(digits.uppercased())"
     }
 }
 

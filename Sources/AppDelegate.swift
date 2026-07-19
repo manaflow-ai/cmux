@@ -5104,6 +5104,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let targetWindow,
            let context = contextForMainWindow(targetWindow) {
             _ = context.tabManager.setFocusedBrowserFocusModeActive(false, reason: "commandPaletteRequest.\(source)")
+            if !targetWindow.isKeyWindow {
+                targetWindow.makeKey()
+            }
         }
         let markPending = kind.marksPending
         if markPending {
@@ -13393,10 +13396,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=newWorkspaceFloatingDock \(debugShortcutRouteSnapshot(event: event))")
 #endif
-            if let manager = activeTabManagerForCommands(
-                preferredWindow: mainWindowForShortcutEvent(event)
-            ) {
-                _ = createWorkspaceFloatingDock(in: manager, focus: true)
+            let sourceWindow = event.window ?? shortcutRoutingActiveWindow
+            if let context = contextForShortcutSourceWindow(sourceWindow),
+               let workspace = context.tabManager.selectedWorkspace {
+                let relativeToDockId = context.workspaceFloatingDockPresenter?.dockId(owning: sourceWindow)
+                _ = createWorkspaceFloatingDock(
+                    in: workspace,
+                    tabManager: context.tabManager,
+                    request: WorkspaceFloatingDockCreationRequest(
+                        initialContent: .terminal,
+                        focus: true,
+                        relativeToDockId: relativeToDockId
+                    )
+                )
             }
             return true
         }

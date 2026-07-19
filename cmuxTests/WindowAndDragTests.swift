@@ -3179,20 +3179,28 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(glassBackground?.alphaValue ?? 0, 0.42, accuracy: 0.001)
     }
 
-    func testWorkspaceFloatingDockRaycastBackdropIsNeutralAndStableByDefault() throws {
-        let dark = WorkspaceFloatingDockBackdropAppearance.raycast(isLightBackground: false)
-        let light = WorkspaceFloatingDockBackdropAppearance.raycast(isLightBackground: true)
+    func testWorkspaceFloatingDockRaycastBackdropTracksGhosttyThemeAndStaysStable() throws {
+        let darkTheme = try XCTUnwrap(NSColor(hex: "#272822"))
+        let lightTheme = try XCTUnwrap(NSColor(hex: "#F8F8F2"))
+        let dark = WorkspaceFloatingDockBackdropAppearance.raycast(backgroundColor: darkTheme)
+        let light = WorkspaceFloatingDockBackdropAppearance.raycast(backgroundColor: lightTheme)
 
         XCTAssertEqual(dark.liquidGlassStyle, .regular)
         XCTAssertNil(dark.compatibilityMaterial)
         XCTAssertEqual(dark.opacity, 0.96, accuracy: 0.001)
         XCTAssertEqual(light.opacity, dark.opacity, accuracy: 0.001)
 
-        for tint in [try XCTUnwrap(dark.tintColor), try XCTUnwrap(light.tintColor)] {
-            let rgb = try XCTUnwrap(tint.usingColorSpace(.sRGB))
-            XCTAssertEqual(rgb.redComponent, rgb.greenComponent, accuracy: 0.001)
-            XCTAssertEqual(rgb.greenComponent, rgb.blueComponent, accuracy: 0.001)
-        }
+        let darkTint = try XCTUnwrap(dark.tintColor?.usingColorSpace(.sRGB))
+        let darkThemeRGB = try XCTUnwrap(darkTheme.usingColorSpace(.sRGB))
+        XCTAssertGreaterThan(darkTint.redComponent, darkTint.blueComponent)
+        XCTAssertLessThan(abs(darkTint.redComponent - darkThemeRGB.redComponent), 0.05)
+        XCTAssertLessThan(abs(darkTint.greenComponent - darkThemeRGB.greenComponent), 0.05)
+        XCTAssertLessThan(abs(darkTint.blueComponent - darkThemeRGB.blueComponent), 0.05)
+
+        let lightTint = try XCTUnwrap(light.tintColor?.usingColorSpace(.sRGB))
+        XCTAssertGreaterThan(lightTint.redComponent, 0.9)
+        XCTAssertGreaterThan(lightTint.greenComponent, 0.9)
+        XCTAssertGreaterThan(lightTint.blueComponent, 0.9)
 
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "WorkspaceFloatingDockRaycastBackdropTests"))
         defaults.removePersistentDomain(forName: "WorkspaceFloatingDockRaycastBackdropTests")
@@ -3253,6 +3261,23 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertNil(dock.notePanel)
         XCTAssertEqual(dock.store.panels.count, 1)
         XCTAssertTrue(dock.store.panels.values.first is TerminalPanel)
+    }
+
+    func testWorkspaceFloatingDockSupportsExplicitInitialContentKinds() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
+        let notes = try XCTUnwrap(workspace.createFloatingDock(initialContent: .note))
+        let browser = try XCTUnwrap(workspace.createFloatingDock(initialContent: .browser))
+
+        XCTAssertNotNil(notes.notePanel)
+        XCTAssertTrue(browser.store.panels.values.first is BrowserPanel)
+    }
+
+    func testWorkspaceFloatingDockBackgroundColorNormalizesHex() {
+        XCTAssertEqual(WorkspaceFloatingDockBackgroundColor.normalized("272822"), "#272822")
+        XCTAssertEqual(WorkspaceFloatingDockBackgroundColor.normalized(" #aabbcc "), "#AABBCC")
+        XCTAssertNil(WorkspaceFloatingDockBackgroundColor.normalized("monokai"))
     }
 
     func testFloatingDockNoteControlWriteIsSynchronousAndUpdatesEditor() async throws {

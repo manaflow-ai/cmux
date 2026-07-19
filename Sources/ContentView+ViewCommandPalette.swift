@@ -1,3 +1,4 @@
+import AppKit
 import CmuxCommandPalette
 import Foundation
 
@@ -27,13 +28,49 @@ extension ContentView {
                 keywords: ["sleepy", "screensaver", "caffeinate", "keep awake", "do not sleep", "lock", "pets", "night"]
             ),
             CommandPaletteCommandContribution(
-                commandId: "palette.newWorkspaceFloatingDock",
+                commandId: "palette.newTerminalFloatingWindow",
                 title: constant(String(
-                    localized: "command.newWorkspaceFloatingDock.title",
-                    defaultValue: "New Floating Dock"
+                    localized: "command.newTerminalFloatingWindow.title",
+                    defaultValue: "New Terminal Floating Window"
+                )),
+                subtitle: constant(String(localized: "command.workspace.subtitle", defaultValue: "Workspace")),
+                keywords: ["terminal", "floating", "dock", "workspace", "window", "shell"]
+            ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.newNotesFloatingWindow",
+                title: constant(String(
+                    localized: "command.newNotesFloatingWindow.title",
+                    defaultValue: "New Notes Floating Window"
                 )),
                 subtitle: constant(String(localized: "command.workspace.subtitle", defaultValue: "Workspace")),
                 keywords: ["notes", "floating", "dock", "workspace", "window", "scratchpad"]
+            ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.newBrowserFloatingWindow",
+                title: constant(String(
+                    localized: "command.newBrowserFloatingWindow.title",
+                    defaultValue: "New Browser Floating Window"
+                )),
+                subtitle: constant(String(localized: "command.workspace.subtitle", defaultValue: "Workspace")),
+                keywords: ["browser", "web", "floating", "dock", "workspace", "window"]
+            ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.customizeFloatingWindowColor",
+                title: constant(String(
+                    localized: "command.customizeFloatingWindowColor.title",
+                    defaultValue: "Customize Floating Window Color…"
+                )),
+                subtitle: constant(String(localized: "command.workspace.subtitle", defaultValue: "Workspace")),
+                keywords: ["color", "tint", "glass", "floating", "dock", "window"]
+            ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.resetFloatingWindowColor",
+                title: constant(String(
+                    localized: "command.resetFloatingWindowColor.title",
+                    defaultValue: "Reset Floating Window Color"
+                )),
+                subtitle: constant(String(localized: "command.workspace.subtitle", defaultValue: "Workspace")),
+                keywords: ["reset", "default", "color", "tint", "floating", "window"]
             ),
         ]
     }
@@ -90,11 +127,39 @@ extension ContentView {
         registry.register(commandId: "palette.sleepyMode") {
             SleepyModeController.shared.activate()
         }
-        registry.register(commandId: "palette.newWorkspaceFloatingDock") {
-            _ = AppDelegate.shared?.createWorkspaceFloatingDock(
-                in: tabManager,
+        registry.register(commandId: "palette.newTerminalFloatingWindow") {
+            createWorkspaceFloatingDockFromCommandPalette(initialContent: .terminal)
+        }
+        registry.register(commandId: "palette.newNotesFloatingWindow") {
+            createWorkspaceFloatingDockFromCommandPalette(initialContent: .note)
+        }
+        registry.register(commandId: "palette.newBrowserFloatingWindow") {
+            createWorkspaceFloatingDockFromCommandPalette(initialContent: .browser)
+        }
+        registry.register(commandId: "palette.customizeFloatingWindowColor") {
+            if AppDelegate.shared?.customizeWorkspaceFloatingDockColor(in: tabManager) != true {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.resetFloatingWindowColor") {
+            if AppDelegate.shared?.resetWorkspaceFloatingDockColor(in: tabManager) != true {
+                NSSound.beep()
+            }
+        }
+    }
+
+    private func createWorkspaceFloatingDockFromCommandPalette(initialContent: DockSurfaceKind) {
+        guard let workspace = tabManager.selectedWorkspace else {
+            NSSound.beep()
+            return
+        }
+        _ = AppDelegate.shared?.createWorkspaceFloatingDock(
+            in: workspace,
+            tabManager: tabManager,
+            request: WorkspaceFloatingDockCreationRequest(
+                initialContent: initialContent,
                 focus: true
             )
-        }
+        )
     }
 }

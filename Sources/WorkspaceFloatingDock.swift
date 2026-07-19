@@ -11,6 +11,7 @@ final class WorkspaceFloatingDock: Identifiable {
     var title: String
     var frame: CGRect
     var isPresented: Bool
+    var backgroundTintHex: String?
     var ownsInputFocus = false
 
     @ObservationIgnored let store: DockSplitStore
@@ -24,7 +25,9 @@ final class WorkspaceFloatingDock: Identifiable {
         frame: CGRect,
         isPresented: Bool,
         noteFilePath: String,
-        seedsDefaultNote: Bool = true,
+        backgroundTintHex: String? = nil,
+        initialContent: DockSurfaceKind? = .note,
+        initialURL: URL? = nil,
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings
     ) {
@@ -33,6 +36,7 @@ final class WorkspaceFloatingDock: Identifiable {
         self.title = title
         self.frame = frame
         self.isPresented = isPresented
+        self.backgroundTintHex = backgroundTintHex
         self.noteFilePath = noteFilePath
         self.store = DockSplitStore(
             workspaceId: workspaceId,
@@ -42,8 +46,8 @@ final class WorkspaceFloatingDock: Identifiable {
             remoteBrowserSettingsProvider: remoteBrowserSettingsProvider
         )
 
-        if seedsDefaultNote {
-            seedDefaultNoteIfNeeded()
+        if let initialContent {
+            seedInitialContentIfNeeded(initialContent, url: initialURL)
         }
     }
 
@@ -64,19 +68,25 @@ final class WorkspaceFloatingDock: Identifiable {
             noteFilePath: noteFilePath,
             noteTitle: String(localized: "floatingDock.note.title", defaultValue: "Notes")
         )
-        seedDefaultNoteIfNeeded()
+        seedInitialContentIfNeeded(.terminal)
     }
 
-    private func seedDefaultNoteIfNeeded() {
-        guard notePanel == nil,
+    private func seedInitialContentIfNeeded(_ kind: DockSurfaceKind, url: URL? = nil) {
+        guard store.panels.isEmpty,
               let rootPane = store.bonsplitController.allPaneIds.first else { return }
-        notePanelId = store.newSurface(
-            kind: .note,
+        let panelId = store.newSurface(
+            kind: kind,
             inPane: rootPane,
-            noteFilePath: noteFilePath,
-            noteTitle: String(localized: "floatingDock.note.title", defaultValue: "Notes"),
+            url: url,
+            noteFilePath: kind == .note ? noteFilePath : nil,
+            noteTitle: kind == .note
+                ? String(localized: "floatingDock.note.title", defaultValue: "Notes")
+                : nil,
             focus: false
         )
+        if kind == .note {
+            notePanelId = panelId
+        }
     }
 
     func close() {

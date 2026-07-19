@@ -338,7 +338,7 @@ extension ShortcutAction {
         case .toggleSidebar: return "Toggle Left Sidebar"
         case .newTab: return "New Workspace"
         case .newWorkspaceFloatingDock:
-            return String(localized: "command.newWorkspaceFloatingDock.title", defaultValue: "New Floating Dock")
+            return String(localized: "command.newTerminalFloatingWindow.title", defaultValue: "New Terminal Floating Window")
         case .newBrowserWorkspace:
             return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
         case .saveLayoutTemplate:

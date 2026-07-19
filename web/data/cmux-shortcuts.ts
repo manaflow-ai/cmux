@@ -85,7 +85,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       {
         id: "newWorkspaceFloatingDock",
         combos: [["⌃", "⌘", "N"]],
-        description: { en: "New floating Dock", ja: "新しいフローティングDock" },
+        description: { en: "New terminal floating window", ja: "新しいターミナルフローティングウインドウ" },
       },
       {
         id: "newBrowserWorkspace",

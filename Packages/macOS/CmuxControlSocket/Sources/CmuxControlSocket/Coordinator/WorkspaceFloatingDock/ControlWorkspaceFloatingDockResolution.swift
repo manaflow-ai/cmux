@@ -7,8 +7,10 @@ public enum ControlWorkspaceFloatingDockResolution: Sendable, Equatable {
     case floatingDockNotFound
     case paneNotFound
     case surfaceNotFound
+    case invalidInitialContent(String)
     case invalidSurfaceKind(String)
     case invalidDirection(String)
+    case invalidColor(String)
     case operationFailed(String)
     case resolved(JSONValue)
 }

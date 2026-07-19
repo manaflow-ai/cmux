@@ -12,6 +12,10 @@ extension ControlCommandCoordinator {
             action = .create(
                 title: optionalTrimmedRawString(request.params, "title"),
                 frame: frame.value,
+                kind: string(request.params, "kind") ?? "terminal",
+                url: optionalTrimmedRawString(request.params, "url"),
+                backgroundTintHex: optionalTrimmedRawString(request.params, "color"),
+                relativeToSelector: optionalTrimmedRawString(request.params, "relative_to"),
                 focus: bool(request.params, "focus") ?? false
             )
         case "workspace.float.show", "workspace.float.hide":
@@ -35,6 +39,17 @@ extension ControlCommandCoordinator {
                 return .err(code: "invalid_params", message: "x, y, width, and height are required", data: nil)
             }
             action = .setFrame(selector: selector, frame: value)
+        case "workspace.float.color.get":
+            guard let selector = floatingDockSelector(request.params) else { return missingFloatingDock() }
+            action = .colorGet(selector: selector)
+        case "workspace.float.color.set", "workspace.float.color.reset":
+            guard let selector = floatingDockSelector(request.params) else { return missingFloatingDock() }
+            action = .colorSet(
+                selector: selector,
+                backgroundTintHex: request.method == "workspace.float.color.reset"
+                    ? nil
+                    : optionalTrimmedRawString(request.params, "color")
+            )
         case "workspace.float.note.get":
             guard let selector = floatingDockSelector(request.params) else { return missingFloatingDock() }
             action = .noteGet(selector: selector)
@@ -123,6 +138,12 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: "Floating Dock pane not found", data: nil)
         case .surfaceNotFound:
             return .err(code: "not_found", message: "Floating Dock surface not found", data: nil)
+        case .invalidInitialContent(let kind):
+            return .err(
+                code: "invalid_params",
+                message: "kind must be terminal, browser, or notes",
+                data: .object(["kind": .string(kind)])
+            )
         case .invalidSurfaceKind(let kind):
             return .err(
                 code: "invalid_params",
@@ -134,6 +155,12 @@ extension ControlCommandCoordinator {
                 code: "invalid_params",
                 message: "direction must be left, right, up, or down",
                 data: .object(["direction": .string(direction)])
+            )
+        case .invalidColor(let color):
+            return .err(
+                code: "invalid_params",
+                message: "color must use #RRGGBB format",
+                data: .object(["color": .string(color)])
             )
         case .operationFailed(let message):
             return .err(code: "internal_error", message: message, data: nil)

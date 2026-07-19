@@ -73,9 +73,11 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
 
     func testFloatingDockCommandPaletteUsesConfigurableShortcutAction() {
         XCTAssertEqual(
-            ContentView.commandPaletteShortcutAction(forCommandID: "palette.newWorkspaceFloatingDock"),
+            ContentView.commandPaletteShortcutAction(forCommandID: "palette.newTerminalFloatingWindow"),
             .newWorkspaceFloatingDock
         )
+        XCTAssertNil(ContentView.commandPaletteShortcutAction(forCommandID: "palette.newNotesFloatingWindow"))
+        XCTAssertNil(ContentView.commandPaletteShortcutAction(forCommandID: "palette.newBrowserFloatingWindow"))
     }
 
     private func withSavedBetaFeatureDefaults(_ body: () throws -> Void) rethrows {

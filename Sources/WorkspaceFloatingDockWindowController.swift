@@ -14,10 +14,18 @@ struct WorkspaceFloatingDockBackdropAppearance {
 
     static let raycastOpacity: CGFloat = 0.96
 
-    static func raycast(isLightBackground: Bool) -> Self {
-        let tint = isLightBackground
-            ? NSColor(calibratedWhite: 0.94, alpha: 0.78)
-            : NSColor(calibratedWhite: 0.12, alpha: 0.78)
+    static func raycast(backgroundColor: NSColor) -> Self {
+        let background = backgroundColor.usingColorSpace(.sRGB)
+            ?? NSColor(calibratedWhite: backgroundColor.isLightColor ? 0.94 : 0.12, alpha: 1)
+        let neutralWhite: CGFloat = background.isLightColor ? 0.94 : 0.12
+        let themeWeight: CGFloat = 0.72
+        let neutralWeight = 1 - themeWeight
+        let tint = NSColor(
+            srgbRed: background.redComponent * themeWeight + neutralWhite * neutralWeight,
+            green: background.greenComponent * themeWeight + neutralWhite * neutralWeight,
+            blue: background.blueComponent * themeWeight + neutralWhite * neutralWeight,
+            alpha: 0.78
+        )
         return Self(
             liquidGlassStyle: .regular,
             tintColor: tint,
@@ -42,6 +50,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     let dock: WorkspaceFloatingDock
     private weak var parentWindow: NSWindow?
     private let onCloseRequest: (UUID) -> Void
+    private let onBecomeKey: (UUID) -> Void
     private let glassEffect = WindowGlassEffect()
     private weak var compatibilityBlurView: NSVisualEffectView?
     private var isApplyingModelFrame = false
@@ -50,11 +59,13 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         dock: WorkspaceFloatingDock,
         parentWindow: NSWindow,
         onCloseRequest: @escaping (UUID) -> Void,
-        onCreateRequest: @escaping () -> Void
+        onCreateRequest: @escaping () -> Void,
+        onBecomeKey: @escaping (UUID) -> Void = { _ in }
     ) {
         self.dock = dock
         self.parentWindow = parentWindow
         self.onCloseRequest = onCloseRequest
+        self.onBecomeKey = onBecomeKey
 
         let panel = WorkspaceFloatingDockPanel(
             contentRect: Self.screenFrame(relativeFrame: dock.frame, parentWindow: parentWindow),
@@ -131,6 +142,16 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         window?.orderOut(nil)
     }
 
+    /// Uses AppKit's native cascade policy so a new floating window follows
+    /// the same offset and visible-screen clamping as a normal macOS window.
+    func cascade(relativeTo sourceWindow: NSWindow) {
+        guard let panel = window else { return }
+        let sourceTopLeft = NSPoint(x: sourceWindow.frame.minX, y: sourceWindow.frame.maxY)
+        let nextTopLeft = sourceWindow.cascadeTopLeft(from: sourceTopLeft)
+        _ = panel.cascadeTopLeft(from: nextTopLeft)
+        captureModelFrame()
+    }
+
     func teardown() {
         dock.ownsInputFocus = false
         dock.store.setVisibleInUI(false)
@@ -177,6 +198,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             raiseAboveSiblingFloatingDocks(panel)
         }
         dock.ownsInputFocus = true
+        onBecomeKey(dock.id)
     }
 
     func windowDidUpdate(_ notification: Notification) {
@@ -242,12 +264,19 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         compatibilityBlurView?.removeFromSuperview()
 
 #if DEBUG
-        let appearance = WorkspaceFloatingDockTextureDebugSettings.currentAppearance()
+        var appearance = WorkspaceFloatingDockTextureDebugSettings.currentAppearance()
 #else
-        let appearance = WorkspaceFloatingDockBackdropAppearance.raycast(
-            isLightBackground: GhosttyBackgroundTheme.currentColor().isLightColor
+        var appearance = WorkspaceFloatingDockBackdropAppearance.raycast(
+            backgroundColor: GhosttyBackgroundTheme.currentColor()
         )
 #endif
+        if let tintHex = dock.backgroundTintHex,
+           let tint = NSColor(hex: tintHex) {
+            appearance = appearance.overriding(
+                tintColor: tint.withAlphaComponent(0.78),
+                opacity: appearance.opacity
+            )
+        }
         applyBackdropAppearance(appearance, to: panel)
     }
 
@@ -419,7 +448,7 @@ enum WorkspaceFloatingDockTextureDebugStyle: String, CaseIterable, Identifiable 
         switch self {
         case .raycast:
             let appearance = WorkspaceFloatingDockBackdropAppearance.raycast(
-                isLightBackground: GhosttyBackgroundTheme.currentColor().isLightColor
+                backgroundColor: GhosttyBackgroundTheme.currentColor()
             )
             return (appearance.liquidGlassStyle ?? .regular, appearance.tintColor)
         case .regular:

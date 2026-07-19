@@ -42,7 +42,8 @@ final class SessionPersistenceTests: XCTestCase {
         let dock = try XCTUnwrap(workspace.createFloatingDock(
             title: "Scratch",
             frame: CGRect(x: 72, y: 96, width: 640, height: 420),
-            isPresented: false
+            isPresented: false,
+            backgroundTintHex: "#272822"
         ))
         let rootPane = try XCTUnwrap(dock.store.bonsplitController.allPaneIds.first)
         let terminal = try XCTUnwrap(dock.store.newSurface(
@@ -70,6 +71,7 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(restoredDock.title, "Scratch")
         XCTAssertEqual(restoredDock.frame, CGRect(x: 72, y: 96, width: 640, height: 420))
         XCTAssertFalse(restoredDock.isPresented)
+        XCTAssertEqual(restoredDock.backgroundTintHex, "#272822")
         XCTAssertEqual(restoredDock.store.panels.count, 3)
         XCTAssertEqual(restoredDock.store.bonsplitController.allPaneIds.count, 2)
         XCTAssertEqual(

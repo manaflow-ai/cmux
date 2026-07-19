@@ -56,14 +56,46 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
         switch action {
         case .list:
             return .resolved(floatingDockListPayload(workspace: workspace, tabManager: tabManager))
-        case .create(let title, let frame, let focus):
-            guard let dock = workspace.createFloatingDock(
-                title: title,
-                frame: frame.map(CGRect.init(controlFrame:))
+        case .create(
+            let title,
+            let frame,
+            let kindRaw,
+            let urlRaw,
+            let backgroundTintHex,
+            let relativeToSelector,
+            let focus
+        ):
+            guard let initialContent = floatingDockInitialContent(kindRaw) else {
+                return .invalidInitialContent(kindRaw)
+            }
+            let normalizedColor = WorkspaceFloatingDockBackgroundColor.normalized(backgroundTintHex)
+            if let backgroundTintHex, normalizedColor == nil {
+                return .invalidColor(backgroundTintHex)
+            }
+            let relativeToDockId: UUID?
+            if let relativeToSelector {
+                guard let relativeDock = workspace.floatingDock(selector: relativeToSelector) else {
+                    return .floatingDockNotFound
+                }
+                relativeToDockId = relativeDock.id
+            } else {
+                relativeToDockId = nil
+            }
+            guard let dock = AppDelegate.shared?.createWorkspaceFloatingDock(
+                in: workspace,
+                tabManager: tabManager,
+                request: WorkspaceFloatingDockCreationRequest(
+                    title: title,
+                    initialContent: initialContent,
+                    initialURL: floatingDockURL(urlRaw, kind: initialContent),
+                    frame: frame.map(CGRect.init(controlFrame:)),
+                    backgroundTintHex: normalizedColor,
+                    focus: focus,
+                    relativeToDockId: relativeToDockId
+                )
             ) else {
                 return .operationFailed("Failed to create floating Dock")
             }
-            refreshFloatingDockUI(dock: dock, workspace: workspace, tabManager: tabManager, focus: focus)
             return .resolved(floatingDockMutationPayload(dock: dock, workspace: workspace, tabManager: tabManager))
         case .setPresented(let selector, let presented, let focus):
             guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
@@ -84,6 +116,18 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
         case .setFrame(let selector, let frame):
             guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
             dock.frame = Workspace.sanitizedFloatingDockFrame(CGRect(controlFrame: frame))
+            AppDelegate.shared?.refreshWorkspaceFloatingDocks(for: tabManager)
+            return .resolved(floatingDockMutationPayload(dock: dock, workspace: workspace, tabManager: tabManager))
+        case .colorGet(let selector):
+            guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
+            return .resolved(floatingDockMutationPayload(dock: dock, workspace: workspace, tabManager: tabManager))
+        case .colorSet(let selector, let backgroundTintHex):
+            guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
+            let normalizedColor = WorkspaceFloatingDockBackgroundColor.normalized(backgroundTintHex)
+            if let backgroundTintHex, normalizedColor == nil {
+                return .invalidColor(backgroundTintHex)
+            }
+            dock.backgroundTintHex = normalizedColor
             AppDelegate.shared?.refreshWorkspaceFloatingDocks(for: tabManager)
             return .resolved(floatingDockMutationPayload(dock: dock, workspace: workspace, tabManager: tabManager))
         case .noteGet(let selector):
@@ -146,6 +190,15 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
         switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "terminal": return .terminal
         case "browser": return .browser
+        default: return nil
+        }
+    }
+
+    private func floatingDockInitialContent(_ raw: String) -> DockSurfaceKind? {
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "terminal": return .terminal
+        case "browser": return .browser
+        case "note", "notes": return .note
         default: return nil
         }
     }
@@ -234,6 +287,7 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
             "presented": .bool(dock.isPresented),
             "visible": .bool(dock.isPresented && tabManager.selectedTabId == workspace.id),
             "focused": .bool(dock.ownsInputFocus),
+            "background_color": dock.backgroundTintHex.map(JSONValue.string) ?? .null,
             "frame": .object([
                 "x": .double(dock.frame.origin.x),
                 "y": .double(dock.frame.origin.y),

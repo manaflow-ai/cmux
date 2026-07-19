@@ -13,7 +13,7 @@ extension CMUXCLI {
         guard let subcommand = commandArgs.first?.lowercased() else {
             throw CLIError(message: floatingDockCLIString(
                 "cli.workspace.float.error.subcommandRequired",
-                defaultValue: "workspace float requires a subcommand. Try: list, create, show, hide, focus, close, frame, note, surface, pane"
+                defaultValue: "workspace float requires a subcommand. Try: list, create, show, hide, focus, close, frame, color, note, surface, pane"
             ))
         }
         let target = try workspaceFloatingDockTarget(
@@ -28,9 +28,17 @@ extension CMUXCLI {
             printFloatingDockList(payload, jsonOutput: jsonOutput, idFormat: idFormat)
         case "create":
             let (title, rem0) = parseOption(args, name: "--title")
+            let (kind, rem1) = parseOption(rem0, name: "--type")
+            let (url, rem2) = parseOption(rem1, name: "--url")
+            let (color, rem3) = parseOption(rem2, name: "--color")
+            let (relativeTo, rem4) = parseOption(rem3, name: "--relative-to")
             if let title { params["title"] = title }
-            params["focus"] = hasFlag(rem0, name: "--focus")
-            try addFloatingDockFrameParams(from: rem0, to: &params, required: false)
+            params["kind"] = kind ?? "terminal"
+            if let url { params["url"] = url }
+            if let color { params["color"] = color }
+            if let relativeTo { params["relative_to"] = relativeTo }
+            params["focus"] = hasFlag(rem4, name: "--focus")
+            try addFloatingDockFrameParams(from: rem4, to: &params, required: false)
             let payload = try client.sendV2(method: "workspace.float.create", params: params)
             printFloatingDockMutation(payload, jsonOutput: jsonOutput, idFormat: idFormat)
         case "show", "hide", "focus", "close":
@@ -45,6 +53,10 @@ extension CMUXCLI {
             try addFloatingDockFrameParams(from: remaining, to: &params, required: true)
             let payload = try client.sendV2(method: "workspace.float.set_frame", params: params)
             printFloatingDockMutation(payload, jsonOutput: jsonOutput, idFormat: idFormat)
+        case "color":
+            try runWorkspaceFloatingDockColor(
+                args: args, params: params, client: client, jsonOutput: jsonOutput, idFormat: idFormat
+            )
         case "note":
             try runWorkspaceFloatingDockNote(
                 args: args, params: params, client: client, jsonOutput: jsonOutput, idFormat: idFormat
@@ -164,6 +176,42 @@ extension CMUXCLI {
         else { print("OK") }
     }
 
+    private func runWorkspaceFloatingDockColor(
+        args: [String], params initialParams: [String: Any], client: SocketClient,
+        jsonOutput: Bool, idFormat: CLIIDFormat
+    ) throws {
+        guard let verb = args.first?.lowercased(), ["get", "set", "reset"].contains(verb) else {
+            throw CLIError(message: floatingDockCLIString(
+                "cli.workspace.float.error.colorUsage",
+                defaultValue: "Usage: cmux workspace float color <get|set|reset> <float> [--color #RRGGBB]"
+            ))
+        }
+        let (selector, remaining) = try floatingDockSelector(from: Array(args.dropFirst()))
+        var params = initialParams
+        params["float"] = selector
+        if verb == "set" {
+            let (color, _) = parseOption(remaining, name: "--color")
+            guard let color else {
+                throw CLIError(message: floatingDockCLIString(
+                    "cli.workspace.float.error.colorRequired",
+                    defaultValue: "--color #RRGGBB is required"
+                ))
+            }
+            params["color"] = color
+        }
+        let payload = try client.sendV2(method: "workspace.float.color.\(verb)", params: params)
+        if jsonOutput {
+            print(jsonString(formatIDs(payload, mode: idFormat)))
+        } else if verb == "get" {
+            print(payload["background_color"] as? String ?? floatingDockCLIString(
+                "cli.workspace.float.output.defaultColor",
+                defaultValue: "default"
+            ))
+        } else {
+            printFloatingDockMutation(payload, jsonOutput: false, idFormat: idFormat)
+        }
+    }
+
     private func runWorkspaceFloatingDockSurface(
         args: [String], params initialParams: [String: Any], client: SocketClient,
         jsonOutput: Bool, idFormat: CLIIDFormat
@@ -268,9 +316,12 @@ extension CMUXCLI {
 
     Subcommands:
       list
-      create [--title <title>] [--x N --y N --width N --height N] [--focus]
+      create [--type terminal|browser|notes] [--title <title>] [--url <URL>]
+             [--color #RRGGBB] [--relative-to <float>]
+             [--x N --y N --width N --height N] [--focus]
       show <float> [--focus] | hide <float> | focus <float> | close <float>
       frame <float> --x N --y N --width N --height N
+      color get <float> | color set <float> --color #RRGGBB | color reset <float>
       note get <float> | note set <float> <text>
       surface create <float> --type terminal|browser [--pane <UUID>] [--url <URL>] [--focus]
       pane create <float> --type terminal|browser [--surface <UUID>]

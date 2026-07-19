@@ -17,11 +17,21 @@ public enum ControlWorkspaceFloatingDockAction: Sendable, Equatable {
     }
 
     case list
-    case create(title: String?, frame: Frame?, focus: Bool)
+    case create(
+        title: String?,
+        frame: Frame?,
+        kind: String,
+        url: String?,
+        backgroundTintHex: String?,
+        relativeToSelector: String?,
+        focus: Bool
+    )
     case setPresented(selector: String, presented: Bool, focus: Bool)
     case focus(selector: String)
     case close(selector: String)
     case setFrame(selector: String, frame: Frame)
+    case colorGet(selector: String)
+    case colorSet(selector: String, backgroundTintHex: String?)
     case noteGet(selector: String)
     case noteSet(selector: String, text: String)
     case surfaceCreate(selector: String, paneID: UUID?, kind: String, url: String?, focus: Bool)

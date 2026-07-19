@@ -10,6 +10,8 @@ struct SessionFloatingDockSnapshot: Codable, Sendable {
     var width: Double
     var height: Double
     var isPresented: Bool
+    /// Per-window glass tint. Absent snapshots derive the Raycast-style tint from the Ghostty theme.
+    var backgroundTintHex: String? = nil
     /// Absent in snapshots written before floating Dock contents were restorable.
     var content: SessionFloatingDockContentSnapshot? = nil
 }
