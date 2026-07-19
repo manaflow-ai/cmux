@@ -390,6 +390,29 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     assert_eq!(joined_state["rows"], 6);
     assert!(joined_state["frame"].is_null());
 
+    let mut larger_attach = UnixStream::connect(&socket_path).unwrap();
+    larger_attach
+        .write_all(
+            json!({
+                "id": 4,
+                "cmd": "attach-surface",
+                "surface": surface,
+                "cols": 20,
+                "rows": 10
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+    larger_attach.write_all(b"\n").unwrap();
+    let mut larger_reader = BufReader::new(larger_attach);
+    let mut larger_line = String::new();
+    larger_reader.read_line(&mut larger_line).unwrap();
+    let larger_state: Value = serde_json::from_str(&larger_line).unwrap();
+    assert_eq!(larger_state["event"], "browser-state", "larger viewer attach failed");
+    assert_eq!(larger_state["cols"], 12);
+    assert_eq!(larger_state["rows"], 6);
+
     let navigate = rpc(
         &socket_path,
         json!({"id": 101, "cmd": "browser-navigate", "surface": surface, "url": "live.test"}),
