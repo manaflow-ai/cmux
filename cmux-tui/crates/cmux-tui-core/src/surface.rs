@@ -23,10 +23,10 @@ use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_s
 use crate::platform;
 use crate::{Mux, MuxEvent, SurfaceId};
 
-use crate::browser::BrowserSurface;
 pub use crate::browser::{
     BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserSource, BrowserStatus,
 };
+use crate::browser::{BrowserResizeWaiter, BrowserSurface, PendingBrowserResize};
 use cmux_tui_cdp::BrowserMode;
 
 /// How to spawn surface children.
@@ -970,11 +970,44 @@ impl Surface {
         }
     }
 
+    pub(crate) fn resize_reporting_completion(
+        &self,
+        cols: u16,
+        rows: u16,
+        report: Box<dyn FnOnce(Option<u64>) + Send>,
+        completion: Option<BrowserResizeWaiter>,
+    ) -> anyhow::Result<Option<u64>> {
+        match self {
+            Surface::Pty(pty) => {
+                let accepted = pty.resize(cols, rows);
+                report(accepted.then_some(0));
+                if let Some(completion) = completion {
+                    let _ = completion.send(Ok(()));
+                }
+                Ok(accepted.then_some(0))
+            }
+            Surface::Browser(browser) => {
+                browser.resize_reporting_completion(cols, rows, report, completion)
+            }
+        }
+    }
+
     pub fn resize_needed(&self, cols: u16, rows: u16) -> bool {
         let desired = (cols.max(1), rows.max(1));
         match self {
             Surface::Pty(pty) => *pty.size.lock().unwrap() != desired,
             Surface::Browser(browser) => browser.resize_needed(desired.0, desired.1),
+        }
+    }
+
+    pub(crate) fn pending_resize_completion(
+        &self,
+        cols: u16,
+        rows: u16,
+    ) -> anyhow::Result<Option<PendingBrowserResize>> {
+        match self {
+            Surface::Pty(_) => Ok(None),
+            Surface::Browser(browser) => browser.pending_resize_completion(cols, rows),
         }
     }
 

@@ -34,7 +34,7 @@ public final class E2e {
                 }
                 check(!gotDuplicate, "same-size resize emitted surface-resized");
             }
-            try (CmuxClient.CmuxStream attach = client.attachSurface(created.surface())) {
+            try (CmuxClient.CmuxStream attach = client.attachSurface(created.surface(), 100, 31)) {
                 CmuxEvent first = attach.next(Duration.ofSeconds(1));
                 check(first instanceof VtStateEvent, "first attach event was " + first.event());
                 client.send(created.surface(), "printf '" + later + "\\n'\r");

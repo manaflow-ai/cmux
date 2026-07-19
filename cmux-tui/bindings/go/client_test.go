@@ -9,6 +9,7 @@ import (
 	"net"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestLegacyResizeResponseDefaultsToAccepted(t *testing.T) {
@@ -29,6 +30,124 @@ func TestResizeResponsePreservesReservationIdentity(t *testing.T) {
 	if result.ReservationID == nil || *result.ReservationID != 41 {
 		t.Fatalf("reservation id = %v, want 41", result.ReservationID)
 	}
+}
+
+func TestWorkspaceRegistryTypesDecode(t *testing.T) {
+	var tree Tree
+	if err := json.Unmarshal([]byte(`{"workspace_revision":4,"workspaces":[{"id":1,"key":"stable","name":"one","active":true,"screens":[]}]}`), &tree); err != nil {
+		t.Fatal(err)
+	}
+	if tree.WorkspaceRevision != 4 || tree.Workspaces[0].Key != "stable" {
+		t.Fatalf("tree = %#v", tree)
+	}
+
+	var placement WorkspacePlacement
+	if err := json.Unmarshal([]byte(`{"workspace":1,"key":"stable","index":0,"workspace_revision":5}`), &placement); err != nil {
+		t.Fatal(err)
+	}
+	if placement.WorkspaceRevision != 5 {
+		t.Fatalf("placement = %#v", placement)
+	}
+
+	var mutation WorkspaceMutation
+	if err := json.Unmarshal([]byte(`{"workspace":1,"key":"stable","workspace_revision":6}`), &mutation); err != nil {
+		t.Fatal(err)
+	}
+	if mutation.WorkspaceRevision != 6 {
+		t.Fatalf("mutation = %#v", mutation)
+	}
+}
+
+func TestCreateTerminalPreservesExplicitlyEmptyArgv(t *testing.T) {
+	if _, ok := commandMap(CreateTerminalOptions{})["argv"]; ok {
+		t.Fatal("nil argv must remain absent for backward compatibility")
+	}
+	params := commandMap(CreateTerminalOptions{Argv: []string{}})
+	argv, ok := params["argv"].([]any)
+	if !ok || len(argv) != 0 {
+		t.Fatalf("argv = %#v, want explicitly supplied empty array", params["argv"])
+	}
+}
+
+func TestWorkspaceRegistrySelectorsRejectMissingAndEmptyKeysLocally(t *testing.T) {
+	if err := validateWorkspaceSelector(nil, nil); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("missing selector error = %v", err)
+	}
+	empty := "  "
+	if err := validateWorkspaceSelector(nil, &empty); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("empty key error = %v", err)
+	}
+	workspace := uint64(1)
+	if err := validateWorkspaceSelector(&workspace, nil); err != nil {
+		t.Fatalf("workspace selector error = %v", err)
+	}
+	key := "stable"
+	if err := validateWorkspaceSelector(nil, &key); err != nil {
+		t.Fatalf("key selector error = %v", err)
+	}
+}
+
+func TestAttachSurfaceRejectsPartialInitialSizeLocally(t *testing.T) {
+	cols := uint16(80)
+	_, err := (&Client{}).AttachSurfaceWithOptions(
+		context.Background(),
+		1,
+		AttachSurfaceOptions{Cols: &cols},
+	)
+	if !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("partial attach size error = %v", err)
+	}
+}
+
+func TestIdentifyCapabilityStateIsConcurrentSafe(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	client := &Client{
+		timeout: time.Second,
+		conn:    &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+	}
+	defer client.Close()
+
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		encoder := json.NewEncoder(serverConn)
+		for {
+			var request map[string]any
+			if decoder.Decode(&request) != nil {
+				return
+			}
+			if encoder.Encode(map[string]any{
+				"id": request["id"],
+				"ok": true,
+				"data": map[string]any{
+					"app": "cmux-tui", "version": "test", "protocol": 7,
+					"capabilities": []string{"attach-initial-size"},
+					"session":      "test", "pid": 1,
+				},
+			}) != nil {
+				return
+			}
+		}
+	}()
+
+	var wait sync.WaitGroup
+	wait.Add(2)
+	go func() {
+		defer wait.Done()
+		for range 100 {
+			if _, err := client.Identify(context.Background()); err != nil {
+				t.Errorf("Identify() error = %v", err)
+				return
+			}
+		}
+	}()
+	go func() {
+		defer wait.Done()
+		for range 10_000 {
+			_ = client.hasCapability("attach-initial-size")
+		}
+	}()
+	wait.Wait()
 }
 
 func TestIdentifyDetailsPreservesArtifactRevisions(t *testing.T) {

@@ -12,7 +12,7 @@ Bindings must:
 
 | Requirement | Contract |
 | --- | --- |
-| Version check | Call `identify` or require the caller to supply protocol compatibility before using newer features |
+| Version check | Call `identify` or require the caller to supply protocol compatibility before using newer features; require `attach-initial-size` for initial attach sizing and `workspace-registry-v1` for registry APIs |
 | Error handling | Preserve the server error string and expose a typed transport vs command distinction |
 | Events | Route response lines and event lines correctly on full-duplex connections |
 | Attach | Preserve attach ordering for the selected mode: v5 `vt-state`, then `output`, then `detached`; v6 byte mode `vt-state`, then `(resized | output | colors-changed | scroll-changed)*`, then `detached`; v7 render mode `render-state`, then `(render-delta | scroll-changed)*`, then `detached` |

@@ -36,14 +36,18 @@ Common CLI exit codes for every mapping are `0` success, `1` command error, `2` 
 `Tree`:
 
 ```text
-object{workspaces:array<Workspace>}
+object{workspace_revision?:uint64,workspaces:array<Workspace>}
 ```
 
 `Workspace`:
 
 ```text
-object{id:Id,name:string,active:boolean,screens:array<Screen>}
+object{id:Id,key?:string,name:string,active:boolean,screens:array<Screen>}
 ```
+
+`workspace_revision` and `Workspace.key` are present on servers advertising
+`workspace-registry-v1`. They are omitted by older servers, so clients must
+treat a missing revision as `0` and a missing key as unavailable.
 
 `Screen`:
 
@@ -143,10 +147,12 @@ Params: none.
 Result:
 
 ```text
-object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:string|null,protocol:uint32,session:string,pid:uint32}
+object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32}
 ```
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
+
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list.
 
 Errors:
 
@@ -168,7 +174,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1"],"session":"main","pid":12345}}
 ```
 
 The current server reports protocol `9` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, and protocol 9 before decoding stack layouts or sending `new-pane`.
@@ -431,7 +437,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Returns the full workspace, screen, pane, tab, and split-tree snapshot. The snapshot includes active flags, active pane ids, active tab indexes, tab titles, tab names, surface kinds, browser source, size, and dead flags.
+Returns the full workspace, screen, pane, tab, and split-tree snapshot. The snapshot includes the ordered workspace registry revision, each workspace's stable key, active flags, active pane ids, active tab indexes, tab titles, tab names, surface kinds, browser source, size, and dead flags.
 
 Params: none.
 
@@ -461,7 +467,7 @@ Example:
 
 ```json
 {"id":2,"cmd":"list-workspaces"}
-{"id":2,"ok":true,"data":{"workspaces":[{"id":4,"name":"1","active":true,"screens":[{"id":3,"name":null,"active":true,"active_pane":2,"layout":{"type":"leaf","pane":2},"panes":[{"id":2,"name":null,"active_tab":0,"tabs":[{"surface":1,"kind":"pty","browser_source":null,"name":null,"title":"","size":{"cols":80,"rows":24},"dead":false}]}]}]}]}}
+{"id":2,"ok":true,"data":{"workspace_revision":1,"workspaces":[{"id":4,"key":"6ba7b810-9dad-41d1-80b4-00c04fd430c8","name":"1","active":true,"screens":[{"id":3,"name":null,"active":true,"active_pane":2,"layout":{"type":"leaf","pane":2},"panes":[{"id":2,"name":null,"active_tab":0,"tabs":[{"surface":1,"kind":"pty","browser_source":null,"name":null,"title":"","size":{"cols":80,"rows":24},"dead":false}]}]}]}]}}
 ```
 
 ### export-layout
@@ -717,7 +723,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Creates a new PTY tab in a pane and makes it the active tab. If `pane` is absent, the active pane of the active screen is used. If the session has no workspaces and no pane is supplied, v5 creates a new workspace containing the tab. In that empty-session fallback, a supplied `cwd` is silently dropped because v5 delegates to `new_workspace(None, size)`. The new tab inherits the active surface working directory of the target pane when `cwd` is absent. Initial dimensions follow [Sizing](#sizing).
+Creates a new PTY tab in a pane and makes it the active tab. If `pane` is absent, the active pane of the active screen is used. If the selected workspace exists but has no screens, the command materializes its first screen, pane, and terminal and preserves `cwd`. If the session has no workspaces, the command creates a workspace containing the tab; that legacy fallback ignores `cwd`. The new tab inherits the active surface working directory of the target pane when `cwd` is absent. Initial dimensions follow [Sizing](#sizing).
 
 Params:
 
@@ -770,7 +776,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Creates a browser tab in a pane and makes it active. If `pane` is absent, the active pane is used. If the session has no workspaces and no pane is supplied, v5 creates a new workspace containing the browser tab. The browser runtime may connect to an external CDP endpoint or launch Chrome according to mux configuration. Initial dimensions follow [Sizing](#sizing).
+Creates a browser tab in a pane and makes it active. If `pane` is absent, the active pane is used. If the selected workspace exists but has no screens, the command materializes its first screen, pane, and browser tab. If the session has no workspaces, the command creates a workspace containing the browser tab. The browser runtime may connect to an external CDP endpoint or launch Chrome according to mux configuration. Initial dimensions follow [Sizing](#sizing).
 
 Params:
 
@@ -859,6 +865,81 @@ Example:
 ```json
 {"id":8,"cmd":"new-workspace","name":"ops"}
 {"id":8,"ok":true,"data":{"surface":10}}
+```
+
+### create-workspace
+
+Requires the `workspace-registry-v1` capability. Clients must not send this command to a server that omits the capability.
+
+| Field | Value |
+| --- | --- |
+| name | `create-workspace` |
+| status | implemented |
+| since | protocol 7 |
+
+Adds an empty workspace to the ordered registry and makes it active. The caller may provide a stable key or let the mux generate one. `expected_revision` provides compare-and-swap protection against concurrent registry mutations.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `name` | `string` | default null | Defaults to the next 1-based workspace count |
+| `key` | `string` | default generated UUID | Must be non-empty and unique |
+| `expected_revision` | `uint64` | default null | Must equal the current registry revision when supplied |
+
+Result:
+
+```text
+object{workspace:Id,key:string,index:uint64,workspace_revision:uint64}
+```
+
+Errors include `workspace key cannot be empty`, `workspace key already exists: <key>`, `workspace revision conflict: expected <n>, current <n>`, and malformed request errors.
+
+Example:
+
+```json
+{"id":9,"cmd":"create-workspace","name":"ops","key":"ops-stable","expected_revision":1}
+{"id":9,"ok":true,"data":{"workspace":12,"key":"ops-stable","index":1,"workspace_revision":2}}
+```
+
+### create-terminal
+
+Requires the `workspace-registry-v1` capability. Clients must not send this command to a server that omits the capability.
+
+| Field | Value |
+| --- | --- |
+| name | `create-terminal` |
+| status | implemented |
+| since | protocol 7 |
+
+Creates a PTY terminal in an existing workspace selected by stable `key` or numeric `workspace` id. An empty workspace receives its first screen and pane; a populated workspace receives a new active tab in its active pane. `argv` executes directly, while `command` executes through the default shell.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `workspace` | `Id` | required unless `key` is supplied | Mutually identifies the target with `key` |
+| `key` | `string` | required unless `workspace` is supplied | Must match `workspace` when both are supplied |
+| `argv` | `string[]` | default shell | Mutually exclusive with `command`; must be non-empty when supplied |
+| `command` | `string` | default null | Mutually exclusive with `argv`; must be non-empty when supplied |
+| `cwd` | `string` | default inherited | PTY child working directory |
+| `name` | `string` | default null | New terminal tab name |
+| `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
+| `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
+
+Result:
+
+```text
+object{surface:Id,pane:Id,screen:Id,workspace:Id,key:string}
+```
+
+Errors include missing, unknown, or mismatched workspace selectors; mutually exclusive or empty commands; PTY spawn failures; and malformed requests.
+
+Example:
+
+```json
+{"id":10,"cmd":"create-terminal","key":"ops-stable","command":"htop","cwd":"/tmp"}
+{"id":10,"ok":true,"data":{"surface":15,"pane":14,"screen":13,"workspace":12,"key":"ops-stable"}}
 ```
 
 ### new-screen
@@ -1404,18 +1485,20 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Closes a workspace and every screen, pane, and tab in it. The active workspace selection is adjusted to keep a remaining workspace active when possible.
+Closes a workspace and every screen, pane, and tab in it. The workspace may be selected by stable key or numeric id. The active workspace selection is adjusted to keep a remaining workspace active when possible. `expected_revision` provides compare-and-swap protection against concurrent registry mutations. Stable-key selection, revision CAS, and the mutation result require `workspace-registry-v1`; the legacy numeric-id form remains available without it.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `workspace` | `Id` | required | Must identify a live workspace |
+| `workspace` | `Id` | required unless `key` is supplied | Must identify a live workspace |
+| `key` | `string` | required unless `workspace` is supplied | Must match `workspace` when both are supplied |
+| `expected_revision` | `uint64` | default null | Must equal the current registry revision when supplied |
 
 Result:
 
 ```text
-object{}
+object{workspace:Id,key:string,workspace_revision:uint64}
 ```
 
 Errors:
@@ -1423,7 +1506,10 @@ Errors:
 | Error | Condition |
 | --- | --- |
 | `unknown workspace <id>` | Workspace id does not exist |
-| `bad request: ...` | Missing `workspace` or wrong JSON type |
+| `unknown workspace key <key>` | Workspace key does not exist |
+| `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
+| `workspace revision conflict: ...` | Compare-and-swap guard is stale |
+| `bad request: ...` | Missing selector or wrong JSON type |
 
 CLI mapping:
 
@@ -1439,7 +1525,7 @@ Example:
 
 ```json
 {"id":16,"cmd":"close-workspace","workspace":4}
-{"id":16,"ok":true,"data":{}}
+{"id":16,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":3}}
 ```
 
 ### rename-pane
@@ -1591,19 +1677,21 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Sets a workspace name. Unlike pane, surface, and screen names, an empty `name` is stored as the workspace name and does not clear to a generated fallback in v5.
+Sets a workspace name. The workspace may be selected by stable key or numeric id. Unlike pane, surface, and screen names, an empty `name` is stored as the workspace name. `expected_revision` provides compare-and-swap protection against concurrent registry mutations. Stable-key selection, revision CAS, and the mutation result require `workspace-registry-v1`; the legacy numeric-id form remains available without it.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `workspace` | `Id` | required | Must identify a live workspace |
+| `workspace` | `Id` | required unless `key` is supplied | Must identify a live workspace |
+| `key` | `string` | required unless `workspace` is supplied | Must match `workspace` when both are supplied |
 | `name` | `string` | required | Empty string is stored |
+| `expected_revision` | `uint64` | default null | Must equal the current registry revision when supplied |
 
 Result:
 
 ```text
-object{}
+object{workspace:Id,key:string,workspace_revision:uint64}
 ```
 
 Errors:
@@ -1611,6 +1699,9 @@ Errors:
 | Error | Condition |
 | --- | --- |
 | `unknown workspace <id>` | Workspace id does not exist |
+| `unknown workspace key <key>` | Workspace key does not exist |
+| `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
+| `workspace revision conflict: ...` | Compare-and-swap guard is stale |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 CLI mapping:
@@ -1627,7 +1718,7 @@ Example:
 
 ```json
 {"id":20,"cmd":"rename-workspace","workspace":4,"name":"prod"}
-{"id":20,"ok":true,"data":{}}
+{"id":20,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":2}}
 ```
 
 ### resize-surface
@@ -1955,19 +2046,21 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Moves an existing workspace to zero-based `index`. Moving a workspace to its current index is an `ok:true` no-op. This command is documented from the consumer-side landed contract; it is not present in this branch's `server.rs`, so out-of-range index behavior and event emission could not be verified here.
+Moves an existing workspace to zero-based insertion `index`. The workspace may be selected by stable key or numeric id. The destination is clamped to the last workspace after removing the source, so moving right produces a final index one less than the requested insertion index. Moving a workspace to its current position is an `ok:true` no-op that preserves the current revision. `expected_revision` provides compare-and-swap protection against concurrent registry mutations. Stable-key selection, revision CAS, and the mutation result require `workspace-registry-v1`; the legacy numeric-id form remains available without it.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `workspace` | `Id` | required | Workspace to move |
-| `index` | `usize` | required | Zero-based destination index |
+| `workspace` | `Id` | required unless `key` is supplied | Workspace to move |
+| `key` | `string` | required unless `workspace` is supplied | Must match `workspace` when both are supplied |
+| `index` | `usize` | required | Zero-based insertion index |
+| `expected_revision` | `uint64` | default null | Must equal the current registry revision when supplied |
 
 Result:
 
 ```text
-object{}
+object{workspace:Id,key:string,workspace_revision:uint64}
 ```
 
 Errors:
@@ -1975,8 +2068,10 @@ Errors:
 | Error | Condition |
 | --- | --- |
 | `unknown workspace <id>` | Workspace id does not exist |
+| `unknown workspace key <key>` | Workspace key does not exist |
+| `workspace id and key do not identify the same workspace` | Supplied selectors identify different workspaces |
+| `workspace revision conflict: ...` | Compare-and-swap guard is stale |
 | `bad request: ...` | Missing fields or wrong JSON type |
-| unverified error string | Non-same-position out-of-range index behavior could not be checked in this branch |
 
 CLI mapping:
 
@@ -1992,7 +2087,7 @@ Example:
 
 ```json
 {"id":27,"cmd":"move-workspace","workspace":4,"index":0}
-{"id":27,"ok":true,"data":{}}
+{"id":27,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":4}}
 ```
 
 ### scroll-surface
@@ -2100,7 +2195,7 @@ Example:
 | name | `attach-surface` |
 | status | implemented |
 | since | protocol 5 |
-| `mode` field | protocol 7 additive extension |
+| `mode`, `cols`, `rows` fields | protocol 7 additive extensions |
 
 Attaches the connection to a PTY surface stream. In protocol v5, the server first sends a `vt-state` event for the current surface state, then sends live `output` events for subsequent PTY bytes, and finally sends `detached` when the stream ends. The command response is sent after the initial `vt-state` event in v5.
 
@@ -2108,12 +2203,16 @@ Protocol v6 changes the attach stream ordering to `vt-state -> (resized | output
 
 Protocol v7 adds `mode`. `mode:"bytes"`, including the default when the field is absent, is the exact protocol-v6 attach behavior above. `mode:"render"` selects the authoritative styled-cell stream specified in [`render.md`](render.md): `render-state -> (render-delta | scroll-changed)* -> detached`. A client must require `identify.protocol >= 7` before selecting render mode.
 
+Servers advertising the `attach-initial-size` capability accept paired `cols` and `rows`. The pair records the attaching client's initial viewer-size claim before initial state is generated. Supplying only one dimension is an error. Clients must not send either field to a server that omits the capability, including an older protocol-v7 server.
+
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `surface` | `Id` | required | Must identify a live PTY surface |
 | `mode` | `string` | default `"bytes"` | Protocol 7: `"bytes"` or `"render"` |
+| `cols` | `uint16` | default null | `attach-initial-size` capability; paired with `rows`, clamped to at least 1 |
+| `rows` | `uint16` | default null | `attach-initial-size` capability; paired with `cols`, clamped to at least 1 |
 
 Result:
 
@@ -2128,6 +2227,7 @@ Errors:
 | `unknown surface <id>` | Surface id does not exist |
 | `browser panes are not supported over attach yet` | Surface is a browser |
 | `bad attach mode <mode>` | `mode` is not `"bytes"` or `"render"` |
+| `attach-surface cols and rows must be supplied together` | Only one initial dimension is supplied |
 | `render attach requires protocol 7` | Server does not implement render mode |
 | terminal error string | VT replay generation fails |
 | thread spawn error string | Server cannot create the attach writer thread |
@@ -2138,7 +2238,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `attach-surface` |
-| Flags | `--surface <id> [--mode bytes|render]` |
+| Flags | `--surface <id> [--mode bytes|render] [--cols <n> --rows <n>]` |
 | Plain stdout | JSON event object per line |
 | JSON stdout | JSON event object per line |
 | Exit codes | common; runs until `detached`, connection closes, or interrupted |

@@ -68,6 +68,8 @@ export interface Screen {
 /** A workspace containing one or more screens. */
 export interface Workspace {
   id: Id;
+  /** Stable registry key. Absent without the `workspace-registry-v1` capability. */
+  key?: string;
   name: string;
   active: boolean;
   screens: Screen[];
@@ -75,5 +77,7 @@ export interface Workspace {
 
 /** The complete workspace, screen, pane, tab, and layout snapshot. */
 export interface Tree {
+  /** Ordered-registry revision. Absent without the `workspace-registry-v1` capability. */
+  workspace_revision?: number;
   workspaces: Workspace[];
 }

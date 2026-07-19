@@ -73,6 +73,25 @@ public final class JsonTest {
         ResizeSurfaceResult reserved = ResizeSurfaceResult.from(Map.of("accepted", true, "reservation_id", 41));
         assertEquals(41L, reserved.reservationId(), "resize reservation identity");
         assertTrue(ResizeSurfaceResult.from(Map.of()).accepted(), "legacy resize accepted");
+        Tree legacyTree = Tree.from(Map.of("workspaces", List.of()));
+        assertEquals(0L, legacyTree.workspaceRevision(), "legacy workspace revision");
+
+        CreateTerminalRequest terminalRequest = CreateTerminalRequest.builder()
+            .key("stable")
+            .command("echo ready")
+            .cwd("/tmp")
+            .name("runner")
+            .cols(80)
+            .rows(24)
+            .build();
+        assertEquals("stable", terminalRequest.toMap().get("key"), "terminal builder key");
+        assertEquals("runner", terminalRequest.toMap().get("name"), "terminal builder name");
+        try {
+            WorkspaceSelectorRequest.builder().build();
+            throw new AssertionError("accepted missing workspace selector");
+        } catch (IllegalArgumentException expectedError) {
+            assertEquals("workspace or key is required", expectedError.getMessage(), "selector validation");
+        }
         IdentifyResult identify = IdentifyResult.from((Map<String, Object>) Json.parse(
             "{\"app\":\"cmux-tui\",\"version\":\"0.1.2\",\"build_commit\":\"cmux-sha\",\"ghostty_commit\":\"ghostty-sha\",\"protocol\":7,\"session\":\"main\",\"pid\":42}"
         ));
@@ -86,6 +105,12 @@ public final class JsonTest {
         IdentifyResult sourceCompatible = new IdentifyResult("cmux-tui", "0.1.2", 7, "main", 42);
         assertEquals(null, sourceCompatible.buildCommit(), "source-compatible build commit");
         assertEquals(null, sourceCompatible.ghosttyCommit(), "source-compatible Ghostty commit");
+        IdentifyResult stampedSourceCompatible = new IdentifyResult(
+            "cmux-tui", "0.1.2", 7, "main", 42, "cmux-sha", "ghostty-sha"
+        );
+        assertEquals(List.of(), stampedSourceCompatible.capabilities(), "source-compatible capabilities");
+        assertEquals("cmux-sha", stampedSourceCompatible.buildCommit(), "source-compatible stamped build commit");
+        assertEquals("ghostty-sha", stampedSourceCompatible.ghosttyCommit(), "source-compatible stamped Ghostty commit");
     }
 
     private static void assertReject(String input) {

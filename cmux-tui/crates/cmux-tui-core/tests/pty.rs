@@ -1002,20 +1002,23 @@ fn attach_stream_orders_resize_between_output_frames() {
         ),
     );
     let surface = mux.new_workspace(None, None).unwrap();
+    wait_for(
+        || {
+            surface
+                .with_terminal(|terminal| {
+                    terminal.plain_text().ok().filter(|text| text.contains("before-resize"))
+                })
+                .flatten()
+        },
+        Duration::from_secs(10),
+    )
+    .expect("before output");
     let attach = surface.attach_stream().unwrap();
-
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        match attach.stream.recv_timeout(Duration::from_millis(200)) {
-            Ok(AttachFrame::Output(bytes))
-                if bytes.windows(b"before-resize".len()).any(|w| w == b"before-resize") =>
-            {
-                break;
-            }
-            Ok(_) => {}
-            Err(_) => assert!(Instant::now() < deadline, "before output never arrived"),
-        }
-    }
+    let mut initial =
+        ghostty_vt::Terminal::new(attach.cols, attach.rows, 1000, ghostty_vt::Callbacks::default())
+            .unwrap();
+    initial.vt_write(&attach.replay);
+    assert!(initial.plain_text().unwrap().contains("before-resize"));
 
     mux.resize_surface(surface.id, 100, 40).unwrap();
     let resized = wait_for(
@@ -1359,6 +1362,8 @@ fn tree_event_modes_receive_delta_or_exact_coarse_fallback() {
     assert_eq!(delta["event"], "workspace-added");
     assert_eq!(delta["workspace"], delta["entity"]["id"]);
     assert_eq!(delta["index"], 0);
+    assert_eq!(delta["workspace_revision"], 1);
+    assert!(delta["entity"]["key"].as_str().is_some_and(|key| key.len() == 36));
     assert_eq!(delta["entity"]["name"], "delta");
     assert!(
         delta["entity"]["screens"][0]["panes"][0]["tabs"]
@@ -1368,7 +1373,134 @@ fn tree_event_modes_receive_delta_or_exact_coarse_fallback() {
             .any(|tab| tab["surface"] == surface)
     );
 
+    let second = socket_request(
+        &mut command_writer,
+        &mut command_reader,
+        serde_json::json!({"id": 4, "cmd": "new-workspace", "name": "selection-resync"}),
+    );
+    let second_surface = second["data"]["surface"].as_u64().unwrap();
+    let coarse_event = wait_for(|| read_json_line(&mut coarse_reader), Duration::from_secs(5))
+        .expect("coarse selection-resync event");
+    assert_eq!(coarse_event, serde_json::json!({"event": "tree-changed"}));
+    assert_eq!(read_json_line(&mut coarse_reader), None, "coarse subscriber got a duplicate");
+    let delta = wait_for(|| read_json_line(&mut deltas_reader), Duration::from_secs(5))
+        .expect("second workspace-added event");
+    assert_eq!(delta["event"], "workspace-added");
+    let resync = wait_for(|| read_json_line(&mut deltas_reader), Duration::from_secs(5))
+        .expect("delta subscriber selection resync");
+    assert_eq!(resync, serde_json::json!({"event": "tree-changed"}));
+
     mux.close_surface(surface);
+    mux.close_surface(second_surface);
+    cmux_tui_core::server::cleanup(&sock_path);
+}
+
+#[test]
+fn create_empty_workspace_is_visible_and_materialized_in_place() {
+    let mux = Mux::new(unique_session("test-empty-workspace"), shell_opts("sleep 30"));
+    let sock_path = cmux_tui_core::server::serve(mux, None).unwrap();
+    let commands = connect(&sock_path);
+    let mut writer = commands.try_clone_box().unwrap();
+    let mut reader = BufReader::new(commands);
+    let key = "018f6e21-7b70-7e70-8000-000000000042";
+
+    let created = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "create-workspace",
+            "name": "from-gui",
+            "key": key,
+            "expected_revision": 0,
+        }),
+    );
+    assert_eq!(created["ok"], true, "create-workspace failed: {created}");
+    assert_eq!(created["data"]["key"], key);
+    assert_eq!(created["data"]["workspace_revision"], 1);
+    let workspace = created["data"]["workspace"].as_u64().unwrap();
+
+    let snapshot = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({"id": 2, "cmd": "list-workspaces"}),
+    );
+    assert_eq!(snapshot["data"]["workspace_revision"], 1);
+    assert_eq!(snapshot["data"]["workspaces"][0]["id"], workspace);
+    assert_eq!(snapshot["data"]["workspaces"][0]["key"], key);
+    assert!(snapshot["data"]["workspaces"][0]["screens"].as_array().unwrap().is_empty());
+
+    writeln!(
+        writer,
+        "{}",
+        serde_json::json!({
+            "id": 21,
+            "cmd": "create-workspace",
+            "name": "stale",
+            "expected_revision": 0,
+        })
+    )
+    .unwrap();
+    let stale = read_json_line(&mut reader).expect("stale create-workspace response");
+    assert_eq!(stale["ok"], false);
+    assert_eq!(stale["error"], "workspace revision conflict: expected 0, current 1");
+
+    let renamed = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 22,
+            "cmd": "rename-workspace",
+            "key": key,
+            "name": "renamed-from-gui",
+            "expected_revision": 1,
+        }),
+    );
+    assert_eq!(renamed["ok"], true, "rename by key failed: {renamed}");
+    assert_eq!(renamed["data"]["workspace"], workspace);
+    assert_eq!(renamed["data"]["key"], key);
+    assert_eq!(renamed["data"]["workspace_revision"], 2);
+
+    let tab = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 3,
+            "cmd": "create-terminal",
+            "key": key,
+            "cols": 80,
+            "rows": 24,
+        }),
+    );
+    assert_eq!(tab["ok"], true, "create-terminal failed: {tab}");
+    assert_eq!(tab["data"]["workspace"], workspace);
+    assert_eq!(tab["data"]["key"], key);
+    let snapshot = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({"id": 4, "cmd": "list-workspaces"}),
+    );
+    assert_eq!(snapshot["data"]["workspaces"].as_array().unwrap().len(), 1);
+    assert_eq!(snapshot["data"]["workspaces"][0]["id"], workspace);
+    assert_eq!(snapshot["data"]["workspaces"][0]["name"], "renamed-from-gui");
+    assert_eq!(snapshot["data"]["workspace_revision"], 2);
+    assert_eq!(
+        snapshot["data"]["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0]["surface"],
+        tab["data"]["surface"]
+    );
+
+    let closed = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 5,
+            "cmd": "close-workspace",
+            "key": key,
+            "expected_revision": 2,
+        }),
+    );
+    assert_eq!(closed["ok"], true, "close by key failed: {closed}");
+    assert_eq!(closed["data"]["workspace_revision"], 3);
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
