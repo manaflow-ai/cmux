@@ -80,6 +80,22 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         XCTAssertNil(ContentView.commandPaletteShortcutAction(forCommandID: "palette.newBrowserFloatingWindow"))
     }
 
+    func testCommandPaletteIncludesCloseAllFloatingWindowsInWorkspace() {
+        let contributions = ContentView.commandPaletteViewCommandContributions()
+        let contribution = contributions.first {
+            $0.commandId == "palette.closeAllWorkspaceFloatingWindows"
+        }
+
+        XCTAssertNotNil(contribution)
+        XCTAssertEqual(
+            contribution?.title(CommandPaletteContextSnapshot()),
+            String(
+                localized: "command.closeAllWorkspaceFloatingWindows.title",
+                defaultValue: "Close All Floating Windows in Workspace"
+            )
+        )
+    }
+
     private func withSavedBetaFeatureDefaults(_ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
         let previousFeed = defaults.object(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
