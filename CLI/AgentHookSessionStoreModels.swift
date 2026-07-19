@@ -143,6 +143,18 @@ struct AgentPromptStopLineagePolicy: Sendable {
         lineage: AgentHookSessionLineage,
         incomingPID: Int?
     ) -> AgentPromptStopLineageDecision {
+        // Stores written before process generations existed have no evidence
+        // that can satisfy the fencing rules below. Accept their first Stop so
+        // the normal update path migrates them to a run-backed record. Once any
+        // lifecycle field exists, the strict generation checks apply.
+        if let record,
+           record.runs == nil,
+           record.activeRunId == nil,
+           record.runId == nil,
+           record.sessionState == nil,
+           record.completedAt == nil {
+            return .apply
+        }
         // A PID-less Stop carries no process-generation evidence. Applying it
         // can resurrect an ended record or mutate a newer generation that
         // reused the logical session id, so it fails closed.
