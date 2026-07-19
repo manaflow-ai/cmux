@@ -417,13 +417,15 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
             const canReuseResize = existingResize?.split === target.split && (pendingValid || pendingConfirmed);
             const baseRatio = canReuseResize
               ? existingResize.desiredRatio
-              : authoritativeRatio;
+              : pendingValid && pendingRatio !== null
+                ? pendingRatio.ratio
+                : authoritativeRatio;
             const ratio = Math.max(0.05, Math.min(0.95, baseRatio + delta));
             if (Math.abs(ratio - baseRatio) <= 1e-6) return;
             const resize = canReuseResize
               ? existingResize
               : {
-                  desiredRatio: authoritativeRatio,
+                  desiredRatio: baseRatio,
                   generation: ++keyboardGeneration.current,
                   inFlightRatio: null,
                   split: target.split,
@@ -432,7 +434,7 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
             keyboardResize.current = resize;
             const requestId = ++nextRequestId.current;
             activeRequestId.current = requestId;
-            const validRatios = [authoritativeRatio, ratio];
+            const validRatios = [authoritativeRatio, baseRatio, ratio];
             if (resize.inFlightRatio !== null) validRatios.push(resize.inFlightRatio);
             setPendingRatio({ requestId, validRatios, ratio, split: target.split });
             setPreviewRatio(null);

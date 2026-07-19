@@ -2067,8 +2067,8 @@ impl Mux {
             let mut state = self.state.lock().unwrap();
             let changed_screen = surface_screen_id(&state, target);
             let delta = close_surface_delta(&state, &notifications, target);
-            let removed = remove_surface(&mut state, target);
-            if removed.is_some() {
+            let (removed, split_index_dirty) = remove_surface(&mut state, target);
+            if split_index_dirty {
                 Self::rebuild_split_screen_index(&mut state);
             }
             (
@@ -2104,12 +2104,15 @@ impl Mux {
                 tabs.iter().filter_map(|surface| surface_screen_id(&state, *surface)),
             );
             let mut removed = Vec::new();
+            let mut split_index_dirty = false;
             for surface in tabs {
-                if let Some(surface) = remove_surface(&mut state, surface) {
+                let (surface, topology_changed) = remove_surface(&mut state, surface);
+                split_index_dirty |= topology_changed;
+                if let Some(surface) = surface {
                     removed.push(surface);
                 }
             }
-            if !removed.is_empty() {
+            if split_index_dirty {
                 Self::rebuild_split_screen_index(&mut state);
             }
             (removed, changed_screens, state.workspaces.is_empty())
@@ -3001,11 +3004,12 @@ fn close_workspace_delta(
 
 /// Remove one surface from the state: detach it from its
 /// pane, and collapse emptied panes/screens/workspaces. Returns whether
-/// anything was removed. Runs under the state lock.
-fn remove_surface(state: &mut State, target: SurfaceId) -> Option<Arc<Surface>> {
+/// the removed surface and whether split ownership or positional indexes
+/// changed. Runs under the state lock.
+fn remove_surface(state: &mut State, target: SurfaceId) -> (Option<Arc<Surface>>, bool) {
     let removed = state.surfaces.remove(&target);
     let Some(pane_id) = state.pane_of(target) else {
-        return removed;
+        return (removed, false);
     };
     let pane = state.panes.get_mut(&pane_id).expect("pane_of returned live id");
     let idx = pane.tabs.iter().position(|id| *id == target).expect("tab in pane");
@@ -3014,13 +3018,13 @@ fn remove_surface(state: &mut State, target: SurfaceId) -> Option<Arc<Surface>> 
         if pane.active_tab >= idx && pane.active_tab > 0 {
             pane.active_tab -= 1;
         }
-        return removed;
+        return (removed, false);
     }
 
     // Last tab gone: the pane collapses out of its screen.
     state.panes.remove(&pane_id);
     let Some((wi, si)) = state.screen_of(pane_id) else {
-        return removed;
+        return (removed, false);
     };
     let (was_active, root) = {
         let screen = &mut state.workspaces[wi].screens[si];
@@ -3045,7 +3049,7 @@ fn remove_surface(state: &mut State, target: SurfaceId) -> Option<Arc<Surface>> 
             if let Some(next) = next_active {
                 screen.active_pane = next;
             }
-            return removed;
+            return (removed, true);
         }
         None => {
             // Screen emptied: drop it from the workspace.
@@ -3053,7 +3057,7 @@ fn remove_surface(state: &mut State, target: SurfaceId) -> Option<Arc<Surface>> 
             ws.screens.remove(si);
             ws.active_screen = ws.active_screen.min(ws.screens.len().saturating_sub(1));
             if !ws.screens.is_empty() {
-                return removed;
+                return (removed, true);
             }
         }
     }
@@ -3064,7 +3068,7 @@ fn remove_surface(state: &mut State, target: SurfaceId) -> Option<Arc<Surface>> 
     state.active_workspace = active_id
         .and_then(|id| state.workspaces.iter().position(|w| w.id == id))
         .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
-    removed
+    (removed, true)
 }
 
 fn collapse_empty_pane(state: &mut State, pane_id: PaneId) {
