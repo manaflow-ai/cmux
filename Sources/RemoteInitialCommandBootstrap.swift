@@ -19,15 +19,15 @@ struct RemoteInitialCommandBootstrap {
     var preparationLines: [String] {
         guard let encodedCommand else { return [] }
         return [
+            "unset CMUX_INITIAL_COMMAND_FILE",
             "if [ ! -d \"$cmux_shell_dir/.initial-command.started.\(stateKey)\" ]; then",
             "  cmux_initial_command_b64='\(encodedCommand)'",
-            "  cmux_initial_command_tmp=\"$cmux_shell_dir/.initial-command.\(stateKey).$$\"",
-            "  (umask 077; (printf %s \"$cmux_initial_command_b64\" | base64 -d 2>/dev/null || printf %s \"$cmux_initial_command_b64\" | base64 -D 2>/dev/null) > \"$cmux_initial_command_tmp\") || { rm -f -- \"$cmux_initial_command_tmp\"; exit 1; }",
-            "  cmux_initial_command_file=\"$cmux_shell_dir/initial-command.\(stateKey)\"",
-            "  mv -f -- \"$cmux_initial_command_tmp\" \"$cmux_initial_command_file\" || exit 1",
+            "  cmux_initial_command_file=\"$cmux_shell_dir/initial-command.\(stateKey).$$\"",
+            "  (umask 077; (printf %s \"$cmux_initial_command_b64\" | base64 -d 2>/dev/null || printf %s \"$cmux_initial_command_b64\" | base64 -D 2>/dev/null) > \"$cmux_initial_command_file\") || { rm -f -- \"$cmux_initial_command_file\"; exit 1; }",
             "  chmod 600 \"$cmux_initial_command_file\" >/dev/null 2>&1 || true",
+            "  export CMUX_INITIAL_COMMAND_FILE=\"$cmux_initial_command_file\"",
             "fi",
-            "unset cmux_initial_command_b64 cmux_initial_command_tmp cmux_initial_command_file",
+            "unset cmux_initial_command_b64 cmux_initial_command_file",
         ]
     }
 
@@ -35,10 +35,11 @@ struct RemoteInitialCommandBootstrap {
     var posixInteractiveShellLines: [String] {
         guard encodedCommand != nil else { return [] }
         return [
-            "cmux_initial_command_file=\"$CMUX_SHELL_INTEGRATION_DIR/initial-command.\(stateKey)\"",
+            "cmux_initial_command_file=\"${CMUX_INITIAL_COMMAND_FILE:-}\"",
             "cmux_initial_command_started=\"$CMUX_SHELL_INTEGRATION_DIR/.initial-command.started.\(stateKey)\"",
-            "if [ -r \"$cmux_initial_command_file\" ] && mkdir \"$cmux_initial_command_started\" 2>/dev/null; then",
-            "  . \"$cmux_initial_command_file\"",
+            "unset CMUX_INITIAL_COMMAND_FILE",
+            "if [ -r \"$cmux_initial_command_file\" ]; then",
+            "  if mkdir \"$cmux_initial_command_started\" 2>/dev/null; then . \"$cmux_initial_command_file\"; fi",
             "  rm -f -- \"$cmux_initial_command_file\" 2>/dev/null || true",
             "fi",
             "unset cmux_initial_command_file cmux_initial_command_started",
@@ -49,10 +50,11 @@ struct RemoteInitialCommandBootstrap {
     var fishInteractiveShellCommand: String? {
         guard encodedCommand != nil else { return nil }
         return [
-            "set -l cmux_initial_command_file \"$CMUX_SHELL_INTEGRATION_DIR/initial-command.\(stateKey)\"",
+            "set -l cmux_initial_command_file \"$CMUX_INITIAL_COMMAND_FILE\"",
             "set -l cmux_initial_command_started \"$CMUX_SHELL_INTEGRATION_DIR/.initial-command.started.\(stateKey)\"",
-            "if test -r \"$cmux_initial_command_file\"; and command mkdir \"$cmux_initial_command_started\" 2>/dev/null",
-            "source \"$cmux_initial_command_file\"",
+            "set -e CMUX_INITIAL_COMMAND_FILE",
+            "if test -r \"$cmux_initial_command_file\"",
+            "if command mkdir \"$cmux_initial_command_started\" 2>/dev/null; source \"$cmux_initial_command_file\"; end",
             "command rm -f -- \"$cmux_initial_command_file\" >/dev/null 2>&1; or true",
             "end",
         ].joined(separator: "; ")
@@ -62,10 +64,11 @@ struct RemoteInitialCommandBootstrap {
     var fallbackShellLines: [String] {
         guard encodedCommand != nil else { return [] }
         return [
-            "cmux_initial_command_file=\"$CMUX_SHELL_INTEGRATION_DIR/initial-command.\(stateKey)\"",
+            "cmux_initial_command_file=\"${CMUX_INITIAL_COMMAND_FILE:-}\"",
             "cmux_initial_command_started=\"$CMUX_SHELL_INTEGRATION_DIR/.initial-command.started.\(stateKey)\"",
-            "if [ -r \"$cmux_initial_command_file\" ] && mkdir \"$cmux_initial_command_started\" 2>/dev/null; then",
-            "  \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command_file\"",
+            "unset CMUX_INITIAL_COMMAND_FILE",
+            "if [ -r \"$cmux_initial_command_file\" ]; then",
+            "  if mkdir \"$cmux_initial_command_started\" 2>/dev/null; then \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command_file\"; fi",
             "  rm -f -- \"$cmux_initial_command_file\" 2>/dev/null || true",
             "fi",
             "unset cmux_initial_command_file cmux_initial_command_started",
