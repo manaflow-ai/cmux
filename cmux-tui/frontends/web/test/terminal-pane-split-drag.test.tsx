@@ -454,14 +454,17 @@ describe("TerminalPane stacks", () => {
     expect(attachedTerminal.renderHook).toHaveBeenCalledTimes(1);
 
     const firstHeader = stack!.children[0]!.querySelector(".stack-pane-header")!;
-    fireEvent.pointerDown(firstHeader, { pointerType: "mouse", button: 0 });
+    fireEvent.click(firstHeader);
     expect(props.onSelectPane).toHaveBeenCalledWith(1);
 
     props.onSelectPane.mockClear();
-    fireEvent.pointerDown(firstHeader, { pointerType: "mouse", button: 2 });
+    fireEvent.contextMenu(firstHeader);
     expect(props.onSelectPane).not.toHaveBeenCalled();
 
     fireEvent.focusIn(stack!.children[2]!.querySelector(".stack-pane-header")!);
+    expect(props.onSelectPane).not.toHaveBeenCalled();
+
+    fireEvent.click(stack!.children[2]!.querySelector(".stack-pane-header")!);
     expect(props.onSelectPane).toHaveBeenCalledWith(3);
   });
 });

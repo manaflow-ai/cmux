@@ -90,11 +90,11 @@ describe("layoutToViewModel", () => {
 });
 
 describe("visibleStackPanes", () => {
-  it("keeps the expanded pane visible and matches Zellij header selection", () => {
+  it("keeps every live pane reachable when headers overflow", () => {
     const panes = [1, 2, 3, 4, 5];
-    expect(visibleStackPanes(panes, 4, 2)).toEqual([2, 3, 4]);
-    expect(visibleStackPanes(panes, 1, 2)).toEqual([1, 2, 3]);
-    expect(visibleStackPanes(panes, 5, 0)).toEqual([5]);
+    expect(visibleStackPanes(panes, 4, 2)).toEqual(panes);
+    expect(visibleStackPanes(panes, 1, 2)).toEqual(panes);
+    expect(visibleStackPanes(panes, 5, 0)).toEqual(panes);
     expect(visibleStackPanes(panes, 3, null)).toEqual(panes);
   });
 });

@@ -520,26 +520,27 @@ mod tests {
     }
 
     #[test]
-    fn zellij_default_layout_stacks_above_twelve_panes() {
+    fn zellij_default_layout_keeps_a_leading_pane_beside_the_stack() {
         let panes = (1..=13).collect::<Vec<_>>();
         let root = zellij_default_pane_layout(&panes).unwrap();
         let layout = layout_screen(&root, Rect { x: 0, y: 0, width: 120, height: 40 }, Some(13));
 
         assert_eq!(layout.panes.iter().map(|(pane, _)| *pane).collect::<Vec<_>>(), panes);
-        for (index, (_, rect)) in layout.panes[..12].iter().enumerate() {
-            assert_eq!(*rect, Rect { x: 0, y: index as u16, width: 120, height: 1 });
+        assert_eq!(layout.panes[0].1, Rect { x: 0, y: 0, width: 60, height: 40 });
+        for (index, (_, rect)) in layout.panes[1..12].iter().enumerate() {
+            assert_eq!(*rect, Rect { x: 60, y: index as u16, width: 60, height: 1 });
         }
-        assert_eq!(layout.stacked_headers.len(), 12);
-        assert!(panes[..12].iter().all(|pane| layout.stacked_headers.contains(pane)));
-        assert_eq!(layout.panes[12].1, Rect { x: 0, y: 12, width: 120, height: 28 });
+        assert_eq!(layout.stacked_headers.len(), 11);
+        assert!(panes[1..12].iter().all(|pane| layout.stacked_headers.contains(pane)));
+        assert_eq!(layout.panes[12].1, Rect { x: 60, y: 11, width: 60, height: 29 });
     }
 
     #[test]
-    fn zellij_stack_expands_focus_and_keeps_it_visible_in_short_areas() {
+    fn zellij_stacked_layout_keeps_the_leading_pane_full_height() {
         let panes = (1..=13).collect::<Vec<_>>();
         let root = zellij_default_pane_layout(&panes).unwrap();
         let layout = layout_screen(&root, Rect { x: 0, y: 0, width: 80, height: 5 }, Some(1));
-        assert_eq!(layout.rect_of(1), Some(Rect { x: 0, y: 0, width: 80, height: 1 }));
+        assert_eq!(layout.rect_of(1), Some(Rect { x: 0, y: 0, width: 40, height: 5 }));
         assert!(!layout.stacked_headers.contains(&1));
         assert_eq!(layout.stacked_headers.len(), 4);
     }
