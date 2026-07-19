@@ -140,6 +140,74 @@ struct RemoteDaemonUploadTests {
         #expect(cleanupRequest.arguments.last?.contains(location.absolutePath) == true)
     }
 
+    @Test("Finalization failure cleans the temporary upload and reports install detail")
+    func finalizationFailureCleansTemporaryUpload() throws {
+        let fileManager = FileManager.default
+        let localBinary = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-upload-\(UUID().uuidString)",
+            isDirectory: false
+        )
+        try Data("fake daemon".utf8).write(to: localBinary)
+        defer { try? fileManager.removeItem(at: localBinary) }
+
+        let runner = RecordingProcessRunner { request in
+            switch Self.uploadStep(for: request) {
+            case .createDirectory, .upload, .cleanup:
+                return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+            case .finalize:
+                return RemoteCommandResult(
+                    status: 1,
+                    stdout: "",
+                    stderr: "chmod: remote helper: Operation not permitted"
+                )
+            case .unknown:
+                return Self.unexpectedRequestResult(request)
+            }
+        }
+        let coordinator = makeCoordinator(runner: runner)
+        defer { coordinator.stop() }
+        let location = RemoteDaemonInstallLocation(
+            relativePath: ".cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote",
+            absolutePath: "/home/test/.cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote"
+        )
+
+        do {
+            try coordinator.queue.sync {
+                try coordinator.uploadRemoteDaemonBinaryLocked(
+                    localBinary: localBinary,
+                    location: location
+                )
+            }
+            Issue.record("Expected remote daemon finalization to fail")
+        } catch {
+            let nsError = error as NSError
+            #expect(nsError.domain == "cmux.remote.daemon")
+            #expect(nsError.code == 32)
+            #expect(
+                nsError.localizedDescription ==
+                    "failed to install remote daemon binary: chmod: remote helper: Operation not permitted"
+            )
+        }
+
+        let requests = runner.requests
+        #expect(requests.map(Self.uploadStep) == [.createDirectory, .upload, .finalize, .cleanup])
+        let uploadRequest = try #require(
+            requests.first { request in
+                Self.uploadStep(for: request) == .upload
+            }
+        )
+        let cleanupRequest = try #require(
+            requests.first { request in
+                Self.uploadStep(for: request) == .cleanup
+            }
+        )
+        let temporaryPathMarker = try #require(
+            Self.temporaryPathMarker(in: uploadRequest.arguments.last)
+        )
+        #expect(cleanupRequest.arguments.last?.contains(temporaryPathMarker) == true)
+        #expect(cleanupRequest.arguments.last?.contains(location.absolutePath) == true)
+    }
+
     private enum UploadStep: Equatable {
         case createDirectory
         case upload
