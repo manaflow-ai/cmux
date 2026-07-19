@@ -403,6 +403,21 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     term.vt_write(b"\x1b]21;7=;8=?\x1b\\");
     assert!(!term.palette_overridden(7));
     assert!(term.palette_overridden(8), "query must not alter authored state");
+
+    term.vt_write(b"\x1b]21;1_8=#112233;_19=#ffffff;20_=#ffffff\x1b\\");
+    assert!(term.palette_overridden(18), "OSC 21 must accept Zig's embedded underscores");
+    assert!(!term.palette_overridden(19), "OSC 21 must reject a leading underscore");
+    assert!(!term.palette_overridden(20), "OSC 21 must reject a trailing underscore");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(18), Rgb { r: 0x11, g: 0x22, b: 0x33 });
+
+    term.vt_write(b"\x1b]4;+19;#223344;-0;#001122;20_;#ffffff\x1b\\");
+    assert!(term.palette_overridden(19), "OSC 4 must accept Zig's positive sign grammar");
+    assert!(term.palette_overridden(0), "OSC 4 must accept Zig's negative zero grammar");
+    assert!(!term.palette_overridden(20), "OSC 4 must reject a trailing underscore");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(19), Rgb { r: 0x22, g: 0x33, b: 0x44 });
+    assert_eq!(state.palette_color(0), Rgb { r: 0x00, g: 0x11, b: 0x22 });
     let original_nine = state.palette_color(9);
     term.vt_write(b"\x9d4;9;#090909\x07");
     assert!(!term.palette_overridden(9), "raw C1 is not dispatched by Ghostty's VT stream");

@@ -641,7 +641,8 @@ impl PaletteCommand {
                 let key = &token[..separator];
                 let value = token.get(separator + 1..).unwrap_or_default();
                 let key = std::str::from_utf8(key).unwrap_or_default();
-                let index = key.parse::<u8>().ok();
+                let index = parse_zig_decimal(key.as_bytes(), u8::MAX.into(), false)
+                    .map(|value| value as u8);
                 let recognized = index.is_some()
                     || matches!(
                         key,
@@ -654,7 +655,8 @@ impl PaletteCommand {
                             | "visual_bell"
                             | "second_transparent_background"
                     );
-                let value = std::str::from_utf8(value).unwrap_or_default().trim();
+                let value = trim_ascii_spaces(value);
+                let value = std::str::from_utf8(value).unwrap_or_default();
                 let accepted = recognized
                     && (value.is_empty() || value == "?" || parse_color(value).is_some());
                 if accepted {
@@ -678,9 +680,9 @@ impl PaletteCommand {
     }
 
     fn parse_target(token: &[u8]) -> PaletteTarget {
-        let Some(value) =
-            std::str::from_utf8(token).ok().and_then(|value| value.parse::<u16>().ok())
-        else {
+        // Ghostty parses OSC 4/104 indices with Zig's `parseInt(u9, ..., 10)`,
+        // including its sign and underscore grammar.
+        let Some(value) = parse_zig_decimal(token, 0x1ff, true) else {
             return PaletteTarget::Invalid;
         };
         match value {
@@ -711,6 +713,49 @@ impl PaletteCommand {
         }
         self.color_changed
     }
+}
+
+/// Match Zig's decimal `parseInt`/`parseUnsigned` grammar used by Ghostty's
+/// OSC color parsers without allocating a normalized copy of the token.
+fn parse_zig_decimal(bytes: &[u8], max: u16, allow_sign: bool) -> Option<u16> {
+    let (negative, digits) = match bytes.first().copied() {
+        Some(b'+') if allow_sign => (false, &bytes[1..]),
+        Some(b'-') if allow_sign => (true, &bytes[1..]),
+        Some(_) => (false, bytes),
+        None => return None,
+    };
+    if digits.is_empty() || digits.first() == Some(&b'_') || digits.last() == Some(&b'_') {
+        return None;
+    }
+
+    let mut value = 0_u16;
+    for byte in digits {
+        if *byte == b'_' {
+            continue;
+        }
+        let digit = u16::from(byte.checked_sub(b'0')?);
+        if digit > 9 {
+            return None;
+        }
+        value = value.checked_mul(10)?.checked_add(digit)?;
+        if value > max {
+            return None;
+        }
+    }
+    if negative && value != 0 {
+        return None;
+    }
+    Some(value)
+}
+
+fn trim_ascii_spaces(mut bytes: &[u8]) -> &[u8] {
+    while bytes.first() == Some(&b' ') {
+        bytes = &bytes[1..];
+    }
+    while bytes.last() == Some(&b' ') {
+        bytes = &bytes[..bytes.len() - 1];
+    }
+    bytes
 }
 
 // The handle is not thread-safe, but it is movable and we only expose

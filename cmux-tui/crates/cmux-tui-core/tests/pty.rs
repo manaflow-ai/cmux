@@ -707,7 +707,9 @@ fn control_socket_attach_vt_state_reports_authoritative_cursor_before_replay() {
 fn control_socket_attach_stream_receives_merged_colors_changed() {
     let mux = Mux::new(
         unique_session("test-colors-changed"),
-        shell_opts("read line; printf '\\033]21;1=#112233;foreground=#445566\\033\\\\'; sleep 30"),
+        shell_opts(
+            "read line; printf '\\033]21;0_1=#112233;foreground=#445566\\033\\\\'; sleep 30",
+        ),
     );
     mux.set_default_colors(DefaultColors {
         fg: Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }),
