@@ -39,6 +39,12 @@ nonisolated enum BackendOnlyProjectionRuntimeReconcileResult: Equatable, Sendabl
     case superseded
 }
 
+nonisolated enum BackendOnlyProjectionRuntimeDisconnectResult: Equatable, Sendable {
+    case cleared(retired: Int)
+    case alreadyCleared
+    case stale
+}
+
 @MainActor
 struct BackendOnlyProjectionRuntimeSlot {
     let descriptor: BackendOnlyProjectionPaneDescriptor
@@ -88,7 +94,8 @@ final class BackendOnlyProjectionRuntimeReconciler {
         let identifier: UInt64
         let session: BackendCanonicalSession
         let fence: BackendOnlyProjectionRuntimeFence
-        let plan: BackendOnlyProjectionPlan
+        let plan: BackendOnlyProjectionPlan?
+        let disconnected: Bool
     }
 
     private typealias Continuation = CheckedContinuation<
@@ -103,11 +110,18 @@ final class BackendOnlyProjectionRuntimeReconciler {
     private var pendingRequest: Request?
     private var continuations: [UInt64: Continuation] = [:]
     private var drainTask: Task<Void, Never>?
+    private var activeRequestIdentifier: UInt64?
+    private var requestCompletionWaiters: [
+        UInt64: [CheckedContinuation<Void, Never>]
+    ] = [:]
+    private var disconnectBarrierByRequest: [UInt64: UUID] = [:]
+    private var disconnectRetirements: [UUID: Set<ObjectIdentifier>] = [:]
     private var newestAdmission: Admission?
     private var publishedAdmission: Admission?
     private var logicalPresentationID: UUID?
 
     private(set) var snapshot: BackendOnlyProjectionRuntimeSnapshot?
+    private(set) var maximumPendingRequestCountObserved = 0
 
     init(factory: BackendOnlyProjectionRuntimeFactory? = nil) {
         self.factory = factory ?? { session, selection in
@@ -123,6 +137,11 @@ final class BackendOnlyProjectionRuntimeReconciler {
         try validate(plan: plan, fence: fence)
 
         if let current = newestAdmission {
+            if current.disconnected,
+               fence.connectionGeneration <= current.fence.connectionGeneration
+            {
+                throw BackendOnlyProjectionRuntimeReconcilerError.staleFence
+            }
             switch try compare(
                 incomingFence: fence,
                 incomingSession: session,
@@ -131,6 +150,9 @@ final class BackendOnlyProjectionRuntimeReconciler {
             case .older:
                 throw BackendOnlyProjectionRuntimeReconcilerError.staleFence
             case .same:
+                guard !current.disconnected else {
+                    throw BackendOnlyProjectionRuntimeReconcilerError.staleFence
+                }
                 guard plan == current.plan else {
                     throw BackendOnlyProjectionRuntimeReconcilerError
                         .conflictingPlanForFence
@@ -164,7 +186,8 @@ final class BackendOnlyProjectionRuntimeReconciler {
             identifier: identifier,
             session: session,
             fence: fence,
-            plan: plan
+            plan: plan,
+            disconnected: false
         )
 
         return try await withCheckedThrowingContinuation {
@@ -174,9 +197,78 @@ final class BackendOnlyProjectionRuntimeReconciler {
                     .resume(returning: .superseded)
             }
             pendingRequest = request
+            maximumPendingRequestCountObserved = max(
+                maximumPendingRequestCountObserved,
+                1
+            )
             continuations[identifier] = continuation
             startDrainIfNeeded()
         }
+    }
+
+    /// Drops one exact connection's visible graph before retiring local
+    /// presentation ownership. A disconnect from an older connection or
+    /// different session object cannot affect a newer publication.
+    func disconnect(
+        session: BackendCanonicalSession,
+        fence: BackendOnlyProjectionRuntimeFence
+    ) async -> BackendOnlyProjectionRuntimeDisconnectResult {
+        guard let current = newestAdmission else {
+            return .alreadyCleared
+        }
+        guard fence.connectionGeneration == current.fence.connectionGeneration,
+              fence.authority == current.fence.authority,
+              fence.logicalPresentationID == current.fence.logicalPresentationID,
+              session === current.session
+        else {
+            return .stale
+        }
+        guard !current.disconnected else {
+            return .alreadyCleared
+        }
+
+        let barrierIdentifier = UUID()
+        disconnectRetirements[barrierIdentifier] = []
+        let activeIdentifier = activeRequestIdentifier
+        if let activeIdentifier {
+            disconnectBarrierByRequest[activeIdentifier] = barrierIdentifier
+        }
+
+        // Identifier zero is reserved for a disconnect barrier. It cannot
+        // equal an admitted request, whose identifiers begin at one.
+        newestAdmission = Admission(
+            identifier: 0,
+            session: session,
+            fence: current.fence,
+            plan: nil,
+            disconnected: true
+        )
+        snapshot = nil
+        publishedAdmission = nil
+
+        if let pending = pendingRequest {
+            pendingRequest = nil
+            continuations.removeValue(forKey: pending.identifier)?
+                .resume(returning: .superseded)
+        }
+
+        let owned = uniqueManagedRuntimesInOrder()
+        managed.removeAll(keepingCapacity: true)
+        managedOrder.removeAll(keepingCapacity: true)
+
+        // The first suspension occurs only after visible and pending state has
+        // been cleared synchronously on the main actor.
+        _ = await retireCandidates(
+            owned,
+            explicitBarrierIdentifier: barrierIdentifier
+        )
+        if let activeIdentifier {
+            await waitForRequestCompletion(activeIdentifier)
+            disconnectBarrierByRequest.removeValue(forKey: activeIdentifier)
+        }
+        let retired = disconnectRetirements
+            .removeValue(forKey: barrierIdentifier)?.count ?? 0
+        return .cleared(retired: retired)
     }
 
     private enum FenceOrder {
@@ -234,6 +326,7 @@ final class BackendOnlyProjectionRuntimeReconciler {
 
     private func drain() async {
         while !Task.isCancelled, let request = takePendingRequest() {
+            activeRequestIdentifier = request.identifier
             do {
                 let result = try await reconcile(request)
                 continuations.removeValue(forKey: request.identifier)?
@@ -243,6 +336,7 @@ final class BackendOnlyProjectionRuntimeReconciler {
                 continuations.removeValue(forKey: request.identifier)?
                     .resume(throwing: error)
             }
+            finishRequest(request.identifier)
         }
         drainTask = nil
         if pendingRequest != nil {
@@ -259,6 +353,22 @@ final class BackendOnlyProjectionRuntimeReconciler {
     private func rollBackAdmissionAfterFailure(_ request: Request) {
         guard newestAdmission?.identifier == request.identifier else { return }
         newestAdmission = publishedAdmission
+    }
+
+    private func finishRequest(_ identifier: UInt64) {
+        if activeRequestIdentifier == identifier {
+            activeRequestIdentifier = nil
+        }
+        for waiter in requestCompletionWaiters.removeValue(forKey: identifier) ?? [] {
+            waiter.resume()
+        }
+    }
+
+    private func waitForRequestCompletion(_ identifier: UInt64) async {
+        guard activeRequestIdentifier == identifier else { return }
+        await withCheckedContinuation { continuation in
+            requestCompletionWaiters[identifier, default: []].append(continuation)
+        }
     }
 
     private func reconcile(
@@ -287,7 +397,11 @@ final class BackendOnlyProjectionRuntimeReconciler {
             do {
                 lifecycle = try await factory(request.session, selection)
             } catch {
-                await retireCandidates(candidates)
+                await retireCandidates(
+                    candidates,
+                    requestIdentifier: request.identifier
+                )
+                guard isNewest(request) else { return .superseded }
                 throw BackendOnlyProjectionRuntimeReconcilerError
                     .runtimeConstructionFailed(slotID: descriptor.slotID)
             }
@@ -299,13 +413,19 @@ final class BackendOnlyProjectionRuntimeReconciler {
             nextManaged[descriptor.slotID] = candidate
 
             guard isNewest(request) else {
-                await retireCandidates(candidates)
+                await retireCandidates(
+                    candidates,
+                    requestIdentifier: request.identifier
+                )
                 return .superseded
             }
         }
 
         guard isNewest(request) else {
-            await retireCandidates(candidates)
+            await retireCandidates(
+                candidates,
+                requestIdentifier: request.identifier
+            )
             return .superseded
         }
 
@@ -339,6 +459,10 @@ final class BackendOnlyProjectionRuntimeReconciler {
                 let identity = ObjectIdentifier(value.lifecycle)
                 guard retired.insert(identity).inserted else { continue }
                 await value.lifecycle.shutdown()
+                recordRetirement(
+                    identity,
+                    requestIdentifier: request.identifier
+                )
                 // A newer plan may arrive at any retirement suspension. Every
                 // old runtime still retires exactly once, then the guard below
                 // discards candidates and starts from that newest whole plan.
@@ -347,7 +471,10 @@ final class BackendOnlyProjectionRuntimeReconciler {
         }
 
         guard isNewest(request) else {
-            await retireCandidates(candidates)
+            await retireCandidates(
+                candidates,
+                requestIdentifier: request.identifier
+            )
             return .superseded
         }
 
@@ -375,7 +502,8 @@ final class BackendOnlyProjectionRuntimeReconciler {
             identifier: request.identifier,
             session: request.session,
             fence: request.fence,
-            plan: request.plan
+            plan: request.plan,
+            disconnected: false
         )
         publishedAdmission = admission
         newestAdmission = admission
@@ -390,13 +518,48 @@ final class BackendOnlyProjectionRuntimeReconciler {
         newestAdmission?.identifier == request.identifier
     }
 
-    private func retireCandidates(_ values: [ManagedRuntime]) async {
+    @discardableResult
+    private func retireCandidates(
+        _ values: [ManagedRuntime],
+        requestIdentifier: UInt64? = nil,
+        explicitBarrierIdentifier: UUID? = nil
+    ) async -> Int {
         var retired: Set<ObjectIdentifier> = []
         for value in values {
             let identity = ObjectIdentifier(value.lifecycle)
             guard retired.insert(identity).inserted else { continue }
             await value.lifecycle.shutdown()
+            recordRetirement(
+                identity,
+                requestIdentifier: requestIdentifier,
+                explicitBarrierIdentifier: explicitBarrierIdentifier
+            )
         }
+        return retired.count
+    }
+
+    private func recordRetirement(
+        _ identity: ObjectIdentifier,
+        requestIdentifier: UInt64? = nil,
+        explicitBarrierIdentifier: UUID? = nil
+    ) {
+        let barrierIdentifier = explicitBarrierIdentifier
+            ?? requestIdentifier.flatMap { disconnectBarrierByRequest[$0] }
+        guard let barrierIdentifier else { return }
+        disconnectRetirements[barrierIdentifier, default: []].insert(identity)
+    }
+
+    private func uniqueManagedRuntimesInOrder() -> [ManagedRuntime] {
+        var result: [ManagedRuntime] = []
+        result.reserveCapacity(managedOrder.count)
+        var identities: Set<ObjectIdentifier> = []
+        for slotID in managedOrder {
+            guard let value = managed[slotID] else { continue }
+            let identity = ObjectIdentifier(value.lifecycle)
+            guard identities.insert(identity).inserted else { continue }
+            result.append(value)
+        }
+        return result
     }
 
     private func validate(
