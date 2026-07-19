@@ -5867,10 +5867,10 @@ impl App {
             return PtyMousePressResult::NotOwned;
         }
         let Some(content) = self.terminal_input_rect(&area) else {
-            return PtyMousePressResult::Consumed;
+            return PtyMousePressResult::NotOwned;
         };
         if !content.contains(x, y) {
-            return PtyMousePressResult::Consumed;
+            return PtyMousePressResult::NotOwned;
         }
         let Some(handle) = self.session.surface(area.surface) else {
             return PtyMousePressResult::Consumed;
@@ -6816,14 +6816,14 @@ impl App {
                 {
                     return Ok(RenderAction::Draw);
                 } else {
+                    if self.active_pane() != Some(area.pane) {
+                        self.focus_pane_after_input(area.pane);
+                    }
                     let Some(content) = self.terminal_input_rect(&area) else {
                         return Ok(RenderAction::Draw);
                     };
                     if !content.contains(x, y) {
                         return Ok(RenderAction::Draw);
-                    }
-                    if self.active_pane() != Some(area.pane) {
-                        self.focus_pane_after_input(area.pane);
                     }
                     // Begin a text selection; it becomes visible once the
                     // mouse moves to a second cell.
