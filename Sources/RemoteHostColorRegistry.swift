@@ -82,12 +82,6 @@ final class RemoteHostColorRegistry {
         return WorkspaceTabColorSettings.currentColorHex(named: entry.name) ?? entry.hex
     }
 
-    /// Clears all assignments. For tests.
-    func reset() {
-        slotByHost.removeAll()
-        hostBySlot.removeAll()
-    }
-
     /// Stable FNV-1a/64 hash of a string — deterministic across processes (unlike
     /// `Hasher`), so a host's starting color doesn't change between app launches.
     static func stableHash(_ string: String) -> UInt64 {

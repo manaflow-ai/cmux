@@ -18,8 +18,10 @@ import Testing
     @Test func stableHashIsDeterministic() {
         // Not Swift's per-process randomized Hasher: equal inputs → equal output,
         // and it varies by input.
-        #expect(RemoteHostColorRegistry.stableHash("cmux-srvA") == RemoteHostColorRegistry.stableHash("cmux-srvA"))
-        #expect(RemoteHostColorRegistry.stableHash("cmux-srvA") != RemoteHostColorRegistry.stableHash("cmux-srvB"))
+        let first = RemoteHostColorRegistry.stableHash("cmux-srvA")
+        let second = RemoteHostColorRegistry.stableHash("cmux-srvA")
+        #expect(first == second)
+        #expect(first != RemoteHostColorRegistry.stableHash("cmux-srvB"))
     }
 
     @Test func sameHostAlwaysGetsTheSameSlot() {
