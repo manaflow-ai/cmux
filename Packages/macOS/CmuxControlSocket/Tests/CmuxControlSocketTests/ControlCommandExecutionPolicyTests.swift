@@ -29,7 +29,8 @@ struct ControlCommandExecutionPolicyTests {
     @Test func fixedWorkerSetRunsOnTheSocketWorker() {
         for method in [
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",
-            "feed.push", "browser.download.wait", "system.top", "system.memory",
+            "feed.push", "hooks.invoke", "hooks.invoke.execute",
+            "browser.download.wait", "system.top", "system.memory",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
             "debug.sidebar.simulate_drag", "mobile.attach_ticket.create",
@@ -151,6 +152,12 @@ struct ControlCommandExecutionPolicyTests {
         // stall the lane move removes, and no in-process caller needs it.
         #expect(ControlCommandExecutionPolicy(forMethod: "surface.read_text") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forV1Command: "read_screen") == .socketWorker(mainThreadCallable: false))
+    }
+
+    @Test func remoteHookBridgeRunsOffTheMainActor() {
+        for method in ["hooks.invoke", "hooks.invoke.begin", "hooks.invoke.append", "hooks.invoke.cancel", "hooks.invoke.execute"] {
+            #expect(ControlCommandExecutionPolicy(forMethod: method) == .socketWorker(mainThreadCallable: false))
+        }
     }
 
     @Test func v1PingRunsOnTheWorkerAndIsMainThreadCallable() {

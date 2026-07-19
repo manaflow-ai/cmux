@@ -25,14 +25,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     /// authenticated web API calls just like `vm.*`, so they must stay off the
     /// main actor; prefix matches keep each verb family in lockstep without
     /// listing each method.
-    ///
     /// - Parameter method: The trimmed method name.
     public init(forMethod method: String) {
 #if DEBUG
-        if method == "remote.tmux.test_exec" || method == "remote.tmux.test_set_frame"
-            || method == "remote.tmux.test_perturb_divider"
-            || method == "remote.tmux.root_frames"
-            || method == "remote.tmux.window" {
+        if method == "remote.tmux.test_exec" || method == "remote.tmux.test_set_frame" || method == "remote.tmux.test_perturb_divider"
+            || method == "remote.tmux.root_frames" || method == "remote.tmux.window" {
             self = .socketWorker(mainThreadCallable: false)
             return
         }
@@ -54,7 +51,6 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     /// The v2 namespace prefix rules (`vm.`, `remotes.`) deliberately do not
     /// apply here — they are v2 method namespaces, and a v1 token that happens
     /// to contain a dot must not be routed off the main lane by accident.
-    ///
     /// - Parameter command: The v1 command token, lowercased by the dispatcher
     ///   (`processCommand` lowercases before dispatching, and this initializer
     ///   expects the same normalization).
@@ -87,6 +83,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
+        "hooks.invoke",
+        "hooks.invoke.begin",
+        "hooks.invoke.append",
+        "hooks.invoke.cancel",
+        "hooks.invoke.execute",
         "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",

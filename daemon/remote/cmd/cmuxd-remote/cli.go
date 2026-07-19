@@ -116,6 +116,10 @@ func init() {
 
 // runCLI is the entry point for the "cli" subcommand (or busybox "cmux" invocation).
 func runCLI(args []string) int {
+	return runCLIWithInput(args, os.Stdin)
+}
+
+func runCLIWithInput(args []string, input io.Reader) int {
 	socketPath := os.Getenv("CMUX_SOCKET_PATH")
 
 	// Parse global flags
@@ -185,6 +189,9 @@ doneFlags:
 	// Browser subcommand delegation
 	if cmdName == "browser" {
 		return runBrowserRelay(socketPath, cmdArgs, jsonOutput, refreshAddr)
+	}
+	if cmdName == "hooks" {
+		return runHooksRelay(socketPath, cmdArgs, input, refreshAddr)
 	}
 
 	// Workspace group subcommands: "workspace-group <sub>" and the canonical
@@ -1137,6 +1144,10 @@ func computeRelayMAC(token []byte, relayID, nonce string, version int) []byte {
 
 // socketRoundTripV2 sends a JSON-RPC request and returns the result JSON.
 func socketRoundTripV2(socketPath, method string, params map[string]any, refreshAddr func() string) (string, error) {
+	return socketRoundTripV2WithTimeout(socketPath, method, params, refreshAddr, 15*time.Second)
+}
+
+func socketRoundTripV2WithTimeout(socketPath, method string, params map[string]any, refreshAddr func() string, timeout time.Duration) (string, error) {
 	conn, err := dialSocket(socketPath, refreshAddr)
 	if err != nil {
 		return "", fmt.Errorf("failed to connect to %s: %w", socketPath, err)
@@ -1163,7 +1174,7 @@ func socketRoundTripV2(socketPath, method string, params map[string]any, refresh
 		return "", fmt.Errorf("failed to send request: %w", err)
 	}
 
-	_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(timeout))
 	reader := bufio.NewReader(conn)
 	line, err := reader.ReadString('\n')
 	if err != nil {
@@ -1264,6 +1275,7 @@ func cliUsage() {
 	fmt.Fprintln(os.Stderr, "                            delete, rename, collapse, expand, pin, unpin, add, remove,")
 	fmt.Fprintln(os.Stderr, "                            set-anchor, new-workspace, set-color, set-icon, move, focus)")
 	fmt.Fprintln(os.Stderr, "  browser <sub>             Browser commands through the local cmux browser relay")
+	fmt.Fprintln(os.Stderr, "  hooks <agent> <action>    Install, uninstall, or run remote agent hooks")
 	fmt.Fprintln(os.Stderr, "  claude-teams [args...]    Launch Claude Code in teammate mode")
 	fmt.Fprintln(os.Stderr, "  omo [args...]             Launch OpenCode with cmux integration")
 	fmt.Fprintln(os.Stderr, "  omx [args...]             Launch Oh My Codex with cmux integration")

@@ -527,6 +527,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C05555010000000000000005 /* CMUXCLI+PiExtensionSourcePart1.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05555010000000000000006 /* CMUXCLI+PiExtensionSourcePart1.swift */; };
 		C05555010000000000000007 /* CMUXCLI+PiExtensionSourcePart2.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05555010000000000000008 /* CMUXCLI+PiExtensionSourcePart2.swift */; };
 		B9000054A1B2C3D4E5F60719 /* CMUXCLI+Process.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000055A1B2C3D4E5F60719 /* CMUXCLI+Process.swift */; };
+		839600000000000000000002 /* CMUXCLI+RemoteHookBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 839600000000000000000001 /* CMUXCLI+RemoteHookBridge.swift */; };
 		C73660010000000000000001 /* CMUXCLI+RemotePTYErrors.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660010000000000000002 /* CMUXCLI+RemotePTYErrors.swift */; };
 		REE0CA0000000000000000C2 /* CMUXCLI+Remotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */; };
 		888222D96880953F33F554F1 /* CMUXCLI+RovoDevHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF43B7BD28A755A6280428D6 /* CMUXCLI+RovoDevHooks.swift */; };
@@ -1228,6 +1229,18 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		791100030000000000000001 /* RemoteDisconnectLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 791100040000000000000001 /* RemoteDisconnectLifecycleTests.swift */; };
 		791102010000000000000001 /* RemoteDisconnectPreparationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 791102020000000000000001 /* RemoteDisconnectPreparationService.swift */; };
 		E30780000000000000000016 /* RemoteDropUploadError+LocalizedError.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30780000000000000000015 /* RemoteDropUploadError+LocalizedError.swift */; };
+		839610000000000000000002 /* RemoteHookDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 839610000000000000000001 /* RemoteHookDescriptor.swift */; };
+		839620000000000000000002 /* RemoteHookInvocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 839620000000000000000001 /* RemoteHookInvocation.swift */; };
+		83960000000000000000000A /* RemoteHookInvocationBridge+Process.swift in Sources */ = {isa = PBXBuildFile; fileRef = 839600000000000000000009 /* RemoteHookInvocationBridge+Process.swift */; };
+		839600000000000000000008 /* RemoteHookInvocationBridge+Transfers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 839600000000000000000007 /* RemoteHookInvocationBridge+Transfers.swift */; };
+		839600000000000000000006 /* RemoteHookInvocationBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 839600000000000000000005 /* RemoteHookInvocationBridge.swift */; };
+		839620000000000000000006 /* RemoteHookInvocationBridgeError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 839620000000000000000005 /* RemoteHookInvocationBridgeError.swift */; };
+		83960000000000000000000C /* RemoteHookInvocationBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83960000000000000000000B /* RemoteHookInvocationBridgeTests.swift */; };
+		839610000000000000000008 /* RemoteHookMutation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 839610000000000000000007 /* RemoteHookMutation.swift */; };
+		83961000000000000000000A /* RemoteHookPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 839610000000000000000009 /* RemoteHookPlan.swift */; };
+		839610000000000000000004 /* RemoteHookSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 839610000000000000000003 /* RemoteHookSnapshot.swift */; };
+		839610000000000000000006 /* RemoteHookSnapshotEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 839610000000000000000005 /* RemoteHookSnapshotEntry.swift */; };
+		839620000000000000000004 /* RemoteHookTransferMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 839620000000000000000003 /* RemoteHookTransferMetadata.swift */; };
 		A5001643 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */; };
 		B9000028A1B2C3D4E5F60719 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */; };
 		D0C0D0C0D0C0D0C0D0C00003 /* RemoteLoopbackRuntimeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C00004 /* RemoteLoopbackRuntimeBridge.swift */; };
@@ -1762,6 +1775,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C7AF20000000000000000001 /* TerminalController+MobileTerminalArtifacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7AF20000000000000000002 /* TerminalController+MobileTerminalArtifacts.swift */; };
 		C7A50B000000000000000012 /* TerminalController+MobileWorkspaceList.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000011 /* TerminalController+MobileWorkspaceList.swift */; };
 		D7AB0000000000000000000B /* TerminalController+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */; };
+		839600000000000000000004 /* TerminalController+RemoteHookInvocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 839600000000000000000003 /* TerminalController+RemoteHookInvocation.swift */; };
 		A31B24551C6E01E86D76B07E /* TerminalController+RemoteTmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95B11974CF8937E165A3FAEE /* TerminalController+RemoteTmux.swift */; };
 		7738C0077738C0077738C007 /* TerminalController+RemoteTmuxControlMutations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7738D0077738D0077738D007 /* TerminalController+RemoteTmuxControlMutations.swift */; };
 		7738C0087738C0087738C008 /* TerminalController+RemoteTmuxControlRefs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7738D0087738D0087738D008 /* TerminalController+RemoteTmuxControlRefs.swift */; };
@@ -2635,6 +2649,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C05555010000000000000006 /* CMUXCLI+PiExtensionSourcePart1.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiExtensionSourcePart1.swift"; sourceTree = "<group>"; };
 		C05555010000000000000008 /* CMUXCLI+PiExtensionSourcePart2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiExtensionSourcePart2.swift"; sourceTree = "<group>"; };
 		B9000055A1B2C3D4E5F60719 /* CMUXCLI+Process.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Process.swift"; sourceTree = "<group>"; };
+		839600000000000000000001 /* CMUXCLI+RemoteHookBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RemoteHookBridge.swift"; sourceTree = "<group>"; };
 		C73660010000000000000002 /* CMUXCLI+RemotePTYErrors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RemotePTYErrors.swift"; sourceTree = "<group>"; };
 		REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Remotes.swift"; sourceTree = "<group>"; };
 		DF43B7BD28A755A6280428D6 /* CMUXCLI+RovoDevHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RovoDevHooks.swift"; sourceTree = "<group>"; };
@@ -3282,6 +3297,18 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		791100040000000000000001 /* RemoteDisconnectLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteDisconnectLifecycleTests.swift; sourceTree = "<group>"; };
 		791102020000000000000001 /* RemoteDisconnectPreparationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteDisconnectPreparationService.swift; sourceTree = "<group>"; };
 		E30780000000000000000015 /* RemoteDropUploadError+LocalizedError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteDropUploadError+LocalizedError.swift"; sourceTree = "<group>"; };
+		839610000000000000000001 /* RemoteHookDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHookDescriptor.swift; sourceTree = "<group>"; };
+		839620000000000000000001 /* RemoteHookInvocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHookInvocation.swift; sourceTree = "<group>"; };
+		839600000000000000000009 /* RemoteHookInvocationBridge+Process.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteHookInvocationBridge+Process.swift"; sourceTree = "<group>"; };
+		839600000000000000000007 /* RemoteHookInvocationBridge+Transfers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteHookInvocationBridge+Transfers.swift"; sourceTree = "<group>"; };
+		839600000000000000000005 /* RemoteHookInvocationBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHookInvocationBridge.swift; sourceTree = "<group>"; };
+		839620000000000000000005 /* RemoteHookInvocationBridgeError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHookInvocationBridgeError.swift; sourceTree = "<group>"; };
+		83960000000000000000000B /* RemoteHookInvocationBridgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHookInvocationBridgeTests.swift; sourceTree = "<group>"; };
+		839610000000000000000007 /* RemoteHookMutation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHookMutation.swift; sourceTree = "<group>"; };
+		839610000000000000000009 /* RemoteHookPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHookPlan.swift; sourceTree = "<group>"; };
+		839610000000000000000003 /* RemoteHookSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHookSnapshot.swift; sourceTree = "<group>"; };
+		839610000000000000000005 /* RemoteHookSnapshotEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHookSnapshotEntry.swift; sourceTree = "<group>"; };
+		839620000000000000000003 /* RemoteHookTransferMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHookTransferMetadata.swift; sourceTree = "<group>"; };
 		A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteInteractiveShellBootstrapBuilder.swift; sourceTree = "<group>"; };
 		D0C0D0C0D0C0D0C0D0C00004 /* RemoteLoopbackRuntimeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteLoopbackRuntimeBridge.swift; sourceTree = "<group>"; };
 		E30790000000000000000003 /* RemotePTYBridgeStrings+App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemotePTYBridgeStrings+App.swift"; sourceTree = "<group>"; };
@@ -3802,6 +3829,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C7AF20000000000000000002 /* TerminalController+MobileTerminalArtifacts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileTerminalArtifacts.swift"; sourceTree = "<group>"; };
 		C7A50B000000000000000011 /* TerminalController+MobileWorkspaceList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileWorkspaceList.swift"; sourceTree = "<group>"; };
 		D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
+		839600000000000000000003 /* TerminalController+RemoteHookInvocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteHookInvocation.swift"; sourceTree = "<group>"; };
 		95B11974CF8937E165A3FAEE /* TerminalController+RemoteTmux.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteTmux.swift"; sourceTree = "<group>"; };
 		7738D0077738D0077738D007 /* TerminalController+RemoteTmuxControlMutations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteTmuxControlMutations.swift"; sourceTree = "<group>"; };
 		7738D0087738D0087738D008 /* TerminalController+RemoteTmuxControlRefs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteTmuxControlRefs.swift"; sourceTree = "<group>"; };
@@ -4931,6 +4959,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */,
 				E7E000000000000000000008 /* CmuxEventPublishing.swift */,
 				A5001019 /* TerminalController.swift */,
+				839600000000000000000003 /* TerminalController+RemoteHookInvocation.swift */,
+				839600000000000000000005 /* RemoteHookInvocationBridge.swift */,
+				839600000000000000000009 /* RemoteHookInvocationBridge+Process.swift */,
+				839600000000000000000007 /* RemoteHookInvocationBridge+Transfers.swift */,
+				839620000000000000000001 /* RemoteHookInvocation.swift */,
+				839620000000000000000005 /* RemoteHookInvocationBridgeError.swift */,
+				839620000000000000000003 /* RemoteHookTransferMetadata.swift */,
 				A79840030000000000000001 /* TerminalController+SocketConfiguration.swift */,
 				A28B087F000000000000000A /* DiffViewerSessionTrustRegistry.swift */,
 				A28B087F0000000000000018 /* DiffViewerLiveHTTPSession.swift */,
@@ -5691,6 +5726,12 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B9000060A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift */,
 				B9000062A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift */,
 				61AD48A9E6C3F1BE2B547FFE /* CMUXCLI+AgentHookCatalog.swift */,
+				839600000000000000000001 /* CMUXCLI+RemoteHookBridge.swift */,
+				839610000000000000000001 /* RemoteHookDescriptor.swift */,
+				839610000000000000000007 /* RemoteHookMutation.swift */,
+				839610000000000000000009 /* RemoteHookPlan.swift */,
+				839610000000000000000003 /* RemoteHookSnapshot.swift */,
+				839610000000000000000005 /* RemoteHookSnapshotEntry.swift */,
 				7A3D532FF0A00E20DA31667F /* CMUXCLI+KimiHooks.swift */,
 				DF43B7BD28A755A6280428D6 /* CMUXCLI+RovoDevHooks.swift */,
 				5257257034CA4729B1211170 /* CMUXCLI+AgentHookPayload.swift */,
@@ -5758,6 +5799,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				806100020000000000000002 /* RemoteSessionCleanupLifecycleTests.swift */,
 				F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */,
 				B8E9500A0000000000000002 /* PostHogAnalyticsPropertiesTests.swift */,
+				83960000000000000000000B /* RemoteHookInvocationBridgeTests.swift */,
 				604100010000000000000002 /* GhosttyDrawableSizeRetryTests.swift */,
 				BCBC0A0E0000000000000D02 /* BrowserChromeMetricsTests.swift */,
 				BCBC0A0E0000000000000E12 /* BrowserMediaActivityAggregationTests.swift */,
@@ -7465,6 +7507,12 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				EE30D5000000000000000002 /* RemoteDaemonStrings+App.swift in Sources */,
 				791102010000000000000001 /* RemoteDisconnectPreparationService.swift in Sources */,
 				E30780000000000000000016 /* RemoteDropUploadError+LocalizedError.swift in Sources */,
+				839620000000000000000002 /* RemoteHookInvocation.swift in Sources */,
+				83960000000000000000000A /* RemoteHookInvocationBridge+Process.swift in Sources */,
+				839600000000000000000008 /* RemoteHookInvocationBridge+Transfers.swift in Sources */,
+				839600000000000000000006 /* RemoteHookInvocationBridge.swift in Sources */,
+				839620000000000000000006 /* RemoteHookInvocationBridgeError.swift in Sources */,
+				839620000000000000000004 /* RemoteHookTransferMetadata.swift in Sources */,
 				A5001643 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
 				D0C0D0C0D0C0D0C0D0C00003 /* RemoteLoopbackRuntimeBridge.swift in Sources */,
 				E30790000000000000000004 /* RemotePTYBridgeStrings+App.swift in Sources */,
@@ -7819,6 +7867,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7AF20000000000000000001 /* TerminalController+MobileTerminalArtifacts.swift in Sources */,
 				C7A50B000000000000000012 /* TerminalController+MobileWorkspaceList.swift in Sources */,
 				D7AB0000000000000000000B /* TerminalController+MoveTabToNewWorkspace.swift in Sources */,
+				839600000000000000000004 /* TerminalController+RemoteHookInvocation.swift in Sources */,
 				A31B24551C6E01E86D76B07E /* TerminalController+RemoteTmux.swift in Sources */,
 				7738C0077738C0077738C007 /* TerminalController+RemoteTmuxControlMutations.swift in Sources */,
 				7738C0087738C0087738C008 /* TerminalController+RemoteTmuxControlRefs.swift in Sources */,
@@ -8086,6 +8135,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 						C05555010000000000000005 /* CMUXCLI+PiExtensionSourcePart1.swift in Sources */,
 						C05555010000000000000007 /* CMUXCLI+PiExtensionSourcePart2.swift in Sources */,
 						B9000054A1B2C3D4E5F60719 /* CMUXCLI+Process.swift in Sources */,
+				839600000000000000000002 /* CMUXCLI+RemoteHookBridge.swift in Sources */,
 				C73660010000000000000001 /* CMUXCLI+RemotePTYErrors.swift in Sources */,
 					REE0CA0000000000000000C2 /* CMUXCLI+Remotes.swift in Sources */,
 				888222D96880953F33F554F1 /* CMUXCLI+RovoDevHooks.swift in Sources */,
@@ -8114,6 +8164,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5FB1308 /* JSONCObjectEditor+Remove.swift in Sources */,
 				A5FB1312 /* JSONCObjectEditor+Set.swift in Sources */,
 				C0DEF0B10000000000000003 /* JSONCParser.swift in Sources */,
+				839610000000000000000002 /* RemoteHookDescriptor.swift in Sources */,
+				839610000000000000000008 /* RemoteHookMutation.swift in Sources */,
+				83961000000000000000000A /* RemoteHookPlan.swift in Sources */,
+				839610000000000000000004 /* RemoteHookSnapshot.swift in Sources */,
+				839610000000000000000006 /* RemoteHookSnapshotEntry.swift in Sources */,
 				B9000028A1B2C3D4E5F60719 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
 				B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */,
 				5E2701020000000000000003 /* SentryEventScrubber.swift in Sources */,
@@ -8516,6 +8571,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A64610020000000000000001 /* QuitConfirmationAlertPresenterTests.swift in Sources */,
 				A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */,
 				791100030000000000000001 /* RemoteDisconnectLifecycleTests.swift in Sources */,
+				83960000000000000000000C /* RemoteHookInvocationBridgeTests.swift in Sources */,
 				REE0CA0000000000000000B2 /* RemotesClientTests.swift in Sources */,
 				806100020000000000000001 /* RemoteSessionCleanupLifecycleTests.swift in Sources */,
 				C0F674600000000000000001 /* RemoteShellCWDRelayTests.swift in Sources */,

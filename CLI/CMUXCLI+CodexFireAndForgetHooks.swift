@@ -81,7 +81,9 @@ extension CMUXCLI {
     /// `~/.cmux/hooks` (NOT the user's `~/.codex`), created on demand. Returns
     /// nil if it cannot be created, so the caller falls back to inline commands.
     static func codexHookScriptsDirectory() -> URL? {
-        let home = FileManager.default.homeDirectoryForCurrentUser
+        let home = ProcessInfo.processInfo.environment["HOME"].flatMap { value in
+            value.isEmpty ? nil : URL(fileURLWithPath: NSString(string: value).expandingTildeInPath, isDirectory: true)
+        } ?? FileManager.default.homeDirectoryForCurrentUser
         let dir = home
             .appendingPathComponent(".cmux", isDirectory: true)
             .appendingPathComponent("hooks", isDirectory: true)
@@ -109,12 +111,12 @@ extension CMUXCLI {
         if let existing = try? String(contentsOf: url, encoding: .utf8), existing == contents {
             // Ensure it stays executable, then reuse.
             try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
-            return url.path
+            return remoteHookInstallDestinationPath(url.path)
         }
         do {
             try contents.data(using: .utf8)?.write(to: url, options: .atomic)
             try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
-            return url.path
+            return remoteHookInstallDestinationPath(url.path)
         } catch {
             return nil
         }
