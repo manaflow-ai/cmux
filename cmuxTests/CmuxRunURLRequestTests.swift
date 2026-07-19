@@ -102,6 +102,24 @@ struct CmuxRunURLRequestTests {
         )
     }
 
+    @Test func shellWrapperExecutesThroughGhosttyEmbeddedShellContract() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let marker = root.appendingPathComponent("command-ran")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let resolved = try CmuxRunWorkingDirectoryResolver().resolve(root.path).get()
+        let launchCommand = CmuxRunShellCommandBuilder(
+            command: "/usr/bin/touch \(marker.path)",
+            workingDirectory: resolved.path,
+            approvedIdentity: resolved.identity
+        ).launchCommand
+
+        #expect(try runGhosttyEmbeddedCommand(launchCommand) == EXIT_SUCCESS)
+        #expect(fileManager.fileExists(atPath: marker.path))
+    }
+
     @Test func shellWrapperRevalidatesApprovedDirectoryIdentityAfterEntering() throws {
         let launchCommand = CmuxRunShellCommandBuilder(
             command: "printf reviewed",
@@ -626,6 +644,17 @@ struct CmuxRunURLRequestTests {
         process.executableURL = URL(fileURLWithPath: arguments[0])
         process.arguments = Array(arguments.dropFirst())
         process.environment = environment
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus
+    }
+
+    private func runGhosttyEmbeddedCommand(_ command: String) throws -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try process.run()
