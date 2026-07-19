@@ -391,6 +391,13 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     term.vt_write(b"\x1b]4;3;?\x07");
     assert!(!term.palette_overridden(3));
 
+    term.vt_write(b"\x1b]21;7=#070707;8=rgb:08/08/08;foreground=#ffffff\x1b\\");
+    assert!(term.palette_overridden(7));
+    assert!(term.palette_overridden(8));
+    term.vt_write(b"\x1b]21;7=;8=?\x1b\\");
+    assert!(!term.palette_overridden(7));
+    assert!(term.palette_overridden(8), "query must not alter authored state");
+
     term.vt_write(b"\x1b]104;1\x1b\\");
     assert!(!term.palette_overridden(1));
     assert!(term.palette_overridden(2));

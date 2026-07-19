@@ -414,6 +414,7 @@ enum PaletteOscMode {
     SetIndex,
     SetColor(PaletteTarget),
     Reset,
+    Kitty,
     Ignore,
 }
 
@@ -525,6 +526,7 @@ impl PaletteOsc {
             PaletteOscMode::Operation => match token.as_slice() {
                 b"4" => PaletteOscMode::SetIndex,
                 b"104" => PaletteOscMode::Reset,
+                b"21" => PaletteOscMode::Kitty,
                 _ => PaletteOscMode::Ignore,
             },
             PaletteOscMode::SetIndex => {
@@ -559,6 +561,20 @@ impl PaletteOsc {
                     }
                 }
                 PaletteOscMode::Reset
+            }
+            PaletteOscMode::Kitty => {
+                let separator = token.iter().position(|byte| *byte == b'=').unwrap_or(token.len());
+                let key = &token[..separator];
+                let value = token.get(separator + 1..).unwrap_or_default();
+                if let Ok(index) = std::str::from_utf8(key).unwrap_or_default().parse::<u8>() {
+                    let value = std::str::from_utf8(value).unwrap_or_default().trim();
+                    if value.is_empty() {
+                        self.pending[index as usize] = 2;
+                    } else if value != "?" && parse_color(value).is_some() {
+                        self.pending[index as usize] = 1;
+                    }
+                }
+                PaletteOscMode::Kitty
             }
             PaletteOscMode::Ignore => PaletteOscMode::Ignore,
         };

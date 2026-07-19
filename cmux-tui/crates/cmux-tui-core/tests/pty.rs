@@ -624,6 +624,16 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
     assert_eq!(response["id"], 1);
     assert_eq!(response["ok"], true, "attach failed: {response}");
 
+    mux.resize_surface(surface.id, 100, 40).unwrap();
+    let resized = (0..3)
+        .find_map(|_| {
+            let value = read_json_line(&mut reader)?;
+            (value["event"] == "resized").then_some(value)
+        })
+        .expect("resized attach event");
+    assert_eq!(resized["colors"], vt_state["colors"]);
+    assert!(resized.get("palette").is_none(), "colors must remain nested: {resized}");
+
     mux.close_surface(surface.id);
     cmux_tui_core::server::cleanup(&sock_path);
 }
