@@ -11,6 +11,10 @@ public record IdentifyResult(
     String buildCommit,
     String ghosttyCommit
 ) {
+    public IdentifyResult(String app, String version, int protocol, String session, long pid) {
+        this(app, version, protocol, session, pid, null, null);
+    }
+
     static IdentifyResult from(Map<String, Object> data) {
         return new IdentifyResult(
             CmuxClient.asString(data.get("app")),

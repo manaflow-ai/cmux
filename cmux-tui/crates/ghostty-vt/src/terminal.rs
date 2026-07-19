@@ -480,11 +480,13 @@ impl PaletteOverrideTracker {
                 PaletteTrackState::String { bell_terminated } => match byte {
                     0x07 if bell_terminated => PaletteTrackState::Ground,
                     0x9c => PaletteTrackState::Ground,
+                    0x18 | 0x1a => PaletteTrackState::Ground,
                     0x1b => PaletteTrackState::StringEscape { bell_terminated },
                     _ => PaletteTrackState::String { bell_terminated },
                 },
                 PaletteTrackState::StringEscape { bell_terminated } => match byte {
                     b'\\' | 0x9c => PaletteTrackState::Ground,
+                    0x18 | 0x1a => PaletteTrackState::Ground,
                     0x1b => PaletteTrackState::StringEscape { bell_terminated },
                     0x07 if bell_terminated => PaletteTrackState::Ground,
                     _ => PaletteTrackState::String { bell_terminated },

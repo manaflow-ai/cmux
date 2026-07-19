@@ -405,6 +405,11 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     state.update(&mut term).unwrap();
     assert_eq!(state.palette_color(9), original_nine);
 
+    term.vt_write(b"\x1bPab\x18\x1b]4;10;#0a0a0a\x07");
+    assert!(term.palette_overridden(10), "CAN must abort a non-OSC control string");
+    term.vt_write(b"\x1bPab\x1b\x1a\x1b]4;11;#0b0b0b\x07");
+    assert!(term.palette_overridden(11), "SUB must abort after an escape in a control string");
+
     term.vt_write(b"\x1b]104;1\x1b\\");
     assert!(!term.palette_overridden(1));
     assert!(term.palette_overridden(2));

@@ -78,6 +78,9 @@ public final class JsonTest {
         ));
         assertEquals(null, legacyIdentify.buildCommit(), "legacy identify build commit");
         assertEquals(null, legacyIdentify.ghosttyCommit(), "legacy identify Ghostty commit");
+        IdentifyResult sourceCompatible = new IdentifyResult("cmux-tui", "0.1.2", 7, "main", 42);
+        assertEquals(null, sourceCompatible.buildCommit(), "source-compatible build commit");
+        assertEquals(null, sourceCompatible.ghosttyCommit(), "source-compatible Ghostty commit");
     }
 
     private static void assertReject(String input) {

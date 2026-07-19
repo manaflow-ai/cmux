@@ -103,20 +103,20 @@ jobs:
         if: matrix.cross == false
         working-directory: cmux-tui
         shell: bash
-        env:
-          CMUX_TUI_BUILD_COMMIT: ${{ inputs.checkout_ref != '' && inputs.checkout_ref || github.sha }}
         run: |
-          export CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
+          CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
+          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
+          export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT
           cargo build -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.target }}
 
       - name: Build cmux-tui (cross)
         if: matrix.cross == true
         working-directory: cmux-tui
         shell: bash
-        env:
-          CMUX_TUI_BUILD_COMMIT: ${{ inputs.checkout_ref != '' && inputs.checkout_ref || github.sha }}
         run: |
-          export CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
+          CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
+          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
+          export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT
           cargo zigbuild -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.target }}
 
       - name: Stage binary
@@ -171,10 +171,10 @@ jobs:
 
       - name: Build libghostty-vt + cmux-tui (Windows GNU)
         shell: bash
-        env:
-          CMUX_TUI_BUILD_COMMIT: ${{ inputs.checkout_ref != '' && inputs.checkout_ref || github.sha }}
         run: |
-          export CMUX_TUI_GHOSTTY_COMMIT="$(git -C ghostty rev-parse HEAD)"
+          CMUX_TUI_BUILD_COMMIT="$(git rev-parse HEAD)"
+          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ghostty rev-parse HEAD)"
+          export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT
           cd ghostty
           zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"
           cd ../cmux-tui
