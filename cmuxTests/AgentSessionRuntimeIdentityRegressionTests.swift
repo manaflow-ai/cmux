@@ -248,6 +248,136 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(result.snapshots["codex"]?.activeSlots.count == 1)
     }
 
+    @Test func hibernationRegistryRefreshPrioritizesKnownRelevantProviders() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hibernation-refresh-priority-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let panelProvider = "zz-panel-relevant"
+        let panelSessionID = "panel-owner"
+        let exactProvider = "zy-exact-relevant"
+        let exactSessionID = "exact-owner"
+
+        func recordJSON(
+            sessionID: String,
+            workspaceID: UUID,
+            panelID: UUID,
+            padding: Int = 0
+        ) throws -> Data {
+            try JSONSerialization.data(withJSONObject: [
+                "sessionId": sessionID,
+                "workspaceId": workspaceID.uuidString,
+                "surfaceId": panelID.uuidString,
+                "startedAt": 1.0,
+                "updatedAt": 2.0,
+                "padding": String(repeating: "x", count: padding),
+            ], options: [.sortedKeys])
+        }
+
+        func legacyData(
+            sessionID: String,
+            workspaceID: UUID,
+            panelID: UUID,
+            padding: Int = 0
+        ) throws -> Data {
+            let record = try JSONSerialization.jsonObject(with: recordJSON(
+                sessionID: sessionID,
+                workspaceID: workspaceID,
+                panelID: panelID,
+                padding: padding
+            ))
+            return try JSONSerialization.data(withJSONObject: [
+                "version": 2,
+                "sessions": [sessionID: record],
+                "activeSessionsByWorkspace": [:],
+                "activeSessionsBySurface": [:],
+            ], options: [.sortedKeys])
+        }
+
+        let panelRecordJSON = try recordJSON(
+            sessionID: panelSessionID,
+            workspaceID: workspaceID,
+            panelID: panelID
+        )
+        let panelSlotJSON = try JSONSerialization.data(withJSONObject: [
+            "sessionId": panelSessionID,
+            "updatedAt": 2.0,
+        ], options: [.sortedKeys])
+        try registry.apply(
+            provider: panelProvider,
+            records: [.init(
+                provider: panelProvider,
+                sessionID: panelSessionID,
+                updatedAt: 2,
+                json: panelRecordJSON
+            )],
+            activeSlots: [.init(
+                provider: panelProvider,
+                scope: .surface,
+                scopeID: panelID.uuidString,
+                sessionID: panelSessionID,
+                updatedAt: 2,
+                json: panelSlotJSON
+            )]
+        )
+
+        let panelLegacy = try legacyData(
+            sessionID: panelSessionID,
+            workspaceID: workspaceID,
+            panelID: panelID,
+            padding: 2_048
+        )
+        let exactLegacy = try legacyData(
+            sessionID: exactSessionID,
+            workspaceID: UUID(),
+            panelID: UUID(),
+            padding: 2_048
+        )
+        let panelURL = root.appendingPathComponent("\(panelProvider)-hook-sessions.json")
+        let exactURL = root.appendingPathComponent("\(exactProvider)-hook-sessions.json")
+        try panelLegacy.write(to: panelURL, options: .atomic)
+        try exactLegacy.write(to: exactURL, options: .atomic)
+
+        let noiseLegacy = try legacyData(
+            sessionID: "noise",
+            workspaceID: UUID(),
+            panelID: UUID()
+        )
+        var noiseProviders = Set<String>()
+        var sources: [(kind: RestorableAgentKind, fileURL: URL)] = []
+        for index in 0..<32 {
+            let provider = String(format: "aa-noise-%02d", index)
+            let url = root.appendingPathComponent("\(provider)-hook-sessions.json")
+            try noiseLegacy.write(to: url, options: .atomic)
+            sources.append((.custom(provider), url))
+            noiseProviders.insert(provider)
+        }
+        sources.append((.custom(panelProvider), panelURL))
+        sources.append((.custom(exactProvider), exactURL))
+        #expect(Int64(noiseLegacy.count * 32) >= Int64(panelLegacy.count + exactLegacy.count))
+
+        let result = RestorableAgentSessionIndex.agentRegistryHibernationSnapshots(
+            sources,
+            panelKeys: [.init(workspaceId: workspaceID, panelId: panelID)],
+            exactSessionIDsByProvider: [exactProvider: [exactSessionID]],
+            maximumLegacySourceReadBytes: Int64(panelLegacy.count + exactLegacy.count),
+            fileManager: .default,
+            environment: ["CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path]
+        )
+
+        #expect(result.failedProviders == noiseProviders)
+        #expect(result.snapshots[panelProvider]?.records.map(\.sessionID) == [panelSessionID])
+        #expect(result.snapshots[panelProvider]?.activeSlots.map(\.sessionID) == [panelSessionID])
+        #expect(result.snapshots[exactProvider]?.records.map(\.sessionID) == [exactSessionID])
+        #expect(result.snapshots[exactProvider]?.activeSlots.isEmpty == true)
+        #expect(noiseProviders.allSatisfy { result.snapshots[$0]?.records.isEmpty == true })
+    }
+
     @Test func hibernationRegistryLoadFailsClosedPerProviderAtProjectionLimit() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hibernation-registry-limit-\(UUID().uuidString)", isDirectory: true)
