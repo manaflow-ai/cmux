@@ -6,6 +6,46 @@ import Testing
 
 @Suite
 struct RemoteHookInvocationBridgeTests {
+    @Test("transfer dispatch releases cancelled and executed slots")
+    func transferDispatchReleasesSlots() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hook-transfer-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bridge = RemoteHookInvocationBridge(transferRoot: root)
+        let invocation = RemoteHookInvocation(
+            arguments: ["omp", "session-start"],
+            environment: [:],
+            input: Data()
+        )
+        let transferIDs = try (0 ..< bridge.maximumConcurrentTransfers).map { _ in
+            try bridge.beginTransfer(invocation)
+        }
+
+        guard case .success(let cancelResponse) = bridge.handle(
+            method: "hooks.invoke.cancel",
+            params: ["transfer_id": transferIDs[0]],
+            localSocketPath: ""
+        ) else {
+            Issue.record("expected cancellation dispatch to succeed")
+            return
+        }
+        #expect(cancelResponse["cancelled"] as? Bool == true)
+        _ = try bridge.beginTransfer(invocation)
+
+        _ = bridge.handle(
+            method: "hooks.invoke.execute",
+            params: ["transfer_id": transferIDs[1]],
+            localSocketPath: root.appendingPathComponent("missing.sock").path
+        )
+        _ = try bridge.beginTransfer(invocation)
+        do {
+            _ = try bridge.beginTransfer(invocation)
+            Issue.record("expected all transfer slots to remain occupied")
+        } catch let error as RemoteHookInvocationBridgeError {
+            #expect(error.code == "resource_exhausted")
+        }
+    }
+
     @Test("cancellation releases staged transfers but not claimed work")
     func cancellationRespectsTransferOwnership() throws {
         let root = FileManager.default.temporaryDirectory
