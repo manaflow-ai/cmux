@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { TerminalGridModel } from "../app/[locale]/share/[code]/terminal-grid";
 import { keyEventToBytes } from "../app/[locale]/share/[code]/terminal-keys";
-import { spliceDiff } from "../app/[locale]/share/[code]/shared-composer";
+import { spliceDiff } from "../app/[locale]/share/[code]/compose-ops";
 import type { RenderGridFrame } from "../app/[locale]/share/[code]/share-protocol";
 
 function fullFrame(overrides: Partial<RenderGridFrame> = {}): RenderGridFrame {

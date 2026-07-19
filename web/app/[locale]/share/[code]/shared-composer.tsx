@@ -9,31 +9,11 @@
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 
+import { spliceDiff } from "./compose-ops";
 import { participantColor } from "./share-colors";
 import type { ShareClient } from "./share-connection";
 import type { Participant } from "./share-protocol";
 import { useStoreValue } from "./use-store";
-
-/** Single-splice diff between two strings (common prefix/suffix trim). */
-export function spliceDiff(
-  prev: string,
-  next: string,
-): { p: number; d: number; i: string } | null {
-  if (prev === next) return null;
-  const prevCP = [...prev];
-  const nextCP = [...next];
-  let start = 0;
-  while (start < prevCP.length && start < nextCP.length && prevCP[start] === nextCP[start]) {
-    start += 1;
-  }
-  let endPrev = prevCP.length;
-  let endNext = nextCP.length;
-  while (endPrev > start && endNext > start && prevCP[endPrev - 1] === nextCP[endNext - 1]) {
-    endPrev -= 1;
-    endNext -= 1;
-  }
-  return { p: start, d: endPrev - start, i: nextCP.slice(start, endNext).join("") };
-}
 
 export function SharedComposer({
   client,
