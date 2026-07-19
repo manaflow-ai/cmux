@@ -3308,6 +3308,7 @@ impl Mux {
                 continue;
             }
             let index = state.workspace_index(target).expect("resolved workspace is indexed");
+            let previous_active = state.active_pane();
             let mut delta = close_workspace_delta(&state, &notifications, target)
                 .expect("live workspace has a close delta");
             let was_active = state.active_workspace == index;
@@ -3331,6 +3332,7 @@ impl Mux {
             state.active_workspace = active_id
                 .and_then(|id| state.workspace_index(id))
                 .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
+            stamp_changed_active_pane(self, &mut state, previous_active);
             Self::rebuild_split_screen_index(&mut state);
             state.workspace_revision = state.workspace_revision.saturating_add(1);
             let revision = state.workspace_revision;
@@ -3777,6 +3779,15 @@ impl Mux {
             anyhow::bail!("layout must contain at least one leaf");
         }
         let active_pane = root.first_visible_pane();
+        let focused_at = self.next_active_at();
+        for (pane_id, pane) in &mut panes {
+            if *pane_id == active_pane {
+                pane.active_at = focused_at;
+                pane.focused_at = focused_at;
+            } else {
+                pane.focused_at = 0;
+            }
+        }
         let screen_id = self.next_id();
         let notifications = self.surface_notifications();
         let delta = {
@@ -3955,6 +3966,7 @@ impl Mux {
         let move_tab = || {
             let mut state = self.state.lock().unwrap();
             let workspace_count = state.workspaces.len();
+            let previous_active = state.active_pane();
             let source_pane = state.pane_of(surface);
             let source_screen = source_pane
                 .filter(|source| *source != pane)
@@ -3963,8 +3975,12 @@ impl Mux {
             let (moved, topology_changed) =
                 move_tab_in_state(self, &mut state, surface, pane, index);
             if moved {
+                let focused = previous_active != Some(pane) && state.active_pane() == Some(pane);
                 if let Some(pane) = state.panes.get_mut(&pane) {
                     pane.active_at = active_at;
+                    if focused {
+                        pane.focused_at = active_at;
+                    }
                 }
                 if state.workspaces.len() != workspace_count {
                     state.workspace_revision = state.workspace_revision.saturating_add(1);
@@ -4225,6 +4241,15 @@ fn stamp_pane_focus(state: &mut State, pane: PaneId, active_at: u64) {
     }
 }
 
+fn stamp_changed_active_pane(mux: &Mux, state: &mut State, previous: Option<PaneId>) {
+    let current = state.active_pane();
+    if current != previous
+        && let Some(pane) = current
+    {
+        stamp_pane_focus(state, pane, mux.next_active_at());
+    }
+}
+
 fn most_recent_pane(state: &State, panes: &[PaneId]) -> Option<PaneId> {
     panes
         .iter()
@@ -4405,6 +4430,7 @@ fn close_workspace_delta(
 /// the removed surface and whether split ownership or positional indexes
 /// changed. Runs under the state lock.
 fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Arc<Surface>>, bool) {
+    let previous_active = state.active_pane();
     let removed = state.surfaces.remove(&target);
     let Some(pane_id) = state.pane_of(target) else {
         return (removed, false);
@@ -4462,6 +4488,7 @@ fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Ar
             if let Some(next) = next_active {
                 screen.active_pane = next;
             }
+            stamp_changed_active_pane(mux, state, previous_active);
             return (removed, true);
         }
         None => {
@@ -4470,6 +4497,7 @@ fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Ar
             ws.screens.remove(si);
             ws.active_screen = ws.active_screen.min(ws.screens.len().saturating_sub(1));
             if !ws.screens.is_empty() {
+                stamp_changed_active_pane(mux, state, previous_active);
                 return (removed, true);
             }
         }
@@ -4481,6 +4509,7 @@ fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Ar
     state.active_workspace = active_id
         .and_then(|id| state.workspace_index(id))
         .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
+    stamp_changed_active_pane(mux, state, previous_active);
     (removed, true)
 }
 
@@ -5484,6 +5513,26 @@ mod tests {
     }
 
     #[test]
+    fn fresh_layout_focus_uses_layout_order_for_unfocused_candidates() {
+        let mux = test_mux();
+        let applied = mux
+            .apply_layout(
+                None,
+                None,
+                &split_spec(
+                    SplitDir::Right,
+                    0.5,
+                    leaf_spec(),
+                    split_spec(SplitDir::Down, 0.5, leaf_spec(), leaf_spec()),
+                ),
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(mux.focus_direction(None, Direction::Right).unwrap(), applied.panes[1].pane);
+    }
+
+    #[test]
     fn selecting_a_tab_in_an_inactive_pane_does_not_change_focus_recency() {
         let mux = test_mux();
         let first = mux.new_workspace(None, None).unwrap();
@@ -5497,6 +5546,25 @@ mod tests {
         mux.select_tab(Some(right), Some(0), None);
 
         assert_eq!(mux.with_state(|state| state.panes[&right].focused_at), before);
+    }
+
+    #[test]
+    fn moving_a_tab_to_another_pane_stamps_the_new_focus() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let left = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let extra = mux.new_tab(Some(left), None, None).unwrap();
+        let right_surface = mux.split(left, SplitDir::Right, None).unwrap();
+        let right = mux.with_state(|state| state.pane_of(right_surface.id).unwrap());
+        assert!(mux.focus_pane(left));
+        let before = mux.with_state(|state| state.panes[&right].focused_at);
+
+        assert!(mux.move_tab(extra.id, right, 0));
+
+        mux.with_state(|state| {
+            assert_eq!(state.active_pane(), Some(right));
+            assert!(state.panes[&right].focused_at > before);
+        });
     }
 
     #[test]
@@ -6013,6 +6081,7 @@ mod tests {
 
         assert!(mux.focus_pane(p1));
         assert!(mux.focus_pane(p3));
+        let previous_p1_focus = mux.with_state(|state| state.panes[&p1].focused_at);
         let events = mux.subscribe();
         mux.close_pane(p3);
 
@@ -6028,6 +6097,7 @@ mod tests {
         mux.with_state(|s| {
             assert_eq!(s.workspaces[0].screens[0].active_pane, p1);
             assert!(s.panes.contains_key(&p2));
+            assert!(s.panes[&p1].focused_at > previous_p1_focus);
         });
     }
 

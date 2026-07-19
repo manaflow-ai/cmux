@@ -2427,6 +2427,7 @@ struct DeferredInput {
 struct PaneFocusHistory {
     next_sequence: u64,
     recency: HashMap<PaneId, u64>,
+    membership: Option<(usize, u64, u64)>,
 }
 
 impl PaneFocusHistory {
@@ -2444,7 +2445,34 @@ impl PaneFocusHistory {
     }
 
     fn retain_present(&mut self, tree: &TreeView) {
-        self.recency.retain(|pane, _| tree.pane(*pane).is_some());
+        let mut count = 0;
+        let mut xor = 0;
+        let mut sum = 0u64;
+        for pane in tree
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .map(|pane| pane.id)
+        {
+            count += 1;
+            let mixed = pane.wrapping_mul(0x9e37_79b9_7f4a_7c15).rotate_left(27);
+            xor ^= mixed;
+            sum = sum.wrapping_add(mixed);
+        }
+        let membership = (count, xor, sum);
+        if self.membership == Some(membership) {
+            return;
+        }
+        let live = tree
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .map(|pane| pane.id)
+            .collect::<HashSet<_>>();
+        self.recency.retain(|pane, _| live.contains(pane));
+        self.membership = Some(membership);
     }
 }
 
@@ -3203,8 +3231,8 @@ impl App {
         for surface in removed_browsers {
             self.browser_input.forget_surface(surface);
         }
-        // This walks only panes this client has focused, without allocating or
-        // scanning every pane on ordinary redraws.
+        // The membership fingerprint makes unchanged redraws allocation-free;
+        // a live-pane index is built only after structural changes.
         self.pane_focus_history.retain_present(&tree);
         self.tree = tree;
         if self.active_pane() != previous_active
