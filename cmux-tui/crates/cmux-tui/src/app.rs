@@ -8131,6 +8131,40 @@ mod tests {
         assert!(app.selection.is_none());
 
         app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: dead_column,
+            row: live.y,
+            modifiers: KeyModifiers::SHIFT,
+        })
+        .unwrap();
+        assert!(app.selection.is_none());
+        assert!(app.drag.is_none());
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: live.x + 1,
+            row: live.y + 1,
+            modifiers: KeyModifiers::SHIFT,
+        })
+        .unwrap();
+        assert!(matches!(app.drag, Some(Drag::Select { content: rect, .. }) if rect == live));
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + content.width - 1,
+            row: content.y + content.height - 1,
+            modifiers: KeyModifiers::SHIFT,
+        })
+        .unwrap();
+        assert_eq!(app.selection.map(|selection| selection.head), Some((11, 4)));
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: content.x + content.width - 1,
+            row: content.y + content.height - 1,
+            modifiers: KeyModifiers::SHIFT,
+        })
+        .unwrap();
+
+        app.handle_mouse(MouseEvent {
             kind: MouseEventKind::ScrollDown,
             column: dead_column,
             row: live.y,
