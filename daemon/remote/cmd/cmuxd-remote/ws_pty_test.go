@@ -445,6 +445,97 @@ func TestWebSocketPTYReconnectKeepsForegroundProcessAfterHangup(t *testing.T) {
 	waitForHubSessionCount(t, hub, 0, 5*time.Second)
 }
 
+func TestWebSocketPTYPersistentInteractiveBashChildSurvivesHangup(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("interactive PTY hangup delivery is a Linux terminal-session regression")
+	}
+	if _, err := os.Stat("/bin/bash"); err != nil {
+		t.Skipf("interactive Bash is unavailable: %v", err)
+	}
+	if _, err := os.Stat("/usr/bin/python3"); err != nil {
+		t.Skipf("Python hangup fixture is unavailable: %v", err)
+	}
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	server, hub := newTestWebSocketPTYServer(t, leasePath)
+	const sessionID = "sess-interactive-hangup"
+	if err := func() error {
+		hub.mu.Lock()
+		defer hub.mu.Unlock()
+		session, err := hub.startSessionLocked(
+			persistentPTYSessionKey(sessionID),
+			sessionID,
+			80,
+			24,
+			"exec /bin/bash --noprofile --norc -i",
+		)
+		if err != nil {
+			return err
+		}
+		hub.sessions[session.key] = session
+		return nil
+	}(); err != nil {
+		t.Fatalf("start persistent interactive Bash session: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "interactive-token", sessionID, true, time.Now().Add(time.Minute))
+	conn := dialPTY(t, ctx, server.URL)
+	defer conn.Close(websocket.StatusNormalClosure, "done")
+	sendAuthWithAttachment(t, ctx, conn, "interactive-token", sessionID, "same", 80, 24)
+	readReady(t, ctx, conn)
+	waitForBinaryContains(t, ctx, conn, "bash", 5*time.Second)
+
+	// Agent runtimes may restore SIGHUP's default disposition. Persistence must
+	// therefore survive a disposition reset instead of depending on SIG_IGN.
+	helperCode := `import os,signal,time;signal.signal(signal.SIGHUP,signal.SIG_DFL);status=open("/proc/self/status").read();mask=int(next(line for line in status.splitlines() if line.startswith("SigBlk:")).split()[1],16);blocked=bool(mask&1);ignored=signal.getsignal(signal.SIGHUP)==signal.SIG_IGN;print("CMUX_"+"INTERACTIVE_HUP_HELPER pid=%d blocked=%s ignored=%s protected=%s"%(os.getpid(),str(blocked).lower(),str(ignored).lower(),str(blocked or ignored).lower()),flush=True);signal.signal(signal.SIGUSR1,lambda *_:print("CMUX_"+"INTERACTIVE_HUP_HELPER alive",flush=True));time.sleep(1000000)`
+	command := "set -m; /usr/bin/python3 -u -c '" + helperCode + "'\r"
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte(command)); err != nil {
+		t.Fatalf("launch foreground helper from interactive Bash: %v", err)
+	}
+	const pidMarker = "CMUX_INTERACTIVE_HUP_HELPER pid="
+	output := waitForBinaryContains(t, ctx, conn, pidMarker, 5*time.Second)
+	markerIndex := strings.LastIndex(output, pidMarker)
+	pidStart := markerIndex + len(pidMarker)
+	pidEnd := pidStart
+	for pidEnd < len(output) && output[pidEnd] >= '0' && output[pidEnd] <= '9' {
+		pidEnd++
+	}
+	childPID, err := strconv.Atoi(output[pidStart:pidEnd])
+	if err != nil || childPID <= 0 {
+		t.Fatalf("parse interactive foreground helper pid from output %q: pid=%d err=%v", output, childPID, err)
+	}
+	t.Logf("interactive foreground helper state: %q", output[markerIndex:])
+	t.Cleanup(func() { _ = syscall.Kill(-childPID, syscall.SIGKILL) })
+	hangupProtection := output[markerIndex:]
+
+	_ = conn.Close(websocket.StatusNormalClosure, "relay drop")
+	waitForHubSessionSize(t, hub, sessionID, 0, 80, 24, 5*time.Second)
+	if err := syscall.Kill(-childPID, syscall.SIGHUP); err != nil {
+		t.Fatalf("deliver hangup to interactive foreground process group: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if err := syscall.Kill(-childPID, syscall.SIGUSR1); err != nil {
+		t.Fatalf("interactive foreground helper did not survive hangup: %v", err)
+	}
+
+	writeTestLease(t, leasePath, "reattach-token", sessionID, true, time.Now().Add(time.Minute))
+	conn = dialPTY(t, ctx, server.URL)
+	sendAuthWithAttachment(t, ctx, conn, "reattach-token", sessionID, "same", 80, 24)
+	readReady(t, ctx, conn)
+	waitForBinaryContains(t, ctx, conn, "CMUX_INTERACTIVE_HUP_HELPER alive", 5*time.Second)
+	if !strings.Contains(hangupProtection, "protected=true") {
+		t.Fatalf("interactive Bash foreground child did not inherit SIGHUP protection: %q", hangupProtection)
+	}
+
+	_ = syscall.Kill(-childPID, syscall.SIGKILL)
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte("exit\r")); err != nil {
+		t.Fatalf("exit reattached shell: %v", err)
+	}
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
 func TestWebSocketPTYAnonymousSessionExitsOnHangup(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("foreground PTY hangup delivery is a Linux terminal-session regression")
