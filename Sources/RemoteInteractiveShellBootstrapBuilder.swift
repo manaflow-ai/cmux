@@ -153,6 +153,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
         case (.bash, .none):
             return "    exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i"
         case (.bash, .some(let resumeInvocation)):
+            // The resumed shell only inherits the exported integration-directory variable.
             let command = resumeInvocation +
                 "\nexec \"$CMUX_LOGIN_SHELL\" --rcfile \"$CMUX_SHELL_INTEGRATION_DIR/.bashrc\" -i"
             return "    exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -ic \(shellQuote(command))"

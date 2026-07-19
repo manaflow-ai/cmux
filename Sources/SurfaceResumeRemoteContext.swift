@@ -23,9 +23,13 @@ struct SurfaceResumeRemoteContext: Codable, Equatable, Hashable, Sendable {
         surfaceID: UUID,
         persistentPTYSessionID: String
     ) -> Bool {
-        self.workspaceID == workspaceID &&
-            self.surfaceID == surfaceID &&
-            normalizedSessionID(self.persistentPTYSessionID) == normalizedSessionID(persistentPTYSessionID)
+        guard self.workspaceID == workspaceID,
+              self.surfaceID == surfaceID,
+              let storedSessionID = normalizedSessionID(self.persistentPTYSessionID),
+              let candidateSessionID = normalizedSessionID(persistentPTYSessionID) else {
+            return false
+        }
+        return storedSessionID == candidateSessionID
     }
 
     private func normalizedSessionID(_ value: String) -> String? {

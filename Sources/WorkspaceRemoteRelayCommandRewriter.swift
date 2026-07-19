@@ -7,6 +7,7 @@ import Foundation
 /// `Workspace`.
 struct WorkspaceRemoteRelayCommandRewriter: RemoteRelayCommandRewriting {
     private static let authenticationCodeKey = "_cmux_remote_relay_authentication_code"
+    private static let remoteResumeMethodNeedle = Data(#""surface.resume.set""#.utf8)
 
     let remoteWorkspaceID: UUID
     let remoteRelayTokenHex: String
@@ -16,12 +17,14 @@ struct WorkspaceRemoteRelayCommandRewriter: RemoteRelayCommandRewriting {
         workspaceAliases: [UUID: UUID],
         surfaceAliases: [UUID: UUID]
     ) -> Data {
+        let authenticatesRemoteResume = commandLine.range(of: Self.remoteResumeMethodNeedle) != nil
         let rewritten = Workspace.rewriteRemoteRelayCommandLine(
             commandLine,
             workspaceAliases: workspaceAliases,
             surfaceAliases: surfaceAliases,
-            remoteWorkspaceID: remoteWorkspaceID
+            remoteWorkspaceID: authenticatesRemoteResume ? remoteWorkspaceID : nil
         )
+        guard authenticatesRemoteResume else { return rewritten }
         return authenticatedRemoteResumeCommandLine(rewritten)
     }
 

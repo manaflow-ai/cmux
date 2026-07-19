@@ -14,6 +14,23 @@ struct RemoteResumeBindingTests {
     private let relayPort = 64_089
 
     @Test
+    func emptyPersistentSessionIDsNeverMatch() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let context = SurfaceResumeRemoteContext(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            persistentPTYSessionID: ""
+        )
+
+        #expect(!context.matches(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            persistentPTYSessionID: "   "
+        ))
+    }
+
+    @Test
     func relayedRegistrationUsesExplicitRemoteFlavorAfterAliasRewrite() throws {
         let fixture = try makeRelayedFixture()
 
