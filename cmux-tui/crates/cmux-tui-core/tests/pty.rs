@@ -382,6 +382,19 @@ fn control_socket_round_trip() {
     assert_eq!(v["ok"], true, "split failed: {line}");
 
     line.clear();
+    writeln!(writer, r#"{{"id":91,"cmd":"export-layout"}}"#).unwrap();
+    reader.read_line(&mut line).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    let split_id = v["data"]["layout"]["split"].as_u64().expect("protocol v8 split id");
+
+    line.clear();
+    writeln!(writer, r#"{{"id":92,"cmd":"set-split-ratio","split":{split_id},"ratio":0.65}}"#)
+        .unwrap();
+    reader.read_line(&mut line).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(v["ok"], true, "set-split-ratio failed: {line}");
+
+    line.clear();
     writeln!(writer, r#"{{"id":10,"cmd":"set-ratio","pane":{pane_id},"dir":"right","ratio":0.7}}"#)
         .unwrap();
     reader.read_line(&mut line).unwrap();
@@ -405,6 +418,7 @@ fn control_socket_round_trip() {
     assert_eq!(pane["active_tab"], 1);
     let ratio = ws["screens"][0]["layout"]["ratio"].as_f64().unwrap();
     assert!((ratio - 0.7).abs() < 0.0001, "layout ratio was {ratio}");
+    assert_eq!(ws["screens"][0]["layout"]["split"].as_u64(), Some(split_id));
     assert_eq!(ws["screens"].as_array().unwrap().len(), 2);
     assert_eq!(ws["screens"][1]["active"], true);
 

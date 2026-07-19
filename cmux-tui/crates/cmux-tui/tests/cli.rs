@@ -69,7 +69,7 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_success(&ping_json);
     let ping: serde_json::Value = serde_json::from_slice(&ping_json.stdout).unwrap();
     assert_eq!(ping.get("ok").and_then(|v| v.as_bool()), Some(true));
-    assert_eq!(ping.get("protocol").and_then(|v| v.as_u64()), Some(7));
+    assert_eq!(ping.get("protocol").and_then(|v| v.as_u64()), Some(8));
 
     let client_info =
         cli(&server, &["set-client-info", "--name", "one-shot", "--kind", "cli-test"]);
@@ -143,7 +143,23 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_success(&exported);
     let exported_json: serde_json::Value = serde_json::from_slice(&exported.stdout).unwrap();
     assert_eq!(exported_json["layout"]["type"].as_str(), Some("split"));
+    let split_id = exported_json["layout"]["split"].as_u64().unwrap();
     assert_eq!(exported_json["panes"].as_array().unwrap().len(), 2);
+
+    let exact_ratio =
+        cli(&server, &["set-split-ratio", "--split", &split_id.to_string(), "--ratio", "0.7"]);
+    assert_success(&exact_ratio);
+    let exported = cli(&server, &["--json", "export-layout"]);
+    let exported_json: serde_json::Value = serde_json::from_slice(&exported.stdout).unwrap();
+    assert_eq!(exported_json["layout"]["split"].as_u64(), Some(split_id));
+    let ratio = exported_json["layout"]["ratio"].as_f64().unwrap();
+    assert!((ratio - 0.7).abs() < 0.0001, "layout ratio was {ratio}");
+
+    let legacy_ratio = cli(
+        &server,
+        &["set-ratio", "--pane", &pane0.to_string(), "--dir", "right", "--ratio", "0.6"],
+    );
+    assert_success(&legacy_ratio);
 
     let neighbor =
         cli(&server, &["--json", "pane-neighbor", "--pane", &pane0.to_string(), "--dir", "right"]);

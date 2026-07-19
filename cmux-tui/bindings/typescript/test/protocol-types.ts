@@ -37,6 +37,7 @@ const requests = [
   { cmd: "new-screen", workspace: 1 },
   { cmd: "split", pane: 1, dir: "right" },
   { cmd: "set-ratio", pane: 1, dir: "down", ratio: 0.5 },
+  { cmd: "set-split-ratio", split: 2, ratio: 0.5 },
   { cmd: "pane-neighbor", pane: 1, dir: "left" },
   { cmd: "focus-direction", dir: "up" },
   { cmd: "swap-pane", pane: 1, target: 2 },
@@ -79,7 +80,7 @@ const identify: IdentifyData = {
   version: "0.1.2",
   build_commit: "cmux-sha",
   ghostty_commit: null,
-  protocol: 6,
+  protocol: 8,
   session: "main",
   pid: 1,
 };
