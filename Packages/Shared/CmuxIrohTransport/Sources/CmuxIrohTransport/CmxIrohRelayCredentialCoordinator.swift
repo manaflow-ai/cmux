@@ -82,14 +82,15 @@ public actor CmxIrohRelayCredentialCoordinator {
     /// Starts refresh scheduling for one exact registered endpoint binding.
     ///
     /// A bootstrap credential is installed before scheduling. Bootstrap
-    /// validation failure is returned to the caller, while an immediate broker
-    /// retry is still scheduled so registration remains committed and direct
-    /// connectivity remains available.
+    /// validation failure is returned while an immediate broker retry is
+    /// scheduled by default. Relay-required callers instead wait through the
+    /// same bounded-backoff schedule until one credential installs or activation
+    /// is cancelled.
     public func activate(
         bindingID: String,
         endpointIdentity: CmxIrohPeerIdentity,
         bootstrap: CmxIrohRelayTokenResponse? = nil,
-        waitForInitialCredential _: Bool = false
+        waitForInitialCredential: Bool = false
     ) async throws {
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
@@ -110,10 +111,21 @@ public actor CmxIrohRelayCredentialCoordinator {
                 startLoopIfEnabled(revision: revision, firstRefresh: installed.refreshAfter)
                 return
             } catch {
-                if isCurrent(revision), !Task.isCancelled {
-                    startLoopIfEnabled(revision: revision, firstRefresh: nil)
+                guard isCurrent(revision), !Task.isCancelled else {
+                    throw CancellationError()
                 }
-                throw error
+                if waitForInitialCredential {
+                    try await installInitialCredentialAfterRetry(
+                        binding: expectedBinding,
+                        revision: revision,
+                        firstRetry: nil,
+                        initialFailureCount: 0
+                    )
+                } else {
+                    startLoopIfEnabled(revision: revision, firstRefresh: nil)
+                    throw error
+                }
+                return
             }
         }
         do {
@@ -128,15 +140,75 @@ public actor CmxIrohRelayCredentialCoordinator {
             )
             startLoopIfEnabled(revision: revision, firstRefresh: installed.refreshAfter)
         } catch {
-            if isCurrent(revision), !Task.isCancelled {
-                let delay = retryDelay(failureCount: 0, error: error)
+            guard isCurrent(revision), !Task.isCancelled else {
+                throw CancellationError()
+            }
+            let delay = retryDelay(failureCount: 0, error: error)
+            let firstRetry = retryDeadline(
+                now: clock.now(),
+                backoff: delay,
+                honorsServerFloor: (error as? CmxIrohTrustBrokerClientError)?
+                    .retryAfterSeconds != nil
+            )
+            if waitForInitialCredential {
+                try await installInitialCredentialAfterRetry(
+                    binding: expectedBinding,
+                    revision: revision,
+                    firstRetry: firstRetry,
+                    initialFailureCount: 1
+                )
+            } else {
                 startLoopIfEnabled(
                     revision: revision,
-                    firstRefresh: clock.now().addingTimeInterval(delay),
+                    firstRefresh: firstRetry,
                     initialFailureCount: 1
                 )
             }
         }
+    }
+
+    private func installInitialCredentialAfterRetry(
+        binding: Binding,
+        revision: UInt64,
+        firstRetry: Date?,
+        initialFailureCount: Int
+    ) async throws {
+        var deadline = firstRetry
+        var failureCount = initialFailureCount
+        while isCurrent(revision), !Task.isCancelled {
+            if let deadline {
+                try await clock.sleep(until: deadline)
+            }
+            guard isCurrent(revision), !Task.isCancelled else {
+                throw CancellationError()
+            }
+            do {
+                let installed = try await refreshCredential(
+                    binding: binding,
+                    revision: revision
+                )
+                startLoopIfEnabled(
+                    revision: revision,
+                    firstRefresh: installed.refreshAfter
+                )
+                return
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                guard isCurrent(revision), !Task.isCancelled else {
+                    throw CancellationError()
+                }
+                let delay = retryDelay(failureCount: failureCount, error: error)
+                deadline = retryDeadline(
+                    now: clock.now(),
+                    backoff: delay,
+                    honorsServerFloor: (error as? CmxIrohTrustBrokerClientError)?
+                        .retryAfterSeconds != nil
+                )
+                failureCount = min(failureCount + 1, 20)
+            }
+        }
+        throw CancellationError()
     }
 
     /// Cancels all scheduled refresh work and forgets binding-scoped state.

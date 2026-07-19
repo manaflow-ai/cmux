@@ -204,13 +204,17 @@ extension CmxIrohClientRuntime {
 
         let bootstrap = startRelays ? configuration.cachedRelayCredential : nil
         if startRelays || bootstrap != nil {
+            let requiresRelayReadiness = !protocolConfiguration
+                .allowsNATTraversalAfterAdmission
             do {
                 try await coordinator.activate(
                     bindingID: policy.binding.bindingID,
                     endpointIdentity: policy.binding.endpointID,
-                    bootstrap: bootstrap
+                    bootstrap: bootstrap,
+                    waitForInitialCredential: requiresRelayReadiness
                 )
             } catch {
+                if requiresRelayReadiness { throw error }
                 // Registration remains authoritative; direct paths remain usable.
             }
         }
