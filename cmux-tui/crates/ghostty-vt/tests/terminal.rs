@@ -459,6 +459,21 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     state.update(&mut term).unwrap();
     assert_eq!(state.palette_color(15), Rgb { r: 15, g: 15, b: 15 });
 
+    term.vt_write(b"\x1b]4;21;#212121\x07");
+    term.vt_write(b"\x1b]104;21\x9d4;22;#222222\x07");
+    assert!(term.palette_overridden(21), "Ghostty treats raw C1 as OSC payload in OSC state");
+    assert!(!term.palette_overridden(22), "raw C1 must not begin a nested OSC in OSC state");
+    term.vt_write(b"\x1bPq\x9d4;22;#222222\x07");
+    assert!(term.palette_overridden(22), "C1 OSC must leave DCS and begin an OSC");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(22), Rgb { r: 0x22, g: 0x22, b: 0x22 });
+
+    term.vt_write(b"\x1b]4;23;#232323\x07");
+    term.vt_write(b"\x1b]21;23=\xff\x07");
+    assert!(term.palette_overridden(23), "invalid UTF-8 Kitty values must not become resets");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(23), Rgb { r: 0x23, g: 0x23, b: 0x23 });
+
     term.vt_write(b"\x1b]4;0;#101010\x07");
     let mut too_many_kitty_requests = b"\x1b]21;".to_vec();
     for request in 0..527 {

@@ -382,6 +382,7 @@ enum PaletteTrackState {
     String {
         bell_terminated: bool,
     },
+    Csi,
 }
 
 enum PaletteOsc {
@@ -454,72 +455,101 @@ impl PaletteOverrideTracker {
                     0x1b => PaletteTrackState::Escape,
                     _ => PaletteTrackState::Ground,
                 },
-                PaletteTrackState::Escape => match byte {
-                    b']' => PaletteTrackState::Osc(PaletteOsc::default()),
-                    b'P' | b'X' | b'^' | b'_' => {
-                        PaletteTrackState::String { bell_terminated: false }
-                    }
-                    b'c' => {
-                        // Ghostty preserves palette overrides across RIS, but
-                        // attached byte frontends reset their mirror palette.
-                        // Re-emit the authoritative sparse snapshot afterward.
-                        self.revision = self.revision.wrapping_add(1);
-                        self.reapply_revision = self.reapply_revision.wrapping_add(1);
-                        PaletteTrackState::Ground
-                    }
-                    0x18 | 0x1a => PaletteTrackState::Ground,
-                    0x1b => PaletteTrackState::Escape,
-                    0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => PaletteTrackState::Escape,
-                    0x20..=0x2f => PaletteTrackState::EscapeIntermediate,
-                    _ => PaletteTrackState::Ground,
+                PaletteTrackState::Escape => match palette_c1_transition(byte) {
+                    Some(state) => state,
+                    None => match byte {
+                        b']' => PaletteTrackState::Osc(PaletteOsc::default()),
+                        b'P' | b'X' | b'^' | b'_' => {
+                            PaletteTrackState::String { bell_terminated: false }
+                        }
+                        b'c' => {
+                            // Ghostty preserves palette overrides across RIS, but
+                            // attached byte frontends reset their mirror palette.
+                            // Re-emit the authoritative sparse snapshot afterward.
+                            self.revision = self.revision.wrapping_add(1);
+                            self.reapply_revision = self.reapply_revision.wrapping_add(1);
+                            PaletteTrackState::Ground
+                        }
+                        0x18 | 0x1a => PaletteTrackState::Ground,
+                        0x1b => PaletteTrackState::Escape,
+                        0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => PaletteTrackState::Escape,
+                        0x20..=0x2f => PaletteTrackState::EscapeIntermediate,
+                        _ => PaletteTrackState::Ground,
+                    },
                 },
-                PaletteTrackState::EscapeIntermediate => match byte {
-                    0x18 | 0x1a => PaletteTrackState::Ground,
-                    0x1b => PaletteTrackState::Escape,
-                    0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => {
-                        PaletteTrackState::EscapeIntermediate
-                    }
-                    0x20..=0x2f => PaletteTrackState::EscapeIntermediate,
-                    _ => PaletteTrackState::Ground,
+                PaletteTrackState::EscapeIntermediate => match palette_c1_transition(byte) {
+                    Some(state) => state,
+                    None => match byte {
+                        0x18 | 0x1a => PaletteTrackState::Ground,
+                        0x1b => PaletteTrackState::Escape,
+                        0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => {
+                            PaletteTrackState::EscapeIntermediate
+                        }
+                        0x20..=0x2f => PaletteTrackState::EscapeIntermediate,
+                        _ => PaletteTrackState::Ground,
+                    },
                 },
                 PaletteTrackState::Osc(mut osc) => match byte {
-                    0x07 | 0x9c => {
-                        if osc.commit(&mut self.active) {
-                            self.revision = self.revision.wrapping_add(1);
-                        }
-                        PaletteTrackState::Ground
-                    }
-                    0x18 | 0x1a => {
-                        // Ghostty dispatches the OSC prefix while exiting
-                        // osc_string on CAN/SUB.
-                        if osc.commit(&mut self.active) {
-                            self.revision = self.revision.wrapping_add(1);
-                        }
+                    0x07 | 0x18 | 0x1a => {
+                        self.commit_osc(osc);
                         PaletteTrackState::Ground
                     }
                     0..=0x06 | 0x08..=0x17 | 0x19 | 0x1c..=0x1f => PaletteTrackState::Osc(osc),
                     0x1b => {
-                        // Ghostty exits and dispatches OSC on the ESC byte
-                        // that begins ST, before the trailing `\\` arrives.
-                        if osc.commit(&mut self.active) {
-                            self.revision = self.revision.wrapping_add(1);
-                        }
+                        // Ghostty dispatches OSC on the ESC byte that begins
+                        // ST, before the trailing `\\` arrives.
+                        self.commit_osc(osc);
                         PaletteTrackState::Escape
                     }
                     _ => {
+                        // Ghostty's OSC-specific 0x20...0xff parse-table row
+                        // overrides the generic C1 transitions. Raw C1 bytes
+                        // are OSC payload here, unlike in DCS/APC/CSI states.
                         osc.feed(byte);
                         PaletteTrackState::Osc(osc)
                     }
                 },
-                PaletteTrackState::String { bell_terminated } => match byte {
-                    0x07 if bell_terminated => PaletteTrackState::Ground,
-                    0x9c => PaletteTrackState::Ground,
-                    0x18 | 0x1a => PaletteTrackState::Ground,
-                    0x1b => PaletteTrackState::Escape,
-                    _ => PaletteTrackState::String { bell_terminated },
+                PaletteTrackState::String { bell_terminated } => {
+                    match palette_c1_transition(byte) {
+                        Some(state) => state,
+                        None => match byte {
+                            0x07 if bell_terminated => PaletteTrackState::Ground,
+                            0x18 | 0x1a => PaletteTrackState::Ground,
+                            0x1b => PaletteTrackState::Escape,
+                            _ => PaletteTrackState::String { bell_terminated },
+                        },
+                    }
+                }
+                PaletteTrackState::Csi => match palette_c1_transition(byte) {
+                    Some(state) => state,
+                    None => match byte {
+                        0x18 | 0x1a => PaletteTrackState::Ground,
+                        0x1b => PaletteTrackState::Escape,
+                        0x40..=0x7e => PaletteTrackState::Ground,
+                        _ => PaletteTrackState::Csi,
+                    },
                 },
             };
         }
+    }
+
+    fn commit_osc(&mut self, osc: PaletteOsc) {
+        if osc.commit(&mut self.active) {
+            self.revision = self.revision.wrapping_add(1);
+        }
+    }
+}
+
+/// Ghostty's generic C1 transitions for parser states whose state-specific
+/// table does not override them. Raw C1 bytes only reach this tracker after an
+/// escape-initiated state; ground-state bytes pass through the UTF-8 decoder.
+fn palette_c1_transition(byte: u8) -> Option<PaletteTrackState> {
+    match byte {
+        0x80..=0x8f | 0x91..=0x97 | 0x99 | 0x9a | 0x9c => Some(PaletteTrackState::Ground),
+        0x90 | 0x98 | 0x9e | 0x9f => Some(PaletteTrackState::String { bell_terminated: false }),
+        0x9b => Some(PaletteTrackState::Csi),
+        0x9d => Some(PaletteTrackState::Osc(PaletteOsc::default())),
+        _ => None,
     }
 }
 
@@ -662,11 +692,13 @@ impl PaletteCommand {
                             | "visual_bell"
                             | "second_transparent_background"
                     );
-                let value = trim_ascii_spaces(value);
-                let value = std::str::from_utf8(value).unwrap_or_default();
+                let value = std::str::from_utf8(trim_ascii_spaces(value)).ok();
                 let accepted = recognized
-                    && (value.is_empty() || value == "?" || parse_color(value).is_some());
+                    && value.is_some_and(|value| {
+                        value.is_empty() || value == "?" || parse_color(value).is_some()
+                    });
                 if accepted {
+                    let value = value.expect("accepted Kitty color value must be valid UTF-8");
                     self.kitty_request_count += 1;
                     self.color_changed |= value != "?";
                     if value.is_empty()
