@@ -1027,17 +1027,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
     private var mainWindowControllers: [MainWindowController] = []
-
-    /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
-    /// Reset to `.zero` so the first window seeds the point from its own position.
     private var lastCascadePoint = NSPoint.zero
     private(set) var startupSessionSnapshot: AppSessionSnapshot?
     private var didPrepareStartupSessionSnapshot = false
     var didAttemptStartupSessionRestore = false
     var isApplyingSessionRestore = false
-    /// Durable navigation links that arrived before startup restore registered
-    /// their target workspaces.
+    /// Durable navigation links received before startup restore registers their workspaces.
     var pendingStartupNavigationURLRequests: [CmuxNavigationURLRequest] = []
+    lazy var cmuxRunURLConfirmationPresenter = CmuxRunURLConfirmationPresenter()
+    lazy var cmuxRunURLCoordinator = CmuxRunURLCoordinator(
+        appDelegate: self,
+        confirmationPresenter: cmuxRunURLConfirmationPresenter
+    )
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
@@ -1046,8 +1047,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
     )
-    /// Session snapshot persistence (CmuxSession); composition-root owned.
-    /// `nonisolated` because the autosave write block runs on `sessionPersistenceQueue`.
+    /// Composition-root snapshot persistence, nonisolated for writes on `sessionPersistenceQueue`.
     nonisolated let sessionSnapshotStore: any SessionSnapshotStoring<AppSessionSnapshot> = SessionSnapshotRepository(
         schemaVersion: SessionSnapshotSchema.currentVersion,
         bundleIdentifier: Bundle.main.bundleIdentifier
@@ -8551,6 +8551,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func createMainWindow(
         initialWorkspaceTitle: String? = nil,
         initialWorkingDirectory: String? = nil,
+        initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
         sessionWindowSnapshot: SessionWindowSnapshot? = nil,
         preferredWindowId: UUID? = nil,
@@ -8566,8 +8567,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let tabManager = TabManager(
             initialWorkspaceTitle: initialWorkspaceTitle,
             initialWorkingDirectory: initialWorkingDirectory,
+            initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
-            autoWelcomeIfNeeded: initialTerminalInput == nil,
+            autoWelcomeIfNeeded: initialTerminalCommand == nil && initialTerminalInput == nil,
             pullRequestProbeService: self.tabManager?.pullRequestProbeService,
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
         )

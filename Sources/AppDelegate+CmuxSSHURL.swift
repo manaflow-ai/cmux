@@ -423,66 +423,6 @@ extension AppDelegate {
     }
 
     @discardableResult
-    func handleCmuxExternalURLs(from urls: [URL]) -> Bool {
-        let intentCounts = cmuxExternalURLIntentCounts(in: urls)
-        guard intentCounts.total > 0 else { return false }
-        guard intentCounts.total == 1 else {
-            if intentCounts.ssh > 1 && intentCounts.navigation == 0 && intentCounts.text == 0 {
-                showCmuxSSHURLParseError(.multipleLinks)
-            } else {
-                showCmuxTextURLParseError(.multipleLinks)
-            }
-            return true
-        }
-
-        if handleCmuxSSHURLs(from: urls) {
-            return true
-        }
-        if handleCmuxNavigationURLs(from: urls) {
-            return true
-        }
-        if handleCmuxTextURLs(from: urls) {
-            return true
-        }
-        return false
-    }
-
-    private struct CmuxExternalURLIntentCounts {
-        var ssh = 0
-        var navigation = 0
-        var text = 0
-
-        var total: Int {
-            ssh + navigation + text
-        }
-    }
-
-    private func cmuxExternalURLIntentCounts(in urls: [URL]) -> CmuxExternalURLIntentCounts {
-        urls.reduce(CmuxExternalURLIntentCounts()) { counts, url in
-            var nextCounts = counts
-            switch CmuxSSHURLRequest.parse(url) {
-            case .success(.some), .failure:
-                nextCounts.ssh += 1
-            case .success(nil):
-                break
-            }
-            switch CmuxNavigationURLRequest.parse(url) {
-            case .success(.some), .failure:
-                nextCounts.navigation += 1
-            case .success(nil):
-                break
-            }
-            switch CmuxTextURLRequest.parse(url) {
-            case .success(.some), .failure:
-                nextCounts.text += 1
-            case .success(nil):
-                break
-            }
-            return nextCounts
-        }
-    }
-
-    @discardableResult
     func handleCmuxNavigationURLs(from urls: [URL]) -> Bool {
         var navigationRequests: [CmuxNavigationURLRequest] = []
         var parseErrors: [(url: URL, error: CmuxNavigationURLParseError)] = []
@@ -858,7 +798,7 @@ extension AppDelegate {
         return scrollView
     }
 
-    private func showCmuxSSHURLParseError(_ error: CmuxSSHURLParseError) {
+    func showCmuxSSHURLParseError(_ error: CmuxSSHURLParseError) {
         let alert = NSAlert()
         alert.alertStyle = .critical
         alert.messageText = String(
@@ -884,7 +824,7 @@ extension AppDelegate {
         alert.runModal()
     }
 
-    private func showCmuxTextURLParseError(_ error: CmuxTextURLParseError) {
+    func showCmuxTextURLParseError(_ error: CmuxTextURLParseError) {
         let alert = NSAlert()
         alert.alertStyle = .critical
         alert.messageText = String(

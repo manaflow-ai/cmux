@@ -462,10 +462,10 @@ class TabManager: ObservableObject {
     /// value to every subsequently-created window so their pollers share one
     /// session, ETag cache, backoff deadline, and request queue.
     let pullRequestProbeService: PullRequestProbeService
-
     init(
         initialWorkspaceTitle: String? = nil,
         initialWorkingDirectory: String? = nil,
+        initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
         autoWelcomeIfNeeded: Bool = true,
         commandRunner: any CommandRunning = CommandRunner(),
@@ -539,6 +539,7 @@ class TabManager: ObservableObject {
         addWorkspace(
             title: initialWorkspaceTitle,
             workingDirectory: initialWorkingDirectory,
+            initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: autoWelcomeIfNeeded
         )
@@ -3823,7 +3824,8 @@ class TabManager: ObservableObject {
         tmuxStartCommand: String? = nil,
         startupEnvironment: [String: String] = [:],
         initialDividerPosition: CGFloat? = nil,
-        remotePTYSessionID: String? = nil
+        remotePTYSessionID: String? = nil,
+        startupInheritance: TerminalStartupInheritancePolicy = .standard
     ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         return tab.newTerminalSplit(
@@ -3836,7 +3838,8 @@ class TabManager: ObservableObject {
             tmuxStartCommand: tmuxStartCommand,
             startupEnvironment: startupEnvironment,
             initialDividerPosition: initialDividerPosition,
-            remotePTYSessionID: remotePTYSessionID
+            remotePTYSessionID: remotePTYSessionID,
+            startupInheritance: startupInheritance
         )?.id
     }
 

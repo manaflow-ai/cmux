@@ -1802,7 +1802,8 @@ jobs:
       - name: Build universal app (Release)
         run: |
           set -euo pipefail
-          CMUX_SKIP_ZIG_BUILD=1 xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
+          # Avoid overlapping the arm64 and x86_64 whole-module Swift frontends.
+          CMUX_SKIP_ZIG_BUILD=1 xcodebuild -jobs 1 -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
             ARCHS="arm64 x86_64" \
