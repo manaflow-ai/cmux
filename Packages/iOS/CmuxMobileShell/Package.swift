@@ -13,6 +13,10 @@ let package = Package(
             name: "CmuxMobileShell",
             targets: ["CmuxMobileShell"]
         ),
+        .library(
+            name: "CmuxMobileShellReleaseGateSupport",
+            targets: ["CmuxMobileShellReleaseGateSupport"]
+        ),
     ],
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
@@ -36,6 +40,20 @@ let package = Package(
                 "CmuxMobileShellModel",
                 "CmuxMobileSupport",
                 "CmuxMobileTransport",
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
+        .target(
+            name: "CmuxMobileShellReleaseGateSupport",
+            dependencies: [
+                "CmuxMobileShell",
+                "CMUXMobileCore",
+                "CmuxMobileRPC",
+                "CmuxMobileShellModel",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

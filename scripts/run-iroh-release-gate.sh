@@ -66,8 +66,13 @@ IOS_APP="$HOME/Library/Developer/Xcode/DerivedData/cmux-ios-$SLUG/Build/Products
 SIMULATOR_NAME="cmux Iroh gate $SLUG"
 SIMULATOR_ID=""
 REPORT_FILENAME="cmux-iroh-release-gate.json"
+REPORT_READY_NOTIFICATION="dev.cmux.ios.iroh-release-gate.report-ready"
+REPORT_WAITER_PID=""
 
 cleanup() {
+  if [[ -n "$REPORT_WAITER_PID" ]]; then
+    kill "$REPORT_WAITER_PID" >/dev/null 2>&1 || true
+  fi
   if [[ "$KEEP_SIMULATOR" -eq 1 ]]; then
     return
   fi
@@ -140,13 +145,80 @@ xcrun simctl spawn "$SIMULATOR_ID" defaults write \
 # The driver owns this unique tag, so restart it unconditionally. A live pairing
 # socket can otherwise make `cmux_attach_ensure_mac` return without relaunching,
 # leaving a prior run's transport mode active.
-pkill -f "cmux DEV ${SLUG}.app/Contents/MacOS/cmux DEV" 2>/dev/null || true
-for _ in $(seq 1 25); do
-  [[ ! -S "$(cmux_attach_socket_path "$TAG")" ]] && break
-  sleep 0.2
-done
+MAC_PROCESS_PATTERN="cmux DEV ${SLUG}.app/Contents/MacOS/cmux DEV"
+MAC_PROCESS_IDS="$(pgrep -f "$MAC_PROCESS_PATTERN" | tr '\n' ' ' || true)"
+pkill -f "$MAC_PROCESS_PATTERN" 2>/dev/null || true
+if [[ -n "$MAC_PROCESS_IDS" ]]; then
+  MAC_PROCESS_IDS="$MAC_PROCESS_IDS" /usr/bin/python3 <<'PY'
+import errno
+import os
+import select
+import time
+
+pids = {int(raw) for raw in os.environ["MAC_PROCESS_IDS"].split()}
+kqueue = select.kqueue()
+for pid in tuple(pids):
+    try:
+        kqueue.control([
+            select.kevent(
+                pid,
+                filter=select.KQ_FILTER_PROC,
+                flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT,
+                fflags=select.KQ_NOTE_EXIT,
+            )
+        ], 0, 0)
+    except OSError as error:
+        if error.errno == errno.ESRCH:
+            pids.remove(pid)
+        else:
+            raise
+
+deadline = time.monotonic() + 5
+while pids:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise SystemExit("Mac app did not exit before the five-second deadline")
+    try:
+        events = kqueue.control([], len(pids), remaining)
+    except OSError as error:
+        if error.errno != errno.ESRCH:
+            raise
+        events = []
+    for event in events:
+        pids.discard(event.ident)
+    if not events and pids:
+        raise SystemExit("Mac app did not signal process exit")
+PY
+fi
+[[ ! -S "$(cmux_attach_socket_path "$TAG")" ]] || {
+  echo "error: tagged Mac socket remained after process exit" >&2
+  exit 1
+}
 CMUX_ATTACH_ALLOW_RELAUNCH=1 cmux_attach_ensure_mac \
   "$TAG" "$REPO_ROOT" simulator_injection
+
+# Wait for the app's atomic report-write signal. Python owns the simulator
+# notifyutil child so its timeout is bounded without polling the filesystem.
+SIMULATOR_ID="$SIMULATOR_ID" \
+REPORT_READY_NOTIFICATION="$REPORT_READY_NOTIFICATION" \
+/usr/bin/python3 <<'PY' &
+import os
+import subprocess
+
+try:
+    subprocess.run(
+        [
+            "xcrun", "simctl", "spawn", os.environ["SIMULATOR_ID"],
+            "notifyutil", "-1", os.environ["REPORT_READY_NOTIFICATION"],
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        timeout=180,
+    )
+except subprocess.TimeoutExpired:
+    raise SystemExit("Iroh release gate report signal timed out")
+PY
+REPORT_WAITER_PID=$!
 
 ./scripts/mobile-dev-launch.sh \
   --tag "$TAG" \
@@ -160,12 +232,13 @@ CMUX_ATTACH_ALLOW_RELAUNCH=1 cmux_attach_ensure_mac \
 
 DATA_CONTAINER="$(xcrun simctl get_app_container "$SIMULATOR_ID" "$IOS_BUNDLE_ID" data)"
 REPORT_PATH="$DATA_CONTAINER/Library/Caches/$REPORT_FILENAME"
-for _ in $(seq 1 180); do
-  [[ -s "$REPORT_PATH" ]] && break
-  sleep 1
-done
-[[ -s "$REPORT_PATH" ]] || {
+if ! wait "$REPORT_WAITER_PID"; then
   echo "error: Iroh release gate timed out before producing a report" >&2
+  exit 1
+fi
+REPORT_WAITER_PID=""
+[[ -s "$REPORT_PATH" ]] || {
+  echo "error: report-ready signal arrived without an atomic report" >&2
   exit 1
 }
 

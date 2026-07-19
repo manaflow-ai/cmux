@@ -34,19 +34,16 @@ public struct CMUXMobileRootScene: View {
     private let auth: MobileAuthComposition
     private let reachability: any ReachabilityProviding
     private let analytics: any AnalyticsEmitting
-    private let signOutHook: MobileSignOutHook
+    package let signOutHook: MobileSignOutHook
     private let personalIrohRouteCatalog: MobileIrohRouteCatalog?
     private let personalIrohDiscovery: (any MobileIrohMacDiscovering)?
-    #if os(iOS) && DEBUG
-    private let irohSettingsController: (any CmxIrohSettingsControlling)?
-    #endif
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
     /// The first-run onboarding "seen" flag store, injected into the root view so
     /// it gates the one-time onboarding screen ahead of the never-paired
     /// add-device state.
-    private let onboardingStore: MobileOnboardingStore
+    package let onboardingStore: MobileOnboardingStore
     #endif
     /// The app-root tailnet detector (behind the shell UI's read-only
     /// observing port), injected into the environment so pairing and
@@ -88,8 +85,6 @@ public struct CMUXMobileRootScene: View {
     ///     to merge when refreshing paired Macs and listing live candidates.
     ///   - personalIrohDiscovery: Live same-account Mac discovery used before
     ///     presenting QR pairing.
-    ///   - irohSettingsController: Debug-only controller used by the isolated
-    ///     simulator Iroh release gate.
     ///   - signOutHook: Ordered local and remote service teardown for sign-out.
     ///   - diagnosticLog: The privacy-safe structured connection log.
     public init(
@@ -103,7 +98,6 @@ public struct CMUXMobileRootScene: View {
         tailscaleStatusMonitor: any TailscaleStatusObserving,
         personalIrohRouteCatalog: MobileIrohRouteCatalog? = nil,
         personalIrohDiscovery: (any MobileIrohMacDiscovering)? = nil,
-        irohSettingsController: (any CmxIrohSettingsControlling)? = nil,
         signOutHook: MobileSignOutHook,
         diagnosticLog: DiagnosticLog
     ) {
@@ -117,9 +111,6 @@ public struct CMUXMobileRootScene: View {
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.personalIrohRouteCatalog = personalIrohRouteCatalog
         self.personalIrohDiscovery = personalIrohDiscovery
-        #if DEBUG
-        self.irohSettingsController = irohSettingsController
-        #endif
         self.signOutHook = signOutHook
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
@@ -271,7 +262,16 @@ public struct CMUXMobileRootScene: View {
     }
 
     public var body: some View {
-        content
+        applyingRootEnvironment(to: content)
+    }
+
+    /// Applies the production root environment to a package-owned alternate
+    /// Debug host without widening the app's public composition API.
+    @ViewBuilder
+    package func applyingRootEnvironment<Content: View>(
+        to rootContent: Content
+    ) -> some View {
+        rootContent
             .environment(auth.coordinator)
             .analytics(analytics)
             .tailscaleStatusMonitor(tailscaleStatusMonitor)
@@ -293,15 +293,6 @@ public struct CMUXMobileRootScene: View {
             MobileZoomStressView()
         } else if ProcessInfo.processInfo.environment["CMUX_BOTTOM_SCROLL_STRESS"] == "1" {
             MobileBottomScrollStressView()
-        } else if let configuration = MobileIrohReleaseGateRunner.Configuration.current(),
-                  let irohSettingsController {
-            MobileIrohReleaseGateHostView(
-                store: makeStore(),
-                configuration: configuration,
-                onboardingStore: onboardingStore,
-                signOutHook: signOutHook,
-                settingsController: irohSettingsController
-            )
         } else {
             CMUXMobileAppView(
                 store: makeStore(),
@@ -322,7 +313,7 @@ public struct CMUXMobileRootScene: View {
     }
 
     @MainActor
-    private func makeStore() -> CMUXMobileShellStore {
+    package func makeStore() -> CMUXMobileShellStore {
         let coordinator = auth.coordinator
         let buildScope = MobileIOSBuildScope.current()
         let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(

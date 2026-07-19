@@ -2,6 +2,8 @@
 import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxMobileShell
+import CmuxMobileShellReleaseGateSupport
+import Darwin
 import Foundation
 import Observation
 import OSLog
@@ -16,6 +18,7 @@ final class MobileIrohReleaseGateRunner {
     struct Configuration: Equatable, Sendable {
         static let modeEnvironmentKey = "CMUX_IROH_RELEASE_GATE_MODE"
         static let reportFilename = "cmux-iroh-release-gate.json"
+        static let reportReadyNotification = "dev.cmux.ios.iroh-release-gate.report-ready"
 
         let mode: CmxIrohTransportVerificationMode
         let reportURL: URL
@@ -106,6 +109,7 @@ final class MobileIrohReleaseGateRunner {
                 to: configuration.reportURL,
                 options: .atomic
             )
+            _ = notify_post(Configuration.reportReadyNotification)
             mobileIrohReleaseGateLog.info(
                 "release gate completed passed=\(report.passed, privacy: .public)"
             )
