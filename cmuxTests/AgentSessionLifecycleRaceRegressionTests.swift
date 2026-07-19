@@ -12,6 +12,62 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func canonicalRunChildEvidenceCannotRetainRestoreAuthority() throws {
+        let childEvidence: [AgentSessionAuthorityEvidence] = [
+            .managedChild,
+            .explicitSpawnedChild,
+            .verifiedAncestorChild,
+            .provisionalAmbiguousChild,
+            .legacyChild,
+        ]
+        let canonicalizer = AgentSessionRunCanonicalizer()
+
+        func projectedRun(
+            relationship: AgentSessionRelationship? = nil,
+            authorityEvidence: AgentSessionAuthorityEvidence? = nil
+        ) -> AgentSessionRunRecord {
+            let run = AgentSessionRunRecord(
+                runId: "run",
+                pid: nil,
+                processStartedAt: nil,
+                parentRunId: nil,
+                parentSessionId: nil,
+                relationship: relationship,
+                restoreAuthority: true,
+                authorityEvidence: authorityEvidence,
+                startedAt: 100,
+                updatedAt: 200,
+                endedAt: nil
+            )
+            return canonicalizer.projectedRun(
+                record: ClaudeHookSessionRecord(
+                    sessionId: "session",
+                    workspaceId: "workspace",
+                    surfaceId: "surface",
+                    startedAt: 100,
+                    updatedAt: 200,
+                    runs: [run],
+                    activeRunId: run.runId
+                ),
+                provider: "codex"
+            )
+        }
+
+        #expect(projectedRun(relationship: .spawned).restoreAuthority == false)
+        for evidence in childEvidence {
+            #expect(
+                projectedRun(authorityEvidence: evidence).restoreAuthority == false,
+                Comment(rawValue: evidence.rawValue)
+            )
+        }
+        #expect(
+            projectedRun(
+                relationship: .forked,
+                authorityEvidence: .verifiedForkRoot
+            ).restoreAuthority
+        )
+    }
+
     @Test func projectedRestoreAuthorityIgnoresStaleCompatibilityFieldInEitherDuplicateOrder() throws {
         func readAuthorities(
             recordRestoreAuthority: Bool,
