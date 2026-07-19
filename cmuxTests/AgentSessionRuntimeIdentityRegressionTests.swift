@@ -100,10 +100,9 @@ extension CMUXCLIErrorOutputRegressionTests {
             provider: "codex", legacyURL: legacyURL, environment: environment,
             fileManager: .default, decoder: decoder
         )
-        #expect(loaded?.sessions[legacySessionID] != nil)
         #expect(
-            loaded?.sessions[registryOnlySessionID] == nil,
-            "One malformed registry record must reject the entire projection instead of returning partial state."
+            loaded == nil,
+            "One malformed authoritative record must reject the provider instead of reviving stale legacy state."
         )
     }
 
