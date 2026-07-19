@@ -44,6 +44,11 @@ public final class JsonTest {
             (Map<String, Object>) Json.parse("{\"event\":\"title-changed\",\"surface\":7}")
         );
         assertEquals(null, legacyTitle.title(), "legacy title event title");
+        CmuxEvent layoutEvent = CmuxEvent.from(
+            (Map<String, Object>) Json.parse("{\"event\":\"layout-changed\",\"screen\":7}")
+        );
+        assertTrue(layoutEvent instanceof LayoutChangedEvent, "layout event type");
+        assertEquals(7L, ((LayoutChangedEvent) layoutEvent).screen(), "layout event screen");
         ResizedEvent legacyResize = (ResizedEvent) CmuxEvent.from(
             (Map<String, Object>) Json.parse(
                 "{\"event\":\"resized\",\"surface\":7,\"cols\":80,\"rows\":24,\"data\":\"cmVwbGF5\"}"

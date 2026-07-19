@@ -137,7 +137,15 @@ pub enum Layout {
     #[serde(rename = "leaf")]
     Leaf { pane: u64 },
     #[serde(rename = "split")]
-    Split { dir: String, ratio: f32, a: Box<Layout>, b: Box<Layout> },
+    Split {
+        /// Stable split id, present on protocol v8 and newer servers.
+        #[serde(default)]
+        split: Option<u64>,
+        dir: String,
+        ratio: f32,
+        a: Box<Layout>,
+        b: Box<Layout>,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -429,6 +437,14 @@ impl CmuxClient {
         self.request::<Empty>("set-ratio", params).map(|_| ())
     }
 
+    pub fn set_split_ratio(&mut self, split: u64, ratio: f32) -> Result<()> {
+        self.require_protocol(8, "set-split-ratio")?;
+        let mut params = Map::new();
+        params.insert("split".to_string(), Value::from(split));
+        params.insert("ratio".to_string(), Value::from(ratio));
+        self.request::<Empty>("set-split-ratio", params).map(|_| ())
+    }
+
     pub fn set_default_colors(&mut self, fg: Option<&str>, bg: Option<&str>) -> Result<()> {
         let mut params = Map::new();
         insert_opt(&mut params, "fg", fg);
@@ -563,12 +579,25 @@ impl CmuxClient {
             Some(protocol) => protocol,
             None => self.identify()?.protocol,
         };
-        if protocol > 7 || (protocol > 5 && !self.config.allow_protocol_v6_attach) {
+        if protocol > 5 && !self.config.allow_protocol_v6_attach {
             return Err(CmuxError::ProtocolVersion(format!(
                 "unsupported attach protocol {protocol}"
             )));
         }
         self.open_stream("attach-surface", surface_params(surface))
+    }
+
+    fn require_protocol(&mut self, minimum: u32, feature: &str) -> Result<()> {
+        let protocol = match self.protocol {
+            Some(protocol) => protocol,
+            None => self.identify()?.protocol,
+        };
+        if protocol < minimum {
+            return Err(CmuxError::ProtocolVersion(format!(
+                "{feature} requires protocol {minimum}; server uses protocol {protocol}"
+            )));
+        }
+        Ok(())
     }
 
     fn open_stream(&mut self, cmd: &str, mut params: Map<String, Value>) -> Result<CmuxStream> {
@@ -870,6 +899,36 @@ mod tests {
             serde_json::from_value(serde_json::json!({"accepted": true, "reservation_id": 41}))
                 .unwrap();
         assert_eq!(reserved.reservation_id, Some(41));
+    }
+
+    #[test]
+    fn set_split_ratio_requires_protocol_eight() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(7),
+        };
+        let error = client.require_protocol(8, "set-split-ratio").unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "set-split-ratio requires protocol 8; server uses protocol 7"
+        );
+    }
+
+    #[test]
+    fn set_split_ratio_accepts_newer_additive_protocols() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(9),
+        };
+        client.require_protocol(8, "set-split-ratio").unwrap();
     }
 
     #[test]

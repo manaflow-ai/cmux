@@ -4,7 +4,7 @@ The command schema is transport-independent. Protocol v5 introduced the Unix dom
 
 ## Protocol Negotiation
 
-Protocol-v7 servers report `protocol:7` from `identify` and `ping`. Clients must inspect `identify.protocol` before using versioned additions. In particular, a client selecting `attach-surface` with `mode:"render"` must require `protocol >= 7`; on protocol 6 it must use the default byte mode or refuse the attachment.
+The current server reports `protocol:8` from `identify` and `ping`. Clients must inspect `identify.protocol` before using versioned additions. A client selecting `attach-surface` with `mode:"render"` must require `protocol >= 7`; on protocol 6 it must use the default byte mode or refuse the attachment. A client requiring stable split ids or sending `set-split-ratio` must require protocol 8.
 
 There is no transport-level version preamble. Omitting `attach-surface.mode` selects `"bytes"`, and omitting `subscribe.tree_events` selects `"coarse"`; those defaults preserve the exact protocol-v6 attach and tree-event behavior. Unix socket paths, WebSocket upgrade/authentication, request ids, response envelopes, and message framing do not change in protocol 7.
 
@@ -142,7 +142,7 @@ By default the listener accepts only an IP loopback address such as `127.0.0.1` 
 | Field | Value |
 | --- | --- |
 | status | proposed |
-| since | proposed protocol 8 |
+| since | proposed protocol 9 |
 
 HTTP is opt-in. The server binds localhost by default when enabled:
 
@@ -215,7 +215,7 @@ The attach ordering contract is identical to the socket `attach-surface` command
 | Field | Value |
 | --- | --- |
 | status | proposed |
-| since | proposed protocol 8 |
+| since | proposed protocol 9 |
 
 When HTTP is enabled securely, the server mints one token per mux session at:
 
