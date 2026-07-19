@@ -80,6 +80,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowConnectOnboardingPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.connectOnboardingPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
     private var shouldShowWorkspaceListLayoutPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.workspaceListLayoutPreviewEnabled
@@ -112,6 +120,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    @ViewBuilder private var connectOnboardingPreview: some View {
+        #if os(iOS) && DEBUG
+        OnboardingConnectMacView(showAddDevice: {}, signOut: {}, store: nil)
+        #else
+        EmptyView()
+        #endif
+    }
+
     @ViewBuilder private var workspaceListLayoutPreview: some View {
         #if os(iOS) && DEBUG
         WorkspaceListLayoutPreviewView()
@@ -133,7 +149,7 @@ struct CMUXMobileRootView: View {
                 },
                 dismiss: { isShowingNotificationPrimer = false }
             )
-            .presentationDetents([.height(340)])
+            .presentationDetents([.height(430)])
             .presentationDragIndicator(.visible)
         }
         .task(id: store.connectionState == .connected) {
@@ -251,6 +267,8 @@ struct CMUXMobileRootView: View {
             workspaceListLayoutPreview
         } else if shouldShowStreamingChatPreview {
             streamingChatPreview
+        } else if shouldShowConnectOnboardingPreview {
+            connectOnboardingPreview
         } else if shouldShowWelcome {
             welcomeFlow
         } else if !isAuthenticated {

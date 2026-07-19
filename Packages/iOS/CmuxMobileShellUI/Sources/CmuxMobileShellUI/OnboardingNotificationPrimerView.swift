@@ -12,56 +12,61 @@ struct OnboardingNotificationPrimerView: View {
     @State private var shouldBounce = false
 
     var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "bell.badge.fill")
-                .font(.system(size: 56))
-                .foregroundStyle(.tint)
-                .symbolEffect(.bounce, options: .nonRepeating, value: shouldBounce)
+        ScrollView {
+            VStack(spacing: 20) {
+                Image(systemName: "bell.badge.fill")
+                    .font(.system(size: 56))
+                    .foregroundStyle(.tint)
+                    .symbolEffect(.bounce, options: .nonRepeating, value: shouldBounce)
 
-            Text(L10n.string(
-                "mobile.onboarding.push.title",
-                defaultValue: "Know the moment an agent needs you"
-            ))
-            .font(.title2.bold())
-            .multilineTextAlignment(.center)
-
-            Text(L10n.string(
-                "mobile.onboarding.push.body",
-                defaultValue: "cmux sends a push when an agent asks a question or finishes a task."
-            ))
-            .font(.body)
-            .foregroundStyle(.secondary)
-            .multilineTextAlignment(.center)
-
-            Button {
-                guard !isEnabling else { return }
-                isEnabling = true
-                Task {
-                    await enable()
-                    dismiss()
-                }
-            } label: {
                 Text(L10n.string(
-                    "mobile.onboarding.push.enable",
-                    defaultValue: "Enable notifications"
+                    "mobile.onboarding.push.title",
+                    defaultValue: "Know the moment an agent needs you"
                 ))
-                .fontWeight(.semibold)
-                .frame(maxWidth: .infinity)
-                .contentShape(.capsule)
-            }
-            .disabled(isEnabling)
-            .mobileGlassProminentButton()
-            .accessibilityIdentifier("MobileOnboardingPushEnableButton")
+                .font(.title2.bold())
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
 
-            Button(action: dismiss) {
-                Text(L10n.string("mobile.onboarding.push.later", defaultValue: "Not now"))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                Text(L10n.string(
+                    "mobile.onboarding.push.body",
+                    defaultValue: "cmux sends a push when an agent asks a question or finishes a task."
+                ))
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+                Button {
+                    guard !isEnabling else { return }
+                    isEnabling = true
+                    Task {
+                        await enable()
+                        dismiss()
+                    }
+                } label: {
+                    Text(L10n.string(
+                        "mobile.onboarding.push.enable",
+                        defaultValue: "Enable notifications"
+                    ))
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                    .contentShape(.capsule)
+                }
+                .disabled(isEnabling)
+                .mobileGlassProminentButton()
+                .accessibilityIdentifier("MobileOnboardingPushEnableButton")
+
+                Button(action: dismiss) {
+                    Text(L10n.string("mobile.onboarding.push.later", defaultValue: "Not now"))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .disabled(isEnabling)
+                .accessibilityIdentifier("MobileOnboardingPushLaterButton")
             }
-            .disabled(isEnabling)
-            .accessibilityIdentifier("MobileOnboardingPushLaterButton")
+            .padding(28)
         }
-        .padding(28)
+        .scrollBounceBehavior(.basedOnSize)
         .accessibilityIdentifier("MobileOnboardingPushPrimer")
         .onAppear {
             guard !accessibilityReduceMotion else { return }

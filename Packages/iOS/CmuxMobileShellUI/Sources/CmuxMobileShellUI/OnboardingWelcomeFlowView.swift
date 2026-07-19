@@ -139,7 +139,7 @@ struct OnboardingWelcomeFlowView: View {
             VStack(spacing: 16) {
                 visual()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .frame(height: proxy.size.height * 0.46)
+                    .frame(height: proxy.size.height * 0.52)
 
                 Text(title)
                     .font(.title.bold())
@@ -153,8 +153,8 @@ struct OnboardingWelcomeFlowView: View {
 
                 Spacer(minLength: 0)
             }
-            .frame(width: proxy.size.width, height: proxy.size.height)
             .padding(.horizontal, 32)
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
     }
 

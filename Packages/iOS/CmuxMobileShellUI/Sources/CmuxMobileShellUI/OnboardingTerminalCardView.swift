@@ -21,13 +21,13 @@ struct OnboardingTerminalCardView: View {
         Group {
             if mode == .streaming {
                 card
-                    .aspectRatio(4.0 / 5.0, contentMode: .fit)
+                    .frame(width: 300, height: 320)
             } else {
                 card
                     .frame(height: 220)
+                    .frame(maxWidth: 340)
             }
         }
-        .frame(maxWidth: 340)
         .accessibilityHidden(true)
     }
 
@@ -62,6 +62,8 @@ struct OnboardingTerminalCardView: View {
             Text("claude · api-refactor")
                 .font(.system(size: 12, design: .monospaced))
                 .foregroundStyle(.white.opacity(0.45))
+                .lineLimit(1)
+                .truncationMode(.tail)
                 .padding(.leading, 4)
             Spacer(minLength: 0)
         }
@@ -89,6 +91,7 @@ struct OnboardingTerminalCardView: View {
         VStack(alignment: .leading, spacing: 5) {
             ForEach(0..<revealed, id: \.self) { index in
                 terminalLine(index)
+                    .lineLimit(1)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             if showsCursor {
