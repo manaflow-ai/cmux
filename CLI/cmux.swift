@@ -3576,6 +3576,9 @@ struct CMUXCLI {
         )
 
         let idFormat = try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)
+        // Workspace inspection JSON is a scripting boundary: keep stable UUIDs
+        // beside renumberable refs unless the caller explicitly chooses a format.
+        let workspaceInspectionIDFormat: CLIIDFormat = jsonOutput && idFormatArg == nil ? .both : idFormat
         // Most CLI --window routing focuses first so commands without an
         // explicit window_id still target the selected window.
         if let windowId, Self.shouldFocusWindowBeforeDispatch(command: command, commandArgs: commandArgs) {
@@ -4403,6 +4406,7 @@ struct CMUXCLI {
                 client: client,
                 jsonOutput: jsonOutput,
                 idFormat: idFormat,
+                listIDFormat: workspaceInspectionIDFormat,
                 windowOverride: windowId
             )
 
@@ -4423,7 +4427,7 @@ struct CMUXCLI {
                 commandArgs: commandArgs,
                 client: client,
                 jsonOutput: jsonOutput,
-                idFormat: idFormat,
+                idFormat: workspaceInspectionIDFormat,
                 windowOverride: windowId
             )
 
@@ -4568,10 +4572,10 @@ struct CMUXCLI {
             }
 
         case "tree":
-            try runTreeCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            try runTreeCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: workspaceInspectionIDFormat)
 
         case "top":
-            try runTopCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            try runTopCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: workspaceInspectionIDFormat)
 
         case "memory":
             try runMemoryCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
@@ -4866,7 +4870,7 @@ struct CMUXCLI {
             try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowFromArgsOrOverride(commandArgs, windowOverride: windowId))
             let response = try client.sendV2(method: "workspace.current", params: params)
             if jsonOutput {
-                print(jsonString(formatIDs(response, mode: idFormat)))
+                print(jsonString(formatIDs(response, mode: workspaceInspectionIDFormat)))
             } else {
                 let handle = formatHandle(response, kind: "workspace", idFormat: idFormat)
                     ?? (response["workspace_id"] as? String)
@@ -8135,6 +8139,7 @@ struct CMUXCLI {
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat,
+        listIDFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
         guard let sub = commandArgs.first?.lowercased() else {
@@ -8158,7 +8163,7 @@ struct CMUXCLI {
                 commandArgs: rest,
                 client: client,
                 jsonOutput: jsonOutput,
-                idFormat: idFormat,
+                idFormat: listIDFormat,
                 windowOverride: windowOverride
             )
         case "create":
