@@ -109,6 +109,42 @@ struct TerminalClientCompositionTests {
         #expect(await client.releaseAttemptCount() == 2)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func fullAppFrameReleaseLaneIsBoundedSerialAndRecoveryReserved() async throws {
+        let sender = ControlledFullAppFrameReleaseSender()
+        let lane = TerminalBackendFrameReleaseLane(
+            normalCapacity: 2,
+            recoveryCapacity: 1,
+            send: sender.send
+        )
+        let releases = try (1 ... 4).map {
+            TerminalRenderFrameRelease(
+                frame: try Self.makeRenderDiagnosticsFrame(sequence: UInt64($0))
+            )
+        }
+
+        #expect(lane.enqueue(releases[0], priority: .normal) == .accepted)
+        await sender.waitUntilStarted(count: 1)
+        #expect(lane.enqueue(releases[1], priority: .normal) == .accepted)
+        #expect(lane.enqueue(releases[2], priority: .normal) == .capacityExceeded)
+        #expect(lane.enqueue(releases[3], priority: .recovery) == .accepted)
+        #expect(lane.metrics().workerStarts == 1)
+        #expect(lane.metrics().maximumOutstanding == 3)
+
+        await sender.resumeNext(result: true)
+        await sender.waitUntilStarted(count: 2)
+        await sender.resumeNext(result: true)
+        await sender.waitUntilStarted(count: 3)
+        await sender.resumeNext(result: true)
+        await lane.waitUntilIdle()
+
+        #expect(await sender.startedSequences() == [1, 2, 4])
+        #expect(await sender.maximumConcurrentSendCount == 1)
+        #expect(lane.metrics().sent == 3)
+        #expect(lane.metrics().outstanding == 0)
+        await lane.stop()
+    }
+
     @Test(.timeLimit(.minutes(1))) @MainActor
     func sustainedSuccessfulFrameReleaseKeepsOneProcessWideRendererSubscription() async throws {
         let client = RecordingPersistentTerminalBackendClient()
@@ -5329,6 +5365,60 @@ private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
         for key in satisfied {
             waiters.removeValue(forKey: key)?.forEach { $0.resume() }
         }
+    }
+}
+
+private actor ControlledFullAppFrameReleaseSender {
+    private var started: [TerminalRenderFrameRelease] = []
+    private var continuations: [CheckedContinuation<Bool, Never>] = []
+    private var startWaiters: [
+        (count: Int, continuation: CheckedContinuation<Void, Never>)
+    ] = []
+    private var concurrentSendCount = 0
+    private(set) var maximumConcurrentSendCount = 0
+
+    func send(_ release: TerminalRenderFrameRelease) async -> Bool {
+        concurrentSendCount += 1
+        maximumConcurrentSendCount = max(
+            maximumConcurrentSendCount,
+            concurrentSendCount
+        )
+        started.append(release)
+        resumeStartWaiters()
+        let result = await withCheckedContinuation { continuation in
+            continuations.append(continuation)
+        }
+        concurrentSendCount -= 1
+        return result
+    }
+
+    func waitUntilStarted(count: Int) async {
+        if started.count >= count { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append((count, continuation))
+        }
+    }
+
+    func resumeNext(result: Bool) {
+        continuations.removeFirst().resume(returning: result)
+    }
+
+    func startedSequences() -> [UInt64] {
+        started.map(\.metadata.frameSequence)
+    }
+
+    private func resumeStartWaiters() {
+        var retained: [
+            (count: Int, continuation: CheckedContinuation<Void, Never>)
+        ] = []
+        for waiter in startWaiters {
+            if started.count >= waiter.count {
+                waiter.continuation.resume()
+            } else {
+                retained.append(waiter)
+            }
+        }
+        startWaiters = retained
     }
 }
 
