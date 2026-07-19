@@ -704,6 +704,11 @@ final class RemoteTmuxControlConnection {
         // rest of the connection's life.
         borderStatusSubscribedWindows.removeAll()
         borderStatusByWindow.removeAll()
+        // A `refresh-client -B` subscription belongs to the client too, so the
+        // session digest dies with it. The reconnect's attach drain calls
+        // `subscribeSessionDigest()` again, and it returns early unless this flag is
+        // cleared here — leaving the shared view blind to session create/kill/rename.
+        sessionDigestSubscribed = false
         pendingPostAttachAction = nil
         teardownProcessHandles()
         reconnectAttemptCount = 0

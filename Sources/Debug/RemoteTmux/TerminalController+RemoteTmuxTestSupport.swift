@@ -703,8 +703,13 @@ extension TerminalController {
                 case let connection as RemoteTmuxControlConnection:
                     publicationReady = !connection.hasPendingSizingSettlementWork(windowId: windowId)
                 case let channel as RemoteTmuxSessionChannel:
-                    publicationReady = (channel.underlying as? RemoteTmuxControlConnection)
-                        .map { !$0.hasPendingSizingSettlementWork(windowId: windowId) } ?? true
+                    // Fail closed here too: an underlying this harness can't query is
+                    // an unknown settlement state, not a settled one.
+                    if let shared = channel.underlying as? RemoteTmuxControlConnection {
+                        publicationReady = !shared.hasPendingSizingSettlementWork(windowId: windowId)
+                    } else {
+                        publicationReady = false
+                    }
                 default:
                     publicationReady = false
                 }
