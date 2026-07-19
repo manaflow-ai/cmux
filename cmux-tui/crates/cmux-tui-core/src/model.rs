@@ -229,6 +229,9 @@ impl Node {
                     (None, None) => None,
                 }
             }
+            Node::Stack { panes, expanded } if !panes.contains(&target) => {
+                Some(Node::Stack { panes, expanded })
+            }
             Node::Stack { mut panes, expanded } => {
                 panes.retain(|pane| *pane != target);
                 match panes.as_slice() {
