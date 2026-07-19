@@ -116,7 +116,11 @@ import Testing
 
     @Test func hibernationInvalidatesQueuedVacancyRetriesBeforeRunLoopDrain() async {
         let surface = makeSurface()
-        defer { surface.releaseSurfaceForTesting() }
+        surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
+        defer {
+            surface.runtimeSurfaceFreedOutOfBandForTesting = true
+            surface.releaseSurfaceForTesting()
+        }
 
         let paneId = PaneID()
         let owner = NSView(frame: NSRect(x: 0, y: 0, width: 80, height: 24))
@@ -146,10 +150,11 @@ import Testing
         )
         #expect(surface.portalHostVacancyWakeScheduled)
 
-        _ = await surface.suspendRuntimeSurfaceForAgentHibernation(
+        let didSuspend = await surface.suspendRuntimeSurfaceForAgentHibernation(
             reason: "test.hibernate",
-            finalValidation: { true }
+            finalValidation: { false }
         )
+        #expect(!didSuspend)
         #expect(surface.portalHostVacancyRetries.isEmpty)
         #expect(!surface.portalHostVacancyWakeScheduled)
         #expect(!surface.canAcceptPortalBinding(
@@ -252,5 +257,9 @@ import Testing
                 scrollbackReplayEnvironmentKey: "CMUX_TEST_SCROLLBACK_REPLAY"
             )
         )
+    }
+
+    private func fakeRuntimeSurface() -> ghostty_surface_t {
+        UnsafeMutableRawPointer(bitPattern: 0x7542)!
     }
 }

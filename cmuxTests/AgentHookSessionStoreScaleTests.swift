@@ -151,10 +151,10 @@ struct AgentHookSessionStoreScaleTests {
                 fileManager: .default,
                 maximumLegacyGraphNodes: 20_000,
                 limits: .init(
-                    recordBytes: 1_024 * 1_024,
-                    providerBytes: 1_024 * 1_024,
+                    recordBytes: Int64(1_024 * 1_024),
+                    providerBytes: Int64(1_024 * 1_024),
                     selectionBytes: Int64(sidecar.count * 2),
-                    legacyFileBytes: 1_024 * 1_024
+                    legacyFileBytes: Int64(1_024 * 1_024)
                 ),
                 admissionLoader: { source, stamp, remainingGraphNodes in
                     admittedProviders.append(source.provider)
