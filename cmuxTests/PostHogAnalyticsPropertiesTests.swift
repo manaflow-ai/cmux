@@ -71,6 +71,30 @@ struct PostHogAnalyticsPropertiesTests {
     }
 
     @MainActor
+    @Test("remote-controlled flags reject new local override writes")
+    func remoteControlledFlagsRejectNewLocalOverrideWrites() throws {
+        let flag = try #require(CmuxFeatureFlags.allFlags.first {
+            $0.key == "sidebar-appkit-list-experiment"
+        })
+        let suiteName = "cmux.feature.flags.remote.controlled.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let remoteValues: [String: Any] = [flag.key: true]
+        let flags = CmuxFeatureFlags(defaults: defaults) { key in
+            remoteValues[key]
+        }
+        flags.applyLoadedFlags()
+
+        flags.setOverride(false, for: flag)
+
+        #expect(flags.overrideValue(for: flag) == nil)
+        #expect(flags.effectiveValue(for: flag))
+    }
+
+    @MainActor
     @Test("workspace todo controls feature flag follows remote values")
     func workspaceTodoControlsFeatureFlagFollowsRemoteValues() throws {
         let flag = try #require(CmuxFeatureFlags.allFlags.first {
