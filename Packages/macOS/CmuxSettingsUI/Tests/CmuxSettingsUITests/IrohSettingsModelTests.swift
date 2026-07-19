@@ -338,6 +338,12 @@ private final class IrohSettingsControllerDouble:
     func setIrohDebugRelayOnly(_ enabled: Bool) async throws {
         debugRelayOnlyMutations.append(enabled)
     }
+
+    func setIrohDebugTransportVerificationMode(
+        _ mode: CmxIrohTransportVerificationMode
+    ) async throws {
+        debugRelayOnlyMutations.append(mode == .relayOnly)
+    }
 }
 
 private enum TestFailure: Error {
