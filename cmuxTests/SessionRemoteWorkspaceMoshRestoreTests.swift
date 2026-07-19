@@ -142,6 +142,23 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
         #expect(!command.contains("mosh"), "\(command)")
     }
 
+    @Test("unsupported daemon bootstrap snapshots restore through SSH")
+    func unsupportedDaemonBootstrapSnapshotRestoresSSH() throws {
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            terminalTransport: .mosh,
+            destination: "dev@example.com",
+            sshOptions: [],
+            skipDaemonBootstrap: true
+        )
+
+        let configuration = try #require(snapshot.workspaceConfiguration())
+        let command = try #require(configuration.terminalStartupCommand)
+
+        #expect(configuration.terminalTransport == .ssh)
+        #expect(!command.contains("mosh"), "\(command)")
+    }
+
     @Test("Mosh restore keeps its relay namespace without claiming SSH persistent PTY")
     func moshRestoresRelayWithoutPersistentSSHPTY() throws {
         let snapshot = SessionRemoteWorkspaceSnapshot(
