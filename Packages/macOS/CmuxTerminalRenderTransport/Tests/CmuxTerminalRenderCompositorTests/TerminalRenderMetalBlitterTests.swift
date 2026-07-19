@@ -55,6 +55,51 @@ struct TerminalRenderMetalBlitterTests {
     }
 
     @Test
+    func stopAndWaitHoldsTheReleaseFenceUntilActiveGPUCompletion() async throws {
+        let fence = try makeFence(generation: 7)
+        let frame = try makeFrame(fence: fence, frameSequence: 1)
+        let executor = TerminalRenderMetalExecutor(
+            label: "test.cmux.metal.quiescence"
+        )
+        let backend = RecordingMetalSubmissionBackend(
+            executor: executor,
+            results: [.submitted]
+        )
+        let releases = ReleaseRecorder()
+        let layer = TerminalRenderMetalLayerHandle(CAMetalLayer())
+        let blitter = makeBlitter(
+            executor: executor,
+            backend: backend,
+            releases: releases,
+            layer: layer
+        )
+
+        #expect(await blitter.enqueue(frame, epoch: 1, layer: layer) == .submitted)
+        #expect(blitter.outstandingFrameLeaseCount == 1)
+        let completion = BooleanRecorder()
+        let stopTask = Task {
+            await blitter.stopAndWait()
+            completion.setTrue()
+        }
+        while blitter.quiescenceWaiterCount == 0, !completion.value {
+            await Task.yield()
+        }
+
+        #expect(blitter.quiescenceWaiterCount == 1)
+        #expect(!completion.value)
+        #expect(releases.snapshot().isEmpty)
+        #expect(blitter.outstandingFrameLeaseCount == 1)
+
+        backend.complete(frameSequence: 1)
+        await stopTask.value
+
+        #expect(completion.value)
+        #expect(releases.snapshot() == [TerminalRenderFrameRelease(frame: frame)])
+        #expect(blitter.outstandingFrameLeaseCount == 0)
+        await blitter.stopAndWait()
+    }
+
+    @Test
     func latestFrameWinsWithOneSubmissionAndOnePendingSlot() async throws {
         let fence = try makeFence(generation: 7)
         let frame1 = try makeFrame(fence: fence, frameSequence: 1)
@@ -463,6 +508,23 @@ private final class PresentedRecorder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return frameSequences
+    }
+}
+
+private final class BooleanRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedValue = false
+
+    var value: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedValue
+    }
+
+    func setTrue() {
+        lock.lock()
+        storedValue = true
+        lock.unlock()
     }
 }
 
