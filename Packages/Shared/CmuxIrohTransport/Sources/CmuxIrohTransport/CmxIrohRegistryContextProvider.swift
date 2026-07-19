@@ -213,6 +213,11 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         at clock: Date
     ) async throws -> CmxIrohClientContext {
         let targetIdentity = targetBinding.endpointID
+        let routeHints = authoritativePrivateRouteHints(
+            routeHints,
+            targetBinding: targetBinding,
+            at: clock
+        )
         let pathSnapshot = try await availableNetworkPathSnapshot(
             for: targetBinding.pathHints + routeHints,
             at: clock
@@ -251,6 +256,30 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             credential: try .pairGrant(pairGrantToken),
             privateFallbackAuthorization: fallbackAuthorization
         )
+    }
+
+    /// Replaces legacy TCP-derived VPN ports with the endpoint-signed Iroh UDP
+    /// port for the same address family. Private IPs stay local, while stale or
+    /// incomplete broker metadata removes the hint instead of guessing.
+    private func authoritativePrivateRouteHints(
+        _ hints: [CmxIrohPathHint],
+        targetBinding: CmxIrohBrokerBinding,
+        at clock: Date
+    ) -> [CmxIrohPathHint] {
+        let lastSeenAt = CmxIrohISO8601Date.parse(targetBinding.lastSeenAt)
+        let portsAreFresh = lastSeenAt.map {
+            $0 <= clock.addingTimeInterval(CmxIrohPathHint.maximumObservationClockSkew)
+                && $0 >= clock.addingTimeInterval(-CmxIrohPathHint.maximumPrivateHintTTL)
+        } ?? false
+        let directPorts = portsAreFresh ? targetBinding.directPorts : nil
+        return hints.compactMap { hint in
+            guard hint.kind == .directAddress,
+                  hint.privacyScope != .publicInternet,
+                  hint.source == .tailscale || hint.source == .customVPN else {
+                return hint
+            }
+            return directPorts?.replacingPort(in: hint)
+        }
     }
 
     private func cachedPolicy(

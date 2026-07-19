@@ -68,6 +68,70 @@ struct CmxIrohRegistryContextProviderTests {
     }
 
     @Test
+    func missingStaleOrWrongFamilyPortsCannotAuthorizePrivatePortGuessing() async throws {
+        let fixture = try RegistryFixture()
+        let profile = CmxIrohNetworkProfileKey.activeTailscaleTunnel
+        let managedRelay = try CmxIrohPathHint(
+            kind: .relayURL,
+            value: fixture.relayURL,
+            source: .native,
+            privacyScope: .publicInternet
+        )
+        let tailscale = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "100.82.214.112:53646",
+            source: .tailscale,
+            privacyScope: .privateNetwork,
+            observedAt: fixture.now,
+            expiresAt: fixture.now.addingTimeInterval(60),
+            networkProfile: profile
+        )
+        let stale = fixture.now.addingTimeInterval(
+            -(CmxIrohPathHint.maximumPrivateHintTTL + 1)
+        )
+        let cases: [(String, [String: Int]?, Date?)] = [
+            ("missing", nil, nil),
+            ("wrong family", ["ipv6": 54_750], nil),
+            ("stale", ["ipv4": 50_909], stale),
+        ]
+
+        for (name, directPorts, lastSeenAt) in cases {
+            let broker = TestIrohRegistryBroker(
+                discovery: try fixture.discovery(
+                    targetHints: [],
+                    targetDirectPorts: directPorts,
+                    targetLastSeenAt: lastSeenAt
+                ),
+                pairGrantResponses: [try fixture.pairGrantResponse(
+                    issuedAt: fixture.nowSeconds,
+                    expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+                )]
+            )
+            let provider = CmxIrohRegistryContextProvider(
+                supervisor: try await fixture.activeSupervisor(),
+                broker: broker,
+                localBindingExpectation: try fixture.localExpectation(),
+                managedRelayURLs: [fixture.relayURL],
+                networkPathSnapshot: {
+                    CmxIrohNetworkPathSnapshot(
+                        generation: 1,
+                        activeNetworkProfiles: [profile]
+                    )
+                },
+                now: { fixture.now }
+            )
+
+            let context = try await provider.context(
+                for: fixture.request(hints: [managedRelay, tailscale])
+            )
+
+            #expect(context.dialPlan.publicPaths == [managedRelay], Comment(rawValue: name))
+            #expect(context.dialPlan.privateFallbackPaths.isEmpty, Comment(rawValue: name))
+            #expect(context.privateFallbackAuthorization == nil, Comment(rawValue: name))
+        }
+    }
+
+    @Test
     func bonjourFallbackAcceptsLegacyUppercaseDeviceUUID() async throws {
         let fixture = try RegistryFixture()
         let relay = try CmxIrohPathHint(
@@ -401,6 +465,7 @@ struct RegistryFixture: Sendable {
     func discovery(
         targetHints: [CmxIrohPathHint],
         targetDirectPorts: [String: Int]? = nil,
+        targetLastSeenAt: Date? = nil,
         relayFleet: [String]? = nil,
         localAppInstanceID: String = "123e4567-e89b-42d3-a456-426614174005",
         targetDeviceID: String? = nil,
@@ -430,6 +495,11 @@ struct RegistryFixture: Sendable {
             )
             if let targetDirectPorts {
                 target["direct_ports"] = targetDirectPorts
+            }
+            if let targetLastSeenAt {
+                target["last_seen_at"] = ISO8601DateFormatter().string(
+                    from: targetLastSeenAt
+                )
             }
             bindings.append(target)
         }
