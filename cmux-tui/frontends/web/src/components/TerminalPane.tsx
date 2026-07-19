@@ -395,9 +395,17 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
 function LayoutNode({ node, screen, basis, ...actions }: LayoutNodeProps) {
   const style = basis === undefined ? undefined : { flex: `0 0 ${basis}%` };
   if (node.type === "group") {
-    // Keyed by screen so switching screens remounts the group and drops any
-    // drag/pending overlay state, replacing an imperative reset effect.
-    return <LayoutGroupNode key={screen.id} {...actions} node={node} screen={screen} basis={basis} />;
+    // Switching screens or replacing the authoritative split remounts the
+    // group and drops drag/pending overlay state without an imperative reset.
+    return (
+      <LayoutGroupNode
+        key={`${screen.id}:${node.split}`}
+        {...actions}
+        node={node}
+        screen={screen}
+        basis={basis}
+      />
+    );
   }
   return (
     <div className="pane-leaf" style={style}>

@@ -548,9 +548,6 @@ export class CmuxClient {
 
   private async requireProtocol(minimum: number, feature: string): Promise<void> {
     const protocol = this.protocol ?? (await this.identify()).protocol;
-    if (protocol > 8) {
-      throw new CmuxProtocolError(`unsupported protocol ${protocol}; maximum supported is 8`);
-    }
     if (protocol < minimum) {
       throw new CmuxProtocolError(
         `${feature} requires protocol ${minimum}; server uses protocol ${protocol}`,

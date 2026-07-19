@@ -97,11 +97,11 @@ class Size:
 class Layout:
     type: str
     pane: Optional[int] = None
-    split: Optional[int] = None
     dir: Optional[str] = None
     ratio: Optional[float] = None
     a: Optional["Layout"] = None
     b: Optional["Layout"] = None
+    split: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -556,8 +556,6 @@ class CmuxClient:
 
     def _require_protocol(self, minimum: int, feature: str) -> None:
         protocol = self._protocol if self._protocol is not None else self.identify().protocol
-        if protocol > 8:
-            raise ProtocolError(f"unsupported protocol {protocol}; maximum supported is 8")
         if protocol < minimum:
             raise ProtocolError(
                 f"{feature} requires protocol {minimum}; server uses protocol {protocol}"

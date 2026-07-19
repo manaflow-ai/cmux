@@ -86,11 +86,6 @@ public final class CmuxClient implements AutoCloseable {
 
     private void requireProtocol(int minimum, String feature) throws CmuxException {
         int negotiated = protocol != null ? protocol : identify().protocol();
-        if (negotiated > 8) {
-            throw new CmuxProtocolMismatchException(
-                "unsupported protocol " + negotiated + "; maximum supported is 8"
-            );
-        }
         if (negotiated < minimum) {
             throw new CmuxProtocolMismatchException(
                 feature + " requires protocol " + minimum + "; server uses protocol " + negotiated

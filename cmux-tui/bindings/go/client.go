@@ -211,11 +211,6 @@ func (c *Client) requireProtocol(ctx context.Context, minimum uint32, feature st
 		}
 		protocol = &info.Protocol
 	}
-	if *protocol > 8 {
-		return &protocolError{msg: fmt.Sprintf(
-			"unsupported protocol %d; maximum supported is 8", *protocol,
-		)}
-	}
 	if *protocol < minimum {
 		return &protocolError{msg: fmt.Sprintf(
 			"%s requires protocol %d; server uses protocol %d",

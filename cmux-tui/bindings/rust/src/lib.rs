@@ -592,11 +592,6 @@ impl CmuxClient {
             Some(protocol) => protocol,
             None => self.identify()?.protocol,
         };
-        if protocol > 8 {
-            return Err(CmuxError::ProtocolVersion(format!(
-                "unsupported protocol {protocol}; maximum supported is 8"
-            )));
-        }
         if protocol < minimum {
             return Err(CmuxError::ProtocolVersion(format!(
                 "{feature} requires protocol {minimum}; server uses protocol {protocol}"

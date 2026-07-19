@@ -81,7 +81,7 @@ public final class WireCaptureTest {
         CaptureServer server = new CaptureServer(socket, new String[] {
             "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":9,\"session\":\"wire\",\"pid\":1}}",
             "{\"id\":2,\"ok\":true,\"data\":{}}"
-        });
+        }, true);
         server.start();
         try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
             client.setSplitRatio(4, 0.625);
@@ -90,7 +90,7 @@ public final class WireCaptureTest {
         }
         assertLine(
             "protocol 9 set-split-ratio",
-            "{\"cmd\":\"set-split-ratio\",\"split\":4,\"ratio\":0.625,\"id\":2}\n",
+            "{\"split\":4,\"ratio\":0.625,\"id\":2,\"cmd\":\"set-split-ratio\"}\n",
             server.firstLine(1)
         );
     }
@@ -128,13 +128,19 @@ public final class WireCaptureTest {
         private final Path socket;
         private final String[] responses;
         private final byte[][] lines;
+        private final boolean reuseConnection;
         private Thread thread;
         private ServerSocketChannel server;
 
         CaptureServer(Path socket, String[] responses) {
+            this(socket, responses, false);
+        }
+
+        CaptureServer(Path socket, String[] responses, boolean reuseConnection) {
             this.socket = socket;
             this.responses = responses;
             this.lines = new byte[responses.length][];
+            this.reuseConnection = reuseConnection;
         }
 
         void start() throws Exception {
@@ -157,6 +163,15 @@ public final class WireCaptureTest {
 
         private void run() {
             try {
+                if (reuseConnection) {
+                    try (SocketChannel client = server.accept()) {
+                        for (int i = 0; i < responses.length; i++) {
+                            lines[i] = readLine(client);
+                            writeLine(client, responses[i]);
+                        }
+                    }
+                    return;
+                }
                 for (int i = 0; i < responses.length; i++) {
                     try (SocketChannel client = server.accept()) {
                         lines[i] = readLine(client);
