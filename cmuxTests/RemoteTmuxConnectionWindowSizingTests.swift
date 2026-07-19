@@ -91,6 +91,83 @@ import Testing
         )
     }
 
+    /// A single-pane surface can be seeded while its tab is still headless, then
+    /// gain rows when the real window mounts. Only the verified pane-rect reply
+    /// proves that every client-size constraint has landed; repairing from the
+    /// earlier per-window send can race the separate session-envelope send and
+    /// capture the old short grid again. This is the exact verified 99x35 ->
+    /// 94x37 transition observed over Tailscale SSH in issue #7990.
+    @Test func verifiedSinglePaneGridGrowQueuesVisibleRepaint() throws {
+        let controller = RemoteTmuxController()
+        let manager = TabManager()
+        let host = RemoteTmuxHost(destination: "seed-grow.test")
+        let connection = RemoteTmuxControlConnection(host: host, sessionName: "work")
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-single-pane-grow-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        connection.handleMessageForTesting(
+            .commandResult(commandNumber: 0, lines: [], isError: false)
+        )
+        connection.handleMessageForTesting(
+            .commandResult(commandNumber: 1, lines: [], isError: false)
+        )
+        connection.pendingAttachRedrawKick = false
+
+        let pane = RemoteTmuxLayoutNode(
+            width: 99, height: 35, x: 0, y: 0, content: .pane(7)
+        )
+        connection.windowsByID = [
+            3: RemoteTmuxWindow(id: 3, width: 99, height: 35, layout: pane)
+        ]
+        connection.windowOrder = [3]
+        connection.publishedWindowIdByPane = [7: 3]
+        controller.cacheConnection(connection)
+        #expect(try controller.mirrorSession(host: host, sessionName: "work", into: manager))
+        defer {
+            controller.detach(host: host, sessionName: "work")
+            writer.close()
+            try? pipe.fileHandleForReading.close()
+        }
+
+        _ = try #require(manager.tabs.first { $0.isRemoteTmuxMirror })
+        let capturesBefore = connection.pendingCommandKindsForTesting.reduce(into: 0) {
+            if case .capturePane(7, _) = $1 { $0 += 1 }
+        }
+
+        let grownPane = RemoteTmuxLayoutNode(
+            width: 94, height: 37, x: 0, y: 0, content: .pane(7)
+        )
+        connection.pendingLayouts[3] = RemoteTmuxPendingLayout(
+            node: grownPane,
+            visibleNode: nil,
+            zoomed: false,
+            name: "main",
+            generation: 1,
+            inFlight: true
+        )
+        connection.handlePaneRectsReply(
+            windowId: 3,
+            generation: 1,
+            lines: ["%7 0 0 94 37 1 off :"]
+        )
+
+        let relevant = connection.pendingCommandKindsForTesting.compactMap { kind -> String? in
+            switch kind {
+            case .capturePane(7, _): return "capture"
+            case .paneState(7, _): return "state"
+            default: return nil
+            }
+        }
+        #expect(relevant.filter { $0 == "capture" }.count == capturesBefore + 1)
+        #expect(Array(relevant.suffix(2)) == ["capture", "state"])
+    }
+
     @Test func windowSizesAreTrackedPerWindow() {
         let connection = makeConnection()
         connection.setWindowSize(windowId: 0, columns: 98, rows: 35)
