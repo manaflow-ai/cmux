@@ -174,6 +174,16 @@ impl TerminalColors {
             cursor_blink: cursor_visual.map(|(_, blink)| blink).or(defaults.cursor_blink),
         }
     }
+
+    /// Snapshot a live palette update without touching the shared renderer.
+    /// Palette OSC commands leave cursor state authoritative in the attached
+    /// frontend's existing xterm state.
+    fn from_pty_output(term: &Terminal, defaults: DefaultColors) -> Self {
+        let mut colors = Self::from_terminal(term, defaults, None);
+        colors.cursor_style = None;
+        colors.cursor_blink = None;
+        colors
+    }
 }
 
 /// Everything an attaching frontend needs to adopt a PTY surface: its
@@ -556,11 +566,7 @@ impl Surface {
                         if term.color_revision() != color_revision {
                             let defaults =
                                 mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
-                            let mut colors = pty.terminal_colors_locked(&mut term, defaults);
-                            // PTY color changes do not change cursor visual
-                            // state; preserve the live xterm cursor.
-                            colors.cursor_style = None;
-                            colors.cursor_blink = None;
+                            let colors = TerminalColors::from_pty_output(&term, defaults);
                             pty.broadcast_attach_frame(AttachFrame::ColorsChanged(Box::new(
                                 colors,
                             )));
@@ -1442,6 +1448,23 @@ mod tests {
 
         shared_render.update(&mut term).unwrap();
         assert_ne!(shared_render.dirty(), ghostty_vt::Dirty::Clean);
+    }
+
+    #[test]
+    fn pty_output_colors_do_not_include_cursor_metadata() {
+        let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        let defaults = DefaultColors {
+            cursor_style: Some(CursorShape::Bar),
+            cursor_blink: Some(true),
+            ..DefaultColors::default()
+        };
+
+        term.vt_write(b"\x1b]4;4;#445566\x07");
+        let colors = TerminalColors::from_pty_output(&term, defaults);
+
+        assert_eq!(colors.palette[4], Some(Rgb { r: 0x44, g: 0x55, b: 0x66 }));
+        assert_eq!(colors.cursor_style, None);
+        assert_eq!(colors.cursor_blink, None);
     }
 
     #[test]
