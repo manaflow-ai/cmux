@@ -414,7 +414,6 @@ impl ClientSizingState {
 /// The multiplexer. Shared by frontends and the control socket server.
 pub struct Mux {
     state: Mutex<State>,
-    split_screens: Mutex<HashMap<SplitId, (usize, usize, ScreenId)>>,
     subscribers: MuxEventBroadcaster,
     next_id: AtomicU64,
     next_notification_id: AtomicU64,
@@ -457,8 +456,8 @@ impl Mux {
                 active_workspace: 0,
                 panes: HashMap::new(),
                 surfaces: HashMap::new(),
+                split_screens: HashMap::new(),
             }),
-            split_screens: Mutex::new(HashMap::new()),
             subscribers: MuxEventBroadcaster::default(),
             next_id: AtomicU64::new(1),
             next_notification_id: AtomicU64::new(1),
@@ -515,7 +514,7 @@ impl Mux {
         self.subscribers.emit(event);
     }
 
-    fn rebuild_split_screen_index(&self) {
+    fn rebuild_split_screen_index(state: &mut State) {
         fn index_node(
             node: &Node,
             workspace_index: usize,
@@ -530,17 +529,13 @@ impl Mux {
             }
         }
 
-        let index = {
-            let state = self.state.lock().unwrap();
-            let mut index = HashMap::new();
-            for (workspace_index, workspace) in state.workspaces.iter().enumerate() {
-                for (screen_index, screen) in workspace.screens.iter().enumerate() {
-                    index_node(&screen.root, workspace_index, screen_index, screen.id, &mut index);
-                }
+        let mut index = HashMap::new();
+        for (workspace_index, workspace) in state.workspaces.iter().enumerate() {
+            for (screen_index, screen) in workspace.screens.iter().enumerate() {
+                index_node(&screen.root, workspace_index, screen_index, screen.id, &mut index);
             }
-            index
-        };
-        *self.split_screens.lock().unwrap() = index;
+        }
+        state.split_screens = index;
     }
 
     pub(crate) fn lock_client_sizing_lifecycle(&self) -> MutexGuard<'_, ()> {
@@ -2048,12 +2043,14 @@ impl Mux {
             } else {
                 state.surfaces.remove(&surface.id);
             }
+            if done {
+                Self::rebuild_split_screen_index(&mut state);
+            }
         }
         if !done {
             surface.kill();
             anyhow::bail!("pane {target} not found");
         }
-        self.rebuild_split_screen_index();
         self.emit(MuxEvent::TreeDelta(delta.expect("successful split has a tree delta")));
         if let Some(screen) = changed_screen {
             self.emit(MuxEvent::LayoutChanged(screen));
@@ -2070,15 +2067,18 @@ impl Mux {
             let mut state = self.state.lock().unwrap();
             let changed_screen = surface_screen_id(&state, target);
             let delta = close_surface_delta(&state, &notifications, target);
+            let removed = remove_surface(&mut state, target);
+            if removed.is_some() {
+                Self::rebuild_split_screen_index(&mut state);
+            }
             (
-                remove_surface(&mut state, target),
+                removed,
                 changed_screen.into_iter().collect::<Vec<_>>(),
                 state.workspaces.is_empty(),
                 delta,
             )
         };
         if let Some(surface) = removed {
-            self.rebuild_split_screen_index();
             self.purge_surface_side_tables(surface.id);
             surface.kill();
             if let Some(delta) = delta {
@@ -2109,10 +2109,12 @@ impl Mux {
                     removed.push(surface);
                 }
             }
+            if !removed.is_empty() {
+                Self::rebuild_split_screen_index(&mut state);
+            }
             (removed, changed_screens, state.workspaces.is_empty())
         };
         if !removed.is_empty() {
-            self.rebuild_split_screen_index();
             for surface in removed {
                 self.purge_surface_side_tables(surface.id);
                 surface.kill();
@@ -2390,25 +2392,28 @@ impl Mux {
     /// Set one split ratio by its stable split-tree node id.
     pub fn set_split_ratio(&self, split: SplitId, ratio: f32) -> bool {
         let ratio = clamp_split_ratio(ratio);
-        let Some((workspace_index, screen_index, owner)) =
-            self.split_screens.lock().unwrap().get(&split).copied()
-        else {
-            return false;
-        };
         let changed_screen = {
             let mut state = self.state.lock().unwrap();
-            state
+            let Some((workspace_index, screen_index, owner)) =
+                state.split_screens.get(&split).copied()
+            else {
+                return false;
+            };
+            let changed = state
                 .workspaces
                 .get_mut(workspace_index)
                 .and_then(|workspace| workspace.screens.get_mut(screen_index))
                 .filter(|screen| screen.id == owner)
-                .and_then(|screen| screen.root.set_split_ratio(split, ratio).then_some(screen.id))
+                .and_then(|screen| screen.root.set_split_ratio(split, ratio).then_some(screen.id));
+            if changed.is_none() {
+                state.split_screens.remove(&split);
+            }
+            changed
         };
         if let Some(screen) = changed_screen {
             self.emit(MuxEvent::LayoutChanged(screen));
             true
         } else {
-            self.split_screens.lock().unwrap().remove(&split);
             false
         }
     }
@@ -2560,7 +2565,7 @@ impl Mux {
                     ws.id
                 }
             };
-            if let Some(workspace_id) = created_workspace {
+            let delta = if let Some(workspace_id) = created_workspace {
                 let index = state
                     .workspaces
                     .iter()
@@ -2607,9 +2612,10 @@ impl Mux {
                     index: Some(index),
                     entity,
                 }
-            }
+            };
+            Self::rebuild_split_screen_index(&mut state);
+            delta
         };
-        self.rebuild_split_screen_index();
         self.emit(MuxEvent::TreeDelta(delta));
         self.emit(MuxEvent::LayoutChanged(screen_id));
         for surface in spawned {
@@ -2675,11 +2681,11 @@ impl Mux {
             let moved = move_tab_in_state(&mut state, surface, pane, index);
             if moved {
                 stamp_pane(&mut state, pane, active_at);
+                Self::rebuild_split_screen_index(&mut state);
             }
             moved
         };
         if moved {
-            self.rebuild_split_screen_index();
             self.emit(MuxEvent::TreeChanged);
         }
         moved
@@ -2703,10 +2709,10 @@ impl Mux {
             state.active_workspace = active_id
                 .and_then(|id| state.workspaces.iter().position(|ws| ws.id == id))
                 .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
+            Self::rebuild_split_screen_index(&mut state);
             true
         };
         if moved {
-            self.rebuild_split_screen_index();
             self.emit(MuxEvent::TreeChanged);
         }
         moved
@@ -3721,7 +3727,8 @@ mod tests {
 
     fn seed_split_ratio_tree(mux: &Mux) -> (PaneId, PaneId, PaneId) {
         let (p1, p2, p3) = (1, 2, 3);
-        *mux.state.lock().unwrap() = State {
+        let mut state = mux.state.lock().unwrap();
+        *state = State {
             workspaces: vec![Workspace {
                 id: 1,
                 name: "1".into(),
@@ -3753,8 +3760,10 @@ mod tests {
                 (p3, Pane { id: p3, name: None, tabs: vec![3], active_tab: 0, active_at: 3 }),
             ]),
             surfaces: HashMap::new(),
+            split_screens: HashMap::new(),
         };
-        mux.rebuild_split_screen_index();
+        Mux::rebuild_split_screen_index(&mut state);
+        drop(state);
         (p1, p2, p3)
     }
 
@@ -4216,10 +4225,10 @@ mod tests {
             *id
         });
         let screen = mux.with_state(|state| state.workspaces[0].screens[0].id);
-        let split_screens = mux.split_screens.lock().unwrap();
-        assert_eq!(split_screens.get(&original).map(|location| location.2), Some(screen));
-        assert_eq!(split_screens.get(&nested).map(|location| location.2), Some(screen));
-        drop(split_screens);
+        mux.with_state(|state| {
+            assert_eq!(state.split_screens.get(&original).map(|location| location.2), Some(screen));
+            assert_eq!(state.split_screens.get(&nested).map(|location| location.2), Some(screen));
+        });
         assert!(mux.swap_panes(p1, p3));
         assert!(mux.set_split_ratio(original, 0.7));
 
@@ -4232,9 +4241,10 @@ mod tests {
         });
 
         mux.close_surface(third.id);
-        let split_screens = mux.split_screens.lock().unwrap();
-        assert!(!split_screens.contains_key(&original));
-        assert!(split_screens.contains_key(&nested));
+        mux.with_state(|state| {
+            assert!(!state.split_screens.contains_key(&original));
+            assert!(state.split_screens.contains_key(&nested));
+        });
     }
 
     #[test]

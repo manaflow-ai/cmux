@@ -267,6 +267,7 @@ pub struct State {
     pub active_workspace: usize,
     pub panes: HashMap<PaneId, Pane>,
     pub surfaces: HashMap<SurfaceId, Arc<Surface>>,
+    pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,
 }
 
 impl State {
