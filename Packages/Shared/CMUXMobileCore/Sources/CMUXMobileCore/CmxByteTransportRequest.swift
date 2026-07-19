@@ -2,6 +2,9 @@
 public enum CmxTransportAuthorizationMode: Equatable, Sendable {
     /// RPC requests must add a Stack bearer on an approved transport.
     case stackBearer
+    /// A pairing established before Iroh may send a Stack bearer only to the
+    /// exact Tailscale peer captured by this persisted compatibility grant.
+    case legacyTailscaleBearer(CmxLegacyTailscaleAuthorizationEvidence)
     /// The transport handshake admitted this exact peer and account binding.
     case transportAdmission
 }
