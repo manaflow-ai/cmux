@@ -89,6 +89,25 @@ struct MobileIrohSettingsModelTests {
         #expect(model.snapshot == .unavailable)
     }
 
+    @Test func customPrivatePathMutationsForwardExactMacScopedDraft() async {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
+        let model = MobileIrohSettingsModel(controller: controller)
+        let draft = CmxIrohCustomPrivatePathDraft(
+            macDeviceID: "123e4567-e89b-42d3-a456-426614174004",
+            macDisplayName: "Work Mac",
+            addresses: ["10.0.0.8", "fd00::8"],
+            isEnabled: true
+        )
+
+        #expect(await model.upsertCustomPrivatePath(draft))
+        #expect(controller.customPrivatePathUpserts == [draft])
+
+        model.removeCustomPrivatePath(macDeviceID: draft.macDeviceID)
+        await waitUntil {
+            controller.customPrivatePathRemovals == [draft.macDeviceID]
+        }
+    }
+
     @Test func observationLoadsSafeDiagnosticReportAndExportText() async {
         let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
         let report = diagnosticReport()
@@ -232,6 +251,8 @@ private final class MobileIrohSettingsControllerDouble:
     var exportData = Data()
     var diagnosticClearCount = 0
     var debugTransportModeMutations: [CmxIrohTransportVerificationMode] = []
+    var customPrivatePathUpserts: [CmxIrohCustomPrivatePathDraft] = []
+    var customPrivatePathRemovals: [String] = []
     var holdsDiagnosticReportReads = false
     private(set) var nextDiagnosticReportRequestID = 0
     private var pendingDiagnosticReportReads: [
@@ -268,6 +289,16 @@ private final class MobileIrohSettingsControllerDouble:
     }
     func removeIrohCustomRelay(id: String) async throws {}
     func testIrohCustomRelay(id: String) async -> CmxIrohRelayTestResult { .failed }
+
+    func upsertIrohCustomPrivatePath(
+        _ path: CmxIrohCustomPrivatePathDraft
+    ) async throws {
+        customPrivatePathUpserts.append(path)
+    }
+
+    func removeIrohCustomPrivatePath(macDeviceID: String) async throws {
+        customPrivatePathRemovals.append(macDeviceID)
+    }
 
     func refreshIrohSettings() async {}
 
@@ -306,6 +337,8 @@ private final class MobileIrohSettingsControllerDouble:
             preference: snapshot.preference,
             managedRelays: snapshot.managedRelays,
             customRelays: snapshot.customRelays,
+            privateNetworkMacs: snapshot.privateNetworkMacs,
+            customPrivateNetworks: snapshot.customPrivateNetworks,
             policySource: snapshot.policySource,
             policySequence: snapshot.policySequence,
             policyExpiresAt: snapshot.policyExpiresAt,

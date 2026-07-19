@@ -170,6 +170,7 @@ extension CmxIrohClientRuntime {
                 networkPathSnapshot: networkPathSnapshot,
                 offlinePolicy: offlinePolicy,
                 lanFallback: lanFallback,
+                customPrivateFallback: customPrivateFallback,
                 now: now
             )
             registryContextProvider = provider

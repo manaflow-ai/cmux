@@ -8,6 +8,9 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         _ authenticatedBindings: [CmxIrohBrokerBindingMetadata],
         _ rendezvous: CmxIrohLANRendezvous
     ) async -> [CmxIrohPathHint]
+    public typealias CustomPrivateFallbackProvider = @Sendable (
+        _ expectedMacDeviceID: String
+    ) async -> [CmxIrohCustomPrivatePathBootstrap]
 
     let supervisor: CmxIrohEndpointSupervisor
     let broker: any CmxIrohRegistryServing
@@ -17,6 +20,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     let networkPathSnapshot: (@Sendable () async throws -> CmxIrohNetworkPathSnapshot)?
     var offlinePolicy: CmxIrohClientOfflinePolicyContext?
     let lanFallback: LANFallbackProvider?
+    let customPrivateFallback: CustomPrivateFallbackProvider?
     let verifier: CmxIrohGrantVerifier
     let now: @Sendable () -> Date
     var grantCache: [CmxIrohPeerIdentity: CmxIrohRegistryGrantCache] = [:]
@@ -33,6 +37,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         activeNetworkProfiles: @escaping @Sendable () async -> Set<CmxIrohNetworkProfileKey>,
         offlinePolicy: CmxIrohClientOfflinePolicyContext? = nil,
         lanFallback: LANFallbackProvider? = nil,
+        customPrivateFallback: CustomPrivateFallbackProvider? = nil,
         verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
@@ -45,6 +50,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         networkPathSnapshot = nil
         self.offlinePolicy = offlinePolicy
         self.lanFallback = lanFallback
+        self.customPrivateFallback = customPrivateFallback
         self.verifier = verifier
         self.now = now
     }
@@ -59,6 +65,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         networkPathSnapshot: @escaping @Sendable () async throws -> CmxIrohNetworkPathSnapshot,
         offlinePolicy: CmxIrohClientOfflinePolicyContext? = nil,
         lanFallback: LANFallbackProvider? = nil,
+        customPrivateFallback: CustomPrivateFallbackProvider? = nil,
         verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
@@ -70,6 +77,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         self.networkPathSnapshot = networkPathSnapshot
         self.offlinePolicy = offlinePolicy
         self.lanFallback = lanFallback
+        self.customPrivateFallback = customPrivateFallback
         self.verifier = verifier
         self.now = now
     }
@@ -213,11 +221,15 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         at clock: Date
     ) async throws -> CmxIrohClientContext {
         let targetIdentity = targetBinding.endpointID
-        let routeHints = authoritativePrivateRouteHints(
+        var routeHints = authoritativePrivateRouteHints(
             routeHints,
             targetBinding: targetBinding,
             at: clock
         )
+        routeHints.append(contentsOf: await customPrivateRouteHints(
+            targetBinding: targetBinding,
+            at: clock
+        ))
         let pathSnapshot = try await availableNetworkPathSnapshot(
             for: targetBinding.pathHints + routeHints,
             at: clock
@@ -280,6 +292,58 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             }
             return directPorts?.replacingPort(in: hint)
         }
+    }
+
+    /// Resolves explicit addresses only after broker discovery authenticated
+    /// this exact Mac tuple. The broker's current UDP port is authoritative;
+    /// the configured address contributes reachability only.
+    private func customPrivateRouteHints(
+        targetBinding: CmxIrohBrokerBinding,
+        at clock: Date
+    ) async -> [CmxIrohPathHint] {
+        guard let customPrivateFallback,
+              let directPorts = freshDirectPorts(
+                  targetBinding: targetBinding,
+                  at: clock
+              ) else { return [] }
+        let configured = await customPrivateFallback(targetBinding.deviceID)
+        var hints: [CmxIrohPathHint] = []
+        for path in configured.prefix(CmxAttachEndpoint.maximumIrohPathHintCount) {
+            let port: UInt16?
+            switch path.address.family {
+            case .ipv4: port = directPorts.ipv4
+            case .ipv6: port = directPorts.ipv6
+            }
+            guard let port,
+                  let hint = try? CmxIrohPathHint(
+                      kind: .directAddress,
+                      value: path.address.socketAddress(port: port),
+                      source: .customVPN,
+                      privacyScope: .privateNetwork,
+                      observedAt: clock,
+                      expiresAt: clock.addingTimeInterval(
+                          CmxIrohPathHint.maximumPrivateHintTTL
+                      ),
+                      networkProfile: path.networkProfile
+                  ),
+                  !hints.contains(hint) else { continue }
+            hints.append(hint)
+        }
+        return hints
+    }
+
+    private func freshDirectPorts(
+        targetBinding: CmxIrohBrokerBinding,
+        at clock: Date
+    ) -> CmxIrohDirectPorts? {
+        guard let lastSeenAt = CmxIrohISO8601Date.parse(targetBinding.lastSeenAt),
+              lastSeenAt <= clock.addingTimeInterval(
+                  CmxIrohPathHint.maximumObservationClockSkew
+              ),
+              lastSeenAt >= clock.addingTimeInterval(
+                  -CmxIrohPathHint.maximumPrivateHintTTL
+              ) else { return nil }
+        return targetBinding.directPorts
     }
 
     private func cachedPolicy(
