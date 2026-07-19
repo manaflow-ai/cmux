@@ -20,6 +20,10 @@ export class RelayCatalogRollbackError extends Data.TaggedError("RelayCatalogRol
     | "unsafe_transition";
 }> {}
 
+export class RelayCatalogIntegrityError extends Data.TaggedError("RelayCatalogIntegrityError")<{
+  readonly reason: "persisted_catalog_digest_mismatch";
+}> {}
+
 export class RelayDatabaseError extends Data.TaggedError("RelayDatabaseError")<{
   readonly operation: string;
   readonly cause: unknown;
@@ -58,6 +62,7 @@ export class RelaySigningError extends Data.TaggedError("RelaySigningError")<{
 export type RelayServiceError =
   | RelayConfigurationError
   | RelayCatalogRollbackError
+  | RelayCatalogIntegrityError
   | RelayDatabaseError
   | RelayPreferenceValidationError
   | RelayPreferenceConflictError

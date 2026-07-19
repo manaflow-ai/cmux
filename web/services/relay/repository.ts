@@ -14,6 +14,7 @@ import {
 } from "../account/deletionLock";
 import {
   RelayAccountDeletionBlockedError,
+  RelayCatalogIntegrityError,
   RelayCatalogRollbackError,
   RelayConfigurationError,
   RelayDatabaseError,
@@ -69,7 +70,10 @@ export type RelayRepositoryShape = {
   readonly acceptCatalog: (input: {
     readonly catalog: RelayCatalog;
     readonly nowSeconds: number;
-  }) => Effect.Effect<void, RelayCatalogRollbackError | RelayDatabaseError>;
+  }) => Effect.Effect<
+    void,
+    RelayCatalogRollbackError | RelayCatalogIntegrityError | RelayDatabaseError
+  >;
   readonly getPreference: (
     accountId: string,
   ) => Effect.Effect<RelayPreferenceRecord, RelayDatabaseError>;
@@ -165,7 +169,9 @@ export const RelayRepositoryLive = Layer.succeed(RelayRepository, {
             }
             const previous = parseRelayCatalog(JSON.stringify(current.catalog));
             if (relayCatalogDigest(previous) !== current.catalogDigest) {
-              throw new Error("persisted relay catalog digest mismatch");
+              throw new RelayCatalogIntegrityError({
+                reason: "persisted_catalog_digest_mismatch",
+              });
             }
             const overlapSeconds = Math.max(
               0,
@@ -187,17 +193,15 @@ export const RelayRepositoryLive = Layer.succeed(RelayRepository, {
               }
               throw cause;
             }
-            if (catalog.sequence > current.catalogSequence) {
-              await tx
-                .update(irohRelayCatalogState)
-                .set({
-                  catalogSequence: catalog.sequence,
-                  catalogDigest: digest,
-                  catalog,
-                  updatedAt: new Date(nowSeconds * 1_000),
-                })
-                .where(eq(irohRelayCatalogState.id, "managed"));
-            }
+            await tx
+              .update(irohRelayCatalogState)
+              .set({
+                catalogSequence: catalog.sequence,
+                catalogDigest: digest,
+                catalog,
+                updatedAt: new Date(nowSeconds * 1_000),
+              })
+              .where(eq(irohRelayCatalogState.id, "managed"));
             return;
           }
           await tx.insert(irohRelayCatalogState).values({
@@ -209,8 +213,9 @@ export const RelayRepositoryLive = Layer.succeed(RelayRepository, {
           });
         });
       },
-      (cause): cause is RelayCatalogRollbackError =>
-        tagged(cause, "RelayCatalogRollbackError"),
+      (cause): cause is RelayCatalogRollbackError | RelayCatalogIntegrityError =>
+        tagged(cause, "RelayCatalogRollbackError") ||
+        tagged(cause, "RelayCatalogIntegrityError"),
     ),
 
   getPreference: (accountId) =>

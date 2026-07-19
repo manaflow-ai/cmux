@@ -104,6 +104,11 @@ export function relayErrorResponse(error: unknown): Response {
     });
     return jsonResponse({ error: "relay_policy_unavailable" }, 503);
   }
+  if (tag === "RelayCatalogIntegrityError") {
+    const typed = error as Extract<RelayServiceError, { _tag: "RelayCatalogIntegrityError" }>;
+    console.error("relay.policy.catalog_integrity", { reason: typed.reason });
+    return jsonResponse({ error: "relay_policy_unavailable" }, 503);
+  }
   if (
     tag === "RelayConfigurationError" ||
     tag === "RelayDatabaseError" ||
