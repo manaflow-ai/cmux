@@ -451,8 +451,8 @@ extension AgentNotificationRegressionTests {
             "A corroborating env surface keeps the tty answer"
         )
         #expect(
-            agentDeliveryTargetCombining(ttyTarget: tty, envTarget: otherEnv) == nil,
-            "Disagreement between two individually stale-able signals must fail closed"
+            agentDeliveryTargetCombining(ttyTarget: tty, envTarget: otherEnv) == tty,
+            "The kernel controlling TTY must correct a stale inherited CMUX_SURFACE_ID"
         )
         #expect(
             agentDeliveryTargetCombining(ttyTarget: nil, envTarget: otherEnv) == otherEnv,
@@ -490,6 +490,42 @@ extension AgentNotificationRegressionTests {
             )?.surfaceId == s1,
             "Consistent duplicate rows for the same surface still resolve"
         )
+    }
+
+    @Test
+    func ttyDeliveryIndexResolvesWithoutScanningEveryWorkspace() throws {
+        var index = AgentDeliveryTTYIndexCore()
+        var expected: AgentDeliveryTargetCandidate? = nil
+        for offset in 0..<1_000 {
+            let workspaceId = UUID()
+            let surfaceId = UUID()
+            index.replaceBindings(
+                workspaceId: workspaceId,
+                bindings: [(surfaceId: surfaceId, ttyDevice: Int64(offset + 10))]
+            )
+            if offset == 777 {
+                expected = AgentDeliveryTargetCandidate(workspaceId: workspaceId, surfaceId: surfaceId)
+            }
+        }
+
+        #expect(index.uniqueCandidate(forTTYDevice: 787) == expected)
+        let movedWorkspaceId = UUID()
+        let movedSurfaceId = try #require(expected?.surfaceId)
+        index.replaceBindings(workspaceId: try #require(expected?.workspaceId), bindings: [])
+        index.replaceBindings(
+            workspaceId: movedWorkspaceId,
+            bindings: [(surfaceId: movedSurfaceId, ttyDevice: 787)]
+        )
+        #expect(
+            index.uniqueCandidate(forTTYDevice: 787)
+                == AgentDeliveryTargetCandidate(workspaceId: movedWorkspaceId, surfaceId: movedSurfaceId)
+        )
+
+        index.replaceBindings(
+            workspaceId: UUID(),
+            bindings: [(surfaceId: UUID(), ttyDevice: 787)]
+        )
+        #expect(index.uniqueCandidate(forTTYDevice: 787) == nil)
     }
 
 }

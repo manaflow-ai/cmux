@@ -10,11 +10,11 @@ import CmuxSidebar
 /// mediates between the socket thread (which processes `feed.*` V2
 /// commands) and the main-actor store.
 ///
-/// Blocking hook semantics: a hook calls `feed.push` with a `request_id`
-/// and `wait_timeout_seconds`. The coordinator creates the `WorkstreamItem`
-/// on the store and parks the socket worker on a `DispatchSemaphore` until
-/// the user resolves the item via `feed.*.reply` (or the timeout elapses).
-/// Hooks then receive the decision inline in the `feed.push` response.
+/// Request/response semantics: every `feed.push` carrying an RPC id is
+/// durably admitted before its acknowledgement or blocking decision card is
+/// exposed. Blocking hooks then park the socket worker until the user resolves
+/// the item via `feed.*.reply` (or the timeout elapses). Id-less one-way Feed
+/// telemetry remains asynchronous.
 final class FeedCoordinator: @unchecked Sendable {
     static let shared = FeedCoordinator()
     static let storeInstalledNotification = Notification.Name("cmux.feed.storeInstalled")
@@ -96,20 +96,44 @@ final class FeedCoordinator: @unchecked Sendable {
         event: WorkstreamEvent,
         waitTimeout: TimeInterval
     ) -> IngestBlockingResult {
+        ingestBlocking(
+            event: event,
+            waitTimeout: waitTimeout,
+            requiresAcknowledgement: event.requestId != nil
+        )
+    }
+
+    func ingestBlocking(
+        event: WorkstreamEvent,
+        waitTimeout: TimeInterval,
+        requiresAcknowledgement: Bool
+    ) -> IngestBlockingResult {
         guard let requestId = event.requestId, waitTimeout > 0 else {
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    FeedCoordinator.shared.store.ingest(event)
-                    if let ppid = event.ppid, ppid > 0 {
-                        FeedCoordinator.shared.armPidWatcher(ppid: ppid)
+            guard requiresAcknowledgement else {
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        guard let store = FeedCoordinator.shared.store else { return }
+                        store.ingest(event)
+                        if let ppid = event.ppid, ppid > 0 {
+                            FeedCoordinator.shared.armPidWatcher(ppid: ppid)
+                        }
                     }
                 }
+                return .acknowledged(itemId: nil)
             }
-            return .acknowledged(itemId: nil)
+
+            guard let itemId = ingestAcknowledgedOnSocketWorker(
+                event: event,
+                timeout: Self.acknowledgedPersistenceWaitTimeout
+            ) else {
+                return .unavailable
+            }
+            return .acknowledged(itemId: itemId)
         }
 
         let semaphore = DispatchSemaphore(value: 0)
         let waiter = PendingWaiter(semaphore: semaphore)
+        let decisionDeadline: DispatchTime = .now() + waitTimeout
 
         // Register the waiter before the store sees the event so a very
         // fast reply can't slip through.
@@ -117,45 +141,44 @@ final class FeedCoordinator: @unchecked Sendable {
         waiters[requestId] = waiter
         waiterLock.unlock()
 
-        // Hop to main to actually insert the item + install the
-        // kqueue watcher for the agent's PID. The watcher handler
-        // caps the pending lifetime to the agent process lifetime
-        // — no polling, no leaked cards when the agent is killed.
-        let itemIdSlot = UnsafeItemIdSlot()
         let resolvedAttentionTarget = Self.isBlockingDecisionEvent(event.hookEventName)
             ? Self.resolveAttentionTarget(event: event)
             : nil
-        DispatchQueue.main.sync {
-            MainActor.assumeIsolated {
-                FeedCoordinator.shared.store.ingest(event)
-                itemIdSlot.value = FeedCoordinator.shared.store.items.last?.id
-                if let ppid = event.ppid, ppid > 0 {
-                    FeedCoordinator.shared.armPidWatcher(ppid: ppid)
-                }
-                // Surface in-app attention (needs-input status + bell +
-                // workspace elevation) for the blocking decision. This fires
-                // regardless of app focus, unlike the desktop banner below,
-                // so the pending decision is visible in the sidebar even
-                // while the user is in another workspace of the same window.
-                // The target is resolved before entering this main-thread
-                // section so hook-session disk I/O never extends the UI
-                // critical section.
-                // The target is recorded on the waiter here — inside the
-                // ingest `main.sync`, before the card can render and a reply
-                // can fire — so the overlay is cleared exactly once when the
-                // decision concludes (no race with `deliverReply`).
-                if let target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
-                    event: event,
-                    resolved: resolvedAttentionTarget
-                ) {
-                    FeedCoordinator.shared.waiterLock.lock()
-                    FeedCoordinator.shared.waiters[requestId]?.attentionTarget = target
-                    FeedCoordinator.shared.waiterLock.unlock()
-                }
-                #if DEBUG
-                FeedCoordinatorTestHooks.afterBlockingEventIngested?(event, requestId)
-                #endif
+        let itemId = ingestAcknowledgedOnSocketWorker(
+            event: event,
+            timeout: min(waitTimeout, Self.acknowledgedPersistenceWaitTimeout)
+        ) { _ in
+            FeedCoordinator.shared.waiterLock.lock()
+            let waiterWasActive = FeedCoordinator.shared.waiters[requestId] === waiter
+            FeedCoordinator.shared.waiterLock.unlock()
+            guard waiterWasActive else { return }
+
+            // Persistence has succeeded and the stable item is now in the
+            // MainActor store. Surface attention only after that durable point.
+            let target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                event: event,
+                resolved: resolvedAttentionTarget
+            )
+            FeedCoordinator.shared.waiterLock.lock()
+            let waiterIsStillActive = FeedCoordinator.shared.waiters[requestId] === waiter
+            if waiterIsStillActive, let target {
+                FeedCoordinator.shared.waiters[requestId]?.attentionTarget = target
             }
+            FeedCoordinator.shared.waiterLock.unlock()
+            if !waiterIsStillActive, let target {
+                FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
+                return
+            }
+            #if DEBUG
+            FeedCoordinatorTestHooks.afterBlockingEventIngested?(event, requestId)
+            #endif
+        }
+        guard let itemId else {
+            waiterLock.lock()
+            let removedWaiter = waiters.removeValue(forKey: requestId)
+            waiterLock.unlock()
+            concludeAttentionOnMain(removedWaiter?.attentionTarget)
+            return .unavailable
         }
 
         // If this is a blocking actionable event and the app window isn't
@@ -163,8 +186,7 @@ final class FeedCoordinator: @unchecked Sendable {
         // buttons so the user can respond without switching windows.
         postNotificationIfStillAwaiting(event: event, requestId: requestId)
 
-        let deadline: DispatchTime = .now() + waitTimeout
-        let waitResult = semaphore.wait(timeout: deadline)
+        let waitResult = semaphore.wait(timeout: decisionDeadline)
 
         waiterLock.lock()
         let w = waiters.removeValue(forKey: requestId)
@@ -174,19 +196,67 @@ final class FeedCoordinator: @unchecked Sendable {
         case .success:
             if let decision = w?.decision {
                 // `deliverReply` concludes the attention overlay on resolve.
-                return .resolved(itemId: itemIdSlot.value, decision: decision)
+                return .resolved(itemId: itemId, decision: decision)
             }
             cancelNotification(requestId: requestId)
             concludeAttentionOnMain(w?.attentionTarget)
-            expireTimedOutItem(itemIdSlot.value)
-            return .timedOut(itemId: itemIdSlot.value)
+            expireTimedOutItem(itemId)
+            return .timedOut(itemId: itemId)
         case .timedOut:
             cancelNotification(requestId: requestId)
             concludeAttentionOnMain(w?.attentionTarget)
-            expireTimedOutItem(itemIdSlot.value)
-            return .timedOut(itemId: itemIdSlot.value)
+            expireTimedOutItem(itemId)
+            return .timedOut(itemId: itemId)
         }
     }
+
+    /// Bridges the synchronous socket-worker command to async persistence
+    /// without blocking the MainActor. Production `feed.push` routing is
+    /// worker-only; a main-thread caller cannot synchronously await disk I/O.
+    private func ingestAcknowledgedOnSocketWorker(
+        event: WorkstreamEvent,
+        timeout: TimeInterval,
+        afterIngest: @escaping @MainActor @Sendable (UUID) -> Void = { _ in }
+    ) -> UUID? {
+        guard !Thread.isMainThread else {
+            #if DEBUG
+            cmuxDebugLog("feed.acknowledged_ingest.reject reason=main-thread")
+            #endif
+            return nil
+        }
+
+        let completion = DispatchSemaphore(value: 0)
+        let itemIdSlot = AcknowledgedItemIDSlot()
+        let ingestionTask = Task { @MainActor in
+            defer { completion.signal() }
+            guard let store = FeedCoordinator.shared.store else { return }
+            do {
+                let itemID = try await store.ingestAcknowledged(event)
+                itemIdSlot.value = itemID
+                if let ppid = event.ppid, ppid > 0 {
+                    FeedCoordinator.shared.armPidWatcher(ppid: ppid)
+                }
+                afterIngest(itemID)
+            } catch {
+                #if DEBUG
+                cmuxDebugLog(
+                    "feed.acknowledged_ingest.reject request=\(event.requestId ?? "nil") error=\(error)"
+                )
+                #endif
+            }
+        }
+        guard completion.wait(
+            timeout: .now() + timeout
+        ) == .success else {
+            ingestionTask.cancel()
+            return nil
+        }
+        return itemIdSlot.value
+    }
+
+    /// The socket worker stops waiting before the CLI's ten-second response
+    /// timeout, leaving enough time to encode explicit retryable backpressure.
+    private static let acknowledgedPersistenceWaitTimeout: TimeInterval = 5
 
     /// Concludes an attention overlay (if any) on the main actor, hopping if
     /// called from the socket worker thread.
@@ -282,6 +352,7 @@ final class FeedCoordinator: @unchecked Sendable {
         case acknowledged(itemId: UUID?)
         case resolved(itemId: UUID?, decision: WorkstreamDecision)
         case timedOut(itemId: UUID?)
+        case unavailable
     }
 }
 
@@ -516,10 +587,8 @@ private final class PendingWaiter: @unchecked Sendable {
     let semaphore: DispatchSemaphore
     var decision: WorkstreamDecision?
     /// The attention overlay target for this decision, if one was surfaced.
-    /// Set inside the ingest `main.sync` (before the card can render and a
-    /// reply can fire) and read when the decision concludes, so the
-    /// needs-input overlay is cleared exactly once. Guarded by
-    /// `FeedCoordinator.waiterLock`.
+    /// Set after durable ingestion, before the card can accept a reply, and
+    /// read when the decision concludes. Guarded by `FeedCoordinator.waiterLock`.
     var attentionTarget: FeedCoordinator.AttentionTarget?
 
     init(semaphore: DispatchSemaphore) {
@@ -527,9 +596,9 @@ private final class PendingWaiter: @unchecked Sendable {
     }
 }
 
-/// Tiny box so the `DispatchQueue.main.sync` closure can mutate an
-/// `UUID?` without a capture warning.
-private final class UnsafeItemIdSlot: @unchecked Sendable {
+/// Completion slot shared by the async persistence task and its synchronous
+/// socket worker. The semaphore provides the successful-read happens-before edge.
+private final class AcknowledgedItemIDSlot: @unchecked Sendable {
     var value: UUID?
 }
 
@@ -1111,6 +1180,8 @@ enum FeedSocketEncoding {
             var dict: [String: Any] = ["status": "timed_out"]
             if let itemId { dict["item_id"] = itemId.uuidString }
             return dict
+        case .unavailable:
+            return ["status": "unavailable"]
         }
     }
 

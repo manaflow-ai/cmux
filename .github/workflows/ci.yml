@@ -599,8 +599,61 @@ jobs:
             -only-testing:cmuxTests/BrowserViewportRuntimeTests \
             test
 
+      - name: Run hook queue and Feed regressions
+        if: ${{ matrix.shard == 1 }}
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/AgentHookDeliveryQueueTests \
+            -only-testing:cmuxTests/FeedCoordinatorTests \
+            test
+
+      - name: Run hook CLI delivery regressions
+        if: ${{ matrix.shard == 2 }}
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/CLIHookNoResponseTests \
+            -only-testing:cmuxTests/CMUXCLIErrorOutputRegressionTests \
+            test
+
+      - name: Run Codex hook timeout regressions
+        if: ${{ matrix.shard == 3 }}
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/CLICodexHookTimeoutRegressionTests \
+            test
+
       - name: Run notification routing regressions
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == 4 }}
         run: |
           # The tolerant full-suite step can accept assertion failures or stop
           # after an app-host crash before this suite runs. Keep notification
@@ -614,6 +667,7 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/AgentNotificationRegressionTests \
             -only-testing:cmuxTests/ClaudeHookLifecycleCleanupTests \
@@ -1812,6 +1866,9 @@ jobs:
             COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
 
+      - name: Validate hook helper signing policy
+        run: ./tests/test_sign_cmux_bundle.sh
+
       - name: Bound Xcode compilation cache size
         run: |
           set -euo pipefail
@@ -1847,17 +1904,23 @@ jobs:
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
+          CODEX_HOOK_CLIENT="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-codex-hook-client"
+          HOOK_SUPERVISOR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-agent-hook-supervisor"
           DIFF_SIDECAR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-diff-sidecar"
           test -x "$APP_BINARY"
           test -x "$CLI_BINARY"
           test -x "$HELPER_BINARY"
+          test -f "$CODEX_HOOK_CLIENT" && test -x "$CODEX_HOOK_CLIENT"
+          test -f "$HOOK_SUPERVISOR" && test -x "$HOOK_SUPERVISOR"
           test -x "$DIFF_SIDECAR"
-          file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$DIFF_SIDECAR"
+          file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$CODEX_HOOK_CLIENT" "$HOOK_SUPERVISOR" "$DIFF_SIDECAR"
           SDK_VERSION="$(otool -l "$APP_BINARY" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
           echo "App SDK version: $SDK_VERSION"
           lipo "$APP_BINARY" -verify_arch arm64 x86_64
           lipo "$CLI_BINARY" -verify_arch arm64 x86_64
           lipo "$HELPER_BINARY" -verify_arch arm64 x86_64
+          lipo "$CODEX_HOOK_CLIENT" -verify_arch arm64 x86_64
+          lipo "$HOOK_SUPERVISOR" -verify_arch arm64 x86_64
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
           [[ "$SDK_VERSION" == 26.* ]]
 

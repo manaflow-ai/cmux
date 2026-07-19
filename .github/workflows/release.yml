@@ -273,18 +273,28 @@ jobs:
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
+          CODEX_HOOK_CLIENT="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-codex-hook-client"
+          HOOK_SUPERVISOR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-agent-hook-supervisor"
           DIFF_SIDECAR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-diff-sidecar"
+          test -f "$CODEX_HOOK_CLIENT" && test -x "$CODEX_HOOK_CLIENT"
+          test -f "$HOOK_SUPERVISOR" && test -x "$HOOK_SUPERVISOR"
           APP_ARCHS="$(lipo -archs "$APP_BINARY")"
           CLI_ARCHS="$(lipo -archs "$CLI_BINARY")"
           HELPER_ARCHS="$(lipo -archs "$HELPER_BINARY")"
+          CODEX_HOOK_ARCHS="$(lipo -archs "$CODEX_HOOK_CLIENT")"
+          HOOK_SUPERVISOR_ARCHS="$(lipo -archs "$HOOK_SUPERVISOR")"
           SDK_VERSION="$(otool -l "$APP_BINARY" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
           echo "App binary architectures: $APP_ARCHS"
           echo "CLI binary architectures: $CLI_ARCHS"
           echo "Ghostty helper architectures: $HELPER_ARCHS"
+          echo "Codex hook client architectures: $CODEX_HOOK_ARCHS"
+          echo "Hook delivery supervisor architectures: $HOOK_SUPERVISOR_ARCHS"
           echo "App SDK version: $SDK_VERSION"
           [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
           [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
           [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
+          [[ "$CODEX_HOOK_ARCHS" == *arm64* && "$CODEX_HOOK_ARCHS" == *x86_64* ]]
+          [[ "$HOOK_SUPERVISOR_ARCHS" == *arm64* && "$HOOK_SUPERVISOR_ARCHS" == *x86_64* ]]
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
           [[ "$SDK_VERSION" == 26.* ]]
 

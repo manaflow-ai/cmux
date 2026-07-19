@@ -426,10 +426,225 @@ struct FeedCoordinatorTests {
         #expect(changes.first?["summary"] as? String == "file summary")
     }
 
-    @Test func blockingIngestExpiresItemWhenHookTimesOut() async {
+    @Test func nonBlockingIngestAcknowledgesOnlyAfterStoreMutationAndDeduplicates() async throws {
+        let persistenceFixture = try FeedPersistenceFixture(testName: "acknowledged")
+        defer { persistenceFixture.remove() }
         await MainActor.run {
-            let store = WorkstreamStore(ringCapacity: 10)
-            FeedCoordinator.shared.install(store: store)
+            FeedCoordinator.shared.install(store: persistenceFixture.store())
+        }
+
+        let event = WorkstreamEvent(
+            sessionId: "codex-queued-feed-test",
+            hookEventName: .preToolUse,
+            source: "codex",
+            cwd: "/tmp",
+            toolName: "Read",
+            toolInputJSON: #"{"path":"README.md"}"#,
+            requestId: "queued-feed-delivery-id"
+        )
+        let started = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
+        let firstResult = IngestResultBox()
+
+        await MainActor.run {
+            DispatchQueue.global(qos: .userInitiated).async {
+                started.signal()
+                firstResult.value = FeedCoordinator.shared.ingestBlocking(
+                    event: event,
+                    waitTimeout: 0
+                )
+                finished.signal()
+            }
+            #expect(started.wait(timeout: .now() + 1) == .success)
+            #expect(
+                finished.wait(timeout: .now() + 0.05) == .timedOut,
+                "An acknowledged feed.push must wait until its MainActor store mutation finishes"
+            )
+        }
+
+        #expect(finished.wait(timeout: .now() + 1) == .success)
+        guard case .acknowledged(let firstItemId?) = firstResult.value else {
+            Issue.record("Expected acknowledged ingest with a concrete item id")
+            return
+        }
+        #expect(await MainActor.run { FeedCoordinator.shared.store.items.count } == 1)
+        #expect(try await persistenceFixture.persistence.loadRecent(limit: 10).map(\.id) == [firstItemId])
+
+        let duplicateFinished = DispatchSemaphore(value: 0)
+        let duplicateResult = IngestResultBox()
+        DispatchQueue.global(qos: .userInitiated).async {
+            duplicateResult.value = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 0
+            )
+            duplicateFinished.signal()
+        }
+        #expect(duplicateFinished.wait(timeout: .now() + 1) == .success)
+        guard case .acknowledged(let duplicateItemId?) = duplicateResult.value else {
+            Issue.record("Expected duplicate ingest to acknowledge the existing item")
+            return
+        }
+        #expect(duplicateItemId == firstItemId)
+        #expect(await MainActor.run { FeedCoordinator.shared.store.items.count } == 1)
+        #expect(try await persistenceFixture.persistence.loadRecent(limit: 10).map(\.id) == [firstItemId])
+    }
+
+    @Test func timedOutDurableAdmissionCannotSurfaceLateAttentionAndRetryStaysIdempotent() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-feed-late-admission-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let clock = BlockingPersistenceClock(now: Date(timeIntervalSince1970: 30_000))
+        let persistence = WorkstreamPersistence(
+            fileURL: directory.appendingPathComponent("workstream.jsonl"),
+            receiptDatabaseURL: directory.appendingPathComponent("receipts.sqlite3"),
+            clock: { clock.read() }
+        )
+        let attention = AttentionSurfaceRecorder()
+        defer {
+            clock.release()
+            Self.resetFeedCoordinatorTestHooks()
+            try? FileManager.default.removeItem(at: directory)
+        }
+        await MainActor.run {
+            FeedCoordinator.shared.install(
+                store: WorkstreamStore(persistence: persistence, ringCapacity: 10)
+            )
+            FeedCoordinatorTestHooks.attentionSurfaceObserver = { event in
+                attention.record(event)
+            }
+        }
+
+        let blockerEvent = WorkstreamEvent(
+            sessionId: "blocker",
+            hookEventName: .preToolUse,
+            source: "codex",
+            toolName: "Read",
+            requestId: "blocker"
+        )
+        let blockerItem = WorkstreamItem(
+            workstreamId: "blocker",
+            source: .codex,
+            kind: .toolUse,
+            requestId: "blocker",
+            payload: .toolUse(toolName: "Read", toolInputJSON: "{}")
+        )
+        let blockerTask = Task.detached {
+            try await persistence.appendAcknowledged(blockerItem, for: blockerEvent)
+        }
+        #expect(clock.waitUntilBlocked(timeout: 1))
+
+        let requestID = "late-blocking-admission"
+        let event = WorkstreamEvent(
+            sessionId: "late-session",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"true"}"#,
+            requestId: requestID
+        )
+        let firstDone = DispatchSemaphore(value: 0)
+        let firstResult = IngestResultBox()
+        DispatchQueue.global(qos: .userInitiated).async {
+            firstResult.value = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 10
+            )
+            firstDone.signal()
+        }
+        #expect(firstDone.wait(timeout: .now() + 7) == .success)
+        guard case .unavailable = firstResult.value else {
+            Issue.record("A stalled durable admission must return retryable unavailability")
+            return
+        }
+
+        clock.release()
+        _ = try await blockerTask.value
+        var lateItemID: UUID?
+        for _ in 0..<100 {
+            lateItemID = try await persistence.loadRecent(limit: 10)
+                .first(where: { $0.requestId == requestID })?.id
+            if lateItemID != nil { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let persistedLateItemID = try #require(lateItemID)
+        #expect(await MainActor.run {
+            !FeedCoordinator.shared.store.items.contains(where: { $0.requestId == requestID })
+        })
+        #expect(attention.events.isEmpty)
+        let retryDone = DispatchSemaphore(value: 0)
+        let retryResult = IngestResultBox()
+        DispatchQueue.global(qos: .userInitiated).async {
+            retryResult.value = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 0
+            )
+            retryDone.signal()
+        }
+        #expect(retryDone.wait(timeout: .now() + 1) == .success)
+        guard case .acknowledged(let retryID?) = retryResult.value else {
+            Issue.record("The retry must acknowledge the late durable write")
+            return
+        }
+        #expect(retryID == persistedLateItemID)
+        let history = try await persistence.loadRecent(limit: 10)
+        #expect(history.filter { $0.id == persistedLateItemID }.count == 1)
+        #expect(attention.events.isEmpty)
+    }
+
+    @Test func oneWayNonBlockingIngestReturnsBeforeMainActorMutation() async throws {
+        await MainActor.run {
+            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+        }
+
+        let event = WorkstreamEvent(
+            sessionId: "codex-one-way-feed-test",
+            hookEventName: .preToolUse,
+            source: "codex",
+            cwd: "/tmp",
+            toolName: "Read",
+            toolInputJSON: #"{"path":"README.md"}"#,
+            requestId: nil
+        )
+        let started = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
+        let resultBox = IngestResultBox()
+
+        await MainActor.run {
+            DispatchQueue.global(qos: .userInitiated).async {
+                started.signal()
+                resultBox.value = FeedCoordinator.shared.ingestBlocking(
+                    event: event,
+                    waitTimeout: 0
+                )
+                finished.signal()
+            }
+            #expect(started.wait(timeout: .now() + 1) == .success)
+            #expect(
+                finished.wait(timeout: .now() + 0.05) == .success,
+                "One-way feed telemetry must not wait for MainActor ingestion"
+            )
+            #expect(FeedCoordinator.shared.store.items.isEmpty)
+        }
+
+        guard case .acknowledged(itemId: nil) = resultBox.value else {
+            Issue.record("Expected one-way ingestion to return an acknowledgement without an item id")
+            return
+        }
+
+        for _ in 0..<100 {
+            if await MainActor.run(body: { FeedCoordinator.shared.store.items.count }) == 1 {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        Issue.record("Expected deferred one-way ingestion to reach the Feed store")
+    }
+
+    @Test func blockingIngestExpiresItemWhenHookTimesOut() async throws {
+        let persistenceFixture = try FeedPersistenceFixture(testName: "timeout")
+        defer { persistenceFixture.remove() }
+        await MainActor.run {
+            FeedCoordinator.shared.install(store: persistenceFixture.store())
         }
 
         let event = WorkstreamEvent(
@@ -448,7 +663,7 @@ struct FeedCoordinatorTests {
         DispatchQueue.global(qos: .userInitiated).async {
             resultBox.value = FeedCoordinator.shared.ingestBlocking(
                 event: event,
-                waitTimeout: 0.05
+                waitTimeout: 0.2
             )
             done.signal()
         }
@@ -469,17 +684,18 @@ struct FeedCoordinatorTests {
         }
     }
 
-    @Test func blockingIngestSkipsNotificationWhenPermissionResolvesBeforeDisplay() async {
+    @Test func blockingIngestSkipsNotificationWhenPermissionResolvesBeforeDisplay() async throws {
         let requestId = "auto-allow-request"
         let notifications = NotificationRequestRecorder()
+        let persistenceFixture = try FeedPersistenceFixture(testName: "auto-allow")
 
         defer {
             Self.resetFeedCoordinatorTestHooks()
+            persistenceFixture.remove()
         }
 
         await MainActor.run {
-            let store = WorkstreamStore(ringCapacity: 10)
-            FeedCoordinator.shared.install(store: store)
+            FeedCoordinator.shared.install(store: persistenceFixture.store())
             FeedCoordinatorTestHooks.afterBlockingEventIngested = { _, ingestedRequestId in
                 guard ingestedRequestId == requestId else { return }
                 FeedCoordinator.shared.deliverReply(
@@ -537,17 +753,18 @@ struct FeedCoordinatorTests {
         )
     }
 
-    @Test func blockingIngestSurfacesNeedsInputAttentionForPermissionRequest() async {
+    @Test func blockingIngestSurfacesNeedsInputAttentionForPermissionRequest() async throws {
+        let persistenceFixture = try FeedPersistenceFixture(testName: "attention")
         defer {
             Self.resetFeedCoordinatorTestHooks()
+            persistenceFixture.remove()
         }
 
         let attention = AttentionSurfaceRecorder()
         let requestId = "needs-input-attention-request"
 
         await MainActor.run {
-            let store = WorkstreamStore(ringCapacity: 10)
-            FeedCoordinator.shared.install(store: store)
+            FeedCoordinator.shared.install(store: persistenceFixture.store())
             FeedCoordinatorTestHooks.attentionSurfaceObserver = { event in
                 attention.record(event)
             }
@@ -612,6 +829,102 @@ struct FeedCoordinatorTests {
         #expect(FeedCoordinator.lifecycleStatusKey(forSource: "opencode") == "opencode")
     }
 
+    @Test func acknowledgedRetryAfterRingEvictionReturnsOriginalItem() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-feed-ring-retry-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let persistence = WorkstreamPersistence(
+            fileURL: directory.appendingPathComponent("workstream.jsonl")
+        )
+        await MainActor.run {
+            FeedCoordinator.shared.install(
+                store: WorkstreamStore(persistence: persistence, ringCapacity: 1)
+            )
+        }
+        let original = WorkstreamEvent(
+            sessionId: "codex-ring-retry",
+            hookEventName: .preToolUse,
+            source: "codex",
+            toolName: "Read",
+            requestId: "delivery-original"
+        )
+        let evicting = WorkstreamEvent(
+            sessionId: "codex-ring-retry",
+            hookEventName: .postToolUse,
+            source: "codex",
+            toolName: "Read",
+            requestId: "delivery-evicting"
+        )
+
+        func ingest(_ event: WorkstreamEvent) -> FeedCoordinator.IngestBlockingResult? {
+            let done = DispatchSemaphore(value: 0)
+            let result = IngestResultBox()
+            DispatchQueue.global(qos: .userInitiated).async {
+                result.value = FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 0)
+                done.signal()
+            }
+            guard done.wait(timeout: .now() + 2) == .success else { return nil }
+            return result.value
+        }
+
+        guard case .acknowledged(let originalID?) = ingest(original) else {
+            Issue.record("Expected the original event to be acknowledged")
+            return
+        }
+        guard case .acknowledged = ingest(evicting) else {
+            Issue.record("Expected the second event to evict the original ring entry")
+            return
+        }
+        #expect(await MainActor.run { !FeedCoordinator.shared.store.items.contains(where: { $0.id == originalID }) })
+        guard case .acknowledged(let retryID?) = ingest(original) else {
+            Issue.record("Expected the lost-ack retry to be acknowledged")
+            return
+        }
+
+        #expect(retryID == originalID)
+        let history = try await persistence.loadRecent(limit: 10)
+        #expect(history.filter { $0.id == originalID }.count == 1)
+    }
+
+    @Test func acknowledgedIngestRejectsBeforeExposureWhenPersistenceFails() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-feed-persistence-failure-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let blockingFile = directory.appendingPathComponent("not-a-directory")
+        try Data("file".utf8).write(to: blockingFile)
+        let persistence = WorkstreamPersistence(
+            fileURL: blockingFile.appendingPathComponent("workstream.jsonl")
+        )
+        await MainActor.run {
+            FeedCoordinator.shared.install(
+                store: WorkstreamStore(persistence: persistence, ringCapacity: 10)
+            )
+        }
+        let event = WorkstreamEvent(
+            sessionId: "codex-persistence-failure",
+            hookEventName: .preToolUse,
+            source: "codex",
+            toolName: "Read",
+            toolInputJSON: #"{"path":"README.md"}"#,
+            requestId: "must-not-ack"
+        )
+        let done = DispatchSemaphore(value: 0)
+        let result = IngestResultBox()
+        DispatchQueue.global(qos: .userInitiated).async {
+            result.value = FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 0)
+            done.signal()
+        }
+
+        #expect(done.wait(timeout: .now() + 2) == .success)
+        guard case .unavailable = result.value else {
+            Issue.record("Persistence failure must reject an acknowledged feed.push")
+            return
+        }
+        #expect(await MainActor.run { FeedCoordinator.shared.store.items.isEmpty })
+    }
+
     private static func resetFeedCoordinatorTestHooks() {
         let reset: @Sendable () -> Void = {
             MainActor.assumeIsolated {
@@ -631,6 +944,70 @@ struct FeedCoordinatorTests {
 
 private final class IngestResultBox: @unchecked Sendable {
     var value: FeedCoordinator.IngestBlockingResult?
+}
+
+private final class FeedPersistenceFixture: @unchecked Sendable {
+    let directory: URL
+    let persistence: WorkstreamPersistence
+
+    init(testName: String) throws {
+        directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-feed-\(testName)-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        persistence = WorkstreamPersistence(
+            fileURL: directory.appendingPathComponent("workstream.jsonl"),
+            receiptDatabaseURL: directory.appendingPathComponent("receipts.sqlite3")
+        )
+    }
+
+    @MainActor
+    func store() -> WorkstreamStore {
+        WorkstreamStore(persistence: persistence, ringCapacity: 10)
+    }
+
+    func remove() {
+        try? FileManager.default.removeItem(at: directory)
+    }
+}
+
+private final class BlockingPersistenceClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private let entered = DispatchSemaphore(value: 0)
+    private let releaseGate = DispatchSemaphore(value: 0)
+    private let value: Date
+    private var shouldBlock = true
+    private var released = false
+
+    init(now: Date) {
+        value = now
+    }
+
+    func read() -> Date {
+        lock.lock()
+        let block = shouldBlock
+        shouldBlock = false
+        lock.unlock()
+        if block {
+            entered.signal()
+            releaseGate.wait()
+        }
+        return value
+    }
+
+    func waitUntilBlocked(timeout: TimeInterval) -> Bool {
+        entered.wait(timeout: .now() + timeout) == .success
+    }
+
+    func release() {
+        lock.lock()
+        let needsSignal = !released
+        released = true
+        lock.unlock()
+        if needsSignal { releaseGate.signal() }
+    }
 }
 
 private final class AttentionSurfaceRecorder: @unchecked Sendable {

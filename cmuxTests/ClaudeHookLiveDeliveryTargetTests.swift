@@ -250,6 +250,147 @@ struct ClaudeHookLiveDeliveryTargetTests {
         #expect(record?["surfaceId"] as? String == Self.liveSurfaceId)
     }
 
+    /// Codex uses the generic hook handler. Its hot path must ask the app's
+    /// indexed pid resolver instead of downloading every workspace's process
+    /// tree through `system.top` for each event.
+    @Test func codexSessionStartUsesIndexedPidResolverWithoutGlobalProcessSnapshot() throws {
+        let context = try Harness.makeContext(name: "codex-indexed-pid")
+        defer { context.cleanup() }
+        let sessionId = "codex-indexed-pid-session"
+        let codexPID = 43_210
+
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [
+                Self.liveWorkspaceId: [Self.fallbackSurfaceId, Self.liveSurfaceId],
+            ],
+            pidTarget: (workspaceId: Self.liveWorkspaceId, surfaceId: Self.liveSurfaceId)
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.fallbackSurfaceId
+        environment["CMUX_CODEX_PID"] = "\(codexPID)"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "codex", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let commands = context.state.snapshot()
+        #expect(commands.contains {
+            guard let object = Harness.jsonObjectForAssertion($0) else { return false }
+            return object["method"] as? String == "agent.resolve_delivery_target"
+        })
+        #expect(
+            !commands.contains {
+                guard let object = Harness.jsonObjectForAssertion($0) else { return false }
+                return object["method"] as? String == "system.top"
+            },
+            "Codex hook routing must stay O(1) in workspace count; saw \(commands)"
+        )
+        let resumeBinding = try #require(Harness.resumeBindingParams(in: context).last)
+        #expect(resumeBinding["workspace_id"] as? String == Self.liveWorkspaceId)
+        #expect(resumeBinding["surface_id"] as? String == Self.liveSurfaceId)
+    }
+
+    /// A pane can move after Codex inherited its cmux environment. The live
+    /// process binding is one atomic workspace/surface identity, so it must
+    /// replace both stale environment fields instead of correcting only the
+    /// surface inside the old workspace.
+    @Test func codexSessionStartFollowsMovedPaneAcrossWorkspacesDespiteStaleEnvironment() throws {
+        let context = try Harness.makeContext(name: "codex-moved-live-pid")
+        defer { context.cleanup() }
+        let sessionId = "codex-moved-live-pid-session"
+        let codexPID = 43_215
+
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [
+                Self.liveWorkspaceId: [Self.fallbackSurfaceId],
+                Self.otherWorkspaceId: [Self.liveSurfaceId],
+            ],
+            pidTarget: (workspaceId: Self.otherWorkspaceId, surfaceId: Self.liveSurfaceId)
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_CODEX_PID"] = "\(codexPID)"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "codex", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let resumeBinding = try #require(Harness.resumeBindingParams(in: context).last)
+        #expect(resumeBinding["workspace_id"] as? String == Self.otherWorkspaceId)
+        #expect(resumeBinding["surface_id"] as? String == Self.liveSurfaceId)
+        let storedRecord = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        let record = try #require(storedRecord)
+        #expect(record["workspaceId"] as? String == Self.otherWorkspaceId)
+        #expect(record["surfaceId"] as? String == Self.liveSurfaceId)
+    }
+
+    /// A new CLI can still drive an older app during a rolling upgrade. Only
+    /// `method_not_found` may fall back to the legacy global snapshot.
+    @Test func codexSessionStartFallsBackToLegacySnapshotForOlderApp() throws {
+        let context = try Harness.makeContext(name: "codex-legacy-pid")
+        defer { context.cleanup() }
+        let sessionId = "codex-legacy-pid-session"
+        let codexPID = 43_211
+
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [
+                Self.liveWorkspaceId: [Self.fallbackSurfaceId, Self.liveSurfaceId],
+            ],
+            pidTarget: nil,
+            legacyProcessTarget: (
+                pid: codexPID,
+                workspaceId: Self.liveWorkspaceId,
+                surfaceId: Self.liveSurfaceId
+            ),
+            resolverMethodAvailable: false
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.fallbackSurfaceId
+        environment["CMUX_CODEX_PID"] = "\(codexPID)"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "codex", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let methods = context.state.snapshot().compactMap {
+            Harness.jsonObjectForAssertion($0)?["method"] as? String
+        }
+        #expect(methods.contains("agent.resolve_delivery_target"))
+        #expect(methods.contains("system.top"))
+        let resumeBinding = try #require(Harness.resumeBindingParams(in: context).last)
+        #expect(resumeBinding["surface_id"] as? String == Self.liveSurfaceId)
+    }
+
 
     /// Older app without `agent.resolve_delivery_target`: the legacy chain
     /// (session record validated against live workspaces) keeps working.

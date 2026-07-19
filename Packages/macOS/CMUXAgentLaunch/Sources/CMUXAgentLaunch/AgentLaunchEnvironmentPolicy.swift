@@ -1,35 +1,5 @@
 import Foundation
 
-/// Resolves Claude configuration directories that may have moved between cmux-managed auth roots.
-public struct ClaudeConfigDirectoryPath: Sendable {
-    private init() {}
-
-    /// Returns the preferred on-disk Claude config path for a captured launch environment value.
-    ///
-    /// Legacy cmux auth directories under `~/.subrouter/codex/claude` are mapped to the newer
-    /// `~/.codex-accounts/claude` location when the corresponding account directory exists.
-    public static func preferredPath(
-        _ rawPath: String,
-        fileManager: FileManager = .default,
-        homeDirectory: String = NSHomeDirectory()
-    ) -> String {
-        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return rawPath }
-
-        let standardized = ((trimmed as NSString).expandingTildeInPath as NSString).standardizingPath
-        let home = ((homeDirectory as NSString).expandingTildeInPath as NSString).standardizingPath
-        let legacyRoot = ((home as NSString).appendingPathComponent(".subrouter/codex/claude") as NSString).standardizingPath
-        guard standardized == legacyRoot || standardized.hasPrefix(legacyRoot + "/") else { return standardized }
-
-        let accountRoot = ((home as NSString).appendingPathComponent(".codex-accounts/claude") as NSString).standardizingPath
-        let candidate = accountRoot + String(standardized.dropFirst(legacyRoot.count))
-        var isDirectory: ObjCBool = false
-        return fileManager.fileExists(atPath: candidate, isDirectory: &isDirectory) && isDirectory.boolValue
-            ? candidate
-            : standardized
-    }
-}
-
 /// Selects the non-secret launch environment values that are safe to replay when restoring agents.
 public struct AgentLaunchEnvironmentPolicy: Sendable {
     /// Creates a launch environment policy.
@@ -115,6 +85,13 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
     ]
 
     private static let sortedSafeEnvironmentKeys = safeEnvironmentKeys.sorted()
+
+    /// Keys that existing launch and auto-naming policies may safely inspect
+    /// after a hook crosses a process boundary. The transport still applies its
+    /// own narrower routing and provider policy before persisting values.
+    public static var replaySafeEnvironmentKeys: Set<String> {
+        safeEnvironmentKeys
+    }
 
     /// Returns the subset of captured environment variables that should be replayed for an agent.
     ///

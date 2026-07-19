@@ -5,9 +5,8 @@
 # makes `codex` carry cmux's hooks for THIS invocation only (nothing is written
 # to ~/.codex), so Codex's own SessionStart/UserPromptSubmit/Stop/PreToolUse/
 # PostToolUse/PermissionRequest fire back into cmux with Codex's real session_id.
-# It also fires a best-effort one-way `cmux hooks codex session-start` BEFORE
-# exec so a session is detected at launch even if Codex's own SessionStart is
-# delayed; the registry dedups by session id so the two are idempotent.
+# For `codex resume <id>`, where Codex emits no SessionStart, it also submits a
+# queued SessionStart before exec so the saved session binds to the new pid.
 #
 # Outside cmux (no CMUX_SURFACE_ID / live socket), or when the user opts out
 # (CMUX_CODEX_HOOKS_DISABLED=1), the wrapper does NOTHING but exec the real
@@ -292,37 +291,17 @@ export CMUX_AGENT_LAUNCH_CWD="$PWD"
 # GUI), so it stays omitted for fresh launches.
 #
 # RESUME is different: codex does NOT fire SessionStart when resuming, so the
-# injected hooks alone would never re-bind the session (its only pid-refreshing
-# event never arrives), leaving it stuck on the dead pre-relaunch pid -> `.ended`
-# -> read-only with no input bar, with no way out (you cannot submit a prompt
-# from a GUI that has no composer). The wrapper has the resumed id (from argv) and
-# the new live pid ($$, exported as CMUX_CODEX_PID above), so it fires the
-# session-start ITSELF. The handler binds surface/workspace/cwd from the cmux env
-# and pid from CMUX_CODEX_PID, re-binding the resumed session to its live pid and
-# flipping it back to idle/editable. Fire-and-forget (backgrounded + disowned) so
-# it never blocks the launch; best-effort so a failure can never break `codex`.
+# wrapper dispatches one after the generated hook scripts are ready. The same
+# accepted queue path re-binds the saved session to this process without spawning
+# one detached delivery tree per resumed agent.
 cmux_codex_resume_sid="$(cmux_codex_resume_session_id "$@")"
-if [[ -n "$cmux_codex_resume_sid" \
-      && -n "$CMUX_CODEX_HOOK_CMUX_BIN" && -x "$CMUX_CODEX_HOOK_CMUX_BIN" ]]; then
-    cmux_codex_resume_payload="{\"session_id\":\"$cmux_codex_resume_sid\",\"cwd\":\"$PWD\"}"
-    if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
-        ( printf '%s' "$cmux_codex_resume_payload" \
-            | nohup "$CMUX_CODEX_HOOK_CMUX_BIN" --socket "$CMUX_SOCKET_PATH" hooks codex session-start >/dev/null 2>&1 ) &
-    else
-        ( printf '%s' "$cmux_codex_resume_payload" \
-            | nohup "$CMUX_CODEX_HOOK_CMUX_BIN" hooks codex session-start >/dev/null 2>&1 ) &
-    fi
-    disown 2>/dev/null || true
-fi
 
 # Build the per-invocation [hooks] injection. The cmux CLI emits the exact arg
 # list (NUL-separated) that enables hooks and injects cmux's FIRE-AND-FORGET hook
 # command for each event. Fire-and-forget is critical: codex runs hooks
 # synchronously and BLOCKS until they return, so a synchronous `cmux hooks codex
-# <sub>` made every launch hang ~35s on "Running SessionStart hook". The emitted
-# command captures codex's stdin payload to a temp file, nohup-backgrounds the
-# real cmux call with a 30s watchdog, and `echo '{}'` returns to codex instantly,
-# so detection still binds the real session id while codex never blocks.
+# <sub>` can stall startup. The emitted command sends an encoded event directly
+# to cmux's durable queue and returns as soon as the app acknowledges acceptance.
 #
 # Resolving the args via the CLI (instead of re-deriving fragile shell here)
 # avoids quoting bugs in the fire-and-forget command (it contains single quotes
@@ -350,7 +329,74 @@ cmux_codex_read_inject_args() {
     return 0
 }
 
+cmux_codex_injection_ready=0
 if cmux_codex_read_inject_args; then
+    cmux_codex_injection_ready=1
+fi
+
+if [[ -n "$cmux_codex_resume_sid" ]]; then
+    cmux_codex_resume_payload="{\"session_id\":\"$cmux_codex_resume_sid\"}"
+    cmux_codex_resume_delivery_id="codex-resume-${CMUX_CODEX_PID:-unknown}-$$-${RANDOM:-0}-${RANDOM:-0}"
+    # Reuse the exact SessionStart command emitted for this invocation. Helper
+    # paths are content-addressed, so reconstructing a stable filename here
+    # would let another tagged/stable cmux version redirect this resume event.
+    cmux_codex_resume_hook=""
+    cmux_codex_command_marker="command='''"
+    cmux_codex_command_end="'''"
+    for cmux_codex_arg in "${cmux_codex_injected_args[@]}"; do
+        case "$cmux_codex_arg" in
+            hooks.SessionStart=*)
+                cmux_codex_candidate="${cmux_codex_arg#*"$cmux_codex_command_marker"}"
+                if [[ "$cmux_codex_candidate" != "$cmux_codex_arg" ]]; then
+                    cmux_codex_resume_hook="${cmux_codex_candidate%%"$cmux_codex_command_end"*}"
+                fi
+                ;;
+        esac
+    done
+    if [[ -n "$cmux_codex_resume_hook" && -x "$cmux_codex_resume_hook" ]]; then
+        printf '%s' "$cmux_codex_resume_payload" \
+            | CMUX_AGENT_HOOK_DELIVERY_ID="$cmux_codex_resume_delivery_id" \
+                "$cmux_codex_resume_hook" >/dev/null 2>&1 || true
+    elif [[ -n "$cmux_codex_resume_hook" ]]; then
+        printf '%s' "$cmux_codex_resume_payload" \
+            | CMUX_AGENT_HOOK_DELIVERY_ID="$cmux_codex_resume_delivery_id" \
+                /bin/sh -c "$cmux_codex_resume_hook" >/dev/null 2>&1 || true
+    elif [[ -n "$CMUX_CODEX_HOOK_CMUX_BIN" && -x "$CMUX_CODEX_HOOK_CMUX_BIN" ]]; then
+        # Rolling-upgrade fallback for an older CLI that did not expose its
+        # generated command. The CLI consumes the process-group marker before
+        # dispatch, so the deadline reaps the whole fallback tree.
+        ( if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
+              printf '%s' "$cmux_codex_resume_payload" \
+                  | CMUX_AGENT_HOOK_DELIVERY_ID="$cmux_codex_resume_delivery_id" \
+                    CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP=1 \
+                    "$CMUX_CODEX_HOOK_CMUX_BIN" --socket "$CMUX_SOCKET_PATH" hooks codex enqueue session-start >/dev/null 2>&1 &
+          else
+              printf '%s' "$cmux_codex_resume_payload" \
+                  | CMUX_AGENT_HOOK_DELIVERY_ID="$cmux_codex_resume_delivery_id" \
+                    CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP=1 \
+                    "$CMUX_CODEX_HOOK_CMUX_BIN" hooks codex enqueue session-start >/dev/null 2>&1 &
+          fi
+          cmux_codex_resume_child=$!
+          cmux_codex_resume_attempts=0
+          while /bin/kill -0 "$cmux_codex_resume_child" 2>/dev/null \
+              && (( cmux_codex_resume_attempts < 40 )); do
+              /bin/sleep 0.05
+              (( cmux_codex_resume_attempts += 1 ))
+          done
+          if /bin/kill -0 "$cmux_codex_resume_child" 2>/dev/null; then
+              /bin/kill -TERM -- "-$cmux_codex_resume_child" 2>/dev/null || true
+              /bin/kill -TERM "$cmux_codex_resume_child" 2>/dev/null || true
+              /bin/sleep 0.05
+              /bin/kill -KILL -- "-$cmux_codex_resume_child" 2>/dev/null || true
+              /bin/kill -KILL "$cmux_codex_resume_child" 2>/dev/null || true
+          fi
+          wait "$cmux_codex_resume_child" 2>/dev/null || true
+        ) </dev/null >/dev/null 2>&1 &
+        disown 2>/dev/null || true
+    fi
+fi
+
+if (( cmux_codex_injection_ready == 1 )); then
     exec "$REAL_CODEX" "${cmux_codex_injected_args[@]}" "$@"
 fi
 

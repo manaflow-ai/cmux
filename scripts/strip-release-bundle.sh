@@ -42,6 +42,8 @@ strip_if_macho() {
 
 strip_if_macho "$APP_PATH/Contents/MacOS/cmux"
 strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux"
+strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux-codex-hook-client"
+strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux-agent-hook-supervisor"
 strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar"
 
 if [ -d "$APP_PATH/Contents/PlugIns" ]; then

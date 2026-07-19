@@ -25261,6 +25261,13 @@ struct CMUXCLI {
         let surfaceId: String
     }
 
+    enum LiveAgentProcessTerminalBindingProbeResult {
+        case notAttempted
+        case unsupported
+        case failed
+        case resolved(CallerTerminalBinding)
+    }
+
     private func resolveCallerWorkspaceIdForClaudeHook(
         callerTerminalBinding: (() -> CallerTerminalBinding?)? = nil,
         client: SocketClient
@@ -25302,7 +25309,56 @@ struct CMUXCLI {
         return resolveTerminalBinding(ttyName: ttyName, client: client)
     }
 
+    func liveAgentProcessTerminalBinding(
+        pid: Int?,
+        client: SocketClient
+    ) -> LiveAgentProcessTerminalBindingProbeResult {
+        // Relay pids belong to a different host's process namespace. Looking
+        // them up locally can silently bind an unrelated process with the same
+        // numeric pid to the wrong pane.
+        guard !client.isRelayBacked, let pid, pid > 0 else { return .notAttempted }
+        let payload: [String: Any]
+        do {
+            payload = try client.sendV2(
+                method: "agent.resolve_delivery_target",
+                params: ["pid": pid],
+                responseTimeout: 2.0
+            )
+        } catch let error as CLIError where error.v2Code == "method_not_found"
+                || error.v2Code == "unrecognized_method" {
+            return .unsupported
+        } catch {
+            return .failed
+        }
+        guard
+            (payload["source"] as? String) == "pid",
+            let workspaceId = normalizedHandleValue(payload["workspace_id"] as? String),
+            isUUID(workspaceId),
+            let surfaceId = normalizedHandleValue(payload["surface_id"] as? String),
+            isUUID(surfaceId)
+        else {
+            return .failed
+        }
+        return .resolved(CallerTerminalBinding(workspaceId: workspaceId, surfaceId: surfaceId))
+    }
+
     private func resolveAgentProcessTerminalBinding(pid: Int?, client: SocketClient) -> CallerTerminalBinding? {
+        switch liveAgentProcessTerminalBinding(pid: pid, client: client) {
+        case .resolved(let binding):
+            return binding
+        case .unsupported:
+            // Rolling upgrade compatibility for apps predating the indexed
+            // resolver. New apps never pay this O(all workspaces) cost.
+            return resolveAgentProcessTerminalBindingViaLegacySnapshot(pid: pid, client: client)
+        case .notAttempted, .failed:
+            return nil
+        }
+    }
+
+    private func resolveAgentProcessTerminalBindingViaLegacySnapshot(
+        pid: Int?,
+        client: SocketClient
+    ) -> CallerTerminalBinding? {
         guard let pid else { return nil }
         guard let payload = try? client.sendV2(
             method: "system.top",
@@ -26484,6 +26540,7 @@ struct CMUXCLI {
         surfaceId: String?,
         leasePath: String?,
         env: [String: String],
+        client: SocketClient,
         telemetry: CLISocketSentryTelemetry
     ) {
         guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -26499,30 +26556,85 @@ struct CMUXCLI {
         ]
         telemetry.breadcrumb("codex-hook.monitor.start", data: monitorTelemetry)
 
+        guard let request = CodexTranscriptMonitorRequest(
+            sessionID: sessionId,
+            turnID: turnId,
+            transcriptPath: transcriptPath,
+            workingDirectory: cwd,
+            workspaceID: workspaceId,
+            surfaceID: surfaceId,
+            leasePath: leasePath,
+            homeDirectory: normalizedHookValue(env["HOME"]),
+            codexHome: normalizedHookValue(env["CODEX_HOME"]),
+            stateDirectory: normalizedHookValue(env["CMUX_AGENT_HOOK_STATE_DIR"])
+        ) else {
+            telemetry.breadcrumb("codex-hook.monitor.invalid-request", data: monitorTelemetry)
+            removeCodexMonitorLease(path: leasePath)
+            return
+        }
+
+        if !client.isRelayBacked {
+            do {
+                _ = try client.sendV2(
+                    method: "agent.sidecar.start",
+                    params: request.socketParameters,
+                    responseTimeout: 2
+                )
+                telemetry.breadcrumb("codex-hook.monitor.started", data: monitorTelemetry)
+                return
+            } catch let error as CLIError where error.v2Code == "method_not_found"
+                    || error.v2Code == "unrecognized_method" {
+                telemetry.breadcrumb("codex-hook.monitor.legacy-fallback", data: monitorTelemetry)
+            } catch {
+                // Authentication, capacity, and transient failures must not
+                // silently create an unmanaged four-hour process. Only an
+                // explicit older-app method response selects compatibility.
+                telemetry.captureError(stage: "codex-monitor-start", error: error, data: monitorTelemetry)
+                removeCodexMonitorLease(path: request.leasePath)
+                return
+            }
+        } else {
+            telemetry.breadcrumb("codex-hook.monitor.relay-fallback", data: monitorTelemetry)
+        }
+
+        startLegacyCodexTranscriptMonitor(
+            request: request,
+            env: env,
+            telemetry: telemetry,
+            monitorTelemetry: monitorTelemetry
+        )
+    }
+
+    private func startLegacyCodexTranscriptMonitor(
+        request: CodexTranscriptMonitorRequest,
+        env: [String: String],
+        telemetry: CLISocketSentryTelemetry,
+        monitorTelemetry: [String: Any]
+    ) {
         let executablePath = resolvedExecutableURL()?.path ?? args.first ?? "cmux"
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
         var monitorArgs = [
             "hooks", "codex",
-            "monitor",
+            "monitor-compat",
             "--workspace",
-            workspaceId,
+            request.workspaceID,
             "--session",
-            sessionId,
+            request.sessionID,
         ]
-        if let surfaceId, !surfaceId.isEmpty {
+        if let surfaceId = request.surfaceID {
             monitorArgs += ["--surface", surfaceId]
         }
-        if let turnId, !turnId.isEmpty {
+        if let turnId = request.turnID {
             monitorArgs += ["--turn", turnId]
         }
-        if let transcriptPath, !transcriptPath.isEmpty {
+        if let transcriptPath = request.transcriptPath {
             monitorArgs += ["--transcript", transcriptPath]
         }
-        if let cwd, !cwd.isEmpty {
+        if let cwd = request.workingDirectory {
             monitorArgs += ["--cwd", cwd]
         }
-        if let leasePath, !leasePath.isEmpty {
+        if let leasePath = request.leasePath {
             monitorArgs += ["--lease", leasePath]
         }
         process.arguments = monitorArgs
@@ -26560,6 +26672,7 @@ struct CMUXCLI {
         let deadline = Date().addingTimeInterval(4 * 60 * 60)
         var nextOwnerCheck = Date.distantPast
         var publishedUserInputCallIds = Set<String>()
+        let monitorScanner = CodexTranscriptMonitorScanner()
         while Date() < deadline {
             if isCodexMonitorLeaseRetired(path: leasePath) {
                 return
@@ -26577,38 +26690,57 @@ struct CMUXCLI {
             }
 
             if let currentTranscriptPath = transcriptPath {
-                if let userInput = readCodexTranscriptUserInput(
-                    path: currentTranscriptPath,
-                    turnId: turnId,
-                    excluding: publishedUserInputCallIds
-                ) {
-                    publishedUserInputCallIds.insert(userInput.callId)
-                    publishCodexMonitorUserInput(
-                        userInput,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        client: client
+                if let lines = readRecentTextFileLines(path: currentTranscriptPath, maxBytes: 512 * 1024) {
+                    let snapshot = monitorScanner.scan(
+                        lines: lines,
+                        turnID: turnId,
+                        excludingCallIDs: publishedUserInputCallIds
                     )
-                }
-
-                switch readCodexTranscriptFailure(
-                    path: currentTranscriptPath,
-                    turnId: turnId,
-                    requireTerminalCompletion: true
-                ) {
-                case .failure(let failure):
-                    publishCodexMonitorFailure(
-                        failure,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        client: client
-                    )
-                    return
-                case .healthy:
-                    return
-                case .pending:
-                    break
-                case .unavailable:
+                    if let userInput = snapshot.userInput {
+                        publishedUserInputCallIds.insert(userInput.callID)
+                        publishCodexMonitorUserInput(
+                            CodexHookUserInputCandidate(
+                                callId: userInput.callID,
+                                question: userInput.question
+                            ),
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId,
+                            client: client
+                        )
+                    }
+                    switch snapshot.state {
+                    case .failure(let failure):
+                        let fallbackMessage: String
+                        switch failure.kind {
+                        case .reported:
+                            fallbackMessage = String(
+                                localized: "agent.codex.error.defaultMessage",
+                                defaultValue: "Codex reported an error"
+                            )
+                        case .missingFinalResponse:
+                            fallbackMessage = String(
+                                localized: "agent.codex.error.noFinalResponse",
+                                defaultValue: "Codex ended before sending a final response"
+                            )
+                        }
+                        publishCodexMonitorFailure(
+                            CodexHookFailureCandidate(
+                                message: failure.message ?? fallbackMessage,
+                                codexErrorInfo: failure.codexErrorInfo,
+                                additionalDetails: failure.additionalDetails,
+                                isStreamError: failure.isStreamError
+                            ),
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId,
+                            client: client
+                        )
+                        return
+                    case .healthy:
+                        return
+                    case .pending:
+                        break
+                    }
+                } else {
                     let unavailableTranscriptPath = currentTranscriptPath
                     transcriptPath = nil
                     if let resolvedTranscriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env) {
@@ -29999,7 +30131,7 @@ export default CMUXSessionRestore;
         let hookArgs = Array(commandArgs.dropFirst())
         telemetry.breadcrumb("\(def.name)-hook.\(subcommand)")
 
-        if def.name == "codex", subcommand == "monitor" {
+        if def.name == "codex", (subcommand == "monitor" || subcommand == "monitor-compat") {
             try runCodexTranscriptMonitor(commandArgs: hookArgs, client: client)
             return
         }
@@ -30206,9 +30338,10 @@ export default CMUXSessionRestore;
                 client: client
             )
         }
-        func sendAgentFeedTelemetry(workspaceId: String? = nil, surfaceId: String? = nil) {
+        @discardableResult
+        func sendAgentFeedTelemetry(workspaceId: String? = nil, surfaceId: String? = nil) -> Error? {
             didSendFeedTelemetry = true
-            sendFeedTelemetry(
+            return sendFeedTelemetry(
                 client: client,
                 source: def.name,
                 subcommand: subcommand,
@@ -30230,11 +30363,16 @@ export default CMUXSessionRestore;
             }
             return def.feedHookEvents.contains(event)
         }
-        func sendAgentFeedTelemetryUnlessSuppressed(workspaceId: String? = nil, surfaceId: String? = nil) {
+        @discardableResult
+        func sendAgentFeedTelemetryUnlessSuppressed(
+            workspaceId: String? = nil,
+            surfaceId: String? = nil
+        ) -> Error? {
             if shouldSuppressGenericFeedTelemetry() {
                 didSendFeedTelemetry = true
+                return nil
             } else {
-                sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+                return sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             }
         }
         func notificationDedupeFingerprint(
@@ -30290,6 +30428,27 @@ export default CMUXSessionRestore;
                 guard let surfaceId = resolveDefaultSurfaceId(workspaceId: workspaceId) else {
                     return nil
                 }
+                return (workspaceId, surfaceId)
+            }
+
+            // Explicit flags express operator intent. Ambient CMUX_* values do
+            // not: a pane move leaves the agent process holding the old
+            // workspace while its live PID/TTY binding already identifies the
+            // new workspace and surface. Validate that pair together, then use
+            // it atomically so the live surface is never looked up inside the
+            // stale environment workspace.
+            if hookWsFlag == nil,
+               explicitSurfaceFlag == nil,
+               let binding = processBinding(),
+               let workspaceId = resolveAccessibleWorkspaceId(binding.workspaceId),
+               let surfaceId = resolveAccessibleSurfaceId(binding.surfaceId, workspaceId: workspaceId) {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=liveProcess workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId)) mapped=\(mapped == nil ? 0 : 1)",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
                 return (workspaceId, surfaceId)
             }
 
@@ -30450,7 +30609,12 @@ export default CMUXSessionRestore;
                 print("{}")
                 return
             }
-            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
+            if let feedError = sendAgentFeedTelemetryUnlessSuppressed(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
+            ) {
+                throw feedError
+            }
             if !suppressVisibleMutations {
                 if codexSessionStartWentStaleAfterAccept() {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
@@ -30714,7 +30878,12 @@ export default CMUXSessionRestore;
                 stopStaleCodexPromptSubmit()
                 return
             }
-            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
+            if let feedError = sendAgentFeedTelemetryUnlessSuppressed(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
+            ) {
+                throw feedError
+            }
             if !sessionId.isEmpty, !suppressVisibleMutations {
                 let acceptedRunningUpdate: Bool
                 if def.name == "codex" {
@@ -30843,6 +31012,7 @@ export default CMUXSessionRestore;
                     surfaceId: surfaceId,
                     leasePath: leasePath,
                     env: env,
+                    client: client,
                     telemetry: telemetry
                 )
             }
@@ -30862,7 +31032,9 @@ export default CMUXSessionRestore;
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            if let feedError = sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId) {
+                throw feedError
+            }
             let pid = mapped?.pid ?? inferredPID
             let codexFailure: CodexHookFailureSummary?
             let codexSubagentSignals: CodexTranscriptSubagentSignals
@@ -31633,6 +31805,48 @@ export default CMUXSessionRestore;
         }
     }
 
+    private func sendAcknowledgedFeedPush(
+        params: [String: Any],
+        client: SocketClient? = nil,
+        socketPath: String? = nil,
+        socketPassword: String? = nil
+    ) throws {
+        var ownedClient: SocketClient?
+        defer { ownedClient?.close() }
+
+        let activeClient: SocketClient
+        if let client {
+            activeClient = client
+        } else if let socketPath {
+            let feedClient = SocketClient(path: socketPath)
+            do {
+                try feedClient.connect()
+                try authenticateClientIfNeeded(
+                    feedClient,
+                    explicitPassword: socketPassword,
+                    socketPath: socketPath
+                )
+            } catch {
+                feedClient.close()
+                throw error
+            }
+            ownedClient = feedClient
+            activeClient = feedClient
+        } else {
+            throw CLIError(message: String(
+                localized: "cli.hooks.feed.error.socketRequired",
+                defaultValue: "Queued feed delivery requires a cmux socket"
+            ))
+        }
+
+        _ = try activeClient.sendV2(
+            method: "feed.push",
+            params: params,
+            responseTimeout: 10
+        )
+    }
+
+    @discardableResult
     private func sendFeedTelemetry(
         client: SocketClient,
         source: String,
@@ -31641,9 +31855,9 @@ export default CMUXSessionRestore;
         workspaceId: String? = nil,
         surfaceId: String? = nil,
         socketPassword: String? = nil
-    ) {
+    ) -> Error? {
         let hookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
-        guard !hookEventName.isEmpty else { return }
+        guard !hookEventName.isEmpty else { return nil }
         let promptText = hookEventName == "UserPromptSubmit"
             ? (feedPromptText(from: parsedInput.object) ?? parsedInput.rawFallback)
             : nil
@@ -31692,19 +31906,33 @@ export default CMUXSessionRestore;
             hookEventName: hookEventName,
             promptText: promptText
         )
-        event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
+        let deliveryId = ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_DELIVERY_ID"]
+            .flatMap { $0.isEmpty ? nil : $0 }
+        event["_opencode_request_id"] = deliveryId
+            ?? "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
+
+        let params: [String: Any] = [
+            "event": event,
+            "wait_timeout_seconds": 0,
+        ]
+        if deliveryId != nil {
+            do {
+                try sendAcknowledgedFeedPush(params: params, client: client)
+                return nil
+            } catch {
+                return error
+            }
+        }
 
         let frame: [String: Any] = [
             "method": "feed.push",
-            "params": [
-                "event": event,
-                "wait_timeout_seconds": 0,
-            ],
+            "params": params,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: frame),
               let line = String(data: data, encoding: .utf8)
-        else { return }
+        else { return nil }
         sendBestEffortFeedTelemetry(socketPath: client.socketPath, line: line, socketPassword: socketPassword)
+        return nil
     }
 
     private func feedContextForEvent(
@@ -33737,9 +33965,17 @@ export default CMUXSessionRestore;
             hookEventName: hookEventName,
             promptText: promptText
         )
-        let requestId = stdinObj["_opencode_request_id"] as? String
+        let payloadRequestId = stdinObj["_opencode_request_id"] as? String
             ?? firstString(in: stdinObj, keys: ["request_id", "tool_use_id", "toolUseID"])
-            ?? "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date().timeIntervalSince1970 * 1000))"
+        let generatedRequestId = "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date().timeIntervalSince1970 * 1000))"
+        let deliveryId = env["CMUX_AGENT_HOOK_DELIVERY_ID"]
+            .flatMap { $0.isEmpty ? nil : $0 }
+        let requestId: String
+        if isActionable {
+            requestId = payloadRequestId ?? generatedRequestId
+        } else {
+            requestId = deliveryId ?? payloadRequestId ?? generatedRequestId
+        }
         eventDict["_opencode_request_id"] = requestId
 
         // Sync. For actionable events we block up to 120s waiting
@@ -33769,7 +34005,14 @@ export default CMUXSessionRestore;
         let line = String(data: payload, encoding: .utf8) ?? "{}"
 
         if waitTimeout == 0 {
-            if let client {
+            if deliveryId != nil {
+                try sendAcknowledgedFeedPush(
+                    params: params,
+                    client: client,
+                    socketPath: socketPath,
+                    socketPassword: socketPassword
+                )
+            } else if let client {
                 _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
             } else if let socketPath {
                 sendBestEffortFeedTelemetry(
@@ -34534,6 +34777,10 @@ export default CMUXSessionRestore;
             guard let def = Self.agentDef(named: first) else {
                 throw CLIError(message: "Unknown hooks target: \(first)")
             }
+            if def.name == "codex", rest.first?.lowercased() == "enqueue" {
+                try enqueueCodexWrapperHook(commandArgs: Array(rest.dropFirst()), client: client)
+                return
+            }
             telemetry.breadcrumb("hooks.\(def.name).dispatch")
             do {
                 try runGenericAgentHook(def: def, commandArgs: rest, client: client, telemetry: telemetry, socketPassword: socketPassword)
@@ -35241,6 +35488,27 @@ private enum CMUXCLIOutput {
 @main
 struct CMUXTermMain {
     static func main() {
+        let arguments = CommandLine.arguments
+        let isCompatibilityMonitor = arguments.count >= 4
+            && arguments[1] == "hooks"
+            && arguments[2] == "codex"
+            && arguments[3] == "monitor-compat"
+        if isCompatibilityMonitor {
+            // Rolling compatibility only: an app that explicitly reports the
+            // new in-process method unsupported still needs the established
+            // four-hour transcript feature. This fresh child is not a process-
+            // group leader, so `setsid` moves only that exact monitor out of the
+            // short delivery supervisor group. Current apps never take this path.
+            guard Darwin.setsid() >= 0 else { exit(1) }
+        }
+        let deliveryProcessGroupMarker = "CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"
+        if let marker = getenv(deliveryProcessGroupMarker), strcmp(marker, "1") == 0 {
+            _ = Darwin.setpgid(0, 0)
+            // This marker belongs only to the one delivery CLI. Transcript
+            // monitors and auto-name children must inherit its group rather
+            // than creating new groups that timeout cleanup cannot reach.
+            unsetenv(deliveryProcessGroupMarker)
+        }
         let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
         _ = signal(SIGPIPE, SIG_DFL)
         configureCLIStdioNoSIGPIPE()

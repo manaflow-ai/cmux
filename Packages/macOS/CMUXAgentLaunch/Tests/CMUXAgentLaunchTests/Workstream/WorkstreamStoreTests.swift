@@ -198,6 +198,182 @@ struct WorkstreamStoreTests {
         }
     }
 
+    @Test("Stable request IDs deduplicate crash-replayed Feed telemetry after restart")
+    func stableRequestIDDeduplicatesReplayAfterRestart() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-dedupe-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        let requestID = "codex-delivery-stable-1"
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "codex-session-1",
+            source: .codex,
+            kind: .toolUse,
+            requestId: requestID,
+            payload: .toolUse(toolName: "Read", toolInputJSON: "{}")
+        ))
+
+        let store = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        await store.start()
+        let replay = WorkstreamEvent(
+            sessionId: "codex-session-1",
+            hookEventName: .preToolUse,
+            source: "codex",
+            toolName: "Read",
+            toolInputJSON: "{}",
+            requestId: requestID
+        )
+        let originalID = try #require(store.items.first?.id)
+        let replayedID = store.ingest(replay)
+        #expect(replayedID == originalID)
+        #expect(store.items.count == 1)
+
+        _ = store.ingest(replay)
+        #expect(store.items.count == 1)
+    }
+
+    @Test("Acknowledged retry survives ring eviction and store restart")
+    func acknowledgedRetrySurvivesEvictionAndRestart() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-store-receipt-\(UUID().uuidString)", isDirectory: true)
+        let historyURL = directory.appendingPathComponent("workstream.jsonl")
+        let receiptURL = directory.appendingPathComponent("receipts.sqlite3")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let persistence = WorkstreamPersistence(
+            fileURL: historyURL,
+            receiptDatabaseURL: receiptURL
+        )
+        let store = WorkstreamStore(persistence: persistence, ringCapacity: 2)
+        let original = WorkstreamEvent.toolUse(
+            sessionID: "codex-session",
+            requestID: "stable-delivery",
+            receivedAt: Date(timeIntervalSince1970: 100)
+        )
+        let originalID = try await store.ingestAcknowledged(original)
+        _ = try await store.ingestAcknowledged(.toolUse(
+            sessionID: "codex-session",
+            requestID: "second-delivery",
+            receivedAt: Date(timeIntervalSince1970: 101)
+        ))
+        _ = try await store.ingestAcknowledged(.toolUse(
+            sessionID: "codex-session",
+            requestID: "third-delivery",
+            receivedAt: Date(timeIntervalSince1970: 102)
+        ))
+        #expect(!store.items.contains(where: { $0.id == originalID }))
+
+        let retryID = try await store.ingestAcknowledged(original)
+        #expect(retryID == originalID)
+        #expect(store.items.filter { $0.id == originalID }.count == 1)
+
+        let restarted = WorkstreamStore(
+            persistence: WorkstreamPersistence(
+                fileURL: historyURL,
+                receiptDatabaseURL: receiptURL
+            ),
+            ringCapacity: 2,
+            initialLoadLimit: 1
+        )
+        await restarted.start()
+        let restartedRetryID = try await restarted.ingestAcknowledged(original)
+        #expect(restartedRetryID == originalID)
+        #expect(restarted.items.filter { $0.id == originalID }.count == 1)
+
+        let history = try await persistence.loadRecent(limit: 10)
+        #expect(history.filter { $0.id == originalID }.count == 1)
+    }
+
+    @Test("Acknowledged ingest does not expose an item when persistence fails")
+    func acknowledgedIngestRejectsPersistenceFailure() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-store-failure-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let blockingFile = directory.appendingPathComponent("not-a-directory")
+        try Data("file".utf8).write(to: blockingFile)
+        let persistence = WorkstreamPersistence(
+            fileURL: blockingFile.appendingPathComponent("workstream.jsonl")
+        )
+        let store = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+
+        await #expect(throws: (any Error).self) {
+            try await store.ingestAcknowledged(.toolUse(
+                sessionID: "codex-session",
+                requestID: "must-not-ack",
+                receivedAt: Date(timeIntervalSince1970: 100)
+            ))
+        }
+        #expect(store.items.isEmpty)
+    }
+
+    @Test("Acknowledged actionable retry reopens the same durable item")
+    func acknowledgedActionableRetryReopensSameItem() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-actionable-retry-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let persistence = WorkstreamPersistence(
+            fileURL: directory.appendingPathComponent("workstream.jsonl"),
+            receiptDatabaseURL: directory.appendingPathComponent("receipts.sqlite3")
+        )
+        let store = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        let event = WorkstreamEvent.permission(
+            "actionable-retry",
+            requestId: "same-request"
+        )
+        let itemID = try await store.ingestAcknowledged(event)
+        store.markResolved(itemID, decision: .permission(.once))
+
+        let retryID = try await store.ingestAcknowledged(event)
+
+        #expect(retryID == itemID)
+        #expect(store.items.count == 1)
+        #expect(store.items[0].status == .pending)
+        #expect(try await persistence.loadRecent(limit: 10).map(\.id) == [itemID])
+    }
+
+    @Test("Acknowledged identity reuse with changed content is rejected without replacing the item")
+    func acknowledgedIdentityReuseWithChangedContentIsRejected() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-content-mismatch-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let persistence = WorkstreamPersistence(
+            fileURL: directory.appendingPathComponent("workstream.jsonl"),
+            receiptDatabaseURL: directory.appendingPathComponent("receipts.sqlite3")
+        )
+        let store = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        let original = WorkstreamEvent(
+            sessionId: "actionable-content-mismatch",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            cwd: "/tmp",
+            toolName: "Write",
+            toolInputJSON: #"{"path":"README.md"}"#,
+            requestId: "reused-request-identity"
+        )
+        let changed = WorkstreamEvent(
+            sessionId: original.sessionId,
+            hookEventName: original.hookEventName,
+            source: original.source,
+            cwd: original.cwd,
+            toolName: original.toolName,
+            toolInputJSON: #"{"path":"SECRETS.md"}"#,
+            requestId: original.requestId
+        )
+        let itemID = try await store.ingestAcknowledged(original)
+        store.markResolved(itemID, decision: .permission(.once))
+        let itemBeforeReuse = try #require(store.items.first)
+
+        await #expect(throws: WorkstreamPersistenceError.requestIdentityContentMismatch) {
+            try await store.ingestAcknowledged(changed)
+        }
+
+        #expect(store.items == [itemBeforeReuse])
+        #expect(try await persistence.loadRecent(limit: 10).count == 1)
+    }
+
     @Test("Telemetry payloads preserve prompt, stop, and todo content")
     func telemetryContent() {
         let store = WorkstreamStore(ringCapacity: 10)
@@ -306,6 +482,22 @@ private final class TestClock: @unchecked Sendable {
 }
 
 private extension WorkstreamEvent {
+    static func toolUse(
+        sessionID: String,
+        requestID: String,
+        receivedAt: Date
+    ) -> WorkstreamEvent {
+        WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .preToolUse,
+            source: "codex",
+            toolName: "Read",
+            toolInputJSON: #"{"path":"README.md"}"#,
+            requestId: requestID,
+            receivedAt: receivedAt
+        )
+    }
+
     static func permission(
         _ sessionId: String,
         requestId: String,

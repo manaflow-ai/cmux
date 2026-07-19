@@ -132,6 +132,10 @@ class TerminalController {
     private nonisolated let socketPasswordFileWatcher: FileWatcher?
     nonisolated let socketClientCapabilityAuthority: SocketClientCapabilityAuthority
     private nonisolated let socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter
+    private nonisolated let agentHookDeliveryQueue: AgentHookDeliveryQueue
+    nonisolated let codexTranscriptMonitorManager: CodexTranscriptMonitorManager
+    nonisolated let agentHookOutbox: AgentHookOutbox?
+    private var agentHookOutboxStartupTask: Task<Void, Never>?
     /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all
     /// windows), constructed at this app-hub composition point and injected into each
     /// `WorkspaceRemoteSessionController`; ownership moves to the composition root with the
@@ -355,19 +359,38 @@ class TerminalController {
         socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter = .init(
             maximumConcurrentClaims: 32
         ),
+        agentHookDeliveryQueue: AgentHookDeliveryQueue = AgentHookDeliveryQueue(),
         terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
         ),
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
     ) {
+        let codexTranscriptMonitorEventTarget = CodexTranscriptMonitorEventTarget()
         self.passwordStore = passwordStore
         let socketPasswordFileWatcher = passwordStore.passwordFileURL.map {
             FileWatcher(path: $0.path)
         }
         self.socketPasswordFileWatcher = socketPasswordFileWatcher
-        self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
+        let socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
+        self.socketClientCapabilityAuthority = socketClientCapabilityAuthority
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
+        self.agentHookDeliveryQueue = agentHookDeliveryQueue
+        self.codexTranscriptMonitorManager = CodexTranscriptMonitorManager(
+            ownerResolver: { targets in
+                await codexTranscriptMonitorEventTarget.resolveOwnership(targets)
+            },
+            eventSink: { request, target, update in
+                await codexTranscriptMonitorEventTarget.publish(
+                    request: request,
+                    target: target,
+                    update: update
+                )
+            }
+        )
+        self.agentHookOutbox = AgentHookOutbox.prepare(
+            deliveryQueue: agentHookDeliveryQueue
+        )
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
@@ -402,6 +425,11 @@ class TerminalController {
             }
         }
         serverEventTarget.controller = self
+        if let agentHookOutbox {
+            agentHookOutboxStartupTask = Task {
+                await agentHookOutbox.start()
+            }
+        }
         controlCommandCoordinator.context = self
         browserDownloadObserver = NotificationCenter.default.addObserver(
             forName: .browserDownloadEventDidArrive,
@@ -415,6 +443,7 @@ class TerminalController {
                 self.v2RecordBrowserDownloadEvent(surfaceId: surfaceId, event: event)
             }
         }
+        codexTranscriptMonitorEventTarget.controller = self
     }
     nonisolated static func shouldSuppressSocketCommandActivation() -> Bool {
         !currentSocketCommandFocusAllowanceStack().isEmpty
@@ -982,7 +1011,10 @@ class TerminalController {
         "workspace.set_auto_title",
     ]
 
-    private nonisolated func socketWorkerV2Response(handling parsedRequest: ControlRequest) -> String? {
+    private nonisolated func socketWorkerV2Response(
+        handling parsedRequest: ControlRequest,
+        allowsLocalAgentSidecars: Bool
+    ) -> String? {
         let request = V2SocketRequest(bridging: parsedRequest)
         return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
             if let workspaceParamError = v2UnsupportedWorkspaceAliasError(method: request.method, params: request.params) {
@@ -1208,13 +1240,81 @@ class TerminalController {
         case "feedback.submit":
             return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
         case "feed.push":
-            return v2Result(id: request.id, v2FeedPush(params: request.params))
+            return v2Result(
+                id: request.id,
+                v2FeedPush(
+                    params: request.params,
+                    requiresAcknowledgement: request.id != nil
+                )
+            )
         case "feed.permission.reply":
             return v2Result(id: request.id, v2FeedPermissionReply(params: request.params))
         case "feed.question.reply":
             return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "agent.hook.enqueue":
+            guard let event = AgentHookDeliveryEvent(params: request.params) else {
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.agentHook.error.invalidEvent",
+                        defaultValue: "Invalid agent hook event"
+                    )
+                )
+            }
+            do {
+                try agentHookDeliveryQueue.enqueue(event)
+                return v2Ok(id: request.id, result: ["queued": true])
+            } catch {
+                return v2Error(
+                    id: request.id,
+                    code: "hook_queue_unavailable",
+                    message: String(
+                        localized: "socket.agentHook.error.persistenceFailed",
+                        defaultValue: "Could not persist agent hook event"
+                    )
+                )
+            }
+        case "agent.sidecar.start":
+            guard allowsLocalAgentSidecars else {
+                return v2Error(
+                    id: request.id,
+                    code: "access_denied",
+                    message: String(
+                        localized: "socket.agentSidecar.error.localOnly",
+                        defaultValue: "Agent sidecars can only be started by a local cmux-owned hook delivery"
+                    )
+                )
+            }
+            guard let monitorRequest = CodexTranscriptMonitorRequest(socketParameters: request.params) else {
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.agentSidecar.error.invalidRequest",
+                        defaultValue: "Invalid Codex transcript monitor request"
+                    )
+                )
+            }
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 2) {
+                switch await self.codexTranscriptMonitorManager.start(monitorRequest) {
+                case .started(let activeCount):
+                    return .ok(["started": true, "replaced": false, "active_count": activeCount])
+                case .replaced(let activeCount):
+                    return .ok(["started": true, "replaced": true, "active_count": activeCount])
+                case .resourceExhausted(let limit):
+                    return .err(
+                        code: "sidecar_capacity",
+                        message: String(
+                            localized: "socket.agentSidecar.error.capacity",
+                            defaultValue: "The active Codex transcript monitor limit was reached"
+                        ),
+                        data: ["limit": limit]
+                    )
+                }
+            }
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.navigate", "browser.back", "browser.forward", "browser.reload",
@@ -1468,7 +1568,8 @@ class TerminalController {
 
                 let result = processSocketLine(
                     trimmed,
-                    passwordAuthorization: passwordAuthorization
+                    passwordAuthorization: passwordAuthorization,
+                    allowsLocalAgentSidecars: peerHasSameUID && (pid.map(isDescendant) ?? false)
                 )
                 passwordAuthorization = result.passwordAuthorization
                 if let response = result.response {
@@ -1488,7 +1589,8 @@ class TerminalController {
 
     private nonisolated func processSocketLine(
         _ command: String,
-        passwordAuthorization: SocketPasswordAuthorization
+        passwordAuthorization: SocketPasswordAuthorization,
+        allowsLocalAgentSidecars: Bool
     ) -> SocketLineProcessingResult {
 #if DEBUG
         let debugInfo = Self.socketCommandDebugInfo(command)
@@ -1520,7 +1622,10 @@ class TerminalController {
             )
         }
 
-        let response = processCommandUsingSocketExecutionPolicy(command)
+        let response = processCommandUsingSocketExecutionPolicy(
+            command,
+            allowsLocalAgentSidecars: allowsLocalAgentSidecars
+        )
 #if DEBUG
         if let response {
             Self.debugLogSocketCommandEndIfNeeded(
@@ -1782,7 +1887,10 @@ class TerminalController {
     }
 #endif
 
-    private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String? {
+    private nonisolated func processCommandUsingSocketExecutionPolicy(
+        _ command: String,
+        allowsLocalAgentSidecars: Bool = false
+    ) -> String? {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if trimmed.hasPrefix("{") {
@@ -1807,7 +1915,10 @@ class TerminalController {
                 )
             }
             if policy.runsOnSocketWorker {
-                return socketWorkerV2Response(handling: request)
+                return socketWorkerV2Response(
+                    handling: request,
+                    allowsLocalAgentSidecars: allowsLocalAgentSidecars
+                )
             }
             return processParsedV2Command(request)
         }
@@ -1843,7 +1954,10 @@ class TerminalController {
     /// request) can reuse the full V1/V2 dispatcher without duplicating
     /// its auth/policy wrappers.
     nonisolated func handleSocketLine(_ line: String) -> String {
-        return processCommandUsingSocketExecutionPolicy(line) ?? ""
+        return processCommandUsingSocketExecutionPolicy(
+            line,
+            allowsLocalAgentSidecars: false
+        ) ?? ""
     }
 
     private func processCommand(_ command: String) -> String {
@@ -5569,7 +5683,10 @@ class TerminalController {
 
     // MARK: - V2 Feed (workstream) handlers
 
-    private nonisolated func v2FeedPush(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2FeedPush(
+        params: [String: Any],
+        requiresAcknowledgement: Bool
+    ) -> V2CallResult {
         let waitTimeout: TimeInterval
         if let rawTimeout = params["wait_timeout_seconds"] {
             let seconds: Double?
@@ -5633,14 +5750,26 @@ class TerminalController {
 
         let result = FeedCoordinator.shared.ingestBlocking(
             event: event,
-            waitTimeout: waitTimeout
+            waitTimeout: waitTimeout,
+            requiresAcknowledgement: requiresAcknowledgement
         )
+        let resultPayload = FeedSocketEncoding.payload(for: result)
         CmuxEventBus.shared.publishWorkstreamEvent(
             event,
             phase: "completed",
-            result: FeedSocketEncoding.payload(for: result)
+            result: resultPayload
         )
-        return .ok(FeedSocketEncoding.payload(for: result))
+        if case .unavailable = result {
+            return .err(
+                code: "feed_unavailable",
+                message: String(
+                    localized: "socket.feed.error.unavailable",
+                    defaultValue: "Feed store is unavailable; retry after cmux finishes starting."
+                ),
+                data: nil
+            )
+        }
+        return .ok(resultPayload)
     }
 
     private nonisolated func v2ApplyIMessageModeSideEffects(for event: WorkstreamEvent) {

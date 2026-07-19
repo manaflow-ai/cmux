@@ -78,8 +78,37 @@ public struct SocketClientCapabilityAuthority: @unchecked Sendable {
         )
     }
 
+    /// Verifies an outbox message without requiring the bearer capability to
+    /// be persisted beside that message. The producer derives a one-message
+    /// key from the signed capability component; this authority recreates the
+    /// same component from the persistent audience key and public nonce.
+    public func verifiesOutboxMessage(
+        nonce encodedNonce: String,
+        code: Data,
+        message: Data
+    ) -> Bool {
+        guard let nonce = base64URLDecoded(encodedNonce),
+              nonce.count == Self.secureByteCount,
+              code.count == SHA256.byteCount else {
+            return false
+        }
+        let capabilitySignature = Data(HMAC<SHA256>.authenticationCode(
+            for: authenticationMessage(nonce: nonce),
+            using: signingKey
+        ))
+        return HMAC<SHA256>.isValidAuthenticationCode(
+            code,
+            authenticating: Self.outboxAuthenticationMessage(message),
+            using: SymmetricKey(data: capabilitySignature)
+        )
+    }
+
     private func authenticationMessage(nonce: Data) -> Data {
         Data("cmux.socket-capability.token.v1\0".utf8) + nonce
+    }
+
+    fileprivate static func outboxAuthenticationMessage(_ message: Data) -> Data {
+        Data("cmux.agent-hook-outbox.v1\0".utf8) + message
     }
 
     private func base64URLEncoded(_ data: Data) -> String {
@@ -90,6 +119,52 @@ public struct SocketClientCapabilityAuthority: @unchecked Sendable {
     }
 
     private func base64URLDecoded(_ value: String) -> Data? {
+        guard !value.isEmpty,
+              value.unicodeScalars.allSatisfy({
+                  CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_"
+              }) else {
+            return nil
+        }
+        var base64 = value
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let remainder = base64.count % 4
+        if remainder != 0 {
+            base64.append(String(repeating: "=", count: 4 - remainder))
+        }
+        return Data(base64Encoded: base64)
+    }
+}
+
+/// Authentication material safe to persist with a hook outbox frame. It omits
+/// the reusable bearer capability while remaining verifiable after app restart.
+public struct SocketClientCapabilityOutboxAuthentication: Sendable, Equatable {
+    public let nonce: String
+    public let code: Data
+
+    public static func make(
+        capability: String,
+        message: Data
+    ) -> SocketClientCapabilityOutboxAuthentication? {
+        let components = capability.split(separator: ".", omittingEmptySubsequences: false)
+        guard components.count == 3,
+              components[0] == "v1",
+              !components[1].isEmpty,
+              let signature = base64URLDecoded(String(components[2])),
+              signature.count == SHA256.byteCount else {
+            return nil
+        }
+        let code = Data(HMAC<SHA256>.authenticationCode(
+            for: SocketClientCapabilityAuthority.outboxAuthenticationMessage(message),
+            using: SymmetricKey(data: signature)
+        ))
+        return SocketClientCapabilityOutboxAuthentication(
+            nonce: String(components[1]),
+            code: code
+        )
+    }
+
+    private static func base64URLDecoded(_ value: String) -> Data? {
         guard !value.isEmpty,
               value.unicodeScalars.allSatisfy({
                   CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_"

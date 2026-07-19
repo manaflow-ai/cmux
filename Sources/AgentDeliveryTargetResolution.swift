@@ -13,12 +13,13 @@ import Foundation
 ///
 /// Two lookups implement this:
 /// - pid → surface: the agent process's controlling tty device
-///   (`proc_bsdinfo.e_tdev`) matched against every live surface's reported
-///   tty. A pane's pty device is fixed for the pane's lifetime and the
+///   (`proc_bsdinfo.e_tdev`) resolved through a mutation-time index of live
+///   surfaces. A pane's pty device is fixed for the pane's lifetime and the
 ///   process's controlling terminal is a live kernel fact, so a unique match
 ///   is authoritative regardless of where the pane has been moved.
-/// - surface → workspace: `AppDelegate.workspaceContainingPanel`, which finds
-///   the workspace that CURRENTLY owns the panel (issue #5781 pane moves).
+/// - surface → workspace: the same live index, with
+///   `AppDelegate.workspaceContainingPanel` as a compatibility fallback for
+///   non-terminal panels (issue #5781 pane moves).
 ///
 /// The CLI reaches this through the `agent.resolve_delivery_target` control
 /// method; in-app notification delivery reaches it through
@@ -29,15 +30,191 @@ struct AgentDeliveryTargetCandidate: Equatable {
     let surfaceId: UUID
 }
 
-/// Combines the two live pid signals. The start-time-keyed process environment
-/// covers nested PTYs whose controlling TTY differs from the cmux pane. When
-/// both signals resolve, disagreement still fails closed.
+/// Mutation-time index for the hook hot path. Surface TTY reports update this
+/// map once; pid delivery then touches only surfaces sharing the queried
+/// device instead of rebuilding a list from every workspace.
+struct AgentDeliveryTTYIndexCore {
+    private struct Binding {
+        let workspaceId: UUID
+        let surfaceId: UUID
+        let ttyDevice: Int64
+    }
+
+    private var bindingBySurfaceId: [UUID: Binding] = [:]
+    private var surfaceIdsByTTYDevice: [Int64: Set<UUID>] = [:]
+    private var surfaceIdsByWorkspaceId: [UUID: Set<UUID>] = [:]
+
+    mutating func replaceBindings(
+        workspaceId: UUID,
+        bindings: [(surfaceId: UUID, ttyDevice: Int64)]
+    ) {
+        let previous = surfaceIdsByWorkspaceId[workspaceId] ?? []
+        for surfaceId in previous {
+            removeBinding(surfaceId: surfaceId)
+        }
+        for binding in bindings {
+            setBinding(
+                Binding(
+                    workspaceId: workspaceId,
+                    surfaceId: binding.surfaceId,
+                    ttyDevice: binding.ttyDevice
+                )
+            )
+        }
+    }
+
+    mutating func removeBinding(surfaceId: UUID) {
+        guard let previous = bindingBySurfaceId.removeValue(forKey: surfaceId) else { return }
+        Self.remove(
+            surfaceId: surfaceId,
+            from: &surfaceIdsByTTYDevice,
+            key: previous.ttyDevice
+        )
+        Self.remove(
+            surfaceId: surfaceId,
+            from: &surfaceIdsByWorkspaceId,
+            key: previous.workspaceId
+        )
+    }
+
+    func candidates(forTTYDevice ttyDevice: Int64) -> [AgentDeliveryTargetCandidate] {
+        (surfaceIdsByTTYDevice[ttyDevice] ?? []).compactMap { surfaceId in
+            guard let binding = bindingBySurfaceId[surfaceId] else { return nil }
+            return AgentDeliveryTargetCandidate(
+                workspaceId: binding.workspaceId,
+                surfaceId: surfaceId
+            )
+        }
+    }
+
+    func uniqueCandidate(forTTYDevice ttyDevice: Int64) -> AgentDeliveryTargetCandidate? {
+        let candidates = candidates(forTTYDevice: ttyDevice)
+        guard let first = candidates.first,
+              candidates.allSatisfy({ $0 == first }) else {
+            return nil
+        }
+        return first
+    }
+
+    func candidate(forSurfaceId surfaceId: UUID) -> AgentDeliveryTargetCandidate? {
+        guard let binding = bindingBySurfaceId[surfaceId] else { return nil }
+        return AgentDeliveryTargetCandidate(
+            workspaceId: binding.workspaceId,
+            surfaceId: surfaceId
+        )
+    }
+
+    private mutating func setBinding(_ binding: Binding) {
+        removeBinding(surfaceId: binding.surfaceId)
+        bindingBySurfaceId[binding.surfaceId] = binding
+        surfaceIdsByTTYDevice[binding.ttyDevice, default: []].insert(binding.surfaceId)
+        surfaceIdsByWorkspaceId[binding.workspaceId, default: []].insert(binding.surfaceId)
+    }
+
+    private static func remove<Key: Hashable>(
+        surfaceId: UUID,
+        from index: inout [Key: Set<UUID>],
+        key: Key
+    ) {
+        guard var values = index[key] else { return }
+        values.remove(surfaceId)
+        if values.isEmpty {
+            index.removeValue(forKey: key)
+        } else {
+            index[key] = values
+        }
+    }
+}
+
+@MainActor
+private final class AgentDeliveryTTYIndex {
+    private final class WeakWorkspace {
+        weak var value: Workspace?
+
+        init(_ value: Workspace) {
+            self.value = value
+        }
+    }
+
+    static let shared = AgentDeliveryTTYIndex()
+
+    private var core = AgentDeliveryTTYIndexCore()
+    private var workspacesById: [UUID: WeakWorkspace] = [:]
+
+    func replaceBindings(for workspace: Workspace) {
+        pruneReleasedWorkspaces()
+        workspacesById[workspace.id] = WeakWorkspace(workspace)
+        core.replaceBindings(
+            workspaceId: workspace.id,
+            bindings: workspace.surfaceTTYDevices.map {
+                (surfaceId: $0.key, ttyDevice: $0.value)
+            }
+        )
+    }
+
+    func uniqueCandidate(forTTYDevice ttyDevice: Int64) -> AgentDeliveryTargetCandidate? {
+        var valid: [AgentDeliveryTargetCandidate] = []
+        for candidate in core.candidates(forTTYDevice: ttyDevice) {
+            if isLive(candidate, expectedTTYDevice: ttyDevice) {
+                valid.append(candidate)
+            } else {
+                core.removeBinding(surfaceId: candidate.surfaceId)
+            }
+        }
+        guard let first = valid.first,
+              valid.allSatisfy({ $0 == first }) else {
+            return nil
+        }
+        return first
+    }
+
+    func candidate(forSurfaceId surfaceId: UUID) -> AgentDeliveryTargetCandidate? {
+        guard let candidate = core.candidate(forSurfaceId: surfaceId) else { return nil }
+        guard isLive(candidate, expectedTTYDevice: nil) else {
+            core.removeBinding(surfaceId: surfaceId)
+            return nil
+        }
+        return candidate
+    }
+
+    private func isLive(
+        _ candidate: AgentDeliveryTargetCandidate,
+        expectedTTYDevice: Int64?
+    ) -> Bool {
+        guard let workspace = workspacesById[candidate.workspaceId]?.value,
+              !workspace.isRemoteWorkspace,
+              !workspace.isRemoteTmuxMirror,
+              workspace.panels[candidate.surfaceId] != nil,
+              workspace.surfaceIdFromPanelId(candidate.surfaceId) != nil,
+              !workspace.isRemoteTerminalSurface(candidate.surfaceId) else {
+            return false
+        }
+        if let expectedTTYDevice {
+            return workspace.surfaceTTYDevices[candidate.surfaceId] == expectedTTYDevice
+        }
+        return workspace.surfaceTTYDevices[candidate.surfaceId] != nil
+    }
+
+    private func pruneReleasedWorkspaces() {
+        let released = workspacesById.compactMap { workspaceId, weakWorkspace in
+            weakWorkspace.value == nil ? workspaceId : nil
+        }
+        for workspaceId in released {
+            workspacesById.removeValue(forKey: workspaceId)
+            core.replaceBindings(workspaceId: workspaceId, bindings: [])
+        }
+    }
+}
+
+/// Combines the two live pid signals. The kernel controlling TTY is current
+/// process identity and therefore corrects an inherited stale surface env.
+/// The start-time-keyed process environment remains the nested-PTY fallback
+/// when the process has no cmux-owned controlling TTY.
 nonisolated func agentDeliveryTargetCombining(
     ttyTarget: AgentDeliveryTargetCandidate?,
     envTarget: AgentDeliveryTargetCandidate?
 ) -> AgentDeliveryTargetCandidate? {
     guard let ttyTarget else { return envTarget }
-    if let envTarget, envTarget.surfaceId != ttyTarget.surfaceId { return nil }
     return ttyTarget
 }
 
@@ -83,6 +260,7 @@ extension Workspace {
             }
             surfaceRegistry.surfaceTTYNames = newValue
             surfaceRegistry.surfaceTTYDevices = devices
+            AgentDeliveryTTYIndex.shared.replaceBindings(for: self)
         }
     }
 
@@ -104,28 +282,16 @@ extension Workspace {
 @MainActor
 extension AppDelegate {
     /// The live pane that owns the given agent process right now: the
-    /// process's controlling tty matched against every surface's pty device
+    /// process's controlling tty resolved through the live TTY index
     /// (unique-match only), with the exact live process's start-time-keyed
     /// `CMUX_SURFACE_ID` environment re-homed through
-    /// `workspaceContainingPanel` as a nested-PTY fallback. Disagreement fails
-    /// closed.
+    /// `workspaceContainingPanel` as a nested-PTY fallback. The kernel TTY
+    /// corrects a stale inherited surface environment when they disagree.
     func liveAgentDeliveryTarget(forAgentPID pid: pid_t) -> AgentDeliveryTargetCandidate? {
         guard let identity = agentLiveProcessIdentity(pid: pid) else { return nil }
 
-        var ttyTarget: AgentDeliveryTargetCandidate?
-        if let ttyDevice = identity.ttyDevice {
-            // TTY device ids are indexed when each surface reports or moves,
-            // so hook delivery only walks in-memory bindings on MainActor. It
-            // never stats every live surface while UI work is serialized.
-            var bindings: [(workspaceId: UUID, surfaceId: UUID, ttyDevice: Int64)] = []
-            for manager in agentDeliveryTabManagers() {
-                for workspace in manager.tabs {
-                    for binding in workspace.localAgentDeliveryTTYDevices {
-                        bindings.append((workspace.id, binding.surfaceId, binding.ttyDevice))
-                    }
-                }
-            }
-            ttyTarget = agentDeliveryTargetMatchingTTYDevice(ttyDevice, surfaceTTYDevices: bindings)
+        let ttyTarget = identity.ttyDevice.flatMap {
+            AgentDeliveryTTYIndex.shared.uniqueCandidate(forTTYDevice: $0)
         }
 
         let processScope: CmuxTopProcessScope?
@@ -137,9 +303,15 @@ extension AppDelegate {
         case .unavailable: processScope = nil
         }
         var envTarget: AgentDeliveryTargetCandidate?
-        if let envSurfaceId = processScope?.surfaceID,
-           let owner = workspaceContainingPanel(panelId: envSurfaceId) {
-            envTarget = AgentDeliveryTargetCandidate(workspaceId: owner.workspace.id, surfaceId: envSurfaceId)
+        if let envSurfaceId = processScope?.surfaceID {
+            if let indexed = AgentDeliveryTTYIndex.shared.candidate(forSurfaceId: envSurfaceId) {
+                envTarget = indexed
+            } else if let owner = workspaceContainingPanel(panelId: envSurfaceId) {
+                envTarget = AgentDeliveryTargetCandidate(
+                    workspaceId: owner.workspace.id,
+                    surfaceId: envSurfaceId
+                )
+            }
         }
 
         return agentDeliveryTargetCombining(ttyTarget: ttyTarget, envTarget: envTarget)
@@ -160,6 +332,9 @@ extension AppDelegate {
             guard manager?.tabs.contains(where: { $0.id == claimedTabId }) == true else { return nil }
             return (claimedTabId, nil)
         }
+        if let indexed = AgentDeliveryTTYIndex.shared.candidate(forSurfaceId: surfaceId) {
+            return (indexed.workspaceId, surfaceId)
+        }
         guard let owner = workspaceContainingPanel(
             panelId: surfaceId,
             preferredWorkspaceId: claimedTabId
@@ -169,16 +344,6 @@ extension AppDelegate {
         return (owner.workspace.id, surfaceId)
     }
 
-    private func agentDeliveryTabManagers() -> [TabManager] {
-        var managers: [TabManager] = []
-        func append(_ manager: TabManager?) {
-            guard let manager, !managers.contains(where: { $0 === manager }) else { return }
-            managers.append(manager)
-        }
-        listMainWindowSummaries().forEach { append(tabManagerFor(windowId: $0.windowId)) }
-        append(tabManager)
-        return managers
-    }
 }
 
 @MainActor
@@ -237,9 +402,18 @@ extension TerminalController {
             )
         }
         if let claimedSurfaceId,
+           let ownerWorkspaceId = AgentDeliveryTTYIndex.shared
+               .candidate(forSurfaceId: claimedSurfaceId)?.workspaceId {
+            return .ok([
+                "workspace_id": ownerWorkspaceId.uuidString,
+                "surface_id": claimedSurfaceId.uuidString,
+                "source": "surface",
+            ])
+        }
+        if let claimedSurfaceId,
            let owner = appDelegate.workspaceContainingPanel(
-               panelId: claimedSurfaceId,
-               preferredWorkspaceId: claimedWorkspaceId
+            panelId: claimedSurfaceId,
+            preferredWorkspaceId: claimedWorkspaceId
            ) {
             return .ok([
                 "workspace_id": owner.workspace.id.uuidString,

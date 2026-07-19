@@ -30,7 +30,7 @@ public struct SocketClientAuthorization {
         return false
     }
 
-    /// Returns the command carried by an authorized cmux-only request.
+    /// Returns the command and authority carried by an authorized cmux-only request.
     ///
     /// Descendants retain the existing process-tree authorization. The
     /// capability parameters form the runtime seam for terminals whose
@@ -42,7 +42,36 @@ public struct SocketClientAuthorization {
     ///   - peerHasSameUID: Whether the peer runs as the same user as cmux.
     ///   - capabilityAuthority: The authority that verifies inherited tokens.
     ///   - isDescendant: Predicate that verifies current process ancestry.
-    /// - Returns: The unwrapped command when authorized, otherwise `nil`.
+    /// - Returns: The authorization result when authorized, otherwise `nil`.
+    public func authorizedCommandResult(
+        _ command: String,
+        peerProcessID: pid_t?,
+        peerHasSameUID: Bool,
+        capabilityAuthority: SocketClientCapabilityAuthority,
+        isDescendant: (pid_t) -> Bool
+    ) -> SocketClientAuthorizationResult? {
+        let envelope = SocketClientCapabilityCommand(command)
+        if peerHasSameUID,
+           let envelope,
+           capabilityAuthority.verifies(envelope.capability) {
+            return SocketClientAuthorizationResult(
+                command: envelope.command,
+                basis: .verifiedCapability
+            )
+        }
+        if let peerProcessID, isDescendant(peerProcessID) {
+            return SocketClientAuthorizationResult(
+                command: envelope?.command ?? command,
+                basis: .descendant
+            )
+        }
+        return nil
+    }
+
+    /// Returns the command carried by an authorized cmux-only request.
+    ///
+    /// This compatibility API intentionally omits the authorization basis.
+    /// Callers making policy decisions should use ``authorizedCommandResult(_:peerProcessID:peerHasSameUID:capabilityAuthority:isDescendant:)``.
     public func authorizedCommand(
         _ command: String,
         peerProcessID: pid_t?,
@@ -50,37 +79,34 @@ public struct SocketClientAuthorization {
         capabilityAuthority: SocketClientCapabilityAuthority,
         isDescendant: (pid_t) -> Bool
     ) -> String? {
-        let envelope = SocketClientCapabilityCommand(command)
-        if let peerProcessID, isDescendant(peerProcessID) {
-            return envelope?.command ?? command
-        }
-        guard peerHasSameUID,
-              let envelope,
-              capabilityAuthority.verifies(envelope.capability) else {
-            return nil
-        }
-        return envelope.command
+        authorizedCommandResult(
+            command,
+            peerProcessID: peerProcessID,
+            peerHasSameUID: peerHasSameUID,
+            capabilityAuthority: capabilityAuthority,
+            isDescendant: isDescendant
+        )?.command
     }
 
-    /// Applies the current socket access mode to a received command.
+    /// Applies the current socket access mode and records its authorization basis.
     ///
     /// Owner-only modes verify the peer UID for every command instead of
     /// relying solely on socket-file permissions. This keeps restrictive
     /// modes fail-closed if a permission change cannot be applied to the
     /// filesystem entry of an already running listener.
-    public func authorizedCommand(
+    public func authorizedCommandResult(
         _ command: String,
         accessMode: SocketControlMode,
         peerProcessID: pid_t?,
         peerHasSameUID: Bool,
         capabilityAuthority: SocketClientCapabilityAuthority,
         isDescendant: (pid_t) -> Bool
-    ) -> String? {
+    ) -> SocketClientAuthorizationResult? {
         switch accessMode {
         case .off:
             return nil
         case .cmuxOnly:
-            return authorizedCommand(
+            return authorizedCommandResult(
                 command,
                 peerProcessID: peerProcessID,
                 peerHasSameUID: peerHasSameUID,
@@ -89,9 +115,57 @@ public struct SocketClientAuthorization {
             )
         case .automation, .password:
             guard peerHasSameUID else { return nil }
-            return SocketClientCapabilityCommand(command)?.command ?? command
+            return result(
+                for: command,
+                fallbackBasis: .sameOwner,
+                capabilityAuthority: capabilityAuthority
+            )
         case .allowAll:
-            return SocketClientCapabilityCommand(command)?.command ?? command
+            return result(
+                for: command,
+                fallbackBasis: .unrestricted,
+                capabilityAuthority: capabilityAuthority
+            )
         }
+    }
+
+    /// Applies the current socket access mode to a received command.
+    ///
+    /// This compatibility API intentionally omits the authorization basis.
+    /// Callers making policy decisions should use ``authorizedCommandResult(_:accessMode:peerProcessID:peerHasSameUID:capabilityAuthority:isDescendant:)``.
+    public func authorizedCommand(
+        _ command: String,
+        accessMode: SocketControlMode,
+        peerProcessID: pid_t?,
+        peerHasSameUID: Bool,
+        capabilityAuthority: SocketClientCapabilityAuthority,
+        isDescendant: (pid_t) -> Bool
+    ) -> String? {
+        authorizedCommandResult(
+            command,
+            accessMode: accessMode,
+            peerProcessID: peerProcessID,
+            peerHasSameUID: peerHasSameUID,
+            capabilityAuthority: capabilityAuthority,
+            isDescendant: isDescendant
+        )?.command
+    }
+
+    private func result(
+        for command: String,
+        fallbackBasis: SocketClientAuthorizationBasis,
+        capabilityAuthority: SocketClientCapabilityAuthority
+    ) -> SocketClientAuthorizationResult {
+        let envelope = SocketClientCapabilityCommand(command)
+        let basis: SocketClientAuthorizationBasis = if let envelope,
+                                                       capabilityAuthority.verifies(envelope.capability) {
+            .verifiedCapability
+        } else {
+            fallbackBasis
+        }
+        return SocketClientAuthorizationResult(
+            command: envelope?.command ?? command,
+            basis: basis
+        )
     }
 }

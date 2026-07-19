@@ -70,4 +70,5 @@ struct AgentLaunchEnvironmentPolicyTests {
         )
         #expect(selectedOmp["PI_PACKAGE_DIR"] == "/nix/store/pi-package")
     }
+
 }

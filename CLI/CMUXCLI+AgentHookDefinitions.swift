@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -156,7 +157,7 @@ extension CMUXCLI {
         let command = "cmux hooks \(def.name) \(event.cmuxSubcommand)"
         let inline: String
         if def.name == "codex", codexHookCanRunFireAndForget(event.cmuxSubcommand) {
-            inline = codexFireAndForgetAgentHookShellCommand(command, for: def)
+            inline = codexQueuedAgentHookShellCommand(command, for: def)
         } else {
             inline = agentHookShellCommand(command, for: def)
         }
@@ -173,10 +174,15 @@ extension CMUXCLI {
     /// "No such file or directory (os error 2)". Falls back to the inline command
     /// on any write failure, so the persistent install can never regress.
     private static func codexPersistentHookScriptCommand(_ inlineCommand: String, eventTag: String) -> String {
-        guard let dir = codexHookScriptsDirectory(),
-              let path = writeCodexHookScript(
-                  subcommand: "persistent-\(eventTag)", body: inlineCommand, in: dir
-              ) else {
+        guard let dir = codexHookScriptsDirectory() else {
+            return inlineCommand
+        }
+        if let nativePath = writeCodexHookClient(subcommand: eventTag, in: dir) {
+            return nativePath
+        }
+        guard let path = writeCodexHookScript(
+            subcommand: "persistent-\(eventTag)", body: inlineCommand, in: dir
+        ) else {
             return inlineCommand
         }
         return path
@@ -187,6 +193,14 @@ extension CMUXCLI {
     }
 
     static func feedHookCommandString(for def: AgentHookDef, agentEvent: String) -> String {
+        if def.name == "codex", codexFeedTelemetryEvents.contains(agentEvent) {
+            let deliverySubcommand = codexFeedDeliverySubcommand(agentEvent: agentEvent)
+            let queued = codexQueuedAgentHookShellCommand(
+                "cmux hooks codex \(deliverySubcommand)",
+                for: def
+            )
+            return codexPersistentHookScriptCommand(queued, eventTag: deliverySubcommand)
+        }
         let inline: String
         let noOpCommand = feedHookNoOpShellCommand(for: def, agentEvent: agentEvent)
         switch def.format {
@@ -202,9 +216,6 @@ extension CMUXCLI {
                 for: def,
                 noOpCommand: noOpCommand
             )
-        }
-        if def.name == "codex" {
-            return codexPersistentHookScriptCommand(inline, eventTag: "feed-\(agentEvent)")
         }
         return inline
     }
@@ -417,12 +428,61 @@ extension CMUXCLI {
         if usesPinnedHookDispatch(def), command.contains(pinnedHookMarker(for: def)) {
             return true
         }
+        if isGeneratedCodexHookPath(command, for: def) {
+            return true
+        }
         if def.events.contains(where: { hookCommandString(for: def, event: $0) == command })
             || def.feedHookEvents.contains(where: { feedHookCommandString(for: def, agentEvent: $0) == command })
         {
             return true
         }
         return includeLegacy && isLegacyCmuxOwnedHookCommand(command, for: def)
+    }
+
+    private static func isGeneratedCodexHookPath(_ command: String, for def: AgentHookDef) -> Bool {
+        guard def.name == "codex" else { return false }
+        let path = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard path.hasPrefix("/") else { return false }
+        let url = URL(fileURLWithPath: path, isDirectory: false).standardizedFileURL
+        let directory = url.deletingLastPathComponent()
+        let isHomeDirectory = directory.lastPathComponent == "hooks"
+            && directory.deletingLastPathComponent().lastPathComponent == ".cmux"
+        let sharedRoot = URL(fileURLWithPath: "/Users/Shared", isDirectory: true).standardizedFileURL
+        let isSharedDirectory = directory.lastPathComponent == ".cmux-hooks-\(geteuid())"
+            && directory.deletingLastPathComponent() == sharedRoot
+        guard isHomeDirectory || isSharedDirectory else {
+            return false
+        }
+
+        let name = url.lastPathComponent
+        let subcommands = codexWrapperInjectionEvents.map { $0.cmuxSubcommand }
+        let generatedTags = subcommands
+            + subcommands.map { "persistent-\($0)" }
+            + def.feedHookEvents.map { "feed-\($0)" }
+            + def.feedHookEvents.map { "persistent-feed-\($0)" }
+        for tag in generatedTags {
+            if name == "cmux-codex-native-hook-\(tag)"
+                || name == "cmux-codex-portable-hook-\(tag).sh"
+                || name == "cmux-codex-hook-\(tag).sh"
+            {
+                return true
+            }
+            for prefix in [
+                "cmux-codex-native-hook-\(tag)-",
+                "cmux-codex-portable-hook-\(tag)-",
+                "cmux-codex-hook-\(tag)-",
+            ] where name.hasPrefix(prefix) {
+                let hasShellExtension = name.hasSuffix(".sh")
+                if prefix.contains("native") == hasShellExtension { continue }
+                let hash = name
+                    .dropFirst(prefix.count)
+                    .dropLast(hasShellExtension ? ".sh".count : 0)
+                if hash.count >= 8, hash.allSatisfy(\.isHexDigit) {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     private static func isLegacyCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef) -> Bool {
