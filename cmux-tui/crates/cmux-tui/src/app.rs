@@ -6526,13 +6526,16 @@ impl App {
                 screen.active_pane = pane;
                 true
             } else if !self.session.remote {
-                self.session.focus_pane(pane);
                 true
             } else {
                 false
             };
             if focused {
                 self.pane_focus_history.record(pane);
+                // Remote frontends update their mirror optimistically above,
+                // but focus is still shared session state. Forward the same
+                // mutation so every frontend receives the authoritative tree.
+                self.session.focus_pane(pane);
             }
         }
     }
@@ -6557,9 +6560,11 @@ impl App {
                     as usize;
             }
         }
-        if !self.session.remote {
-            self.session.select_tab(pane, index, delta);
-        }
+        // Attached frontends keep the immediate optimistic update above, then
+        // publish the same selection to the owner mux. Without this command a
+        // remote TUI can visibly switch tabs while every other frontend still
+        // observes the old active surface in list-workspaces.
+        self.session.select_tab(pane, index, delta);
     }
 
     fn select_screen_for_client(&mut self, index: Option<usize>, delta: Option<isize>) {
@@ -6581,9 +6586,7 @@ impl App {
         if selected && let Some(active) = self.active_pane() {
             self.pane_focus_history.record(active);
         }
-        if !self.session.remote {
-            self.session.select_screen(index, delta);
-        }
+        self.session.select_screen(index, delta);
     }
 
     fn select_workspace_for_client(&mut self, index: Option<usize>, delta: Option<isize>) {
@@ -6602,9 +6605,7 @@ impl App {
         if selected && let Some(active) = self.active_pane() {
             self.pane_focus_history.record(active);
         }
-        if !self.session.remote {
-            self.session.select_workspace(index, delta);
-        }
+        self.session.select_workspace(index, delta);
     }
 
     fn terminal_input_rect(&self, area: &PaneArea) -> Option<Rect> {
@@ -9384,6 +9385,30 @@ mod tests {
             app.status_message.as_deref(),
             Some("Deferred input was discarded because its destination changed")
         );
+    }
+
+    #[test]
+    fn attached_tab_selection_is_published_to_owner_mux() {
+        let mux = Mux::new("attached-tab-selection-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, None).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, None).unwrap();
+        mux.select_tab(Some(pane), Some(0), None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+
+        // Exercise the attached-client branch without a socket fixture. The
+        // OrderedSession still targets the owner mux, while `remote` enables
+        // the optimistic mirror update used by `cmux-tui attach`.
+        app.session.remote = true;
+        app.select_tab_for_client(Some(pane), Some(1), None);
+        assert_eq!(app.active_surface(), Some(second.id));
+
+        events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(mux.active_surface(), Some(second.id));
+
+        let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
+        mux.close_workspace(workspace);
     }
 
     #[test]
