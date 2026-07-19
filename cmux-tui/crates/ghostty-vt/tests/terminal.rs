@@ -413,6 +413,10 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     assert!(term.palette_overridden(12), "OSC must commit at a split ST's ESC boundary");
     term.vt_write(b"\\");
     assert!(term.palette_overridden(12));
+    term.vt_write(b"\x1b]4;13;#0d\x000d0d\x07");
+    assert!(term.palette_overridden(13), "OSC must ignore embedded C0 bytes like Ghostty");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(13), Rgb { r: 13, g: 13, b: 13 });
 
     term.vt_write(b"\x1b]104;1\x1b\\");
     assert!(!term.palette_overridden(1));

@@ -457,6 +457,7 @@ impl PaletteOverrideTracker {
                         PaletteTrackState::Ground
                     }
                     0x18 | 0x1a => PaletteTrackState::Ground,
+                    0..=0x06 | 0x08..=0x17 | 0x19 | 0x1c..=0x1f => PaletteTrackState::Osc(osc),
                     0x1b => {
                         // Ghostty exits and dispatches OSC on the ESC byte
                         // that begins ST, before the trailing `\\` arrives.
@@ -509,29 +510,29 @@ impl PaletteOsc {
             self.token.clear();
             return;
         }
-        let token = std::mem::take(&mut self.token);
+        let token = self.token.as_slice();
         // Ghostty tokenizes OSC color arguments with `tokenizeScalar`, which
         // skips empty parameters without advancing the index/color pairing.
         if token.is_empty() && !matches!(self.mode, PaletteOscMode::Operation) {
             return;
         }
         self.mode = match std::mem::take(&mut self.mode) {
-            PaletteOscMode::Operation => match token.as_slice() {
+            PaletteOscMode::Operation => match token {
                 b"4" => PaletteOscMode::SetIndex,
                 b"104" => PaletteOscMode::Reset,
                 b"21" => PaletteOscMode::Kitty,
                 _ => PaletteOscMode::Ignore,
             },
             PaletteOscMode::SetIndex => {
-                let target = Self::parse_target(&token);
+                let target = Self::parse_target(token);
                 if matches!(target, PaletteTarget::Invalid) {
                     self.stopped = true;
                 }
                 PaletteOscMode::SetColor(target)
             }
             PaletteOscMode::SetColor(target) => {
-                if token.as_slice() != b"?" {
-                    let valid = std::str::from_utf8(&token).ok().and_then(parse_color).is_some();
+                if token != b"?" {
+                    let valid = std::str::from_utf8(token).ok().and_then(parse_color).is_some();
                     if valid {
                         if let PaletteTarget::Palette(index) = target {
                             self.pending[index as usize] = 1;
@@ -544,7 +545,7 @@ impl PaletteOsc {
             }
             PaletteOscMode::Reset => {
                 if !token.is_empty() {
-                    match Self::parse_target(&token) {
+                    match Self::parse_target(token) {
                         PaletteTarget::Palette(index) => {
                             self.pending[index as usize] = 2;
                             self.request_count += 1;
@@ -571,6 +572,7 @@ impl PaletteOsc {
             }
             PaletteOscMode::Ignore => PaletteOscMode::Ignore,
         };
+        self.token.clear();
     }
 
     fn parse_target(token: &[u8]) -> PaletteTarget {
