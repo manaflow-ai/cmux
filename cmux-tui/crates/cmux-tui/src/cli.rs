@@ -1681,6 +1681,25 @@ mod tests {
     }
 
     #[test]
+    fn capability_probe_preserves_partial_line_across_timeout() {
+        let stream = ScriptedStream {
+            reads: VecDeque::from([
+                Ok(b"{\"id\":0,\"ok\":true,\"data\":".to_vec()),
+                Err(io::ErrorKind::TimedOut),
+                Ok(b"{\"capabilities\":[\"attach-initial-size\"]}}\n".to_vec()),
+            ]),
+            current: io::Cursor::new(Vec::new()),
+            writes: Vec::new(),
+        };
+        let mut reader = BufReader::new(Box::new(stream) as Box<dyn transport::Stream>);
+
+        assert_eq!(
+            server_supports_capability(&mut reader, ATTACH_INITIAL_SIZE_CAPABILITY),
+            Ok(true)
+        );
+    }
+
+    #[test]
     fn plugin_verb_is_registered_as_local_with_help() {
         let plugin = verb_by_name("plugin").expect("plugin verb registered");
         assert!(matches!(plugin.kind, VerbKind::Local(_)));
