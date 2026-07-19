@@ -553,16 +553,16 @@ mod tests {
     }
 
     #[test]
-    fn short_stack_shows_headers_nearest_the_expanded_pane() {
+    fn short_stack_keeps_neighbors_reachable_on_both_sides() {
         let root = Node::stack(vec![1, 2, 3, 4, 5]).unwrap();
         let layout = layout_screen(&root, Rect { x: 0, y: 0, width: 80, height: 3 }, Some(4));
 
         assert_eq!(layout.rect_of(1).unwrap().height, 0);
-        assert_eq!(layout.rect_of(2), Some(Rect { x: 0, y: 0, width: 80, height: 1 }));
-        assert_eq!(layout.rect_of(3), Some(Rect { x: 0, y: 1, width: 80, height: 1 }));
-        assert_eq!(layout.rect_of(4), Some(Rect { x: 0, y: 2, width: 80, height: 1 }));
-        assert_eq!(layout.rect_of(5).unwrap().height, 0);
-        assert_eq!(layout.stacked_headers, HashSet::from([2, 3]));
+        assert_eq!(layout.rect_of(2).unwrap().height, 0);
+        assert_eq!(layout.rect_of(3), Some(Rect { x: 0, y: 0, width: 80, height: 1 }));
+        assert_eq!(layout.rect_of(4), Some(Rect { x: 0, y: 1, width: 80, height: 1 }));
+        assert_eq!(layout.rect_of(5), Some(Rect { x: 0, y: 2, width: 80, height: 1 }));
+        assert_eq!(layout.stacked_headers, HashSet::from([3, 5]));
     }
 
     #[test]

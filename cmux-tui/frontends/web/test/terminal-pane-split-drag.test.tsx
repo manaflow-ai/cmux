@@ -445,7 +445,7 @@ describe("TerminalPane stacks", () => {
       })),
     };
 
-    const { container } = render(<TerminalPane {...props} screen={screen} />);
+    const { container, queryByRole, rerender } = render(<TerminalPane {...props} screen={screen} />);
     const stack = container.querySelector(".pane-stack");
     expect(stack).toBeInTheDocument();
     expect(stack?.querySelectorAll(".pane-leaf.collapsed")).toHaveLength(2);
@@ -469,6 +469,19 @@ describe("TerminalPane stacks", () => {
 
     fireEvent.click(stack!.children[2]!.querySelector(".stack-pane-header")!);
     expect(props.onSelectPane).toHaveBeenCalledWith(3);
+
+    fireEvent.contextMenu(stack!.querySelector(".pane-leaf.expanded .terminal-panel")!, {
+      clientX: 10,
+      clientY: 10,
+    });
+    expect(queryByRole("menu")).toBeInTheDocument();
+    rerender(
+      <TerminalPane
+        {...props}
+        screen={{ ...screen, activePane: 3, layout: { ...screen.layout, expanded: 3 } }}
+      />,
+    );
+    expect(queryByRole("menu")).toBeNull();
   });
 });
 
