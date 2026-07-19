@@ -85,7 +85,7 @@ public actor CmxIrohClientRuntime {
     var signOutOperation: Task<CmxIrohClientSignOutPreparation, Never>?
     var relayCoordinator: CmxIrohRelayCredentialCoordinator?
     var supervisorEventTask: Task<Void, Never>?
-    var registrationRefreshTask: Task<Void, any Error>?
+    var registrationRefreshTask: Task<CmxIrohLiveDiscoveryRefreshOutcome, any Error>?
     var registrationRefreshTaskID: UUID?
     var registrationRefreshPending = false
     var registrationRefreshEnabled = false
@@ -192,17 +192,39 @@ public actor CmxIrohClientRuntime {
     /// already-paired Macs, but returns false here so a cached or stale snapshot
     /// can never authorize a first pairing.
     public func refreshLiveDiscovery() async -> Bool {
+        await refreshLiveDiscoveryOutcome() == .refreshed
+    }
+
+    /// Refreshes registration and discovery with a privacy-safe failure reason.
+    ///
+    /// Connectivity fallback may preserve the existing verified runtime, but
+    /// returns a categorical failure so diagnostics can distinguish an offline
+    /// broker, unavailable policy, inactive endpoint, and superseded lifecycle.
+    /// Raw errors and their potentially sensitive associated data are discarded.
+    ///
+    /// - Returns: Whether a new verified snapshot was installed, or the bounded
+    ///   reason it was not.
+    public func refreshLiveDiscoveryOutcome() async -> CmxIrohLiveDiscoveryRefreshOutcome {
         do {
-            return try await refreshLiveDiscoveryThrowing()
+            return try await refreshLiveDiscoveryOutcomeThrowing()
         } catch {
-            return false
+            return .failed(DiagnosticFailureKind.classify(error))
         }
     }
 
     func refreshLiveDiscoveryThrowing() async throws -> Bool {
-        guard lifecyclePhase == .active else { return false }
+        try await refreshLiveDiscoveryOutcomeThrowing() == .refreshed
+    }
+
+    private func refreshLiveDiscoveryOutcomeThrowing() async throws
+        -> CmxIrohLiveDiscoveryRefreshOutcome
+    {
+        guard lifecyclePhase == .active else {
+            return .failed(.endpointUnavailable)
+        }
         let priorGeneration = liveDiscoveryGeneration
         var mayScheduleFreshRequest = registrationRefreshTask != nil
+        var latestOutcome: CmxIrohLiveDiscoveryRefreshOutcome = .failed(.superseded)
         if registrationRefreshTask == nil {
             scheduleRegistrationRefresh(revision: lifecycleRevision)
         }
@@ -212,18 +234,22 @@ public actor CmxIrohClientRuntime {
               let refreshID = registrationRefreshTaskID,
               refreshID != lastAwaitedTaskID {
             lastAwaitedTaskID = refreshID
-            try await refresh.value
-            guard lifecyclePhase == .active else { return false }
-            if liveDiscoveryGeneration > priorGeneration { return true }
+            latestOutcome = try await refresh.value
+            guard lifecyclePhase == .active else {
+                return .failed(.endpointUnavailable)
+            }
+            if liveDiscoveryGeneration > priorGeneration { return .refreshed }
             if registrationRefreshTaskID != nil {
                 mayScheduleFreshRequest = false
                 continue
             }
-            guard mayScheduleFreshRequest else { return false }
+            guard mayScheduleFreshRequest else { return latestOutcome }
             mayScheduleFreshRequest = false
             scheduleRegistrationRefresh(revision: lifecycleRevision)
         }
-        return false
+        return lifecyclePhase == .active
+            ? latestOutcome
+            : .failed(.endpointUnavailable)
     }
 
     /// Returns the selected live path after removing raw transport coordinates.
@@ -354,7 +380,7 @@ public actor CmxIrohClientRuntime {
         registrationRefreshEnabled = false
         do {
             if let refresh = registrationRefreshTask {
-                try await refresh.value
+                _ = try await refresh.value
                 try requireCurrent(revision)
             }
             let checked = try await supervisor.ensureHealthy()
