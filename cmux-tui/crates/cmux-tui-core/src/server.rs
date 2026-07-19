@@ -4861,6 +4861,54 @@ mod tests {
     }
 
     #[test]
+    fn unrelated_attach_does_not_cancel_failed_surface_rollback_repair() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let unrelated_surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+        let stream_id = stream.id;
+        mux.control_clients.attach_surface(client, surface.id, stream).unwrap();
+        mux.control_clients.commit_surface(client, surface.id, stream_id, None).unwrap();
+        mux.resize_surface_for_control_client_with_reservation(surface.id, client, 80, 24).unwrap();
+        let changed = mux
+            .resize_surface_for_control_client_with_reservation(surface.id, client, 70, 20)
+            .unwrap();
+        assert_eq!(surface.size(), (70, 20));
+
+        let unrelated_writer = test_writer();
+        let unrelated_client =
+            mux.control_clients.register(ClientTransport::Unix, unrelated_writer.clone());
+        let unrelated_stream = unrelated_writer.start_stream(&json!({"event": "test"})).unwrap();
+        mux.set_client_rollback_before_wait(Some(Arc::new({
+            let hook_mux = mux.clone();
+            move || {
+                hook_mux
+                    .control_clients
+                    .attach_surface(
+                        unrelated_client,
+                        unrelated_surface.id,
+                        unrelated_stream.clone(),
+                    )
+                    .unwrap();
+            }
+        })));
+        let removed = mux.remove_surface_runtime_for_test(surface.id).unwrap();
+
+        mux.rollback_surface_size_client(surface.id, client, changed.rollback);
+        mux.set_client_rollback_before_wait(None);
+
+        assert_eq!(mux.client_surface_size(surface.id, client), Some((70, 20)));
+        let clients = mux.control_clients.list_json(client);
+        let client =
+            clients.as_array().unwrap().iter().find(|entry| entry["self"] == true).unwrap();
+        assert_eq!(client["sizes"][0]["cols"], 70);
+        assert_eq!(client["sizes"][0]["rows"], 20);
+        removed.kill();
+    }
+
+    #[test]
     fn disconnect_cleanup_wins_over_a_waiting_stale_sizing_action() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
