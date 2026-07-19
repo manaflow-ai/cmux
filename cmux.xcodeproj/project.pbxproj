@@ -118,6 +118,7 @@
 		A78670650000000000000001 /* AgentProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670010000000000000002 /* AgentProcessIdentity.swift */; };
 		0A1107110000000000000012 /* AgentRelaunchCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000013 /* AgentRelaunchCommandBuilder.swift */; };
 		0A1107110000000000000014 /* AgentRestoreMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000015 /* AgentRestoreMode.swift */; };
+		A78670510000000000000001 /* AgentResumeExecutableAvailabilityRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670510000000000000002 /* AgentResumeExecutableAvailabilityRegressionTests.swift */; };
 		B78672A00000000000000001 /* AgentRuntimeOwnershipProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = B78672A00000000000000002 /* AgentRuntimeOwnershipProbe.swift */; };
 		A79700040000000000000001 /* AgentSessionAuthorityEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79700040000000000000002 /* AgentSessionAuthorityEvidence.swift */; };
 		A79700050000000000000001 /* AgentSessionAuthorityEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79700040000000000000002 /* AgentSessionAuthorityEvidence.swift */; };
@@ -2335,6 +2336,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A78670010000000000000002 /* AgentProcessIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentProcessIdentity.swift; sourceTree = "<group>"; };
 		0A1107110000000000000013 /* AgentRelaunchCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRelaunchCommandBuilder.swift; sourceTree = "<group>"; };
 		0A1107110000000000000015 /* AgentRestoreMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRestoreMode.swift; sourceTree = "<group>"; };
+		A78670510000000000000002 /* AgentResumeExecutableAvailabilityRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentResumeExecutableAvailabilityRegressionTests.swift; sourceTree = "<group>"; };
 		B78672A00000000000000002 /* AgentRuntimeOwnershipProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRuntimeOwnershipProbe.swift; sourceTree = "<group>"; };
 		A79700040000000000000002 /* AgentSessionAuthorityEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionAuthorityEvidence.swift; sourceTree = "<group>"; };
 		D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionAutoResumeSettingsTests.swift; sourceTree = "<group>"; };
@@ -6251,6 +6253,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A79700030000000000000002 /* AgentSessionLifecycleRaceRegressionTests.swift */,
 				A79700080000000000000002 /* ClosedPanelAgentHistoryRegressionTests.swift */,
 				A79700020000000000000002 /* AgentNotificationOwnershipRegressionTests.swift */,
+				A78670510000000000000002 /* AgentResumeExecutableAvailabilityRegressionTests.swift */,
 				A78670310000000000000002 /* AgentSessionRuntimeScopingRegressionTests.swift */,
 				C0DE6495000000000000000A /* CMUXCLISessionsListForkDiagnosticsTests.swift */,
 					C0DE64970000000000000002 /* CMUXCLISessionsListOpenCodeTrustTests.swift */,
@@ -8525,6 +8528,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				79460001AA11BB22CC33EE01 /* AgentNotificationMutationBoundaryTests.swift in Sources */,
 				A79700020000000000000001 /* AgentNotificationOwnershipRegressionTests.swift in Sources */,
 				A78670650000000000000001 /* AgentProcessIdentity.swift in Sources */,
+				A78670510000000000000001 /* AgentResumeExecutableAvailabilityRegressionTests.swift in Sources */,
 				A79700050000000000000001 /* AgentSessionAuthorityEvidence.swift in Sources */,
 				D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */,
 				D3610B020000000000000001 /* AgentSessionAutoResumeSwiftTests.swift in Sources */,
