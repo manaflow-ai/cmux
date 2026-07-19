@@ -313,9 +313,11 @@ struct BackendOnlyProjectionDriverTests {
             fixture.logicalPresentationID
         ))
         await reconnectRPC.install(records: [authoritative])
+        let stalePublication = try #require(await fixture.driver.publication)
         try await fixture.driver.reconcileAfterReconnect(
             rpc: reconnectRPC,
-            topology: fixture.snapshot
+            topology: fixture.snapshot,
+            connectionGeneration: 2
         )
         await fixture.driver.waitUntilIdle()
 
@@ -324,6 +326,37 @@ struct BackendOnlyProjectionDriverTests {
             .selectWorkspace(workspaceID: fixture.workspace(1).uuid),
         ]])
         #expect(await fixture.driver.phase == .ready)
+        let reconnectedPublication = try #require(await fixture.driver.publication)
+        #expect(stalePublication.connectionGeneration == 1)
+        #expect(reconnectedPublication.connectionGeneration == 2)
+        #expect(reconnectedPublication != stalePublication)
+    }
+
+    @Test("reconnect rejects a nonadvancing connection generation")
+    func reconnectRequiresAdvancingConnectionGeneration() async throws {
+        let fixture = try DriverFixture(workspaceCount: 1)
+        _ = try await fixture.driver.hydrate(
+            topology: fixture.snapshot,
+            legacySelectedWorkspaceID: nil
+        )
+        await fixture.rpc.failNextMutationAmbiguously()
+
+        _ = try await fixture.driver.submit([
+            .selectWorkspace(workspaceID: fixture.workspace(0).uuid),
+        ])
+        await fixture.driver.waitUntilIdle()
+
+        await #expect(
+            throws: BackendOnlyProjectionDriverError
+                .nonadvancingConnectionGeneration(current: 1, proposed: 1)
+        ) {
+            try await fixture.driver.reconcileAfterReconnect(
+                rpc: fixture.rpc,
+                topology: fixture.snapshot,
+                connectionGeneration: 1
+            )
+        }
+        #expect(await fixture.driver.connectionGeneration == 1)
     }
 
     @Test("stale topology waits for the exact replacement snapshot")
