@@ -108,6 +108,121 @@ struct BackendOnlyProjectionRuntimeReconcilerTests {
         #expect(fixture.reconciler.snapshot?.fence == fence)
     }
 
+    @Test("same-fence waiter capacity is bounded without disturbing admitted work")
+    func identicalSameFenceWaiterCapacityIsBounded() async throws {
+        let fixture = try Fixture()
+        let terminal = fixture.terminalPane(pane: 1, surface: 101, active: true)
+        let fence = fixture.fence(topology: 1, projection: 1)
+        let plan = fixture.plan([terminal])
+        let maximumWaiterCountPerRequest = 4_096
+        fixture.factory.blockFactory(for: terminal.terminalSelection.surfaceID)
+
+        let firstTask = Task { @MainActor in
+            try await fixture.reconciler.apply(
+                session: fixture.firstSession,
+                fence: fence,
+                plan: plan
+            )
+        }
+        await fixture.factory.waitUntilAttempted(terminal.terminalSelection.surfaceID)
+
+        let admittedStarted = MainActorCountSignal()
+        let admittedTasks = (1 ..< maximumWaiterCountPerRequest).map { _ in
+            Task { @MainActor in
+                admittedStarted.signal()
+                return try await fixture.reconciler.apply(
+                    session: fixture.firstSession,
+                    fence: fence,
+                    plan: plan
+                )
+            }
+        }
+        await admittedStarted.wait(until: maximumWaiterCountPerRequest - 1)
+
+        let overflowStarted = MainActorSignal()
+        let overflowTask = Task { @MainActor in
+            overflowStarted.signal()
+            return try await fixture.reconciler.apply(
+                session: fixture.firstSession,
+                fence: fence,
+                plan: plan
+            )
+        }
+        await overflowStarted.wait()
+
+        fixture.factory.releaseBlockedFactory()
+
+        let expected = BackendOnlyProjectionRuntimeReconcileResult.applied(
+            created: 1,
+            reused: 0,
+            retired: 0
+        )
+        #expect(try await firstTask.value == expected)
+        for task in admittedTasks {
+            #expect(try await task.value == expected)
+        }
+        do {
+            _ = try await overflowTask.value
+            Issue.record("expected coalesced waiter capacity rejection")
+        } catch let error as BackendOnlyProjectionRuntimeReconcilerError {
+            let description = String(describing: error)
+            #expect(description.contains("coalescedWaiterLimitExceeded"))
+            #expect(description.contains("4096"))
+        } catch {
+            Issue.record("unexpected overflow error: \(error)")
+        }
+        #expect(fixture.factory.attempts == [terminal.terminalSelection])
+        #expect(fixture.reconciler.snapshot?.fence == fence)
+    }
+
+    @Test("cancelled same-fence caller leaves shared reconciliation admitted")
+    func cancelledSameFenceCallerIsRemovedExactlyOnce() async throws {
+        let fixture = try Fixture()
+        let terminal = fixture.terminalPane(pane: 1, surface: 101, active: true)
+        let fence = fixture.fence(topology: 1, projection: 1)
+        let plan = fixture.plan([terminal])
+        fixture.factory.blockFactory(for: terminal.terminalSelection.surfaceID)
+
+        let firstTask = Task { @MainActor in
+            try await fixture.reconciler.apply(
+                session: fixture.firstSession,
+                fence: fence,
+                plan: plan
+            )
+        }
+        await fixture.factory.waitUntilAttempted(terminal.terminalSelection.surfaceID)
+
+        let duplicateStarted = MainActorSignal()
+        let duplicateTask = Task { @MainActor in
+            duplicateStarted.signal()
+            return try await fixture.reconciler.apply(
+                session: fixture.firstSession,
+                fence: fence,
+                plan: plan
+            )
+        }
+        await duplicateStarted.wait()
+        duplicateTask.cancel()
+
+        fixture.factory.releaseBlockedFactory()
+
+        let expected = BackendOnlyProjectionRuntimeReconcileResult.applied(
+            created: 1,
+            reused: 0,
+            retired: 0
+        )
+        #expect(try await firstTask.value == expected)
+        do {
+            _ = try await duplicateTask.value
+            Issue.record("expected cancelled coalesced caller")
+        } catch is CancellationError {
+        } catch {
+            Issue.record("unexpected cancellation error: \(error)")
+        }
+        #expect(fixture.factory.attempts == [terminal.terminalSelection])
+        #expect(fixture.reconciler.snapshot?.fence == fence)
+    }
+
     @Test("tab switch replaces within the stable pane slot")
     func tabSwitchReplacesInPlace() async throws {
         let fixture = try Fixture()
@@ -928,6 +1043,38 @@ private final class MainActorSignal {
         if signaled { return }
         await withCheckedContinuation { continuation in
             waiters.append(continuation)
+        }
+    }
+}
+
+@MainActor
+private final class MainActorCountSignal {
+    private struct Waiter {
+        let target: Int
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
+    private var count = 0
+    private var waiters: [Waiter] = []
+
+    func signal() {
+        count += 1
+        var pending: [Waiter] = []
+        pending.reserveCapacity(waiters.count)
+        for waiter in waiters {
+            if count >= waiter.target {
+                waiter.continuation.resume()
+            } else {
+                pending.append(waiter)
+            }
+        }
+        waiters = pending
+    }
+
+    func wait(until target: Int) async {
+        if count >= target { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(Waiter(target: target, continuation: continuation))
         }
     }
 }
