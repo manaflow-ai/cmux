@@ -48,6 +48,7 @@ AGENT=0
 DETACH=0
 IROH_RELEASE_GATE_MODE=""
 ATTACH_TTL_SECONDS="${CMUX_ATTACH_TTL_SECONDS:-600}"
+ATTACH_MINT_MAX_ATTEMPTS="${CMUX_ATTACH_MINT_MAX_ATTEMPTS:-20}"
 
 usage() { sed -n '2,30p' "$0"; }
 
@@ -75,6 +76,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$TAG" ]] || { echo "error: --tag is required" >&2; usage >&2; exit 2; }
+if [[ ! "$ATTACH_MINT_MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "error: CMUX_ATTACH_MINT_MAX_ATTEMPTS must be a positive integer" >&2
+  exit 2
+fi
 if [[ "$DETACH" -eq 1 && "$TARGET" != "simulator" ]]; then
   echo "error: --detach is supported only with simulator launches" >&2
   usage >&2
@@ -144,7 +149,7 @@ if [[ "$ATTACH" -eq 1 ]]; then
   # pair this app with another tagged Mac instance.
   if cmux_attach_mac_socket_ready "$TAG"; then
     ATTACH_SOCKET_READY=1
-    ATTACH_URL="$(cmux_attach_mint_url "$TAG" "$ATTACH_TTL_SECONDS" "$REPO_ROOT" "$ATTACH_TARGET")" \
+    ATTACH_URL="$(cmux_attach_mint_url "$TAG" "$ATTACH_TTL_SECONDS" "$REPO_ROOT" "$ATTACH_TARGET" "$ATTACH_MINT_MAX_ATTEMPTS")" \
       || ATTACH_MINT_STATUS=$?
     if [[ -n "$ATTACH_URL" ]]; then
       ATTACH_MINT_STATUS=0

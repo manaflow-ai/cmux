@@ -225,6 +225,7 @@ except subprocess.TimeoutExpired:
 PY
 REPORT_WAITER_PID=$!
 
+CMUX_ATTACH_MINT_MAX_ATTEMPTS=120 \
 ./scripts/mobile-dev-launch.sh \
   --tag "$TAG" \
   --simulator-id "$SIMULATOR_ID" \
