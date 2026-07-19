@@ -271,6 +271,209 @@ struct BackendOnlyProjectionRuntimeReconcilerTests {
         #expect(fixture.factory.created.allSatisfy { $0.focusMutationCount == 0 })
     }
 
+    @Test("current disconnect unpublishes and retires every runtime exactly once")
+    func currentDisconnectClearsExactlyOnce() async throws {
+        let fixture = try Fixture()
+        let one = fixture.terminalPane(pane: 1, surface: 101, active: true)
+        let two = fixture.terminalPane(pane: 2, surface: 201)
+        let currentFence = fixture.fence(topology: 1, projection: 1)
+
+        _ = try await fixture.reconciler.apply(
+            session: fixture.firstSession,
+            fence: currentFence,
+            plan: fixture.plan([one, two])
+        )
+        let runtimeOne = try fixture.runtime(in: 0)
+        let runtimeTwo = try fixture.runtime(in: 1)
+
+        let result = await fixture.reconciler.disconnect(
+            session: fixture.firstSession,
+            fence: currentFence
+        )
+
+        #expect(result == .cleared(retired: 2))
+        #expect(fixture.reconciler.snapshot == nil)
+        #expect(runtimeOne.shutdownCount == 1)
+        #expect(runtimeTwo.shutdownCount == 1)
+
+        let repeated = await fixture.reconciler.disconnect(
+            session: fixture.firstSession,
+            fence: currentFence
+        )
+        #expect(repeated == .alreadyCleared)
+        #expect(runtimeOne.shutdownCount == 1)
+        #expect(runtimeTwo.shutdownCount == 1)
+    }
+
+    @Test("stale disconnect cannot clear a newer connection publication")
+    func staleDisconnectAfterReconnectIsIgnored() async throws {
+        let fixture = try Fixture()
+        let terminal = fixture.terminalPane(pane: 1, surface: 101, active: true)
+        let oldFence = fixture.fence(
+            connection: 1,
+            authority: fixture.firstAuthority,
+            topology: 1,
+            projection: 1
+        )
+        let newFence = fixture.fence(
+            connection: 2,
+            authority: fixture.secondAuthority,
+            topology: 1,
+            projection: 1
+        )
+
+        _ = try await fixture.reconciler.apply(
+            session: fixture.firstSession,
+            fence: oldFence,
+            plan: fixture.plan([terminal])
+        )
+        let oldRuntime = try fixture.runtime(in: 0)
+        _ = try await fixture.reconciler.apply(
+            session: fixture.secondSession,
+            fence: newFence,
+            plan: fixture.plan([terminal])
+        )
+        let newRuntime = try fixture.runtime(in: 0)
+        #expect(oldRuntime.shutdownCount == 1)
+
+        let result = await fixture.reconciler.disconnect(
+            session: fixture.firstSession,
+            fence: oldFence
+        )
+
+        #expect(result == .stale)
+        #expect(fixture.reconciler.snapshot?.fence == newFence)
+        #expect(try fixture.runtime(in: 0) === newRuntime)
+        #expect(newRuntime.shutdownCount == 0)
+    }
+
+    @Test("disconnect during suspended factory retires managed and staged candidates")
+    func disconnectDuringSuspendedFactoryClearsAllOwnership() async throws {
+        let fixture = try Fixture()
+        let one = fixture.terminalPane(pane: 1, surface: 101, active: true)
+        let two = fixture.terminalPane(pane: 2, surface: 201)
+        let three = fixture.terminalPane(pane: 3, surface: 301)
+        let publishedFence = fixture.fence(topology: 1, projection: 1)
+        let inFlightFence = fixture.fence(topology: 2, projection: 2)
+
+        _ = try await fixture.reconciler.apply(
+            session: fixture.firstSession,
+            fence: publishedFence,
+            plan: fixture.plan([one])
+        )
+        let publishedRuntime = try fixture.runtime(in: 0)
+        fixture.factory.blockFactory(for: three.terminalSelection.surfaceID)
+
+        let applyTask = Task { @MainActor in
+            try await fixture.reconciler.apply(
+                session: fixture.firstSession,
+                fence: inFlightFence,
+                plan: fixture.plan([one, two, three])
+            )
+        }
+        await fixture.factory.waitUntilAttempted(three.terminalSelection.surfaceID)
+        let stagedRuntime = try #require(fixture.factory.created.first {
+            $0.selection.surfaceID == two.terminalSelection.surfaceID
+        })
+
+        let disconnectTask = Task { @MainActor in
+            await fixture.reconciler.disconnect(
+                session: fixture.firstSession,
+                fence: inFlightFence
+            )
+        }
+        await fixture.factory.waitUntilShutdown(one.terminalSelection.surfaceID)
+
+        #expect(fixture.reconciler.snapshot == nil)
+        #expect(publishedRuntime.shutdownCount == 1)
+        #expect(stagedRuntime.shutdownCount == 0)
+
+        fixture.factory.releaseBlockedFactory()
+
+        #expect(try await applyTask.value == .superseded)
+        #expect(await disconnectTask.value == .cleared(retired: 3))
+        #expect(fixture.reconciler.snapshot == nil)
+        #expect(publishedRuntime.shutdownCount == 1)
+        #expect(stagedRuntime.shutdownCount == 1)
+        let returnedAfterDisconnect = try #require(fixture.factory.created.first {
+            $0.selection.surfaceID == three.terminalSelection.surfaceID
+        })
+        #expect(returnedAfterDisconnect.shutdownCount == 1)
+        #expect(fixture.factory.liveRuntimes.isEmpty)
+    }
+
+    @Test("rapid newer plans retain one pending request and materialize only newest")
+    func rapidNewerPlansCoalesceBehindInFlightFactory() async throws {
+        let fixture = try Fixture()
+        let first = fixture.terminalPane(pane: 1, surface: 101, active: true)
+        let second = fixture.terminalPane(pane: 1, surface: 102, active: true)
+        let third = fixture.terminalPane(pane: 1, surface: 103, active: true)
+        let newest = fixture.terminalPane(pane: 1, surface: 104, active: true)
+        fixture.factory.blockFactory(for: first.terminalSelection.surfaceID)
+
+        let firstTask = Task { @MainActor in
+            try await fixture.reconciler.apply(
+                session: fixture.firstSession,
+                fence: fixture.fence(topology: 1, projection: 1),
+                plan: fixture.plan([first])
+            )
+        }
+        await fixture.factory.waitUntilAttempted(first.terminalSelection.surfaceID)
+
+        let secondStarted = MainActorSignal()
+        let secondTask = Task { @MainActor in
+            secondStarted.signal()
+            return try await fixture.reconciler.apply(
+                session: fixture.firstSession,
+                fence: fixture.fence(topology: 2, projection: 2),
+                plan: fixture.plan([second])
+            )
+        }
+        await secondStarted.wait()
+
+        let thirdStarted = MainActorSignal()
+        let thirdTask = Task { @MainActor in
+            thirdStarted.signal()
+            return try await fixture.reconciler.apply(
+                session: fixture.firstSession,
+                fence: fixture.fence(topology: 3, projection: 3),
+                plan: fixture.plan([third])
+            )
+        }
+        await thirdStarted.wait()
+        #expect(try await secondTask.value == .superseded)
+
+        let newestStarted = MainActorSignal()
+        let newestTask = Task { @MainActor in
+            newestStarted.signal()
+            return try await fixture.reconciler.apply(
+                session: fixture.firstSession,
+                fence: fixture.fence(topology: 4, projection: 4),
+                plan: fixture.plan([newest])
+            )
+        }
+        await newestStarted.wait()
+        #expect(try await thirdTask.value == .superseded)
+        #expect(fixture.reconciler.maximumPendingRequestCountObserved == 1)
+
+        fixture.factory.releaseBlockedFactory()
+
+        #expect(try await firstTask.value == .superseded)
+        #expect(
+            try await newestTask.value
+                == .applied(created: 1, reused: 0, retired: 0)
+        )
+        #expect(fixture.factory.attempts == [
+            first.terminalSelection,
+            newest.terminalSelection,
+        ])
+        let discarded = try #require(fixture.factory.created.first {
+            $0.selection.surfaceID == first.terminalSelection.surfaceID
+        })
+        #expect(discarded.shutdownCount == 1)
+        #expect(try fixture.runtime(in: 0).selection == newest.terminalSelection)
+    }
+
     @Test("256 terminal candidates are created in deterministic leaf order")
     func maximumVisibleSlotsAreBoundedAndOrdered() async throws {
         let fixture = try Fixture()
@@ -529,6 +732,14 @@ private final class FakeRuntimeFactory {
     var attempts: [BackendOnlyTerminalSelection] = []
     var created: [FakeRuntime] = []
     var failingSurface: SurfaceID?
+    private var blockedSurface: SurfaceID?
+    private var blockedFactoryContinuation: CheckedContinuation<Void, Never>?
+    private var attemptWaiters: [
+        SurfaceID: [CheckedContinuation<Void, Never>]
+    ] = [:]
+    private var shutdownWaiters: [
+        SurfaceID: [CheckedContinuation<Void, Never>]
+    ] = [:]
 
     var liveRuntimes: [FakeRuntime] {
         created.filter { $0.shutdownCount == 0 }
@@ -539,12 +750,61 @@ private final class FakeRuntimeFactory {
         selection: BackendOnlyTerminalSelection
     ) async throws -> any BackendOnlyHostRuntimeLifecycle {
         attempts.append(selection)
+        for waiter in attemptWaiters.removeValue(forKey: selection.surfaceID) ?? [] {
+            waiter.resume()
+        }
         if selection.surfaceID == failingSurface {
             throw FakeRuntimeFactoryError.requestedFailure
         }
-        let runtime = FakeRuntime(selection: selection)
+        if selection.surfaceID == blockedSurface {
+            await withCheckedContinuation { continuation in
+                blockedFactoryContinuation = continuation
+            }
+        }
+        let runtime = FakeRuntime(
+            selection: selection,
+            shutdownAction: { [weak self] selection in
+                self?.recordShutdown(selection.surfaceID)
+            }
+        )
         created.append(runtime)
         return runtime
+    }
+
+    func blockFactory(for surfaceID: SurfaceID) {
+        precondition(blockedSurface == nil)
+        blockedSurface = surfaceID
+    }
+
+    func releaseBlockedFactory() {
+        blockedSurface = nil
+        let continuation = blockedFactoryContinuation
+        blockedFactoryContinuation = nil
+        continuation?.resume()
+    }
+
+    func waitUntilAttempted(_ surfaceID: SurfaceID) async {
+        if attempts.contains(where: { $0.surfaceID == surfaceID }) { return }
+        await withCheckedContinuation { continuation in
+            attemptWaiters[surfaceID, default: []].append(continuation)
+        }
+    }
+
+    func waitUntilShutdown(_ surfaceID: SurfaceID) async {
+        if created.contains(where: {
+            $0.selection.surfaceID == surfaceID && $0.shutdownCount > 0
+        }) {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            shutdownWaiters[surfaceID, default: []].append(continuation)
+        }
+    }
+
+    private func recordShutdown(_ surfaceID: SurfaceID) {
+        for waiter in shutdownWaiters.removeValue(forKey: surfaceID) ?? [] {
+            waiter.resume()
+        }
     }
 }
 
@@ -553,13 +813,43 @@ private final class FakeRuntime: BackendOnlyHostRuntimeLifecycle {
     let selection: BackendOnlyTerminalSelection
     private(set) var shutdownCount = 0
     private(set) var focusMutationCount = 0
+    private let shutdownAction: @MainActor (BackendOnlyTerminalSelection) -> Void
 
-    init(selection: BackendOnlyTerminalSelection) {
+    init(
+        selection: BackendOnlyTerminalSelection,
+        shutdownAction: @escaping @MainActor (
+            BackendOnlyTerminalSelection
+        ) -> Void = { _ in }
+    ) {
         self.selection = selection
+        self.shutdownAction = shutdownAction
     }
 
     func shutdown() async {
         shutdownCount += 1
+        shutdownAction(selection)
+    }
+}
+
+@MainActor
+private final class MainActorSignal {
+    private var signaled = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func signal() {
+        guard !signaled else { return }
+        signaled = true
+        for waiter in waiters {
+            waiter.resume()
+        }
+        waiters.removeAll()
+    }
+
+    func wait() async {
+        if signaled { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
     }
 }
 
