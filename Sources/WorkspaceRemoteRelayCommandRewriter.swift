@@ -5,6 +5,8 @@ import Foundation
 /// workspace model's alias-aware static rewrite so the package never imports
 /// `Workspace`.
 struct WorkspaceRemoteRelayCommandRewriter: RemoteRelayCommandRewriting {
+    let remoteWorkspaceID: UUID
+
     func rewriteRemoteRelayCommandLine(
         _ commandLine: Data,
         workspaceAliases: [UUID: UUID],
@@ -13,7 +15,8 @@ struct WorkspaceRemoteRelayCommandRewriter: RemoteRelayCommandRewriting {
         Workspace.rewriteRemoteRelayCommandLine(
             commandLine,
             workspaceAliases: workspaceAliases,
-            surfaceAliases: surfaceAliases
+            surfaceAliases: surfaceAliases,
+            remoteWorkspaceID: remoteWorkspaceID
         )
     }
 }

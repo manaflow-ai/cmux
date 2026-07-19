@@ -115,7 +115,7 @@ extension Workspace {
             ),
             processRunner: processRunner,
             reachabilityProbe: RemoteHostReachabilityProbe(),
-            relayCommandRewriter: WorkspaceRemoteRelayCommandRewriter(),
+            relayCommandRewriter: WorkspaceRemoteRelayCommandRewriter(remoteWorkspaceID: id),
             buildInfo: WorkspaceRemoteSessionBuildInfo(),
             daemonStrings: RemoteDaemonStrings.appLocalized,
             strings: RemoteSessionStrings.appLocalized

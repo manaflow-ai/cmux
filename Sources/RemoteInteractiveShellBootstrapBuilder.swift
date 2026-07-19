@@ -7,7 +7,8 @@ enum RemoteInteractiveShellBootstrapBuilder {
         terminfoSource: String? = nil,
         bundledZshIntegration: String? = nil,
         bundledBashIntegration: String? = nil,
-        bundledFishIntegration: String? = nil
+        bundledFishIntegration: String? = nil,
+        initialCommand: String? = nil
     ) -> String {
         let shellStateDir = shellStateDirForRemoteRelayPort(remoteRelayPort)
         let commonShellExportLines = commonShellLines(
@@ -85,7 +86,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
         outerLines += [
             "    export CMUX_REAL_ZDOTDIR=\"${ZDOTDIR:-$HOME}\"",
             "    export ZDOTDIR=\"$cmux_shell_dir\"",
-            "    exec \"$CMUX_LOGIN_SHELL\" -il",
+            loginShellLaunchLine(kind: .zsh, initialCommand: initialCommand),
             "    ;;",
             "  bash)",
             "    cat > \"$cmux_shell_dir/.bashrc\" <<'CMUXBASHRC'",
@@ -106,7 +107,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
         ]
         outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
         outerLines += [
-            "    exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i",
+            loginShellLaunchLine(kind: .bash, initialCommand: initialCommand),
             "    ;;",
             "  fish)",
         ]
@@ -114,18 +115,58 @@ enum RemoteInteractiveShellBootstrapBuilder {
         outerLines += [
             "    export CMUX_FISH_INTEGRATION_FILE=\"$cmux_shell_dir/fish/config.fish\"",
             "    export CMUX_FISH_USER_CONFIG_ALREADY_LOADED=1",
-            "    exec \"$CMUX_LOGIN_SHELL\" -il --init-command 'source \"$CMUX_FISH_INTEGRATION_FILE\"'",
+            loginShellLaunchLine(kind: .fish, initialCommand: initialCommand),
             "    ;;",
             "  *)",
         ]
         outerLines.append(contentsOf: relayWarmupLines)
         outerLines += [
-            "exec \"$CMUX_LOGIN_SHELL\" -i",
+            loginShellLaunchLine(kind: .other, initialCommand: initialCommand),
             ";;",
             "esac",
         ]
 
         return outerLines.joined(separator: "\n")
+    }
+
+    private enum LoginShellKind {
+        case zsh
+        case bash
+        case fish
+        case other
+    }
+
+    private static func loginShellLaunchLine(
+        kind: LoginShellKind,
+        initialCommand: String?
+    ) -> String {
+        let normalizedCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resumeInvocation = normalizedCommand.flatMap { command in
+            command.isEmpty ? nil : "/bin/sh -c \(shellQuote(command))"
+        }
+        switch (kind, resumeInvocation) {
+        case (.zsh, .none):
+            return "    exec \"$CMUX_LOGIN_SHELL\" -il"
+        case (.zsh, .some(let resumeInvocation)):
+            let command = resumeInvocation + "\nexec \"$CMUX_LOGIN_SHELL\" -il"
+            return "    exec \"$CMUX_LOGIN_SHELL\" -ilc \(shellQuote(command))"
+        case (.bash, .none):
+            return "    exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i"
+        case (.bash, .some(let resumeInvocation)):
+            let command = resumeInvocation +
+                "\nexec \"$CMUX_LOGIN_SHELL\" --rcfile \"$CMUX_SHELL_INTEGRATION_DIR/.bashrc\" -i"
+            return "    exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -ic \(shellQuote(command))"
+        case (.fish, .none):
+            return "    exec \"$CMUX_LOGIN_SHELL\" -il --init-command 'source \"$CMUX_FISH_INTEGRATION_FILE\"'"
+        case (.fish, .some(let resumeInvocation)):
+            let command = "source \"$CMUX_FISH_INTEGRATION_FILE\"; \(resumeInvocation)"
+            return "    exec \"$CMUX_LOGIN_SHELL\" -il --init-command \(shellQuote(command))"
+        case (.other, .none):
+            return "exec \"$CMUX_LOGIN_SHELL\" -i"
+        case (.other, .some(let resumeInvocation)):
+            let command = resumeInvocation + "\nexec \"$CMUX_LOGIN_SHELL\" -i"
+            return "exec \"$CMUX_LOGIN_SHELL\" -ic \(shellQuote(command))"
+        }
     }
 
     static func shellFeatures(

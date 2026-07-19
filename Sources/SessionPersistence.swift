@@ -259,17 +259,9 @@ enum SurfaceResumeApprovalPolicy: String, Codable, CaseIterable, Sendable {
 
 struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
-        case name
-        case kind
-        case command
-        case cwd
-        case checkpointId
-        case source
-        case environment
-        case autoResume
-        case approvalPolicy
-        case approvalRecordId
-        case updatedAt
+        case name, kind, command, cwd, checkpointId, source
+        case environment, autoResume, approvalPolicy, approvalRecordId
+        case launchFlavor, updatedAt
     }
 
     var name: String?
@@ -282,6 +274,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     var autoResume: Bool?
     var approvalPolicy: SurfaceResumeApprovalPolicy?
     var approvalRecordId: String?
+    var launchFlavor: SurfaceResumeLaunchFlavor
     var updatedAt: TimeInterval
 
     init(
@@ -295,6 +288,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         autoResume: Bool? = nil,
         approvalPolicy: SurfaceResumeApprovalPolicy? = nil,
         approvalRecordId: String? = nil,
+        launchFlavor: SurfaceResumeLaunchFlavor = .local,
         updatedAt: TimeInterval = Date().timeIntervalSince1970
     ) {
         let normalizedCwd = Self.normalized(cwd)
@@ -314,6 +308,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         self.autoResume = autoResume
         self.approvalPolicy = approvalPolicy
         self.approvalRecordId = Self.normalized(approvalRecordId)
+        self.launchFlavor = launchFlavor
         self.updatedAt = updatedAt
     }
 
@@ -330,6 +325,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             autoResume: try container.decodeIfPresent(Bool.self, forKey: .autoResume),
             approvalPolicy: try container.decodeIfPresent(SurfaceResumeApprovalPolicy.self, forKey: .approvalPolicy),
             approvalRecordId: try container.decodeIfPresent(String.self, forKey: .approvalRecordId),
+            launchFlavor: try container.decodeIfPresent(SurfaceResumeLaunchFlavor.self, forKey: .launchFlavor) ?? .local,
             updatedAt: try container.decodeIfPresent(TimeInterval.self, forKey: .updatedAt)
                 ?? Date().timeIntervalSince1970
         )
@@ -374,10 +370,10 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             autoResume: autoResume,
             approvalPolicy: approvalPolicy,
             approvalRecordId: approvalRecordId,
+            launchFlavor: launchFlavor,
             updatedAt: updatedAt
         )
     }
-
     static let maxInlineStartupInputBytes = SessionRestorableAgentSnapshot.maxInlineStartupInputBytes
 
     var startupInput: String? {

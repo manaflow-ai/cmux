@@ -188,7 +188,17 @@ extension TerminalController {
         ) else {
             return .surfaceNotFound
         }
-        let effectiveBinding = surfaceResumeBindingWithApproval(binding)
+        let locatedBinding: SurfaceResumeBindingSnapshot
+        if let remoteWorkspaceID = inputs.remoteWorkspaceID {
+            guard remoteWorkspaceID == target.workspace.id,
+                  let context = target.workspace.persistentSSHResumeContext(panelID: target.surfaceId) else {
+                return .setFailed
+            }
+            locatedBinding = binding.registeredForPersistentSSH(context)
+        } else {
+            locatedBinding = binding
+        }
+        let effectiveBinding = surfaceResumeBindingWithApproval(locatedBinding)
         guard target.workspace.setSurfaceResumeBinding(effectiveBinding, panelId: target.surfaceId) else {
             return .emptyResumeCommand
         }

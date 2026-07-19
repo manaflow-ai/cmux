@@ -1287,18 +1287,47 @@ extension Workspace {
             let restoresRemoteWorkspaceTerminalSnapshot =
                 remoteStartupCommand != nil &&
                 (snapshot.terminal?.isRemoteTerminal != false || shouldRestoreSingleDefaultCloudTerminal)
-            let restoredBindingLaunch: SurfaceResumeStartupLaunch? = if restoresRemoteWorkspaceTerminalSnapshot {
-                effectiveResumeBindingForStartup?.remoteStartupInputWithLauncherScript(allowLauncherScript: false)
-                    .map(SurfaceResumeStartupLaunch.input)
+            let restoredRemotePTYSessionID: String? = {
+                guard !isDefaultFreestyleSSHDRemoteWorkspace else {
+                    return nil
+                }
+                guard remoteConfiguration?.preserveAfterTerminalExit == true,
+                      remoteConfiguration?.persistentDaemonSlot != nil else {
+                    return nil
+                }
+                if let remotePTYSessionID = normalizedRemotePTYSessionID(snapshot.terminal?.remotePTYSessionID) {
+                    return remotePTYSessionID
+                }
+                guard snapshot.terminal?.isRemoteTerminal == true else {
+                    return nil
+                }
+                return Self.defaultSSHPTYSessionID(workspaceId: snapshotWorkspaceId ?? id, panelId: snapshot.id)
+            }()
+            let restoredPersistentSSHResumeCommand: String? = if let restoredRemotePTYSessionID,
+                                                                 let snapshotWorkspaceId {
+                persistentSSHResumeCommand(
+                    for: effectiveResumeBindingForStartup,
+                    expectedWorkspaceID: snapshotWorkspaceId,
+                    expectedSurfaceID: snapshot.id,
+                    persistentPTYSessionID: restoredRemotePTYSessionID
+                )
             } else {
+                nil
+            }
+            let restoredBindingLaunch: SurfaceResumeStartupLaunch? = if effectiveResumeBindingForStartup?.launchFlavor == .local,
+                                                                        !restoresRemoteWorkspaceTerminalSnapshot {
                 effectiveResumeBindingForStartup.flatMap {
                     sessionRestorePolicy.surfaceResumeStartupLaunch(
                         forApprovedBinding: $0,
                         allowLauncherScript: true
                     )
                 }
+            } else {
+                nil
             }
-            let effectiveResumeBinding = restoredBindingLaunch == nil ? nil : resumeBinding
+            let effectiveResumeBinding = restoredBindingLaunch != nil || restoredPersistentSSHResumeCommand != nil
+                ? resumeBinding
+                : nil
             let savedWorkingDirectory = effectiveResumeBinding?.cwd
                 ?? (restoresUntrustedSavedDirectory ? nil : snapshot.terminal?.workingDirectory)
                 ?? (restoresUntrustedSavedDirectory ? nil : restorableAgent?.workingDirectory)
@@ -1372,24 +1401,11 @@ extension Workspace {
                 }
                 return nil
             }()
-            let restoredRemotePTYSessionID: String? = {
-                guard !isDefaultFreestyleSSHDRemoteWorkspace else {
-                    return nil
-                }
-                guard remoteConfiguration?.preserveAfterTerminalExit == true,
-                      remoteConfiguration?.persistentDaemonSlot != nil else {
-                    return nil
-                }
-                if let remotePTYSessionID = normalizedRemotePTYSessionID(snapshot.terminal?.remotePTYSessionID) {
-                    return remotePTYSessionID
-                }
-                guard snapshot.terminal?.isRemoteTerminal == true else {
-                    return nil
-                }
-                return Self.defaultSSHPTYSessionID(workspaceId: snapshotWorkspaceId ?? id, panelId: snapshot.id)
-            }()
             let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map {
-                remotePTYAttachStartupCommand(sessionID: $0)
+                remotePTYAttachStartupCommand(
+                    sessionID: $0,
+                    remoteCommand: restoredPersistentSSHResumeCommand
+                )
             }
             let restoredStartupCommand =
                 restoredRemotePTYAttachCommand
@@ -1421,7 +1437,8 @@ extension Workspace {
                 localWorkingDirectory ?? (startupHandlesWorkingDirectory ? workingDirectory : nil)
             let restoredAgentWillRunStartupCommand = restorableAgent != nil && (
                 restoredAgentResumeLaunch?.initialCommand != nil ||
-                (restoredBindingLaunch?.initialCommand != nil && resumeBinding?.isAgentHookBinding == true)
+                (restoredBindingLaunch?.initialCommand != nil && resumeBinding?.isAgentHookBinding == true) ||
+                (restoredPersistentSSHResumeCommand != nil && resumeBinding?.isAgentHookBinding == true)
             )
             let restoredAgentWillRunStartupInput =
                 restoredAgentResumeLaunch?.initialInput != nil ||
@@ -1516,7 +1533,13 @@ extension Workspace {
                 )
             }
             if let storedResumeBinding = effectiveResumeBindingForStartup ?? resumeBinding {
-                surfaceResumeBindingsByPanelId[terminalPanel.id] = storedResumeBinding
+                surfaceResumeBindingsByPanelId[terminalPanel.id] = storedResumeBinding.retargetingRemoteOwner(
+                    expectedWorkspaceID: snapshotWorkspaceId ?? id,
+                    expectedSurfaceID: snapshot.id,
+                    workspaceID: id,
+                    surfaceID: terminalPanel.id,
+                    persistentPTYSessionID: restoredRemotePTYSessionID
+                )
             } else {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
             }
@@ -5620,49 +5643,6 @@ final class Workspace: Identifiable, ObservableObject {
         return trimmed
     }
 
-    private nonisolated static let remoteRelayWorkspaceIDKeys: Set<String> = [
-        "workspace_id",
-        "preferred_workspace_id",
-        "selected_workspace_id",
-        "before_workspace_id",
-        "after_workspace_id",
-        "from_workspace_id",
-        "to_workspace_id",
-    ]
-
-    private nonisolated static let remoteRelaySurfaceIDKeys: Set<String> = [
-        "panel_id",
-        "surface_id",
-        "preferred_panel_id",
-        "preferred_surface_id",
-        "target_panel_id",
-        "target_surface_id",
-        "created_panel_id",
-        "created_surface_id",
-        "before_panel_id",
-        "before_surface_id",
-        "after_panel_id",
-        "after_surface_id",
-    ]
-
-    private nonisolated static let remoteRelayAmbiguousIDKeys: Set<String> = [
-        "tab_id",
-    ]
-
-    private nonisolated static let remoteRelayWorkspaceIDArrayKeys: Set<String> = [
-        "workspace_ids",
-    ]
-
-    private nonisolated static let remoteRelaySurfaceIDArrayKeys: Set<String> = [
-        "panel_ids",
-        "surface_ids",
-    ]
-
-    private nonisolated static let remoteRelayAmbiguousIDArrayKeys: Set<String> = [
-        "tab_ids",
-        "tab_id_groups",
-    ]
-
     func syncRemoteRelayIDAliasesToController() {
         remoteSessionController?.updateRemoteRelayIDAliases(
             workspaceAliases: remoteRelayWorkspaceIDAliases,
@@ -5727,131 +5707,9 @@ final class Workspace: Identifiable, ObservableObject {
         Self.rewriteRemoteRelayCommandLine(
             commandLine,
             workspaceAliases: remoteRelayWorkspaceIDAliases,
-            surfaceAliases: remoteRelaySurfaceIDAliases
+            surfaceAliases: remoteRelaySurfaceIDAliases,
+            remoteWorkspaceID: id
         )
-    }
-
-    nonisolated static func rewriteRemoteRelayCommandLine(
-        _ commandLine: Data,
-        workspaceAliases: [UUID: UUID],
-        surfaceAliases: [UUID: UUID]
-    ) -> Data {
-        guard !workspaceAliases.isEmpty || !surfaceAliases.isEmpty,
-              let line = String(data: commandLine, encoding: .utf8) else {
-            return commandLine
-        }
-        let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmedLine.hasPrefix("{"),
-              let requestData = trimmedLine.data(using: .utf8),
-              var request = try? JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
-            return commandLine
-        }
-
-        var didRewrite = false
-        if let params = request["params"] as? [String: Any] {
-            request["params"] = Self.remappedRemoteRelayValue(
-                params,
-                key: nil,
-                workspaceAliases: workspaceAliases,
-                surfaceAliases: surfaceAliases,
-                didRewrite: &didRewrite
-            )
-        }
-
-        guard didRewrite,
-              JSONSerialization.isValidJSONObject(request),
-              let rewritten = try? JSONSerialization.data(withJSONObject: request, options: []) else {
-            return commandLine
-        }
-        if commandLine.last == 0x0A {
-            return rewritten + Data([0x0A])
-        }
-        return rewritten
-    }
-
-    private nonisolated static func remappedRemoteRelayValue(
-        _ value: Any,
-        key: String?,
-        workspaceAliases: [UUID: UUID],
-        surfaceAliases: [UUID: UUID],
-        didRewrite: inout Bool
-    ) -> Any {
-        if let dictionary = value as? [String: Any] {
-            var result = dictionary
-            for (childKey, childValue) in dictionary {
-                result[childKey] = remappedRemoteRelayValue(
-                    childValue,
-                    key: childKey,
-                    workspaceAliases: workspaceAliases,
-                    surfaceAliases: surfaceAliases,
-                    didRewrite: &didRewrite
-                )
-            }
-            return result
-        }
-
-        if let array = value as? [Any] {
-            let elementKey: String?
-            if let key, remoteRelayWorkspaceIDArrayKeys.contains(key) {
-                elementKey = "workspace_id"
-            } else if let key, remoteRelaySurfaceIDArrayKeys.contains(key) {
-                elementKey = "surface_id"
-            } else if let key, remoteRelayAmbiguousIDArrayKeys.contains(key) {
-                elementKey = "tab_id"
-            } else if let key, remoteRelayWorkspaceIDKeys.contains(key)
-                        || remoteRelaySurfaceIDKeys.contains(key)
-                        || remoteRelayAmbiguousIDKeys.contains(key) {
-                elementKey = key
-            } else {
-                elementKey = nil
-            }
-            return array.map {
-                remappedRemoteRelayValue(
-                    $0,
-                    key: elementKey,
-                    workspaceAliases: workspaceAliases,
-                    surfaceAliases: surfaceAliases,
-                    didRewrite: &didRewrite
-                )
-            }
-        }
-
-        guard let id = value as? String else {
-            return value
-        }
-
-        let trimmedID = id.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let uuid = UUID(uuidString: trimmedID) else {
-            return value
-        }
-
-        guard let key else {
-            return value
-        }
-        if remoteRelaySurfaceIDKeys.contains(key),
-           let mapped = surfaceAliases[uuid] {
-            didRewrite = true
-            return mapped.uuidString
-        }
-        if remoteRelayWorkspaceIDKeys.contains(key),
-           let mapped = workspaceAliases[uuid] {
-            didRewrite = true
-            return mapped.uuidString
-        }
-        guard remoteRelayAmbiguousIDKeys.contains(key) else {
-            return value
-        }
-
-        if let mapped = workspaceAliases[uuid] {
-            didRewrite = true
-            return mapped.uuidString
-        }
-        if let mapped = surfaceAliases[uuid] {
-            didRewrite = true
-            return mapped.uuidString
-        }
-
-        return value
     }
 
     private func remotePTYSessionIDForSnapshot(panelId: UUID) -> String? {
@@ -5890,18 +5748,31 @@ final class Workspace: Identifiable, ObservableObject {
         return (workspaceId, panelId)
     }
 
-    nonisolated static func sshPTYAttachStartupCommand(sessionID: String, requireExisting: Bool = true) -> String {
-        SSHPTYAttachStartupCommandBuilder.command(sessionID: sessionID, requireExisting: requireExisting)
+    nonisolated static func sshPTYAttachStartupCommand(
+        sessionID: String,
+        remoteCommand: String? = nil,
+        requireExisting: Bool = true
+    ) -> String {
+        SSHPTYAttachStartupCommandBuilder.command(
+            sessionID: sessionID,
+            remoteCommand: remoteCommand,
+            requireExisting: requireExisting
+        )
     }
 
     func remotePTYAttachStartupCommand(
         sessionID: String,
+        remoteCommand: String? = nil,
         requireExisting: Bool = true
     ) -> String {
         guard let remoteConfiguration,
               remoteConfiguration.preserveAfterTerminalExit,
               let foregroundAuthToken = remoteConfiguration.foregroundAuthToken else {
-            return Self.sshPTYAttachStartupCommand(sessionID: sessionID, requireExisting: requireExisting)
+            return Self.sshPTYAttachStartupCommand(
+                sessionID: sessionID,
+                remoteCommand: remoteCommand,
+                requireExisting: requireExisting
+            )
         }
         let foregroundAuth = SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
             destination: remoteConfiguration.destination,
@@ -5913,6 +5784,7 @@ final class Workspace: Identifiable, ObservableObject {
         return SSHPTYAttachStartupCommandBuilder.command(
             sessionID: sessionID,
             foregroundAuth: foregroundAuth,
+            remoteCommand: remoteCommand,
             requireExisting: requireExisting
         )
     }
@@ -9245,6 +9117,15 @@ final class Workspace: Identifiable, ObservableObject {
                 detached.panelId,
                 preserveTrustedRemoteDirectory: detached.directoryIsTrustedRemoteReport
             )
+            if let resumeBinding = surfaceResumeBindingsByPanelId[detached.panelId] {
+                surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding.retargetingRemoteOwner(
+                    expectedWorkspaceID: detached.sourceWorkspaceId,
+                    expectedSurfaceID: detached.panelId,
+                    workspaceID: id,
+                    surfaceID: detached.panelId,
+                    persistentPTYSessionID: remotePTYSessionIDsByPanelId[detached.panelId]
+                )
+            }
         }
         if let cleanupConfiguration = detached.remoteCleanupConfiguration {
             if didAdoptWorkspaceRemoteTracking {

@@ -1,4 +1,4 @@
-internal import Foundation
+public import Foundation
 
 /// The pre-parsed inputs for `surface.resume.set`, lifted from the legacy
 /// `v2SurfaceResumeSet` body's param parsing.
@@ -25,6 +25,9 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
     /// Whether automatic resume is requested (already gated: `true` only for the
     /// `agent-hook` source with `auto_resume == true`).
     public let autoResume: Bool
+    /// The authenticated relay's owning remote workspace, when the request
+    /// entered through an SSH workspace relay.
+    public let remoteWorkspaceID: UUID?
 
     /// Creates resume-set inputs.
     ///
@@ -37,6 +40,7 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
     ///   - source: The (already-mapped) binding source.
     ///   - environment: The environment overrides.
     ///   - autoResume: Whether automatic resume is requested.
+    ///   - remoteWorkspaceID: The authenticated relay's owning workspace.
     public init(
         name: String?,
         kind: String?,
@@ -45,7 +49,8 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
         checkpointID: String?,
         source: String?,
         environment: [String: String]?,
-        autoResume: Bool
+        autoResume: Bool,
+        remoteWorkspaceID: UUID?
     ) {
         self.name = name
         self.kind = kind
@@ -55,5 +60,6 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
         self.source = source
         self.environment = environment
         self.autoResume = autoResume
+        self.remoteWorkspaceID = remoteWorkspaceID
     }
 }
