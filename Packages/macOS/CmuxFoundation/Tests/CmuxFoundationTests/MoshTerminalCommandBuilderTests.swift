@@ -146,9 +146,32 @@ struct MoshTerminalCommandBuilderTests {
         }
     }
 
+    @Test("activates the SSH management lane before launching Mosh")
+    func managementLaneIsReadyBeforeMosh() throws {
+        try withFakeCommands(sshStatus: 0, requireManagementReady: true) { directory, environment in
+            let result = try run(
+                builder(
+                    managementReadyShellScript: "printf ready > \"$MANAGEMENT_READY_FILE\""
+                ),
+                environment: environment
+            )
+            let moshArguments = try String(
+                contentsOf: directory.appendingPathComponent("mosh.args"),
+                encoding: .utf8
+            )
+
+            #expect(result.status == 0)
+            #expect(FileManager.default.fileExists(
+                atPath: directory.appendingPathComponent("management.ready").path
+            ))
+            #expect(!moshArguments.contains("MANAGEMENT_READY_FILE"))
+        }
+    }
+
     private func builder(
         sshFallbackCommand: String = "exit 90",
         preparationShellScript: String? = nil,
+        managementReadyShellScript: String? = nil,
         localMoshExecutableName: String = "mosh"
     ) -> MoshTerminalCommandBuilder {
         MoshTerminalCommandBuilder(
@@ -158,6 +181,7 @@ struct MoshTerminalCommandBuilderTests {
             destination: "user@example.com",
             remoteCommandArguments: ["command", "space arg", "quote'arg"],
             preparationShellScript: preparationShellScript,
+            managementReadyShellScript: managementReadyShellScript,
             sshFallbackCommand: sshFallbackCommand,
             localMoshMissingMessage: "local mosh missing",
             localMoshUnsupportedMessage: "local mosh unsupported",
@@ -172,6 +196,7 @@ struct MoshTerminalCommandBuilderTests {
         moshSupportsRemoteIP: Bool = true,
         executeRemoteCommand: Bool = false,
         installRemoteMoshServerOutsidePath: Bool = false,
+        requireManagementReady: Bool = false,
         operation: (URL, [String: String]) throws -> Void
     ) throws {
         let directory = FileManager.default.temporaryDirectory
@@ -205,6 +230,9 @@ struct MoshTerminalCommandBuilderTests {
                   fi
                   exit 0
                 fi
+                if [ "$FAKE_REQUIRE_MANAGEMENT_READY" = "1" ] && [ ! -f "$MANAGEMENT_READY_FILE" ]; then
+                  exit 71
+                fi
                 printf '%s\\n' "$@" > "$MOSH_ARGS_FILE"
                 """,
                 in: directory
@@ -229,6 +257,8 @@ struct MoshTerminalCommandBuilderTests {
             "FAKE_SSH_EXEC_REMOTE": executeRemoteCommand ? "1" : "0",
             "FAKE_REMOTE_HOME": remoteHome.path,
             "FAKE_MOSH_SUPPORTS_REMOTE_IP": moshSupportsRemoteIP ? "1" : "0",
+            "FAKE_REQUIRE_MANAGEMENT_READY": requireManagementReady ? "1" : "0",
+            "MANAGEMENT_READY_FILE": directory.appendingPathComponent("management.ready").path,
             "SSH_ARGS_FILE": directory.appendingPathComponent("ssh.args").path,
             "MOSH_ARGS_FILE": directory.appendingPathComponent("mosh.args").path,
         ])

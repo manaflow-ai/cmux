@@ -12,6 +12,7 @@ public struct MoshTerminalCommandBuilder: Sendable {
     private let destination: String
     private let remoteCommandArguments: [String]
     private let preparationShellScript: String?
+    private let managementReadyShellScript: String?
     private let sshFallbackCommand: String
     private let localMoshMissingMessage: String
     private let localMoshUnsupportedMessage: String
@@ -27,6 +28,7 @@ public struct MoshTerminalCommandBuilder: Sendable {
     ///   - destination: SSH destination or host alias.
     ///   - remoteCommandArguments: Optional command argv launched by `mosh-server`.
     ///   - preparationShellScript: Optional local preparation run after capability checks.
+    ///   - managementReadyShellScript: Optional local callback run after SSH preparation succeeds and before Mosh starts.
     ///   - sshFallbackCommand: Complete local SSH terminal command used when Mosh is unavailable.
     ///   - localMoshMissingMessage: User-facing message printed when no local `mosh` executable exists.
     ///   - localMoshUnsupportedMessage: User-facing message printed when local Mosh lacks the required remote-IP mode.
@@ -39,6 +41,7 @@ public struct MoshTerminalCommandBuilder: Sendable {
         destination: String,
         remoteCommandArguments: [String],
         preparationShellScript: String? = nil,
+        managementReadyShellScript: String? = nil,
         sshFallbackCommand: String,
         localMoshMissingMessage: String,
         localMoshUnsupportedMessage: String,
@@ -51,6 +54,7 @@ public struct MoshTerminalCommandBuilder: Sendable {
         self.destination = destination
         self.remoteCommandArguments = remoteCommandArguments
         self.preparationShellScript = preparationShellScript
+        self.managementReadyShellScript = managementReadyShellScript
         self.sshFallbackCommand = sshFallbackCommand
         self.localMoshMissingMessage = localMoshMissingMessage
         self.localMoshUnsupportedMessage = localMoshUnsupportedMessage
@@ -139,6 +143,11 @@ public struct MoshTerminalCommandBuilder: Sendable {
                 "fi",
                 "unset cmux_mosh_prepare_status cmux_remote_install_status",
             ]
+        }
+        if let managementReadyShellScript = managementReadyShellScript?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !managementReadyShellScript.isEmpty {
+            script.append(managementReadyShellScript)
         }
         script.append("exec \"$cmux_mosh\" \(moshArguments)")
         return "/bin/sh -c \(shellQuote(script.joined(separator: "\n")))"

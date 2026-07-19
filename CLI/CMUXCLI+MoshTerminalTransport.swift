@@ -30,7 +30,7 @@ extension CMUXCLI {
             baseSSHArguments(options)
         )
         let sessionSSHArguments = sshArgumentsOverridingHostRemoteCommand(
-            baseSSHArguments(options, localCommandScript: localCommandScript)
+            baseSSHArguments(options)
         )
         let remoteCommandArguments: [String]
         let preparationShellScript: String?
@@ -59,6 +59,7 @@ extension CMUXCLI {
             destination: options.destination,
             remoteCommandArguments: remoteCommandArguments,
             preparationShellScript: preparationShellScript,
+            managementReadyShellScript: localCommandScript,
             sshFallbackCommand: sshFallbackCommand,
             localMoshMissingMessage: String(
                 localized: "cli.ssh.mosh.localMissing",
