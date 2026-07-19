@@ -37,9 +37,9 @@ public struct RemoteTmuxSessionCommandBuilder: Sendable {
         scriptLines += [
             "  exec \"$cmux_tmux\" attach-session -t \"$cmux_session_target\"",
             "fi",
-            "if \"$cmux_tmux\" new-session -d -s \"$cmux_session_name\" \"$cmux_shell_command\"; then",
+            "if \"$cmux_tmux\" new-session -d \(Self.newSessionEnvironmentArguments) -s \"$cmux_session_name\" \"$cmux_shell_command\"; then",
         ]
-        scriptLines.append(contentsOf: Self.surfaceEnvironmentClearingLines.map { "  " + $0 })
+        scriptLines.append(contentsOf: Self.workspaceEnvironmentRebindingLines.map { "  " + $0 })
         scriptLines += [
             "  \"$cmux_tmux\" set-option -t \"$cmux_session_target\" default-command \"$cmux_shell_command\" >/dev/null || exit $?",
             "fi",
@@ -76,6 +76,16 @@ public struct RemoteTmuxSessionCommandBuilder: Sendable {
         workspaceEnvironmentKeys.map { key in
             "if [ \"${\(key)+x}\" = x ]; then \"$cmux_tmux\" set-environment -t \"$cmux_session_target\" \(key) \"$\(key)\" >/dev/null || exit $?; else \"$cmux_tmux\" set-environment -t \"$cmux_session_target\" -u \(key) >/dev/null || exit $?; fi"
         } + surfaceEnvironmentClearingLines
+    }
+
+    private static var newSessionEnvironmentArguments: String {
+        let workspaceArguments = workspaceEnvironmentKeys.map { key in
+            "-e \"\(key)=${\(key)-}\""
+        }
+        let surfaceArguments = surfaceEnvironmentKeys.map { key in
+            "-e \"\(key)=\""
+        }
+        return (workspaceArguments + surfaceArguments).joined(separator: " ")
     }
 
     private static var surfaceEnvironmentClearingLines: [String] {
