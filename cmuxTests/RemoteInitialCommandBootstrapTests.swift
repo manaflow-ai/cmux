@@ -229,6 +229,7 @@ struct RemoteInitialCommandBootstrapTests {
             [ "$2" = "$CMUX_EXPECTED_COMMAND" ] || exit 68
             printf '%s' "$2" > "$HOME/nushell command.txt"
             printf 'execute|%s|%s\n' "$HOME" "$CMUX_REMOTE_VALUE" >> "$HOME/nushell invocations.txt"
+            printf 'interactive\n' >> "$HOME/nushell invocations.txt"
             exit 0
             ;;
           -i)
@@ -263,13 +264,16 @@ struct RemoteInitialCommandBootstrapTests {
 
         let first = try runShell(script, environment: environment)
         #expect(first.status == 0, "stdout: \(first.stdout)\nstderr: \(first.stderr)")
+        let firstCapturedCommand = try String(contentsOf: commandCapture, encoding: .utf8)
+        #expect(firstCapturedCommand == command)
+        let firstInvocations = try String(contentsOf: invocations, encoding: .utf8)
+        #expect(firstInvocations == "execute|\(home.path)|remote-only\ninteractive\n")
+
         let second = try runShell(script, environment: environment)
         #expect(second.status == 0, "stdout: \(second.stdout)\nstderr: \(second.stderr)")
 
-        let captured = try String(contentsOf: commandCapture, encoding: .utf8)
-        #expect(captured == command)
         let recordedInvocations = try String(contentsOf: invocations, encoding: .utf8)
-        #expect(recordedInvocations == "execute|\(home.path)|remote-only\ninteractive\n")
+        #expect(recordedInvocations == "execute|\(home.path)|remote-only\ninteractive\ninteractive\n")
     }
 
     @Test
