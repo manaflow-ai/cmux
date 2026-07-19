@@ -1348,7 +1348,9 @@ impl SurfaceHandle {
 
 #[cfg(test)]
 mod tests {
-    use super::resize_action;
+    use cmux_tui_core::{Mux, SurfaceOptions};
+
+    use super::{Session, resize_action};
 
     #[test]
     fn first_layout_after_attach_sends_ordered_resize() {
@@ -1372,5 +1374,16 @@ mod tests {
     fn steady_state_does_not_send() {
         let desired = (123, 65);
         assert!(!resize_action(desired, Some(desired)));
+    }
+
+    #[test]
+    fn local_set_split_ratio_rejects_an_unknown_split() {
+        let session = Session::Local(Mux::new(
+            "unknown-local-split-test",
+            SurfaceOptions::default(),
+        ));
+
+        let error = session.set_split_ratio(999_999, 0.5).unwrap_err();
+        assert_eq!(error.to_string(), "unknown split 999999");
     }
 }
