@@ -242,11 +242,12 @@ export const BINARY_KIND_GRID = 0x01;
  * Pixel/video frame for non-terminal panes (slice 2). Payload:
  * [codec u8][flags u8][data]. codec 1 = H.264 Annex B (flags bit0 =
  * keyframe; parameter sets inline on keyframes so WebCodecs decodes without
- * out-of-band description), codec 2 = WebP still (flags unused).
+ * out-of-band description), codec 2 = still image (JPEG or WebP; the viewer
+ * sniffs, flags unused).
  */
 export const BINARY_KIND_PIXEL = 0x02;
 export const PIXEL_CODEC_H264_ANNEXB = 1;
-export const PIXEL_CODEC_WEBP = 2;
+export const PIXEL_CODEC_STILL = 2;
 export const PIXEL_FLAG_KEYFRAME = 0x01;
 
 export interface BinaryHeader {

@@ -102,7 +102,7 @@ by the kind-specific payload:
 - `0x02` pixel/video frame (slice 2): payload is `[codec u8][flags u8][data]`.
   codec `1` = H.264 Annex B from VideoToolbox (flags bit0 = keyframe;
   parameter sets ride inline on keyframes so WebCodecs decodes without an
-  out-of-band description), codec `2` = WebP still (fallback path).
+  out-of-band description), codec `2` = still image (JPEG or WebP, sniffed by the viewer; fallback path).
 
 The DO forwards binary frames to guests subscribed to `(ws, pane)` without
 parsing beyond the header.

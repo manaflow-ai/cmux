@@ -135,7 +135,7 @@ export type ServerMessage =
 export const BINARY_KIND_GRID = 0x01;
 export const BINARY_KIND_PIXEL = 0x02;
 export const PIXEL_CODEC_H264_ANNEXB = 1;
-export const PIXEL_CODEC_WEBP = 2;
+export const PIXEL_CODEC_STILL = 2;
 export const PIXEL_FLAG_KEYFRAME = 0x01;
 
 export interface BinaryFrame {

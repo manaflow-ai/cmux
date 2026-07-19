@@ -1,9 +1,10 @@
 // Pixel-pane decoding for non-terminal panes (slice 2): H.264 via WebCodecs
-// when available, WebP stills as the universal fallback. Each model owns one
-// pane's decode state and holds the latest drawable image; components paint
-// it into a canvas on notification, mirroring the terminal grid path.
+// when available, still images (JPEG/WebP, sniffed) as the universal
+// fallback. Each model owns one pane's decode state and holds the latest
+// drawable image; components paint it into a canvas on notification,
+// mirroring the terminal grid path.
 
-import { PIXEL_CODEC_H264_ANNEXB, PIXEL_CODEC_WEBP, PIXEL_FLAG_KEYFRAME } from "./share-protocol";
+import { PIXEL_CODEC_H264_ANNEXB, PIXEL_CODEC_STILL, PIXEL_FLAG_KEYFRAME } from "./share-protocol";
 
 type Listener = () => void;
 
@@ -31,7 +32,7 @@ export class PixelPaneModel {
     const codec = payload[0] ?? 0;
     const flags = payload[1] ?? 0;
     const data = payload.subarray(2);
-    if (codec === PIXEL_CODEC_WEBP) {
+    if (codec === PIXEL_CODEC_STILL) {
       this.pushStill(data);
     } else if (codec === PIXEL_CODEC_H264_ANNEXB) {
       this.pushVideo(data, (flags & PIXEL_FLAG_KEYFRAME) !== 0);
@@ -45,7 +46,8 @@ export class PixelPaneModel {
   }
 
   private pushStill(data: Uint8Array): void {
-    const blob = new Blob([data.slice()], { type: "image/webp" });
+    // No MIME type: createImageBitmap sniffs, so JPEG and WebP both work.
+    const blob = new Blob([data.slice()]);
     this.stillChain = this.stillChain
       .then(() => createImageBitmap(blob))
       .then((bitmap) => this.setImage(bitmap))
