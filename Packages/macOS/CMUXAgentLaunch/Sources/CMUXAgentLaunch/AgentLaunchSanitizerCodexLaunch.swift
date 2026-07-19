@@ -13,7 +13,7 @@ func preservedCodexLaunchArguments(args: [String], stripCmuxHooks: Bool = true) 
             preserveOptions: AgentLaunchSanitizer.preserveOptions
         ).arguments()
     }
-    return AgentLaunchSanitizer.preserveOptions(args, policy: AgentLaunchSanitizer.codexPolicy)
+    return AgentLaunchSanitizer.preserveOptions(args, policy: codexReplayPolicy())
 }
 
 func preservedCodexForkArguments(
@@ -73,12 +73,23 @@ func preservedCodexForkArguments(
         tail = dropForkPositionals(tail, forkCommand: forkCommand)
         preservePositionals = preservePromptTags
     }
-    var policy = AgentLaunchSanitizer.codexPolicy
+    var policy = codexReplayPolicy()
     policy.preservePositionals = preservePositionals
     if preservePositionals {
         policy.nonRestorableCommands = []
     }
     return AgentLaunchSanitizer.preserveOptions(tail, policy: policy)
+}
+
+/// Replay strips resume-picker selectors that are valid on `codex resume` but
+/// invalid on `codex fork`. The launch-mode classifier keeps the stricter
+/// subcommand-specific grammar, while both canonical replay builders share this
+/// selector-free policy.
+private func codexReplayPolicy() -> AgentLaunchSanitizer.Policy {
+    var policy = AgentLaunchSanitizer.codexPolicy
+    policy.booleanOptions.insert("--include-non-interactive")
+    policy.droppedOptions.insert("--include-non-interactive")
+    return policy
 }
 
 func removingCmuxInjectedCodexHookArguments(_ args: [String]) -> [String] {

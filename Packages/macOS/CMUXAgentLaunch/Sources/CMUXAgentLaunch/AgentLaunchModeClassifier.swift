@@ -484,7 +484,7 @@ public struct AgentLaunchModeClassifier: Sendable {
         var options = AgentLaunchSanitizer.nonSessionMetadataOptions(kind: kind)
         switch kind {
         case "gemini":
-            options.formUnion(["--list-sessions", "--delete-session", "--list-extensions"])
+            options.formUnion(["--list-sessions", "--delete-session", "--list-extensions", "-l"])
         case "pi", "campfire":
             options.formUnion(["--export", "--list-models"])
         case "omp":

@@ -361,8 +361,10 @@ extension AgentLaunchSanitizer {
         policy.valueOptions.insert("--alias")
         policy.rejectOptions.insert("--alias")
         policy.nonRestorableCommands.formUnion([
+            "acp",
             "agents",
             "auth-broker",
+            "auth-gateway",
             "bench",
             "commit",
             "completions",
@@ -371,12 +373,14 @@ extension AgentLaunchSanitizer {
             "gc",
             "grep",
             "grievances",
+            "join",
             "models",
             "plugin",
             "read",
             "say",
             "search",
             "setup",
+            "shell",
             "ssh",
             "stats",
             "tiny-models",
@@ -560,7 +564,8 @@ extension AgentLaunchSanitizer {
             "--accept-raw-output-risk",
             "--acp",
             "--experimental-acp",
-            "--list-extensions"
+            "--list-extensions",
+            "-l"
         ]
     )
 
@@ -657,6 +662,7 @@ extension AgentLaunchSanitizer {
             "logout",
             "mcp",
             "models",
+            "plugin",
             "rule",
             "status",
             "uninstall-shell-integration",

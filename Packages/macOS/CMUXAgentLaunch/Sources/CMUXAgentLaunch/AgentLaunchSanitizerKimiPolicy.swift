@@ -39,17 +39,17 @@ extension AgentLaunchSanitizer {
             "--continue", "-C",
             "--prompt", "--command", "-p", "-c",
             "--config", "--mcp-config",
-            "--acp", "--wire",
-            "--input-format", "--output-format", "--final-message-only",
+            "--output-format", "--final-message-only",
         ],
         droppedOptionPrefixes: [
             "--session=", "--resume=", "-S=", "-r=",
             "--prompt=", "--command=", "-p=", "-c=",
             "--config=", "--mcp-config=",
-            "--input-format=", "--output-format=",
+            "--output-format=",
         ],
         rejectOptions: [
             "--print", "--quiet",
+            "--acp", "--wire", "--input-format",
         ]
     )
 }
