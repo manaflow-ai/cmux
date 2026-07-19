@@ -177,6 +177,8 @@ fn cursor_override_tracker_matches_control_string_exits() {
 
     term.vt_write(b"\x1b[5 q");
     assert!(term.cursor_overridden());
+    term.vt_write(b"\x1bc");
+    assert!(!term.cursor_overridden());
     term.vt_write(b"\x1bPab\x18\x1b[3 q");
     assert!(term.cursor_overridden(), "CAN must abort DCS before the next DECSCUSR");
     term.vt_write(b"\x1bc");
