@@ -95,6 +95,7 @@ struct BackendCompatibilityTests {
                 #expect(await connection.transport.commandLog() == [
                     "identify", "register-client", "topology-snapshot", "subscribe-topology",
                     "terminal-activity-snapshot", "subscribe-renderer-lifecycle",
+                    "subscribe-terminal-interaction-modes",
                 ])
             } else {
                 guard case .readOnly(let diagnostic) = compatibility else {
@@ -330,6 +331,16 @@ struct BackendCompatibilityTests {
                     == "subscribe-renderer-lifecycle"
             )
             await transport.enqueue(try response(to: rendererLifecycle, data: [:]))
+
+            let interactionModes = try requestObject(await transport.nextSent())
+            #expect(
+                interactionModes["cmd"] as? String
+                    == "subscribe-terminal-interaction-modes"
+            )
+            await transport.enqueue(try response(
+                to: interactionModes,
+                data: ["status": "subscribed"]
+            ))
         }
         _ = try await task.value
         return Connection(session: session, transport: transport, authority: authority)

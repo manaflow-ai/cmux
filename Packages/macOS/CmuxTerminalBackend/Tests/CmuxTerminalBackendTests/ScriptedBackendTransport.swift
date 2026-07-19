@@ -13,6 +13,7 @@ actor ScriptedBackendTransport: BackendPeerIdentityTransport {
         "read-screen",
         "renderer-workers",
         "subscribe-renderer-lifecycle",
+        "subscribe-terminal-interaction-modes",
         "subscribe-topology",
         "terminal-accessibility-activate-link",
         "terminal-accessibility-snapshot",

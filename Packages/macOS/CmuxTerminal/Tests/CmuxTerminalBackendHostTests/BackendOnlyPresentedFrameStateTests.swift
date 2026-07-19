@@ -23,17 +23,27 @@ struct BackendOnlyPresentedFrameStateTests {
         #expect(state.record(try makeMetadata(terminalSequence: 12, frameSequence: 4)))
     }
 
-    @Test("UX schedules before AX demand and late AX demand retains the latest frame")
-    func lateAccessibilityDemandRetainsLatestFrame() throws {
+    @Test("ten thousand content frames before AX demand schedule zero semantic drains")
+    func lateAccessibilityDemandRetainsLatestFrameWithoutFrameCadenceWork() throws {
         let state = BackendOnlyPresentedFrameState()
-        let frame = try makeMetadata(terminalSequence: 20, frameSequence: 1)
+        var newest = try makeMetadata(terminalSequence: 1, frameSequence: 1)
 
-        #expect(state.record(frame))
+        for sequence in 1 ... 10_000 {
+            newest = try makeMetadata(
+                terminalSequence: UInt64(sequence),
+                frameSequence: UInt64(sequence)
+            )
+            #expect(!state.record(newest))
+        }
+        #expect(state.takeScheduledDrain() == nil)
+        #expect(state.latest() == newest)
+        #expect(state.demandAccessibility() == newest)
+
+        let afterDemand = try makeMetadata(terminalSequence: 10_001, frameSequence: 10_001)
+        #expect(state.record(afterDemand))
         let drain = try #require(state.takeScheduledDrain())
-        #expect(drain.metadata == frame)
-        #expect(!drain.accessibilityDemanded)
-        #expect(state.demandAccessibility() == frame)
-        #expect(state.latest() == frame)
+        #expect(drain.metadata == afterDemand)
+        #expect(drain.accessibilityDemanded)
     }
 
     @Test("presentation reset admits the first frame of the replacement")
