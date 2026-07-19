@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: scripts/run-iroh-release-gate.sh --mode <automatic|relay-only|direct-only> --tag <tag>
+Usage: scripts/run-iroh-release-gate.sh --mode <automatic|relay-only|direct-only|private-path> --tag <tag>
        [--staging-base-url <url>] [--skip-build] [--keep-simulator]
        [--report-output <path>] [--print-plan]
        [--production [--stack-env-file <secure-path>]]
@@ -11,7 +11,9 @@ Usage: scripts/run-iroh-release-gate.sh --mode <automatic|relay-only|direct-only
 Automatic and relay-only build a tagged Mac app plus an isolated iOS Simulator
 app, sign both into the same staging account, pair only over Iroh, and verify
 the app RPC surface. Direct-only runs a deterministic two-Iroh-endpoint proof
-inside an isolated iOS Simulator with relays disabled.
+inside an isolated iOS Simulator with relays disabled. Private-path runs a
+provider-neutral broker-authorized custom-route proof across a non-loopback
+private host interface with relays disabled.
 
 Credentials resolve through scripts/lib/dev-secrets.sh and are never printed.
 `--production` creates a verified temporary production Stack account, runs the
@@ -69,8 +71,14 @@ case "$MODE" in
   automatic) RAW_MODE="automatic"; GATE_PLAN="app-rpc" ;;
   relay-only) RAW_MODE="relayOnly"; GATE_PLAN="app-rpc" ;;
   direct-only) RAW_MODE="directOnly"; GATE_PLAN="simulator-direct-transport" ;;
+  private-path) RAW_MODE=""; GATE_PLAN="host-private-path-transport" ;;
   *) echo "error: invalid mode '$MODE'" >&2; exit 2 ;;
 esac
+
+if [[ "$PRODUCTION" -eq 1 && "$GATE_PLAN" == "host-private-path-transport" ]]; then
+  echo "error: private-path proves the host transport contract and has no production environment" >&2
+  exit 2
+fi
 
 case "$STAGING_BASE_URL" in
   https://*) ;;
@@ -98,6 +106,13 @@ if [[ "$GATE_PLAN" == "simulator-direct-transport" ]]; then
   [[ "$KEEP_SIMULATOR" -eq 1 ]] && DIRECT_GATE_ARGUMENTS+=(--keep-simulator)
   [[ -n "$REPORT_OUTPUT" ]] && DIRECT_GATE_ARGUMENTS+=(--report-output "$REPORT_OUTPUT")
   exec "$SCRIPT_DIR/run-iroh-direct-transport-gate.sh" "${DIRECT_GATE_ARGUMENTS[@]}"
+fi
+
+if [[ "$GATE_PLAN" == "host-private-path-transport" ]]; then
+  PRIVATE_GATE_ARGUMENTS=(--tag "$TAG")
+  [[ "$SKIP_BUILD" -eq 1 ]] && PRIVATE_GATE_ARGUMENTS+=(--skip-build)
+  [[ -n "$REPORT_OUTPUT" ]] && PRIVATE_GATE_ARGUMENTS+=(--report-output "$REPORT_OUTPUT")
+  exec "$SCRIPT_DIR/run-iroh-private-path-transport-gate.sh" "${PRIVATE_GATE_ARGUMENTS[@]}"
 fi
 
 SLUG="$(cmux_attach__slug "$TAG")"

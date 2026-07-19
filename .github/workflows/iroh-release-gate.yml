@@ -17,6 +17,7 @@ on:
           - automatic
           - relay-only
           - direct-only
+          - private-path
 
 permissions:
   contents: read
@@ -26,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: ${{ fromJSON(inputs.mode == 'all' && '["automatic","relay-only","direct-only"]' || format('["{0}"]', inputs.mode)) }}
+        mode: ${{ fromJSON(inputs.mode == 'all' && '["automatic","relay-only","direct-only","private-path"]' || format('["{0}"]', inputs.mode)) }}
     runs-on: ${{ vars.MACOS_RUNNER_STREAMED_VALIDATION || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 120
     steps:
@@ -41,17 +42,18 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       - name: Ensure iOS Simulator runtime
+        if: ${{ matrix.mode != 'private-path' }}
         run: |
           xcrun simctl list runtimes available | grep -Eq '\biOS\b' || xcodebuild -downloadPlatform iOS
 
       - name: Install app build dependencies
-        if: ${{ matrix.mode != 'direct-only' }}
+        if: ${{ matrix.mode == 'automatic' || matrix.mode == 'relay-only' }}
         run: |
           ./scripts/install-zig-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
 
       - name: Materialize isolated staging account
-        if: ${{ matrix.mode != 'direct-only' }}
+        if: ${{ matrix.mode == 'automatic' || matrix.mode == 'relay-only' }}
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
@@ -73,6 +75,7 @@ jobs:
             automatic) TAG=irgaut ;;
             relay-only) TAG=irgrel ;;
             direct-only) TAG=irgdir ;;
+            private-path) TAG=irgprv ;;
           esac
           ./scripts/run-iroh-release-gate.sh \
             --mode "${{ matrix.mode }}" \

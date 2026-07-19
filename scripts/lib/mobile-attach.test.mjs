@@ -500,11 +500,12 @@ test("release gate grants asynchronous Iroh publication a bounded startup window
   );
 });
 
-test("release gate assigns direct-only to the Simulator transport proof", () => {
+test("release gate assigns each mode to its transport proof", () => {
   const cases = [
     ["automatic", "app-rpc"],
     ["relay-only", "app-rpc"],
     ["direct-only", "simulator-direct-transport"],
+    ["private-path", "host-private-path-transport"],
   ];
 
   for (const [mode, expectedPlan] of cases) {
