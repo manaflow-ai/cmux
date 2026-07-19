@@ -29,6 +29,85 @@ struct BackendOnlyProjectionRuntimeReconcilerTests {
         #expect(original.shutdownCount == 0)
     }
 
+    @Test("identical same-fence callers share the active reconciliation result")
+    func identicalSameFenceCallersCoalesceWhileActive() async throws {
+        let fixture = try Fixture()
+        let terminal = fixture.terminalPane(pane: 1, surface: 101, active: true)
+        let conflicting = fixture.terminalPane(pane: 1, surface: 102, active: true)
+        let fence = fixture.fence(topology: 1, projection: 1)
+        let plan = fixture.plan([terminal])
+        fixture.factory.blockFactory(for: terminal.terminalSelection.surfaceID)
+
+        let firstTask = Task { @MainActor in
+            try await fixture.reconciler.apply(
+                session: fixture.firstSession,
+                fence: fence,
+                plan: plan
+            )
+        }
+        await fixture.factory.waitUntilAttempted(terminal.terminalSelection.surfaceID)
+
+        let duplicateStarted = MainActorSignal()
+        let duplicateTask = Task { @MainActor in
+            duplicateStarted.signal()
+            return try await fixture.reconciler.apply(
+                session: fixture.firstSession,
+                fence: fence,
+                plan: plan
+            )
+        }
+        await duplicateStarted.wait()
+
+        await #expect(
+            throws: BackendOnlyProjectionRuntimeReconcilerError.conflictingPlanForFence
+        ) {
+            _ = try await fixture.reconciler.apply(
+                session: fixture.firstSession,
+                fence: fence,
+                plan: fixture.plan([conflicting])
+            )
+        }
+
+        fixture.factory.releaseBlockedFactory()
+
+        let expected = BackendOnlyProjectionRuntimeReconcileResult.applied(
+            created: 1,
+            reused: 0,
+            retired: 0
+        )
+        #expect(try await firstTask.value == expected)
+        #expect(try await duplicateTask.value == expected)
+        #expect(fixture.factory.attempts == [terminal.terminalSelection])
+        #expect(fixture.reconciler.snapshot?.fence == fence)
+    }
+
+    @Test("identical same-fence caller receives the published reconciliation result")
+    func identicalSameFenceCallerReplaysPublishedResult() async throws {
+        let fixture = try Fixture()
+        let terminal = fixture.terminalPane(pane: 1, surface: 101, active: true)
+        let fence = fixture.fence(topology: 1, projection: 1)
+        let plan = fixture.plan([terminal])
+
+        let first = try await fixture.reconciler.apply(
+            session: fixture.firstSession,
+            fence: fence,
+            plan: plan
+        )
+        let duplicate = try await fixture.reconciler.apply(
+            session: fixture.firstSession,
+            fence: fence,
+            plan: plan
+        )
+
+        #expect(
+            first
+                == .applied(created: 1, reused: 0, retired: 0)
+        )
+        #expect(duplicate == first)
+        #expect(fixture.factory.attempts == [terminal.terminalSelection])
+        #expect(fixture.reconciler.snapshot?.fence == fence)
+    }
+
     @Test("tab switch replaces within the stable pane slot")
     func tabSwitchReplacesInPlace() async throws {
         let fixture = try Fixture()
