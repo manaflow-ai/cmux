@@ -24,10 +24,10 @@ struct BackendOnlyProjectionPlannerTests {
             22,
             name: "browser pane",
             tabs: [
-                surface(221, kind: "terminal", name: "shell"),
+                surface(221, kind: "TeRmInAl", name: "shell"),
                 surface(
                     222,
-                    kind: "browser",
+                    kind: "BrOwSeR",
                     name: "docs",
                     browserEndpoint: browserEndpoint
                 ),
@@ -36,7 +36,7 @@ struct BackendOnlyProjectionPlannerTests {
         let paneThree = pane(
             23,
             name: "pty pane",
-            tabs: [surface(231, kind: "pty", name: "remote")]
+            tabs: [surface(231, kind: "PtY", name: "remote")]
         )
         let ignoredSelectedWorkspaceScreen = screen(
             20,
@@ -175,8 +175,8 @@ struct BackendOnlyProjectionPlannerTests {
 
     @Test("slot identity excludes the selected surface")
     func slotIdentitySurvivesTabSelectionChanges() throws {
-        let terminal = surface(301, kind: "terminal")
-        let browser = surface(302, kind: "browser")
+        let terminal = surface(301, kind: "tErMiNaL")
+        let browser = surface(302, kind: "bRoWsEr")
         let onlyPane = pane(30, tabs: [terminal, browser])
         let onlyScreen = screen(30, panes: [onlyPane])
         let onlyWorkspace = workspace(30, screens: [onlyScreen])
@@ -206,6 +206,24 @@ struct BackendOnlyProjectionPlannerTests {
         let browserDescriptor = try #require(browserPlan.panes.first)
         #expect(terminalDescriptor.slotID == browserDescriptor.slotID)
         #expect(terminalDescriptor.content != browserDescriptor.content)
+        #expect(
+            terminalDescriptor.content == .terminal(
+                BackendOnlyTerminalSelection(
+                    workspaceID: onlyWorkspace.uuid,
+                    screenID: onlyScreen.uuid,
+                    paneID: onlyPane.uuid,
+                    surfaceID: terminal.uuid,
+                    numericSurfaceID: terminal.id
+                )
+            )
+        )
+        #expect(
+            browserDescriptor.content == .browserPlaceholder(
+                surfaceID: browser.uuid,
+                numericSurfaceID: browser.id,
+                endpoint: nil
+            )
+        )
     }
 
     @Test("zoom materializes exactly the active pane")
@@ -262,6 +280,35 @@ struct BackendOnlyProjectionPlannerTests {
         #expect(plan.metrics.visibleLeafCount == 1)
         #expect(plan.metrics.visibleLeafCountNodeVisits == 1)
         #expect(plan.metrics.materializedLayoutNodeVisits == 1)
+
+        let mismatchedZoom = BackendOnlyProjectionNavigationInput(
+            logicalPresentationID: logicalPresentationID(3),
+            selectedWorkspaceID: selectedWorkspace.uuid,
+            workspaces: [
+                navigationWorkspace(
+                    selectedWorkspace,
+                    screens: [
+                        navigationScreen(
+                            selectedScreen,
+                            activePaneID: panes[0].uuid,
+                            zoomedPaneID: panes[1].uuid
+                        ),
+                    ]
+                ),
+            ]
+        )
+        #expect(
+            throws: BackendOnlyProjectionPlannerError.zoomedPaneMustBeActive(
+                screenID: selectedScreen.uuid,
+                activePaneID: panes[0].uuid,
+                zoomedPaneID: panes[1].uuid
+            )
+        ) {
+            try BackendOnlyProjectionPlanner().plan(
+                topology: topology,
+                navigation: mismatchedZoom
+            )
+        }
     }
 
     @Test("invalid navigation fails instead of selecting a fallback")
@@ -274,7 +321,12 @@ struct BackendOnlyProjectionPlannerTests {
             ]
         )
         let onlyScreen = screen(50, panes: [onlyPane])
-        let onlyWorkspace = workspace(50, screens: [onlyScreen])
+        let foreignPane = pane(
+            51,
+            tabs: [surface(511, kind: "terminal")]
+        )
+        let foreignScreen = screen(51, panes: [foreignPane])
+        let onlyWorkspace = workspace(50, screens: [onlyScreen, foreignScreen])
         let topology = try CanonicalTopology(workspaces: [onlyWorkspace])
         let planner = BackendOnlyProjectionPlanner()
 
@@ -324,6 +376,39 @@ struct BackendOnlyProjectionPlannerTests {
             )
         ) {
             try planner.plan(topology: topology, navigation: missingSurface)
+        }
+
+        let foreignNavigationPane = BackendOnlyProjectionNavigationInput(
+            logicalPresentationID: logicalPresentationID(4),
+            selectedWorkspaceID: onlyWorkspace.uuid,
+            workspaces: [
+                BackendOnlyProjectionWorkspaceNavigation(
+                    workspaceID: onlyWorkspace.uuid,
+                    selectedScreenID: onlyScreen.uuid,
+                    screens: [
+                        BackendOnlyProjectionScreenNavigation(
+                            screenID: onlyScreen.uuid,
+                            activePaneID: onlyPane.uuid,
+                            zoomedPaneID: nil,
+                            panes: [
+                                navigationPane(onlyPane, selectedTab: 0),
+                                navigationPane(foreignPane, selectedTab: 0),
+                            ]
+                        ),
+                    ]
+                ),
+            ]
+        )
+        #expect(
+            throws: BackendOnlyProjectionPlannerError.navigationPaneOutsideSelectedScreen(
+                screenID: onlyScreen.uuid,
+                paneID: foreignPane.uuid
+            )
+        ) {
+            try planner.plan(
+                topology: topology,
+                navigation: foreignNavigationPane
+            )
         }
     }
 
