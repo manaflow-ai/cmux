@@ -2826,6 +2826,12 @@ pub struct Mux {
     #[cfg(test)]
     renderer_activation_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
+    renderer_configure_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    renderer_config_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    renderer_config_before_invalidation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
     renderer_scene_before_send: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     renderer_scene_pump_fail_spawn: AtomicBool,
@@ -3014,6 +3020,12 @@ impl Mux {
             renderer_activation_after_scene_install: Mutex::new(None),
             #[cfg(test)]
             renderer_activation_before_commit: Mutex::new(None),
+            #[cfg(test)]
+            renderer_configure_before_commit: Mutex::new(None),
+            #[cfg(test)]
+            renderer_config_after_commit: Mutex::new(None),
+            #[cfg(test)]
+            renderer_config_before_invalidation: Mutex::new(None),
             #[cfg(test)]
             renderer_scene_before_send: Mutex::new(None),
             #[cfg(test)]
@@ -5591,6 +5603,10 @@ impl Mux {
         if current.generation != presentation.generation {
             anyhow::bail!("presentation changed while its renderer was attaching");
         }
+        #[cfg(test)]
+        if let Some(before_commit) = self.renderer_configure_before_commit.lock().unwrap().take() {
+            before_commit();
+        }
         let retained_workspace = self
             .renderer_presentations
             .lock()
@@ -6894,6 +6910,10 @@ impl Mux {
             };
             current.clone()
         };
+        #[cfg(test)]
+        if let Some(after_commit) = self.renderer_config_after_commit.lock().unwrap().take() {
+            after_commit();
+        }
         self.publish_renderer_config_change(&snapshot, reason);
         Ok(true)
     }
@@ -6918,6 +6938,12 @@ impl Mux {
         for surface in surfaces {
             surface.set_default_colors(snapshot.default_colors);
             self.emit(MuxEvent::SurfaceOutput(surface.id));
+        }
+        #[cfg(test)]
+        if let Some(before_invalidation) =
+            self.renderer_config_before_invalidation.lock().unwrap().take()
+        {
+            before_invalidation();
         }
         self.emit(MuxEvent::RendererConfigInvalidated {
             revision: snapshot.revision,
@@ -16454,62 +16480,12 @@ mod tests {
     }
 
     #[test]
-    fn renderer_config_reload_between_publication_and_commit_requires_fresh_configure() {
+    fn renderer_config_commit_retracts_active_publication_before_invalidation_and_recovers() {
         let fixture = configured_renderer_fixture();
-        fixture
-            .mux
-            .install_renderer_config(
-                b"font-size = 17\n".to_vec(),
-                DefaultColors::default(),
-                Arc::<str>::from("ghostty-config-loaded"),
-            )
-            .unwrap();
-        let first_config = fixture.mux.renderer_config_snapshot();
-        let stale_receipt = fixture
-            .mux
-            .configure_renderer_presentation(
-                fixture.client,
-                fixture.presentation_id,
-                1,
-                renderer_configuration(),
-            )
-            .unwrap();
-        assert_eq!(stale_receipt.resolved_config_revision, first_config.revision);
-
-        *fixture.mux.renderer_activation_before_commit.lock().unwrap() = Some(Arc::new({
-            let mux = fixture.mux.clone();
-            move || {
-                mux.install_renderer_config(
-                    b"font-size = 18\n".to_vec(),
-                    DefaultColors::default(),
-                    Arc::<str>::from("ghostty-config-reloaded"),
-                )
-                .unwrap();
-            }
-        }));
-
-        let stale = fixture.mux.activate_renderer_presentation(
-            fixture.client,
-            fixture.presentation_id,
-            1,
-            stale_receipt.renderer_presentation_generation,
-            fixture.worker.renderer_epoch,
-            fixture.worker.pid.unwrap(),
-            RendererProcessInstanceToken {
-                start_time_seconds: fixture.worker.process_start_time_seconds.unwrap(),
-                start_time_microseconds: fixture.worker.process_start_time_microseconds.unwrap(),
-            },
-        );
-        let current_config = fixture.mux.renderer_config_snapshot();
-        assert_eq!(current_config.revision, first_config.revision + 1);
-        assert!(
-            stale
-                .unwrap_err()
-                .to_string()
-                .contains("renderer config changed during activation; reconfigure")
-        );
-
-        let stale_runtime = fixture
+        let unrelated = fixture.mux.new_workspace(Some("unrelated-pty".into()), None).unwrap();
+        let topology_before = fixture.mux.topology_snapshot();
+        activate_renderer(&fixture, &fixture.worker).unwrap();
+        let runtime = fixture
             .mux
             .renderer_presentations
             .lock()
@@ -16517,18 +16493,104 @@ mod tests {
             .get(&fixture.presentation_id)
             .cloned()
             .unwrap();
-        assert_eq!(stale_runtime.activation.lock().unwrap().active_epoch, None);
-        assert!(stale_runtime.scene.lock().unwrap().is_none());
-        assert!(matches!(
-            fixture.supervisor.sent_messages().as_slice(),
-            [
-                RendererControlMessage::UpsertPresentation(attachment),
-                RendererControlMessage::SemanticScene(_),
-                RendererControlMessage::RemovePresentation(_),
-            ] if attachment.resolved_config_revision == first_config.revision
-        ));
+        let lifecycle = fixture.mux.subscribe_renderer_lifecycle();
+        let retracted_before_event = Arc::new(AtomicBool::new(false));
+        *fixture.mux.renderer_config_before_invalidation.lock().unwrap() = Some(Arc::new({
+            let runtime = runtime.clone();
+            let supervisor = fixture.supervisor.clone();
+            let retracted_before_event = retracted_before_event.clone();
+            move || {
+                assert!(runtime.removal_pending.load(Ordering::Acquire));
+                assert_eq!(runtime.activation.lock().unwrap().active_epoch, None);
+                assert!(runtime.scene.lock().unwrap().is_none());
+                assert!(matches!(
+                    supervisor.sent_messages().last(),
+                    Some(RendererControlMessage::RemovePresentation(_))
+                ));
+                retracted_before_event.store(true, Ordering::Release);
+            }
+        }));
 
-        let removal = stale_runtime.removal();
+        fixture
+            .mux
+            .install_renderer_config(
+                b"font-size = 18\n".to_vec(),
+                DefaultColors::default(),
+                Arc::<str>::from("ghostty-config-reloaded"),
+            )
+            .unwrap();
+        let current_config = fixture.mux.renderer_config_snapshot();
+        assert_eq!(current_config.revision, 1);
+        assert!(matches!(
+            lifecycle.recv().unwrap(),
+            MuxEvent::RendererConfigInvalidated { revision: 1, digest, .. }
+                if digest == current_config.digest
+        ));
+        assert!(retracted_before_event.load(Ordering::Acquire));
+
+        let terminal = runtime.surface.semantic_scene_terminal_identity().unwrap();
+        let probe = runtime
+            .surface
+            .attach_semantic_scene(SemanticSceneAttachmentOptions::new(
+                terminal,
+                SemanticScenePresentationIdentity {
+                    presentation_id: fixture.presentation_id,
+                    generation: fixture.renderer_generation,
+                },
+            ))
+            .unwrap();
+        let stale_frame = probe.initial;
+        probe.control.detach();
+        assert!(!fixture.mux.forward_renderer_scene(&runtime, stale_frame));
+        let removal_index = fixture
+            .supervisor
+            .sent_messages()
+            .iter()
+            .rposition(|message| matches!(message, RendererControlMessage::RemovePresentation(_)))
+            .unwrap();
+        assert!(
+            !fixture.supervisor.sent_messages()[removal_index + 1..]
+                .iter()
+                .any(|message| matches!(message, RendererControlMessage::SemanticScene(_)))
+        );
+
+        fixture.mux.handle_renderer_supervisor_event(RendererSupervisorEvent::PresentationReady {
+            workspace_uuid: fixture.workspace_uuid,
+            renderer_epoch: fixture.worker.renderer_epoch,
+            process_id: fixture.worker.pid.unwrap(),
+            process_instance_token: RendererProcessInstanceToken {
+                start_time_seconds: fixture.worker.process_start_time_seconds.unwrap(),
+                start_time_microseconds: fixture.worker.process_start_time_microseconds.unwrap(),
+            },
+            effective_user_id: fixture.worker.effective_user_id.unwrap(),
+            metrics: crate::renderer_control::RendererPresentationReady {
+                terminal_id: runtime.attachment.terminal_id,
+                terminal_epoch: runtime.attachment.terminal_epoch,
+                presentation_id: runtime.attachment.presentation_id,
+                presentation_generation: runtime.attachment.presentation_generation,
+                canonical_sequence: 1,
+                presentation_sequence: 1,
+                columns: 80,
+                rows: 24,
+                cell_width: 8,
+                cell_height: 16,
+                padding_top: 0,
+                padding_right: 0,
+                padding_bottom: 0,
+                padding_left: 0,
+            },
+        });
+        assert!(matches!(lifecycle.try_recv(), Err(TryRecvError::Empty)));
+
+        unrelated.try_with_terminal(|terminal| terminal.vt_write(b"still-live")).unwrap();
+        let unrelated_text =
+            unrelated.try_with_terminal(|terminal| terminal.plain_text()).unwrap().unwrap();
+        assert!(unrelated_text.contains("still-live"));
+        assert_eq!(fixture.mux.topology_snapshot(), topology_before);
+        assert_eq!(fixture.mux.renderer_worker_statuses(), vec![fixture.worker.clone()]);
+        assert!(fixture.supervisor.retire_requests().is_empty());
+
+        let removal = runtime.removal();
         fixture.mux.handle_renderer_supervisor_event(
             RendererSupervisorEvent::PresentationRemoved {
                 workspace_uuid: fixture.workspace_uuid,
@@ -16542,8 +16604,7 @@ mod tests {
                 },
             },
         );
-
-        let fresh_receipt = fixture
+        let fresh = fixture
             .mux
             .configure_renderer_presentation(
                 fixture.client,
@@ -16552,14 +16613,14 @@ mod tests {
                 renderer_configuration(),
             )
             .unwrap();
-        assert_eq!(fresh_receipt.resolved_config_revision, current_config.revision);
+        assert_eq!(fresh.resolved_config_revision, current_config.revision);
         fixture
             .mux
             .activate_renderer_presentation(
                 fixture.client,
                 fixture.presentation_id,
                 1,
-                fresh_receipt.renderer_presentation_generation,
+                fresh.renderer_presentation_generation,
                 fixture.worker.renderer_epoch,
                 fixture.worker.pid.unwrap(),
                 RendererProcessInstanceToken {
@@ -16579,12 +16640,129 @@ mod tests {
             .get(&fixture.presentation_id)
             .cloned()
             .unwrap();
-        assert_eq!(fresh_runtime.activation.lock().unwrap().active_epoch, Some(7));
-        assert!(fixture.supervisor.sent_messages().iter().rev().any(|message| matches!(
-            message,
-            RendererControlMessage::UpsertPresentation(attachment)
-                if attachment.resolved_config_revision == current_config.revision
-        )));
+        assert_eq!(
+            fresh_runtime.activation.lock().unwrap().active_epoch,
+            Some(fixture.worker.renderer_epoch)
+        );
+    }
+
+    #[test]
+    fn renderer_config_commit_rejects_inflight_stale_configuration() {
+        let fixture = configured_renderer_fixture();
+        let reached_commit = Arc::new(std::sync::Barrier::new(2));
+        let release_commit = Arc::new(std::sync::Barrier::new(2));
+        *fixture.mux.renderer_configure_before_commit.lock().unwrap() = Some(Arc::new({
+            let reached_commit = reached_commit.clone();
+            let release_commit = release_commit.clone();
+            move || {
+                reached_commit.wait();
+                release_commit.wait();
+            }
+        }));
+
+        let configure_mux = fixture.mux.clone();
+        let client = fixture.client;
+        let presentation_id = fixture.presentation_id;
+        let configure = std::thread::spawn(move || {
+            configure_mux.configure_renderer_presentation(
+                client,
+                presentation_id,
+                1,
+                renderer_configuration(),
+            )
+        });
+        reached_commit.wait();
+        fixture
+            .mux
+            .install_renderer_config(
+                b"font-size = 19\n".to_vec(),
+                DefaultColors::default(),
+                Arc::<str>::from("ghostty-config-reloaded"),
+            )
+            .unwrap();
+        release_commit.wait();
+
+        let error = match configure.join().unwrap() {
+            Ok(_) => panic!("stale renderer configuration unexpectedly committed"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("renderer config changed during configuration"));
+        let retained = fixture
+            .mux
+            .renderer_presentations
+            .lock()
+            .unwrap()
+            .get(&fixture.presentation_id)
+            .cloned()
+            .unwrap();
+        assert_eq!(retained.attachment.presentation_generation, fixture.renderer_generation);
+        assert!(retained.removal_pending.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn renderer_config_commit_during_activation_prevents_stale_publication() {
+        let fixture = configured_renderer_fixture();
+        let reached_scene = Arc::new(std::sync::Barrier::new(2));
+        let release_activation = Arc::new(std::sync::Barrier::new(2));
+        *fixture.mux.renderer_activation_after_scene_install.lock().unwrap() = Some(Arc::new({
+            let reached_scene = reached_scene.clone();
+            let release_activation = release_activation.clone();
+            move || {
+                reached_scene.wait();
+                release_activation.wait();
+            }
+        }));
+        let (committed_tx, committed_rx) = std::sync::mpsc::sync_channel(1);
+        *fixture.mux.renderer_config_after_commit.lock().unwrap() = Some(Arc::new(move || {
+            committed_tx.send(()).unwrap();
+        }));
+
+        let activation_mux = fixture.mux.clone();
+        let worker = fixture.worker.clone();
+        let client = fixture.client;
+        let presentation_id = fixture.presentation_id;
+        let renderer_generation = fixture.renderer_generation;
+        let activation = std::thread::spawn(move || {
+            activation_mux.activate_renderer_presentation(
+                client,
+                presentation_id,
+                1,
+                renderer_generation,
+                worker.renderer_epoch,
+                worker.pid.unwrap(),
+                RendererProcessInstanceToken {
+                    start_time_seconds: worker.process_start_time_seconds.unwrap(),
+                    start_time_microseconds: worker.process_start_time_microseconds.unwrap(),
+                },
+            )
+        });
+        reached_scene.wait();
+        let config_mux = fixture.mux.clone();
+        let config = std::thread::spawn(move || {
+            config_mux.install_renderer_config(
+                b"font-size = 18\n".to_vec(),
+                DefaultColors::default(),
+                Arc::<str>::from("ghostty-config-reloaded"),
+            )
+        });
+        committed_rx.recv().unwrap();
+        release_activation.wait();
+
+        let stale = activation.join().unwrap();
+        config.join().unwrap().unwrap();
+        assert!(
+            stale
+                .unwrap_err()
+                .to_string()
+                .contains("renderer config changed during activation; reconfigure")
+        );
+        assert!(
+            !fixture
+                .supervisor
+                .sent_messages()
+                .iter()
+                .any(|message| matches!(message, RendererControlMessage::UpsertPresentation(_)))
+        );
     }
 
     #[test]
