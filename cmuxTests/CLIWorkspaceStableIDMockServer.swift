@@ -171,6 +171,8 @@ struct CLIWorkspaceStableIDMockServer: Sendable {
             "title": "remote",
             "has_custom_title": false,
             "selected": true,
+            "workspace_ids": [workspaceID],
+            "workspace_refs": ["workspace:1"],
             "panes": [[
                 "id": Self.paneID,
                 "ref": "pane:1",

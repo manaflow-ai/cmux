@@ -141,6 +141,14 @@ struct CLIWorkspaceStableIDTests {
                     #expect(id == nil, Comment(rawValue: "command=\(command) row=\(dictionary)"))
                 }
             }
+            for kind in ["window", "workspace", "pane", "surface"] where dictionary["\(kind)_refs"] != nil {
+                let ids = dictionary["\(kind)_ids"] as? [String]
+                if kind == "workspace" {
+                    #expect(ids == [Self.workspaceID], Comment(rawValue: "command=\(command) row=\(dictionary)"))
+                } else {
+                    #expect(ids == nil, Comment(rawValue: "command=\(command) row=\(dictionary)"))
+                }
+            }
             for child in dictionary.values {
                 assertDefaultIdentifierShape(in: child, command: command)
             }
