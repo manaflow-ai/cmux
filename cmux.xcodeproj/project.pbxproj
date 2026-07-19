@@ -149,6 +149,7 @@
 		A9E020000000000000000004 /* AgentSessionPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000004 /* AgentSessionPanelView.swift */; };
 		A9F20000000000000000000F /* AgentSessionPermissionMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F10000000000000000000F /* AgentSessionPermissionMode.swift */; };
 		A9E020000000000000000009 /* AgentSessionProcessStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000009 /* AgentSessionProcessStore.swift */; };
+		A7867A100000000000000001 /* AgentSessionProjectionParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7867A100000000000000002 /* AgentSessionProjectionParityTests.swift */; };
 		A9E020000000000000000001 /* AgentSessionProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000001 /* AgentSessionProvider.swift */; };
 		A78670020000000000000001 /* AgentSessionRelationship.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670020000000000000002 /* AgentSessionRelationship.swift */; };
 		A78670660000000000000001 /* AgentSessionRelationship.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670020000000000000002 /* AgentSessionRelationship.swift */; };
@@ -2362,6 +2363,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9E010000000000000000004 /* AgentSessionPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionPanelView.swift; sourceTree = "<group>"; };
 		A9F10000000000000000000F /* AgentSessionPermissionMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionPermissionMode.swift; sourceTree = "<group>"; };
 		A9E010000000000000000009 /* AgentSessionProcessStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionProcessStore.swift; sourceTree = "<group>"; };
+		A7867A100000000000000002 /* AgentSessionProjectionParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionProjectionParityTests.swift; sourceTree = "<group>"; };
 		A9E010000000000000000001 /* AgentSessionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionProvider.swift; sourceTree = "<group>"; };
 		A78670020000000000000002 /* AgentSessionRelationship.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionRelationship.swift; sourceTree = "<group>"; };
 		A9E01000000000000000000F /* AgentSessionRendererKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionRendererKind.swift; sourceTree = "<group>"; };
@@ -6251,6 +6253,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A79701050000000000000002 /* AgentSessionWriterGenerationRegressionTests.swift */,
 				A78670300000000000000002 /* AgentSessionLifecycleAuthorityRegressionTests.swift */,
 				A79700030000000000000002 /* AgentSessionLifecycleRaceRegressionTests.swift */,
+				A7867A100000000000000002 /* AgentSessionProjectionParityTests.swift */,
 				A79700080000000000000002 /* ClosedPanelAgentHistoryRegressionTests.swift */,
 				A79700020000000000000002 /* AgentNotificationOwnershipRegressionTests.swift */,
 				A78670510000000000000002 /* AgentResumeExecutableAvailabilityRegressionTests.swift */,
@@ -8541,6 +8544,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A78670300000000000000001 /* AgentSessionLifecycleAuthorityRegressionTests.swift in Sources */,
 				A79700030000000000000001 /* AgentSessionLifecycleRaceRegressionTests.swift in Sources */,
 				A79701020000000000000001 /* AgentSessionLineageAuthorityRegressionTests.swift in Sources */,
+				A7867A100000000000000001 /* AgentSessionProjectionParityTests.swift in Sources */,
 				A78670660000000000000001 /* AgentSessionRelationship.swift in Sources */,
 				A78670670000000000000001 /* AgentSessionRunRecord.swift in Sources */,
 				A79701030000000000000001 /* AgentSessionRuntimeIdentityRegressionTests.swift in Sources */,
