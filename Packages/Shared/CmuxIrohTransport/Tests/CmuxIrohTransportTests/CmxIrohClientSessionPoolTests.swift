@@ -663,6 +663,125 @@ struct CmxIrohClientSessionPoolTests {
         await background.close()
         await control.close()
     }
+
+    @Test
+    func ownerReleaseExplainsTheExactUnavailableRelayPrivatePathCycle() async throws {
+        let fixture = try PoolFixture()
+        let firstConnection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()],
+            selectedPath: .privateNetwork
+        )
+        let replacementConnection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()],
+            selectedPath: .relay(url: "https://relay.example.com/")
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: fixture.localIdentity,
+            dialResults: [
+                .connection(firstConnection),
+                .connection(replacementConnection),
+            ]
+        )
+        let diagnosticLog = DiagnosticLog(capacity: 16)
+        let pool = try await fixture.pool(
+            endpoint: endpoint,
+            generation: 1,
+            diagnosticLog: diagnosticLog
+        )
+        let changes = await pool.selectedPathChanges()
+        var iterator = changes.makeAsyncIterator()
+        #expect(await iterator.next() != nil)
+        let factory = CmxIrohByteTransportFactory(sessionPool: pool)
+
+        let first = try factory.makeTransport(for: fixture.request)
+        try await first.connect()
+        #expect(await iterator.next() != nil)
+        #expect(await pool.selectedObservedPath() == .privateNetwork)
+
+        await first.close()
+        #expect(await iterator.next() != nil)
+        let unavailable = await pool.selectedObservedPath()
+
+        let replacement = try factory.makeTransport(for: fixture.request)
+        try await replacement.connect()
+        #expect(await iterator.next() != nil)
+        let relay = await pool.selectedObservedPath()
+
+        await replacementConnection.setObservedSelectedPath(.privateNetwork)
+        #expect(await iterator.next() != nil)
+        let privateNetwork = await pool.selectedObservedPath()
+
+        #expect([unavailable, relay, privateNetwork] == [
+            .unavailable,
+            .relay(url: "https://relay.example.com/"),
+            .privateNetwork,
+        ])
+
+        for _ in 0 ..< 1_000 {
+            if await diagnosticLog.processedCount() >= 4 { break }
+            await Task.yield()
+        }
+        let events = await diagnosticLog.snapshot().events
+        #expect(events.map(\.code) == [
+            .transportSessionLifecycle,
+            .transportSessionLifecycle,
+            .sessionClosed,
+            .transportSessionLifecycle,
+        ])
+        #expect(events.map(\.a) == [
+            DiagnosticSessionLifecycleKind.established.rawValue,
+            DiagnosticSessionLifecycleKind.controlOwnerReleased.rawValue,
+            DiagnosticTransportKind.iroh.rawValue,
+            DiagnosticSessionLifecycleKind.established.rawValue,
+        ])
+        #expect(events[0].b == Int(CmxTransportSessionPurpose.foregroundControl.rawValue))
+        #expect(events[1].b == Int(CmxTransportSessionPurpose.foregroundControl.rawValue))
+        #expect(events[2].b == DiagnosticFailureKind.none.rawValue)
+        #expect(events[0].c == events[1].c)
+        #expect(events[1].c == events[2].c)
+        #expect(events[3].c != events[2].c)
+
+        await replacement.close()
+    }
+
+    @Test
+    func mixedCaseBackgroundAliasCannotTearDownTheForegroundControlOwner() async throws {
+        let fixture = try PoolFixture()
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()],
+            selectedPath: .privateNetwork
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: fixture.localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let pool = try await fixture.pool(endpoint: endpoint, generation: 1)
+        let factory = CmxIrohByteTransportFactory(sessionPool: pool)
+        let foreground = try factory.makeTransport(for: fixture.request)
+        let backgroundRequest = CmxByteTransportRequest(
+            route: fixture.request.route,
+            expectedPeerDeviceID: fixture.request.expectedPeerDeviceID?.uppercased(),
+            authorizationMode: .transportAdmission,
+            sessionPurpose: .backgroundControl
+        )
+        let background = try factory.makeTransport(for: backgroundRequest)
+
+        try await foreground.connect()
+        let backgroundConnect = Task { try await background.connect() }
+        try #require(await waitForControlWaiter(pool, request: backgroundRequest))
+        backgroundConnect.cancel()
+        await #expect(throws: CancellationError.self) {
+            try await backgroundConnect.value
+        }
+
+        #expect(await pool.selectedObservedPath() == .privateNetwork)
+        #expect(await connection.observedCloseCallCount() == 0)
+        #expect(await endpoint.observedDialedAddresses().count == 1)
+        await foreground.close()
+    }
 }
 
 private func waitForControlWaiter(
@@ -730,7 +849,8 @@ private struct PoolFixture {
     func pool(
         endpoint: any CmxIrohEndpoint,
         generation: UInt64,
-        contextProvider: (any CmxIrohClientContextProvider)? = nil
+        contextProvider: (any CmxIrohClientContextProvider)? = nil,
+        diagnosticLog: DiagnosticLog? = nil
     ) async throws -> CmxIrohClientSessionPool {
         let configuration = try CmxIrohEndpointConfiguration(
             secretKey: CmxIrohSecretKey(bytes: Data(repeating: 7, count: 32)),
@@ -747,7 +867,8 @@ private struct PoolFixture {
             supervisor: supervisor,
             contextProvider: contextProvider
                 ?? TestIrohClientContextProvider(context: context),
-            protocolConfiguration: .testApplicationLanes
+            protocolConfiguration: .testApplicationLanes,
+            diagnosticLog: diagnosticLog
         )
         await pool.activate(runtimeGeneration: generation)
         return pool
