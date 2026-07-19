@@ -103,7 +103,7 @@ public struct RemoteExecutableCommandBuilder: Sendable {
         "if command -v \"$cmux_executable_name\" >/dev/null 2>&1; then " +
         "cmux_executable_path=\"$(command -v \"$cmux_executable_name\")\"; fi; fi; "
 
-    private static func shellQuoted(_ value: String) -> String {
+    static func shellQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }

@@ -9730,23 +9730,6 @@ struct CMUXCLI {
         return lines.joined(separator: "\n")
     }
 
-    private func runtimeEncodedRemoteBootstrapCommandShell(
-        base64Placeholder: String,
-        remoteRelayPort: Int
-    ) -> String {
-        var lines = remoteBootstrapTTYCaptureLines(remoteRelayPort: remoteRelayPort, includeRelayRPC: false)
-        lines += [
-            "cmux_tmp=$(mktemp \"${TMPDIR:-/tmp}/cmux-ssh-bootstrap.XXXXXX\") || exit 1",
-            "(printf %s '\(base64Placeholder)' | base64 -d 2>/dev/null || printf %s '\(base64Placeholder)' | base64 -D 2>/dev/null) > \"$cmux_tmp\" || { rm -f \"$cmux_tmp\"; exit 1; }",
-            "chmod 700 \"$cmux_tmp\" >/dev/null 2>&1 || true",
-            "/bin/sh \"$cmux_tmp\"",
-            "cmux_status=$?",
-            "rm -f \"$cmux_tmp\"",
-            "exit $cmux_status",
-        ]
-        return lines.joined(separator: "\n")
-    }
-
     private func remoteBootstrapTTYCaptureLines(
         remoteRelayPort: Int,
         includeRelayRPC: Bool

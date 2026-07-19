@@ -69,6 +69,7 @@ struct ShellIntegrationSendTransportTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let integrationFile = directory.appendingPathComponent("config.fish")
+        let logFile = directory.appendingPathComponent("tmux.log")
         try integration.write(to: integrationFile, atomically: true, encoding: .utf8)
 
         let process = Process()
@@ -80,9 +81,10 @@ struct ShellIntegrationSendTransportTests {
             """
             source '\(integrationFile.path)'
             function tmux
-                string join ' ' -- $argv
+                string join ' ' -- $argv >> "$CMUX_TEST_LOG"
             end
             _cmux_tmux_sync_cmux_environment
+            cat "$CMUX_TEST_LOG"
             """,
         ]
         process.environment = [
@@ -90,6 +92,7 @@ struct ShellIntegrationSendTransportTests {
             "CMUX_SOCKET_PATH": "127.0.0.1:64011",
             "CMUX_SURFACE_ID": "stale-surface",
             "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+            "CMUX_TEST_LOG": logFile.path,
             "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
             "HOME": directory.path,
             "PATH": "/usr/bin:/bin",
