@@ -42,7 +42,7 @@ struct ShellIntegrationSendTransportTests {
         let standardOutput = Pipe()
         let standardError = Pipe()
         process.executableURL = URL(fileURLWithPath: shell)
-        process.arguments = ["--no-rcs", "-c", Self.tmuxEnvironmentRefreshScript(scriptFile: scriptFile)]
+        process.arguments = ["-f", "-c", Self.tmuxEnvironmentRefreshScript(scriptFile: scriptFile)]
         if shell.hasSuffix("bash") {
             process.arguments = ["--noprofile", "--norc", "-c", Self.tmuxEnvironmentRefreshScript(scriptFile: scriptFile)]
         }

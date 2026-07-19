@@ -457,7 +457,14 @@ _cmux_tmux_refresh_cmux_environment() {
     command -v tmux >/dev/null 2>&1 || return 0
 
     local output filtered line key value did_change=0
-    output="$(tmux show-environment -g 2>/dev/null)" || return 0
+    for key in "${_CMUX_TMUX_SURFACE_SCOPED_KEYS[@]}"; do
+        if [[ -n "${!key}" ]]; then
+            unset "$key"
+            did_change=1
+        fi
+    done
+
+    output="$(tmux show-environment 2>/dev/null)" || return 0
 
     while IFS= read -r line; do
         [[ "$line" == CMUX_* ]] || continue
@@ -467,7 +474,7 @@ _cmux_tmux_refresh_cmux_environment() {
     done <<< "$output"
 
     [[ -n "$filtered" ]] || return 0
-    [[ "$filtered" == "$_CMUX_TMUX_PULL_SIGNATURE" ]] && return 0
+    [[ "$filtered" == "$_CMUX_TMUX_PULL_SIGNATURE" ]] && (( ! did_change )) && return 0
 
     while IFS= read -r line; do
         [[ "$line" == CMUX_* ]] || continue

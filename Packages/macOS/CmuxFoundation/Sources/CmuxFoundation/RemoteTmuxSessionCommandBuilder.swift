@@ -3,8 +3,9 @@ internal import Foundation
 /// Builds a terminal-attached tmux session launcher with shell integration.
 ///
 /// A new session receives the supplied shell command for both its first pane
-/// and future windows. An existing session is attached without changing any
-/// of its options or already-running shells.
+/// and future windows. Before attaching an existing session, its cmux workspace
+/// environment is rebound to the current relay without changing user options
+/// or already-running commands.
 public struct RemoteTmuxSessionCommandBuilder: Sendable {
     private let sessionName: String
     private let shellCommand: String
@@ -25,19 +26,26 @@ public struct RemoteTmuxSessionCommandBuilder: Sendable {
             executableName: "tmux",
             notFoundSentinel: RemoteTmuxCommandBuilder.notFoundSentinel
         )
-        let script = [
+        var scriptLines = [
             "cmux_session_name=$1",
             "cmux_shell_command=$2",
             "cmux_session_target=\"=$cmux_session_name\"",
             "cmux_tmux=\"$(\(resolver.resolutionProbeShellCommand))\" || exit $?",
             "if \"$cmux_tmux\" has-session -t \"$cmux_session_target\" 2>/dev/null; then",
+        ]
+        scriptLines.append(contentsOf: Self.workspaceEnvironmentRebindingLines.map { "  " + $0 })
+        scriptLines += [
             "  exec \"$cmux_tmux\" attach-session -t \"$cmux_session_target\"",
             "fi",
             "if \"$cmux_tmux\" new-session -d -s \"$cmux_session_name\" \"$cmux_shell_command\"; then",
+        ]
+        scriptLines.append(contentsOf: Self.surfaceEnvironmentClearingLines.map { "  " + $0 })
+        scriptLines += [
             "  \"$cmux_tmux\" set-option -t \"$cmux_session_target\" default-command \"$cmux_shell_command\" >/dev/null || exit $?",
             "fi",
             "exec \"$cmux_tmux\" attach-session -t \"$cmux_session_target\"",
-        ].joined(separator: "\n")
+        ]
+        let script = scriptLines.joined(separator: "\n")
         return ([
             "/bin/sh",
             "-c",
@@ -48,6 +56,32 @@ public struct RemoteTmuxSessionCommandBuilder: Sendable {
         ])
         .map(Self.shellQuoted)
         .joined(separator: " ")
+    }
+
+    private static let workspaceEnvironmentKeys = [
+        "CMUX_BUNDLED_CLI_PATH",
+        "CMUX_SHELL_INTEGRATION",
+        "CMUX_SHELL_INTEGRATION_DIR",
+        "CMUX_SOCKET_PATH",
+        "CMUX_TAB_ID",
+        "CMUX_WORKSPACE_ID",
+    ]
+
+    private static let surfaceEnvironmentKeys = [
+        "CMUX_PANEL_ID",
+        "CMUX_SURFACE_ID",
+    ]
+
+    private static var workspaceEnvironmentRebindingLines: [String] {
+        workspaceEnvironmentKeys.map { key in
+            "if [ \"${\(key)+x}\" = x ]; then \"$cmux_tmux\" set-environment -t \"$cmux_session_target\" \(key) \"$\(key)\" >/dev/null || exit $?; else \"$cmux_tmux\" set-environment -t \"$cmux_session_target\" -u \(key) >/dev/null || exit $?; fi"
+        } + surfaceEnvironmentClearingLines
+    }
+
+    private static var surfaceEnvironmentClearingLines: [String] {
+        surfaceEnvironmentKeys.map { key in
+            "\"$cmux_tmux\" set-environment -t \"$cmux_session_target\" -u \(key) >/dev/null || exit $?"
+        }
     }
 
     private static func shellQuoted(_ value: String) -> String {

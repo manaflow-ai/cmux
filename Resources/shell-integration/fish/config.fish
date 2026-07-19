@@ -21,6 +21,76 @@ if test "$_cmux_integration_enabled" != 0
     set -g _CMUX_TTY_NAME ""
     set -g _CMUX_TTY_REPORTED 0
     set -g _CMUX_PWD_LAST_PWD ""
+    set -g _CMUX_TMUX_PULL_SIGNATURE ""
+    set -g _CMUX_TMUX_SYNC_KEYS \
+        CMUX_BUNDLED_CLI_PATH \
+        CMUX_BUNDLE_ID \
+        CMUXD_UNIX_PATH \
+        CMUXTERM_REPO_ROOT \
+        CMUX_DEBUG_LOG \
+        CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION \
+        CMUX_PORT \
+        CMUX_PORT_END \
+        CMUX_PORT_RANGE \
+        CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD \
+        CMUX_SHELL_INTEGRATION \
+        CMUX_SHELL_INTEGRATION_DIR \
+        CMUX_SOCKET_ENABLE \
+        CMUX_SOCKET_MODE \
+        CMUX_SOCKET_PATH \
+        CMUX_TAB_ID \
+        CMUX_TAG \
+        CMUX_WORKSPACE_ID
+    set -g _CMUX_TMUX_SURFACE_SCOPED_KEYS CMUX_PANEL_ID CMUX_SURFACE_ID
+
+    function _cmux_tmux_sync_key_is_managed --argument-names candidate
+        contains -- "$candidate" $_CMUX_TMUX_SYNC_KEYS
+    end
+
+    function _cmux_tmux_sync_cmux_environment
+        set -q TMUX; and test -n "$TMUX"; or return 0
+        command -sq tmux; or functions -q tmux; or return 0
+
+        set -l did_change 0
+        for key in $_CMUX_TMUX_SURFACE_SCOPED_KEYS
+            if set -q $key
+                set -e $key
+                set did_change 1
+            end
+        end
+
+        set -l output (tmux show-environment 2>/dev/null); or return 0
+        set -l filtered
+        for line in $output
+            string match -q 'CMUX_*=*' -- "$line"; or continue
+            set -l parts (string split -m 1 '=' -- "$line")
+            _cmux_tmux_sync_key_is_managed "$parts[1]"; or continue
+            set -a filtered "$line"
+        end
+        test (count $filtered) -gt 0; or return 0
+
+        set -l signature (string join \x1e -- $filtered)
+        if test "$signature" = "$_CMUX_TMUX_PULL_SIGNATURE"; and test "$did_change" = 0
+            return 0
+        end
+
+        for line in $filtered
+            set -l parts (string split -m 1 '=' -- "$line")
+            set -l key "$parts[1]"
+            set -l value "$parts[2]"
+            if not set -q $key; or test "$$key" != "$value"
+                set -gx $key "$value"
+                set did_change 1
+            end
+        end
+
+        set -g _CMUX_TMUX_PULL_SIGNATURE "$signature"
+        if test "$did_change" = 1
+            set -g _CMUX_TTY_REPORTED 0
+            set -g _CMUX_SHELL_ACTIVITY_LAST ""
+            set -g _CMUX_PWD_LAST_PWD ""
+        end
+    end
 
     function _cmux_restore_scrollback_once
         set -l path "$CMUX_RESTORE_SCROLLBACK_FILE"
@@ -303,12 +373,14 @@ if test "$_cmux_integration_enabled" != 0
     end
 
     function _cmux_preexec --on-event fish_preexec
+        _cmux_tmux_sync_cmux_environment
         _cmux_report_tty_once
         _cmux_report_shell_activity_state running
         _cmux_ports_kick command
     end
 
     function _cmux_prompt --on-event fish_prompt
+        _cmux_tmux_sync_cmux_environment
         _cmux_reset_terminal_keyboard_protocols
         _cmux_report_tty_once
         _cmux_report_shell_activity_state prompt
