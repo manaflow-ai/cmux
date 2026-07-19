@@ -682,10 +682,17 @@ pub(crate) struct TerminalAccessibilityDemandReceipt {
     pub(crate) demand_generation: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TerminalAccessibilityDemandRequestIdentity {
+    presentation_id: crate::PresentationId,
+    presentation_generation: u64,
+    expected_demand_generation: Option<u64>,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct TerminalAccessibilityDemand {
     request_id: uuid::Uuid,
-    presentation_generation: u64,
+    request_identity: TerminalAccessibilityDemandRequestIdentity,
     demand_generation: u64,
 }
 
@@ -2101,28 +2108,30 @@ impl Surface {
             anyhow::bail!("terminal accessibility presentation generation must be nonzero");
         }
 
+        let request_identity = TerminalAccessibilityDemandRequestIdentity {
+            presentation_id,
+            presentation_generation,
+            expected_demand_generation,
+        };
+
         let mut registry = pty.accessibility_demands.lock().unwrap();
-        if let Some(existing) = registry.by_presentation.get(&presentation_id).copied()
-            && existing.request_id == request_id
+        if let Some(existing) = registry
+            .by_presentation
+            .values()
+            .find(|demand| demand.request_id == request_id)
+            .copied()
         {
-            if existing.presentation_generation != presentation_generation {
+            if existing.request_identity != request_identity {
                 anyhow::bail!(
-                    "terminal accessibility demand request identity reused for a different presentation generation"
+                    "terminal accessibility demand request identity reused with an altered request body or generation fence"
                 );
             }
             return Ok(TerminalAccessibilityDemandReceipt {
-                request_id,
-                presentation_id,
-                presentation_generation,
+                request_id: existing.request_id,
+                presentation_id: existing.request_identity.presentation_id,
+                presentation_generation: existing.request_identity.presentation_generation,
                 demand_generation: existing.demand_generation,
             });
-        }
-        if registry.by_presentation.iter().any(|(other_presentation_id, demand)| {
-            *other_presentation_id != presentation_id && demand.request_id == request_id
-        }) {
-            anyhow::bail!(
-                "terminal accessibility demand request identity reused for another presentation"
-            );
         }
         let current_generation =
             registry.by_presentation.get(&presentation_id).map(|demand| demand.demand_generation);
@@ -2140,7 +2149,7 @@ impl Surface {
             presentation_id,
             TerminalAccessibilityDemand {
                 request_id,
-                presentation_generation,
+                request_identity,
                 demand_generation: generation,
             },
         );
@@ -2161,7 +2170,7 @@ impl Surface {
         let Some(pty) = self.as_pty() else { return false };
         let mut registry = pty.accessibility_demands.lock().unwrap();
         let matches = registry.by_presentation.get(&presentation_id).is_some_and(|demand| {
-            demand.presentation_generation == presentation_generation
+            demand.request_identity.presentation_generation == presentation_generation
                 && demand.demand_generation == demand_generation
         });
         if !matches {
