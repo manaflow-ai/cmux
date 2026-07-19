@@ -57,5 +57,6 @@ public struct MobileMacUpdateCapabilityRequirement: Sendable, Equatable {
         .init(capability: "workspace.group_actions.v1", feature: .workspaceGroupActions, firstReleasedMacVersion: nil),
         .init(capability: "workspace.create_in_group.v1", feature: .workspaceCreateInGroup, firstReleasedMacVersion: nil),
         .init(capability: "workspace.group_create.v1", feature: .workspaceGroupCreate, firstReleasedMacVersion: nil),
+        .init(capability: "workspace.dispatch.v1", feature: .agentDispatch, firstReleasedMacVersion: nil),
     ]
 }

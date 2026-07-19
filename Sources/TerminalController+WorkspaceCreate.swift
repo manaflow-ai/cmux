@@ -18,6 +18,7 @@ extension TerminalController {
 
         let requestedInitialCommand = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let initialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
+        let initialInput = v2RawString(params, "initial_input")
 
         let rawInitialEnv = v2StringMap(params, "initial_env") ?? [:]
         let initialEnv = rawInitialEnv.reduce(into: [String: String]()) { result, pair in
@@ -133,6 +134,7 @@ extension TerminalController {
                 title: title,
                 workingDirectory: cwd,
                 initialTerminalCommand: layoutNode == nil ? initialCommand : nil,
+                initialTerminalInput: layoutNode == nil ? initialInput : nil,
                 initialTerminalEnvironment: layoutNode == nil ? initialEnv : [:],
                 workspaceEnvironment: workspaceEnv,
                 select: shouldFocus,

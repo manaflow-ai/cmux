@@ -45,6 +45,8 @@ extension MobileHostService {
                 return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
             }
             return nil
+        case "mobile.dispatch.catalog", "mobile.dispatch.fs", "mobile.dispatch.launch":
+            return nil
         case "workspace.move":
             return ticketMacScopedWorkspaceMutationAuthorizationError(
                 authorization: authorization,

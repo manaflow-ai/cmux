@@ -36,6 +36,12 @@ extension WorkspaceListView {
                                 newWorkspaceButton
                             }
                         }
+                        if composeDispatch != nil {
+                            ToolbarItemGroup(placement: .bottomBar) {
+                                Spacer()
+                                dispatchComposeButton
+                            }
+                        }
                     }
             } else {
                 content

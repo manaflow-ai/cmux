@@ -497,6 +497,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             )
         case "mobile.events.subscribe", "mobile.events.unsubscribe":
             return false
+        case "mobile.dispatch.catalog", "mobile.dispatch.fs", "mobile.dispatch.launch":
+            // Dispatch is allowed for workspace-scoped tickets (it creates and
+            // is then granted its own workspace), so keep the ticket context.
+            return false
         default:
             return true
         }

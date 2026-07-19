@@ -26,6 +26,7 @@ struct WorkspaceShellView: View {
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
     @State var workspaceActionToast: WorkspaceActionToastContent?
+    @State var showingDispatchComposer = false
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
     var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
@@ -100,6 +101,9 @@ struct WorkspaceShellView: View {
         .onAppear {
             consumeDeeplinkNavigationRequestIfNeeded()
         }
+        .sheet(isPresented: $showingDispatchComposer) {
+            dispatchComposerSheet
+        }
         .accessibilityIdentifier("MobileWorkspaceShell")
     }
 
@@ -126,6 +130,7 @@ struct WorkspaceShellView: View {
                 createWorkspaceInGroup: createWorkspaceInGroupInCompactStackClosure,
                 createWorkspaceGroup: createWorkspaceGroupInCompactStackClosure,
                 canCreateWorkspace: canCreateWorkspaceForMacSelection,
+                composeDispatch: composeDispatchClosure,
                 macSelection: $macSelection,
                 switchMac: { macDeviceID in
                     await switchMacFromWorkspacePicker(macDeviceID: macDeviceID)
@@ -233,6 +238,7 @@ struct WorkspaceShellView: View {
                 createWorkspaceInGroup: createWorkspaceInGroupIfConnectedClosure,
                 createWorkspaceGroup: createWorkspaceGroupIfConnectedClosure,
                 canCreateWorkspace: canCreateWorkspaceForMacSelection,
+                composeDispatch: composeDispatchClosure,
                 macSelection: $macSelection,
                 switchMac: { macDeviceID in
                     await switchMacFromWorkspacePicker(macDeviceID: macDeviceID)

@@ -126,6 +126,7 @@ class TerminalController {
     @MainActor private(set) var authCoordinator: AuthCoordinator?
     @MainActor private(set) var browserSignInFlow: HostBrowserSignInFlow?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
+    nonisolated let dispatchDirectoryIndex: DispatchDirectoryIndex
     nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
     // Sendable value type; injected at construction so socket auth never reaches a global.
     nonisolated let passwordStore: SocketControlPasswordStore
@@ -355,6 +356,7 @@ class TerminalController {
         socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter = .init(
             maximumConcurrentClaims: 32
         ),
+        dispatchDirectoryIndex: DispatchDirectoryIndex = DispatchDirectoryIndex(),
         terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
@@ -368,6 +370,7 @@ class TerminalController {
         self.socketPasswordFileWatcher = socketPasswordFileWatcher
         self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
+        self.dispatchDirectoryIndex = dispatchDirectoryIndex
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
@@ -13839,6 +13842,8 @@ class TerminalController {
             result = request.method == "workspace.group.create" ? v2MobileWorkspaceGroupCreate(params: request.params) : v2MobileWorkspaceGroupAction(params: request.params)
         case let method where method.hasPrefix("mobile.chat."):
             result = await v2MobileChatDispatch(method: method, params: request.params)
+        case let method where method.hasPrefix("mobile.dispatch."):
+            result = await v2MobileDispatch(method: method, params: request.params)
         case "workspace.close":
             result = v2MobileWorkspaceClose(params: request.params)
         case "workspace.group.collapse":
