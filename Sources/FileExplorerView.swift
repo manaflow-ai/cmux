@@ -284,13 +284,17 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, shouldExpandItem item: Any) -> Bool {
             guard let node = item as? FileExplorerNode, node.isDirectory else { return false }
-            store.expand(node: node)
+            if !isUpdatingOutlineProgrammatically {
+                store.expand(node: node)
+            }
             return node.children != nil
         }
 
         func outlineView(_ outlineView: NSOutlineView, shouldCollapseItem item: Any) -> Bool {
             guard let node = item as? FileExplorerNode else { return false }
-            store.collapse(node: node)
+            if !isUpdatingOutlineProgrammatically {
+                store.collapse(node: node)
+            }
             return true
         }
 
