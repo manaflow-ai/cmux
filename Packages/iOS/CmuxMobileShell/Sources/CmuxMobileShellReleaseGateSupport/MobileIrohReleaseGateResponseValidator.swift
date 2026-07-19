@@ -40,7 +40,7 @@ enum MobileIrohReleaseGateResponseValidator {
     }
 
     static func chatSessions(_ data: Data) -> Bool {
-        (try? JSONDecoder().decode(MobileChatSessionsResponse.self, from: data)) != nil
+        (try? ChatWireCoding().decode(MobileChatSessionsResponse.self, from: data)) != nil
     }
 
     static func artifactScanCount(_ data: Data) -> Bool {
