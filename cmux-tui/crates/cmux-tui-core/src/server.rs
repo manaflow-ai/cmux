@@ -52,6 +52,7 @@ use crate::{
 };
 
 pub const PROTOCOL_VERSION: u32 = 7;
+const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 
 /// Default socket path for a session.
 pub fn default_socket_path(session: &str) -> PathBuf {
@@ -2355,7 +2356,10 @@ fn mark_client_attached(
     surface: SurfaceId,
     stream: OutboundStream,
     initial_size: Option<(u16, u16)>,
-) -> anyhow::Result<Option<crate::mux::ClientSizeRollback>> {
+) -> anyhow::Result<(
+    Option<crate::mux::ClientSizeRollback>,
+    Option<(Option<String>, Option<String>)>,
+)> {
     mux.control_clients.attach_surface(client, surface, stream.clone())?;
     if let Some((cols, rows)) = initial_size {
         let cols = cols.max(1);
@@ -2369,17 +2373,27 @@ fn mark_client_attached(
             cleanup_failed_attach(mux, client, surface, stream.id);
             anyhow::bail!("client {client} is not attached to surface {surface}");
         };
-        if changed {
-            mux.emit(MuxEvent::ClientChanged { client, name, kind });
-        }
-        return Ok(Some(rollback));
+        return Ok((Some(rollback), changed.then_some((name, kind))));
     }
-    Ok(None)
+    Ok((None, None))
 }
 
-fn announce_client_attached(mux: &Mux, client: u64) -> anyhow::Result<()> {
+fn announce_client_attached(mux: &Mux, client: u64) -> anyhow::Result<bool> {
     if let Some((transport, name, kind)) = mux.control_clients.announce_attached(client)? {
         mux.emit(MuxEvent::ClientAttached { client, transport, name, kind });
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+fn commit_client_attach(
+    mux: &Mux,
+    client: u64,
+    changed: Option<(Option<String>, Option<String>)>,
+) -> anyhow::Result<()> {
+    let newly_announced = announce_client_attached(mux, client)?;
+    if !newly_announced && let Some((name, kind)) = changed {
+        mux.emit(MuxEvent::ClientChanged { client, name, kind });
     }
     Ok(())
 }
@@ -2416,6 +2430,7 @@ fn handle_command(
                 "app": "cmux-tui",
                 "version": env!("CARGO_PKG_VERSION"),
                 "protocol": PROTOCOL_VERSION,
+                "capabilities": [ATTACH_INITIAL_SIZE_CAPABILITY],
                 "session": mux.session,
                 "pid": std::process::id(),
             });
@@ -3162,7 +3177,7 @@ fn handle_command(
             };
             if render_mode {
                 require_pty(&surface)?;
-                let size_rollback = mark_client_attached(
+                let (size_rollback, client_changed) = mark_client_attached(
                     mux,
                     client,
                     surface_id,
@@ -3257,11 +3272,11 @@ fn handle_command(
                     );
                     return Err(error.into());
                 }
-                announce_client_attached(mux, client)?;
+                commit_client_attach(mux, client, client_changed)?;
                 return Ok(json!({}));
             }
             if surface.kind() == SurfaceKind::Browser {
-                let size_rollback = mark_client_attached(
+                let (size_rollback, client_changed) = mark_client_attached(
                     mux,
                     client,
                     surface_id,
@@ -3383,10 +3398,10 @@ fn handle_command(
                     );
                     return Err(error.into());
                 }
-                announce_client_attached(mux, client)?;
+                commit_client_attach(mux, client, client_changed)?;
                 return Ok(json!({}));
             }
-            let size_rollback = mark_client_attached(
+            let (size_rollback, client_changed) = mark_client_attached(
                 mux,
                 client,
                 surface_id,
@@ -3499,7 +3514,7 @@ fn handle_command(
                 rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
                 return Err(error.into());
             }
-            announce_client_attached(mux, client)?;
+            commit_client_attach(mux, client, client_changed)?;
             Ok(json!({}))
         }
     }
@@ -4501,7 +4516,7 @@ mod tests {
             mark_client_attached(&mux, client, surface.id, failed.clone(), Some((60, 20))).unwrap();
         assert_eq!(mux.client_surface_size(surface.id, client), Some((60, 20)));
         assert_eq!(surface.size(), (60, 20));
-        rollback_failed_attach(&mux, client, surface.id, failed.id, rollback);
+        rollback_failed_attach(&mux, client, surface.id, failed.id, rollback.0);
 
         assert!(mux.control_clients.attached_client_ids().contains(&client));
         assert_eq!(mux.client_surface_size(surface.id, client), Some((80, 24)));
@@ -4543,11 +4558,9 @@ mod tests {
         let mux = test_mux();
         let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
 
-        assert!(identity["capabilities"]
-            .as_array()
-            .is_some_and(|capabilities| capabilities.iter().any(|value| {
-                value.as_str() == Some("attach-initial-size")
-            })));
+        assert!(identity["capabilities"].as_array().is_some_and(|capabilities| {
+            capabilities.iter().any(|value| value.as_str() == Some("attach-initial-size"))
+        }));
     }
 
     #[test]

@@ -305,7 +305,14 @@ test("attachSurface render mode yields render-state and render-delta from cached
     transport.emit({
       id: request.id,
       ok: true,
-      data: { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 },
+      data: {
+        app: "cmux-tui",
+        version: "0.1.2",
+        protocol: 7,
+        capabilities: ["attach-initial-size"],
+        session: "main",
+        pid: 1,
+      },
     });
   });
   const attach = new ScriptedTransport((request, transport) => {

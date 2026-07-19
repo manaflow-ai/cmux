@@ -135,8 +135,10 @@ Params: none.
 Result:
 
 ```text
-object{app:"cmux-tui",version:string,protocol:uint32,session:string,pid:uint32}
+object{app:"cmux-tui",version:string,protocol:uint32,capabilities:array<string>,session:string,pid:uint32}
 ```
+
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list.
 
 Errors:
 
@@ -158,7 +160,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":7,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":7,"capabilities":["attach-initial-size"],"session":"main","pid":12345}}
 ```
 
 This implemented example reports the current protocol 6; a v7 server reports `7` in the same `protocol` field, including in `ping`.
@@ -2087,7 +2089,7 @@ Protocol v6 changes the attach stream ordering to `vt-state -> (resized | output
 
 Protocol v7 adds `mode`. `mode:"bytes"`, including the default when the field is absent, is the exact protocol-v6 attach behavior above. `mode:"render"` selects the authoritative styled-cell stream specified in [`render.md`](render.md): `render-state -> (render-delta | scroll-changed)* -> detached`. A client must require `identify.protocol >= 7` before selecting render mode.
 
-Protocol v7 also accepts paired `cols` and `rows`. The pair records the attaching client's initial viewer-size claim before initial state is generated. Supplying only one dimension is an error.
+Servers advertising the `attach-initial-size` capability accept paired `cols` and `rows`. The pair records the attaching client's initial viewer-size claim before initial state is generated. Supplying only one dimension is an error. Clients must not send either field to a server that omits the capability, including an older protocol-v7 server.
 
 Params:
 
@@ -2095,8 +2097,8 @@ Params:
 | --- | --- | --- | --- |
 | `surface` | `Id` | required | Must identify a live PTY surface |
 | `mode` | `string` | default `"bytes"` | Protocol 7: `"bytes"` or `"render"` |
-| `cols` | `uint16` | default null | Protocol 7; paired with `rows`, clamped to at least 1 |
-| `rows` | `uint16` | default null | Protocol 7; paired with `cols`, clamped to at least 1 |
+| `cols` | `uint16` | default null | `attach-initial-size` capability; paired with `rows`, clamped to at least 1 |
+| `rows` | `uint16` | default null | `attach-initial-size` capability; paired with `cols`, clamped to at least 1 |
 
 Result:
 

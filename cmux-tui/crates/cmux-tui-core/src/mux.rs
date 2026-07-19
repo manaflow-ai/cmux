@@ -2445,12 +2445,10 @@ impl Mux {
             let changed_screen = surface_screen_id(&state, target);
             let mut delta = close_surface_delta(&state, &notifications, target);
             let removed = remove_surface(&mut state, target);
-            if removed.is_some()
-                && matches!(
-                    delta.as_ref().map(|delta| delta.kind),
-                    Some(TreeDeltaKind::WorkspaceClosed)
-                )
-            {
+            if matches!(
+                delta.as_ref().map(|delta| delta.kind),
+                Some(TreeDeltaKind::WorkspaceClosed)
+            ) {
                 state.workspace_revision = state.workspace_revision.saturating_add(1);
                 if let Some(delta) = delta.as_mut() {
                     delta.workspace_revision = Some(state.workspace_revision);
@@ -2463,14 +2461,16 @@ impl Mux {
                 delta,
             )
         };
-        if let Some(surface) = removed {
+        if let Some(surface) = &removed {
             self.purge_surface_side_tables(surface.id);
             surface.kill();
-            if let Some(delta) = delta {
-                self.emit(MuxEvent::TreeDelta(delta));
-            } else {
-                self.emit(MuxEvent::TreeChanged);
-            }
+        }
+        if let Some(delta) = delta {
+            self.emit(MuxEvent::TreeDelta(delta));
+        } else if removed.is_some() {
+            self.emit(MuxEvent::TreeChanged);
+        }
+        if removed.is_some() || !changed_screens.is_empty() {
             for screen in changed_screens {
                 self.emit(MuxEvent::LayoutChanged(screen));
             }

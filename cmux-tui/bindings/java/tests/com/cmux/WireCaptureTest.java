@@ -46,7 +46,7 @@ public final class WireCaptureTest {
     private static byte[] captureAttach(long surface, Integer cols, Integer rows) throws Exception {
         Path socket = freshSocketPath();
         CaptureServer server = new CaptureServer(socket, new String[] {
-            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":7,\"session\":\"wire\",\"pid\":1}}",
+            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":7,\"capabilities\":[\"attach-initial-size\"],\"session\":\"wire\",\"pid\":1}}",
             "{\"event\":\"vt-state\",\"surface\":" + surface + ",\"cols\":80,\"rows\":24,\"data\":\"\"}"
         });
         server.start();

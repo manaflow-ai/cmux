@@ -3,11 +3,12 @@ package cmux
 import "encoding/json"
 
 type IdentifyResult struct {
-	App      string `json:"app"`
-	Version  string `json:"version"`
-	Protocol uint32 `json:"protocol"`
-	Session  string `json:"session"`
-	PID      uint32 `json:"pid"`
+	App          string   `json:"app"`
+	Version      string   `json:"version"`
+	Protocol     uint32   `json:"protocol"`
+	Capabilities []string `json:"capabilities"`
+	Session      string   `json:"session"`
+	PID          uint32   `json:"pid"`
 }
 
 type SurfaceResult struct {

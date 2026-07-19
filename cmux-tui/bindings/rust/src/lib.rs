@@ -87,6 +87,8 @@ pub struct IdentifyResult {
     pub app: String,
     pub version: String,
     pub protocol: u32,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
     pub session: String,
     pub pid: u32,
 }
@@ -332,12 +334,13 @@ pub struct CmuxClient {
     conn: JsonLineConnection,
     next_id: u64,
     protocol: Option<u32>,
+    capabilities: Vec<String>,
 }
 
 impl CmuxClient {
     pub fn connect(config: ClientConfig) -> Result<Self> {
         let conn = JsonLineConnection::connect(&config.socket_path, config.timeout)?;
-        Ok(Self { config, conn, next_id: 1, protocol: None })
+        Ok(Self { config, conn, next_id: 1, protocol: None, capabilities: Vec::new() })
     }
 
     pub fn send_raw(&mut self, mut request: Map<String, Value>) -> Result<Value> {
@@ -387,6 +390,7 @@ impl CmuxClient {
     pub fn identify(&mut self) -> Result<IdentifyResult> {
         let result: IdentifyResult = self.request("identify", Map::new())?;
         self.protocol = Some(result.protocol);
+        self.capabilities.clone_from(&result.capabilities);
         Ok(result)
     }
 
@@ -699,6 +703,13 @@ impl CmuxClient {
             return Err(CmuxError::ProtocolVersion(format!(
                 "unsupported attach protocol {protocol}"
             )));
+        }
+        if (options.cols.is_some() || options.rows.is_some())
+            && !self.capabilities.iter().any(|value| value == "attach-initial-size")
+        {
+            return Err(CmuxError::ProtocolVersion(
+                "initial attach sizing is not supported by this server".to_string(),
+            ));
         }
         let mut params = surface_params(surface);
         insert_opt(&mut params, "cols", options.cols);

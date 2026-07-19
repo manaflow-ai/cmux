@@ -16,6 +16,7 @@ import java.util.ArrayDeque;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 public final class CmuxClient implements AutoCloseable {
     private final String socketPath;
@@ -24,6 +25,7 @@ public final class CmuxClient implements AutoCloseable {
     private final JsonLineConnection connection;
     private long nextId = 1;
     private Integer protocol;
+    private Set<String> capabilities = Set.of();
 
     private CmuxClient(Builder builder) throws CmuxException {
         this.socketPath = builder.socketPath != null ? builder.socketPath : resolvedSocketPath(builder.session);
@@ -81,6 +83,7 @@ public final class CmuxClient implements AutoCloseable {
         Map<String, Object> data = request("identify", new LinkedHashMap<>());
         IdentifyResult result = IdentifyResult.from(data);
         protocol = result.protocol();
+        capabilities = Set.copyOf(result.capabilities());
         return result;
     }
 
@@ -341,6 +344,11 @@ public final class CmuxClient implements AutoCloseable {
         int negotiated = protocol != null ? protocol : identify().protocol();
         if (negotiated > 7 || (negotiated > 5 && !allowProtocolV6Attach)) {
             throw new CmuxProtocolMismatchException("unsupported attach protocol " + negotiated);
+        }
+        if ((cols != null || rows != null) && !capabilities.contains("attach-initial-size")) {
+            throw new CmuxProtocolMismatchException(
+                "initial attach sizing is not supported by this server"
+            );
         }
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("cmd", "attach-surface");

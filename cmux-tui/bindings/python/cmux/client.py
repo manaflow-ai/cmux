@@ -51,6 +51,7 @@ class IdentifyResult:
     protocol: int
     session: str
     pid: int
+    capabilities: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -310,6 +311,7 @@ class CmuxClient:
         self._next_request_id = 1
         self._id_lock = threading.Lock()
         self._protocol: Optional[int] = None
+        self._capabilities: set[str] = set()
 
     def __enter__(self) -> "CmuxClient":
         return self
@@ -353,8 +355,10 @@ class CmuxClient:
             protocol=int(data["protocol"]),
             session=str(data["session"]),
             pid=int(data["pid"]),
+            capabilities=tuple(str(value) for value in data.get("capabilities", [])),
         )
         self._protocol = result.protocol
+        self._capabilities = set(result.capabilities)
         return result
 
     def ping(self) -> PingResult:
@@ -669,6 +673,8 @@ class CmuxClient:
             raise ProtocolError(f"unsupported protocol {protocol}; maximum supported is 7")
         if protocol > 5 and not self.allow_protocol_v6_attach:
             raise ProtocolError("protocol v6 attach streams require resized replay handling")
+        if (cols is not None or rows is not None) and "attach-initial-size" not in self._capabilities:
+            raise ProtocolError("initial attach sizing is not supported by this server")
         request: Dict[str, Any] = {"cmd": "attach-surface", "surface": surface}
         if cols is not None:
             request["cols"] = cols

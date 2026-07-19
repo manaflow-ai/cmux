@@ -7,6 +7,8 @@ use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
 
 const REQUEST_ID: u64 = 1;
+const CAPABILITY_REQUEST_ID: u64 = 0;
+const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 
 type BuildFn = fn(&FlagMap) -> Result<Value, UsageError>;
 type PrintFn = fn(&Value, &mut dyn Write) -> io::Result<()>;
@@ -566,24 +568,70 @@ fn run_command(args: CliArgs) -> i32 {
     } else {
         let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
     }
-    let mut line = match serde_json::to_vec(&request) {
-        Ok(line) => line,
-        Err(err) => {
-            eprintln!("failed to encode request: {err}");
-            return 2;
+    let mut reader = BufReader::new(stream);
+    if request.get("cmd").and_then(Value::as_str) == Some("attach-surface")
+        && request.get("cols").is_some()
+    {
+        match server_supports_capability(&mut reader, ATTACH_INITIAL_SIZE_CAPABILITY) {
+            Ok(true) => {}
+            Ok(false) => {
+                eprintln!("initial attach sizing is not supported by this server");
+                return 1;
+            }
+            Err(err) => {
+                eprintln!("{err}");
+                return 3;
+            }
         }
-    };
-    line.push(b'\n');
-    if let Err(err) = stream.write_all(&line) {
+    }
+    if let Err(err) = write_json_line(reader.get_mut(), &request) {
         eprintln!("transport error: {err}");
         return 3;
     }
-
-    let mut reader = BufReader::new(stream);
     if stream_mode {
         run_stream(reader)
     } else {
         run_one_response(&mut reader, args.global.json, print)
+    }
+}
+
+fn write_json_line(writer: &mut dyn Write, value: &Value) -> io::Result<()> {
+    serde_json::to_writer(&mut *writer, value).map_err(io::Error::other)?;
+    writer.write_all(b"\n")
+}
+
+fn server_supports_capability(
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+    capability: &str,
+) -> Result<bool, String> {
+    write_json_line(reader.get_mut(), &json!({"id": CAPABILITY_REQUEST_ID, "cmd": "identify"}))
+        .map_err(|err| format!("transport error: {err}"))?;
+
+    loop {
+        let mut line = String::new();
+        match reader.read_line(&mut line) {
+            Ok(0) => return Err("transport closed before identify response".to_string()),
+            Ok(_) => {}
+            Err(err) => return Err(format!("transport error: {err}")),
+        }
+        let value: Value =
+            serde_json::from_str(&line).map_err(|err| format!("bad identify response: {err}"))?;
+        if value.get("event").is_some()
+            || value.get("id").and_then(Value::as_u64) != Some(CAPABILITY_REQUEST_ID)
+        {
+            continue;
+        }
+        if value.get("ok").and_then(Value::as_bool) != Some(true) {
+            return Err(value
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("identify failed")
+                .to_string());
+        }
+        return Ok(value
+            .pointer("/data/capabilities")
+            .and_then(Value::as_array)
+            .is_some_and(|values| values.iter().any(|value| value.as_str() == Some(capability))));
     }
 }
 

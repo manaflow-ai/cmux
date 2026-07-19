@@ -70,6 +70,7 @@ type Client struct {
 	mu                    sync.Mutex
 	nextID                atomic.Uint64
 	protocol              *uint32
+	capabilities          map[string]struct{}
 }
 
 type Options struct {
@@ -198,6 +199,10 @@ func (c *Client) Identify(ctx context.Context) (IdentifyResult, error) {
 	err := c.request(ctx, "identify", nil, &result)
 	if err == nil {
 		c.protocol = &result.Protocol
+		c.capabilities = make(map[string]struct{}, len(result.Capabilities))
+		for _, capability := range result.Capabilities {
+			c.capabilities[capability] = struct{}{}
+		}
 	}
 	return result, err
 }
@@ -396,6 +401,9 @@ func (c *Client) AttachSurfaceWithOptions(ctx context.Context, surface uint64, o
 	if *protocol > 7 || (*protocol > 5 && !c.allowProtocolV6Attach) {
 		return nil, &protocolError{msg: fmt.Sprintf("unsupported attach protocol %d", *protocol)}
 	}
+	if (opts.Cols != nil || opts.Rows != nil) && !c.hasCapability("attach-initial-size") {
+		return nil, &protocolError{msg: "initial attach sizing is not supported by this server"}
+	}
 	params := map[string]any{"id": c.nextRequestID(), "cmd": "attach-surface", "surface": surface}
 	if opts.Cols != nil {
 		params["cols"] = *opts.Cols
@@ -404,6 +412,11 @@ func (c *Client) AttachSurfaceWithOptions(ctx context.Context, surface uint64, o
 		params["rows"] = *opts.Rows
 	}
 	return c.openStream(ctx, params)
+}
+
+func (c *Client) hasCapability(capability string) bool {
+	_, ok := c.capabilities[capability]
+	return ok
 }
 
 func (c *Client) openStream(ctx context.Context, request map[string]any) (*Stream, error) {

@@ -16,7 +16,14 @@ import type { DeclarativeLayout, Layout, Tree } from "./tree.js";
 import type { RenderRow } from "./render.js";
 
 export interface IdentifyRequest extends CmuxRequestBase { cmd: "identify" }
-export interface IdentifyResult { app: "cmux-tui"; version: string; protocol: number; session: string; pid: number }
+export interface IdentifyResult {
+  app: "cmux-tui";
+  version: string;
+  protocol: number;
+  capabilities?: string[];
+  session: string;
+  pid: number;
+}
 
 export interface PingRequest extends CmuxRequestBase { cmd: "ping" }
 export interface PingResult { ok: true; version: string; protocol: number }

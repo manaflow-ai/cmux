@@ -14,7 +14,7 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":7,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":7,"capabilities":["attach-initial-size"],"session":"main","pid":12345}}
 ```
 
 Responses have this shape:
@@ -153,7 +153,7 @@ When the stream ends, it sends:
 
 The remote TUI requires protocol v7. It refuses servers reporting any other protocol version because it relies on resized attach replays and authoritative title events.
 
-Attach clients mirror PTY surfaces locally. A client can include paired `cols` and `rows` in `attach-surface`, so the server records its initial size claim before capturing the first VT replay or render state.
+Attach clients mirror PTY surfaces locally. After `identify` advertises `attach-initial-size`, a client can include paired `cols` and `rows` in `attach-surface`, so the server records its initial size claim before capturing the first VT replay or render state. Older servers that omit the capability must receive neither field.
 
 When several attach clients render the same surface at different sizes, sizing follows latest local interaction. A client reasserts its visible sizes after key input, mouse input, paste, focus gained, or terminal resize. Mux-driven redraws update local mirrors from `surface-resized` without reasserting an idle client's viewport.
 

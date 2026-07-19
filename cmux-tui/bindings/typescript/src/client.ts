@@ -347,6 +347,7 @@ export class CmuxClient {
   private readonly streamTransportFactory?: () => Transport;
   private nextRequestId = 1;
   private identifiedProtocol: number | null = null;
+  private identifiedCapabilities = new Set<string>();
   private sharedSubscriptionActive = false;
 
   constructor(options: CmuxClientOptions) {
@@ -401,6 +402,7 @@ export class CmuxClient {
   async identify(): Promise<IdentifyResult> {
     const result = await this.request("identify");
     this.identifiedProtocol = result.protocol;
+    this.identifiedCapabilities = new Set(result.capabilities ?? []);
     return result;
   }
 
@@ -546,6 +548,10 @@ export class CmuxClient {
     }
     if (mode === "bytes" && protocol > 5 && !this.allowProtocolV6Attach) {
       throw new CmuxProtocolError(`byte attach for protocol ${protocol} is disabled`);
+    }
+    if ((options.cols !== undefined || options.rows !== undefined)
+      && !this.identifiedCapabilities.has("attach-initial-size")) {
+      throw new CmuxProtocolError("initial attach sizing is not supported by this server");
     }
     const request: CmuxRequest = {
       cmd: "attach-surface",
