@@ -267,6 +267,30 @@ struct ProviderCurrentVersionContractTests {
         }
     }
 
+    @Test("Gemini 0.51.0 short list-extensions alias exits without replay")
+    func geminiShortListExtensionsAliasIsNonSession() {
+        let arguments = ["gemini", "-l"]
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "gemini", arguments: arguments, kind: "gemini"
+            ) == .nonSession
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                arguments, launcher: "gemini", fallbackKind: "gemini"
+            ) == nil
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "gemini",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: arguments,
+                transcriptPath: "/tmp/gemini-session.json"
+            ) == nil
+        )
+    }
+
     @Test("Kimi 1.37.0 interactive booleans")
     func kimiCurrentContracts() {
         let launch = [
@@ -473,6 +497,37 @@ struct ProviderCurrentVersionContractTests {
                 Comment(rawValue: option)
             )
         }
+    }
+
+    @Test("Codex 0.144.3 resume-only picker selector never leaks into canonical replay")
+    func codexResumeOnlyPickerSelectorIsNotReplayed() {
+        let arguments = ["codex", "resume", "--include-non-interactive", "--last"]
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "codex", arguments: arguments, kind: "codex"
+            ) == .interactive
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                arguments, launcher: "codex", fallbackKind: "codex"
+            ) == ["codex"]
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: arguments
+            ) == ["codex", "resume", "SID", "-c", "check_for_update_on_startup=false"]
+        )
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: arguments
+            ) == ["codex", "fork", "SID"]
+        )
     }
 
     @Test("Pi 0.80.6 interactive booleans preserve adjacent options")
@@ -832,6 +887,85 @@ struct ProviderCurrentVersionContractTests {
                 arguments, launcher: "cursor", fallbackKind: "cursor"
             ) == nil
         )
+    }
+
+    @Test("Cursor 2026.07.16 plugin command exits without replay")
+    func cursorPluginCommandIsNonSession() {
+        let arguments = ["cursor-agent", "plugin", "list"]
+        #expect(
+            AgentLaunchModeClassifier.processMode(
+                processName: "cursor-agent", arguments: arguments, kind: "cursor"
+            ) == .nonSession
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                arguments, launcher: "cursor", fallbackKind: "cursor"
+            ) == nil
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "cursor",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: arguments
+            ) == nil
+        )
+    }
+
+    @Test("Current long-lived protocol entrypoints never become canonical TUI resumes")
+    func protocolEntrypointsAreNotReplayableAsTUISessions() {
+        for command in ["acp", "auth-gateway", "join", "shell"] {
+            let arguments = ["omp", command]
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "omp", arguments: arguments, kind: "omp"
+                ) == .interactive,
+                Comment(rawValue: command)
+            )
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    arguments, launcher: "omp", fallbackKind: "omp"
+                ) == nil,
+                Comment(rawValue: command)
+            )
+            #expect(
+                AgentResumeArgv().builtInKind(
+                    kind: "omp",
+                    sessionId: "SID",
+                    executablePath: nil,
+                    arguments: arguments
+                ) == nil,
+                Comment(rawValue: command)
+            )
+        }
+
+        for arguments in [
+            ["kimi", "--acp"],
+            ["kimi", "--wire"],
+            ["kimi", "--input-format", "stream-json"],
+        ] {
+            #expect(
+                AgentLaunchModeClassifier.processMode(
+                    processName: "kimi", arguments: arguments, kind: "kimi"
+                ) == .interactive,
+                "\(arguments)"
+            )
+            #expect(
+                AgentLaunchSanitizer.sanitizedLaunchArguments(
+                    arguments, launcher: "kimi", fallbackKind: "kimi"
+                ) == nil,
+                "\(arguments)"
+            )
+            #expect(
+                AgentResumeArgv().builtInKind(
+                    kind: "kimi",
+                    sessionId: "SID",
+                    executablePath: nil,
+                    arguments: arguments
+                ) == nil,
+                "\(arguments)"
+            )
+        }
     }
 
     @Test("Factory documented root and exec option widths")
