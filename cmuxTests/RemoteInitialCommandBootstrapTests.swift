@@ -37,10 +37,11 @@ struct RemoteInitialCommandBootstrapTests {
             *) shift ;;
           esac
         done
-        cmux_test_command_file="${cmux_test_rcfile%/*}/initial-command"
-        if [ -f "$cmux_test_command_file" ]; then
-          stat -f '%Lp' "$cmux_test_command_file" > "$HOME/initial command mode.txt"
-        fi
+        for cmux_test_command_file in "${cmux_test_rcfile%/*}"/initial-command.*; do
+          if [ -f "$cmux_test_command_file" ]; then
+            stat -f '%Lp' "$cmux_test_command_file" > "$HOME/initial command mode.txt"
+          fi
+        done
         [ -n "$cmux_test_rcfile" ] && . "$cmux_test_rcfile"
         """.write(to: fakeBash, atomically: true, encoding: .utf8)
         try fileManager.setAttributes(
@@ -54,6 +55,11 @@ struct RemoteInitialCommandBootstrapTests {
             shellFeatures: "ssh-env,ssh-terminfo",
             initialCommand: command
         )
+        let secondWorkspaceScript = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 0,
+            shellFeatures: "ssh-env,ssh-terminfo",
+            initialCommand: #"printf '%s\n' "second workspace" >> "$HOME/initial command.txt""#
+        )
         let environment = ProcessInfo.processInfo.environment.merging([
             "HOME": home.path,
             "PATH": "/usr/bin:/bin",
@@ -65,9 +71,19 @@ struct RemoteInitialCommandBootstrapTests {
         #expect(first.status == 0, "stdout: \(first.stdout)\nstderr: \(first.stderr)")
         let second = try runShell("umask 022\n" + script, environment: environment)
         #expect(second.status == 0, "stdout: \(second.stdout)\nstderr: \(second.stderr)")
+        let otherWorkspaceFirst = try runShell("umask 022\n" + secondWorkspaceScript, environment: environment)
+        #expect(
+            otherWorkspaceFirst.status == 0,
+            "stdout: \(otherWorkspaceFirst.stdout)\nstderr: \(otherWorkspaceFirst.stderr)"
+        )
+        let otherWorkspaceSecond = try runShell("umask 022\n" + secondWorkspaceScript, environment: environment)
+        #expect(
+            otherWorkspaceSecond.status == 0,
+            "stdout: \(otherWorkspaceSecond.stdout)\nstderr: \(otherWorkspaceSecond.stderr)"
+        )
 
         let captured = try String(contentsOf: output, encoding: .utf8)
-        #expect(captured == "spaces 'single' \"double\" remote-only remote-substitution\n")
+        #expect(captured == "spaces 'single' \"double\" remote-only remote-substitution\nsecond workspace\n")
         let mode = try String(
             contentsOf: home.appendingPathComponent("initial command mode.txt"),
             encoding: .utf8
@@ -75,15 +91,9 @@ struct RemoteInitialCommandBootstrapTests {
         #expect(mode == "600\n")
 
         let shellState = home.appendingPathComponent(".cmux/relay/0.shell")
-        var isDirectory = ObjCBool(false)
-        #expect(
-            fileManager.fileExists(
-                atPath: shellState.appendingPathComponent(".initial-command.started").path,
-                isDirectory: &isDirectory
-            )
-        )
-        #expect(isDirectory.boolValue)
-        #expect(!fileManager.fileExists(atPath: shellState.appendingPathComponent("initial-command").path))
+        let shellStateContents = try fileManager.contentsOfDirectory(atPath: shellState.path)
+        #expect(shellStateContents.filter { $0.hasPrefix(".initial-command.started.") }.count == 2)
+        #expect(!shellStateContents.contains { $0.hasPrefix("initial-command.") })
     }
 
     @Test
