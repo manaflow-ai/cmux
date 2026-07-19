@@ -269,11 +269,20 @@ final class SidebarWorkspaceTableLocalReorderController {
     ) {
         guard let delegate, var current = session else { return }
         guard let plan = delegate.localReorderResolvePlan(point: point, targets: targets) else {
-            // A nil plan is the resolver's no-op zone — the pointer is back
-            // over the dragged block's original slot (or an illegal one).
-            // Preview the original order and forget the last plan so a drop
-            // here restores instead of committing the previous slot; without
-            // this, a drag could never be returned to where it started.
+            // A nil plan is the planner's no-op suppression: the drop would
+            // land the block at its model position. Two very different zones
+            // produce it, and conflating them oscillates (restore moves a
+            // neighbor under the pointer, which re-previews, which restores…):
+            // - Pointer inside the block's own preview frame — the gap under
+            //   the pointer IS the block; the resting state of every drag.
+            //   Keep the preview exactly as it is.
+            // - Pointer outside the block — it crossed into the original
+            //   slot's dead zone (or an illegal one). Preview the original
+            //   order and forget the plan so the drop restores; this is what
+            //   lets a drag be returned exactly where it started.
+            if pointerIsInsideBlockPreviewFrame(pointerY: point.y) {
+                return
+            }
             current.lastPlan = nil
             current.destinationGroupId = current.baseGroupId
             session = current
@@ -317,6 +326,23 @@ final class SidebarWorkspaceTableLocalReorderController {
         } else {
             session = current
         }
+    }
+
+    /// Whether the pointer sits within the dragged block's rows as the
+    /// preview currently shows them (overlay coordinates).
+    private func pointerIsInsideBlockPreviewFrame(pointerY: CGFloat) -> Bool {
+        guard let current = session,
+              let container = delegate?.localReorderContainerView else { return false }
+        let rows = delegate?.localReorderRows ?? []
+        let table = container.tableView
+        let overlay = container.reorderDropView
+        let blockRect = rows.indices
+            .filter { current.blockRowIds.contains(rows[$0].id) }
+            .reduce(CGRect.null) { partial, row in
+                partial.union(table.convert(table.rect(ofRow: row), to: overlay))
+            }
+        guard !blockRect.isNull else { return false }
+        return pointerY >= blockRect.minY && pointerY <= blockRect.maxY
     }
 
     private func positionFloatingView(pointerY: CGFloat) {
