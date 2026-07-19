@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 
 @MainActor
@@ -124,6 +125,33 @@ extension RemoteTmuxControlConnection {
 
     func discardPendingPaneSeeds(keeping livePanes: Set<Int>) {
         pendingPaneSeeds = pendingPaneSeeds.filter { livePanes.contains($0.key) }
+    }
+
+    /// Repaints panes whose verified tmux assignment grew since the last
+    /// publication. A surface cannot recover cells that were clipped while its
+    /// grid was shorter from the live PTY stream alone; `capture-pane` is the
+    /// authoritative, transport-independent repair. New panes are excluded because
+    /// their full-history seed owns their initial paint.
+    func repaintPanesThatGrew(from previous: RemoteTmuxWindow?, to current: RemoteTmuxWindow) {
+        guard let previous else { return }
+        let previousLeaves = assignedPaneLeaves(in: previous)
+        let currentLeaves = assignedPaneLeaves(in: current)
+        let panes = currentLeaves.compactMap { paneId, leaf -> Int? in
+            guard let old = previousLeaves[paneId],
+                  leaf.width > old.width || leaf.height > old.height else { return nil }
+            return paneId
+        }
+        for paneId in panes.sorted() { repaintPaneVisibleScreen(paneId: paneId) }
+    }
+
+    /// The grid each live surface renders: the visible zoom leaf wins, while
+    /// hidden panes retain their base-layout assignments.
+    private func assignedPaneLeaves(in window: RemoteTmuxWindow) -> [Int: RemoteTmuxLayoutNode] {
+        var leaves = window.layout.leavesByPaneID
+        if window.zoomed, let visible = window.visibleLayout?.leavesByPaneID {
+            for (paneId, leaf) in visible { leaves[paneId] = leaf }
+        }
+        return leaves
     }
 
     /// Fails every request whose reply belongs to the outgoing control stream.
