@@ -389,7 +389,8 @@ final class TerminalRenderMetalBlitter: @unchecked Sendable {
                 self?.submissionPresented(
                     workID: work.id,
                     metadata: work.frame.metadata,
-                    epoch: work.epoch
+                    epoch: work.epoch,
+                    layer: work.layer
                 )
             }
         )
@@ -525,10 +526,13 @@ final class TerminalRenderMetalBlitter: @unchecked Sendable {
     private func submissionPresented(
         workID _: UInt64,
         metadata: TerminalRenderFrameMetadata,
-        epoch: UInt64
+        epoch: UInt64,
+        layer: TerminalRenderMetalLayerHandle
     ) {
         lock.lock()
-        let shouldPresent = !state.stopped && epoch == state.currentEpoch
+        let shouldPresent = !state.stopped
+            && epoch == state.currentEpoch
+            && layer === state.currentLayer
         lock.unlock()
         if shouldPresent {
             presentedHandler?(metadata)
