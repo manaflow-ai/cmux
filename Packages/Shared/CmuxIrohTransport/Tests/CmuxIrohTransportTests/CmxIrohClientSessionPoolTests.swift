@@ -578,6 +578,91 @@ struct CmxIrohClientSessionPoolTests {
         #expect(await iterator.next() != nil)
         #expect(await pool.selectedObservedPath() == .unavailable)
     }
+
+    @Test
+    func selectedPathDoesNotPublishAnUnestablishedControlSession() async throws {
+        let fixture = try PoolFixture()
+        let endpoint = TestHangingDialEndpoint(localIdentity: fixture.localIdentity)
+        let pool = try await fixture.pool(endpoint: endpoint, generation: 1)
+        let changes = await pool.selectedPathChanges()
+        let recorder = SelectedPathChangeRecorder()
+        let observation = Task {
+            for await _ in changes {
+                await recorder.record()
+            }
+        }
+        #expect(await waitForSelectedPathChangeCount(recorder, atLeast: 1))
+
+        let transport = try CmxIrohByteTransportFactory(sessionPool: pool)
+            .makeTransport(for: fixture.request)
+        let connection = Task {
+            try await transport.connect()
+        }
+        let started = await endpoint.startedEvents()
+        var startedIterator = started.makeAsyncIterator()
+        #expect(await startedIterator.next() != nil)
+
+        let publishedBeforeEstablishment = await waitForSelectedPathChangeCount(
+            recorder,
+            atLeast: 2
+        )
+        #expect(!publishedBeforeEstablishment)
+        #expect(await pool.selectedObservedPath() == .unavailable)
+
+        connection.cancel()
+        await pool.deactivate()
+        _ = try? await connection.value
+        observation.cancel()
+    }
+
+    @Test
+    func selectedPathPrefersTheActiveControlSessionOverANewerBackgroundSession() async throws {
+        let fixture = try PoolFixture()
+        let backgroundIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "ef", count: 32)
+        )
+        let backgroundRequest = CmxByteTransportRequest(
+            route: try CmxAttachRoute(
+                id: "iroh-background-session",
+                kind: .iroh,
+                endpoint: .peer(identity: backgroundIdentity, pathHints: [])
+            ),
+            expectedPeerDeviceID: "123e4567-e89b-42d3-a456-426614174031",
+            authorizationMode: .transportAdmission,
+            sessionPurpose: .backgroundControl
+        )
+        let controlConnection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()],
+            selectedPath: .direct
+        )
+        let backgroundConnection = TestIrohConnection(
+            remoteIdentity: backgroundIdentity,
+            bidirectionalStreams: [fixture.controlStream()],
+            selectedPath: .relay(url: "https://relay.example.com/")
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: fixture.localIdentity,
+            dialResults: [
+                .connection(controlConnection),
+                .connection(backgroundConnection),
+            ]
+        )
+        let pool = try await fixture.pool(endpoint: endpoint, generation: 1)
+        let control = try CmxIrohByteTransportFactory(sessionPool: pool)
+            .makeTransport(for: fixture.request)
+        let background = try CmxIrohByteTransportFactory(sessionPool: pool)
+            .makeTransport(for: backgroundRequest)
+
+        try await control.connect()
+        #expect(await pool.selectedObservedPath() == .direct)
+
+        try await background.connect()
+
+        #expect(await pool.selectedObservedPath() == .direct)
+        await background.close()
+        await control.close()
+    }
 }
 
 private func waitForControlWaiter(
@@ -586,6 +671,29 @@ private func waitForControlWaiter(
 ) async -> Bool {
     for _ in 0 ..< 1_000 {
         if await pool.controlWaiterCount(for: request) == 1 { return true }
+        await Task.yield()
+    }
+    return false
+}
+
+private actor SelectedPathChangeRecorder {
+    private var count = 0
+
+    func record() {
+        count += 1
+    }
+
+    func observedCount() -> Int {
+        count
+    }
+}
+
+private func waitForSelectedPathChangeCount(
+    _ recorder: SelectedPathChangeRecorder,
+    atLeast expectedCount: Int
+) async -> Bool {
+    for _ in 0 ..< 1_000 {
+        if await recorder.observedCount() >= expectedCount { return true }
         await Task.yield()
     }
     return false
@@ -620,7 +728,7 @@ private struct PoolFixture {
     }
 
     func pool(
-        endpoint: TestDialingIrohEndpoint,
+        endpoint: any CmxIrohEndpoint,
         generation: UInt64,
         contextProvider: (any CmxIrohClientContextProvider)? = nil
     ) async throws -> CmxIrohClientSessionPool {

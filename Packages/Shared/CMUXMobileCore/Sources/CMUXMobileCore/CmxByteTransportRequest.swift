@@ -11,14 +11,18 @@ public struct CmxByteTransportRequest: Equatable, Sendable {
     public let route: CmxAttachRoute
     public let expectedPeerDeviceID: String?
     public let authorizationMode: CmxTransportAuthorizationMode
+    /// The local owner whose network path this request represents.
+    public let sessionPurpose: CmxTransportSessionPurpose
 
     public init(
         route: CmxAttachRoute,
         expectedPeerDeviceID: String?,
-        authorizationMode: CmxTransportAuthorizationMode
+        authorizationMode: CmxTransportAuthorizationMode,
+        sessionPurpose: CmxTransportSessionPurpose = .foregroundControl
     ) {
         self.route = route
         self.expectedPeerDeviceID = expectedPeerDeviceID
         self.authorizationMode = authorizationMode
+        self.sessionPurpose = sessionPurpose
     }
 }

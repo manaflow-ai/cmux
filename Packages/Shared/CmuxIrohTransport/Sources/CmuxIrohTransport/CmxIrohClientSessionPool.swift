@@ -24,7 +24,13 @@ actor CmxIrohClientSessionPool {
     private struct ControlWaiter {
         let id: UUID
         let ownerID: UUID
+        let purpose: CmxTransportSessionPurpose
         let continuation: CheckedContinuation<Void, Never>
+    }
+
+    private struct ControlOwner {
+        let id: UUID
+        let purpose: CmxTransportSessionPurpose
     }
 
     private let supervisor: CmxIrohEndpointSupervisor
@@ -35,7 +41,7 @@ actor CmxIrohClientSessionPool {
     private var sessions: [SessionKey: PooledSession] = [:]
     private var sessionOrder: [SessionKey] = []
     private var connectionTasks: [SessionKey: PendingConnection] = [:]
-    private var controlOwners: [SessionKey: UUID] = [:]
+    private var controlOwners: [SessionKey: ControlOwner] = [:]
     private var controlWaiters: [SessionKey: [ControlWaiter]] = [:]
     private var selectedPathContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
 
@@ -174,14 +180,18 @@ actor CmxIrohClientSessionPool {
         ownerID: UUID
     ) async throws -> CmxIrohClientSession {
         let key = try sessionKey(for: request)
-        try await reserveControlOwner(for: key, ownerID: ownerID)
+        try await reserveControlOwner(
+            for: key,
+            ownerID: ownerID,
+            purpose: request.sessionPurpose
+        )
         do {
             return try await session(
                 for: request,
                 preservesControlOwnerOnClosed: true
             )
         } catch {
-            if controlOwners[key] == ownerID {
+            if controlOwners[key]?.id == ownerID {
                 releaseControlOwner(for: key, ownerID: ownerID)
             }
             throw error
@@ -223,7 +233,7 @@ actor CmxIrohClientSessionPool {
         ownerID: UUID
     ) async {
         guard let key = try? sessionKey(for: request),
-              controlOwners[key] == ownerID else {
+              controlOwners[key]?.id == ownerID else {
             return
         }
         await invalidateSession(for: key, releasesControlOwner: false)
@@ -256,7 +266,14 @@ actor CmxIrohClientSessionPool {
     }
 
     func selectedObservedPath() async -> CmxIrohObservedConnectionPath {
-        guard let key = sessionOrder.last,
+        let foregroundKey = sessionOrder.last { key in
+            controlOwners[key]?.purpose == .foregroundControl
+                && sessions[key] != nil
+        }
+        let controlKey = sessionOrder.last { key in
+            controlOwners[key] != nil && sessions[key] != nil
+        }
+        guard let key = foregroundKey ?? controlKey ?? sessionOrder.last,
               let session = sessions[key]?.session else { return .unavailable }
         return await session.observedSelectedPath()
     }
@@ -279,13 +296,13 @@ actor CmxIrohClientSessionPool {
 
     private func sessionDidClose(key: SessionKey, sessionID: UUID) async {
         guard let pooled = sessions[key], pooled.id == sessionID else { return }
-        let ownerID = controlOwners[key]
+        let owner = controlOwners[key]
         sessions[key] = nil
         sessionOrder.removeAll { $0 == key }
         pooled.pathObservationTask.cancel()
         await pooled.session.close()
-        if let ownerID {
-            releaseControlOwner(for: key, ownerID: ownerID)
+        if let owner {
+            releaseControlOwner(for: key, ownerID: owner.id)
         }
         publishSelectedPathChange()
     }
@@ -307,7 +324,7 @@ actor CmxIrohClientSessionPool {
         releasesControlOwner: Bool = true
     ) async {
         if let expectedID, sessions[key]?.id != expectedID { return }
-        let ownerID = releasesControlOwner ? controlOwners[key] : nil
+        let owner = releasesControlOwner ? controlOwners[key] : nil
         connectionTasks[key]?.task.cancel()
         connectionTasks[key] = nil
         let pooled = sessions.removeValue(forKey: key)
@@ -315,8 +332,8 @@ actor CmxIrohClientSessionPool {
         pooled?.closureTask.cancel()
         pooled?.pathObservationTask.cancel()
         await pooled?.session.close()
-        if let ownerID {
-            releaseControlOwner(for: key, ownerID: ownerID)
+        if let owner {
+            releaseControlOwner(for: key, ownerID: owner.id)
         }
         publishSelectedPathChange()
     }
@@ -331,12 +348,14 @@ actor CmxIrohClientSessionPool {
 
     private func reserveControlOwner(
         for key: SessionKey,
-        ownerID: UUID
+        ownerID: UUID,
+        purpose: CmxTransportSessionPurpose
     ) async throws {
         if let existing = controlOwners[key] {
-            if existing == ownerID { return }
+            if existing.id == ownerID { return }
         } else {
-            controlOwners[key] = ownerID
+            controlOwners[key] = ControlOwner(id: ownerID, purpose: purpose)
+            publishSelectedPathChangeIfEstablished(for: key)
             return
         }
 
@@ -348,17 +367,19 @@ actor CmxIrohClientSessionPool {
                     return
                 }
                 if let existing = controlOwners[key] {
-                    if existing == ownerID {
+                    if existing.id == ownerID {
                         continuation.resume()
                     } else {
                         controlWaiters[key, default: []].append(ControlWaiter(
                             id: waiterID,
                             ownerID: ownerID,
+                            purpose: purpose,
                             continuation: continuation
                         ))
                     }
                 } else {
-                    controlOwners[key] = ownerID
+                    controlOwners[key] = ControlOwner(id: ownerID, purpose: purpose)
+                    publishSelectedPathChangeIfEstablished(for: key)
                     continuation.resume()
                 }
             }
@@ -368,12 +389,12 @@ actor CmxIrohClientSessionPool {
 
         do {
             try Task.checkCancellation()
-            guard controlOwners[key] == ownerID else {
+            guard controlOwners[key]?.id == ownerID else {
                 throw CmxIrohClientRuntimeError.inactive
             }
         } catch {
             cancelControlWaiter(for: key, id: waiterID)
-            if controlOwners[key] == ownerID {
+            if controlOwners[key]?.id == ownerID {
                 releaseControlOwner(for: key, ownerID: ownerID)
             }
             throw error
@@ -391,13 +412,22 @@ actor CmxIrohClientSessionPool {
     }
 
     private func releaseControlOwner(for key: SessionKey, ownerID: UUID) {
-        guard controlOwners[key] == ownerID else { return }
+        guard controlOwners[key]?.id == ownerID else { return }
         controlOwners[key] = nil
-        guard var waiters = controlWaiters[key], !waiters.isEmpty else { return }
+        guard var waiters = controlWaiters[key], !waiters.isEmpty else {
+            publishSelectedPathChangeIfEstablished(for: key)
+            return
+        }
         let next = waiters.removeFirst()
         controlWaiters[key] = waiters.isEmpty ? nil : waiters
-        controlOwners[key] = next.ownerID
+        controlOwners[key] = ControlOwner(id: next.ownerID, purpose: next.purpose)
+        publishSelectedPathChangeIfEstablished(for: key)
         next.continuation.resume()
+    }
+
+    private func publishSelectedPathChangeIfEstablished(for key: SessionKey) {
+        guard sessions[key] != nil else { return }
+        publishSelectedPathChange()
     }
 
     private func publishSelectedPathChange() {
