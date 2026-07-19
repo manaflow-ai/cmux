@@ -44,7 +44,62 @@ struct RemoteDaemonUploadTests {
             )
         }
 
-        #expect(runner.requests.contains { $0.executable == "/usr/bin/scp" } == false)
+        let requests = runner.requests
+        #expect(requests.contains { $0.executable == "/usr/bin/scp" } == false)
+        let uploadRequest = try #require(
+            requests.first { request in
+                request.executable == "/usr/bin/ssh" &&
+                    request.arguments.last?.contains("cat >") == true
+            }
+        )
+        #expect(uploadRequest.stdinFile == localBinary)
+    }
+
+    @Test("Upload reports SSH exec failures with their remote detail")
+    func uploadReportsExecFailureDetail() throws {
+        let fileManager = FileManager.default
+        let localBinary = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-upload-\(UUID().uuidString)",
+            isDirectory: false
+        )
+        try Data("fake daemon".utf8).write(to: localBinary)
+        defer { try? fileManager.removeItem(at: localBinary) }
+
+        let runner = RecordingProcessRunner { request in
+            if request.executable == "/usr/bin/ssh",
+               request.arguments.last?.contains("cat >") == true {
+                return RemoteCommandResult(
+                    status: 1,
+                    stdout: "",
+                    stderr: "cat: remote path: Permission denied"
+                )
+            }
+            return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+        }
+        let coordinator = makeCoordinator(runner: runner)
+        defer { coordinator.stop() }
+        let location = RemoteDaemonInstallLocation(
+            relativePath: ".cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote",
+            absolutePath: "/home/test/.cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote"
+        )
+
+        do {
+            try coordinator.queue.sync {
+                try coordinator.uploadRemoteDaemonBinaryLocked(
+                    localBinary: localBinary,
+                    location: location
+                )
+            }
+            Issue.record("Expected SSH exec upload to fail")
+        } catch {
+            let nsError = error as NSError
+            #expect(nsError.domain == "cmux.remote.daemon")
+            #expect(nsError.code == 31)
+            #expect(
+                nsError.localizedDescription ==
+                    "failed to upload cmuxd-remote: cat: remote path: Permission denied"
+            )
+        }
     }
 
     private func makeCoordinator(runner: RecordingProcessRunner) -> RemoteSessionCoordinator {
