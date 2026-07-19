@@ -191,32 +191,33 @@ extension CMUXCLI {
         // Defer sysctl work until after top-K selection in that common path.
         let defersProcessStateProbe = includeAll && stateFilter == nil
         let queryScope = AgentSessionQueryScope(includeHistory: includeAll, environment: processEnv)
-        let matchingObservations = canonicalTerminalObservations.compactMap { observation in
-            if let providerSelection,
-               let requestedAgent,
-               !agentTerminalObservation(
-                   observation,
-                   matches: providerSelection,
-                   requestedNormalizedID: requestedAgent
-               ) {
-                return nil
+        let matchingObservations: [CmuxAgentTerminalObservation] = canonicalTerminalObservations
+            .compactMap { observation -> CmuxAgentTerminalObservation? in
+                if let providerSelection,
+                   let requestedAgent,
+                   !agentTerminalObservation(
+                       observation,
+                       matches: providerSelection,
+                       requestedNormalizedID: requestedAgent
+                   ) {
+                    return nil
+                }
+                if let surfaceFilter,
+                   observation.surfaceID.uuidString.lowercased() != surfaceFilter { return nil }
+                switch queryScope {
+                case .history, .legacyUnscoped:
+                    break
+                case let .currentRuntime(runtimeID):
+                    guard observation.runtimeID == runtimeID else { return nil }
+                }
+                if let providerSelection {
+                    return agentTerminalObservation(
+                        observation,
+                        canonicalizedFor: providerSelection
+                    )
+                }
+                return observation
             }
-            if let surfaceFilter,
-               observation.surfaceID.uuidString.lowercased() != surfaceFilter { return nil }
-            switch queryScope {
-            case .history, .legacyUnscoped:
-                break
-            case let .currentRuntime(runtimeID):
-                guard observation.runtimeID == runtimeID else { return nil }
-            }
-            if let providerSelection {
-                return agentTerminalObservation(
-                    observation,
-                    canonicalizedFor: providerSelection
-                )
-            }
-            return observation
-        }
         // The history-only, unfiltered top-K query has no predicate that needs a
         // decoded record. Read K candidates per provider and merge them globally;
         // any provider row ranked below its own K cannot enter the global K.

@@ -221,32 +221,33 @@ extension CMUXCLI {
             processStateByIdentity[identity] = state
             return state
         }
-        let matchingObservations = canonicalTerminalObservations.compactMap { observation in
-            if let providerSelection,
-               let normalizedAgent,
-               !agentTerminalObservation(
-                   observation,
-                   matches: providerSelection,
-                   requestedNormalizedID: normalizedAgent
-               ) {
-                return nil
+        let matchingObservations: [CmuxAgentTerminalObservation] = canonicalTerminalObservations
+            .compactMap { observation -> CmuxAgentTerminalObservation? in
+                if let providerSelection,
+                   let normalizedAgent,
+                   !agentTerminalObservation(
+                       observation,
+                       matches: providerSelection,
+                       requestedNormalizedID: normalizedAgent
+                   ) {
+                    return nil
+                }
+                if let normalizedSurface,
+                   observation.surfaceID.uuidString.lowercased() != normalizedSurface { return nil }
+                switch queryScope {
+                case .history, .legacyUnscoped:
+                    break
+                case let .currentRuntime(runtimeID):
+                    guard observation.runtimeID == runtimeID else { return nil }
+                }
+                if let providerSelection {
+                    return agentTerminalObservation(
+                        observation,
+                        canonicalizedFor: providerSelection
+                    )
+                }
+                return observation
             }
-            if let normalizedSurface,
-               observation.surfaceID.uuidString.lowercased() != normalizedSurface { return nil }
-            switch queryScope {
-            case .history, .legacyUnscoped:
-                break
-            case let .currentRuntime(runtimeID):
-                guard observation.runtimeID == runtimeID else { return nil }
-            }
-            if let providerSelection {
-                return agentTerminalObservation(
-                    observation,
-                    canonicalizedFor: providerSelection
-                )
-            }
-            return observation
-        }
         let observationJoiner = AgentTerminalObservationJoiner()
         let observationsByProcessKey = Dictionary(
             grouping: matchingObservations,
