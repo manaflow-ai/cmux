@@ -14081,9 +14081,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // hold the same chord (Cmd+= / Cmd+- by default), the whole app scales
         // regardless of which pane is focused. Unbind them in Settings to get
         // the per-pane browser/markdown/terminal zoom behavior back.
-        if matchConfiguredShortcut(event: event, action: .globalZoomIn) { return performGlobalZoomShortcut(action: .globalZoomIn) }
+        if matchGlobalZoomShortcutEvent(event, action: .globalZoomIn) { return performGlobalZoomShortcut(action: .globalZoomIn) }
 
-        if matchConfiguredShortcut(event: event, action: .globalZoomOut) { return performGlobalZoomShortcut(action: .globalZoomOut) }
+        if matchGlobalZoomShortcutEvent(event, action: .globalZoomOut) { return performGlobalZoomShortcut(action: .globalZoomOut) }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomIn) { return performBrowserOrTextPreviewZoomShortcut(event: event, action: .browserZoomIn) }
 
@@ -17099,10 +17099,10 @@ private extension NSWindow {
             // shortcut monitor normally consumes the chord before this path;
             // this guard covers events that reach the window directly.
             if let delegate = AppDelegate.shared {
-                if delegate.matchConfiguredShortcut(event: event, action: .globalZoomIn) {
+                if delegate.matchGlobalZoomShortcutEvent(event, action: .globalZoomIn) {
                     return delegate.performGlobalZoomShortcut(action: .globalZoomIn)
                 }
-                if delegate.matchConfiguredShortcut(event: event, action: .globalZoomOut) {
+                if delegate.matchGlobalZoomShortcutEvent(event, action: .globalZoomOut) {
                     return delegate.performGlobalZoomShortcut(action: .globalZoomOut)
                 }
             }
