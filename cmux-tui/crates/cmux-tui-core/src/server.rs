@@ -3309,6 +3309,17 @@ mod tests {
     }
 
     #[test]
+    fn exported_stack_layout_is_accepted_as_an_apply_request() {
+        let request = serde_json::from_value::<LayoutRequest>(json!({
+            "type": "stack",
+            "panes": [3, 4, 5],
+            "expanded": 4
+        }));
+
+        assert!(request.is_ok());
+    }
+
+    #[test]
     fn swapping_across_a_stack_boundary_keeps_exported_expansion_valid() {
         let mut root = Node::Split {
             id: 10,

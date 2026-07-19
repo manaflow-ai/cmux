@@ -4560,6 +4560,35 @@ mod tests {
     }
 
     #[test]
+    fn splitting_a_collapsed_stack_member_expands_the_target_side() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let mut active = first_pane;
+        for _ in 1..13 {
+            let surface = mux.new_pane(active, None).unwrap();
+            active = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+        }
+        let target = mux.with_state(|state| {
+            state.workspaces[0].screens[0].zellij_auto_layout.as_ref().unwrap()[1]
+        });
+
+        mux.split(target, SplitDir::Right, None).unwrap();
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert!(matches!(
+                &screen.root,
+                Node::Split { b, .. }
+                    if matches!(
+                        b.as_ref(),
+                        Node::Split { a, .. }
+                            if matches!(a.as_ref(), Node::Stack { expanded, .. } if *expanded == target)
+                    )
+            ));
+        });
+    }
+
+    #[test]
     fn structural_test_mux_can_create_many_surfaces_without_ptys() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((120, 40))).unwrap();
