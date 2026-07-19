@@ -16,8 +16,8 @@ use crate::terminal_host::{
     HostHello, HostIncarnation, HostReady, TerminalId,
 };
 use crate::terminal_host_protocol::{
-    FLAG_COLORS_FOLLOW, Frame, MAX_FRAME_PAYLOAD, MessageKind, PROTOCOL_VERSION, read_frame,
-    write_frame,
+    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD, MessageKind,
+    PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 2;
@@ -1324,9 +1324,20 @@ mod unix {
         taps: &Mutex<HashMap<u64, HostTap>>,
         frames: impl IntoIterator<Item = Frame>,
     ) {
+        let _ = publish_host_frames_and_targeted(broadcast_lock, sequence, taps, frames, None);
+    }
+
+    fn publish_host_frames_and_targeted(
+        broadcast_lock: &Mutex<()>,
+        sequence: &AtomicU64,
+        taps: &Mutex<HashMap<u64, HostTap>>,
+        frames: impl IntoIterator<Item = Frame>,
+        targeted: Option<(&HostTap, Frame)>,
+    ) -> bool {
         // Sequence allocation and publication are one critical section;
         // otherwise concurrent output/resize/exit producers could mint N
-        // then publish N+1 first, or split a coupled Output/Colors pair.
+        // then publish N+1 first, split a coupled Output/Colors pair, or place
+        // a targeted acknowledgement before its canonical transition.
         let _broadcast = broadcast_lock.lock().unwrap();
         let mut taps = taps.lock().unwrap();
         for mut frame in frames {
@@ -1334,6 +1345,8 @@ mod unix {
             frame.sequence = sequence;
             taps.retain(|_, tap| tap.try_send(frame.clone()));
         }
+        drop(taps);
+        targeted.is_none_or(|(tap, frame)| tap.try_send(frame))
     }
 
     impl HostShared {
@@ -1359,23 +1372,32 @@ mod unix {
                 |viewer_sizes| {
                     viewer_sizes.remove(&client);
                 },
-                |desired| self.apply_viewer_minimum(desired, false),
+                |desired| self.apply_viewer_minimum(desired, false, None).map(|_| ()),
             );
         }
 
-        fn set_viewer_size(&self, client: u64, cols: u16, rows: u16) -> anyhow::Result<()> {
+        fn set_viewer_size(
+            &self,
+            client: u64,
+            cols: u16,
+            rows: u16,
+            acknowledge_with_replay: bool,
+            targeted_ack: Option<(u64, &HostTap)>,
+        ) -> anyhow::Result<bool> {
             let (cols, rows) = normalize_terminal_geometry(cols, rows)?;
+            let mut acknowledgement_queued = true;
             mutate_viewer_sizes(
                 &self.viewer_sizes,
                 |viewer_sizes| {
                     viewer_sizes.insert(client, (cols, rows));
                 },
-                // Every accepted ViewerSize is a request/ack round trip. Even
-                // when another smaller viewer keeps the canonical grid
-                // unchanged, renderers need a Resized+Colors replay to retire
-                // their in-flight physical resize without guessing.
-                |desired| self.apply_viewer_minimum(desired, true),
-            )
+                |desired| {
+                    acknowledgement_queued =
+                        self.apply_viewer_minimum(desired, acknowledge_with_replay, targeted_ack)?;
+                    Ok(())
+                },
+            )?;
+            Ok(acknowledgement_queued)
         }
 
         fn remove_viewer_size(&self, client: u64) {
@@ -1384,21 +1406,34 @@ mod unix {
                 |viewer_sizes| {
                     viewer_sizes.remove(&client);
                 },
-                |desired| self.apply_viewer_minimum(desired, false),
+                |desired| self.apply_viewer_minimum(desired, false, None).map(|_| ()),
             );
         }
 
         fn apply_viewer_minimum(
             &self,
             desired: Option<(u16, u16)>,
-            acknowledge: bool,
-        ) -> anyhow::Result<()> {
-            let Some((cols, rows)) = desired else { return Ok(()) };
+            acknowledge_with_replay: bool,
+            targeted_ack: Option<(u64, &HostTap)>,
+        ) -> anyhow::Result<bool> {
+            let Some((cols, rows)) = desired else { return Ok(true) };
             let (cols, rows) = normalize_terminal_geometry(cols, rows)?;
             let mut size = self.size.lock().unwrap();
             let changed = *size != (cols, rows);
-            if !changed && !acknowledge {
-                return Ok(());
+            if !changed && !acknowledge_with_replay {
+                let targeted = targeted_ack.map(|(request_id, tap)| {
+                    let mut frame =
+                        Frame::new(MessageKind::ResizeAck, encode_resize_ack(cols, rows, false));
+                    frame.request_id = request_id;
+                    (tap, frame)
+                });
+                return Ok(publish_host_frames_and_targeted(
+                    &self.broadcast_lock,
+                    &self.sequence,
+                    &self.taps,
+                    std::iter::empty(),
+                    targeted,
+                ));
             }
             let previous = *size;
             let mut term = self.term.lock().unwrap();
@@ -1437,12 +1472,24 @@ mod unix {
             }
             // Keep the parser lock through sequence publication so output
             // parsed at the new size cannot overtake the Resized marker.
-            self.broadcast_with_colors(
-                MessageKind::Resized,
-                encode_resize(cols, rows, &replay),
-                encode_terminal_color_overrides(&colors),
-            );
-            Ok(())
+            let mut resized = Frame::new(MessageKind::Resized, encode_resize(cols, rows, &replay));
+            resized.flags = FLAG_COLORS_FOLLOW;
+            let targeted = targeted_ack.map(|(request_id, tap)| {
+                let mut frame =
+                    Frame::new(MessageKind::ResizeAck, encode_resize_ack(cols, rows, changed));
+                frame.request_id = request_id;
+                (tap, frame)
+            });
+            Ok(publish_host_frames_and_targeted(
+                &self.broadcast_lock,
+                &self.sequence,
+                &self.taps,
+                [
+                    resized,
+                    Frame::new(MessageKind::Colors, encode_terminal_color_overrides(&colors)),
+                ],
+                targeted,
+            ))
         }
 
         fn child_exited(&self) -> bool {
@@ -2070,7 +2117,10 @@ mod unix {
 
     fn serve_client(host: Arc<HostShared>, mut stream: UnixStream) -> anyhow::Result<()> {
         let hello_frame = read_required_frame(&mut stream, "client hello")?;
-        if hello_frame.kind != MessageKind::ClientHello {
+        if hello_frame.kind != MessageKind::ClientHello
+            || hello_frame.sequence != 0
+            || hello_frame.flags & !FLAG_VIEWER_SIZE_ACKS != 0
+        {
             anyhow::bail!("terminal-host client did not send ClientHello");
         }
         let hello = ClientHello::decode(&hello_frame.payload)?;
@@ -2081,7 +2131,12 @@ mod unix {
             anyhow::bail!("terminal-host capability denied");
         }
         let granted_rights = response.granted_rights;
+        let viewer_size_acks = hello_frame.flags & FLAG_VIEWER_SIZE_ACKS != 0
+            && granted_rights.contains(CapabilityRights::RESIZE);
         let mut hello_response = Frame::new(MessageKind::HostHello, response.encode());
+        if viewer_size_acks {
+            hello_response.flags = FLAG_VIEWER_SIZE_ACKS;
+        }
         hello_response.request_id = hello_frame.request_id;
         write_frame(&mut stream, &hello_response)?;
 
@@ -2178,10 +2233,24 @@ mod unix {
                         }
                         let cols = u16::from_le_bytes([frame.payload[0], frame.payload[1]]);
                         let rows = u16::from_le_bytes([frame.payload[2], frame.payload[3]]);
-                        if command_host.set_viewer_size(client, cols, rows).is_err() {
+                        let targeted_ack = viewer_size_acks
+                            .then_some((frame.request_id, &command_sender))
+                            .filter(|(request_id, _)| *request_id != 0);
+                        let acknowledge_with_replay = targeted_ack.is_none();
+                        if !matches!(
+                            command_host.set_viewer_size(
+                                client,
+                                cols,
+                                rows,
+                                acknowledge_with_replay,
+                                targeted_ack,
+                            ),
+                            Ok(true)
+                        ) {
                             // Invalid geometry or a PTY/parser resize failure
-                            // rejects this admin stream. No Resized/replay was
-                            // published, and the host remains adoptable.
+                            // rejects this admin stream. A failed targeted
+                            // acknowledgement closes only this renderer; the
+                            // committed canonical transition remains valid.
                             break;
                         }
                     }
@@ -2345,6 +2414,16 @@ mod unix {
         output.extend_from_slice(&cols.to_le_bytes());
         output.extend_from_slice(&rows.to_le_bytes());
         output.extend_from_slice(replay);
+        output
+    }
+
+    fn encode_resize_ack(cols: u16, rows: u16, canonical_changed: bool) -> Vec<u8> {
+        let mut output = Vec::with_capacity(8);
+        output.extend_from_slice(&cols.to_le_bytes());
+        output.extend_from_slice(&rows.to_le_bytes());
+        output.extend_from_slice(
+            &(if canonical_changed { RESIZE_ACK_CANONICAL_CHANGED } else { 0 }).to_le_bytes(),
+        );
         output
     }
 

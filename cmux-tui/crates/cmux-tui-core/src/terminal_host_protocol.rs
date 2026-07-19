@@ -15,9 +15,16 @@ pub const PROTOCOL_VERSION: u16 = 1;
 pub const MAX_FRAME_PAYLOAD: usize = 16 * 1024 * 1024;
 /// The live Output or Resized payload is not independently renderable. Its
 /// immediately following sequenced frame must be Colors, and consumers must
-/// apply both before publishing terminal state. No other flag bits are
-/// currently defined.
+/// apply both before publishing terminal state.
 pub const FLAG_COLORS_FOLLOW: u32 = 1 << 0;
+/// ClientHello opt-in and HostHello acknowledgement for targeted ViewerSize
+/// control responses. This handshake-only flag lets v1 peers negotiate the
+/// optimization without exposing an unknown ResizeAck to legacy renderers.
+pub const FLAG_VIEWER_SIZE_ACKS: u32 = 1 << 1;
+/// ResizeAck payload flag: this request changed the canonical grid and its
+/// sequenced Resized+Colors transition was enqueued immediately before the
+/// targeted acknowledgement.
+pub const RESIZE_ACK_CANONICAL_CHANGED: u32 = 1 << 0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
@@ -38,6 +45,9 @@ pub enum MessageKind {
     Launch = 14,
     /// Response to `MintCapability`; payload is one 32-byte capability.
     Capability = 15,
+    /// Targeted response to an acknowledged `ViewerSize`; payload is
+    /// canonical cols:u16 + rows:u16 + result_flags:u32.
+    ResizeAck = 16,
     Input = 100,
     Paste = 101,
     ViewerSize = 102,
@@ -67,6 +77,7 @@ impl TryFrom<u16> for MessageKind {
             13 => Ok(Self::ResyncRequired),
             14 => Ok(Self::Launch),
             15 => Ok(Self::Capability),
+            16 => Ok(Self::ResizeAck),
             100 => Ok(Self::Input),
             101 => Ok(Self::Paste),
             102 => Ok(Self::ViewerSize),
@@ -102,8 +113,9 @@ pub struct Frame {
     /// atomically; consumers stage the first frame and expose only the paired
     /// state. Snapshot keeps flags zero: its same-boundary Colors frame is a
     /// mandatory bootstrap rule rather than a live-stream transition.
-    /// Unknown flags, flags on Colors or other message kinds, an unflagged
-    /// Resized, and a flagged frame not followed by Colors are protocol errors.
+    /// ClientHello/HostHello may negotiate [`FLAG_VIEWER_SIZE_ACKS`]. Unknown
+    /// flags, flags on Colors or other message kinds, an unflagged Resized, and
+    /// a flagged live frame not followed by Colors are protocol errors.
     pub sequence: u64,
     pub payload: Vec<u8>,
 }

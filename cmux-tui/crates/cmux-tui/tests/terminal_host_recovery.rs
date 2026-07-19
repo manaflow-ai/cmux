@@ -15,8 +15,8 @@ use cmux_tui_core::terminal_host::{
     CapabilityRights, CapabilityToken, ClientHello, ClientRole, TerminalId,
 };
 use cmux_tui_core::terminal_host_protocol::{
-    FLAG_COLORS_FOLLOW, Frame, MAX_FRAME_PAYLOAD, MessageKind, PROTOCOL_VERSION, ProtocolError,
-    read_frame, write_frame,
+    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD, MessageKind,
+    PROTOCOL_VERSION, ProtocolError, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
 };
 use cmux_tui_core::terminal_host_runtime::{
     TerminalHostLiveness, adopt_terminal_host, decode_terminal_color_overrides,
@@ -1166,6 +1166,80 @@ fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
 }
 
 #[test]
+fn negotiated_viewer_size_ack_skips_unchanged_replay_and_follows_changed_pair() {
+    let harness = RecoveryHarness::start("viewer-size-ack");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let grant = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":2,"cmd":"mint-terminal-renderer","surface":surface,"ttl_ms":10_000,
+        }),
+    );
+    let mut renderer = connect_host_detailed_with_flags(
+        grant["endpoint"].as_str().unwrap(),
+        grant["terminal_id"].as_str().unwrap(),
+        grant["token"].as_str().unwrap(),
+        ClientRole::Renderer,
+        CapabilityRights::RENDERER,
+        FLAG_VIEWER_SIZE_ACKS,
+    )
+    .unwrap();
+    assert_eq!(renderer.hello_flags, FLAG_VIEWER_SIZE_ACKS);
+    renderer.stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+
+    let mut unchanged = Frame::new(MessageKind::ViewerSize, Vec::new());
+    unchanged.request_id = 42;
+    unchanged.payload.extend_from_slice(&120u16.to_le_bytes());
+    unchanged.payload.extend_from_slice(&40u16.to_le_bytes());
+    write_frame(&mut renderer.stream, &unchanged).unwrap();
+    let ack = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(ack.kind, MessageKind::ResizeAck);
+    assert_eq!(ack.flags, 0);
+    assert_eq!(ack.request_id, 42);
+    assert_eq!(ack.sequence, 0);
+    assert_eq!(ack.payload, vec![80, 0, 24, 0, 0, 0, 0, 0]);
+
+    let mut changed = Frame::new(MessageKind::ViewerSize, Vec::new());
+    changed.request_id = 43;
+    changed.payload.extend_from_slice(&70u16.to_le_bytes());
+    changed.payload.extend_from_slice(&20u16.to_le_bytes());
+    write_frame(&mut renderer.stream, &changed).unwrap();
+    let resized = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(resized.kind, MessageKind::Resized);
+    assert_eq!(resized.flags, FLAG_COLORS_FOLLOW);
+    assert_eq!(resized.request_id, 0);
+    assert_eq!(resized.sequence, renderer.next_sequence);
+    renderer.next_sequence = renderer.next_sequence.wrapping_add(1);
+    assert_eq!(&resized.payload[..4], &[70, 0, 20, 0]);
+    let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(colors.kind, MessageKind::Colors);
+    assert_eq!(colors.flags, 0);
+    assert_eq!(colors.request_id, 0);
+    assert_eq!(colors.sequence, renderer.next_sequence);
+    renderer.next_sequence = renderer.next_sequence.wrapping_add(1);
+    let ack = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(ack.kind, MessageKind::ResizeAck);
+    assert_eq!(ack.flags, 0);
+    assert_eq!(ack.request_id, 43);
+    assert_eq!(ack.sequence, 0);
+    let mut changed_ack = Vec::new();
+    changed_ack.extend_from_slice(&70u16.to_le_bytes());
+    changed_ack.extend_from_slice(&20u16.to_le_bytes());
+    changed_ack.extend_from_slice(&RESIZE_ACK_CANONICAL_CHANGED.to_le_bytes());
+    assert_eq!(ack.payload, changed_ack);
+
+    request(&harness.socket, serde_json::json!({"id":3,"cmd":"close-surface","surface":surface}));
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
 fn daemon_crash_after_record_before_ready_adopts_same_live_host() {
     let mut harness = RecoveryHarness::start_with_host_ready_delay("pre-ready-crash", 2_000);
     let stream = transport::connect(&harness.socket).unwrap();
@@ -1530,6 +1604,7 @@ struct DirectHostConnection {
     snapshot: Frame,
     colors: TerminalColorOverrides,
     next_sequence: u64,
+    hello_flags: u32,
 }
 
 impl DirectHostConnection {
@@ -1581,6 +1656,17 @@ fn connect_host_detailed(
     role: ClientRole,
     rights: CapabilityRights,
 ) -> anyhow::Result<DirectHostConnection> {
+    connect_host_detailed_with_flags(endpoint, terminal_id, token, role, rights, 0)
+}
+
+fn connect_host_detailed_with_flags(
+    endpoint: &str,
+    terminal_id: &str,
+    token: &str,
+    role: ClientRole,
+    rights: CapabilityRights,
+    hello_flags: u32,
+) -> anyhow::Result<DirectHostConnection> {
     let mut stream = UnixStream::connect(endpoint)?;
     let hello = ClientHello {
         min_version: PROTOCOL_VERSION,
@@ -1590,7 +1676,9 @@ fn connect_host_detailed(
         terminal_id: TerminalId::from_bytes(decode_hex(terminal_id)?),
         token: CapabilityToken::from_bytes(decode_hex(token)?),
     };
-    write_frame(&mut stream, &hello.into_frame(1))?;
+    let mut hello = hello.into_frame(1);
+    hello.flags = hello_flags;
+    write_frame(&mut stream, &hello)?;
     let hello = read_frame(&mut stream, MAX_FRAME_PAYLOAD)?
         .ok_or_else(|| anyhow::anyhow!("host rejected capability"))?;
     if hello.kind != MessageKind::HostHello {
@@ -1616,6 +1704,7 @@ fn connect_host_detailed(
         next_sequence: snapshot.sequence.wrapping_add(1),
         snapshot,
         colors,
+        hello_flags: hello.flags,
     })
 }
 
