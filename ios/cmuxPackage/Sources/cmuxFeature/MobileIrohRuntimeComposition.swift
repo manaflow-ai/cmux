@@ -115,6 +115,7 @@ public final class MobileIrohRuntimeComposition:
     private let endpointFactoryProvider:
         @MainActor (CmxIrohTransportVerificationMode) -> any CmxIrohEndpointFactory
     private var transportVerificationMode: CmxIrohTransportVerificationMode
+    private let automaticRelayCredentialRefreshEnabled: Bool
     private let debugDefaults: UserDefaults?
     private let brokerFactory: BrokerFactory
     private let deviceID: @Sendable () -> String
@@ -177,8 +178,12 @@ public final class MobileIrohRuntimeComposition:
         let transportVerificationMode = Self.debugTransportVerificationMode(
             defaults: defaults
         )
+        let automaticRelayCredentialRefreshEnabled = ProcessInfo.processInfo.environment[
+            "CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH"
+        ] != "1"
         #else
         let transportVerificationMode = CmxIrohTransportVerificationMode.automatic
+        let automaticRelayCredentialRefreshEnabled = true
         #endif
         let installState = CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
         #if targetEnvironment(simulator)
@@ -273,6 +278,7 @@ public final class MobileIrohRuntimeComposition:
                 CmxIrohLibEndpointFactory(transportVerificationMode: mode)
             },
             transportVerificationMode: transportVerificationMode,
+            automaticRelayCredentialRefreshEnabled: automaticRelayCredentialRefreshEnabled,
             brokerFactory: { tokenSource in
                 guard let baseURL else {
                     throw CmxIrohTrustBrokerClientError.invalidBaseURL
@@ -323,6 +329,7 @@ public final class MobileIrohRuntimeComposition:
             @MainActor (CmxIrohTransportVerificationMode) -> any CmxIrohEndpointFactory
         )? = nil,
         transportVerificationMode: CmxIrohTransportVerificationMode = .automatic,
+        automaticRelayCredentialRefreshEnabled: Bool = true,
         brokerFactory: @escaping BrokerFactory,
         deviceID: @escaping @Sendable () -> String,
         tag: String,
@@ -351,6 +358,7 @@ public final class MobileIrohRuntimeComposition:
         self.relayPolicyTrustRoot = relayPolicyTrustRoot
         self.endpointFactoryProvider = endpointFactoryProvider ?? { _ in endpointFactory }
         self.transportVerificationMode = transportVerificationMode
+        self.automaticRelayCredentialRefreshEnabled = automaticRelayCredentialRefreshEnabled
         self.debugDefaults = debugDefaults
         self.brokerFactory = brokerFactory
         self.deviceID = deviceID
@@ -393,6 +401,18 @@ public final class MobileIrohRuntimeComposition:
         await connectionReadiness.wait()
         await sceneTransitionTask?.value
     }
+
+    #if DEBUG
+    /// Supplies local-only continuity evidence to the Iroh release gate.
+    public func releaseGateEndpointIdentity() async -> CmxIrohPeerIdentity? {
+        await runtime?.snapshot().endpointID
+    }
+
+    /// Supplies the non-secret installed relay expiry to the release gate.
+    public func releaseGateRelayCredentialExpiry() async -> Date? {
+        await runtime?.relayCredentialExpiresAt()
+    }
+    #endif
 
     /// Refreshes the current account runtime and returns its live pairable Macs.
     ///
@@ -1349,6 +1369,7 @@ public final class MobileIrohRuntimeComposition:
                     accountID: accountID
                 )
             },
+            automaticRelayCredentialRefreshEnabled: automaticRelayCredentialRefreshEnabled,
             handleBinding: { [weak self] registration, discovery in
                 guard await self?.allowsPersistence(
                     accountID: accountID,

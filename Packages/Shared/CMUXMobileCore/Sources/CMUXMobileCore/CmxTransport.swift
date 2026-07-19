@@ -410,6 +410,18 @@ public protocol CmxByteTransport: Sendable {
     func close() async
 }
 
+/// Optional privacy-safe identity for the exact native connection underneath a
+/// byte transport.
+///
+/// Release gates use this to prove that credential refresh did not replace a
+/// live transport. The value is process-local and must never be persisted or
+/// sent to a server.
+public protocol CmxByteTransportContinuityIdentifying: CmxByteTransport {
+    /// Returns a process-local identifier for the currently connected native
+    /// transport, or `nil` before connection or after teardown.
+    func transportContinuityID() async -> UInt64?
+}
+
 /// Independently framed server-event bytes delivered outside the RPC control stream.
 public typealias CmxIndependentEventByteStream = AsyncThrowingStream<Data, any Error>
 

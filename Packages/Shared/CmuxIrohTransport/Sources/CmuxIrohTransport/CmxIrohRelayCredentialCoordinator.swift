@@ -35,6 +35,7 @@ public actor CmxIrohRelayCredentialCoordinator {
     private let jitter: @Sendable (_ now: Date, _ refreshAfter: Date) -> Date
     private let retrySchedule: CmxIrohRetrySchedule
     private let retryJitter: @Sendable () -> Double
+    private let automaticRefreshEnabled: Bool
     private let credentialDidInstall: @Sendable (CmxIrohRelayTokenResponse) async -> Void
     private var binding: Binding?
     private var installedCredential: InstalledCredential?
@@ -61,6 +62,7 @@ public actor CmxIrohRelayCredentialCoordinator {
         retryJitter: @escaping @Sendable () -> Double = {
             Double.random(in: 0 ... 1)
         },
+        automaticRefreshEnabled: Bool = true,
         credentialDidInstall: @escaping @Sendable (
             CmxIrohRelayTokenResponse
         ) async -> Void = { _ in }
@@ -73,6 +75,7 @@ public actor CmxIrohRelayCredentialCoordinator {
         self.jitter = jitter
         self.retrySchedule = retrySchedule
         self.retryJitter = retryJitter
+        self.automaticRefreshEnabled = automaticRefreshEnabled
         self.credentialDidInstall = credentialDidInstall
     }
 
@@ -103,11 +106,11 @@ public actor CmxIrohRelayCredentialCoordinator {
                     binding: expectedBinding,
                     revision: revision
                 )
-                startLoop(revision: revision, firstRefresh: installed.refreshAfter)
+                startLoopIfEnabled(revision: revision, firstRefresh: installed.refreshAfter)
                 return
             } catch {
                 if isCurrent(revision), !Task.isCancelled {
-                    startLoop(revision: revision, firstRefresh: nil)
+                    startLoopIfEnabled(revision: revision, firstRefresh: nil)
                 }
                 throw error
             }
@@ -122,11 +125,11 @@ public actor CmxIrohRelayCredentialCoordinator {
                 binding: expectedBinding,
                 revision: revision
             )
-            startLoop(revision: revision, firstRefresh: installed.refreshAfter)
+            startLoopIfEnabled(revision: revision, firstRefresh: installed.refreshAfter)
         } catch {
             if isCurrent(revision), !Task.isCancelled {
                 let delay = retryDelay(failureCount: 0, error: error)
-                startLoop(
+                startLoopIfEnabled(
                     revision: revision,
                     firstRefresh: clock.now().addingTimeInterval(delay),
                     initialFailureCount: 1
@@ -165,6 +168,7 @@ public actor CmxIrohRelayCredentialCoordinator {
         guard let binding else {
             throw CmxIrohRelayCredentialCoordinatorError.inactive
         }
+        guard automaticRefreshEnabled else { return }
         let now = clock.now()
         if let installedCredential,
            now < installedCredential.refreshAfter,
@@ -179,14 +183,14 @@ public actor CmxIrohRelayCredentialCoordinator {
                 revision: revision
             )
             refreshTask?.cancel()
-            startLoop(revision: revision, firstRefresh: installed.refreshAfter)
+            startLoopIfEnabled(revision: revision, firstRefresh: installed.refreshAfter)
         } catch {
             guard isCurrent(revision), !Task.isCancelled else {
                 throw CancellationError()
             }
             refreshTask?.cancel()
             let delay = retryDelay(failureCount: 0, error: error)
-            startLoop(
+            startLoopIfEnabled(
                 revision: revision,
                 firstRefresh: retryDeadline(
                     now: clock.now(),
@@ -200,11 +204,12 @@ public actor CmxIrohRelayCredentialCoordinator {
         }
     }
 
-    private func startLoop(
+    private func startLoopIfEnabled(
         revision: UInt64,
         firstRefresh: Date?,
         initialFailureCount: Int = 0
     ) {
+        guard automaticRefreshEnabled else { return }
         refreshTask = Task { [weak self] in
             await self?.run(
                 revision: revision,

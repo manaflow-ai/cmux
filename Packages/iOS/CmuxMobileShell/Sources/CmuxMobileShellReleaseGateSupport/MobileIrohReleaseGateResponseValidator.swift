@@ -12,13 +12,17 @@ internal import CmuxMobileShell
 enum MobileIrohReleaseGateResponseValidator {
     static func independentEventSubscription(
         _ data: Data,
-        expectedStreamID: String
+        expectedStreamID: String,
+        expectedAlreadySubscribed: Bool? = nil
     ) -> Bool {
         guard let response = try? MobileEventSubscribeResponse.decode(data) else {
             return false
         }
-        return response.streamID == expectedStreamID
-            && response.eventTransport == "iroh_server_events_v1"
+        guard response.streamID == expectedStreamID,
+              response.eventTransport == "iroh_server_events_v1" else {
+            return false
+        }
+        return expectedAlreadySubscribed.map { response.alreadySubscribed == $0 } ?? true
     }
 
     static func independentEventUnsubscription(
@@ -51,6 +55,33 @@ enum MobileIrohReleaseGateResponseValidator {
             return false
         }
         return response.sessionArtifactTotal.map { $0 >= 0 } ?? true
+    }
+
+    static func artifactPath(
+        _ data: Data,
+        expectedPath: String
+    ) -> Bool {
+        guard let response = try? ChatWireCoding().decode(
+            TerminalArtifactScanResponse.self,
+            from: data
+        ) else {
+            return false
+        }
+        return response.artifacts.contains { $0.path == expectedPath }
+    }
+
+    static func artifactLaneDescriptor(_ data: Data) -> ChatArtifactLaneDescriptor? {
+        try? ChatWireCoding().decode(ChatArtifactLaneDescriptor.self, from: data)
+    }
+
+    static func artifactStat(
+        _ data: Data,
+        expectedSize: Int64
+    ) -> Bool {
+        guard let stat = try? ChatWireCoding().decode(ChatArtifactStat.self, from: data) else {
+            return false
+        }
+        return stat.exists && !stat.isDirectory && stat.size == expectedSize
     }
 }
 #endif

@@ -17,10 +17,12 @@ private let mobileIrohReleaseGateLog = Logger(
 final class MobileIrohReleaseGateRunner {
     struct Configuration: Equatable, Sendable {
         static let modeEnvironmentKey = "CMUX_IROH_RELEASE_GATE_MODE"
+        static let scenarioEnvironmentKey = "CMUX_IROH_RELEASE_GATE_SCENARIO"
         static let reportFilename = "cmux-iroh-release-gate.json"
         static let reportReadyNotification = "dev.cmux.ios.iroh-release-gate.report-ready"
 
         let mode: CmxIrohTransportVerificationMode
+        let scenario: MobileIrohReleaseGateScenario
         let reportURL: URL
 
         init?(
@@ -32,7 +34,18 @@ final class MobileIrohReleaseGateRunner {
                   let cachesDirectory else {
                 return nil
             }
+            let scenario: MobileIrohReleaseGateScenario
+            if let rawScenario = environment[Self.scenarioEnvironmentKey] {
+                guard let parsed = MobileIrohReleaseGateScenario(rawValue: rawScenario) else {
+                    return nil
+                }
+                scenario = parsed
+            } else {
+                scenario = .standard
+            }
+            guard scenario == .standard || mode == .relayOnly else { return nil }
             self.mode = mode
+            self.scenario = scenario
             self.reportURL = cachesDirectory.appendingPathComponent(Self.reportFilename)
         }
 
@@ -53,6 +66,7 @@ final class MobileIrohReleaseGateRunner {
     struct Report: Codable, Equatable, Sendable {
         let schemaVersion: Int
         let mode: String
+        let scenario: String
         let passed: Bool
         let hostStatusVerified: Bool
         let terminalRoundTripVerified: Bool
@@ -61,6 +75,14 @@ final class MobileIrohReleaseGateRunner {
         let notificationReconcileVerified: Bool
         let chatSessionsVerified: Bool
         let artifactScanCountVerified: Bool
+        let relayCredentialRolloverVerified: Bool
+        let endpointContinuityVerified: Bool
+        let connectionContinuityVerified: Bool
+        let controlStreamContinuityVerified: Bool
+        let independentEventsContinuityVerified: Bool
+        let artifactLaneVerified: Bool
+        let unrefreshedExpiryDisconnectVerified: Bool
+        let soakDurationSeconds: Int
         let routeKind: String?
         let selectedPath: String?
         let failure: String?
@@ -111,6 +133,8 @@ final class MobileIrohReleaseGateRunner {
     init(
         configuration: Configuration,
         settingsController: any CmxIrohSettingsControlling,
+        endpointIdentity: @escaping @Sendable () async -> CmxIrohPeerIdentity? = { nil },
+        relayCredentialExpiry: @escaping @Sendable () async -> Date? = { nil },
         fileManager: FileManager = .default
     ) {
         self.configuration = configuration
@@ -118,7 +142,13 @@ final class MobileIrohReleaseGateRunner {
         self.dependencies = Dependencies(
             readinessUpdates: nil,
             runProbe: { store, marker in
-                try await store.runIrohReleaseGateProbe(marker: marker)
+                try await store.runIrohReleaseGateProbe(
+                    marker: marker,
+                    scenario: configuration.scenario,
+                    soakDurationSeconds: configuration.scenario == .relayRollover ? 330 : 0,
+                    endpointIdentity: endpointIdentity,
+                    relayCredentialExpiry: relayCredentialExpiry
+                )
             },
             settingsUpdates: {
                 settingsController.irohSettingsUpdates()
@@ -129,7 +159,7 @@ final class MobileIrohReleaseGateRunner {
             postReportReady: {
                 Self.postReportReadyNotification()
             },
-            timeout: .seconds(90)
+            timeout: configuration.scenario == .standard ? .seconds(90) : .seconds(420)
         )
     }
 
@@ -196,12 +226,14 @@ final class MobileIrohReleaseGateRunner {
 
     private func boundedReport(store: CMUXMobileShellStore) async -> Report {
         let mode = configuration.mode
+        let scenario = configuration.scenario
         let timeout = dependencies.timeout
         let reports = AsyncStream<Report>(bufferingPolicy: .bufferingOldest(1)) { continuation in
             let operationTask = Task { @MainActor [weak self] in
                 guard let self else {
                     continuation.yield(Self.failureReport(
                         mode: mode,
+                        scenario: scenario,
                         failure: .unknownProbeFailure
                     ))
                     continuation.finish()
@@ -220,6 +252,7 @@ final class MobileIrohReleaseGateRunner {
                 guard !Task.isCancelled, let self else { return }
                 continuation.yield(Self.failureReport(
                     mode: mode,
+                    scenario: scenario,
                     failure: .timeout,
                     completedProbe: self.completedProbe
                 ))
@@ -234,7 +267,11 @@ final class MobileIrohReleaseGateRunner {
         for await report in reports {
             return report
         }
-        return Self.failureReport(mode: mode, failure: .unknownProbeFailure)
+        return Self.failureReport(
+            mode: mode,
+            scenario: scenario,
+            failure: .unknownProbeFailure
+        )
     }
 
     private func execute(store: CMUXMobileShellStore) async -> Report {
@@ -246,7 +283,11 @@ final class MobileIrohReleaseGateRunner {
                 "readiness signedIn=\(state.isSignedIn, privacy: .public) connected=\(state.isConnected, privacy: .public) iroh=\(state.usesIroh, privacy: .public) workspace=\(state.hasWorkspaceMutation, privacy: .public) terminal=\(state.hasTerminal, privacy: .public)"
             )
             guard !Task.isCancelled else {
-                return Self.failureReport(mode: configuration.mode, failure: .timeout)
+                return Self.failureReport(
+                    mode: configuration.mode,
+                    scenario: configuration.scenario,
+                    failure: .timeout
+                )
             }
             if state.isReady {
                 observedReady = true
@@ -254,13 +295,38 @@ final class MobileIrohReleaseGateRunner {
             }
         }
         guard !Task.isCancelled else {
-            return Self.failureReport(mode: configuration.mode, failure: .timeout)
+            return Self.failureReport(
+                mode: configuration.mode,
+                scenario: configuration.scenario,
+                failure: .timeout
+            )
         }
         guard observedReady else {
             return Self.failureReport(
                 mode: configuration.mode,
+                scenario: configuration.scenario,
                 failure: .readinessUnavailable
             )
+        }
+
+        var pathBeforeExpectedDisconnect: String?
+        if configuration.scenario == .relayExpiry {
+            for await snapshot in dependencies.settingsUpdates() {
+                if let accepted = Self.acceptedPath(
+                    snapshot.selectedTransportPath,
+                    mode: configuration.mode
+                ) {
+                    pathBeforeExpectedDisconnect = accepted
+                    break
+                }
+            }
+            guard pathBeforeExpectedDisconnect != nil else {
+                return Self.failureReport(
+                    mode: configuration.mode,
+                    scenario: configuration.scenario,
+                    failure: .pathPolicyMismatch
+                )
+            }
         }
 
         let marker = "CMUX_IROH_GATE_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
@@ -270,21 +336,33 @@ final class MobileIrohReleaseGateRunner {
         } catch let failure as MobileIrohReleaseGateProbeFailure {
             return Self.probeFailureReport(
                 mode: configuration.mode,
+                scenario: configuration.scenario,
                 failure: failure
             )
         } catch {
             return Self.failureReport(
                 mode: configuration.mode,
+                scenario: configuration.scenario,
                 failure: .unknownProbeFailure
             )
         }
         completedProbe = probe
+
+        if let pathBeforeExpectedDisconnect {
+            return Self.completedReport(
+                mode: configuration.mode,
+                scenario: configuration.scenario,
+                probe: probe,
+                selectedPath: pathBeforeExpectedDisconnect
+            )
+        }
 
         let snapshots = dependencies.settingsUpdates()
         for await snapshot in snapshots {
             guard !Task.isCancelled else {
                 return Self.failureReport(
                     mode: configuration.mode,
+                    scenario: configuration.scenario,
                     failure: .timeout,
                     completedProbe: probe
                 )
@@ -298,31 +376,17 @@ final class MobileIrohReleaseGateRunner {
                 mode: configuration.mode
             ) {
                 observationID = nil
-                return Report(
-                    schemaVersion: 2,
-                    mode: configuration.mode.rawValue,
-                    passed: probe.hostStatusVerified
-                        && probe.terminalRoundTripVerified
-                        && probe.workspaceMutationVerified
-                        && probe.independentEventsVerified
-                        && probe.notificationReconcileVerified
-                        && probe.chatSessionsVerified
-                        && probe.artifactScanCountVerified,
-                    hostStatusVerified: probe.hostStatusVerified,
-                    terminalRoundTripVerified: probe.terminalRoundTripVerified,
-                    workspaceMutationVerified: probe.workspaceMutationVerified,
-                    independentEventsVerified: probe.independentEventsVerified,
-                    notificationReconcileVerified: probe.notificationReconcileVerified,
-                    chatSessionsVerified: probe.chatSessionsVerified,
-                    artifactScanCountVerified: probe.artifactScanCountVerified,
-                    routeKind: CmxAttachTransportKind.iroh.rawValue,
-                    selectedPath: selectedPath,
-                    failure: nil
+                return Self.completedReport(
+                    mode: configuration.mode,
+                    scenario: configuration.scenario,
+                    probe: probe,
+                    selectedPath: selectedPath
                 )
             }
         }
         return Self.failureReport(
             mode: configuration.mode,
+            scenario: configuration.scenario,
             failure: .pathPolicyMismatch,
             completedProbe: probe
         )
@@ -384,6 +448,65 @@ final class MobileIrohReleaseGateRunner {
         }
     }
 
+    private static func scenarioPassed(
+        _ scenario: MobileIrohReleaseGateScenario,
+        probe: MobileIrohReleaseGateProbeResult
+    ) -> Bool {
+        switch scenario {
+        case .standard:
+            return true
+        case .relayRollover:
+            return probe.relayCredentialRolloverVerified
+                && probe.endpointContinuityVerified
+                && probe.connectionContinuityVerified
+                && probe.controlStreamContinuityVerified
+                && probe.independentEventsContinuityVerified
+                && probe.artifactLaneVerified
+                && probe.soakDurationSeconds >= 330
+        case .relayExpiry:
+            return probe.unrefreshedExpiryDisconnectVerified
+        }
+    }
+
+    private static func completedReport(
+        mode: CmxIrohTransportVerificationMode,
+        scenario: MobileIrohReleaseGateScenario,
+        probe: MobileIrohReleaseGateProbeResult,
+        selectedPath: String
+    ) -> Report {
+        Report(
+            schemaVersion: 3,
+            mode: mode.rawValue,
+            scenario: scenario.rawValue,
+            passed: probe.hostStatusVerified
+                && probe.terminalRoundTripVerified
+                && probe.workspaceMutationVerified
+                && probe.independentEventsVerified
+                && probe.notificationReconcileVerified
+                && probe.chatSessionsVerified
+                && probe.artifactScanCountVerified
+                && scenarioPassed(scenario, probe: probe),
+            hostStatusVerified: probe.hostStatusVerified,
+            terminalRoundTripVerified: probe.terminalRoundTripVerified,
+            workspaceMutationVerified: probe.workspaceMutationVerified,
+            independentEventsVerified: probe.independentEventsVerified,
+            notificationReconcileVerified: probe.notificationReconcileVerified,
+            chatSessionsVerified: probe.chatSessionsVerified,
+            artifactScanCountVerified: probe.artifactScanCountVerified,
+            relayCredentialRolloverVerified: probe.relayCredentialRolloverVerified,
+            endpointContinuityVerified: probe.endpointContinuityVerified,
+            connectionContinuityVerified: probe.connectionContinuityVerified,
+            controlStreamContinuityVerified: probe.controlStreamContinuityVerified,
+            independentEventsContinuityVerified: probe.independentEventsContinuityVerified,
+            artifactLaneVerified: probe.artifactLaneVerified,
+            unrefreshedExpiryDisconnectVerified: probe.unrefreshedExpiryDisconnectVerified,
+            soakDurationSeconds: probe.soakDurationSeconds,
+            routeKind: CmxAttachTransportKind.iroh.rawValue,
+            selectedPath: selectedPath,
+            failure: nil
+        )
+    }
+
     static func acceptedPath(
         _ path: CmxIrohSelectedTransportPath,
         mode: CmxIrohTransportVerificationMode
@@ -405,11 +528,13 @@ final class MobileIrohReleaseGateRunner {
 
     private static func probeFailureReport(
         mode: CmxIrohTransportVerificationMode,
+        scenario: MobileIrohReleaseGateScenario,
         failure: MobileIrohReleaseGateProbeFailure
     ) -> Report {
         Report(
-            schemaVersion: 2,
+            schemaVersion: 3,
             mode: mode.rawValue,
+            scenario: scenario.rawValue,
             passed: false,
             hostStatusVerified: false,
             terminalRoundTripVerified: false,
@@ -418,6 +543,14 @@ final class MobileIrohReleaseGateRunner {
             notificationReconcileVerified: false,
             chatSessionsVerified: false,
             artifactScanCountVerified: false,
+            relayCredentialRolloverVerified: false,
+            endpointContinuityVerified: false,
+            connectionContinuityVerified: false,
+            controlStreamContinuityVerified: false,
+            independentEventsContinuityVerified: false,
+            artifactLaneVerified: false,
+            unrefreshedExpiryDisconnectVerified: false,
+            soakDurationSeconds: 0,
             routeKind: nil,
             selectedPath: nil,
             failure: failure.rawValue
@@ -426,12 +559,14 @@ final class MobileIrohReleaseGateRunner {
 
     private nonisolated static func failureReport(
         mode: CmxIrohTransportVerificationMode,
+        scenario: MobileIrohReleaseGateScenario,
         failure: Failure,
         completedProbe: MobileIrohReleaseGateProbeResult? = nil
     ) -> Report {
         Report(
-            schemaVersion: 2,
+            schemaVersion: 3,
             mode: mode.rawValue,
+            scenario: scenario.rawValue,
             passed: false,
             hostStatusVerified: completedProbe?.hostStatusVerified ?? false,
             terminalRoundTripVerified: completedProbe?.terminalRoundTripVerified ?? false,
@@ -440,6 +575,14 @@ final class MobileIrohReleaseGateRunner {
             notificationReconcileVerified: completedProbe?.notificationReconcileVerified ?? false,
             chatSessionsVerified: completedProbe?.chatSessionsVerified ?? false,
             artifactScanCountVerified: completedProbe?.artifactScanCountVerified ?? false,
+            relayCredentialRolloverVerified: completedProbe?.relayCredentialRolloverVerified ?? false,
+            endpointContinuityVerified: completedProbe?.endpointContinuityVerified ?? false,
+            connectionContinuityVerified: completedProbe?.connectionContinuityVerified ?? false,
+            controlStreamContinuityVerified: completedProbe?.controlStreamContinuityVerified ?? false,
+            independentEventsContinuityVerified: completedProbe?.independentEventsContinuityVerified ?? false,
+            artifactLaneVerified: completedProbe?.artifactLaneVerified ?? false,
+            unrefreshedExpiryDisconnectVerified: completedProbe?.unrefreshedExpiryDisconnectVerified ?? false,
+            soakDurationSeconds: completedProbe?.soakDurationSeconds ?? 0,
             routeKind: completedProbe == nil ? nil : CmxAttachTransportKind.iroh.rawValue,
             selectedPath: nil,
             failure: failure.rawValue

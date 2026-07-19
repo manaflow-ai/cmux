@@ -181,6 +181,15 @@ actor MobileCoreRPCSession {
         listeners.removeValue(forKey: id)
     }
 
+    /// Returns the process-local identity of the exact installed native
+    /// transport. This does not create or reconnect a transport.
+    func transportContinuityID() async -> UInt64? {
+        guard let transport = transport as? any CmxByteTransportContinuityIdentifying else {
+            return nil
+        }
+        return await transport.transportContinuityID()
+    }
+
     func tearDown(error: MobileShellConnectionError) async {
         guard !isTearingDown else { return }
         isTearingDown = true

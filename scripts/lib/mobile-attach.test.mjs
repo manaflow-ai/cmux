@@ -563,7 +563,7 @@ test("release gate grants asynchronous Iroh publication a bounded startup window
   );
   assert.match(
     gate,
-    /CMUX_ATTACH_MINT_MAX_ATTEMPTS=120 \\\n+\.\/scripts\/mobile-dev-launch\.sh/,
+    /CMUX_ATTACH_MINT_MAX_ATTEMPTS=120 \\[\s\S]{0,320}\.\/scripts\/mobile-dev-launch\.sh/,
   );
 });
 
@@ -571,6 +571,7 @@ test("release gate assigns each mode to its transport proof", () => {
   const cases = [
     ["automatic", "app-rpc"],
     ["relay-only", "app-rpc"],
+    ["relay-expiry", "app-rpc"],
     ["direct-only", "simulator-direct-transport"],
     ["private-path", "host-private-path-transport"],
   ];

@@ -27,5 +27,17 @@ public enum MobileIrohReleaseGateProbeFailure: String, Error, Equatable, Sendabl
     case chatSessionsFailed
     /// The terminal artifact count-only scan failed validation.
     case artifactScanCountFailed
+    /// Required local endpoint or QUIC continuity evidence was unavailable.
+    case continuityEvidenceUnavailable
+    /// The endpoint, native connection, or credential expiry violated rollover.
+    case relayRolloverFailed
+    /// The RPC control stream or held terminal stream did not survive rollover.
+    case controlStreamContinuityFailed
+    /// The installed independent event registration did not survive rollover.
+    case independentEventsContinuityFailed
+    /// The real Iroh artifact lane did not survive rollover.
+    case artifactLaneFailed
+    /// A held relay credential remained admitted beyond its hard expiry.
+    case unrefreshedCredentialDidNotDisconnect
 }
 #endif
