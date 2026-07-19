@@ -50,11 +50,12 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let clickedRow = row(at: point)
-        // Arc-feel: paint the selection highlight on press, before the
-        // click tracking loop and the model round trip confirm it.
+        // Arc-feel: paint the selection highlight AND switch to the pressed
+        // workspace on press, before the click tracking loop — a press that
+        // becomes a reorder drag still activates the grabbed workspace.
         if clickedRow >= 0 {
             let hitView = superview.flatMap { hitTest($0.convert(event.locationInWindow, from: nil)) }
-            workspaceController?.previewSelection(
+            workspaceController?.pressRow(
                 row: clickedRow,
                 modifiers: event.modifierFlags,
                 hitView: hitView

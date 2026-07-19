@@ -311,6 +311,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         cmuxDebugLog("sidebar.table.click row=\(row) rows=\(rows.count)")
 #endif
         guard rows.indices.contains(row) else { return }
+        // Plain presses commit their selection at mouseDown (pressRow); the
+        // click that completes the same press must not dispatch it again.
+        let alreadyCommittedOnPress = pressCommittedSelection
+        pressCommittedSelection = false
         if let actions = rows[row].appKitWorkspaceRowActions {
             // Capture modifiers at click time: a coalesced (trailing) apply
             // must not re-read the keyboard ~100ms later.
@@ -321,7 +325,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 // plain click still in the coalescing window first.
                 selectionCoalescer.flushNow()
                 actions.commands.updateSelection(modifiers: modifiers)
-            } else {
+            } else if !alreadyCommittedOnPress {
                 selectionCoalescer.request {
                     actions.commands.updateSelection(modifiers: modifiers)
                 }
@@ -334,7 +338,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             if modifiers.contains(.command) || modifiers.contains(.shift) {
                 selectionCoalescer.flushNow()
                 headerActions.onFocusAnchor()
-            } else {
+            } else if !alreadyCommittedOnPress {
                 selectionCoalescer.request {
                     headerActions.onFocusAnchor()
                 }
@@ -456,16 +460,19 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func workspaceDragSessionDidBegin() {
-        // A drag consumes the press: the click action never fires, so no
-        // authoritative selection apply will reconcile the optimistic press
-        // highlight painted in previewSelection — without this rollback a
-        // fast drag leaves the grabbed row painted selected and every other
-        // visible row peeled. Drop the queued selection and restore visible
-        // cells from their stored models before drop targets paint.
+        // A drag consumes the press: the click action never fires. When the
+        // press already committed its selection at mouseDown, the optimistic
+        // paint IS the new truth — keep it (the authoritative apply is
+        // deferred behind the drag and reconciles at drag end). Otherwise
+        // (modifier press, multi-selection drag) roll the preview back so a
+        // fast drag doesn't leave a stale highlight and peeled rows.
         selectionCoalescer.cancel()
         previewBailoutTask?.cancel()
         previewBailoutTask = nil
-        restoreVisibleCellPaint()
+        if !pressCommittedSelection {
+            restoreVisibleCellPaint()
+        }
+        pressCommittedSelection = false
         if dropTargetGeometry.setWorkspaceDragSessionActive(true, rows: rows) {
             positionAppKitDropIndicator()
         }
@@ -476,26 +483,63 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         dropTargetGeometry.setReorderTargetCollectionActive(false, rows: rows)
     }
 
+    /// Whether the current press already committed its selection at
+    /// mouseDown, so the click action must not re-dispatch it and a drag
+    /// must not roll the optimistic paint back.
+    private var pressCommittedSelection = false
+
+    /// Press entry point (mouseDown, before the table's tracking loop).
+    /// Paints the optimistic highlight, and for a plain press commits the
+    /// workspace switch immediately — pressing a row to reorder it also
+    /// activates it, without waiting for mouseUp. Modifier presses and
+    /// presses inside a multi-selection keep click-time semantics so
+    /// cmd/shift toggling and multi-row drags don't collapse on press.
+    func pressRow(row: Int, modifiers: NSEvent.ModifierFlags, hitView: NSView?) {
+        pressCommittedSelection = false
+        guard previewSelection(row: row, modifiers: modifiers, hitView: hitView),
+              !modifiers.contains(.command),
+              !modifiers.contains(.shift),
+              rows.indices.contains(row) else { return }
+        let configuration = rows[row]
+        if let model = configuration.appKitWorkspaceRowModel,
+           let actions = configuration.appKitWorkspaceRowActions {
+            // A multi-selected row keeps its selection through a press so a
+            // drag can carry the whole multi-selection; plain clicks still
+            // collapse it at click time.
+            guard !model.isMultiSelected else { return }
+            selectionCoalescer.cancel()
+            actions.commands.updateSelection(modifiers: modifiers)
+            pressCommittedSelection = true
+        } else if let headerActions = configuration.appKitGroupHeaderActions {
+            selectionCoalescer.cancel()
+            headerActions.onFocusAnchor()
+            pressCommittedSelection = true
+        }
+    }
+
     /// Optimistic press highlight: paints the clicked workspace cell as
     /// selected immediately and, for a plain click, peels the highlight off
     /// the outgoing rows so old and new selection never show together while
     /// the authoritative render is queued behind the terminal-view swap.
     /// The authoritative apply reconciles right after.
-    func previewSelection(row: Int, modifiers: NSEvent.ModifierFlags, hitView: NSView?) {
+    /// Returns whether the press produced a paintable selection preview
+    /// (false for misses and presses on interactive chrome).
+    @discardableResult
+    func previewSelection(row: Int, modifiers: NSEvent.ModifierFlags, hitView: NSView?) -> Bool {
         guard rows.indices.contains(row),
-              let table = containerView?.tableView else { return }
+              let table = containerView?.tableView else { return false }
         let workspaceCell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
             as? SidebarWorkspaceRowTableCellView
         let headerCell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
             as? SidebarGroupHeaderTableCellView
         if rows[row].appKitWorkspaceRowModel != nil {
-            guard let workspaceCell else { return }
-            if let hitView, workspaceCell.selectionPreviewShouldIgnore(hitView) { return }
+            guard let workspaceCell else { return false }
+            if let hitView, workspaceCell.selectionPreviewShouldIgnore(hitView) { return false }
         } else if rows[row].appKitGroupHeaderModel != nil {
-            guard let headerCell else { return }
-            if let hitView, headerCell.selectionPreviewShouldIgnore(hitView) { return }
+            guard let headerCell else { return false }
+            if let hitView, headerCell.selectionPreviewShouldIgnore(hitView) { return false }
         } else {
-            return
+            return false
         }
         let extendsSelection = modifiers.contains(.command) || modifiers.contains(.shift)
         if !extendsSelection {
@@ -522,6 +566,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // alone, those strand the peel — the sidebar shows NO selection until
         // an unrelated change repaints. Restore truth if no apply arrives.
         schedulePreviewBailout()
+        return true
     }
 
     /// A user drag misaligns one contiguous span (single-digit moves); past

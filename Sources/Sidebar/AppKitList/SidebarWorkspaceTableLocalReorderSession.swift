@@ -45,6 +45,10 @@ final class SidebarWorkspaceTableLocalReorderController {
     private struct Session {
         let draggedWorkspaceId: UUID
         let isGroupBlock: Bool
+        /// The dragged workspace row's group at pickup: the snapshot was
+        /// captured with this indent baked in, so indent previews offset
+        /// relative to it.
+        var baseGroupId: UUID?
         var blockRowIds: [SidebarWorkspaceRenderItemID]
         var originalOrder: [SidebarWorkspaceRenderItemID]
         var grabOffsetY: CGFloat
@@ -112,6 +116,7 @@ final class SidebarWorkspaceTableLocalReorderController {
         var next = Session(
             draggedWorkspaceId: draggedWorkspaceId,
             isGroupBlock: rows[block[0]].isGroupHeader,
+            baseGroupId: rows[block[0]].isGroupHeader ? nil : rows[block[0]].groupId,
             blockRowIds: block.map { rows[$0].id },
             originalOrder: rows.map(\.id),
             grabOffsetY: min(max(pointerY - blockRect.minY, 0), blockRect.height),
@@ -264,7 +269,20 @@ final class SidebarWorkspaceTableLocalReorderController {
     ) {
         guard let delegate, var current = session else { return }
         guard let plan = delegate.localReorderResolvePlan(point: point, targets: targets) else {
-            // Dead zone: keep the last valid preview rather than snapping.
+            // A nil plan is the resolver's no-op zone — the pointer is back
+            // over the dragged block's original slot (or an illegal one).
+            // Preview the original order and forget the last plan so a drop
+            // here restores instead of committing the previous slot; without
+            // this, a drag could never be returned to where it started.
+            current.lastPlan = nil
+            current.destinationGroupId = current.baseGroupId
+            session = current
+            delegate.localReorderApplyOrder(
+                current.originalOrder,
+                movedRowIds: current.blockRowIds,
+                animated: true
+            )
+            updateFloatingIndent(destinationGroupId: current.baseGroupId)
             return
         }
         // The destination group comes from the commit action, not the
@@ -313,13 +331,20 @@ final class SidebarWorkspaceTableLocalReorderController {
         floating.frame = frame
     }
 
+    /// Offsets the floating snapshot relative to how it was captured: a
+    /// top-level row joining a group indents by the member indent, a member
+    /// row leaving its group un-indents, and returning to the source group
+    /// (or staying top-level) sits at zero.
     private func updateFloatingIndent(destinationGroupId: UUID?) {
         guard let current = session, !current.isGroupBlock,
               let floating = current.floatingView else { return }
-        let indent: CGFloat = destinationGroupId != nil
+        let destination: CGFloat = destinationGroupId != nil
             ? SidebarWorkspaceGroupingMetrics.memberIndent
             : 0
-        floating.setIndent(indent, animationDuration: slideDuration)
+        let base: CGFloat = current.baseGroupId != nil
+            ? SidebarWorkspaceGroupingMetrics.memberIndent
+            : 0
+        floating.setIndent(destination - base, animationDuration: slideDuration)
     }
 
     private func settleFloatingViewIntoSlot() {
@@ -371,16 +396,20 @@ final class SidebarWorkspaceTableLocalReorderController {
             finish(flushDeferredApply: true)
             return
         }
+        // The block is going back where it came from; any indent preview
+        // slides back to the captured position.
+        updateFloatingIndent(destinationGroupId: current.baseGroupId)
         animateEndOfSession(floating: floating, to: targetRect)
     }
 
     /// Slides the floating block into `targetRect`, then unhides the real
-    /// cells underneath and tears the session down.
+    /// cells underneath and tears the session down. The indent offset is the
+    /// caller's: a commit into a group keeps the indented content so it lands
+    /// exactly where the member cell will render.
     private func animateEndOfSession(
         floating: SidebarWorkspaceReorderFloatingRowView,
         to targetRect: CGRect
     ) {
-        floating.setIndent(0, animationDuration: slideDuration)
         floating.settle()
         NSAnimationContext.runAnimationGroup { context in
             context.duration = slideDuration
@@ -490,6 +519,7 @@ final class SidebarWorkspaceReorderFloatingRowView: NSView {
     }
 
     private let contentView = FlippedContentView()
+    private let snapshotStack = FlippedContentView()
     private var indent: CGFloat = 0
 
     override var isFlipped: Bool { true }
@@ -498,9 +528,16 @@ final class SidebarWorkspaceReorderFloatingRowView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         contentView.wantsLayer = true
+        // The stack slides horizontally for indent previews; the mask keeps
+        // the shifted snapshot inside the row band instead of bleeding past
+        // the sidebar edge.
+        contentView.layer?.masksToBounds = true
         contentView.frame = bounds
         contentView.autoresizingMask = [.width, .height]
         addSubview(contentView)
+        snapshotStack.frame = contentView.bounds
+        snapshotStack.autoresizingMask = [.width, .height]
+        contentView.addSubview(snapshotStack)
 
         var y: CGFloat = 0
         for snapshot in snapshots {
@@ -508,7 +545,7 @@ final class SidebarWorkspaceReorderFloatingRowView: NSView {
             imageView.imageScaling = .scaleNone
             imageView.frame = CGRect(x: 0, y: y, width: bounds.width, height: snapshot.height)
             imageView.autoresizingMask = [.width]
-            contentView.addSubview(imageView)
+            snapshotStack.addSubview(imageView)
             y += snapshot.height
         }
 
@@ -533,7 +570,7 @@ final class SidebarWorkspaceReorderFloatingRowView: NSView {
                 height: size.height
             )
             badge.autoresizingMask = [.minXMargin]
-            contentView.addSubview(badge)
+            snapshotStack.addSubview(badge)
         }
 
         let lift = CGFloat(1.02)
@@ -555,16 +592,20 @@ final class SidebarWorkspaceReorderFloatingRowView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    /// Slides the snapshot horizontally to preview group-member indent.
+    /// Slides the snapshot horizontally by `next` points relative to its
+    /// captured position: positive previews joining a group (content indents
+    /// and the trailing edge clips to the narrower member width), negative
+    /// previews leaving one (a member snapshot un-indents to top-level
+    /// alignment). The mask keeps either direction inside the row band.
     func setIndent(_ next: CGFloat, animationDuration: TimeInterval) {
         guard indent != next else { return }
         indent = next
         NSAnimationContext.runAnimationGroup { context in
             context.duration = animationDuration
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            var frame = contentView.frame
+            var frame = snapshotStack.frame
             frame.origin.x = next
-            contentView.animator().frame = frame
+            snapshotStack.animator().frame = frame
         }
     }
 
