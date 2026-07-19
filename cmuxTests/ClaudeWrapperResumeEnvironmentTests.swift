@@ -4,6 +4,88 @@ import Foundation
 import Testing
 
 @Suite struct ClaudeWrapperResumeEnvironmentTests {
+    @Test(arguments: ["cmux-claude-wrapper", "cmux-codex-wrapper"])
+    func computerUseWrappersIgnoreAmbientSocketAndStateOverrides(wrapperName: String) throws {
+        let fileManager = FileManager.default
+        let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let sandbox = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-cua-scope-\(String(UUID().uuidString.prefix(8)))", isDirectory: true)
+        let wrapperDir = sandbox.appendingPathComponent("wrappers", isDirectory: true)
+        let binDir = sandbox.appendingPathComponent("bin", isDirectory: true)
+        let homeDir = sandbox.appendingPathComponent("home", isDirectory: true)
+        try fileManager.createDirectory(at: wrapperDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: homeDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: sandbox) }
+
+        let sourceWrapper = repoRoot.appendingPathComponent("Resources/bin/\(wrapperName)")
+        let wrapperURL = wrapperDir.appendingPathComponent(wrapperName)
+        try fileManager.copyItem(at: sourceWrapper, to: wrapperURL)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapperURL.path)
+        try writeExecutable(
+            wrapperDir.appendingPathComponent("cmux-cua-driver"),
+            "#!/usr/bin/env bash\nexit 99\n"
+        )
+
+        let agentName = wrapperName.contains("claude") ? "claude" : "codex"
+        let recordURL = sandbox.appendingPathComponent("record.txt")
+        let agentURL = binDir.appendingPathComponent(agentName)
+        try writeExecutable(
+            agentURL,
+            """
+            #!/usr/bin/env bash
+            printf '%s\n' "$@" > \(shellQuotedForTest(recordURL.path))
+            """
+        )
+        let fakeCmuxURL = binDir.appendingPathComponent("cmux")
+        try writeExecutable(
+            fakeCmuxURL,
+            """
+            #!/usr/bin/env bash
+            if [[ "${1:-}" == "--socket" && "${3:-}" == "ping" ]]; then
+              exit 0
+            fi
+            exit 1
+            """
+        )
+
+        let socketURL = sandbox.appendingPathComponent("cmux.sock")
+        let socketFD = try bindUnixSocket(at: socketURL.path)
+        defer {
+            Darwin.close(socketFD)
+            unlink(socketURL.path)
+        }
+
+        let process = Process()
+        process.executableURL = wrapperURL
+        process.arguments = ["--resume", "agent-session-123"]
+        process.environment = [
+            "PATH": "\(binDir.path):/usr/bin:/bin",
+            "HOME": homeDir.path,
+            "TMPDIR": sandbox.path,
+            "CMUX_TAG": "cua healing!!",
+            "CMUX_SURFACE_ID": UUID().uuidString,
+            "CMUX_SOCKET_PATH": socketURL.path,
+            "CMUX_BUNDLED_CLI_PATH": fakeCmuxURL.path,
+            "CMUX_CLAUDE_SKIP_DEFAULTS": "1",
+            "CMUX_CUSTOM_CLAUDE_PATH": agentURL.path,
+            "CMUX_CUSTOM_CODEX_PATH": agentURL.path,
+            "CMUX_CUA_SOCKET_PATH": "/tmp/hostile-default/cua-driver.sock",
+            "CMUX_CUA_STATE_DIR": "/tmp/hostile-default/state",
+        ]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try runWithBoundedWait(process, shellDescription: wrapperName)
+
+        let recorded = try String(contentsOf: recordURL, encoding: .utf8)
+        let uid = getuid()
+        #expect(recorded.contains("/tmp/cmux-cua-\(uid)/cua-healing/cua.sock"), Comment(rawValue: recorded))
+        #expect(recorded.contains("/computer-use/runtime/cua-healing/state"), Comment(rawValue: recorded))
+        #expect(recorded.contains("CUA_DRIVER_RS_MCP_FORCE_PROXY"), Comment(rawValue: recorded))
+        #expect(!recorded.contains("hostile-default"), Comment(rawValue: recorded))
+    }
+
     @Test func bundledClaudeWrapperScrubsSessionIdentityAndPreservesTrustBypassOnResume() throws {
         let fileManager = FileManager.default
         let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()

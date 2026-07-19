@@ -276,6 +276,21 @@ struct ComputerUseUXTests {
         ))
     }
 
+    @Test @MainActor func unexpectedHelperTerminationRestartsOnlyWhileEnabled() async {
+        var restartCount = 0
+        let supervisor = ComputerUseHelperSupervisor {
+            restartCount += 1
+        }
+
+        supervisor.setEnabled(true)
+        await supervisor.helperDidTerminate()
+        #expect(restartCount == 1)
+
+        supervisor.setEnabled(false)
+        await supervisor.helperDidTerminate()
+        #expect(restartCount == 1, "an intentional disabled state must not self-relaunch")
+    }
+
     @Test func taggedRuntimeSocketFitsDarwinUnixPathLimit() {
         let paths = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/\(String(repeating: "long-home-", count: 10))"),
