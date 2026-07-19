@@ -716,7 +716,9 @@ final class FileExplorerStore: ObservableObject {
     @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:] {
         didSet { outlineRevision &+= 1 }
     }
-    @Published private(set) var contentRevision = 0
+    @Published private(set) var contentRevision = 0 {
+        didSet { outlineRevision &+= 1 }
+    }
     @Published private(set) var rootStatusMessage: String?
     private(set) var workspaceRootIdentity: UUID?
     private(set) var outlineRevision: UInt64 = 0
