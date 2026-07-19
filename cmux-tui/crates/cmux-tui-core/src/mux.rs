@@ -4819,6 +4819,26 @@ mod tests {
     }
 
     #[test]
+    fn move_tab_does_not_emit_layout_for_a_removed_source_screen() {
+        let mux = test_mux();
+        let source = mux.new_workspace(None, None).unwrap();
+        let (workspace, source_screen) =
+            mux.with_state(|state| (state.workspaces[0].id, state.workspaces[0].screens[0].id));
+        let target = mux.new_screen(Some(workspace), None).unwrap();
+        let target_pane = mux.with_state(|state| state.pane_of(target.id).unwrap());
+        let events = mux.subscribe();
+
+        assert!(mux.move_tab(source.id, target_pane, 0));
+        mux.with_state(|state| {
+            assert!(state.workspaces[0].screens.iter().all(|screen| screen.id != source_screen));
+        });
+        assert!(matches!(events.recv().unwrap(), MuxEvent::TreeChanged));
+        assert!(events.try_iter().all(
+            |event| !matches!(event, MuxEvent::LayoutChanged(screen) if screen == source_screen)
+        ));
+    }
+
+    #[test]
     fn set_ratio_updates_deepest_split_and_clamps() {
         let mux = test_mux();
         let (p1, p2, p3) = seed_split_ratio_tree(&mux);

@@ -682,3 +682,43 @@ describe("TerminalPane renderer selection", () => {
     expect(attachedTerminal.renderHook).not.toHaveBeenCalled();
   });
 });
+
+describe("TerminalPane stack indexing", () => {
+  it("does not scan the full pane list for every stack row", () => {
+    const panes: ScreenView["panes"] = Array.from({ length: 13 }, (_, index) => ({
+      id: index + 1,
+      name: null,
+      active_tab: 0,
+      tabs: [{
+        surface: index + 100,
+        kind: "pty" as const,
+        browser_source: null,
+        name: null,
+        title: `pane ${index + 1}`,
+        size: { cols: 80, rows: 24 },
+        dead: false,
+      }],
+    }));
+    let findCalls = 0;
+    const trackedPanes = new Proxy(panes, {
+      get(target, property, receiver) {
+        if (property === "find") findCalls += 1;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const screen: ScreenView = {
+      ...screenView(0.5),
+      panes: trackedPanes,
+      layout: {
+        type: "stack",
+        panes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+        expanded: 7,
+      },
+      activePane: 7,
+    };
+
+    render(<TerminalPane {...terminalPaneProps(vi.fn(async () => true))} screen={screen} />);
+
+    expect(findCalls).toBe(0);
+  });
+});
