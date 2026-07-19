@@ -26,6 +26,7 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 ### 3.1 Remote Workspace + Reconnect UX
 - `DONE` `cmux ssh` creates remote-tagged workspaces and does not require `--name`.
 - `DONE` scoped shell niceties are applied only for `cmux ssh` launches.
+- `DONE` `cmux ssh --command <text>` runs text once in the initial remote terminal after shell startup. The bootstrap stages the command without local evaluation and uses the workspace's remote shell-state directory to prevent reruns on reconnect or reattach.
 - `DONE` context menu actions exist for remote workspaces (`Reconnect Workspace(s)`, `Disconnect Workspace(s)`).
 - `DONE` socket API includes `workspace.remote.reconnect`.
 
@@ -137,7 +138,7 @@ Recompute effective size on:
 
 | ID | Milestone | Status | Notes |
 |---|---|---|---|
-| M-001 | `cmux ssh` workspace creation + metadata + optional `--name` | DONE | Covered by `tests_v2/test_ssh_remote_cli_metadata.py` |
+| M-001 | `cmux ssh` workspace creation + metadata + optional `--name` / initial `--command` | DONE | Covered by `tests_v2/test_ssh_remote_cli_metadata.py` and remote initial-command bootstrap tests |
 | M-002 | Remote bootstrap/upload/start + hello handshake | DONE | Includes daemon capability handshake + status surfacing |
 | M-003 | Reconnect/disconnect UX + API + improved error surfacing | DONE | Includes retry count in surfaced errors |
 | M-004 | Docker e2e for bootstrap/reconnect shell niceties | DONE | Docker suites validate proxy-path bootstrap and reconnect behavior |
@@ -161,6 +162,7 @@ Recompute effective size on:
 | T-003 | no `--name` | DONE |
 | T-004 | reconnect API success/error paths | DONE |
 | T-005 | retry count visible in daemon error detail | DONE |
+| T-006 | initial `--command` preserves quoting and runs once across reattach | DONE |
 
 ### 7.2 CLI Relay
 

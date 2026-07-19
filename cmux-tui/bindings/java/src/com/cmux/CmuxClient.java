@@ -84,6 +84,15 @@ public final class CmuxClient implements AutoCloseable {
         return result;
     }
 
+    private void requireProtocol(int minimum, String feature) throws CmuxException {
+        int negotiated = protocol != null ? protocol : identify().protocol();
+        if (negotiated < minimum) {
+            throw new CmuxProtocolMismatchException(
+                feature + " requires protocol " + minimum + "; server uses protocol " + negotiated
+            );
+        }
+    }
+
     public Tree listWorkspaces() throws CmuxException {
         return Tree.from(request("list-workspaces", new LinkedHashMap<>()));
     }
@@ -168,6 +177,14 @@ public final class CmuxClient implements AutoCloseable {
         params.put("dir", dir);
         params.put("ratio", ratio);
         request("set-ratio", params);
+    }
+
+    public void setSplitRatio(long split, double ratio) throws CmuxException {
+        requireProtocol(8, "set-split-ratio");
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("split", split);
+        params.put("ratio", ratio);
+        request("set-split-ratio", params);
     }
 
     public void setDefaultColors(String fg, String bg) throws CmuxException {
@@ -290,7 +307,7 @@ public final class CmuxClient implements AutoCloseable {
 
     public CmuxStream attachSurface(long surface) throws CmuxException {
         int negotiated = protocol != null ? protocol : identify().protocol();
-        if (negotiated > 7 || (negotiated > 5 && !allowProtocolV6Attach)) {
+        if (negotiated > 5 && !allowProtocolV6Attach) {
             throw new CmuxProtocolMismatchException("unsupported attach protocol " + negotiated);
         }
         Map<String, Object> params = new LinkedHashMap<>();

@@ -579,6 +579,7 @@ the expected text without connecting to a cmux socket.
 - `cmux mosh --help` -> `Usage: cmux mosh <destination>`
 - `cmux mosh-tmux --help` -> `Usage: cmux mosh-tmux <destination>`
 - `cmux mosh-tmux --help` -> `--session <name>`
+- `cmux ssh --help` -> `--command <text>`
 - `cmux ssh-session-list --help` -> `Usage: cmux ssh-session-list`
 - `cmux ssh-session-attach --help` -> `Usage: cmux ssh-session-attach --session-id <id>`
 - `cmux ssh-session-cleanup --help` -> `Usage: cmux ssh-session-cleanup`

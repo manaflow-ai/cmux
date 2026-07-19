@@ -5,6 +5,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
     static func script(
         remoteRelayPort: Int,
         shellFeatures: String,
+        initialCommand: String? = nil,
         terminfoSource: String? = nil,
         bundledZshIntegration: String? = nil,
         bundledBashIntegration: String? = nil,
@@ -12,6 +13,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
         terminalProfile: WorkspaceRemoteTerminalProfile = .shell
     ) -> String {
         let shellStateDir = shellStateDirForRemoteRelayPort(remoteRelayPort)
+        let initialCommandBootstrap = RemoteInitialCommandBootstrap(command: initialCommand)
         let commonShellExportLines = commonShellLines(
             remoteRelayPort: remoteRelayPort,
             shellStateDir: shellStateDir,
@@ -26,6 +28,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
         bashShellLines.append(
             #"if [ "${CMUX_SHELL_INTEGRATION:-1}" != "0" ] && [ -r "${CMUX_SHELL_INTEGRATION_DIR}/cmux-bash-integration.bash" ]; then . "${CMUX_SHELL_INTEGRATION_DIR}/cmux-bash-integration.bash"; fi"#
         )
+        bashShellLines.append(contentsOf: initialCommandBootstrap.posixInteractiveShellLines)
         let zshBootstrap = RemoteRelayZshBootstrap(shellStateDir: shellStateDir)
         let relayWarmupLines = relayWarmupLines(remoteRelayPort: remoteRelayPort)
 
@@ -34,6 +37,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "cmux_shell_dir=\"\(shellStateDir)\"",
             "mkdir -p \"$cmux_shell_dir\"",
         ]
+        outerLines.append(contentsOf: initialCommandBootstrap.preparationLines)
         if let bundledZshIntegration {
             outerLines += [
                 "cat > \"$cmux_shell_dir/cmux-zsh-integration.zsh\" <<'CMUXCMUXZSH'",
@@ -78,7 +82,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "CMUXZSHRC",
             "    cat > \"$cmux_shell_dir/.zlogin\" <<'CMUXZSHLOGIN'",
         ]
-        outerLines.append(contentsOf: zshBootstrap.zshLoginLines)
+        outerLines.append(contentsOf: zshBootstrap.zshLoginLines + initialCommandBootstrap.posixInteractiveShellLines)
         outerLines += [
             "CMUXZSHLOGIN",
             "    chmod 600 \"$cmux_shell_dir/.zshenv\" \"$cmux_shell_dir/.zprofile\" \"$cmux_shell_dir/.zshrc\" \"$cmux_shell_dir/.zlogin\" >/dev/null 2>&1 || true",
@@ -123,19 +127,25 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "  fish)",
         ]
         outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
+        var fishInitCommands = ["source \"$CMUX_FISH_INTEGRATION_FILE\""]
+        if let initialCommand = initialCommandBootstrap.fishInteractiveShellCommand {
+            fishInitCommands.append(initialCommand)
+        }
+        let fishInitCommand = shellQuote(fishInitCommands.joined(separator: "; "))
         outerLines += [
             "    export CMUX_FISH_INTEGRATION_FILE=\"$cmux_shell_dir/fish/config.fish\"",
             "    export CMUX_FISH_USER_CONFIG_ALREADY_LOADED=1",
             terminalLaunchLine(
                 profile: terminalProfile,
                 indentation: "    ",
-                directShellCommand: "exec \"$CMUX_LOGIN_SHELL\" -il --init-command 'source \"$CMUX_FISH_INTEGRATION_FILE\"'",
-                tmuxShellCommand: "export CMUX_FISH_INTEGRATION_FILE=\"\(shellStateDir)/fish/config.fish\"; export CMUX_FISH_USER_CONFIG_ALREADY_LOADED=1; exec \"${SHELL:-/bin/fish}\" -il --init-command 'source \"$CMUX_FISH_INTEGRATION_FILE\"'"
+                directShellCommand: "exec \"$CMUX_LOGIN_SHELL\" -il --init-command \(fishInitCommand)",
+                tmuxShellCommand: "export CMUX_FISH_INTEGRATION_FILE=\"\(shellStateDir)/fish/config.fish\"; export CMUX_FISH_USER_CONFIG_ALREADY_LOADED=1; exec \"${SHELL:-/bin/fish}\" -il --init-command \(fishInitCommand)"
             ),
             "    ;;",
             "  *)",
         ]
         outerLines.append(contentsOf: relayWarmupLines)
+        outerLines.append(contentsOf: initialCommandBootstrap.fallbackShellLines)
         outerLines += [
             terminalLaunchLine(
                 profile: terminalProfile,

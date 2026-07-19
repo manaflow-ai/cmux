@@ -37,7 +37,17 @@ extension CMUXCLI {
               cmux ssh dev@my-host --transport mosh
             """
         )
-        return "\(help)\n\n\(moshHelp)"
+        let initialCommandHelp = String(
+            localized: "cli.help.ssh.initialCommand",
+            defaultValue: """
+            Initial command:
+              --command <text>        Run text once in the initial remote terminal after shell startup
+
+            Example:
+              cmux ssh dev@my-host --command 'omp "investigate auth"'
+            """
+        )
+        return "\(help)\n\n\(initialCommandHelp)\n\n\(moshHelp)"
     }
 
     static var moshCommandUsage: String {

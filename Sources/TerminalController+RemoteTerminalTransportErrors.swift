@@ -47,7 +47,7 @@ extension TerminalController {
             code: "invalid_params",
             message: String(
                 localized: "socket.workspace.remote.terminalTransport.invalid",
-                defaultValue: "terminal_transport must be 'ssh' or 'mosh'"
+                defaultValue: "The remote terminal transport must be SSH or Mosh."
             ),
             data: nil
         )
@@ -58,7 +58,7 @@ extension TerminalController {
             code: "invalid_params",
             message: String(
                 localized: "socket.workspace.remote.terminalProfile.invalid",
-                defaultValue: "terminal_profile must be 'shell' or 'tmux', with a valid terminal_tmux_session"
+                defaultValue: "The remote terminal must open a shell or a valid named tmux session."
             ),
             data: nil
         )
@@ -69,7 +69,7 @@ extension TerminalController {
             code: "invalid_params",
             message: String(
                 localized: "socket.workspace.remote.terminalTransport.moshRequiresSSH",
-                defaultValue: "terminal_transport 'mosh' requires an SSH-managed workspace"
+                defaultValue: "Mosh terminal transport requires an SSH-managed workspace."
             ),
             data: nil
         )
