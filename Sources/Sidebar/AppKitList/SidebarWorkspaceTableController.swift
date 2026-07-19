@@ -1068,14 +1068,23 @@ extension SidebarWorkspaceTableController: SidebarWorkspaceTableLocalReorderDele
     var localReorderRows: [SidebarWorkspaceTableRowConfiguration] { rows }
 
     /// Animates the table to a preview permutation of the current rows. The
-    /// permutation must be id-preserving; anything else is refused so a
-    /// stale preview can never desync the data source from the table.
-    func localReorderApplyOrder(_ ids: [SidebarWorkspaceRenderItemID], animated: Bool) {
+    /// planner refuses anything but an id-preserving move of `movedRowIds`
+    /// (the dragged block), so a stale preview can never desync the data
+    /// source from the table, and each drag update stays near-linear with
+    /// one `moveRow` per dragged row instead of one per displaced row.
+    func localReorderApplyOrder(
+        _ ids: [SidebarWorkspaceRenderItemID],
+        movedRowIds: [SidebarWorkspaceRenderItemID],
+        animated: Bool
+    ) {
         guard let table = containerView?.tableView else { return }
         let currentIds = rows.map(\.id)
         guard currentIds != ids,
-              currentIds.count == ids.count,
-              Self.multisetEqual(currentIds, ids) else { return }
+              let steps = SidebarWorkspaceReorderMovePlanner().plan(
+                  current: currentIds,
+                  target: ids,
+                  movedIds: movedRowIds
+              ) else { return }
         let rowsById = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let nextRows = ids.compactMap { rowsById[$0] }
         guard nextRows.count == rows.count else { return }
@@ -1085,12 +1094,8 @@ extension SidebarWorkspaceTableController: SidebarWorkspaceTableLocalReorderDele
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             context.allowsImplicitAnimation = animated
             table.beginUpdates()
-            var current = currentIds
-            for targetIndex in ids.indices where current[targetIndex] != ids[targetIndex] {
-                guard let fromIndex = current.firstIndex(of: ids[targetIndex]) else { continue }
-                table.moveRow(at: fromIndex, to: targetIndex)
-                current.remove(at: fromIndex)
-                current.insert(ids[targetIndex], at: targetIndex)
+            for step in steps {
+                table.moveRow(at: step.from, to: step.to)
             }
             table.endUpdates()
         }
@@ -1102,6 +1107,11 @@ extension SidebarWorkspaceTableController: SidebarWorkspaceTableLocalReorderDele
                 IndexSet(integersIn: visible.lowerBound..<(visible.lowerBound + visible.length))
             )
         }
+        // The overlay's drop targets carry per-row ids and frames that the
+        // permutation just invalidated; the next draggingUpdated resolves
+        // against them, so refresh now or the preview can stick to (and
+        // commit) the previous slot.
+        updateDropTargets()
     }
 
     /// Applies the moving-gap treatment: cells for `ids` hide, everything

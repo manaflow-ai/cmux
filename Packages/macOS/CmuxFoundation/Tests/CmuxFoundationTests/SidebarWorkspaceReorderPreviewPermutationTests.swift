@@ -23,7 +23,8 @@ import Testing
             rows: rows,
             draggedWorkspaceId: a,
             indicator: SidebarDropIndicator(tabId: c, edge: .bottom),
-            scope: .raw
+            scope: .raw,
+            destinationGroupId: nil
         ))
         #expect(preview.order == [1, 2, 0, 3])
         #expect(preview.draggedBlock == [0])
@@ -37,7 +38,8 @@ import Testing
             rows: rows,
             draggedWorkspaceId: d,
             indicator: SidebarDropIndicator(tabId: b, edge: .top),
-            scope: .raw
+            scope: .raw,
+            destinationGroupId: nil
         ))
         #expect(preview.order == [0, 3, 1, 2])
     }
@@ -49,7 +51,8 @@ import Testing
             rows: rows,
             draggedWorkspaceId: a,
             indicator: SidebarDropIndicator(tabId: nil, edge: .bottom),
-            scope: .raw
+            scope: .raw,
+            destinationGroupId: nil
         ))
         #expect(preview.order == [1, 2, 0])
     }
@@ -61,7 +64,8 @@ import Testing
             rows: rows,
             draggedWorkspaceId: b,
             indicator: SidebarDropIndicator(tabId: b, edge: .top),
-            scope: .raw
+            scope: .raw,
+            destinationGroupId: nil
         ))
         #expect(preview.order == [0, 1, 2])
     }
@@ -80,7 +84,8 @@ import Testing
             rows: rows,
             draggedWorkspaceId: groupAnchor,
             indicator: SidebarDropIndicator(tabId: b, edge: .bottom),
-            scope: .topLevel
+            scope: .topLevel,
+            destinationGroupId: nil
         ))
         #expect(preview.draggedBlock == [1, 2, 3])
         #expect(preview.order == [0, 4, 1, 2, 3])
@@ -100,7 +105,8 @@ import Testing
             rows: rows,
             draggedWorkspaceId: a,
             indicator: SidebarDropIndicator(tabId: groupAnchor, edge: .bottom),
-            scope: .topLevel
+            scope: .topLevel,
+            destinationGroupId: nil
         ))
         #expect(preview.order == [1, 2, 3, 0, 4])
         #expect(preview.destinationGroupId == nil)
@@ -120,7 +126,8 @@ import Testing
             rows: rows,
             draggedWorkspaceId: a,
             indicator: SidebarDropIndicator(tabId: member1, edge: .bottom),
-            scope: .group(groupId)
+            scope: .group(groupId),
+            destinationGroupId: groupId
         ))
         #expect(preview.order == [1, 2, 0, 3, 4])
         #expect(preview.destinationGroupId == groupId)
@@ -138,10 +145,33 @@ import Testing
             rows: rows,
             draggedWorkspaceId: a,
             indicator: SidebarDropIndicator(tabId: groupAnchor, edge: .bottom),
-            scope: .group(groupId)
+            scope: .group(groupId),
+            destinationGroupId: groupId
         ))
         #expect(preview.order == [1, 0, 2])
         #expect(preview.destinationGroupId == groupId)
+    }
+
+    /// Root-lane group-boundary plans render with a group scope while
+    /// committing a top-level move (`explicitGroupId == nil`): the preview
+    /// must report a top-level destination, not the render scope's group.
+    @Test func groupScopedIndicatorWithTopLevelCommitStaysTopLevel() throws {
+        let rows = [
+            row(a),
+            row(groupAnchor, group: groupId, header: true),
+            row(member1, group: groupId),
+            row(member2, group: groupId),
+            row(b),
+        ]
+        let preview = try #require(SidebarWorkspaceReorderPreviewPermutation().previewOrder(
+            rows: rows,
+            draggedWorkspaceId: a,
+            indicator: SidebarDropIndicator(tabId: member2, edge: .bottom),
+            scope: .group(groupId),
+            destinationGroupId: nil
+        ))
+        #expect(preview.order == [1, 2, 3, 0, 4])
+        #expect(preview.destinationGroupId == nil)
     }
 
     /// Unknown indicator target refuses (caller keeps the last preview).
@@ -151,7 +181,8 @@ import Testing
             rows: rows,
             draggedWorkspaceId: a,
             indicator: SidebarDropIndicator(tabId: UUID(), edge: .top),
-            scope: .raw
+            scope: .raw,
+            destinationGroupId: nil
         )
         #expect(preview == nil)
     }
@@ -163,7 +194,8 @@ import Testing
             rows: rows,
             draggedWorkspaceId: UUID(),
             indicator: SidebarDropIndicator(tabId: a, edge: .top),
-            scope: .raw
+            scope: .raw,
+            destinationGroupId: nil
         )
         #expect(preview == nil)
     }

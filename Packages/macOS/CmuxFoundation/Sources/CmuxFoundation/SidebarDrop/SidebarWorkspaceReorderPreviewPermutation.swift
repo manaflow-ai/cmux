@@ -24,7 +24,10 @@ public struct SidebarWorkspaceReorderPreviewOrder: Equatable, Sendable {
     public let draggedBlock: [Int]
 
     /// The group the dragged workspace would join when dropped here, `nil`
-    /// for a top-level slot. Drives the floating row's indent preview.
+    /// for a top-level slot. Comes from the plan's commit action, not the
+    /// indicator render scope: root-lane group-boundary plans render with a
+    /// group scope while committing a top-level move. Drives the floating
+    /// row's indent preview.
     public let destinationGroupId: UUID?
 }
 
@@ -38,12 +41,14 @@ public struct SidebarWorkspaceReorderPreviewPermutation: Sendable {
 
     /// Resolves the preview order for a plan, or `nil` when the indicator
     /// cannot be mapped onto the visible rows (the caller should keep the
-    /// last valid preview).
+    /// last valid preview). `destinationGroupId` is the reorder action's
+    /// explicit destination group (`nil` for a top-level commit).
     public func previewOrder(
         rows: [SidebarWorkspaceReorderPreviewRow],
         draggedWorkspaceId: UUID,
         indicator: SidebarDropIndicator,
-        scope: SidebarWorkspaceReorderDropIndicatorScope
+        scope: SidebarWorkspaceReorderDropIndicatorScope,
+        destinationGroupId: UUID?
     ) -> SidebarWorkspaceReorderPreviewOrder? {
         guard let block = draggedBlockIndices(rows: rows, draggedWorkspaceId: draggedWorkspaceId),
               !block.isEmpty else {
@@ -54,7 +59,7 @@ public struct SidebarWorkspaceReorderPreviewPermutation: Sendable {
             return SidebarWorkspaceReorderPreviewOrder(
                 order: Array(rows.indices),
                 draggedBlock: block,
-                destinationGroupId: destinationGroupId(scope: scope)
+                destinationGroupId: destinationGroupId
             )
         }
 
@@ -77,7 +82,7 @@ public struct SidebarWorkspaceReorderPreviewPermutation: Sendable {
         return SidebarWorkspaceReorderPreviewOrder(
             order: order,
             draggedBlock: block,
-            destinationGroupId: destinationGroupId(scope: scope)
+            destinationGroupId: destinationGroupId
         )
     }
 
@@ -151,12 +156,5 @@ public struct SidebarWorkspaceReorderPreviewPermutation: Sendable {
             offset += 1
         }
         return offset
-    }
-
-    private func destinationGroupId(
-        scope: SidebarWorkspaceReorderDropIndicatorScope
-    ) -> UUID? {
-        guard case .group(let groupId) = scope else { return nil }
-        return groupId
     }
 }

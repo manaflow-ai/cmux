@@ -8,7 +8,11 @@ import CmuxFoundation
 protocol SidebarWorkspaceTableLocalReorderDelegate: AnyObject {
     var localReorderContainerView: SidebarWorkspaceTableContainerView? { get }
     var localReorderRows: [SidebarWorkspaceTableRowConfiguration] { get }
-    func localReorderApplyOrder(_ ids: [SidebarWorkspaceRenderItemID], animated: Bool)
+    func localReorderApplyOrder(
+        _ ids: [SidebarWorkspaceRenderItemID],
+        movedRowIds: [SidebarWorkspaceRenderItemID],
+        animated: Bool
+    )
     func localReorderSetCellsHidden(_ ids: Set<SidebarWorkspaceRenderItemID>)
     func localReorderResolvePlan(
         point: CGPoint,
@@ -154,9 +158,13 @@ final class SidebarWorkspaceTableLocalReorderController {
     /// (the item may be headed to another window) and the system drag image
     /// takes over as the visual.
     func draggingExited() {
-        guard session != nil, case .dragging = phase, let delegate else { return }
+        guard let current = session, case .dragging = phase, let delegate else { return }
         setInsideSidebar(false)
-        delegate.localReorderApplyOrder(session?.originalOrder ?? [], animated: true)
+        delegate.localReorderApplyOrder(
+            current.originalOrder,
+            movedRowIds: current.blockRowIds,
+            animated: true
+        )
         session?.lastPlan = nil
         session?.destinationGroupId = nil
     }
@@ -259,7 +267,10 @@ final class SidebarWorkspaceTableLocalReorderController {
             // Dead zone: keep the last valid preview rather than snapping.
             return
         }
-        guard case .reorder = plan.action else { return }
+        // The destination group comes from the commit action, not the
+        // indicator render scope: root-lane group-boundary plans render with
+        // a group scope while committing a top-level move.
+        guard case .reorder(_, _, let explicitGroupId) = plan.action else { return }
         current.lastPlan = plan
         let rows = delegate.localReorderRows
         let previewRows = rows.map {
@@ -274,11 +285,16 @@ final class SidebarWorkspaceTableLocalReorderController {
                rows: previewRows,
                draggedWorkspaceId: current.draggedWorkspaceId,
                indicator: indicator,
-               scope: plan.indicatorScope
+               scope: plan.indicatorScope,
+               destinationGroupId: explicitGroupId
            ) {
             current.destinationGroupId = preview.destinationGroupId
             session = current
-            delegate.localReorderApplyOrder(preview.order.map { rows[$0].id }, animated: true)
+            delegate.localReorderApplyOrder(
+                preview.order.map { rows[$0].id },
+                movedRowIds: current.blockRowIds,
+                animated: true
+            )
             updateFloatingIndent(destinationGroupId: preview.destinationGroupId)
         } else {
             session = current
@@ -333,7 +349,11 @@ final class SidebarWorkspaceTableLocalReorderController {
             return
         }
         phase = .restoring
-        delegate.localReorderApplyOrder(current.originalOrder, animated: true)
+        delegate.localReorderApplyOrder(
+            current.originalOrder,
+            movedRowIds: current.blockRowIds,
+            animated: true
+        )
         guard let container = delegate.localReorderContainerView,
               let floating = current.floatingView,
               !floating.isHidden else {
@@ -494,7 +514,10 @@ final class SidebarWorkspaceReorderFloatingRowView: NSView {
 
         let hiddenCount = totalRowCount - snapshots.count
         if hiddenCount > 0 {
-            let badge = NSTextField(labelWithString: "+\(hiddenCount)")
+            let badge = NSTextField(labelWithString: String(
+                localized: "sidebar.reorder.floating.moreRows",
+                defaultValue: "+\(hiddenCount)"
+            ))
             badge.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
             badge.textColor = .secondaryLabelColor
             badge.wantsLayer = true
