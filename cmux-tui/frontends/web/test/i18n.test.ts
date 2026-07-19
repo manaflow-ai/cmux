@@ -8,8 +8,8 @@ describe("web localization catalogs", () => {
   });
 
   it.each([
-    ["en-US", "Protocol 8 is required; the server reported protocol 7."],
-    ["ja-JP", "プロトコル8が必要ですが、サーバーはプロトコル7を返しました。"],
+    ["en-US", "Protocol 9 is required; the server reported protocol 7."],
+    ["ja-JP", "プロトコル9が必要ですが、サーバーはプロトコル7を返しました。"],
   ])("renders the required protocol in %s mismatch errors", (language, expected) => {
     const languageSpy = vi.spyOn(navigator, "language", "get").mockReturnValue(language);
     expect(t("wrongProtocol", { required: SUPPORTED_PROTOCOL, protocol: 7 })).toBe(expected);

@@ -102,6 +102,7 @@ export type CloseWorkspaceOptions = CmuxRequestParams<"close-workspace">;
 export type RenameWorkspaceOptions = CmuxRequestParams<"rename-workspace">;
 export type MoveWorkspaceOptions = CmuxRequestParams<"move-workspace">;
 export type NewScreenOptions = CmuxRequestParams<"new-screen">;
+export type NewPaneOptions = Omit<CmuxRequestParams<"new-pane">, "pane">;
 export type SplitOptions = Omit<CmuxRequestParams<"split">, "pane" | "dir">;
 export type SelectOptions = CmuxRequestParams<"select-screen">;
 export type SelectTabOptions = CmuxRequestParams<"select-tab">;
@@ -477,6 +478,10 @@ export class CmuxClient {
     return this.request("create-terminal", options);
   }
   newScreen(options: NewScreenOptions = {}): Promise<SurfaceResult> { return this.request("new-screen", options); }
+  async newPane(pane: Id, options: NewPaneOptions = {}): Promise<SurfaceResult> {
+    await this.requireProtocol(9, "new-pane");
+    return this.request("new-pane", { pane, ...options });
+  }
   split(pane: Id, dir: SplitDirection, options: SplitOptions = {}): Promise<SurfaceResult> {
     return this.request("split", { pane, dir, ...options });
   }

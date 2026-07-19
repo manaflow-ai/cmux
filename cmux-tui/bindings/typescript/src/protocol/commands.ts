@@ -194,6 +194,13 @@ export interface NewScreenRequest extends CmuxRequestBase {
   rows?: number | null;
 }
 
+export interface NewPaneRequest extends CmuxRequestBase {
+  cmd: "new-pane";
+  pane: Id;
+  cols?: number | null;
+  rows?: number | null;
+}
+
 export interface SplitRequest extends CmuxRequestBase {
   cmd: "split";
   pane: Id;
@@ -422,6 +429,7 @@ export type CmuxRequest =
   | CreateWorkspaceRequest
   | CreateTerminalRequest
   | NewScreenRequest
+  | NewPaneRequest
   | SplitRequest
   | SetRatioRequest
   | SetSplitRatioRequest
@@ -484,6 +492,7 @@ export interface CmuxResponseDataMap {
   "create-workspace": WorkspacePlacement;
   "create-terminal": TerminalPlacement;
   "new-screen": SurfaceResult;
+  "new-pane": SurfaceResult;
   split: SurfaceResult;
   "set-ratio": EmptyResult;
   "set-split-ratio": EmptyResult;

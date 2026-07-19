@@ -1494,6 +1494,7 @@
       "flagName": "Flagge",
       "flagDesc": "Beschreibung",
       "flagNameVal": "Legen Sie den Titel des Arbeitsbereichs fest",
+      "flagCommand": "Befehlstext nach dem Shell-Start einmal im ersten Remote-Terminal ausführen",
       "flagPort": "SSH-Port (Standard 22)",
       "flagIdentity": "Pfad zur Identitätsdatei",
       "flagSshOption": "Übergeben Sie beliebige SSH-Optionen (z. B. -o StrictHostKeyChecking=no)",

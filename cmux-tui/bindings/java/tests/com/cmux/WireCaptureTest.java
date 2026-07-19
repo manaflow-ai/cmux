@@ -28,6 +28,7 @@ public final class WireCaptureTest {
             sizedAttach
         );
         assertProtocolV7RejectsSetSplitRatio();
+        assertProtocolV8RejectsNewPane();
         assertProtocolV9AllowsSetSplitRatio();
     }
 
@@ -81,6 +82,27 @@ public final class WireCaptureTest {
             server.close();
         }
         assertLine("set-split-ratio identify", "{\"id\":1,\"cmd\":\"identify\"}\n", server.firstLine(0));
+    }
+
+    private static void assertProtocolV8RejectsNewPane() throws Exception {
+        Path socket = freshSocketPath();
+        CaptureServer server = new CaptureServer(socket, new String[] {
+            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":8,\"session\":\"wire\",\"pid\":1}}"
+        });
+        server.start();
+        try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+            try {
+                client.newPane(1, null, null);
+                throw new AssertionError("protocol 8 newPane must fail before sending the command");
+            } catch (CmuxProtocolMismatchException error) {
+                if (!error.getMessage().contains("new-pane requires protocol 9")) {
+                    throw error;
+                }
+            }
+        } finally {
+            server.close();
+        }
+        assertLine("new-pane identify", "{\"id\":1,\"cmd\":\"identify\"}\n", server.firstLine(0));
     }
 
     private static void assertProtocolV9AllowsSetSplitRatio() throws Exception {

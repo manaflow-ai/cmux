@@ -27,6 +27,7 @@ const requests = [
   { cmd: "create-terminal", key: "stable", command: "echo ready", cols: 80, rows: 24 },
   { cmd: "export-layout", screen: 1 },
   { cmd: "apply-layout", layout: { type: "leaf" } },
+  { cmd: "apply-layout", layout: { type: "stack", panes: [1, 2], expanded: 2 } },
   { cmd: "send", surface: 1, text: "ls\r" },
   { cmd: "send", surface: 1, bytes: "AAEC", paste: true },
   { cmd: "read-screen", surface: 1 },
@@ -37,6 +38,7 @@ const requests = [
   { cmd: "new-browser-tab", url: "https://example.com" },
   { cmd: "new-workspace", name: "sdk" },
   { cmd: "new-screen", workspace: 1 },
+  { cmd: "new-pane", pane: 1 },
   { cmd: "split", pane: 1, dir: "right" },
   { cmd: "set-ratio", pane: 1, dir: "down", ratio: 0.5 },
   { cmd: "set-split-ratio", split: 2, ratio: 0.5 },
@@ -86,6 +88,13 @@ type LegacyWorkspaceMutationData = CmuxResponseData<{
 }>;
 const legacyWorkspaceMutation: LegacyWorkspaceMutationData = {};
 void legacyWorkspaceMutation;
+
+const stackLayout = {
+  type: "stack",
+  panes: [1, 2, 3],
+  expanded: 3,
+} as const satisfies import("../src/browser.js").Layout;
+void stackLayout;
 
 function surfaceFromKnownEvent(event: KnownCmuxEvent): number | undefined {
   switch (event.event) {
