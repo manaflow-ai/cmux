@@ -138,10 +138,12 @@ public final class MobilePushCoordinator {
         }
     }
 
-    /// Opt in: request system authorization, register for remote notifications,
-    /// and persist the flag. Returns whether authorization was granted.
+    /// Opts in to push notifications and attributes the request to its UI trigger.
+    ///
+    /// - Parameter trigger: Analytics origin for the opt-in attempt.
+    /// - Returns: Whether system notification authorization was granted.
     @discardableResult
-    public func enable() async -> Bool {
+    public func enable(trigger: String = "settings_toggle") async -> Bool {
         let priorStatus = await UNUserNotificationCenter.current()
             .notificationSettings().authorizationStatus
         // Only an undetermined status produces a real OS prompt; gate the
@@ -149,7 +151,7 @@ public final class MobilePushCoordinator {
         // not log a phantom prompt.
         if priorStatus == .notDetermined {
             analytics.capture("ios_push_optin_prompt_shown", [
-                "trigger": .string("settings_toggle"),
+                "trigger": .string(trigger),
                 "prior_authorization_status": .string("not_determined"),
             ])
         }
@@ -157,12 +159,12 @@ public final class MobilePushCoordinator {
             .requestAuthorization(options: [.alert, .sound, .badge])) ?? false
         guard granted else {
             analytics.capture("ios_push_optin_declined", [
-                "trigger": .string("settings_toggle"),
+                "trigger": .string(trigger),
                 "was_os_level_predenied": .bool(priorStatus == .denied),
             ])
             return false
         }
-        analytics.capture("ios_push_optin_granted", ["trigger": .string("settings_toggle")])
+        analytics.capture("ios_push_optin_granted", ["trigger": .string(trigger)])
         await registration.setEnabled(true)
         UIApplication.shared.registerForRemoteNotifications()
         return true

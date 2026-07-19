@@ -34,7 +34,7 @@ struct MobileSettingsView: View {
     /// directly in `body` would not re-render when it flips.
     @State private var notificationsEnabled = false
     @State private var showingHostPicker = false
-    @State private var showingOnboarding = false
+    @State private var showingPairingHelp = false
     @State private var showingSetupHelp = false
     #if DEBUG
     @State private var showingChatDemo = false
@@ -123,7 +123,7 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsSetUpYourMac")
                     Button {
-                        showingOnboarding = true
+                        showingPairingHelp = true
                     } label: {
                         Label(
                             L10n.string("mobile.settings.howPairingWorks", defaultValue: "How Pairing Works"),
@@ -342,15 +342,8 @@ struct MobileSettingsView: View {
                     MobileHostPickerView(store: store)
                 }
             }
-            .sheet(isPresented: $showingOnboarding) {
-                // Re-entry from Settings: walk the explainer again. `onComplete`
-                // only dismisses; it never touches the persisted seen flag. No
-                // current blocker is highlighted, since reaching Settings means the
-                // user got past every setup gate.
-                OnboardingFlowView(
-                    onComplete: { showingOnboarding = false },
-                    setupHelpHighlight: setupHelpHighlight
-                )
+            .sheet(isPresented: $showingPairingHelp) {
+                SetupHelpView(highlight: nil) { showingPairingHelp = false }
             }
             .sheet(isPresented: $showingSetupHelp) {
                 // Re-enterable setup help as a plain reference: every pre-pairing
