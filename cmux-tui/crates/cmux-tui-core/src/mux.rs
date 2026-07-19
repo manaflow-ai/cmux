@@ -1233,10 +1233,14 @@ impl Mux {
             hook();
         }
 
+        // The browser worker owns the bounded CDP request timeout and closes
+        // resize waiters on shutdown. A second timeout here could expire while
+        // the compensating resize is still queued, so wait for its terminal
+        // success or failure before deciding which size claim is authoritative.
         let restored = match restore {
             SurfaceResizeRestore::Complete(restored) => restored,
             SurfaceResizeRestore::Pending(completion) => {
-                matches!(completion.recv_timeout(Duration::from_secs(10)), Ok(Ok(())))
+                matches!(completion.recv(), Ok(Ok(())))
             }
         };
         if restored {
@@ -3244,27 +3248,35 @@ impl Mux {
         key: Option<&str>,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<Option<(WorkspaceId, String, u64)>> {
-        let target = {
-            let state = self.state.lock().unwrap();
-            Self::require_workspace_revision(&state, expected_revision)?;
-            let Some((target, _)) = Self::resolve_workspace_selector(&state, id, key)? else {
-                return Ok(None);
-            };
-            target
-        };
-        #[cfg(test)]
-        if let Some(hook) = self.workspace_close_after_selector_resolution.lock().unwrap().clone() {
-            hook();
-        }
-        let lifecycle = self.workspace_lifecycle(target);
-        let workspace_lifecycle = lifecycle.lock().unwrap();
         let notifications = self.surface_notifications();
-        let (target, key, removed, delta, empty_revision, revision, selection_resync) = {
+        loop {
+            let target = {
+                let state = self.state.lock().unwrap();
+                Self::require_workspace_revision(&state, expected_revision)?;
+                let Some((target, _)) = Self::resolve_workspace_selector(&state, id, key)? else {
+                    return Ok(None);
+                };
+                target
+            };
+            #[cfg(test)]
+            if let Some(hook) =
+                self.workspace_close_after_selector_resolution.lock().unwrap().clone()
+            {
+                hook();
+            }
+            let lifecycle = self.workspace_lifecycle(target);
+            let workspace_lifecycle = lifecycle.lock().unwrap();
             let mut state = self.state.lock().unwrap();
             Self::require_workspace_revision(&state, expected_revision)?;
-            let Some((target, key)) = Self::resolve_workspace_selector(&state, id, key)? else {
+            let Some((resolved_target, key)) = Self::resolve_workspace_selector(&state, id, key)?
+            else {
                 return Ok(None);
             };
+            if resolved_target != target {
+                drop(state);
+                drop(workspace_lifecycle);
+                continue;
+            }
             let index = state.workspace_index(target).expect("resolved workspace is indexed");
             let mut delta = close_workspace_delta(&state, &notifications, target)
                 .expect("live workspace has a close delta");
@@ -3294,24 +3306,17 @@ impl Mux {
             let revision = state.workspace_revision;
             delta.workspace_revision = Some(revision);
             let empty_revision = state.workspaces.is_empty().then_some(state.workspace_revision);
-            (
-                target,
-                key,
-                removed,
-                delta,
-                empty_revision,
-                revision,
-                was_active && empty_revision.is_none(),
-            )
-        };
-        drop(workspace_lifecycle);
-        for surface in removed {
-            self.purge_surface_side_tables(surface.id);
-            surface.kill();
+            let selection_resync = was_active && empty_revision.is_none();
+            drop(state);
+            drop(workspace_lifecycle);
+            for surface in removed {
+                self.purge_surface_side_tables(surface.id);
+                surface.kill();
+            }
+            self.emit_tree_delta(delta, selection_resync);
+            self.emit_empty_if_current(empty_revision);
+            return Ok(Some((target, key, revision)));
         }
-        self.emit_tree_delta(delta, selection_resync);
-        self.emit_empty_if_current(empty_revision);
-        Ok(Some((target, key, revision)))
     }
 
     pub fn rename_workspace(&self, target: WorkspaceId, name: String) -> bool {
@@ -6637,7 +6642,6 @@ mod tests {
         let selector_resolved = Arc::new(AtomicBool::new(false));
         let (resolved_tx, resolved_rx) = std::sync::mpsc::sync_channel(1);
         *mux.workspace_close_after_selector_resolution.lock().unwrap() = Some(Arc::new({
-            let selector_resolved = selector_resolved.clone();
             move || {
                 if !selector_resolved.swap(true, Ordering::SeqCst) {
                     resolved_tx.send(()).unwrap();
