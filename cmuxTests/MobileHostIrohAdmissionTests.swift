@@ -225,9 +225,13 @@ extension MobileHostAuthorizationTests {
         #expect(error.code == "unauthorized")
         #expect(await recorder.count() == 1)
     }
+}
 
+@MainActor
+@Suite(.serialized)
+struct IrohTailscaleVersionSkewMacGateTests {
     @Test func testReleasedIOSWireFrameRemainsAcceptedByLegacyTCPAuthorization() async throws {
-        let legacyFrame = Data(
+        let legacyPayload = Data(
             #"""
             {
               "id": "legacy-workspace-list",
@@ -237,31 +241,131 @@ extension MobileHostAuthorizationTests {
             }
             """#.utf8
         )
-        let request: MobileHostRPCRequest
-        switch MobileHostRPCEnvelope.decodeRequest(legacyFrame) {
-        case .success(let decoded):
-            request = decoded
-        case .failure(let error):
-            Issue.record("Legacy iOS frame did not decode: \(error.code)")
+        let transport = LegacyIOSCompatibilityByteTransport()
+        let stackAuthorization = LegacyStackAuthorizationRecorder()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            firstFrameTimeoutNanoseconds: 0,
+            idleTimeoutNanoseconds: 0,
+            authorizeRequest: { request in
+                await MobileHostService.connectionAuthorizationError(
+                    for: request,
+                    authorization: .legacyPrivateNetworkListener,
+                    stackAuthorization: { decoded in
+                        await stackAuthorization.record(decoded)
+                        guard decoded.auth?.stackAccessToken == "legacy-stack-token" else {
+                            return .failure(MobileHostRPCError(
+                                code: "unauthorized",
+                                message: "Legacy Stack bearer was not preserved"
+                            ))
+                        }
+                        return nil
+                    }
+                )
+            },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { request in
+                .ok([
+                    "method": request.method,
+                    "authorization": "stack_bearer",
+                ])
+            },
+            onClose: { _ in }
+        )
+        let runTask = Task { await session.run() }
+        await transport.enqueue(try MobileSyncFrameCodec.encodeFrame(legacyPayload))
+
+        var responseBuffer = await transport.waitForSentBuffer()
+        let responsePayloads = try MobileSyncFrameCodec.decodeFrames(from: &responseBuffer)
+        let responsePayload = try #require(responsePayloads.first)
+        let response = try #require(
+            JSONSerialization.jsonObject(
+                with: responsePayload
+            ) as? [String: Any]
+        )
+        let result = try #require(response["result"] as? [String: Any])
+
+        #expect(response["id"] as? String == "legacy-workspace-list")
+        #expect(response["ok"] as? Bool == true)
+        #expect(result["method"] as? String == "workspace.list")
+        #expect(result["authorization"] as? String == "stack_bearer")
+        #expect(await stackAuthorization.invocationCount() == 1)
+        #expect(await stackAuthorization.lastToken() == "legacy-stack-token")
+
+        await transport.finishReceiving()
+        await runTask.value
+    }
+
+    @Test func testLegacyCompatibilityPolicyCannotBecomeIrohAdmission() {
+        #expect(
+            MobileHostConnectionAuthorizationContext.legacyPrivateNetworkListener
+                == .stackBearer
+        )
+    }
+
+    @Test func testLegacyCompatibilityRouteIsNumericTailscaleAndNeverLoopback() throws {
+        let snapshot = MobileRouteResolver().routes(
+            port: 58_465,
+            tailscaleHosts: [
+                "127.0.0.1",
+                "work-mac.tailnet.ts.net",
+                "100.71.210.41",
+            ]
+        )
+        let tailscaleRoutes = snapshot.routes.filter { $0.kind == .tailscale }
+
+        #expect(tailscaleRoutes.count == 1)
+        guard case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint else {
+            Issue.record("Expected a numeric Tailscale compatibility route")
             return
         }
+        #expect(host == "100.71.210.41")
+        #expect(port == 58_465)
+        #expect(host != "127.0.0.1")
+    }
 
-        let result = await MobileHostService.connectionAuthorizationError(
-            for: request,
-            authorization: .stackBearer,
-            stackAuthorization: { decoded in
-                guard decoded.auth?.stackAccessToken == "legacy-stack-token" else {
-                    return .failure(MobileHostRPCError(
-                        code: "unauthorized",
-                        message: "Legacy Stack bearer was not preserved"
-                    ))
-                }
-                return nil
-            }
+    @Test func testStableExplicitSettingStartsIrohAndLegacyCompatibilityListener() throws {
+        let suiteName = "IrohTailscaleVersionSkewMacGateTests.Current.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
+
+        let enabled = MobileHostService.isListeningEnabled(
+            defaults: defaults,
+            buildFlavor: .stable
+        )
+        let plan = MobileHostService.startupPlan(
+            legacyListenerEnabled: enabled,
+            legacyListenerRunning: false
         )
 
-        #expect(result == nil)
+        #expect(plan.activatesIroh)
+        #expect(plan.startsLegacyListener)
     }
+
+    @Test func testStableHistoricalSettingStartsIrohAndLegacyCompatibilityListener() throws {
+        let suiteName = "IrohTailscaleVersionSkewMacGateTests.Historical.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "cmuxMobilePairingHostEnabled")
+
+        let enabled = MobileHostService.isListeningEnabled(
+            defaults: defaults,
+            buildFlavor: .stable
+        )
+        let plan = MobileHostService.startupPlan(
+            legacyListenerEnabled: enabled,
+            legacyListenerRunning: false
+        )
+
+        #expect(plan.activatesIroh)
+        #expect(plan.startsLegacyListener)
+    }
+}
+
+@MainActor
+extension MobileHostAuthorizationTests {
 
     @Test func testIrohAdmittedStatusIncludesIdentityWhileTCPPublicStatusDoesNot() async throws {
         let request = MobileHostRPCRequest(
@@ -369,4 +473,78 @@ private actor MobileHostIrohPersistenceGate {
         continuation?.resume()
         continuation = nil
     }
+}
+
+/// In-memory framed transport for the released-iOS compatibility contract.
+/// It deliberately has no host, port, loopback socket, or Iroh endpoint, so the
+/// test can only pass through the explicitly selected legacy authorization lane.
+private actor LegacyIOSCompatibilityByteTransport: CmxByteTransport {
+    private var receiveQueue: [Data?] = []
+    private var receiveWaiter: CheckedContinuation<Data?, Never>?
+    private var sentBuffer: Data?
+    private var sentWaiters: [CheckedContinuation<Data, Never>] = []
+
+    func connect() async throws {}
+
+    func receive() async throws -> Data? {
+        if !receiveQueue.isEmpty {
+            return receiveQueue.removeFirst()
+        }
+        return await withCheckedContinuation { receiveWaiter = $0 }
+    }
+
+    func send(_ data: Data) async throws {
+        if sentBuffer == nil {
+            sentBuffer = data
+        } else {
+            sentBuffer?.append(data)
+        }
+        guard let sentBuffer else { return }
+        let waiters = sentWaiters
+        sentWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            waiter.resume(returning: sentBuffer)
+        }
+    }
+
+    func close() async {
+        receiveWaiter?.resume(returning: nil)
+        receiveWaiter = nil
+    }
+
+    func enqueue(_ data: Data) {
+        if let receiveWaiter {
+            self.receiveWaiter = nil
+            receiveWaiter.resume(returning: data)
+        } else {
+            receiveQueue.append(data)
+        }
+    }
+
+    func finishReceiving() {
+        if let receiveWaiter {
+            self.receiveWaiter = nil
+            receiveWaiter.resume(returning: nil)
+        } else {
+            receiveQueue.append(nil)
+        }
+    }
+
+    func waitForSentBuffer() async -> Data {
+        if let sentBuffer {
+            return sentBuffer
+        }
+        return await withCheckedContinuation { sentWaiters.append($0) }
+    }
+}
+
+private actor LegacyStackAuthorizationRecorder {
+    private var tokens: [String?] = []
+
+    func record(_ request: MobileHostRPCRequest) {
+        tokens.append(request.auth?.stackAccessToken)
+    }
+
+    func invocationCount() -> Int { tokens.count }
+    func lastToken() -> String? { tokens.last ?? nil }
 }
