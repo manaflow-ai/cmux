@@ -5997,7 +5997,6 @@ struct CMUXCLI {
         }
         return response
     }
-
     func formatIDs(
         _ object: Any,
         mode: CLIIDFormat,
@@ -6009,14 +6008,15 @@ struct CMUXCLI {
             for (k, v) in dict {
                 out[k] = formatIDs(v, mode: mode, preservingIDKinds: preservingIDKinds)
             }
-
             switch mode {
             case .both:
                 break
             case .refs:
-                let preservesBareID = preservingIDKinds.contains { kind in
-                    (out["ref"] as? String)?.split(separator: ":", omittingEmptySubsequences: false).map { $0.count == 2 && $0.first == Substring(kind) && $0.last?.isEmpty == false } == true
-                }
+                let ref = out["ref"] as? String ?? ""
+                let components = ref.split(separator: ":", omittingEmptySubsequences: false)
+                let preservesBareID = components.count == 2
+                    && !components[1].isEmpty
+                    && preservingIDKinds.contains(String(components[0]))
                 if out["ref"] != nil && out["id"] != nil && !preservesBareID {
                     out.removeValue(forKey: "id")
                 }
