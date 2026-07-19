@@ -208,7 +208,7 @@ struct RemoteInitialCommandBootstrapTests {
     }
 
     @Test
-    func generatedUnknownShellBootstrapRetainsNativeScriptInvocation() throws {
+    func generatedUnknownShellBootstrapRunsCommandInInteractiveProcess() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-remote-initial-command-unknown-shell-\(UUID().uuidString)")
@@ -223,8 +223,13 @@ struct RemoteInitialCommandBootstrapTests {
         try """
         #!/bin/sh
         case "${1:-}" in
-          -i) exit 0 ;;
-          -c) [ "$#" -eq 2 ] || exit 66; exec /bin/sh -c "$2" ;;
+          -i)
+            [ "${2:-}" = -c ] && [ "$#" -eq 3 ] || exit 66
+            eval "$3"
+            printf '%s|%s\n' "$(/bin/pwd)" "${CMUX_UNKNOWN_STATE:-}" > "$HOME/unknown state.txt"
+            exit 0
+            ;;
+          -c) exit 67 ;;
           -*) printf 'unexpected shell option: %s\\n' "$1" >&2; exit 64 ;;
           '') exit 65 ;;
           *) [ "$#" -eq 1 ] || exit 66; exec /bin/sh "$1" ;;
@@ -238,7 +243,7 @@ struct RemoteInitialCommandBootstrapTests {
         let script = RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: 0,
             shellFeatures: "ssh-env,ssh-terminfo",
-            initialCommand: #"echo "native script $CMUX_REMOTE_VALUE" >> "$HOME/unknown shell.txt""#
+            initialCommand: #"cd "$HOME"; export CMUX_UNKNOWN_STATE=preserved; echo "interactive command $CMUX_REMOTE_VALUE" >> "$HOME/unknown shell.txt""#
         )
         let environment = ProcessInfo.processInfo.environment.merging([
             "HOME": home.path,
@@ -253,7 +258,12 @@ struct RemoteInitialCommandBootstrapTests {
         #expect(second.status == 0, "stdout: \(second.stdout)\nstderr: \(second.stderr)")
 
         let captured = try String(contentsOf: output, encoding: .utf8)
-        #expect(captured == "native script remote-only\n")
+        #expect(captured == "interactive command remote-only\n")
+        let state = try String(
+            contentsOf: home.appendingPathComponent("unknown state.txt"),
+            encoding: .utf8
+        )
+        #expect(state == "\(home.path)|preserved\n")
     }
 
     @Test
