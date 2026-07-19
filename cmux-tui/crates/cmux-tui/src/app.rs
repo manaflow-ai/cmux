@@ -7660,21 +7660,26 @@ mod tests {
             Rect { x: 0, y: 0, width: 200, height: 40 },
             Some(screen.active_pane),
         );
-        for (index, (pane, rect)) in layout.panes[..12].iter().enumerate() {
-            assert_eq!(*pane, panes[index]);
-            assert_eq!(*rect, Rect { x: 0, y: index as u16, width: 200, height: 1 });
+        assert_eq!(layout.panes[0], (panes[0], Rect { x: 0, y: 0, width: 100, height: 40 }));
+        for (index, (pane, rect)) in layout.panes[1..12].iter().enumerate() {
+            assert_eq!(*pane, panes[index + 1]);
+            assert_eq!(*rect, Rect { x: 100, y: index as u16, width: 100, height: 1 });
         }
-        assert_eq!(layout.panes[12], (panes[12], Rect { x: 0, y: 12, width: 200, height: 28 }));
+        assert_eq!(layout.panes[12], (panes[12], Rect { x: 100, y: 11, width: 100, height: 29 }));
 
         app.sync_layout((200, 41));
-        for pane in &panes[..12] {
+        let leading = app.pane_areas.iter().find(|area| area.pane == panes[0]).unwrap();
+        assert_eq!(leading.rect, Rect { x: 0, y: 0, width: 100, height: 40 });
+        assert_eq!(leading.bar, Some(Rect { x: 0, y: 0, width: 100, height: 1 }));
+        assert_eq!(leading.content.height, 38);
+        for pane in &panes[1..12] {
             let area = app.pane_areas.iter().find(|area| area.pane == *pane).unwrap();
             assert_eq!(area.bar, Some(area.rect));
             assert_eq!(area.content.height, 0);
         }
         let expanded = app.pane_areas.iter().find(|area| area.pane == panes[12]).unwrap();
-        assert_eq!(expanded.rect.height, 28);
-        assert_eq!(expanded.content.height, 26);
+        assert_eq!(expanded.rect.height, 29);
+        assert_eq!(expanded.content.height, 27);
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
