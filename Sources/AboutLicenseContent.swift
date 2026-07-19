@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated struct AboutLicenseContent {
+struct AboutLicenseContent {
     let bundle: Bundle
     let repositoryURL: URL
 
