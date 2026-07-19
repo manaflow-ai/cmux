@@ -205,7 +205,7 @@ struct ComputerUseUXTests {
     }
 
     @Test @MainActor func firstUseOnboardingStartsAtOverview() {
-        #expect(ComputerUseOnboardingView.initialStep == 0)
+        #expect(ComputerUseOnboardingView.initialStep == .overview)
     }
 
     @Test func completingAccessibilityAdvancesAndOpensScreenRecordingSettings() {
@@ -251,17 +251,12 @@ struct ComputerUseUXTests {
         #expect(!window.isMovableByWindowBackground)
     }
 
-    @Test @MainActor func helperCardExportsFinderCompatibleAppPayload() throws {
+    @Test @MainActor func helperCardExportsFinderCompatibleAppPayload() {
         let helperURL = URL(fileURLWithPath: "/System/Applications/Calculator.app")
         let item = ComputerUseAppDragSourceView.pasteboardItem(for: helperURL)
-        let filenames = try #require(
-            item.propertyList(
-                forType: ComputerUseAppDragSourceView.legacyFilenamesPasteboardType
-            ) as? [String]
-        )
 
         #expect(item.string(forType: .fileURL) == helperURL.absoluteString)
-        #expect(filenames == [helperURL.path])
+        #expect(item.types == [.fileURL])
     }
 
     @Test func taggedRuntimeKeepsHelperSocketAndStateIsolated() {

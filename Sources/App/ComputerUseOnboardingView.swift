@@ -8,7 +8,7 @@ import SwiftUI
 /// drag source, and refreshes status from the helper's own TCC identity.
 @MainActor
 struct ComputerUseOnboardingView: View {
-    static let initialStep = 0
+    static let initialStep = ComputerUseOnboardingStep.overview
 
     let runtimeService: ComputerUseRuntimeService
     let onSystemSettingsOpened: @MainActor () -> Void
@@ -142,8 +142,9 @@ struct ComputerUseOnboardingView: View {
     }
 
     private func progressRow(index: Int, symbolName: String, title: String) -> some View {
-        let isCurrent = min(step, 2) == index
-        let isComplete = step > index
+        let progressIndex = min(step.rawValue, ComputerUseOnboardingStep.screenRecording.rawValue)
+        let isCurrent = progressIndex == index
+        let isComplete = step.rawValue > index
         return HStack(spacing: 10) {
             ZStack {
                 Circle()
@@ -171,10 +172,10 @@ struct ComputerUseOnboardingView: View {
 
     private var topBar: some View {
         HStack(spacing: 16) {
-            if step < 3 {
+            if step != .done {
                 Text(String(
                     localized: "computerUse.onboarding.step",
-                    defaultValue: "Step \(step + 1) of 3"
+                    defaultValue: "Step \(step.rawValue + 1) of 3"
                 ))
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
@@ -187,7 +188,7 @@ struct ComputerUseOnboardingView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityHidden(true)
 
-            if step < 3 {
+            if step != .done {
                 Button(
                     String(localized: "computerUse.onboarding.notNow", defaultValue: "Not Now"),
                     action: onClose
@@ -204,9 +205,9 @@ struct ComputerUseOnboardingView: View {
     @ViewBuilder
     private var content: some View {
         switch step {
-        case 0:
+        case .overview:
             overview
-        case 1:
+        case .accessibility:
             permissionStep(
                 title: String(
                     localized: "computerUse.onboarding.accessibility.title",
@@ -218,12 +219,10 @@ struct ComputerUseOnboardingView: View {
                 ),
                 granted: accessibilityGranted,
                 openSettings: {
-                    permissionCheckArmed = true
-                    runtimeService.requestAccessibility()
-                    onSystemSettingsOpened()
+                    openPermissionSettings(for: .accessibility)
                 }
             )
-        case 2:
+        case .screenRecording:
             permissionStep(
                 title: String(
                     localized: "computerUse.onboarding.screenRecording.title",
@@ -235,12 +234,10 @@ struct ComputerUseOnboardingView: View {
                 ),
                 granted: screenRecordingGranted,
                 openSettings: {
-                    permissionCheckArmed = true
-                    runtimeService.requestScreenRecording()
-                    onSystemSettingsOpened()
+                    openPermissionSettings(for: .screenRecording)
                 }
             )
-        default:
+        case .done:
             done
         }
     }
@@ -505,20 +502,20 @@ struct ComputerUseOnboardingView: View {
 
     private var footer: some View {
         HStack {
-            if step > 0 && step < 3 {
+            if step != .overview && step != .done {
                 Button(String(localized: "computerUse.onboarding.back", defaultValue: "Back")) {
-                    step -= 1
+                    step = step.previous
                 }
             }
             Spacer()
-            if step < 3 {
+            if step != .done {
                 Button(String(localized: "computerUse.onboarding.continue", defaultValue: "Continue")) {
-                    step += 1
+                    continueOnboarding()
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(
-                    (step == 1 && !accessibilityGranted)
-                        || (step == 2 && !screenRecordingGranted)
+                    (step == .accessibility && !accessibilityGranted)
+                        || (step == .screenRecording && !screenRecordingGranted)
                 )
             } else {
                 Button(
@@ -598,10 +595,36 @@ struct ComputerUseOnboardingView: View {
         accessibilityGranted = newAccessibilityGranted
         screenRecordingGranted = newScreenRecordingGranted
 
-        if step == 1, newAccessibilityGranted {
-            step = newScreenRecordingGranted ? 3 : 2
-        } else if step == 2, newScreenRecordingGranted {
-            step = 3
+        if step == .accessibility, newAccessibilityGranted {
+            if newScreenRecordingGranted {
+                step = .done
+            } else {
+                continueOnboarding()
+            }
+        } else if step == .screenRecording, newScreenRecordingGranted {
+            step = .done
+        }
+    }
+
+    private func continueOnboarding() {
+        let continuation = step.continuation
+        step = continuation.nextStep
+        if let settingsStep = continuation.settingsStepToOpen {
+            openPermissionSettings(for: settingsStep)
+        }
+    }
+
+    private func openPermissionSettings(for permissionStep: ComputerUseOnboardingStep) {
+        guard permissionStep == .accessibility || permissionStep == .screenRecording else { return }
+        permissionCheckArmed = true
+        onSystemSettingsOpened()
+        switch permissionStep {
+        case .accessibility:
+            runtimeService.requestAccessibility()
+        case .screenRecording:
+            runtimeService.requestScreenRecording()
+        case .overview, .done:
+            return
         }
     }
 }
