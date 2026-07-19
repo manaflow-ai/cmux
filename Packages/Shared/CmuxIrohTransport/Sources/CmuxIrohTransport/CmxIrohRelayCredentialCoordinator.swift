@@ -88,7 +88,8 @@ public actor CmxIrohRelayCredentialCoordinator {
     public func activate(
         bindingID: String,
         endpointIdentity: CmxIrohPeerIdentity,
-        bootstrap: CmxIrohRelayTokenResponse? = nil
+        bootstrap: CmxIrohRelayTokenResponse? = nil,
+        waitForInitialCredential _: Bool = false
     ) async throws {
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
