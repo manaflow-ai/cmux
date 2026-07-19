@@ -114,7 +114,7 @@ final class SidebarRowPullRequestIconView: NSView {
                 // transparent backing draws nothing (no destination pixels).
                 let tinted = NSImage(size: image.size, flipped: false) { [color] drawRect in
                     image.draw(in: drawRect, from: .zero, operation: .sourceOver, fraction: 1)
-                    color.set()
+                    self.color.set()
                     drawRect.fill(using: .sourceAtop)
                     return true
                 }

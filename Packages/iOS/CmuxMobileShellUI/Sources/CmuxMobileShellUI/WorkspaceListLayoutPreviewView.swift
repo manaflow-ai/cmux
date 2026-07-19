@@ -171,7 +171,9 @@ public struct WorkspaceListLayoutPreviewView: View {
 
     public var body: some View {
         Group {
-            if UITestConfig.workspaceDetailCreateDelayedTerminalPreviewEnabled {
+            if UITestConfig.workspaceSurfaceDeckPreviewEnabled {
+                WorkspaceDetailDelayedTerminalPreviewView()
+            } else if UITestConfig.workspaceDetailCreateDelayedTerminalPreviewEnabled {
                 WorkspaceDetailCreateDelayedTerminalPreviewView()
             } else if UITestConfig.workspaceDetailRefreshingTerminalMenuPreviewEnabled {
                 WorkspaceDetailDelayedTerminalPreviewView()

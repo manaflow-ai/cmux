@@ -45,7 +45,9 @@ struct WorkspaceDetailContainer: View {
                     store: store,
                     createWorkspace: createWorkspace,
                     canCreateWorkspace: canCreateWorkspace,
-                    createTerminal: { store.createTerminal(in: workspace.id) },
+                    createTerminal: { paneID in
+                        store.createTerminal(in: workspace.id, paneID: paneID)
+                    },
                     renameWorkspace: workspace.actionCapabilities.supportsWorkspaceActions ? renameWorkspace : nil,
                     setWorkspaceUnread: workspace.actionCapabilities.supportsReadStateActions ? setWorkspaceUnread : nil,
                     closeWorkspace: workspace.actionCapabilities.supportsCloseActions ? closeWorkspace : nil,

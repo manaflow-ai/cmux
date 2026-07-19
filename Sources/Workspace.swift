@@ -2115,6 +2115,11 @@ final class Workspace: Identifiable, ObservableObject {
     /// Legacy Combine bridge for the remaining `$paneLayoutVersion`
     /// subscribers; same contract as `panelsPublisher`.
     let paneLayoutVersionPublisher = CurrentValueSubject<Int, Never>(0)
+    /// Mobile-only invalidation for pane focus, per-pane tab selection, and
+    /// recursive split geometry. These changes can leave the legacy flat panel
+    /// order unchanged, so `panelsPublisher` and `paneLayoutVersionPublisher`
+    /// are insufficient for the pane-aware mobile snapshot.
+    let mobileSurfaceTopologyPublisher = PassthroughSubject<Void, Never>()
 
     /// Mapping from bonsplit TabID to our Panel instances
     var panels: [UUID: any Panel] {
@@ -12069,6 +12074,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
+        mobileSurfaceTopologyPublisher.send(())
         // Mirror bookkeeping restores selection from its transaction snapshot.
         guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
         applyTabSelection(tabId: tab.id, inPane: pane)
@@ -12164,6 +12170,7 @@ extension Workspace: BonsplitDelegate {
            let terminalPanel = panels[panelId] as? TerminalPanel {
             terminalPanel.applyWindowBackgroundIfActive()
         }
+        mobileSurfaceTopologyPublisher.send(())
     }
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
@@ -12695,6 +12702,7 @@ extension Workspace: BonsplitDelegate {
         // sequence actually changed, so divider drags and selection-only events
         // (also routed here) do not fire `objectWillChange` app-wide.
         surfaceList.registerGeometryChange()
+        mobileSurfaceTopologyPublisher.send(())
         scheduleTerminalGeometryReconcile()
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()

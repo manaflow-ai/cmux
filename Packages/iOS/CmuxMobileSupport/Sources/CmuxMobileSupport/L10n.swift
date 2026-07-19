@@ -70,4 +70,29 @@ public struct L10n {
     public static func terminalName(index: Int) -> String {
         String(format: string("mobile.preview.terminalNameFormat", defaultValue: "Terminal %d"), index)
     }
+
+    /// A localized pane name for a one-based spatial index.
+    public static func paneName(index: Int) -> String {
+        String(format: string("mobile.surfaceDeck.paneNameFormat", defaultValue: "Pane %d"), index)
+    }
+
+    /// A localized terminal-tab count.
+    public static func surfaceTabCount(_ count: Int) -> String {
+        if count == 1 {
+            return string("mobile.surfaceDeck.tabCount.one", defaultValue: "1 tab")
+        }
+        return String(format: string("mobile.surfaceDeck.tabCount.other", defaultValue: "%d tabs"), count)
+    }
+
+    /// VoiceOver summary for one pane selector.
+    public static func paneAccessibilityLabel(index: Int, terminalCount: Int) -> String {
+        String(
+            format: string(
+                "mobile.surfaceDeck.paneAccessibilityFormat",
+                defaultValue: "Pane %1$d, %2$@"
+            ),
+            index,
+            surfaceTabCount(terminalCount)
+        )
+    }
 }

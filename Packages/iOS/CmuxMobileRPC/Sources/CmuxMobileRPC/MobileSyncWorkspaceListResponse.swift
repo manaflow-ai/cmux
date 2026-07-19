@@ -41,6 +41,9 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let hasUnread: Bool?
         /// Terminals belonging to this workspace.
         public let terminals: [Terminal]
+        /// Recursive pane hierarchy. `nil` for hosts that only support the
+        /// legacy flat terminal list.
+        public let paneTree: PaneTreeNode?
 
         private enum CodingKeys: String, CodingKey {
             case id
@@ -55,6 +58,59 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case lastActivityAt = "last_activity_at"
             case hasUnread = "has_unread"
             case terminals
+            case paneTree = "pane_tree"
+        }
+    }
+
+    /// A leaf pane in the remote workspace hierarchy.
+    public struct Pane: Decodable, Sendable {
+        public let id: String
+        public let terminalIDs: [String]
+        public let selectedTerminalID: String?
+        public let isFocused: Bool
+
+        private enum CodingKeys: String, CodingKey {
+            case id
+            case terminalIDs = "terminal_ids"
+            case selectedTerminalID = "selected_terminal_id"
+            case isFocused = "is_focused"
+        }
+    }
+
+    /// A branch in the remote workspace hierarchy.
+    public struct Split: Decodable, Sendable {
+        public let id: String
+        public let axis: String
+        public let fraction: Double
+        public let first: PaneTreeNode
+        public let second: PaneTreeNode
+    }
+
+    /// One node in the remote workspace's recursive pane tree.
+    public indirect enum PaneTreeNode: Decodable, Sendable {
+        case pane(Pane)
+        case split(Split)
+
+        private enum CodingKeys: String, CodingKey {
+            case type
+            case pane
+            case split
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            switch try container.decode(String.self, forKey: .type) {
+            case "pane":
+                self = .pane(try container.decode(Pane.self, forKey: .pane))
+            case "split":
+                self = .split(try container.decode(Split.self, forKey: .split))
+            default:
+                throw DecodingError.dataCorruptedError(
+                    forKey: .type,
+                    in: container,
+                    debugDescription: "Unknown pane-tree node type"
+                )
+            }
         }
     }
 

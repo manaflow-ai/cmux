@@ -138,6 +138,68 @@ import Testing
         #expect(workspace.terminals.first?.isReady == true)
         let mapped = MobileWorkspacePreview(remote: workspace)
         #expect(mapped.windowID == "window-1")
+        #expect(mapped.paneLayout == nil)
+    }
+
+    @Test func workspaceListResponseDecodesRecursivePaneTree() throws {
+        let json = Data("""
+        {
+          "workspaces": [
+            {
+              "id": "ws-1",
+              "title": "cmux",
+              "is_selected": true,
+              "terminals": [
+                {"id":"t-1","title":"Build","is_focused":true},
+                {"id":"t-2","title":"Tests","is_focused":false},
+                {"id":"t-3","title":"Logs","is_focused":false}
+              ],
+              "pane_tree": {
+                "type": "split",
+                "split": {
+                  "id": "split-root",
+                  "axis": "horizontal",
+                  "fraction": 0.625,
+                  "first": {
+                    "type": "pane",
+                    "pane": {
+                      "id": "pane-left",
+                      "terminal_ids": ["t-1", "t-2"],
+                      "selected_terminal_id": "t-1",
+                      "is_focused": true
+                    }
+                  },
+                  "second": {
+                    "type": "pane",
+                    "pane": {
+                      "id": "pane-right",
+                      "terminal_ids": ["t-3"],
+                      "selected_terminal_id": "t-3",
+                      "is_focused": false
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+        """.utf8)
+
+        let response = try MobileSyncWorkspaceListResponse.decode(json)
+        let remote = try #require(response.workspaces.first)
+        let mapped = MobileWorkspacePreview(remote: remote)
+        let layout = try #require(mapped.paneLayout)
+
+        #expect(layout.panes.map(\.id.rawValue) == ["pane-left", "pane-right"])
+        #expect(layout.panes[0].terminalIDs.map(\.rawValue) == ["t-1", "t-2"])
+        #expect(layout.panes[0].selectedTerminalID?.rawValue == "t-1")
+        #expect(layout.panes[0].isFocused)
+        guard case .split(let root) = layout.root else {
+            Issue.record("Expected a split root")
+            return
+        }
+        #expect(root.axis == .horizontal)
+        #expect(root.fraction == 0.625)
     }
 
     /// The Mac emits an optional per-workspace `preview` + `preview_at` (latest

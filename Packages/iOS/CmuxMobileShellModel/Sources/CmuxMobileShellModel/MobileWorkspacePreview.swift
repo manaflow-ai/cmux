@@ -3,7 +3,7 @@ public import Foundation
 /// A lightweight, `Sendable` snapshot of a remote workspace shown in the mobile shell.
 ///
 /// This is a pure value model: it carries the workspace identity, display name, and
-/// the ordered list of its terminals. It is decoupled from any connection, RPC, or
+/// the ordered list of its terminals and optional pane hierarchy. It is decoupled from any connection, RPC, or
 /// rendering concern so that both the domain coordinators and the SwiftUI layer can
 /// consume the same immutable shape.
 public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
@@ -75,6 +75,9 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     public var hasUnread: Bool
     /// The terminals contained in the workspace, in display order.
     public var terminals: [MobileTerminalPreview]
+    /// The Mac's pane hierarchy. `nil` when connected to a host that only emits
+    /// the legacy flat terminal list.
+    public var paneLayout: MobileWorkspacePaneLayout?
     /// The owning Mac's DISTINCT color index in the aggregated list, stamped by
     /// ``MobileWorkspaceAggregation/derivedWorkspaces`` so same-Mac workspaces
     /// share one avatar color and different Macs are guaranteed distinct. `nil`
@@ -113,6 +116,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     ///   - lastActivityAt: When the workspace last had activity. Defaults to `nil`.
     ///   - hasUnread: Whether the workspace has unread activity. Defaults to `false`.
     ///   - terminals: The terminals contained in the workspace, in display order.
+    ///   - paneLayout: The Mac's pane hierarchy, when supported.
     public init(
         id: ID,
         macDeviceID: String? = nil,
@@ -125,7 +129,8 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         previewAt: Date? = nil,
         lastActivityAt: Date? = nil,
         hasUnread: Bool = false,
-        terminals: [MobileTerminalPreview]
+        terminals: [MobileTerminalPreview],
+        paneLayout: MobileWorkspacePaneLayout? = nil
     ) {
         self.id = id
         self.remoteWorkspaceID = nil
@@ -140,5 +145,6 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.lastActivityAt = lastActivityAt
         self.hasUnread = hasUnread
         self.terminals = terminals
+        self.paneLayout = paneLayout
     }
 }

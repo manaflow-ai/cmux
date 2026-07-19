@@ -286,6 +286,43 @@ import Testing
         #expect(store.selectedTerminalID?.rawValue == "workspace-main-terminal-4")
     }
 
+    @Test func localCreateTerminalAppendsToTheExplicitPane() throws {
+        let first = MobileTerminalPreview(id: "first", name: "First")
+        let second = MobileTerminalPreview(id: "second", name: "Second")
+        let workspace = MobileWorkspacePreview(
+            id: "workspace",
+            name: "Pane target",
+            terminals: [first, second],
+            paneLayout: MobileWorkspacePaneLayout(
+                root: .split(
+                    MobileWorkspaceSplitPreview(
+                        id: "split",
+                        axis: .horizontal,
+                        fraction: 0.5,
+                        first: .pane(MobileWorkspacePanePreview(id: "left", terminalIDs: [first.id])),
+                        second: .pane(MobileWorkspacePanePreview(id: "right", terminalIDs: [second.id]))
+                    )
+                )
+            )
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            connectedHostName: "Preview Mac",
+            workspaces: [workspace]
+        )
+        store.selectedWorkspaceID = workspace.id
+        store.selectedTerminalID = first.id
+
+        store.createTerminal(in: workspace.id, paneID: "right")
+
+        let updated = try #require(store.selectedWorkspace)
+        let createdID = try #require(store.selectedTerminalID)
+        #expect(updated.paneLayout?.panes[0].terminalIDs == [first.id])
+        #expect(updated.paneLayout?.panes[1].terminalIDs == [second.id, createdID])
+        #expect(updated.paneLayout?.panes[1].selectedTerminalID == createdID)
+    }
+
     @Test func createdTerminalIsAutoFocusSuppressedUntilConsumed() throws {
         let store = MobileShellComposite.preview()
         store.signIn()

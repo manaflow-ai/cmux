@@ -17,8 +17,47 @@ extension MobileWorkspacePreview {
             hasUnread: remote.hasUnread ?? false,
             terminals: remote.terminals.map { terminal in
                 MobileTerminalPreview(remote: terminal)
-            }
+            },
+            paneLayout: remote.paneTree.flatMap(MobileWorkspacePaneLayout.init(remote:))
         )
+    }
+}
+
+private extension MobileWorkspacePaneLayout {
+    init?(remote: MobileSyncWorkspaceListResponse.PaneTreeNode) {
+        guard let root = Node(remote: remote) else { return nil }
+        self.init(root: root)
+    }
+}
+
+private extension MobileWorkspacePaneLayout.Node {
+    init?(remote: MobileSyncWorkspaceListResponse.PaneTreeNode) {
+        switch remote {
+        case .pane(let pane):
+            self = .pane(
+                MobileWorkspacePanePreview(
+                    id: .init(rawValue: pane.id),
+                    terminalIDs: pane.terminalIDs.map(MobileTerminalPreview.ID.init(rawValue:)),
+                    selectedTerminalID: pane.selectedTerminalID.map(MobileTerminalPreview.ID.init(rawValue:)),
+                    isFocused: pane.isFocused
+                )
+            )
+        case .split(let split):
+            guard let axis = MobileWorkspaceSplitPreview.Axis(rawValue: split.axis),
+                  let first = Self(remote: split.first),
+                  let second = Self(remote: split.second) else {
+                return nil
+            }
+            self = .split(
+                MobileWorkspaceSplitPreview(
+                    id: .init(rawValue: split.id),
+                    axis: axis,
+                    fraction: split.fraction,
+                    first: first,
+                    second: second
+                )
+            )
+        }
     }
 }
 

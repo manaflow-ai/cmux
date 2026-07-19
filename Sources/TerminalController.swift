@@ -14140,7 +14140,21 @@ class TerminalController {
         guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         }
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+        if v2HasNonNullParam(params, "pane_id"), v2UUID(params, "pane_id") == nil {
+            return .err(code: "invalid_params", message: "Invalid pane_id", data: nil)
+        }
+        let paneId: PaneID?
+        if let requestedPaneUUID = v2UUID(params, "pane_id") {
+            paneId = workspace.bonsplitController.allPaneIds.first { $0.id == requestedPaneUUID }
+            if paneId == nil {
+                return .err(code: "not_found", message: "Pane not found", data: [
+                    "pane_id": requestedPaneUUID.uuidString,
+                ])
+            }
+        } else {
+            paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first
+        }
+        guard let paneId else {
             return .err(code: "not_found", message: "Pane not found", data: nil)
         }
         guard let terminal = workspace.newTerminalSurface(

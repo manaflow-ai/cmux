@@ -4106,7 +4106,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Callers that act on a specific workspace (e.g. the "+" button on a
     /// workspace row) should pass its id so an in-flight create can't land in a
     /// different workspace if the selection drifts before the async work runs.
-    public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil) {
+    public func createTerminal(
+        in workspaceID: MobileWorkspacePreview.ID? = nil,
+        paneID: MobileWorkspacePanePreview.ID? = nil
+    ) {
         let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
         guard remoteClient == nil else {
             // Bail BEFORE pinning selection when a create is already in flight,
@@ -4121,7 +4124,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             createTerminalTask = Task { @MainActor [weak self] in
                 defer { self?.clearCreateTerminalTask(id: taskID) }
                 guard let self else { return }
-                await self.createRemoteTerminal(in: targetWorkspaceID)
+                await self.createRemoteTerminal(in: targetWorkspaceID, paneID: paneID)
             }
             return
         }
@@ -4137,6 +4140,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         mutateForegroundWorkspaces { list in
             if let index = list.firstIndex(where: { $0.id == targetWorkspaceID }) {
                 list[index].terminals.append(terminal)
+                let resolvedPaneID = paneID
+                    ?? list[index].paneLayout?.pane(containing: selectedTerminalID)?.id
+                    ?? list[index].paneLayout?.panes.first(where: \.isFocused)?.id
+                    ?? list[index].paneLayout?.panes.first?.id
+                if let resolvedPaneID, let layout = list[index].paneLayout {
+                    list[index].paneLayout = layout.appendingTerminal(terminal.id, to: resolvedPaneID)
+                }
             }
         }
         selectedTerminalID = terminal.id
@@ -6067,16 +6077,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         MobileTerminalViewportKey(workspaceID: workspaceID, terminalID: terminalID)
     }
 
-    private func createRemoteTerminal(in explicitWorkspaceID: MobileWorkspacePreview.ID? = nil) async {
+    private func createRemoteTerminal(
+        in explicitWorkspaceID: MobileWorkspacePreview.ID? = nil,
+        paneID: MobileWorkspacePanePreview.ID? = nil
+    ) async {
         guard let client = remoteClient,
               let rowWorkspaceID = explicitWorkspaceID ?? selectedWorkspace?.id else { return }
         let requestedWorkspaceID = remoteWorkspaceID(for: rowWorkspaceID)
         let generation = connectionGeneration
         do {
+            var params: [String: Any] = ["workspace_id": requestedWorkspaceID.rawValue]
+            if let paneID {
+                params["pane_id"] = paneID.rawValue
+            }
             let resultData = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(
                     method: "terminal.create",
-                    params: ["workspace_id": requestedWorkspaceID.rawValue]
+                    params: params
                 )
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
