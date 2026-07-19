@@ -196,13 +196,20 @@ extension MobileHostIrohRuntime {
         previousAccountID: String?,
         activeAccountID: String?,
         hasRuntime: Bool,
-        transitionInFlight _: Bool,
-        preparedSignOutNeedsPersistence _: Bool
+        transitionInFlight: Bool,
+        preparedSignOutNeedsPersistence: Bool
     ) -> Bool {
-        accountID != nil
+        let hasRelevantState = accountID != nil
             || previousAccountID != nil
             || activeAccountID != nil
             || hasRuntime
+        guard hasRelevantState else { return false }
+        if preparedSignOutNeedsPersistence { return true }
+        if accountID != previousAccountID { return true }
+        if let activeAccountID, activeAccountID != accountID { return true }
+        guard let accountID else { return hasRuntime }
+        guard !transitionInFlight else { return false }
+        return activeAccountID != accountID || !hasRuntime
     }
 
     private func releaseSignOutIntentAfterPreparation() {
