@@ -23,7 +23,6 @@ nonisolated enum BackendOnlyProjectionRuntimeReconcilerError: Error, Equatable, 
     case sessionObjectMismatch
     case staleFence
     case conflictingPlanForFence
-    case duplicateFenceInFlight
     case requestGenerationExhausted
     case visibleSlotLimitExceeded(actual: Int, maximum: Int)
     case duplicateSlot(BackendOnlyProjectionSlotID)
@@ -34,7 +33,6 @@ nonisolated enum BackendOnlyProjectionRuntimeReconcilerError: Error, Equatable, 
 }
 
 nonisolated enum BackendOnlyProjectionRuntimeReconcileResult: Equatable, Sendable {
-    case unchanged
     case applied(created: Int, reused: Int, retired: Int)
     case superseded
 }
@@ -96,6 +94,7 @@ final class BackendOnlyProjectionRuntimeReconciler {
         let fence: BackendOnlyProjectionRuntimeFence
         let plan: BackendOnlyProjectionPlan?
         let disconnected: Bool
+        let result: BackendOnlyProjectionRuntimeReconcileResult?
     }
 
     private typealias Continuation = CheckedContinuation<
@@ -108,7 +107,7 @@ final class BackendOnlyProjectionRuntimeReconciler {
     private var managedOrder: [BackendOnlyProjectionSlotID] = []
     private var nextRequestIdentifier: UInt64 = 1
     private var pendingRequest: Request?
-    private var continuations: [UInt64: Continuation] = [:]
+    private var continuations: [UInt64: [Continuation]] = [:]
     private var drainTask: Task<Void, Never>?
     private var activeRequestIdentifier: UInt64?
     private var requestCompletionWaiters: [
@@ -157,14 +156,10 @@ final class BackendOnlyProjectionRuntimeReconciler {
                     throw BackendOnlyProjectionRuntimeReconcilerError
                         .conflictingPlanForFence
                 }
-                if publishedAdmission?.identifier == current.identifier,
-                   drainTask == nil,
-                   pendingRequest == nil
-                {
-                    return .unchanged
+                if let result = current.result {
+                    return result
                 }
-                throw BackendOnlyProjectionRuntimeReconcilerError
-                    .duplicateFenceInFlight
+                return try await waitForReconcileResult(current.identifier)
             case .newer:
                 break
             }
@@ -187,21 +182,24 @@ final class BackendOnlyProjectionRuntimeReconciler {
             session: session,
             fence: fence,
             plan: plan,
-            disconnected: false
+            disconnected: false,
+            result: nil
         )
 
         return try await withCheckedThrowingContinuation {
             (continuation: Continuation) in
             if let replaced = pendingRequest {
-                continuations.removeValue(forKey: replaced.identifier)?
-                    .resume(returning: .superseded)
+                resumeContinuations(
+                    for: replaced.identifier,
+                    returning: .superseded
+                )
             }
             pendingRequest = request
             maximumPendingRequestCountObserved = max(
                 maximumPendingRequestCountObserved,
                 1
             )
-            continuations[identifier] = continuation
+            continuations[identifier, default: []].append(continuation)
             startDrainIfNeeded()
         }
     }
@@ -241,15 +239,18 @@ final class BackendOnlyProjectionRuntimeReconciler {
             session: session,
             fence: current.fence,
             plan: nil,
-            disconnected: true
+            disconnected: true,
+            result: nil
         )
         snapshot = nil
         publishedAdmission = nil
 
         if let pending = pendingRequest {
             pendingRequest = nil
-            continuations.removeValue(forKey: pending.identifier)?
-                .resume(returning: .superseded)
+            resumeContinuations(
+                for: pending.identifier,
+                returning: .superseded
+            )
         }
 
         let owned = uniqueManagedRuntimesInOrder()
@@ -329,12 +330,16 @@ final class BackendOnlyProjectionRuntimeReconciler {
             activeRequestIdentifier = request.identifier
             do {
                 let result = try await reconcile(request)
-                continuations.removeValue(forKey: request.identifier)?
-                    .resume(returning: result)
+                resumeContinuations(
+                    for: request.identifier,
+                    returning: result
+                )
             } catch {
                 rollBackAdmissionAfterFailure(request)
-                continuations.removeValue(forKey: request.identifier)?
-                    .resume(throwing: error)
+                resumeContinuations(
+                    for: request.identifier,
+                    throwing: error
+                )
             }
             finishRequest(request.identifier)
         }
@@ -348,6 +353,33 @@ final class BackendOnlyProjectionRuntimeReconciler {
         let request = pendingRequest
         pendingRequest = nil
         return request
+    }
+
+    private func waitForReconcileResult(
+        _ identifier: UInt64
+    ) async throws -> BackendOnlyProjectionRuntimeReconcileResult {
+        try await withCheckedThrowingContinuation {
+            (continuation: Continuation) in
+            continuations[identifier, default: []].append(continuation)
+        }
+    }
+
+    private func resumeContinuations(
+        for identifier: UInt64,
+        returning result: BackendOnlyProjectionRuntimeReconcileResult
+    ) {
+        for continuation in continuations.removeValue(forKey: identifier) ?? [] {
+            continuation.resume(returning: result)
+        }
+    }
+
+    private func resumeContinuations(
+        for identifier: UInt64,
+        throwing error: any Error
+    ) {
+        for continuation in continuations.removeValue(forKey: identifier) ?? [] {
+            continuation.resume(throwing: error)
+        }
     }
 
     private func rollBackAdmissionAfterFailure(_ request: Request) {
@@ -498,20 +530,22 @@ final class BackendOnlyProjectionRuntimeReconciler {
             slots: slots,
             activeSlotID: activeSlotID
         )
+        let result = BackendOnlyProjectionRuntimeReconcileResult.applied(
+            created: candidates.count,
+            reused: reusedCount,
+            retired: obsolete.count
+        )
         let admission = Admission(
             identifier: request.identifier,
             session: request.session,
             fence: request.fence,
             plan: request.plan,
-            disconnected: false
+            disconnected: false,
+            result: result
         )
         publishedAdmission = admission
         newestAdmission = admission
-        return .applied(
-            created: candidates.count,
-            reused: reusedCount,
-            retired: obsolete.count
-        )
+        return result
     }
 
     private func isNewest(_ request: Request) -> Bool {
