@@ -37,11 +37,11 @@ import Testing
         // server-side cursor reset, transport latency can deliver that stale
         // notification after capture even though capture already painted it.
         let resetOutputCursor = commands.contains(
-            "refresh-client -A %7:off -A %7:on"
+            "refresh-client -A \"%7:off\" -A \"%7:on\""
         )
         let commandLines = commands.split(separator: "\n").map(String.init)
         let resetIndex = try #require(
-            commandLines.firstIndex(of: "refresh-client -A %7:off -A %7:on")
+            commandLines.firstIndex(of: "refresh-client -A \"%7:off\" -A \"%7:on\"")
         )
         let captureIndex = try #require(
             commandLines.firstIndex { $0.hasPrefix("capture-pane ") }
