@@ -345,6 +345,82 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         ))
     }
 
+    func testCustomAliasesOfNativeAgentsStillRejectOneShotAndNonHostLaunches() {
+        func registration(_ id: String, processName: String) -> CmuxVaultAgentRegistration {
+            CmuxVaultAgentRegistration(
+                id: id,
+                name: id,
+                detect: CmuxVaultAgentDetectRule(processName: processName),
+                sessionIdSource: .argvOption("--session"),
+                resumeCommand: "\(processName) --session {{sessionId}}"
+            )
+        }
+        func observed(
+            _ processName: String,
+            _ arguments: [String],
+            path: String? = nil,
+            environment: [String: String] = [:]
+        ) -> VaultObservedAgentProcess {
+            VaultObservedAgentProcess(
+                processName: processName,
+                processPath: path ?? "/opt/bin/\(processName)",
+                arguments: arguments,
+                environment: environment
+            )
+        }
+
+        let claudeAlias = registration("company-claude", processName: "claude")
+        XCTAssertFalse(claudeAlias.processDetectedSnapshotIsRestorable(
+            for: observed("claude", ["/opt/bin/claude", "--print", "fix this"])
+        ))
+        XCTAssertTrue(claudeAlias.processDetectedSnapshotIsRestorable(
+            for: observed("claude", ["/opt/bin/claude"])
+        ))
+        XCTAssertFalse(claudeAlias.processDetectedSnapshotIsRestorable(
+            for: observed(
+                "node",
+                [
+                    "/usr/bin/node",
+                    "/opt/node_modules/@anthropic-ai/claude-code/cli.js",
+                    "--print",
+                    "fix this",
+                ],
+                path: "/usr/bin/node"
+            )
+        ))
+        XCTAssertTrue(claudeAlias.processDetectedSnapshotIsRestorable(
+            for: observed(
+                "node",
+                ["/usr/bin/node", "/opt/node_modules/@anthropic-ai/claude-code/cli.js"],
+                path: "/usr/bin/node"
+            )
+        ))
+
+        let codexAlias = registration("company-codex", processName: "codex")
+        XCTAssertFalse(codexAlias.processDetectedSnapshotIsRestorable(
+            for: observed("codex", ["/opt/bin/codex", "exec", "fix this"])
+        ))
+        XCTAssertTrue(codexAlias.processDetectedSnapshotIsRestorable(
+            for: observed("codex", ["/opt/bin/codex"])
+        ))
+
+        let campfireAlias = registration("company-campfire", processName: "campfire")
+        XCTAssertFalse(campfireAlias.processDetectedSnapshotIsRestorable(
+            for: observed(
+                "campfire",
+                ["/opt/bin/campfire", "--session", "session"],
+                environment: ["CAMPFIRE_SESSION_ROLE": "joiner"]
+            )
+        ))
+        XCTAssertTrue(campfireAlias.processDetectedSnapshotIsRestorable(
+            for: observed(
+                "campfire",
+                ["/opt/bin/campfire", "--session", "session"],
+                environment: ["CAMPFIRE_SESSION_ROLE": "host"]
+            )
+        ))
+    }
+
     func testVaultRegistryRejectsGlobalProjectCaseCollisionButKeepsExactProjectOverride() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-vault-layer-collision-\(UUID().uuidString)", isDirectory: true)
