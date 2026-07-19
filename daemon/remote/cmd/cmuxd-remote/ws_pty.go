@@ -914,7 +914,9 @@ func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID stri
 		cmd = exec.Command("/bin/sh", "-c", trimmedCommand)
 	}
 	cmd.Env = defaultWebSocketPTYEnv(shellPath)
-	cmd = persistentPTYCommand(cmd)
+	if sessionKey.kind == wsPTYPersistentSession {
+		cmd = persistentPTYCommand(cmd)
+	}
 	ptyFile, ttyFile, err := h.startPTYCommand(cmd, cols, rows)
 	if err != nil {
 		if tmpScript != "" {
