@@ -430,7 +430,7 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     assert_eq!(state.palette_color(14), Rgb { r: 14, g: 14, b: 14 });
 
     let mut oversized = b"\x1b]4;16;#101010".to_vec();
-    oversized.extend(std::iter::repeat(b';').take(2048));
+    oversized.extend(std::iter::repeat_n(b';', 2048));
     oversized.push(0x07);
     term.vt_write(&oversized);
     assert!(!term.palette_overridden(16), "Ghostty rejects fixed OSC capture overflow");
