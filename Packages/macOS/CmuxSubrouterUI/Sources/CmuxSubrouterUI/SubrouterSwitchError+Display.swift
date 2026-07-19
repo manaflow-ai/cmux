@@ -36,6 +36,11 @@ extension SubrouterSwitchError {
                 localized: "subrouter.switchError.inFlight",
                 defaultValue: "Another account switch is already in progress."
             )
+        case .remoteServerManagesSelection(let serverName):
+            return String(
+                localized: "subrouter.switchError.remoteServer",
+                defaultValue: "Server \(serverName) assigns accounts per session automatically; there is no global switch."
+            )
         }
     }
 }

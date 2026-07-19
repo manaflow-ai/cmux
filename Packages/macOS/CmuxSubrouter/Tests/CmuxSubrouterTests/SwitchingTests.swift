@@ -102,6 +102,38 @@ import Testing
         #expect(store.snapshot.daemonState == .unreachable(consecutiveFailures: 1))
     }
 
+    @Test func remoteServerEndpointRefusesGlobalSwitch() async {
+        let client = FakeSubrouterClient()
+        let switcher = FakeAccountSwitcher()
+        let store = SubrouterStore(
+            client: client,
+            switcher: switcher,
+            clock: ManualSubrouterPollClock(),
+            configuration: SubrouterConfiguration(
+                isEnabled: true,
+                endpoint: SubrouterEndpoint(configurationString: "http://cmux-mac-mini:31415")!,
+                serverName: "cmux-mac-mini",
+                tuning: SubrouterPollTuning(jitterFraction: 0)
+            )
+        )
+
+        // Remote servers assign accounts per session; sr switch refuses to
+        // edit local state, so the store must fail before invoking sr.
+        await #expect(throws: SubrouterSwitchError.remoteServerManagesSelection(serverName: "cmux-mac-mini")) {
+            try await store.switchAccount(provider: .codex, accountID: "dev@example.com")
+        }
+        #expect(await switcher.invocations.isEmpty)
+    }
+
+    @Test func loopbackEndpointsAreNotRemote() {
+        #expect(!SubrouterConfiguration(isEnabled: true).isRemoteEndpoint)
+        let remote = SubrouterConfiguration(
+            isEnabled: true,
+            endpoint: SubrouterEndpoint(configurationString: "cmux-mac-mini:31415")!
+        )
+        #expect(remote.isRemoteEndpoint)
+    }
+
     @Test func reloadReportingNotOKAfterSwitchBecomesWarning() async throws {
         let client = FakeSubrouterClient()
         await client.setReloadResult(.success(SubrouterReloadResult(ok: false, accounts: 0, usageRefreshed: 0)))

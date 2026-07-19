@@ -17,6 +17,11 @@ extension SubrouterStore {
         guard configuration.isEnabled else {
             throw SubrouterSwitchError.integrationDisabled
         }
+        if configuration.isRemoteEndpoint {
+            throw SubrouterSwitchError.remoteServerManagesSelection(
+                serverName: configuration.serverName ?? configuration.endpoint.baseURL.host() ?? "remote"
+            )
+        }
         guard pendingSwitchAccountID == nil else {
             throw SubrouterSwitchError.switchAlreadyInFlight
         }

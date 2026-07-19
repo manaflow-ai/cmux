@@ -18,6 +18,7 @@ public struct AgentsPanelView: View {
 
     public var body: some View {
         let snapshot = store.snapshot
+        let configuration = store.configuration
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 SubrouterDaemonStatusView(
@@ -25,6 +26,9 @@ public struct AgentsPanelView: View {
                     lastErrorDescription: snapshot.lastErrorDescription,
                     onRetry: { store.refresh(reason: "retry") }
                 )
+                if configuration.isRemoteEndpoint {
+                    remoteServerNote(configuration: configuration)
+                }
                 if let switchError = store.lastSwitchError {
                     switchErrorBanner(switchError)
                 }
@@ -33,7 +37,9 @@ public struct AgentsPanelView: View {
                         provider: provider,
                         accounts: snapshot.accounts(for: provider),
                         pendingSwitchAccountID: store.pendingSwitchAccountID,
-                        onSwitch: { account in
+                        // Remote servers assign accounts per session; there
+                        // is no global switch to offer.
+                        onSwitch: configuration.isRemoteEndpoint ? nil : { account in
                             switchAccount(account)
                         }
                     )
@@ -65,6 +71,20 @@ public struct AgentsPanelView: View {
             // Errors surface through store.lastSwitchError, rendered above.
             try? await store.switchAccount(provider: account.provider, accountID: account.id)
         }
+    }
+
+    private func remoteServerNote(configuration: SubrouterConfiguration) -> some View {
+        let name = configuration.serverName ?? configuration.endpoint.baseURL.host() ?? ""
+        return Label {
+            Text(String(
+                localized: "subrouter.panel.remoteServer",
+                defaultValue: "Watching server \(name). It assigns accounts to each session automatically."
+            ))
+        } icon: {
+            Image(systemName: "server.rack")
+        }
+        .font(.system(size: 9))
+        .foregroundStyle(.secondary)
     }
 
     private func switchErrorBanner(_ error: SubrouterSwitchError) -> some View {

@@ -44,19 +44,39 @@ enum SubrouterIntegrationSettings {
         return defaults.bool(forKey: showAccountSwitcherKey)
     }
 
-    /// The store configuration derived from current defaults. An empty or
-    /// unparsable endpoint falls back to the daemon's standard loopback
-    /// address; an empty command path means resolve `sr` from `PATH`.
+    /// The store configuration derived from current defaults.
+    ///
+    /// Endpoint resolution mirrors the `sr` CLI so cmux always watches the
+    /// daemon that is actually routing this machine's agents: an explicit
+    /// `subrouter.endpoint` setting wins; otherwise the `sr server` default
+    /// from `~/.subrouter/codex/servers.json`; otherwise the local loopback
+    /// daemon. An empty command path means resolve `sr` from `PATH`.
     nonisolated static func currentConfiguration(defaults: UserDefaults = .standard) -> SubrouterConfiguration {
-        let endpoint = SubrouterEndpoint(
+        let explicitEndpoint = SubrouterEndpoint(
             configurationString: defaults.string(forKey: endpointKey) ?? ""
-        ) ?? .standard
+        )
+        var serverName: String?
+        var endpoint = explicitEndpoint
+        if endpoint == nil, let server = defaultServerSelection() {
+            endpoint = server.endpoint
+            serverName = server.name
+        }
         let commandPath = (defaults.string(forKey: commandPathKey) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return SubrouterConfiguration(
             isEnabled: isEnabled(defaults: defaults),
-            endpoint: endpoint,
+            endpoint: endpoint ?? .standard,
+            serverName: serverName,
             commandPath: commandPath.isEmpty ? nil : commandPath
         )
+    }
+
+    /// Reads the `sr` server registry's default entry, or `nil` when the
+    /// registry is missing, unreadable, or targets the local daemon.
+    private nonisolated static func defaultServerSelection() -> SubrouterServerSelection.Server? {
+        let registry = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".subrouter/codex/servers.json")
+        guard let data = try? Data(contentsOf: registry) else { return nil }
+        return SubrouterServerSelection(serversJSON: data)?.defaultServer
     }
 }

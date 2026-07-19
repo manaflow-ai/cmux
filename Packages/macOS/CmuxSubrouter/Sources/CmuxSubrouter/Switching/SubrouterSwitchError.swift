@@ -13,4 +13,8 @@ public enum SubrouterSwitchError: Error, Sendable, Equatable {
     case commandTimedOut
     /// A switch for the same provider is already in flight.
     case switchAlreadyInFlight
+    /// The configured daemon is a remote subrouter server, which assigns
+    /// accounts per session on the server side; `sr switch` refuses to edit
+    /// local state in that mode.
+    case remoteServerManagesSelection(serverName: String)
 }

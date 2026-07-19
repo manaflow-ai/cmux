@@ -159,6 +159,12 @@ extension TerminalController {
             return .err(code: "sr_timeout", message: "The sr CLI timed out.", data: nil)
         case .switchAlreadyInFlight:
             return .err(code: "switch_in_flight", message: "Another account switch is already in progress.", data: nil)
+        case .remoteServerManagesSelection(let serverName):
+            return .err(
+                code: "remote_server_selection",
+                message: "Server '\(serverName)' assigns accounts per session automatically; there is no global switch. Use SUBROUTER_CODEX_ACCOUNT_ID to force an account for one session.",
+                data: nil
+            )
         }
     }
 

@@ -148,3 +148,33 @@ import Testing
         )
     }
 }
+
+@Suite struct ServerSelectionTests {
+    @Test func parsesDefaultServerFromRegistry() throws {
+        let json = Data("""
+        {"servers": [{"name": "cmux-mac-mini", "url": "http://cmux-mac-mini:31415"},
+                     {"name": "team", "url": "http://subrouter-team:31415"}],
+         "default": "cmux-mac-mini"}
+        """.utf8)
+        let selection = try #require(SubrouterServerSelection(serversJSON: json))
+        let server = try #require(selection.defaultServer)
+        #expect(server.name == "cmux-mac-mini")
+        #expect(server.endpoint.baseURL.absoluteString == "http://cmux-mac-mini:31415")
+    }
+
+    @Test func missingDefaultMeansLocalDaemon() throws {
+        let json = Data(#"{"servers": [{"name": "team", "url": "http://subrouter-team:31415"}]}"#.utf8)
+        let selection = try #require(SubrouterServerSelection(serversJSON: json))
+        #expect(selection.defaultServer == nil)
+    }
+
+    @Test func undecodableRegistryReturnsNil() {
+        #expect(SubrouterServerSelection(serversJSON: Data("not json".utf8)) == nil)
+    }
+
+    @Test func defaultNamingUnknownServerMeansLocalDaemon() throws {
+        let json = Data(#"{"servers": [], "default": "gone"}"#.utf8)
+        let selection = try #require(SubrouterServerSelection(serversJSON: json))
+        #expect(selection.defaultServer == nil)
+    }
+}

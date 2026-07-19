@@ -14,7 +14,7 @@ extension RightSidebarMode {
             return .feed
         case "dock":
             return .dock
-        case "agents":
+        case "agents", "subrouter":
             return .agents
         default:
             return nil

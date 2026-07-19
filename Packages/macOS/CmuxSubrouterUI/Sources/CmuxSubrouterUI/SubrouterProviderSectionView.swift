@@ -7,7 +7,8 @@ public struct SubrouterProviderSectionView: View {
     private let provider: SubrouterProvider
     private let accounts: [SubrouterAccountUsageStatus]
     private let pendingSwitchAccountID: String?
-    private let onSwitch: (SubrouterAccountUsageStatus) -> Void
+    /// `nil` disables switching entirely (remote-server mode).
+    private let onSwitch: ((SubrouterAccountUsageStatus) -> Void)?
     /// Signed-out accounts collapse behind a disclosure so a pile of stale
     /// logins (the common long-lived daemon state) never buries the usable
     /// rows. Local UI state only; resets with the panel, which is fine.
@@ -23,7 +24,7 @@ public struct SubrouterProviderSectionView: View {
         provider: SubrouterProvider,
         accounts: [SubrouterAccountUsageStatus],
         pendingSwitchAccountID: String?,
-        onSwitch: @escaping (SubrouterAccountUsageStatus) -> Void
+        onSwitch: ((SubrouterAccountUsageStatus) -> Void)?
     ) {
         self.provider = provider
         self.accounts = accounts
@@ -36,7 +37,7 @@ public struct SubrouterProviderSectionView: View {
             Text(provider.displayName)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
-            if let note = provider.switchSideEffectNote {
+            if onSwitch != nil, let note = provider.switchSideEffectNote {
                 Text(note)
                     .font(.system(size: 9))
                     .foregroundStyle(.tertiary)
@@ -101,7 +102,8 @@ public struct SubrouterProviderSectionView: View {
     }
 
     private func switchAction(for account: SubrouterAccountUsageStatus) -> (() -> Void)? {
-        guard !account.isActive,
+        guard let onSwitch,
+              !account.isActive,
               provider.supportsSwitching,
               pendingSwitchAccountID == nil else {
             return nil

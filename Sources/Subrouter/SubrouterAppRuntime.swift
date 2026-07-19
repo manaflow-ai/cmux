@@ -69,6 +69,10 @@ final class SubrouterAppRuntime {
             for await _ in center.notifications(named: NSApplication.didBecomeActiveNotification).map({ _ in () }) {
                 guard let self else { return }
                 self.appIsActive = true
+                // Endpoint resolution follows sr's servers.json, which is
+                // not a defaults key — re-derive on activation so `sr server
+                // use` in a terminal is picked up when the user returns.
+                self.store.updateConfiguration(SubrouterIntegrationSettings.currentConfiguration())
                 self.syncFooterSurfaceVisibility()
             }
         })

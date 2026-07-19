@@ -29,7 +29,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
-        case .agents: return String(localized: "rightSidebar.mode.agents", defaultValue: "Agents")
+        case .agents: return String(localized: "rightSidebar.mode.agents", defaultValue: "Subrouter")
         case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
         }
     }

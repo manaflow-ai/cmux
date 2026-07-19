@@ -76,7 +76,8 @@ public struct SubrouterAccountSwitcherPopoverView: View {
     }
 
     private func switchAction(for account: SubrouterAccountUsageStatus) -> (() -> Void)? {
-        guard !account.isActive,
+        guard !store.configuration.isRemoteEndpoint,
+              !account.isActive,
               account.provider.supportsSwitching,
               store.pendingSwitchAccountID == nil else {
             return nil
