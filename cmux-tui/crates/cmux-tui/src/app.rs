@@ -8057,7 +8057,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface);
+            mux.close_surface(surface).unwrap();
         }
     }
 
@@ -8096,7 +8096,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface);
+            mux.close_surface(surface).unwrap();
         }
     }
 

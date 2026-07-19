@@ -20,7 +20,10 @@ export interface IdentifyRequest extends CmuxRequestBase { cmd: "identify" }
 export interface IdentifyResult {
   app: "cmux-tui";
   version: string;
+  build_commit?: string | null;
+  ghostty_commit?: string | null;
   protocol: number;
+  capabilities?: string[];
   session: string;
   pid: number;
   registry_id: string;

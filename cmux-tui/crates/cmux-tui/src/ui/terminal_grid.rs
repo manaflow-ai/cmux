@@ -72,13 +72,11 @@ fn draw_render_frame_with_catalog(
         }
     }
 
-    let (_, snap_rows) = render.frame.size;
-    for row in (snap_rows as usize)..max_rows {
-        let y = rect.y + row as u16;
-        for col in 0..max_cols {
-            let x = rect.x + col as u16;
-            buf[(x, y)].set_symbol(" ").set_style(blank_style);
-        }
+    if live_cols < max_cols || live_rows < max_rows {
+        draw_foreign_viewport(
+            buf, rect, max_cols, max_rows, live_cols, live_rows, snap_cols, snap_rows, chrome,
+            catalog,
+        );
     }
 
     render
@@ -338,6 +336,58 @@ mod tests {
     use ratatui::Terminal as RatatuiTerminal;
     use ratatui::backend::TestBackend;
 
+    fn render_frame(cols: u16, rows: u16) -> SurfaceRenderFrame {
+        let mut terminal = Terminal::new(cols, rows, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"live");
+        let mut state = RenderState::new().unwrap();
+        state.update(&mut terminal).unwrap();
+        SurfaceRenderFrame {
+            frame: state.build_frame().unwrap(),
+            scrollback_rows: 0,
+            palette_colors: std::array::from_fn(|idx| state.palette_color(idx as u8)),
+            palette_overridden: std::array::from_fn(|idx| state.palette_overridden(idx as u8)),
+        }
+    }
+
+    fn draw_grid(
+        render: &SurfaceRenderFrame,
+        rect: Rect,
+        chrome: ChromeTheme,
+        locale: &str,
+    ) -> RatatuiTerminal<TestBackend> {
+        let width = rect.x + rect.width;
+        let height = rect.y + rect.height;
+        let mut terminal = RatatuiTerminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| {
+                draw_render_frame_with_catalog(
+                    frame,
+                    rect,
+                    render,
+                    &Theme::default(),
+                    &chrome,
+                    crate::localization::catalog_for_locale(locale),
+                    |_, _| false,
+                );
+            })
+            .unwrap();
+        terminal
+    }
+
+    fn row_text(buffer: &Buffer, y: u16, x: u16, width: u16) -> String {
+        (x..x + width).map(|cell_x| buffer[(cell_x, y)].symbol()).collect()
+    }
+
+    fn english_foreign_viewport_hint(
+        cols: u16,
+        rows: u16,
+    ) -> crate::localization::ForeignViewportHint {
+        crate::localization::catalog_for_locale("en_US.UTF-8")
+            .foreign_viewport
+            .hint(cols, rows)
+            .expect("English hint fits inline")
+    }
+
     fn render_frame_with_defaults(
         foreground: Rgb,
         background: Rgb,
@@ -435,7 +485,7 @@ mod tests {
     }
 
     #[test]
-    fn frame_default_order_and_spare_cells_follow_canonical_roles() {
+    fn frame_default_order_and_live_blank_cells_follow_canonical_roles() {
         let foreground = Rgb { r: 0x11, g: 0x22, b: 0x33 };
         let background = Rgb { r: 0x44, g: 0x55, b: 0x66 };
         let cursor = Rgb { r: 0x77, g: 0x88, b: 0x99 };
@@ -456,17 +506,19 @@ mod tests {
                     Rect { x: 0, y: 0, width: 4, height: 2 },
                     &render,
                     &Theme::default(),
+                    &ChromeTheme::dark(),
                     |_, _| false,
                 );
             })
             .unwrap();
 
-        for position in [(2, 0), (3, 0), (0, 1), (3, 1)] {
-            let cell = &terminal.backend().buffer()[position];
-            assert_eq!(cell.fg, Color::Rgb(0x11, 0x22, 0x33));
-            assert_eq!(cell.bg, Color::Rgb(0x44, 0x55, 0x66));
-            assert_eq!(cell.symbol(), " ");
-        }
+        // This cell belongs to the 2x1 terminal frame and is not occupied by
+        // the cursor. Cells outside that frame intentionally use the foreign
+        // viewport chrome styling, which is covered below.
+        let cell = &terminal.backend().buffer()[(1, 0)];
+        assert_eq!(cell.fg, Color::Rgb(0x11, 0x22, 0x33));
+        assert_eq!(cell.bg, Color::Rgb(0x44, 0x55, 0x66));
+        assert_eq!(cell.symbol(), " ");
     }
 
     #[test]

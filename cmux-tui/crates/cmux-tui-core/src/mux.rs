@@ -4,8 +4,8 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::Receiver;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::mpsc::{Receiver, SyncSender};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
@@ -604,6 +604,20 @@ pub struct Mux {
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     terminal_move_before_projection: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    client_rollback_before_wait: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    workspace_close_before_empty_check: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    workspace_close_after_selector_resolution: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    layout_apply_after_workspace_reservation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    terminal_create_after_empty_check: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    terminal_create_after_materialization_lock: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    terminal_create_after_workspace_reservation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
@@ -698,6 +712,20 @@ impl Mux {
             client_resize_before_apply: Mutex::new(None),
             #[cfg(test)]
             terminal_move_before_projection: Mutex::new(None),
+            #[cfg(test)]
+            client_rollback_before_wait: Mutex::new(None),
+            #[cfg(test)]
+            workspace_close_before_empty_check: Mutex::new(None),
+            #[cfg(test)]
+            workspace_close_after_selector_resolution: Mutex::new(None),
+            #[cfg(test)]
+            layout_apply_after_workspace_reservation: Mutex::new(None),
+            #[cfg(test)]
+            terminal_create_after_empty_check: Mutex::new(None),
+            #[cfg(test)]
+            terminal_create_after_materialization_lock: Mutex::new(None),
+            #[cfg(test)]
+            terminal_create_after_workspace_reservation: Mutex::new(None),
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(DefaultColors::default()),
@@ -1130,6 +1158,7 @@ impl Mux {
                 root: Node::Leaf(pane_id),
                 active_pane: pane_id,
                 zoomed_pane: None,
+                zellij_auto_layout: Some(vec![pane_id]),
             });
             workspace.active_screen = workspace.screens.len() - 1;
         }
@@ -1544,6 +1573,51 @@ impl Mux {
         self.subscribers.emit(event);
     }
 
+    fn emit_tree_delta(&self, delta: TreeDelta, selection_resync: bool) {
+        self.emit(MuxEvent::TreeDelta(delta));
+        if selection_resync {
+            self.emit(MuxEvent::TreeSelectionChanged);
+        }
+    }
+
+    fn emit_empty_if_current(&self, workspace_revision: Option<u64>) {
+        let Some(workspace_revision) = workspace_revision else { return };
+        #[cfg(test)]
+        let before_empty_check = self.workspace_close_before_empty_check.lock().unwrap().clone();
+        #[cfg(test)]
+        if let Some(hook) = before_empty_check {
+            hook();
+        }
+        let state = self.state.lock().unwrap();
+        if state.workspaces.is_empty() && state.workspace_revision == workspace_revision {
+            self.emit(MuxEvent::Empty);
+        }
+    }
+
+    fn rebuild_split_screen_index(state: &mut State) {
+        fn index_node(
+            node: &Node,
+            workspace_index: usize,
+            screen_index: usize,
+            screen: ScreenId,
+            index: &mut HashMap<SplitId, (usize, usize, ScreenId)>,
+        ) {
+            if let Node::Split { id, a, b, .. } = node {
+                index.insert(*id, (workspace_index, screen_index, screen));
+                index_node(a, workspace_index, screen_index, screen, index);
+                index_node(b, workspace_index, screen_index, screen, index);
+            }
+        }
+
+        let mut index = HashMap::new();
+        for (workspace_index, workspace) in state.workspaces.iter().enumerate() {
+            for (screen_index, screen) in workspace.screens.iter().enumerate() {
+                index_node(&screen.root, workspace_index, screen_index, screen.id, &mut index);
+            }
+        }
+        state.split_screens = index;
+    }
+
     fn emit_terminal_registry_changed(&self, registry: &WorkspaceRegistry, terminal_revision: u64) {
         self.emit(MuxEvent::TerminalRegistryChanged {
             registry_id: registry.registry_id().to_string(),
@@ -1755,9 +1829,6 @@ impl Mux {
         reservation: Option<TerminalReservationRequest>,
     ) -> anyhow::Result<Arc<Surface>> {
         let id = self.next_id();
-        if let Some(workspace) = pending_workspace {
-            self.pending_workspace_surfaces.lock().unwrap().insert(id, workspace);
-        }
         let mut opts = self.surface_options.lock().unwrap().clone();
         if cwd.is_some() {
             opts.cwd = cwd;
@@ -2578,6 +2649,14 @@ impl Mux {
     }
 
     #[cfg(test)]
+    pub(crate) fn set_client_rollback_before_wait(
+        &self,
+        hook: Option<Arc<dyn Fn() + Send + Sync>>,
+    ) {
+        *self.client_rollback_before_wait.lock().unwrap() = hook;
+    }
+
+    #[cfg(test)]
     fn set_terminal_move_before_projection(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
         *self.terminal_move_before_projection.lock().unwrap() = hook;
     }
@@ -2769,17 +2848,32 @@ impl Mux {
         let notifications = self.surface_notifications();
         let (target, removed, changed_screens, empty_revision, delta, selection_resync) = {
             let mut state = self.state.lock().unwrap();
-            let target = unique_terminal_match(
+            let matched = unique_terminal_match(
                 terminal_id,
                 state.surfaces.values().filter_map(|surface| {
                     surface.terminal_host_identity().map(|identity| (surface.id, identity))
                 }),
-            )?
-            .map(|(surface, _)| surface);
+            )?;
+            if let Some((_, identity)) = matched.as_ref()
+                && terminal_incarnation.as_deref() != Some(identity.incarnation.as_str())
+            {
+                anyhow::bail!("terminal_incarnation_mismatch");
+            }
+            let target = matched.map(|(surface, _)| surface);
+            let selection_before = active_tree_selection(&state);
             let changed_screen = target.and_then(|target| surface_screen_id(&state, target));
             let delta =
                 target.and_then(|target| close_surface_delta(&state, &notifications, target));
-            let removed = target.and_then(|target| remove_surface(&mut state, target));
+            let removed = target.and_then(|target| {
+                let (removed, split_index_dirty) = remove_surface(self, &mut state, target);
+                if split_index_dirty {
+                    Self::rebuild_split_screen_index(&mut state);
+                }
+                removed
+            });
+            let empty_revision = state.workspaces.is_empty().then_some(state.workspace_revision);
+            let selection_resync =
+                empty_revision.is_none() && selection_before != active_tree_selection(&state);
             (
                 target,
                 removed,
@@ -2802,9 +2896,7 @@ impl Mux {
             }
         }
         self.terminate_discovered_terminal_host(terminal_id, terminal_incarnation.as_deref());
-        if empty {
-            self.emit(MuxEvent::Empty);
-        }
+        self.emit_empty_if_current(empty_revision);
         Ok(TerminalCloseResult {
             surface: target,
             terminal_id: terminal_id.to_string(),
@@ -2867,7 +2959,11 @@ impl Mux {
         }
         let removed = {
             let mut state = self.state.lock().unwrap();
-            remove_surface(&mut state, surface.id).or_else(|| state.surfaces.remove(&surface.id))
+            let (removed, split_index_dirty) = remove_surface(self, &mut state, surface.id);
+            if split_index_dirty {
+                Self::rebuild_split_screen_index(&mut state);
+            }
+            removed.or_else(|| state.surfaces.remove(&surface.id))
         };
         drop(registry);
         if removed.is_some() {
@@ -3660,8 +3756,8 @@ impl Mux {
         let Some(target) = target else {
             if let Some(workspace) = empty_workspace {
                 return self
-                    .create_terminal_surface_in_workspace(workspace, None, cwd, None, size)
-                    .map(|(surface, _)| surface);
+                    .create_terminal_in_workspace_impl(workspace, None, cwd, None, size, None)
+                    .map(|(_, surface)| surface);
             }
             return self.new_workspace(None, size);
         };
@@ -3734,9 +3830,21 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<RunPlacement> {
-        let (placement, _) =
+        self.create_terminal_surface_in_workspace(workspace, argv, cwd, name, size)
+            .map(|(_, placement)| placement)
+    }
+
+    fn create_terminal_surface_in_workspace(
+        self: &Arc<Self>,
+        workspace: WorkspaceId,
+        argv: Option<Vec<String>>,
+        cwd: Option<String>,
+        name: Option<String>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
+        let (placement, surface) =
             self.create_terminal_in_workspace_impl(workspace, argv, cwd, name, size, None)?;
-        Ok(placement)
+        Ok((surface, placement))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3846,6 +3954,28 @@ impl Mux {
         size: Option<(u16, u16)>,
         reservation: Option<TerminalReservationRequest>,
     ) -> anyhow::Result<(RunPlacement, Arc<Surface>)> {
+        {
+            let state = self.state.lock().unwrap();
+            if state.workspace_by_id(workspace).is_none() {
+                anyhow::bail!("unknown workspace {workspace}");
+            }
+        }
+        #[cfg(test)]
+        if let Some(hook) = self.terminal_create_after_empty_check.lock().unwrap().clone() {
+            hook();
+        }
+        let lifecycle = self.workspace_lifecycle(workspace);
+        let workspace_lifecycle = lifecycle.lock().unwrap();
+        #[cfg(test)]
+        if let Some(hook) = self.terminal_create_after_materialization_lock.lock().unwrap().clone()
+        {
+            hook();
+        }
+        #[cfg(test)]
+        if let Some(hook) = self.terminal_create_after_workspace_reservation.lock().unwrap().clone()
+        {
+            hook();
+        }
         let (workspace_key, inherited_pane) = {
             let state = self.state.lock().unwrap();
             let Some(workspace) = state.workspace_by_id(workspace) else {
@@ -3866,6 +3996,8 @@ impl Mux {
                 self.spawn_surface_in_workspace(&workspace_key, cwd.or(inherited_cwd), size, argv)?
             }
         };
+        self.pending_workspace_surfaces.lock().unwrap().insert(surface.id, workspace);
+        let pending_surface = self.pending_workspace_surface(surface.id);
         if let Some(name) = name {
             surface.set_name(Some(name));
         }
@@ -3890,6 +4022,8 @@ impl Mux {
             if changed {
                 self.emit(MuxEvent::TreeChanged);
             }
+            drop(pending_surface);
+            drop(workspace_lifecycle);
             self.reap_if_dead(&surface);
             return Ok((placement, surface));
         }
@@ -4538,10 +4672,14 @@ impl Mux {
             anyhow::bail!("unknown pane {target}");
         }
         let cwd = self.pane_cwd(target);
-        let surface = self.spawn_surface(cwd, size).map_err(|error| {
-            eprintln!("cmux-tui: pane PTY creation failed: {error:#}");
-            anyhow::anyhow!("pane creation failed")
-        })?;
+        let workspace_key = self
+            .workspace_key_for_pane(target)
+            .ok_or_else(|| anyhow::anyhow!("pane {target} has no workspace"))?;
+        let surface =
+            self.spawn_surface_in_workspace(&workspace_key, cwd, size, None).map_err(|error| {
+                eprintln!("cmux-tui: pane PTY creation failed: {error:#}");
+                anyhow::anyhow!("pane creation failed")
+            })?;
         let pane_id = self.next_id();
         let active_at = self.next_active_at();
         let mut changed_screen = None;
@@ -4639,32 +4777,39 @@ impl Mux {
             let mut state = self.state.lock().unwrap();
             let selection_before = active_tree_selection(&state);
             let changed_screen = surface_screen_id(&state, target);
-            let mut delta = close_surface_delta(&state, &notifications, target);
+            let delta = close_surface_delta(&state, &notifications, target);
             let (removed, split_index_dirty) = remove_surface(self, &mut state, target);
             if split_index_dirty {
                 Self::rebuild_split_screen_index(&mut state);
             }
-            if matches!(
-                delta.as_ref().map(|delta| delta.kind),
-                Some(TreeDeltaKind::WorkspaceClosed)
-            ) {
-                state.workspace_revision = state.workspace_revision.saturating_add(1);
-                if let Some(delta) = delta.as_mut() {
-                    delta.workspace_revision = Some(state.workspace_revision);
-                }
-            }
             let empty_revision = state.workspaces.is_empty().then_some(state.workspace_revision);
             let selection_resync =
                 empty_revision.is_none() && selection_before != active_tree_selection(&state);
+            let changed = removed.is_some() || delta.is_some();
             (
                 removed,
                 changed_screen.into_iter().collect::<Vec<_>>(),
                 empty_revision,
                 delta,
                 selection_resync,
+                changed,
             )
         };
-        let removed = if let Some(surface) = removed {
+        let (removed, changed_screens, empty_revision, delta, selection_resync, changed) = loop {
+            let Some(workspace) = self.surface_workspace(target) else {
+                break remove();
+            };
+            let lifecycle = self.workspace_lifecycle(workspace);
+            let workspace_lifecycle = lifecycle.lock().unwrap();
+            if self.surface_workspace(target) != Some(workspace) {
+                drop(workspace_lifecycle);
+                continue;
+            }
+            let result = remove();
+            drop(workspace_lifecycle);
+            break result;
+        };
+        if let Some(surface) = &removed {
             self.purge_surface_side_tables(surface.id);
             surface.kill();
         }
@@ -4677,97 +4822,151 @@ impl Mux {
             for screen in changed_screens {
                 self.emit(MuxEvent::LayoutChanged(screen));
             }
-            true
-        } else {
-            false
-        };
-        if empty {
-            self.emit(MuxEvent::Empty);
         }
-        removed
+        self.emit_empty_if_current(empty_revision);
+        changed
     }
 
-    /// Close every surface in `tabs` (helper for pane/screen/workspace
-    /// close). Emits events outside the lock.
-    fn close_surfaces(&self, tabs: Vec<SurfaceId>, delta: TreeDelta) -> anyhow::Result<()> {
-        let mutation = WorkspaceMutation::local("cmux-tui");
-        let mut registry = self.workspace_registry.lock().unwrap();
-        let (removed, changed_screens, empty, batch) = {
-            let mut state = self.state.lock().unwrap();
-            let hosted = tabs
-                .iter()
-                .filter_map(|id| state.surfaces.get(id))
-                .filter_map(|surface| surface.terminal_host_identity())
-                .map(|identity| (identity.terminal_id, Some(identity.incarnation)))
-                .collect::<Vec<_>>();
-            let batch = registry.close_terminals_atomically(&mutation, &hosted)?;
-            let changed_screens = unique_screen_ids(
-                tabs.iter().filter_map(|surface| surface_screen_id(&state, *surface)),
-            );
-            let mut removed = Vec::new();
-            for surface in tabs {
-                if let Some(surface) = remove_surface(&mut state, surface) {
-                    removed.push(surface);
+    /// Close a pane or screen while holding the target workspace's lifecycle
+    /// lock from revalidation through the durable terminal and topology
+    /// commits. This keeps a concurrent terminal creation from attaching to a
+    /// target after its close snapshot was taken.
+    fn close_tree_target(&self, target: TreeCloseTarget) -> anyhow::Result<bool> {
+        let notifications = self.surface_notifications();
+        let result = loop {
+            let Some(workspace) =
+                self.with_state(|state| Self::workspace_for_tree_target_in_state(state, target))
+            else {
+                return Ok(false);
+            };
+            let lifecycle = self.workspace_lifecycle(workspace);
+            let workspace_lifecycle = lifecycle.lock().unwrap();
+            if self.with_state(|state| Self::workspace_for_tree_target_in_state(state, target))
+                != Some(workspace)
+            {
+                drop(workspace_lifecycle);
+                continue;
+            }
+            let mutation = WorkspaceMutation::local("cmux-tui");
+            let mut registry = self.workspace_registry.lock().unwrap();
+            let result = (|| -> anyhow::Result<Option<_>> {
+                let mut state = self.state.lock().unwrap();
+                let selection_before = active_tree_selection(&state);
+                let (tabs, delta) = match target {
+                    TreeCloseTarget::Pane(target) => {
+                        let Some(pane) = state.panes.get(&target) else { return Ok(None) };
+                        (
+                            pane.tabs.clone(),
+                            close_pane_delta(&state, &notifications, target)
+                                .expect("live pane has a close delta"),
+                        )
+                    }
+                    TreeCloseTarget::Screen(target) => {
+                        let Some(screen) = state
+                            .workspaces
+                            .iter()
+                            .flat_map(|workspace| &workspace.screens)
+                            .find(|screen| screen.id == target)
+                        else {
+                            return Ok(None);
+                        };
+                        (
+                            screen_tabs(&state, screen),
+                            close_screen_delta(&state, &notifications, target)
+                                .expect("live screen has a close delta"),
+                        )
+                    }
+                };
+                let hosted = tabs
+                    .iter()
+                    .filter_map(|id| state.surfaces.get(id))
+                    .filter_map(|surface| surface.terminal_host_identity())
+                    .map(|identity| (identity.terminal_id, Some(identity.incarnation)))
+                    .collect::<Vec<_>>();
+                let batch = registry.close_terminals_atomically(&mutation, &hosted)?;
+                let changed_screens = unique_screen_ids(
+                    tabs.iter().filter_map(|surface| surface_screen_id(&state, *surface)),
+                );
+                let mut removed = Vec::new();
+                let mut split_index_dirty = false;
+                for surface in tabs {
+                    let (surface, topology_changed) = remove_surface(self, &mut state, surface);
+                    split_index_dirty |= topology_changed;
+                    if let Some(surface) = surface {
+                        removed.push(surface);
+                    }
                 }
+                if split_index_dirty {
+                    Self::rebuild_split_screen_index(&mut state);
+                }
+                let tree_removed = match target {
+                    TreeCloseTarget::Pane(target) => !state.panes.contains_key(&target),
+                    TreeCloseTarget::Screen(target) => !state
+                        .workspaces
+                        .iter()
+                        .flat_map(|workspace| &workspace.screens)
+                        .any(|screen| screen.id == target),
+                };
+                let empty_revision =
+                    state.workspaces.is_empty().then_some(state.workspace_revision);
+                let selection_resync =
+                    empty_revision.is_none() && selection_before != active_tree_selection(&state);
+                Ok(Some((
+                    removed,
+                    changed_screens,
+                    empty_revision,
+                    delta,
+                    tree_removed,
+                    selection_resync,
+                    batch,
+                )))
+            })();
+            let result = result?;
+            if let Some((_, _, _, _, _, _, batch)) = &result
+                && batch.closed != 0
+            {
+                self.emit_terminal_registry_changed(&registry, batch.revision);
             }
-            (removed, changed_screens, state.workspaces.is_empty(), batch)
+            drop(registry);
+            drop(workspace_lifecycle);
+            break result;
         };
-        if batch.closed != 0 {
-            self.emit_terminal_registry_changed(&registry, batch.revision);
+        let Some((
+            removed,
+            changed_screens,
+            empty_revision,
+            delta,
+            tree_removed,
+            selection_resync,
+            _,
+        )) = result
+        else {
+            return Ok(false);
+        };
+        for surface in removed {
+            self.purge_surface_side_tables(surface.id);
+            surface.kill();
         }
-        drop(registry);
-        if !removed.is_empty() {
-            for surface in removed {
-                self.purge_surface_side_tables(surface.id);
-                surface.kill();
-            }
-            self.emit(MuxEvent::TreeDelta(delta));
+        if tree_removed {
+            self.emit_tree_delta(delta, selection_resync);
             for screen in changed_screens {
                 self.emit(MuxEvent::LayoutChanged(screen));
             }
         }
-        if empty {
-            self.emit(MuxEvent::Empty);
-        }
-        Ok(())
+        self.emit_empty_if_current(empty_revision);
+        Ok(true)
     }
 
     /// Close a pane and every tab in it.
     pub fn close_pane(&self, target: PaneId) -> anyhow::Result<bool> {
-        let notifications = self.surface_notifications();
-        let (tabs, delta) = {
-            let state = self.state.lock().unwrap();
-            match state.panes.get(&target) {
-                Some(pane) => (
-                    pane.tabs.clone(),
-                    close_pane_delta(&state, &notifications, target)
-                        .expect("live pane has a close delta"),
-                ),
-                None => return Ok(false),
-            }
-        };
-        self.close_surfaces(tabs, delta).with_context(|| format!("close pane {target}"))?;
-        Ok(true)
+        self.close_tree_target(TreeCloseTarget::Pane(target))
+            .with_context(|| format!("close pane {target}"))
     }
 
     /// Close a screen and every pane/tab in it.
     pub fn close_screen(&self, target: ScreenId) -> anyhow::Result<bool> {
-        let notifications = self.surface_notifications();
-        let (tabs, delta) = {
-            let state = self.state.lock().unwrap();
-            let Some(screen) =
-                state.workspaces.iter().flat_map(|ws| ws.screens.iter()).find(|s| s.id == target)
-            else {
-                return Ok(false);
-            };
-            (
-                screen_tabs(&state, screen),
-                close_screen_delta(&state, &notifications, target)
-                    .expect("live screen has a close delta"),
-            )
-        };
-        self.close_surfaces(tabs, delta).with_context(|| format!("close screen {target}"))?;
-        Ok(true)
+        self.close_tree_target(TreeCloseTarget::Screen(target))
+            .with_context(|| format!("close screen {target}"))
     }
 
     /// Close a workspace and every screen/pane/tab in it.
@@ -4785,15 +4984,29 @@ impl Mux {
         target: WorkspaceId,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<Option<u64>> {
+        Ok(self
+            .close_workspace_selector_at_revision(Some(target), None, expected_revision)?
+            .map(|(_, _, revision)| revision))
+    }
+
+    pub(crate) fn close_workspace_selector_at_revision(
+        &self,
+        id: Option<WorkspaceId>,
+        key: Option<&str>,
+        expected_revision: Option<u64>,
+    ) -> anyhow::Result<Option<(WorkspaceId, String, u64)>> {
+        let resolved = {
+            let state = self.state.lock().unwrap();
+            Self::require_workspace_revision(&state, expected_revision)?;
+            Self::resolve_workspace_selector(&state, id, key)?
+        };
+        let Some((resolved_target, _)) = resolved else {
+            return Ok(None);
+        };
         let mutation = WorkspaceMutation::local("cmux-tui");
-        let result = self.close_workspace_with_mutation(
-            Some(target),
-            None,
-            None,
-            expected_revision,
-            &mutation,
-        )?;
-        Ok(Some(result.revision))
+        let result =
+            self.close_workspace_with_mutation(id, key, None, expected_revision, &mutation)?;
+        Ok(Some((result.workspace.unwrap_or(resolved_target), result.key, result.revision)))
     }
 
     pub fn close_workspace_with_mutation(
@@ -4809,18 +5022,69 @@ impl Mux {
             "workspace": target,
             "key": requested_key,
         });
-        let notifications = self.surface_notifications();
-        let resolved_target = {
-            let state = self.state.lock().unwrap();
-            let index = resolve_workspace_index(&state, target, requested_key)?;
-            state.workspaces[index].id
-        };
-        #[cfg(test)]
-        if let Some(hook) = self.workspace_close_after_selector_resolution.lock().unwrap().clone() {
-            hook();
+        {
+            let registry = self.workspace_registry.lock().unwrap();
+            if let Some(commit) = registry.replay(mutation, &fingerprint)? {
+                let result = workspace_mutation_result(&commit)?;
+                let key = result.key.clone();
+                drop(registry);
+                self.terminate_tombstoned_workspace_hosts(&key);
+                return Ok(result);
+            }
         }
+        loop {
+            let resolved_target = {
+                let state = self.state.lock().unwrap();
+                Self::require_workspace_revision(&state, expected_revision)?;
+                let index = resolve_workspace_index(&state, target, requested_key)?;
+                state.workspaces[index].id
+            };
+            #[cfg(test)]
+            if let Some(hook) =
+                self.workspace_close_after_selector_resolution.lock().unwrap().clone()
+            {
+                hook();
+            }
+            let lifecycle = self.workspace_lifecycle(resolved_target);
+            let workspace_lifecycle = lifecycle.lock().unwrap();
+            let current_target = {
+                let state = self.state.lock().unwrap();
+                Self::require_workspace_revision(&state, expected_revision)?;
+                let index = resolve_workspace_index(&state, target, requested_key)?;
+                state.workspaces[index].id
+            };
+            if current_target != resolved_target {
+                drop(workspace_lifecycle);
+                continue;
+            }
+            let result = self.close_workspace_with_mutation_locked(
+                target,
+                requested_key,
+                expected_generation,
+                expected_revision,
+                mutation,
+                &fingerprint,
+                resolved_target,
+            );
+            drop(workspace_lifecycle);
+            return result;
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn close_workspace_with_mutation_locked(
+        &self,
+        target: Option<WorkspaceId>,
+        requested_key: Option<&str>,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        resolved_target: WorkspaceId,
+    ) -> anyhow::Result<WorkspaceMutationResult> {
+        let notifications = self.surface_notifications();
         let mut registry = self.workspace_registry.lock().unwrap();
-        if let Some(commit) = registry.replay(mutation, &fingerprint)? {
+        if let Some(commit) = registry.replay(mutation, fingerprint)? {
             let result = workspace_mutation_result(&commit)?;
             let key = result.key.clone();
             drop(registry);
@@ -4828,8 +5092,9 @@ impl Mux {
             return Ok(result);
         }
         let terminal_revision_before = registry.terminal_snapshot()?.revision;
-        let (removed, delta, empty, result, closed_workspace_key) = {
+        let (removed, delta, empty_revision, selection_resync, result, closed_workspace_key) = {
             let mut state = self.state.lock().unwrap();
+            Self::require_workspace_revision(&state, expected_revision)?;
             let index = resolve_workspace_index(&state, target, requested_key)?;
             let workspace_id = state.workspaces[index].id;
             if workspace_id != resolved_target {
@@ -4847,7 +5112,7 @@ impl Mux {
             });
             let commit = registry.commit(
                 mutation,
-                &fingerprint,
+                fingerprint,
                 expected_generation,
                 expected_revision,
                 "workspace-closed",
@@ -4885,7 +5150,7 @@ impl Mux {
             let empty_revision = state.workspaces.is_empty().then_some(state.workspace_revision);
             let selection_resync = was_active && empty_revision.is_none();
             let result = workspace_mutation_result(&commit)?;
-            (removed, delta, state.workspaces.is_empty(), result, key)
+            (removed, delta, empty_revision, selection_resync, result, key)
         };
         let terminal_revision_after = registry.terminal_snapshot()?.revision;
         if terminal_revision_after != terminal_revision_before {
@@ -4897,10 +5162,8 @@ impl Mux {
             surface.kill();
         }
         self.terminate_tombstoned_workspace_hosts(&closed_workspace_key);
-        self.emit(MuxEvent::TreeDelta(delta));
-        if empty {
-            self.emit(MuxEvent::Empty);
-        }
+        self.emit_tree_delta(delta, selection_resync);
+        self.emit_empty_if_current(empty_revision);
         Ok(result)
     }
 
@@ -4952,6 +5215,7 @@ impl Mux {
         }
         let (renamed, result) = {
             let mut state = self.state.lock().unwrap();
+            Self::require_workspace_revision(&state, expected_revision)?;
             let index = resolve_workspace_index(&state, target, requested_key)?;
             let workspace_id = state.workspaces[index].id;
             let key = state.workspaces[index].key.clone();
@@ -5403,6 +5667,8 @@ impl Mux {
             Some(workspace) => workspace,
             None => self.create_empty_workspace(None, None, None)?.workspace,
         };
+        let workspace_lifecycle = self.workspace_lifecycle(target_workspace);
+        let _workspace_lifecycle_guard = workspace_lifecycle.lock().unwrap();
         let workspace_key = self
             .state
             .lock()
@@ -5410,6 +5676,10 @@ impl Mux {
             .workspace_by_id(target_workspace)
             .map(|workspace| workspace.key.clone())
             .ok_or_else(|| anyhow::anyhow!("layout workspace disappeared"))?;
+        #[cfg(test)]
+        if let Some(hook) = self.layout_apply_after_workspace_reservation.lock().unwrap().clone() {
+            hook();
+        }
 
         let mut created = Vec::new();
         let mut panes = Vec::new();
@@ -5544,6 +5814,7 @@ impl Mux {
                     let node = self.instantiate_layout(
                         &LayoutSpec::Leaf(LayoutLeafSpec { cwd: None, command: None }),
                         size,
+                        workspace_key,
                         panes,
                         created,
                         spawned,
@@ -5789,13 +6060,19 @@ impl Mux {
                     root: Node::Leaf(pane),
                     active_pane: pane,
                     zoomed_pane: None,
+                    zellij_auto_layout: Some(vec![pane]),
                 });
                 state.workspaces[destination].active_screen = 0;
                 pane
             });
         if state.pane_of(surface).is_some() {
-            if !move_tab_in_state(state, surface, target_pane, usize::MAX) {
+            let (moved, topology_changed) =
+                move_tab_in_state(self, state, surface, target_pane, usize::MAX);
+            if !moved {
                 anyhow::bail!("terminal topology changed during move");
+            }
+            if topology_changed {
+                Self::rebuild_split_screen_index(state);
             }
         } else {
             let pane = state
@@ -5816,11 +6093,11 @@ impl Mux {
     /// alive; if moving it empties the source pane, that pane collapses
     /// out of its split tree.
     pub fn move_tab(&self, surface: SurfaceId, pane: PaneId, index: usize) -> bool {
-        let hosted_identity =
-            self.surface(surface).and_then(|surface| surface.terminal_host_identity());
-        let mut registry =
-            hosted_identity.as_ref().map(|_| self.workspace_registry.lock().unwrap());
-        let mut move_tab = || {
+        let move_tab = || {
+            let hosted_identity =
+                self.surface(surface).and_then(|surface| surface.terminal_host_identity());
+            let mut registry =
+                hosted_identity.as_ref().map(|_| self.workspace_registry.lock().unwrap());
             let mut state = self.state.lock().unwrap();
             let workspace_count = state.workspaces.len();
             let previous_active = state.active_pane();
@@ -5942,7 +6219,8 @@ impl Mux {
                     state.workspace_revision
                 );
             }
-            let new_index = index.min(state.workspaces.len().saturating_sub(1));
+            let new_index = if index > old_index { index.saturating_sub(1) } else { index };
+            let new_index = new_index.min(state.workspaces.len().saturating_sub(1));
             if new_index == old_index {
                 return Ok(Some((state.workspace_revision, false)));
             }
@@ -5982,10 +6260,14 @@ impl Mux {
         }
         let (delta, result) = {
             let mut state = self.state.lock().unwrap();
+            Self::require_workspace_revision(&state, expected_revision)?;
             let old_idx = resolve_workspace_index(&state, workspace, requested_key)?;
             let workspace_id = state.workspaces[old_idx].id;
             let key = state.workspaces[old_idx].key.clone();
-            let new_idx = index.min(state.workspaces.len().saturating_sub(1));
+            // Protocol v7 uses insertion-point semantics. Once the source is
+            // removed, insertion points to its right shift left by one.
+            let new_idx = if index > old_idx { index.saturating_sub(1) } else { index };
+            let new_idx = new_idx.min(state.workspaces.len().saturating_sub(1));
             let changed = new_idx != old_idx;
             let mut desired = self.registry_projection(&state);
             let desired_workspace = desired.remove(old_idx);
@@ -8267,7 +8549,7 @@ mod tests {
             surfaces.push(surface);
         }
 
-        mux.close_surface(surfaces[0].id);
+        mux.close_surface(surfaces[0].id).unwrap();
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
             let order = screen.zellij_auto_layout.as_ref().unwrap();
@@ -8301,7 +8583,7 @@ mod tests {
         let active_stack_pane = mux.with_state(|state| state.pane_of(surfaces[2].id).unwrap());
         assert!(mux.focus_pane(active_stack_pane));
 
-        mux.close_surface(surfaces[1].id);
+        mux.close_surface(surfaces[1].id).unwrap();
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
             assert_eq!(screen.active_pane, active_stack_pane);
@@ -8337,7 +8619,7 @@ mod tests {
         assert!(mux.focus_pane(expanded_stack_pane));
         assert!(mux.focus_pane(leading_pane));
 
-        mux.close_surface(surfaces[1].id);
+        mux.close_surface(surfaces[1].id).unwrap();
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
             let layout = layout_screen(
@@ -8425,7 +8707,7 @@ mod tests {
         }
         assert!(mux.swap_panes(active, first_pane));
 
-        mux.close_surface(active_surface.id);
+        mux.close_surface(active_surface.id).unwrap();
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
             assert!(screen.zellij_auto_layout.is_none());
@@ -8666,10 +8948,10 @@ mod tests {
             state.split_screens.insert(sentinel, (usize::MAX, usize::MAX, ScreenId::MAX));
         }
 
-        mux.close_surface(ordinary_tab.id);
+        mux.close_surface(ordinary_tab.id).unwrap();
 
         mux.with_state(|state| assert!(state.split_screens.contains_key(&sentinel)));
-        mux.close_surface(first.id);
+        mux.close_surface(first.id).unwrap();
         mux.with_state(|state| assert!(!state.split_screens.contains_key(&sentinel)));
     }
 
@@ -8893,7 +9175,7 @@ mod tests {
             assert_eq!(*ratio, 0.7);
         });
 
-        mux.close_surface(third.id);
+        mux.close_surface(third.id).unwrap();
         mux.with_state(|state| {
             assert!(!state.split_screens.contains_key(&original));
             assert!(state.split_screens.contains_key(&nested));
@@ -9174,7 +9456,7 @@ mod tests {
     }
 
     #[test]
-    fn reaped_surface_close_advances_workspace_registry_revision() {
+    fn reaped_surface_close_preserves_durable_empty_workspace() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let events = mux.subscribe();
@@ -9182,26 +9464,27 @@ mod tests {
 
         let reaped = mux.state.lock().unwrap().surfaces.remove(&surface.id);
         assert!(reaped.is_some(), "surface must exist before simulating the early-exit race");
-        mux.close_surface(surface.id);
+        assert!(mux.close_surface(surface.id).unwrap());
 
         mux.with_state(|state| {
-            assert!(state.workspaces.is_empty());
-            assert_eq!(state.workspace_revision, previous_revision + 1);
+            assert_eq!(state.workspaces.len(), 1);
+            assert!(state.workspaces[0].screens.is_empty());
+            assert_eq!(state.workspace_revision, previous_revision);
         });
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::TreeDelta(TreeDelta {
-                kind: TreeDeltaKind::WorkspaceClosed,
-                workspace_revision: Some(revision),
+                kind: TreeDeltaKind::ScreenClosed,
+                workspace_revision: None,
                 ..
-            })) if revision == previous_revision + 1
+            }))
         ));
-        assert!(matches!(events.recv_timeout(Duration::from_secs(1)), Ok(MuxEvent::Empty)));
+        assert!(!events.try_iter().any(|event| matches!(event, MuxEvent::Empty)));
         surface.kill();
     }
 
     #[test]
-    fn reaped_surface_tree_target_close_advances_workspace_registry_revision() {
+    fn reaped_surface_tree_target_close_preserves_durable_empty_workspace() {
         for close_screen in [false, true] {
             let mux = test_mux();
             let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
@@ -9215,23 +9498,25 @@ mod tests {
             assert!(reaped.is_some(), "surface must exist before simulating the race");
 
             if close_screen {
-                assert!(mux.close_screen(screen));
+                assert!(mux.close_screen(screen).unwrap());
             } else {
-                mux.close_pane(pane);
+                mux.close_pane(pane).unwrap();
             }
 
             mux.with_state(|state| {
-                assert!(state.workspaces.is_empty());
-                assert_eq!(state.workspace_revision, previous_revision + 1);
+                assert_eq!(state.workspaces.len(), 1);
+                assert!(state.workspaces[0].screens.is_empty());
+                assert_eq!(state.workspace_revision, previous_revision);
             });
             assert!(matches!(
                 events.recv_timeout(Duration::from_secs(1)),
                 Ok(MuxEvent::TreeDelta(TreeDelta {
-                    kind: TreeDeltaKind::WorkspaceClosed,
-                    workspace_revision: Some(revision),
+                    kind: TreeDeltaKind::ScreenClosed,
+                    workspace_revision: None,
                     ..
-                })) if revision == previous_revision + 1
+                }))
             ));
+            assert!(!events.try_iter().any(|event| matches!(event, MuxEvent::Empty)));
             surface.kill();
         }
     }
@@ -9833,7 +10118,9 @@ mod tests {
         {
             let mut state = mux.state.lock().unwrap();
             let preserved = current_focus_identity(&state);
-            assert!(move_tab_in_state(&mut state, moving.id, destination_pane, usize::MAX));
+            assert!(
+                move_tab_in_state(&mux, &mut state, moving.id, destination_pane, usize::MAX,).0
+            );
             restore_focus_identity(&mut state, preserved);
         }
         assert_eq!(mux.with_state(current_focus_identity), before);
@@ -9861,12 +10148,16 @@ mod tests {
         committed.sort_unstable();
         assert_eq!(committed, (1..=16).collect::<Vec<_>>());
 
-        let published = (1..=16)
-            .map(|_| match events.recv().unwrap() {
-                MuxEvent::TreeDelta(delta) => delta.workspace_revision.unwrap(),
+        let mut published = Vec::new();
+        while published.len() < 16 {
+            match events.recv().unwrap() {
+                MuxEvent::TreeDelta(delta) => {
+                    published.push(delta.workspace_revision.unwrap());
+                }
+                MuxEvent::TreeSelectionChanged => {}
                 event => panic!("unexpected event: {event:?}"),
-            })
-            .collect::<Vec<_>>();
+            }
+        }
         assert_eq!(published, (1..=16).collect::<Vec<_>>());
         mux.with_state(|state| {
             assert_eq!(state.workspace_revision, 16);
@@ -9984,7 +10275,7 @@ mod tests {
     }
 
     #[test]
-    fn workspace_close_waits_for_targeted_terminal_commit() {
+    fn workspace_mutation_close_waits_for_targeted_terminal_commit_and_replays() {
         let mux = test_mux();
         let workspace = mux.create_empty_workspace(Some("target".into()), None, None).unwrap();
         let unrelated = mux.create_empty_workspace(Some("unrelated".into()), None, None).unwrap();
@@ -10017,11 +10308,19 @@ mod tests {
 
         let (close_started_tx, close_started_rx) = std::sync::mpsc::sync_channel(1);
         let (close_done_tx, close_done_rx) = std::sync::mpsc::sync_channel(1);
+        let close_mutation = WorkspaceMutation::new("close-target", "browser").unwrap();
         let close = std::thread::spawn({
             let mux = mux.clone();
+            let close_mutation = close_mutation.clone();
             move || {
                 close_started_tx.send(()).unwrap();
-                let result = mux.close_workspace_at_revision(workspace.workspace, Some(2));
+                let result = mux.close_workspace_with_mutation(
+                    Some(workspace.workspace),
+                    None,
+                    None,
+                    Some(2),
+                    &close_mutation,
+                );
                 close_done_tx.send(result).unwrap();
             }
         });
@@ -10034,11 +10333,93 @@ mod tests {
         release_tx.send(()).unwrap();
         let (surface, placement) = create.join().unwrap().unwrap();
         assert_eq!(placement.workspace, workspace.workspace);
-        assert_eq!(close_done_rx.recv().unwrap().unwrap(), Some(3));
+        let result = close_done_rx.recv().unwrap().unwrap();
+        assert_eq!(result.workspace, Some(workspace.workspace));
+        assert_eq!(result.revision, 3);
+        assert!(!result.replayed);
         close.join().unwrap();
+        let replay = mux
+            .close_workspace_with_mutation(
+                Some(workspace.workspace),
+                None,
+                None,
+                Some(2),
+                &close_mutation,
+            )
+            .unwrap();
+        assert_eq!(replay.revision, result.revision);
+        assert!(replay.replayed);
         *mux.terminal_create_after_workspace_reservation.lock().unwrap() = None;
         surface.kill();
         mux.shutdown();
+    }
+
+    #[test]
+    fn pane_and_screen_close_wait_for_targeted_terminal_commit() {
+        for close_screen in [false, true] {
+            let mux = test_mux();
+            let initial = mux.new_workspace(None, Some((80, 24))).unwrap();
+            let (workspace, pane, screen) = mux.with_state(|state| {
+                let pane = state.pane_of(initial.id).unwrap();
+                let (wi, si) = state.screen_of(pane).unwrap();
+                (state.workspaces[wi].id, pane, state.workspaces[wi].screens[si].id)
+            });
+            let (reserved_tx, reserved_rx) = std::sync::mpsc::sync_channel(1);
+            let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+            let release_rx = Arc::new(Mutex::new(release_rx));
+            *mux.terminal_create_after_workspace_reservation.lock().unwrap() = Some(Arc::new({
+                move || {
+                    reserved_tx.send(()).unwrap();
+                    release_rx.lock().unwrap().recv().unwrap();
+                }
+            }));
+
+            let create = std::thread::spawn({
+                let mux = mux.clone();
+                move || {
+                    mux.create_terminal_surface_in_workspace(
+                        workspace,
+                        None,
+                        None,
+                        None,
+                        Some((80, 24)),
+                    )
+                }
+            });
+            reserved_rx.recv().unwrap();
+
+            let (close_started_tx, close_started_rx) = std::sync::mpsc::sync_channel(1);
+            let (close_done_tx, close_done_rx) = std::sync::mpsc::sync_channel(1);
+            let close = std::thread::spawn({
+                let mux = mux.clone();
+                move || {
+                    close_started_tx.send(()).unwrap();
+                    let result =
+                        if close_screen { mux.close_screen(screen) } else { mux.close_pane(pane) };
+                    close_done_tx.send(result).unwrap();
+                }
+            });
+            close_started_rx.recv().unwrap();
+            for _ in 0..1_000 {
+                std::thread::yield_now();
+            }
+            assert!(matches!(close_done_rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)));
+
+            release_tx.send(()).unwrap();
+            let (created, placement) = create.join().unwrap().unwrap();
+            assert_eq!(placement.workspace, workspace);
+            assert!(close_done_rx.recv().unwrap().unwrap());
+            close.join().unwrap();
+            mux.with_state(|state| {
+                assert_eq!(state.workspaces.len(), 1);
+                assert_eq!(state.workspaces[0].id, workspace);
+                assert!(state.workspaces[0].screens.is_empty());
+            });
+            *mux.terminal_create_after_workspace_reservation.lock().unwrap() = None;
+            initial.kill();
+            created.kill();
+            mux.shutdown();
+        }
     }
 
     #[test]

@@ -422,7 +422,11 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     assert_eq!(state.palette_color(0), Rgb { r: 0x00, g: 0x11, b: 0x22 });
     let original_nine = state.palette_color(9);
     term.vt_write(b"\x9d4;9;#090909\x07");
-    assert!(!term.palette_overridden(9), "raw C1 is not dispatched by Ghostty's VT stream");
+    assert!(term.palette_overridden(9), "standalone C1 OSC is normalized before dispatch");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(9), Rgb { r: 9, g: 9, b: 9 });
+    term.vt_write(b"\x1b]104;9\x07");
+    assert!(!term.palette_overridden(9));
     term.vt_write(b"\xc2\x9d4;9;#090909\x07");
     assert!(!term.palette_overridden(9), "UTF-8 C1 is printable text, not an OSC opener");
     state.update(&mut term).unwrap();
@@ -461,8 +465,8 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
 
     term.vt_write(b"\x1b]4;21;#212121\x07");
     term.vt_write(b"\x1b]104;21\x9d4;22;#222222\x07");
-    assert!(term.palette_overridden(21), "Ghostty treats raw C1 as OSC payload in OSC state");
-    assert!(!term.palette_overridden(22), "raw C1 must not begin a nested OSC in OSC state");
+    assert!(!term.palette_overridden(21), "normalized C1 OSC commits the preceding reset");
+    assert!(term.palette_overridden(22), "normalized C1 OSC begins the following override");
     term.vt_write(b"\x1bPq\x9d4;22;#222222\x07");
     assert!(term.palette_overridden(22), "C1 OSC must leave DCS and begin an OSC");
     state.update(&mut term).unwrap();

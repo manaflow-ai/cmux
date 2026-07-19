@@ -1029,9 +1029,9 @@ impl Surface {
                                     if colors.is_some() {
                                         pty.broadcast_attach_frame(AttachFrame::OutputWithColors {
                                             output,
-                                            colors: Box::new(TerminalColors::from_terminal(
-                                                &mut term, defaults,
-                                            )),
+                                            colors: Box::new(
+                                                pty.terminal_colors_locked(&mut term, defaults),
+                                            ),
                                         });
                                     } else {
                                         pty.broadcast_attach_output(&output);
@@ -1134,9 +1134,9 @@ impl Surface {
                                         cols,
                                         rows,
                                         replay,
-                                        colors: Box::new(TerminalColors::from_terminal(
-                                            &mut term, defaults,
-                                        )),
+                                        colors: Box::new(
+                                            pty.terminal_colors_locked(&mut term, defaults),
+                                        ),
                                     });
                                     pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
                                 };
@@ -1324,9 +1324,7 @@ impl Surface {
                                 cols: replacement_snapshot.cols,
                                 rows: replacement_snapshot.rows,
                                 replay: replacement_snapshot.replay,
-                                colors: Box::new(TerminalColors::from_terminal(
-                                    &mut term, defaults,
-                                )),
+                                colors: Box::new(pty.terminal_colors_locked(&mut term, defaults)),
                             });
                             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
                         };
@@ -1427,6 +1425,9 @@ impl Surface {
             size: Mutex::new((cols, rows)),
             mux,
             taps: Mutex::new(Vec::new()),
+            attach_colors_pending: AtomicBool::new(false),
+            attach_colors_force_pending: AtomicBool::new(false),
+            last_attach_colors: Mutex::new(None),
             render: Mutex::new(RenderHub {
                 state: Box::new(render_state),
                 built_generation: 0,

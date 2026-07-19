@@ -648,7 +648,6 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
             "palette": {"4": "#112233"},
             "cursor_style": "bar",
             "cursor_blink": false,
-            "palette": {},
         })
     );
 
@@ -1017,7 +1016,7 @@ fn byte_attach_cursor_snapshot_does_not_fan_out_a_render_frame() {
     let _byte_attach = surface.attach_stream().unwrap();
 
     assert!(matches!(render.stream.try_recv(), Err(TryRecvError::Empty)));
-    mux.close_surface(surface.id);
+    mux.close_surface(surface.id).unwrap();
 }
 
 #[test]

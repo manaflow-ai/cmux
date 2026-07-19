@@ -1209,10 +1209,10 @@ impl Terminal {
         if self.mouse_mode_scan.feed(data) {
             self.mouse_mode_revision = self.mouse_mode_revision.wrapping_add(1);
         }
-        self.cursor_override.write(data);
-        self.palette_override.write(data);
-        self.color_overrides.write(data);
         let normalized = self.c1_normalizer.normalize(data);
+        self.cursor_override.write(&normalized);
+        self.palette_override.write(&normalized);
+        self.color_overrides.write(&normalized);
         unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) }
     }
 

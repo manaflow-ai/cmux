@@ -2793,16 +2793,7 @@ fn handle_command(
                 "generation": generation,
                 "workspace_revision": mux.with_state(|state| state.workspace_revision),
                 "terminal_revision": mux.terminal_registry_snapshot()?.revision,
-            });
-            if let Some(commit) =
-                option_env!("CMUX_TUI_BUILD_COMMIT").or(option_env!("CMUX_MUX_BUILD_COMMIT"))
-            {
-                identity["build_commit"] = json!(commit);
-            }
-            if let Some(commit) = option_env!("CMUX_TUI_GHOSTTY_COMMIT") {
-                identity["ghostty_commit"] = json!(commit);
-            }
-            Ok(identity)
+            }))
         }
         Command::Ping => Ok(json!({
             "ok": true,
@@ -3419,6 +3410,7 @@ fn handle_command(
                 (None, None) => None,
                 _ => anyhow::bail!("argv or command must be non-empty when provided"),
             };
+            let size = paired_surface_size("create-terminal", cols, rows)?;
             let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
             let (registry_id, generation) = mux.registry_identity();
             if terminal_id.is_some() || mutation.mutation_id.is_some() {
@@ -3428,7 +3420,7 @@ fn handle_command(
                     argv,
                     cwd,
                     name,
-                    optional_surface_size(cols, rows),
+                    size,
                     terminal_id.as_deref(),
                     mutation.expected_generation.as_deref(),
                     mutation.expected_revision,
@@ -3450,13 +3442,8 @@ fn handle_command(
                     "generation": generation,
                 }))
             } else {
-                let placement = mux.create_terminal_in_workspace(
-                    workspace,
-                    argv,
-                    cwd,
-                    name,
-                    optional_surface_size(cols, rows),
-                )?;
+                let placement =
+                    mux.create_terminal_in_workspace(workspace, argv, cwd, name, size)?;
                 let identity = mux
                     .surface(placement.surface)
                     .and_then(|surface| surface.terminal_host_identity());
@@ -4867,6 +4854,8 @@ mod tests {
                     name: None,
                     cols,
                     rows,
+                    terminal_id: None,
+                    mutation: MutationRequest::default(),
                 },
                 &test_writer(),
             )
@@ -5798,19 +5787,19 @@ mod tests {
             Command::CloseWorkspace {
                 workspace: None,
                 key: Some("stable-key".into()),
-                expected_revision: Some(1),
+                mutation: MutationRequest { expected_revision: Some(1), ..Default::default() },
             },
             Command::RenameWorkspace {
                 workspace: None,
                 key: Some("stable-key".into()),
                 name: "renamed".into(),
-                expected_revision: Some(1),
+                mutation: MutationRequest { expected_revision: Some(1), ..Default::default() },
             },
             Command::MoveWorkspace {
                 workspace: None,
                 key: Some("stable-key".into()),
                 index: 0,
-                expected_revision: Some(1),
+                mutation: MutationRequest { expected_revision: Some(1), ..Default::default() },
             },
         ] {
             let error = handle_command(&mux, client, command, &writer).unwrap_err();

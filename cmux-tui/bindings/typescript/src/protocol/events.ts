@@ -185,8 +185,6 @@ export interface TerminalColors {
   cursor: ColorHex | null;
   selection_bg: ColorHex | null;
   selection_fg: ColorHex | null;
-  /** Protocol v7 sparse OSC 4 overrides keyed by palette index. Older servers omit this field. */
-  palette?: Record<string, ColorHex>;
   /** Protocol v6 additive extension. Older servers omit this field. */
   cursor_style?: "block" | "underline" | "bar" | null;
   /** Protocol v6 additive extension. Older servers omit this field. */

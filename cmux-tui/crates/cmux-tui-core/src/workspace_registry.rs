@@ -18,6 +18,7 @@ use crate::platform;
 
 const SCHEMA_VERSION: i64 = 2;
 const MAX_ID_LEN: usize = 128;
+const MAX_WORKSPACE_KEY_LEN: usize = 256;
 const MAX_PROJECTION_BYTES: usize = 1024 * 1024;
 const MAX_LAUNCH_SPEC_BYTES: usize = 1024 * 1024;
 
@@ -870,7 +871,7 @@ impl WorkspaceRegistry {
             });
         }
 
-        validate_identifier("workspace key", workspace_key)?;
+        validate_workspace_key(workspace_key)?;
         validate_registry(workspaces)?;
         if let Some(expected) = expected_generation
             && expected != self.generation
@@ -1316,7 +1317,7 @@ fn tombstone_terminals_in_removed_workspaces(
 fn validate_registry(workspaces: &[RegistryWorkspace]) -> anyhow::Result<()> {
     let mut keys = std::collections::HashSet::new();
     for workspace in workspaces {
-        validate_identifier("workspace key", &workspace.key)?;
+        validate_workspace_key(&workspace.key)?;
         validate_identifier("workspace group key", &workspace.group_key)?;
         if workspace.id == 0 {
             anyhow::bail!("workspace id cannot be zero");
@@ -1330,7 +1331,7 @@ fn validate_registry(workspaces: &[RegistryWorkspace]) -> anyhow::Result<()> {
 
 fn validate_terminal(terminal: &RegistryTerminal) -> anyhow::Result<()> {
     validate_terminal_identity("terminal id", &terminal.terminal_id)?;
-    validate_identifier("workspace key", &terminal.workspace_key)?;
+    validate_workspace_key(&terminal.workspace_key)?;
     if let Some(incarnation) = &terminal.incarnation {
         validate_terminal_identity("terminal incarnation", incarnation)?;
     }
@@ -1499,6 +1500,19 @@ fn validate_identifier(label: &str, value: &str) -> anyhow::Result<()> {
     }
     if value.chars().any(char::is_control) {
         anyhow::bail!("{label} contains a control character");
+    }
+    Ok(())
+}
+
+fn validate_workspace_key(value: &str) -> anyhow::Result<()> {
+    if value.trim().is_empty() {
+        anyhow::bail!("workspace key cannot be empty");
+    }
+    if value.len() > MAX_WORKSPACE_KEY_LEN {
+        anyhow::bail!("workspace key exceeds {MAX_WORKSPACE_KEY_LEN} bytes");
+    }
+    if value.chars().any(char::is_control) {
+        anyhow::bail!("workspace key contains a control character");
     }
     Ok(())
 }
