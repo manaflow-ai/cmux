@@ -2178,49 +2178,7 @@ impl Mux {
         };
         let Some(target) = target else {
             if let Some(workspace) = empty_workspace {
-                let surface = self.spawn_browser_surface(url, size);
-                let (pane_id, pane) = self.make_pane(surface.id);
-                let screen_id = self.next_id();
-                let notifications = self.surface_notifications();
-                let delta = {
-                    let mut state = self.state.lock().unwrap();
-                    let wi = state.workspace_index(workspace);
-                    let Some(wi) = wi.filter(|wi| state.workspaces[*wi].screens.is_empty()) else {
-                        state.surfaces.remove(&surface.id);
-                        drop(state);
-                        surface.kill();
-                        anyhow::bail!("workspace changed while creating browser tab");
-                    };
-                    state.panes.insert(pane_id, pane);
-                    state.workspaces[wi].screens.push(Screen {
-                        id: screen_id,
-                        name: None,
-                        root: Node::Leaf(pane_id),
-                        active_pane: pane_id,
-                        zoomed_pane: None,
-                    });
-                    state.workspaces[wi].active_screen = 0;
-                    let entity = crate::server::tree_entity_json(
-                        &state,
-                        &notifications,
-                        TreeDeltaKind::ScreenAdded,
-                        screen_id,
-                    )
-                    .expect("first browser screen is present in tree snapshot");
-                    TreeDelta {
-                        kind: TreeDeltaKind::ScreenAdded,
-                        workspace,
-                        screen: Some(screen_id),
-                        pane: None,
-                        surface: None,
-                        index: Some(0),
-                        entity,
-                        workspace_revision: None,
-                    }
-                };
-                self.emit(MuxEvent::TreeDelta(delta));
-                self.reap_if_dead(&surface);
-                return Ok(surface);
+                return self.create_browser_surface_in_workspace(workspace, url, size);
             }
             let workspace_key = Self::new_workspace_key()?;
             let surface = self.spawn_browser_surface(url, size);
@@ -2314,6 +2272,92 @@ impl Mux {
         let Some(delta) = attached else {
             surface.kill();
             anyhow::bail!("pane disappeared while creating browser tab");
+        };
+        self.emit(MuxEvent::TreeDelta(delta));
+        self.reap_if_dead(&surface);
+        Ok(surface)
+    }
+
+    fn create_browser_surface_in_workspace(
+        self: &Arc<Self>,
+        workspace: WorkspaceId,
+        url: String,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let surface = self.spawn_browser_surface(url, size);
+        let notifications = self.surface_notifications();
+        let active_at = self.next_active_at();
+        let delta = {
+            let mut state = self.state.lock().unwrap();
+            let Some(wi) = state.workspace_index(workspace) else {
+                state.surfaces.remove(&surface.id);
+                surface.kill();
+                anyhow::bail!("workspace disappeared while creating browser tab");
+            };
+            let target = state.workspaces[wi].active_screen_ref().map(|screen| screen.active_pane);
+            if let Some(target) = target {
+                let Some((_, si)) = state.screen_of(target) else {
+                    state.surfaces.remove(&surface.id);
+                    surface.kill();
+                    anyhow::bail!("workspace active pane disappeared while creating browser tab");
+                };
+                let Some(pane) = state.panes.get_mut(&target) else {
+                    state.surfaces.remove(&surface.id);
+                    surface.kill();
+                    anyhow::bail!("workspace active pane disappeared while creating browser tab");
+                };
+                pane.tabs.push(surface.id);
+                pane.active_tab = pane.tabs.len() - 1;
+                pane.active_at = active_at;
+                let index = pane.tabs.len() - 1;
+                let screen = state.workspaces[wi].screens[si].id;
+                let entity = crate::server::tree_entity_json(
+                    &state,
+                    &notifications,
+                    TreeDeltaKind::TabAdded,
+                    surface.id,
+                )
+                .expect("new browser tab is present in tree snapshot");
+                TreeDelta {
+                    kind: TreeDeltaKind::TabAdded,
+                    workspace,
+                    screen: Some(screen),
+                    pane: Some(target),
+                    surface: Some(surface.id),
+                    index: Some(index),
+                    entity,
+                    workspace_revision: None,
+                }
+            } else {
+                let (pane_id, pane) = self.make_pane(surface.id);
+                let screen_id = self.next_id();
+                state.panes.insert(pane_id, pane);
+                state.workspaces[wi].screens.push(Screen {
+                    id: screen_id,
+                    name: None,
+                    root: Node::Leaf(pane_id),
+                    active_pane: pane_id,
+                    zoomed_pane: None,
+                });
+                state.workspaces[wi].active_screen = 0;
+                let entity = crate::server::tree_entity_json(
+                    &state,
+                    &notifications,
+                    TreeDeltaKind::ScreenAdded,
+                    screen_id,
+                )
+                .expect("first browser screen is present in tree snapshot");
+                TreeDelta {
+                    kind: TreeDeltaKind::ScreenAdded,
+                    workspace,
+                    screen: Some(screen_id),
+                    pane: None,
+                    surface: None,
+                    index: Some(0),
+                    entity,
+                    workspace_revision: None,
+                }
+            }
         };
         self.emit(MuxEvent::TreeDelta(delta));
         self.reap_if_dead(&surface);
@@ -5209,11 +5253,7 @@ mod tests {
             let barrier = barrier.clone();
             threads.push(std::thread::spawn(move || {
                 barrier.wait();
-                mux.new_browser_tab(
-                    format!("about:blank#{index}"),
-                    None,
-                    Some((80, 24)),
-                )
+                mux.new_browser_tab(format!("about:blank#{index}"), None, Some((80, 24)))
             }));
         }
         barrier.wait();
@@ -5249,13 +5289,7 @@ mod tests {
             let barrier = barrier.clone();
             std::thread::spawn(move || {
                 barrier.wait();
-                mux.create_terminal_in_workspace(
-                    target.workspace,
-                    None,
-                    None,
-                    None,
-                    Some((80, 24)),
-                )
+                mux.create_terminal_in_workspace(target.workspace, None, None, None, Some((80, 24)))
             })
         };
         barrier.wait();

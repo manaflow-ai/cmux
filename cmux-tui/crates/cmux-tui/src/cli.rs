@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
@@ -562,7 +562,7 @@ fn run_command(args: CliArgs) -> i32 {
         }
     };
     let socket_path = resolve_socket(&args.global);
-    let mut stream = match transport::connect(&socket_path) {
+    let stream = match transport::connect(&socket_path) {
         Ok(stream) => stream,
         Err(err) => {
             eprintln!("cannot connect to session socket {}: {err}", socket_path.display());
@@ -612,12 +612,24 @@ fn server_supports_capability(
 ) -> Result<bool, String> {
     write_json_line(reader.get_mut(), &json!({"id": CAPABILITY_REQUEST_ID, "cmd": "identify"}))
         .map_err(|err| format!("transport error: {err}"))?;
+    let deadline = Instant::now() + Duration::from_secs(10);
 
     loop {
         let mut line = String::new();
         match reader.read_line(&mut line) {
             Ok(0) => return Err("transport closed before identify response".to_string()),
             Ok(_) => {}
+            Err(err)
+                if matches!(err.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut)
+                    && Instant::now() < deadline =>
+            {
+                continue;
+            }
+            Err(err)
+                if matches!(err.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) =>
+            {
+                return Err("timed out waiting for identify response".to_string());
+            }
             Err(err) => return Err(format!("transport error: {err}")),
         }
         let value: Value =
@@ -1642,7 +1654,7 @@ mod tests {
             reads: VecDeque::from([
                 Err(io::ErrorKind::WouldBlock),
                 Err(io::ErrorKind::TimedOut),
-                Ok(br#"{"id":0,"ok":true,"data":{"capabilities":["attach-initial-size"]}}\n"#
+                Ok(b"{\"id\":0,\"ok\":true,\"data\":{\"capabilities\":[\"attach-initial-size\"]}}\n"
                     .to_vec()),
             ]),
             current: io::Cursor::new(Vec::new()),
