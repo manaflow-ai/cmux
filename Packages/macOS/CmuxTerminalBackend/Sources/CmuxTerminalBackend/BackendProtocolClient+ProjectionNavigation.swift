@@ -450,7 +450,7 @@ private extension BackendProjectionNavigationConflict {
         case .clientSchemaPromoted(let requiredCapability):
             return requiredCapability == "projection-navigation-v2"
         case .limitExceeded(_, let maximum, let attempted):
-            return maximum > 0 && attempted > 0
+            return attempted > maximum
         case .duplicateTarget(_, let entityID):
             return !entityID.isNil
         case .invalidSelection(_, let reason):
