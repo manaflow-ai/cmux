@@ -5,7 +5,7 @@
 //! browser-aware frontends should branch on [`SurfaceKind`] before using
 //! VT operations.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::mem::size_of;
 use std::ops::Deref;
@@ -674,6 +674,27 @@ pub enum Surface {
     Browser(BrowserSurface),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TerminalAccessibilityDemandReceipt {
+    pub(crate) request_id: uuid::Uuid,
+    pub(crate) presentation_id: crate::PresentationId,
+    pub(crate) presentation_generation: u64,
+    pub(crate) demand_generation: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TerminalAccessibilityDemand {
+    request_id: uuid::Uuid,
+    presentation_generation: u64,
+    demand_generation: u64,
+}
+
+#[derive(Default)]
+struct TerminalAccessibilityDemandRegistry {
+    last_generation: u64,
+    by_presentation: HashMap<crate::PresentationId, TerminalAccessibilityDemand>,
+}
+
 impl Deref for Surface {
     type Target = SurfaceMeta;
 
@@ -744,9 +765,10 @@ pub struct PtySurface {
     interaction_mode_revision: AtomicU64,
     interaction_mode_revision_exhausted: AtomicBool,
     published_mouse_tracking: AtomicBool,
-    /// AX reads are opt-in. Once requested for a rendered terminal, retain a
-    /// short exact-sequence history until the semantic renderer detaches.
-    accessibility_demanded: AtomicBool,
+    /// AX reads are opt-in and generation-fenced per rendered presentation.
+    /// The registry survives ambiguous acquire retries but is cleared when
+    /// the presentation detaches or its owning connection disappears.
+    accessibility_demands: Mutex<TerminalAccessibilityDemandRegistry>,
     accessibility_frames: Mutex<VecDeque<TerminalAccessibilitySnapshot>>,
     frame_requests: SyncSender<u64>,
 }
@@ -1164,7 +1186,7 @@ impl Surface {
             interaction_mode_revision: AtomicU64::new(1),
             interaction_mode_revision_exhausted: AtomicBool::new(false),
             published_mouse_tracking: AtomicBool::new(false),
-            accessibility_demanded: AtomicBool::new(false),
+            accessibility_demands: Mutex::new(TerminalAccessibilityDemandRegistry::default()),
             accessibility_frames: Mutex::new(VecDeque::new()),
             frame_requests,
         }));
@@ -1338,7 +1360,7 @@ impl Surface {
             interaction_mode_revision: AtomicU64::new(1),
             interaction_mode_revision_exhausted: AtomicBool::new(false),
             published_mouse_tracking: AtomicBool::new(false),
-            accessibility_demanded: AtomicBool::new(false),
+            accessibility_demands: Mutex::new(TerminalAccessibilityDemandRegistry::default()),
             accessibility_frames: Mutex::new(VecDeque::new()),
             frame_requests,
         }));
@@ -1448,7 +1470,7 @@ impl Surface {
             interaction_mode_revision: AtomicU64::new(1),
             interaction_mode_revision_exhausted: AtomicBool::new(false),
             published_mouse_tracking: AtomicBool::new(false),
-            accessibility_demanded: AtomicBool::new(false),
+            accessibility_demands: Mutex::new(TerminalAccessibilityDemandRegistry::default()),
             accessibility_frames: Mutex::new(VecDeque::new()),
             frame_requests,
         }));
@@ -2062,6 +2084,122 @@ impl Surface {
         Ok(terminal_interaction_snapshot_locked(pty, &mut term, &interaction)?)
     }
 
+    pub(crate) fn acquire_terminal_accessibility_demand(
+        &self,
+        request_id: uuid::Uuid,
+        presentation_id: crate::PresentationId,
+        presentation_generation: u64,
+        expected_demand_generation: Option<u64>,
+    ) -> anyhow::Result<TerminalAccessibilityDemandReceipt> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have terminal accessibility state");
+        };
+        if request_id.is_nil() {
+            anyhow::bail!("terminal accessibility demand request must be a non-nil UUID");
+        }
+        if presentation_generation == 0 {
+            anyhow::bail!("terminal accessibility presentation generation must be nonzero");
+        }
+
+        let mut registry = pty.accessibility_demands.lock().unwrap();
+        if let Some(existing) = registry.by_presentation.get(&presentation_id).copied()
+            && existing.request_id == request_id
+        {
+            if existing.presentation_generation != presentation_generation {
+                anyhow::bail!(
+                    "terminal accessibility demand request identity reused for a different presentation generation"
+                );
+            }
+            return Ok(TerminalAccessibilityDemandReceipt {
+                request_id,
+                presentation_id,
+                presentation_generation,
+                demand_generation: existing.demand_generation,
+            });
+        }
+        if registry.by_presentation.iter().any(|(other_presentation_id, demand)| {
+            *other_presentation_id != presentation_id && demand.request_id == request_id
+        }) {
+            anyhow::bail!(
+                "terminal accessibility demand request identity reused for another presentation"
+            );
+        }
+        let current_generation =
+            registry.by_presentation.get(&presentation_id).map(|demand| demand.demand_generation);
+        if expected_demand_generation != current_generation {
+            anyhow::bail!(
+                "stale terminal accessibility demand generation {expected_demand_generation:?}; current generation is {current_generation:?}"
+            );
+        }
+        let generation = registry
+            .last_generation
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("terminal accessibility demand generation exhausted"))?;
+        registry.last_generation = generation;
+        registry.by_presentation.insert(
+            presentation_id,
+            TerminalAccessibilityDemand {
+                request_id,
+                presentation_generation,
+                demand_generation: generation,
+            },
+        );
+        Ok(TerminalAccessibilityDemandReceipt {
+            request_id,
+            presentation_id,
+            presentation_generation,
+            demand_generation: generation,
+        })
+    }
+
+    pub(crate) fn release_terminal_accessibility_demand(
+        &self,
+        presentation_id: crate::PresentationId,
+        presentation_generation: u64,
+        demand_generation: u64,
+    ) -> bool {
+        let Some(pty) = self.as_pty() else { return false };
+        let mut registry = pty.accessibility_demands.lock().unwrap();
+        let matches = registry.by_presentation.get(&presentation_id).is_some_and(|demand| {
+            demand.presentation_generation == presentation_generation
+                && demand.demand_generation == demand_generation
+        });
+        if !matches {
+            return false;
+        }
+        registry.by_presentation.remove(&presentation_id);
+        pty.clear_accessibility_frames_if_undemanded_locked(&registry);
+        true
+    }
+
+    /// Presentation teardown is already fenced by the registry owner. Drop
+    /// any demand regardless of which acquire generation was last observed by
+    /// a frontend that may have died before sending its release.
+    pub(crate) fn drop_terminal_accessibility_demand(
+        &self,
+        presentation_id: crate::PresentationId,
+    ) -> bool {
+        let Some(pty) = self.as_pty() else { return false };
+        let mut registry = pty.accessibility_demands.lock().unwrap();
+        let removed = registry.by_presentation.remove(&presentation_id).is_some();
+        if removed {
+            pty.clear_accessibility_frames_if_undemanded_locked(&registry);
+        }
+        removed
+    }
+
+    #[cfg(test)]
+    pub(crate) fn accessibility_demand_count_for_test(&self) -> usize {
+        self.as_pty()
+            .map(|pty| pty.accessibility_demands.lock().unwrap().by_presentation.len())
+            .unwrap_or(0)
+    }
+
+    #[cfg(test)]
+    fn set_accessibility_demand_generation_for_test(&self, generation: u64) {
+        self.as_pty().unwrap().accessibility_demands.lock().unwrap().last_generation = generation;
+    }
+
     pub(crate) fn terminal_accessibility_snapshot(
         &self,
         presentation_id: crate::PresentationId,
@@ -2094,7 +2232,6 @@ impl Surface {
             anyhow::bail!("browser surface does not have terminal accessibility state");
         };
         let mut terminal = pty.term.lock().unwrap();
-        pty.accessibility_demanded.store(true, Ordering::Release);
         let render_revision = pty.render_generation.load(Ordering::Acquire);
         if expected_content_sequence == 0 {
             anyhow::bail!("terminal accessibility content sequence must be nonzero");
@@ -3320,6 +3457,15 @@ fn terminal_interaction_snapshot_locked(
 }
 
 impl PtySurface {
+    fn clear_accessibility_frames_if_undemanded_locked(
+        &self,
+        registry: &TerminalAccessibilityDemandRegistry,
+    ) {
+        if registry.by_presentation.is_empty() {
+            self.accessibility_frames.lock().unwrap().clear();
+        }
+    }
+
     fn publish_interaction_mode_if_changed_locked(&self, term: &Terminal) {
         let mouse_tracking = term.mouse_tracking();
         if self.published_mouse_tracking.load(Ordering::Relaxed) == mouse_tracking {
@@ -3547,8 +3693,6 @@ impl PtySurface {
     ) -> ghostty_vt::Result<bool> {
         let semantic_attachment_count = self.semantic_attachment_count.load(Ordering::Acquire);
         let semantic_work = if semantic_attachment_count == 0 {
-            self.accessibility_demanded.store(false, Ordering::Release);
-            self.accessibility_frames.lock().unwrap().clear();
             false
         } else {
             let mut scenes = self.semantic_scenes.lock().unwrap();
@@ -3556,7 +3700,8 @@ impl PtySurface {
             self.semantic_attachment_count.store(scenes.attachment_count(), Ordering::Release);
             worked
         };
-        if semantic_attachment_count > 0 && self.accessibility_demanded.load(Ordering::Acquire) {
+        let accessibility_demands = self.accessibility_demands.lock().unwrap();
+        if semantic_attachment_count > 0 && !accessibility_demands.by_presentation.is_empty() {
             let focus_revision = self.accessibility_focus_revision.load(Ordering::Acquire);
             let identity = TerminalAccessibilityIdentity {
                 surface_uuid: self.meta.uuid,
@@ -3572,6 +3717,7 @@ impl PtySurface {
                 self.cache_accessibility_frame(snapshot);
             }
         }
+        drop(accessibility_demands);
         let built = {
             let mut render = self.render.lock().unwrap();
             if (producer_driven && render.taps.is_empty()) || render.built_generation >= generation
@@ -4643,10 +4789,10 @@ mod tests {
         let first_request = uuid::Uuid::new_v4();
 
         let first = surface
-            .acquire_terminal_accessibility_demand(first_request, presentation_id, 7)
+            .acquire_terminal_accessibility_demand(first_request, presentation_id, 7, None)
             .unwrap();
         let replay = surface
-            .acquire_terminal_accessibility_demand(first_request, presentation_id, 7)
+            .acquire_terminal_accessibility_demand(first_request, presentation_id, 7, None)
             .unwrap();
         assert_eq!(replay, first);
         assert_eq!(surface.accessibility_demand_count_for_test(), 1);
@@ -4656,9 +4802,17 @@ mod tests {
                 uuid::Uuid::new_v4(),
                 presentation_id,
                 7,
+                Some(first.demand_generation),
             )
             .unwrap();
         assert!(replacement.demand_generation > first.demand_generation);
+        assert!(
+            surface
+                .acquire_terminal_accessibility_demand(first_request, presentation_id, 7, None,)
+                .unwrap_err()
+                .to_string()
+                .contains("stale terminal accessibility demand generation")
+        );
         assert!(!surface.release_terminal_accessibility_demand(
             presentation_id,
             7,
@@ -4685,6 +4839,7 @@ mod tests {
                 uuid::Uuid::new_v4(),
                 first_presentation,
                 3,
+                None,
             )
             .unwrap();
         let second = surface
@@ -4692,6 +4847,7 @@ mod tests {
                 uuid::Uuid::new_v4(),
                 second_presentation,
                 5,
+                None,
             )
             .unwrap();
 
@@ -4728,11 +4884,11 @@ mod tests {
         let presentation_id = crate::PresentationId::new();
         let request_id = uuid::Uuid::new_v4();
         surface
-            .acquire_terminal_accessibility_demand(request_id, presentation_id, 1)
+            .acquire_terminal_accessibility_demand(request_id, presentation_id, 1, None)
             .unwrap();
         assert!(
             surface
-                .acquire_terminal_accessibility_demand(request_id, presentation_id, 2)
+                .acquire_terminal_accessibility_demand(request_id, presentation_id, 2, None)
                 .unwrap_err()
                 .to_string()
                 .contains("request identity reused")
@@ -4745,6 +4901,7 @@ mod tests {
                     uuid::Uuid::new_v4(),
                     presentation_id,
                     1,
+                    Some(1),
                 )
                 .unwrap_err()
                 .to_string()
@@ -4777,6 +4934,9 @@ mod tests {
         let presentation_id = crate::PresentationId::new();
 
         // Enable bounded AX capture, then build the frame that a renderer can display.
+        surface
+            .acquire_terminal_accessibility_demand(uuid::Uuid::new_v4(), presentation_id, 7, None)
+            .unwrap();
         let initial = pty.render_generation.load(Ordering::Acquire);
         surface.terminal_accessibility_snapshot_at(presentation_id, 7, true, initial).unwrap();
         pty.semantic_attachment_count.store(1, Ordering::Release);

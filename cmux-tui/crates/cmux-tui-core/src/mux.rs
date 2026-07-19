@@ -5606,6 +5606,9 @@ impl Mux {
         removal_timeout: Duration,
     ) -> anyhow::Result<()> {
         let runtime = self.renderer_presentations.lock().unwrap().remove(&presentation_id);
+        if let Some(runtime) = runtime.as_ref() {
+            runtime.surface.drop_terminal_accessibility_demand(presentation_id);
+        }
         let supervisor = self.renderer_supervisor.lock().unwrap().clone();
         let retirement = runtime.as_ref().map_or(Ok(()), |runtime| {
             self.retire_renderer_runtime_for_close(runtime, supervisor.as_deref(), removal_timeout)
@@ -6139,6 +6142,122 @@ impl Mux {
         )
     }
 
+    pub(crate) fn acquire_terminal_accessibility_demand(
+        &self,
+        client: u64,
+        request_id: uuid::Uuid,
+        presentation_id: crate::PresentationId,
+        expected_generation: u64,
+        expected_demand_generation: Option<u64>,
+    ) -> anyhow::Result<crate::surface::TerminalAccessibilityDemandReceipt> {
+        let presentation = self.presentations.get_for_client(client, presentation_id)?;
+        if presentation.generation != expected_generation {
+            anyhow::bail!(
+                "stale presentation generation {expected_generation}; current generation is {}",
+                presentation.generation
+            );
+        }
+        let surface_uuid = presentation
+            .view
+            .surface_uuid
+            .ok_or_else(|| anyhow::anyhow!("accessibility presentation requires a terminal"))?;
+        let surface = self.with_state(|state| {
+            let surface_id = state
+                .surface_id_by_uuid(surface_uuid)
+                .ok_or_else(|| anyhow::anyhow!("unknown terminal {surface_uuid}"))?;
+            state
+                .surfaces
+                .get(&surface_id)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("unknown terminal {surface_uuid}"))
+        })?;
+        if surface.kind() != crate::SurfaceKind::Pty {
+            anyhow::bail!("accessibility presentation requires a terminal");
+        }
+        surface.acquire_terminal_accessibility_demand(
+            request_id,
+            presentation_id,
+            presentation.generation,
+            expected_demand_generation,
+        )
+    }
+
+    pub(crate) fn release_terminal_accessibility_demand(
+        &self,
+        client: u64,
+        presentation_id: crate::PresentationId,
+        expected_generation: u64,
+        demand_generation: u64,
+    ) -> anyhow::Result<bool> {
+        let presentation = self.presentations.get_for_client(client, presentation_id)?;
+        if presentation.generation != expected_generation {
+            anyhow::bail!(
+                "stale presentation generation {expected_generation}; current generation is {}",
+                presentation.generation
+            );
+        }
+        let surface_uuid = presentation
+            .view
+            .surface_uuid
+            .ok_or_else(|| anyhow::anyhow!("accessibility presentation requires a terminal"))?;
+        let surface = self.with_state(|state| {
+            let surface_id = state
+                .surface_id_by_uuid(surface_uuid)
+                .ok_or_else(|| anyhow::anyhow!("unknown terminal {surface_uuid}"))?;
+            state
+                .surfaces
+                .get(&surface_id)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("unknown terminal {surface_uuid}"))
+        })?;
+        if surface.kind() != crate::SurfaceKind::Pty {
+            anyhow::bail!("accessibility presentation requires a terminal");
+        }
+        Ok(surface.release_terminal_accessibility_demand(
+            presentation_id,
+            presentation.generation,
+            demand_generation,
+        ))
+    }
+
+    pub(crate) fn drop_terminal_accessibility_demand(
+        &self,
+        client: u64,
+        presentation_id: crate::PresentationId,
+        expected_generation: u64,
+    ) -> anyhow::Result<bool> {
+        let presentation = self.presentations.get_for_client(client, presentation_id)?;
+        if presentation.generation != expected_generation {
+            anyhow::bail!(
+                "stale presentation generation {expected_generation}; current generation is {}",
+                presentation.generation
+            );
+        }
+        let Some(surface_uuid) = presentation.view.surface_uuid else { return Ok(false) };
+        let surface = self.with_state(|state| {
+            state
+                .surface_id_by_uuid(surface_uuid)
+                .and_then(|surface_id| state.surfaces.get(&surface_id).cloned())
+        });
+        Ok(surface
+            .is_some_and(|surface| surface.drop_terminal_accessibility_demand(presentation_id)))
+    }
+
+    pub(crate) fn drop_terminal_accessibility_demands_for_client(&self, client: u64) {
+        let presentations = self.presentations.list_for_client(client);
+        for presentation in presentations {
+            if let Some(surface_uuid) = presentation.view.surface_uuid
+                && let Some(surface) = self.with_state(|state| {
+                    state
+                        .surface_id_by_uuid(surface_uuid)
+                        .and_then(|surface_id| state.surfaces.get(&surface_id).cloned())
+                })
+            {
+                surface.drop_terminal_accessibility_demand(presentation.presentation_id);
+            }
+        }
+    }
+
     pub(crate) fn activate_terminal_accessibility_link(
         &self,
         client: u64,
@@ -6316,6 +6435,7 @@ impl Mux {
                 presentation.generation
             );
         }
+        self.drop_terminal_accessibility_demand(client, presentation_id, expected_generation)?;
         let runtime = self.renderer_presentations.lock().unwrap().get(&presentation_id).cloned();
         let Some(runtime) = runtime else { return Ok(()) };
         if runtime.client != client {

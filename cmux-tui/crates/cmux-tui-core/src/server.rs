@@ -474,6 +474,18 @@ enum Command {
         #[serde(default)]
         caret_utf16: u32,
     },
+    AcquireTerminalAccessibilityDemand {
+        request_id: uuid::Uuid,
+        presentation_id: PresentationId,
+        expected_generation: u64,
+        #[serde(default)]
+        expected_demand_generation: Option<u64>,
+    },
+    ReleaseTerminalAccessibilityDemand {
+        presentation_id: PresentationId,
+        expected_generation: u64,
+        demand_generation: u64,
+    },
     TerminalAccessibilitySnapshot {
         presentation_id: PresentationId,
         expected_generation: u64,
@@ -1915,6 +1927,8 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             | "activate-renderer-presentation"
             | "detach-renderer-presentation"
             | "terminal-preedit"
+            | "acquire-terminal-accessibility-demand"
+            | "release-terminal-accessibility-demand"
             | "terminal-accessibility-snapshot"
             | "terminal-accessibility-activate-link"
             | "terminal-link-at-cell"
@@ -1990,6 +2004,8 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             | "list-projection-navigation-v2"
             | "mutate-projection-navigation-v2"
             | "release-projection-navigation-v2"
+            | "acquire-terminal-accessibility-demand"
+            | "release-terminal-accessibility-demand"
             | "terminal-accessibility-snapshot"
             | "terminal-accessibility-activate-link"
             | "terminal-link-at-cell"
@@ -3801,6 +3817,7 @@ fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
     let projection_cleanup = mux.release_projection_navigation_connection(record.connection_id);
     debug_assert!(projection_cleanup.is_ok(), "projection disconnect cleanup failed");
     mux.release_private_runtime_connection(client);
+    mux.drop_terminal_accessibility_demands_for_client(client);
     let presentations = mux.presentations.remove_client(client);
     drop(client_lifecycle);
     for presentation_id in presentations {
@@ -5602,6 +5619,12 @@ fn handle_command(
                 if !mux.control_clients.contains(client) {
                     anyhow::bail!("unknown client {client}");
                 }
+                let presentation = mux.presentations.get_for_client(client, presentation_id)?;
+                mux.drop_terminal_accessibility_demand(
+                    client,
+                    presentation_id,
+                    presentation.generation,
+                )?;
                 mux.presentations.close(client, presentation_id)?;
                 mux.terminal_authority.revoke_presentation(presentation_id);
             }
@@ -6053,6 +6076,56 @@ fn handle_command(
             )?;
             mux.set_renderer_preedit(client, presentation_id, renderer_generation, preedit)?;
             Ok(json!({}))
+        }
+        Command::AcquireTerminalAccessibilityDemand {
+            request_id,
+            presentation_id,
+            expected_generation,
+            expected_demand_generation,
+        } => {
+            let _client_lifecycle = mux.control_clients.read_lifecycle();
+            if !mux.control_clients.has_permission(client, ConnectionPermission::Frontend) {
+                anyhow::bail!("terminal accessibility demand requires a trusted local connection");
+            }
+            let _ = mux.control_clients.protocol_identity(client, 9)?;
+            let receipt = mux.acquire_terminal_accessibility_demand(
+                client,
+                request_id,
+                presentation_id,
+                expected_generation,
+                expected_demand_generation,
+            )?;
+            Ok(json!({
+                "request_id": receipt.request_id,
+                "presentation_id": receipt.presentation_id,
+                "presentation_generation": receipt.presentation_generation,
+                "demand_generation": receipt.demand_generation,
+            }))
+        }
+        Command::ReleaseTerminalAccessibilityDemand {
+            presentation_id,
+            expected_generation,
+            demand_generation,
+        } => {
+            let _client_lifecycle = mux.control_clients.read_lifecycle();
+            if !mux.control_clients.has_permission(client, ConnectionPermission::Frontend) {
+                anyhow::bail!(
+                    "terminal accessibility demand release requires a trusted local connection"
+                );
+            }
+            let _ = mux.control_clients.protocol_identity(client, 9)?;
+            let released = mux.release_terminal_accessibility_demand(
+                client,
+                presentation_id,
+                expected_generation,
+                demand_generation,
+            )?;
+            Ok(json!({
+                "presentation_id": presentation_id,
+                "presentation_generation": expected_generation,
+                "demand_generation": demand_generation,
+                "released": released,
+            }))
         }
         Command::TerminalAccessibilitySnapshot {
             presentation_id,
@@ -9528,8 +9601,7 @@ mod tests {
     #[test]
     fn terminal_interaction_mode_subscription_requires_a_registered_v9_frontend() {
         let mux = test_mux();
-        let request =
-            json!({"id": 7, "cmd": "subscribe-terminal-interaction-modes"}).to_string();
+        let request = json!({"id": 7, "cmd": "subscribe-terminal-interaction-modes"}).to_string();
 
         let frontend_writer = test_writer();
         let (frontend, _) = register_v9_client(&mux, &frontend_writer);
@@ -11077,15 +11149,11 @@ mod tests {
         assert_eq!(renderer_lifecycle.id, Some(json!(8)));
         assert!(matches!(renderer_lifecycle.cmd, Command::SubscribeRendererLifecycle));
 
-        let interaction_modes: Request = serde_json::from_str(
-            r#"{"id":10,"cmd":"subscribe-terminal-interaction-modes"}"#,
-        )
-        .unwrap();
+        let interaction_modes: Request =
+            serde_json::from_str(r#"{"id":10,"cmd":"subscribe-terminal-interaction-modes"}"#)
+                .unwrap();
         assert_eq!(interaction_modes.id, Some(json!(10)));
-        assert!(matches!(
-            interaction_modes.cmd,
-            Command::SubscribeTerminalInteractionModes
-        ));
+        assert!(matches!(interaction_modes.cmd, Command::SubscribeTerminalInteractionModes));
 
         let presentation_id = PresentationId::new();
         let accessibility: Request = serde_json::from_value(json!({
@@ -11529,6 +11597,7 @@ mod tests {
                 request_id: decoded_request,
                 presentation_id: decoded_presentation,
                 expected_generation: 7,
+                expected_demand_generation: None,
             } if decoded_request == request_id && decoded_presentation == presentation_id
         ));
 
@@ -11567,6 +11636,7 @@ mod tests {
                 request_id,
                 presentation_id,
                 expected_generation: presentation_generation,
+                expected_demand_generation: None,
             },
             &writer,
         )
@@ -11578,11 +11648,13 @@ mod tests {
                 request_id,
                 presentation_id,
                 expected_generation: presentation_generation,
+                expected_demand_generation: None,
             },
             &writer,
         )
         .unwrap();
         assert_eq!(replay, first);
+        let first_generation = first["demand_generation"].as_u64().unwrap();
 
         let replacement = handle_command(
             &mux,
@@ -11591,11 +11663,11 @@ mod tests {
                 request_id: uuid::Uuid::new_v4(),
                 presentation_id,
                 expected_generation: presentation_generation,
+                expected_demand_generation: Some(first_generation),
             },
             &writer,
         )
         .unwrap();
-        let first_generation = first["demand_generation"].as_u64().unwrap();
         let replacement_generation = replacement["demand_generation"].as_u64().unwrap();
         assert!(replacement_generation > first_generation);
 
@@ -11641,6 +11713,7 @@ mod tests {
                 request_id: uuid::Uuid::new_v4(),
                 presentation_id,
                 expected_generation: presentation_generation,
+                expected_demand_generation: None,
             },
             &writer,
         )
@@ -13982,13 +14055,9 @@ mod tests {
         // `handle_message` sends this returned value only after
         // `handle_command` completes. Emit in that exact gap to prove the
         // receiver and output thread are already live before command success.
-        let response = handle_command(
-            &mux,
-            client,
-            Command::SubscribeTerminalInteractionModes,
-            &writer,
-        )
-        .unwrap();
+        let response =
+            handle_command(&mux, client, Command::SubscribeTerminalInteractionModes, &writer)
+                .unwrap();
         let surface_uuid = SurfaceUuid::new();
         mux.emit(MuxEvent::TerminalInteractionModeChanged {
             surface_uuid,
@@ -14031,13 +14100,9 @@ mod tests {
         let (writer, outbound) = test_writer_and_outbound();
         let (client, _) = register_v9_client(&mux, &writer);
 
-        let response = handle_command(
-            &mux,
-            client,
-            Command::SubscribeTerminalInteractionModes,
-            &writer,
-        )
-        .unwrap();
+        let response =
+            handle_command(&mux, client, Command::SubscribeTerminalInteractionModes, &writer)
+                .unwrap();
         assert_eq!(response["status"], "subscribed");
         assert_eq!(mux.control_clients.active_terminal_interaction_mode_streams(), 1);
 
@@ -14085,13 +14150,7 @@ mod tests {
         let mux = test_mux();
         let (writer, outbound) = test_writer_and_outbound();
         let (client, _) = register_v9_client(&mux, &writer);
-        handle_command(
-            &mux,
-            client,
-            Command::SubscribeTerminalInteractionModes,
-            &writer,
-        )
-        .unwrap();
+        handle_command(&mux, client, Command::SubscribeTerminalInteractionModes, &writer).unwrap();
 
         let surface_uuid = SurfaceUuid::new();
         mux.emit(MuxEvent::TerminalInteractionModeInvalidated {
@@ -14126,14 +14185,10 @@ mod tests {
         }
         assert_eq!(mux.control_clients.active_terminal_interaction_mode_streams(), 0);
 
-        let error = handle_command(
-            &mux,
-            client,
-            Command::SubscribeTerminalInteractionModes,
-            &writer,
-        )
-        .err()
-        .expect("fatal stream invalidation must require a replacement connection");
+        let error =
+            handle_command(&mux, client, Command::SubscribeTerminalInteractionModes, &writer)
+                .err()
+                .expect("fatal stream invalidation must require a replacement connection");
         assert!(error.to_string().contains("already has"));
         assert!(disconnect_client(&mux, client, false));
     }
@@ -14143,13 +14198,7 @@ mod tests {
         let mux = test_mux();
         let (writer, outbound) = test_writer_and_outbound();
         let (client, _) = register_v9_client(&mux, &writer);
-        handle_command(
-            &mux,
-            client,
-            Command::SubscribeTerminalInteractionModes,
-            &writer,
-        )
-        .unwrap();
+        handle_command(&mux, client, Command::SubscribeTerminalInteractionModes, &writer).unwrap();
 
         // Unique runtime keys cannot coalesce. Leave the outbound queue
         // undrained so the stream must terminate at its fixed transport cap.
@@ -14172,14 +14221,10 @@ mod tests {
         assert_eq!(terminal, json!({"event": "terminal-interaction-mode-overflow"}));
         assert!(outbound.try_pop().is_none());
 
-        let error = handle_command(
-            &mux,
-            client,
-            Command::SubscribeTerminalInteractionModes,
-            &writer,
-        )
-        .err()
-        .expect("overflowed stream must require a replacement connection");
+        let error =
+            handle_command(&mux, client, Command::SubscribeTerminalInteractionModes, &writer)
+                .err()
+                .expect("overflowed stream must require a replacement connection");
         assert!(error.to_string().contains("already has"));
         assert!(disconnect_client(&mux, client, false));
     }
