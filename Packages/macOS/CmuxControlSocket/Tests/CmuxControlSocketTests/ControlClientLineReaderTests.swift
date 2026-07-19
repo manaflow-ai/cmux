@@ -1,6 +1,7 @@
 import CmuxControlSocket
 import Darwin
 import Foundation
+import os
 import Testing
 
 /// A connected `socketpair(2)`; the reader consumes `readEnd`. Close-once
@@ -136,5 +137,108 @@ struct ControlClientLineReaderTests {
         let reader = ControlClientLineReader(socket: pair.readEnd)
         #expect(reader.nextLine(shouldContinueReading: { true }) == "complete")
         #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func preauthorizationLimitsRejectOversizedFirstLine() throws {
+        let pair = try SocketPairFixture()
+        pair.write("oversized\n")
+        pair.closeWriteEnd()
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            initialLimits: ControlClientLineReadLimits(
+                maximumBytes: 4,
+                timeoutMilliseconds: 1_000
+            )
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func preauthorizationLimitCountsMalformedUTF8Bytes() throws {
+        let pair = try SocketPairFixture()
+        pair.write([0xFF, 0xFE])
+        pair.write("ok\n")
+        pair.closeWriteEnd()
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            bufferSize: 3,
+            initialLimits: ControlClientLineReadLimits(
+                maximumBytes: 4,
+                timeoutMilliseconds: 1_000
+            )
+        )
+
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func preauthorizationLimitAccumulatesAcrossBlankLines() throws {
+        let pair = try SocketPairFixture()
+        pair.write("\n\nok\n")
+        pair.closeWriteEnd()
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            bufferSize: 2,
+            initialLimits: ControlClientLineReadLimits(
+                maximumBytes: 4,
+                timeoutMilliseconds: 1_000
+            )
+        )
+
+        #expect(reader.nextLine(shouldContinueReading: { true }) == "")
+        #expect(reader.nextLine(shouldContinueReading: { true }) == "")
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func preauthorizationDeadlineExpiresWithoutReading() throws {
+        let pair = try SocketPairFixture()
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            initialLimits: ControlClientLineReadLimits(
+                maximumBytes: 4_096,
+                timeoutMilliseconds: 0
+            )
+        )
+
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func preauthorizationDeadlineAppliesToBufferedLines() throws {
+        let pair = try SocketPairFixture()
+        pair.write("first\nsecond\n")
+        pair.closeWriteEnd()
+        let now = OSAllocatedUnfairLock(initialState: UInt64(1_000_000))
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            initialLimits: ControlClientLineReadLimits(
+                maximumBytes: 4_096,
+                timeoutMilliseconds: 1
+            ),
+            monotonicNowNanoseconds: { now.withLock { $0 } }
+        )
+
+        #expect(reader.nextLine(shouldContinueReading: { true }) == "first")
+        now.withLock { $0 = 2_000_000 }
+        #expect(reader.nextLine(shouldContinueReading: { true }) == nil)
+    }
+
+    @Test func clearingPreauthorizationLimitsAllowsLargerCommands() throws {
+        let pair = try SocketPairFixture()
+        pair.write("auth\nsubsequent-command\n")
+        pair.closeWriteEnd()
+
+        let reader = ControlClientLineReader(
+            socket: pair.readEnd,
+            bufferSize: 6,
+            initialLimits: ControlClientLineReadLimits(
+                maximumBytes: 5,
+                timeoutMilliseconds: 1_000
+            )
+        )
+        #expect(reader.nextLine(shouldContinueReading: { true }) == "auth")
+        reader.clearLimits()
+        #expect(reader.nextLine(shouldContinueReading: { true }) == "subsequent-command")
     }
 }

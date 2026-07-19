@@ -338,6 +338,45 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
+    func testGlobalZoomDefaultsMatchCommandPlusAndMinusEverywhere() {
+        // App-wide zoom holds the Cmd+= / Cmd+- chords and is routed before the
+        // per-pane browser/markdown/terminal zooms, so it must use the
+        // unrestricted application context.
+        XCTAssertEqual(KeyboardShortcutSettings.Action.globalZoomIn.shortcutContext, .application)
+        XCTAssertEqual(KeyboardShortcutSettings.Action.globalZoomOut.shortcutContext, .application)
+
+        let zoomIn = KeyboardShortcutSettings.Action.globalZoomIn.defaultShortcut
+        XCTAssertTrue(
+            zoomIn.matches(
+                keyCode: 24,
+                modifierFlags: [.command],
+                eventCharacter: "=",
+                layoutCharacterProvider: { _, _ in "=" }
+            ),
+            "Cmd+= should step the app-wide zoom in"
+        )
+        XCTAssertTrue(
+            zoomIn.matches(
+                keyCode: 30,
+                modifierFlags: [.command],
+                eventCharacter: "+",
+                layoutCharacterProvider: { _, _ in "+" }
+            ),
+            "Cmd and a dedicated + key should step the app-wide zoom in on non-US layouts"
+        )
+
+        let zoomOut = KeyboardShortcutSettings.Action.globalZoomOut.defaultShortcut
+        XCTAssertTrue(
+            zoomOut.matches(
+                keyCode: 27,
+                modifierFlags: [.command],
+                eventCharacter: "-",
+                layoutCharacterProvider: { _, _ in "-" }
+            ),
+            "Cmd+- should step the app-wide zoom out"
+        )
+    }
+
     // The "_" -> "-" normalization was also moved out of the Shift gate, so a
     // bare "_" (no Shift) from a layout where "_" is a dedicated key must match
     // the "-" zoom-out chord. Without this, a future refactor could re-gate "_"

@@ -13,19 +13,29 @@ extension MacComputerSnapshot {
     /// both surfaces show the same deduplicated computers with the same
     /// presence, color, and customization data.
     @MainActor
-    static func snapshots(from store: CMUXMobileShellStore) -> [MacComputerSnapshot] {
+    static func snapshots(
+        from store: CMUXMobileShellStore,
+        instanceTag: String? = nil
+    ) -> [MacComputerSnapshot] {
         let colorIndex = store.machineColorIndex
+        // The iOS tag remains the display suffix/storage partition. Route and
+        // presence identity comes from each authenticated paired Mac instead.
+        let buildScope = MobileIOSBuildScope.current() ?? MobileIOSBuildScope(instanceTag)
         // The PHONE's own per-Mac connection (foreground or live secondary) — the
         // source of truth for the dot, distinct from presence.
         let connectionStatuses = store.macConnectionStatuses
         var snapshots = store.displayPairedMacs.map { mac in
+            let presenceInstanceTag = instanceTag ?? mac.instanceTag
             let aliases = store.pairedMacAliasIDs(for: mac.macDeviceID)
-            let summary = store.presenceSummary(for: mac.macDeviceID)
+            let summary = store.presenceSummary(
+                for: mac.macDeviceID,
+                instanceTag: presenceInstanceTag
+            )
             let presence: DeviceTreePresence? = summary
                 .map { $0.online ? .online : .offline(lastSeenAt: $0.lastSeenAt) }
             return MacComputerSnapshot(
                 deviceId: mac.macDeviceID,
-                title: mac.resolvedName,
+                title: buildScope?.computerDisplayName(mac.resolvedName) ?? mac.resolvedName,
                 platform: "mac",
                 colorIndex: aliases.compactMap { colorIndex[$0] }.first,
                 customColor: mac.customColor,

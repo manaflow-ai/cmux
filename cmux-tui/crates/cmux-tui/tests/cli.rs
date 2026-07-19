@@ -281,6 +281,9 @@ fn help_lists_plugin_verbs() {
     assert!(stdout.contains("plugin install <git-url>"));
     assert!(stdout.contains("plugin use --builtin"));
     assert!(stdout.contains("Manage installed sidebar plugins locally."));
+    assert!(stdout.contains("--ws <addr>"));
+    assert!(stdout.contains("--ws-token <token>"));
+    assert!(stdout.contains("--ws-insecure-bind"));
 }
 
 #[cfg(unix)]

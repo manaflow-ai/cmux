@@ -6,6 +6,10 @@ internal import Foundation
 /// sidebar, terminal, layout/portal counters, flash, panel-snapshot, and
 /// screenshot methods.
 extension ControlCommandCoordinator {
+    func debugRemoteTmuxSizingSettled() -> ControlCallResult {
+        .ok(debugContext?.controlDebugRemoteTmuxSizingSettled() ?? .object(["windows": .array([])]))
+    }
+
     // MARK: - debug.browser.*
 
     /// `debug.browser.address_bar_focused` — which surface's browser address

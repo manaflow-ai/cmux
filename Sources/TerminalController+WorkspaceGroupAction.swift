@@ -1,6 +1,34 @@
 import Foundation
 
 extension TerminalController {
+    /// Mobile-gated workspace-group creation that mirrors mobile workspace.create.
+    func v2MobileWorkspaceGroupCreate(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
+        }
+        let title = v2RawString(params, "title")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = title?.isEmpty == false ? title ?? "" : ""
+
+        var mutationError: V2CallResult?
+        v2MainSync {
+            guard tabManager.createWorkspaceGroup(
+                name: name,
+                selectAnchor: false,
+                collapseSidebarSelection: false
+            ) != nil else {
+                mutationError = .err(code: "not_created", message: "Group was not created", data: nil)
+                return
+            }
+        }
+        if let mutationError {
+            return mutationError
+        }
+
+        var listParams = params
+        listParams.removeValue(forKey: "title")
+        return v2MobileWorkspaceList(params: listParams, tabManager: tabManager)
+    }
+
     /// Mobile-gated workspace-group mutations that mirror the desktop header menu.
     func v2MobileWorkspaceGroupAction(params: [String: Any]) -> V2CallResult {
         guard v2HasNonNullParam(params, "group_id"), let groupID = v2UUID(params, "group_id") else {

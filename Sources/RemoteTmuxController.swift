@@ -320,7 +320,9 @@ final class RemoteTmuxController {
             seededSessionId: sessionId,
             connection: connection,
             tabManager: tabManager,
-            workspace: workspace
+            workspace: workspace,
+            onControlPaneRemoved: TerminalController.remoteTmuxControlPaneRemovalHandler(),
+            onControlSurfaceRemoved: TerminalController.remoteTmuxControlSurfaceRemovalHandler()
         )
         return true
     }

@@ -1,31 +1,29 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
+import { blogPostSeoCopy } from "@/i18n/audited-seo";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog.introducingCmux" });
+  const post = await getTranslations({ locale, namespace: "blog.posts.introducingCmux" });
+  const siteMeta = await getTranslations({ locale, namespace: "meta" });
+  const alternates = buildAlternates(locale, "/blog/introducing-cmux");
+  const { title, description } = blogPostSeoCopy(locale, "introducingCmux", t, post, siteMeta);
   return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    keywords: [
-      "cmux", "terminal", "macOS", "Ghostty", "libghostty",
-      "AI coding agents", "Claude Code", "vertical tabs", "split panes", "socket API",
-    ],
+    title: { absolute: title },
+    description,
     openGraph: {
-      title: t("metaTitle"),
-      description: t("metaDescription"),
-      type: "article",
+      ...openGraphDefaults(locale, "article"),
+      title,
+      description,
+      url: alternates.canonical,
       publishedTime: "2026-02-12T00:00:00Z",
     },
-    twitter: {
-      card: "summary_large_image",
-      title: t("metaTitle"),
-      description: t("metaDescription"),
-    },
-    alternates: buildAlternates(locale, "/blog/introducing-cmux"),
+    twitter: twitterSummary(locale, title, description),
+    alternates,
   };
 }
 
@@ -35,7 +33,7 @@ export default function IntroducingCmuxPage() {
 
   return (
     <>
-      <BlogSchema postKey="introducingCmux" path="/blog/introducing-cmux" datePublished="2026-02-12T00:00:00Z" />
+      <BlogSchema postKey="introducingCmux" seoKey="introducingCmux" path="/blog/introducing-cmux" datePublished="2026-02-12T00:00:00Z" />
       <div className="mb-8">
         <Link
           href="/blog"

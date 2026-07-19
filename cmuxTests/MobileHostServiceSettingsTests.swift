@@ -136,6 +136,7 @@ struct MobileHostMacScopedMutationAuthorizationTests {
             ("workspace.create", ["group_id": "group-main"]),
             ("workspace.move", ["workspace_id": "workspace-main", "before_workspace_id": "workspace-next"]),
             ("workspace.group.action", ["group_id": "group-main", "action": "rename"]),
+            ("workspace.group.create", ["title": "Ops"]),
         ]
         for (method, params) in cases {
             let request = MobileHostRPCRequest(
@@ -160,6 +161,7 @@ struct MobileHostMacScopedMutationAuthorizationTests {
             ("workspace.create", ["group_id": "group-main"]),
             ("workspace.move", ["workspace_id": "workspace-main", "before_workspace_id": "workspace-next"]),
             ("workspace.group.action", ["group_id": "group-main", "action": "rename"]),
+            ("workspace.group.create", ["title": "Ops"]),
         ]
         for (method, params) in cases {
             let request = MobileHostRPCRequest(

@@ -336,7 +336,7 @@ extension TextBoxInputContainer {
             if allowsSubmitActionSelection {
                 ForEach(submitActions) { action in
                     Button {
-                        selectedSubmitActionID = action.id
+                        onSelectSubmitAction(action.id)
                     } label: {
                         submitActionMenuLabel(action)
                     }

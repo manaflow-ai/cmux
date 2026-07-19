@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// The phone's live presence state: every known app instance keyed by
@@ -62,6 +63,39 @@ public struct PresenceMap: Equatable, Sendable {
     /// The live presence record for one app instance, if known.
     public func instance(deviceId: String, tag: String) -> PresenceInstance? {
         instancesByDevice[deviceId]?[tag]
+    }
+
+    /// Summary for one exact app instance. Tagged iOS builds use this instead
+    /// of the device rollup so another running Mac tag cannot lend this build
+    /// its online state or build label.
+    public func instanceSummary(deviceId: String, tag: String) -> DeviceSummary? {
+        guard let instance = instance(deviceId: deviceId, tag: tag) else { return nil }
+        return DeviceSummary(
+            online: instance.online,
+            lastSeenAt: Date(timeIntervalSince1970: instance.lastSeenAt / 1000),
+            buildLabel: MacBuildChannel().label(bundleID: instance.bundleId, tag: instance.tag)
+        )
+    }
+
+    /// The instance allowed to replace persisted reconnect routes.
+    ///
+    /// Scoped clients accept routes only from the exact Mac app instance
+    /// resolved at composition. Stable and unscoped builds retain the
+    /// conservative legacy rule: exactly one online instance on the device may
+    /// advertise routes.
+    public func reconnectRouteAuthority(
+        deviceId: String,
+        pairedMacInstanceTag: String?
+    ) -> PresenceInstance? {
+        if let pairedMacInstanceTag {
+            guard let instance = instance(deviceId: deviceId, tag: pairedMacInstanceTag),
+                  instance.online,
+                  !(instance.routes ?? []).isEmpty else {
+                return nil
+            }
+            return instance
+        }
+        return soleRouteAdvertisingInstance(deviceId: deviceId)
     }
 
     /// The device's single online route-advertising instance, or `nil` when

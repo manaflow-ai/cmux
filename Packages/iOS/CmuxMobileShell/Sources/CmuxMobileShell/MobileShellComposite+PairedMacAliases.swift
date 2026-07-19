@@ -25,10 +25,18 @@ extension MobileShellComposite {
         return [macDeviceID]
     }
 
-    /// Presence rollup across every stored id represented by a visible paired-Mac row.
-    public func presenceSummary(for macDeviceID: String) -> PresenceMap.DeviceSummary? {
+    /// Presence across every stored id represented by a visible paired-Mac row.
+    /// When `instanceTag` is present, only that tagged app instance contributes.
+    public func presenceSummary(
+        for macDeviceID: String,
+        instanceTag: String? = nil
+    ) -> PresenceMap.DeviceSummary? {
         let summaries = pairedMacAliasIDs(for: macDeviceID).compactMap {
-            presenceMap.deviceSummary(deviceId: $0)
+            if let instanceTag {
+                presenceMap.instanceSummary(deviceId: $0, tag: instanceTag)
+            } else {
+                presenceMap.deviceSummary(deviceId: $0)
+            }
         }
         guard !summaries.isEmpty else { return nil }
         let online = summaries.contains(where: \.online)

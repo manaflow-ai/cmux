@@ -54,6 +54,20 @@ describe("docs search index", () => {
     expect(
       pages.some((page) => page.locale === "ja" && page.href === "/docs/task-manager"),
     ).toBe(true);
+    expect(
+      pages.some(
+        (page) =>
+          page.locale === "de" &&
+          page.href === "/docs/agent-integrations/oh-my-pi",
+      ),
+    ).toBe(false);
+    expect(
+      pages.some(
+        (page) =>
+          page.locale === "ja" &&
+          page.href === "/docs/agent-integrations/oh-my-pi",
+      ),
+    ).toBe(true);
   });
 
   test("uses the API page message namespace in every locale", async () => {
@@ -70,6 +84,25 @@ describe("docs search index", () => {
           section.texts.some((text) => text.includes("workspace.list")),
         ),
       ).toBe(true);
+    }
+  });
+
+  test("localizes the notification preview schema description in every locale", async () => {
+    for (const locale of routing.locales) {
+      const messages = (await import(`../messages/${locale}.json`)).default as {
+        docs: {
+          configuration: {
+            schemaDescriptions: {
+              sidebar: { notificationMessageLineLimit?: string };
+            };
+          };
+        };
+      };
+
+      expect(
+        messages.docs.configuration.schemaDescriptions.sidebar
+          .notificationMessageLineLimit,
+      ).toBeTruthy();
     }
   });
 });

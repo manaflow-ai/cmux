@@ -58,7 +58,7 @@ extension WorkspaceShellView {
         _ groupID: MobileWorkspaceGroupPreview.ID?,
         _ beforeWorkspaceID: MobileWorkspacePreview.ID?,
         _ movesGroup: Bool
-    ) async -> Void)? {
+    ) async -> Bool)? {
         let store = store
         return { id, groupID, beforeWorkspaceID, movesGroup in
             let result = await store.moveWorkspace(
@@ -70,6 +70,10 @@ extension WorkspaceShellView {
             await MainActor.run {
                 handleWorkspaceActionResult(result, action: .moveWorkspace)
             }
+            if case .success = result {
+                return true
+            }
+            return false
         }
     }
 
@@ -134,6 +138,16 @@ extension WorkspaceShellView {
         return { groupID in createWorkspaceIfConnected(inGroup: groupID) }
     }
 
+    var createWorkspaceGroupInCompactStackClosure: (() -> Void)? {
+        guard store.supportsWorkspaceGroupCreate else { return nil }
+        return { createWorkspaceGroupIfConnected() }
+    }
+
+    var createWorkspaceGroupIfConnectedClosure: (() -> Void)? {
+        guard store.supportsWorkspaceGroupCreate else { return nil }
+        return { createWorkspaceGroupIfConnected() }
+    }
+
     func createWorkspaceInCompactStack() {
         createWorkspaceInCompactStack(inGroup: nil)
     }
@@ -177,6 +191,14 @@ extension WorkspaceShellView {
                 result,
                 action: groupID == nil ? .createWorkspace : .createWorkspaceInGroup
             )
+        }
+    }
+
+    func createWorkspaceGroupIfConnected() {
+        guard canCreateWorkspaceForMacSelection else { return }
+        Task { @MainActor in
+            let result = await store.createWorkspaceGroup()
+            handleWorkspaceActionResult(result, action: .createWorkspaceGroup)
         }
     }
 

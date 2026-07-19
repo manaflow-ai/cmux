@@ -81,4 +81,67 @@ struct TerminalNotificationOpenPanelFallbackTests {
         #expect(manager.focusedSurfaceId(for: targetWorkspace.id) == targetPanelId)
         #expect(store.notifications.first(where: { $0.id == notification.id })?.isRead == true)
     }
+
+    @Test
+    func confinedNotificationWithMovedSurfaceOpensAuthorizedWorkspace() throws {
+        let store = TerminalNotificationStore.shared
+        let previousShared = AppDelegate.shared
+        let appDelegate = previousShared ?? AppDelegate()
+        let manager = TabManager()
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        store.replaceNotificationsForTesting([])
+
+        let authorizedWorkspace = manager.addWorkspace(title: "Authorized", select: true)
+        let liveWorkspace = manager.addWorkspace(title: "Live owner", select: false)
+        let movedPanelId = try #require(authorizedWorkspace.focusedPanelId)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        window.makeKeyAndOrderFront(nil)
+
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.close()
+            for workspace in manager.tabs {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppDelegate.shared = previousShared
+        }
+
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: authorizedWorkspace.id,
+            surfaceId: movedPanelId,
+            retargetsToLiveSurfaceOwner: false,
+            title: "Confined notification",
+            subtitle: "Completed",
+            body: "Stay in the authorized workspace",
+            createdAt: Date(timeIntervalSince1970: 1_778_888_889),
+            isRead: false
+        )
+        store.replaceNotificationsForTesting([notification])
+
+        let transfer = try #require(authorizedWorkspace.detachSurface(panelId: movedPanelId))
+        let destinationPaneId = try #require(liveWorkspace.bonsplitController.allPaneIds.first)
+        _ = try #require(liveWorkspace.attachDetachedSurface(transfer, inPane: destinationPaneId, focus: false))
+        manager.selectTab(liveWorkspace)
+
+        #expect(appDelegate.openTerminalNotification(notification))
+        #expect(manager.selectedTabId == authorizedWorkspace.id)
+        #expect(manager.focusedSurfaceId(for: authorizedWorkspace.id) != movedPanelId)
+        #expect(store.notifications.first(where: { $0.id == notification.id })?.isRead == true)
+    }
 }

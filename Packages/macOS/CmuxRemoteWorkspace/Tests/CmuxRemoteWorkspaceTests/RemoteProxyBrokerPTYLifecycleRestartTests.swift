@@ -179,6 +179,38 @@ struct RemoteProxyBrokerPTYLifecycleRestartTests {
         )
     }
 
+    @Test("stale wrapper end cannot claim a newer generation on the same attachment")
+    func staleWrapperEndDoesNotClaimNewAttachmentGeneration() throws {
+        let provider = FakeTunnelProvider()
+        let broker = RemoteProxyBroker(tunnelProvider: provider, clock: ManualRetryClock())
+        let configuration = makeConfiguration()
+        let lease = broker.acquire(configuration: configuration, remotePath: "/r/p") { _ in }
+        defer { lease.release() }
+
+        for lifecycleID in ["old-generation", "new-generation"] {
+            _ = try broker.startPTYBridge(
+                configuration: configuration,
+                sessionID: "session",
+                lifecycleID: lifecycleID,
+                attachmentID: "surface",
+                command: nil,
+                requireExisting: true
+            )
+        }
+
+        let oldGenerationWasCurrent = broker.acknowledgePTYLifecycleAfterWrapperEnd(
+            sessionID: "session",
+            lifecycleID: "old-generation"
+        )
+        let newGenerationWasCurrent = broker.acknowledgePTYLifecycleAfterWrapperEnd(
+            sessionID: "session",
+            lifecycleID: "new-generation"
+        )
+
+        #expect(!oldGenerationWasCurrent)
+        #expect(newGenerationWasCurrent)
+    }
+
     @Test("ended lifecycle removes its broker owner index")
     func endedLifecycleRemovesOwnerIndex() throws {
         let provider = FakeTunnelProvider()
@@ -199,10 +231,130 @@ struct RemoteProxyBrokerPTYLifecycleRestartTests {
         tunnel.reportLifecycleEnded(sessionID: "session", lifecycleID: "unused")
         _ = try broker.listPTY(configuration: configuration)
 
-        broker.acknowledgePTYLifecycleAfterWrapperEnd(sessionID: "session", lifecycleID: "unused")
+        let generationWasCurrent = broker.acknowledgePTYLifecycleAfterWrapperEnd(
+            sessionID: "session",
+            lifecycleID: "unused"
+        )
         _ = try broker.listPTY(configuration: configuration)
 
-        #expect(!tunnel.ptyCalls.contains { $0.name == "acknowledgePTYLifecycleIfKnown" })
+        #expect(generationWasCurrent)
+        #expect(tunnel.ptyCalls.contains { $0.name == "acknowledgePTYLifecycleIfKnown" })
+        #expect(!broker.acknowledgePTYLifecycleAfterWrapperEnd(sessionID: "session", lifecycleID: "unused"))
+    }
+
+    @Test("explicit acknowledgement removes its attachment generation index")
+    func explicitAcknowledgementRemovesAttachmentGenerationIndex() throws {
+        let provider = FakeTunnelProvider()
+        let broker = RemoteProxyBroker(tunnelProvider: provider, clock: ManualRetryClock())
+        let configuration = makeConfiguration()
+        let lease = broker.acquire(configuration: configuration, remotePath: "/r/p") { _ in }
+        defer { lease.release() }
+
+        _ = try broker.startPTYBridge(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "generation",
+            attachmentID: "surface",
+            command: nil,
+            requireExisting: true
+        )
+        #expect(broker.currentPTYLifecycleByAttachment.count == 1)
+
+        try broker.acknowledgePTYLifecycle(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "generation"
+        )
+
+        #expect(broker.currentPTYLifecycleByAttachment.isEmpty)
+    }
+
+    @Test("ended lifecycle reconciliation state stays bounded")
+    func endedLifecycleReconciliationStateStaysBounded() {
+        var registry = RemotePTYEndedLifecycleRegistry()
+        for index in 0..<(RemotePTYEndedLifecycleRegistry.capacity + 10) {
+            registry.record(
+                RemotePTYLifecycleKey(sessionID: "session-\(index)", lifecycleID: "generation-\(index)"),
+                transportKey: "transport",
+                attachmentKey: RemotePTYAttachmentKey(transportKey: "transport", attachmentID: "surface-\(index)")
+            )
+        }
+
+        #expect(registry.count == RemotePTYEndedLifecycleRegistry.capacity)
+        #expect(registry.take(RemotePTYLifecycleKey(sessionID: "session-0", lifecycleID: "generation-0")) == nil)
+        #expect(registry.take(RemotePTYLifecycleKey(sessionID: "session-265", lifecycleID: "generation-265")) != nil)
+    }
+
+    @Test("newer ended attachment generation supersedes its predecessor")
+    func newerEndedAttachmentGenerationSupersedesPredecessor() throws {
+        let provider = FakeTunnelProvider()
+        let broker = RemoteProxyBroker(tunnelProvider: provider, clock: ManualRetryClock())
+        let configuration = makeConfiguration()
+        let lease = broker.acquire(configuration: configuration, remotePath: "/r/p") { _ in }
+        defer { lease.release() }
+        let tunnel = try #require(provider.tunnels.first)
+
+        for lifecycleID in ["old-generation", "new-generation"] {
+            _ = try broker.startPTYBridge(
+                configuration: configuration,
+                sessionID: "session",
+                lifecycleID: lifecycleID,
+                attachmentID: "surface",
+                command: nil,
+                requireExisting: true
+            )
+            tunnel.reportLifecycleEnded(sessionID: "session", lifecycleID: lifecycleID)
+            _ = try broker.listPTY(configuration: configuration)
+        }
+
+        #expect(!broker.acknowledgePTYLifecycleAfterWrapperEnd(
+            sessionID: "session",
+            lifecycleID: "old-generation"
+        ))
+        #expect(broker.acknowledgePTYLifecycleAfterWrapperEnd(
+            sessionID: "session",
+            lifecycleID: "new-generation"
+        ))
+    }
+
+    @Test("newer acknowledged attachment generation supersedes an ended predecessor")
+    func newerAcknowledgedAttachmentGenerationSupersedesEndedPredecessor() throws {
+        let provider = FakeTunnelProvider()
+        let broker = RemoteProxyBroker(tunnelProvider: provider, clock: ManualRetryClock())
+        let configuration = makeConfiguration()
+        let lease = broker.acquire(configuration: configuration, remotePath: "/r/p") { _ in }
+        defer { lease.release() }
+        let tunnel = try #require(provider.tunnels.first)
+
+        _ = try broker.startPTYBridge(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "old-generation",
+            attachmentID: "surface",
+            command: nil,
+            requireExisting: true
+        )
+        tunnel.reportLifecycleEnded(sessionID: "session", lifecycleID: "old-generation")
+        _ = try broker.listPTY(configuration: configuration)
+
+        _ = try broker.startPTYBridge(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "new-generation",
+            attachmentID: "surface",
+            command: nil,
+            requireExisting: true
+        )
+        try broker.acknowledgePTYLifecycle(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "new-generation"
+        )
+
+        #expect(!broker.acknowledgePTYLifecycleAfterWrapperEnd(
+            sessionID: "session",
+            lifecycleID: "old-generation"
+        ))
     }
 
     @Test("forced local proxy port is used verbatim")

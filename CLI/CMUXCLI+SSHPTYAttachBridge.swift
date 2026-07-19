@@ -8,11 +8,9 @@ extension CLIError {
 }
 
 extension CMUXCLI {
-    /// True when the generated shell wrapper loop has another 254|255 retry
-    /// queued for this attach attempt. The wrapper exports
-    /// `CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY` per attempt (1 while retries
-    /// remain, 0 on the final attempt); direct invocations without the wrapper
-    /// leave it unset, so failures there always clean up.
+    /// True when a persistent attach wrapper owns retrying a 254|255 failure.
+    /// Persistent wrappers export `CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=1`;
+    /// direct invocations leave it unset, so failures there always clean up.
     func sshPTYAttachWrapperRetryPending() -> Bool {
         (ProcessInfo.processInfo.environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines) == "1"

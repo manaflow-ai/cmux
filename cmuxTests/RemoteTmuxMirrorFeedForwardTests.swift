@@ -1,3 +1,6 @@
+import CmuxRemoteSession
+import AppKit
+import Bonsplit
 import Foundation
 import Testing
 
@@ -53,7 +56,10 @@ import Testing
     /// parameter — dependency injection, not a debug seam.
     private func makeMirror(
         layout: RemoteTmuxLayoutNode,
-        geometry: RemoteTmuxMirrorGeometry? = nil
+        geometry: RemoteTmuxMirrorGeometry? = nil,
+        hostingContentSizeSource: (() -> CGSize?)? = {
+            CGSize(width: 10_000, height: 10_000)
+        }
     ) -> (RemoteTmuxWindowMirror, RemoteTmuxControlConnection) {
         let connection = RemoteTmuxControlConnection(
             host: RemoteTmuxHost(destination: "user@host"), sessionName: "work"
@@ -64,6 +70,7 @@ import Testing
             connection: connection,
             layout: layout,
             geometrySource: geometry.map { g in { g } },
+            hostingContentSizeSource: hostingContentSizeSource,
             makePanel: { _ in nil }
         )
         return (mirror, connection)
@@ -139,6 +146,18 @@ import Testing
         #expect(mirror.layoutStructureVersion == 2)
     }
 
+    @Test func reconcilePrunesSizingHistoryForRemovedPaneIDs() {
+        let (mirror, _) = makeMirror(layout: reflow123)
+        mirror.lastRenderedGrids = [1: (10, 10), 2: (10, 10), 3: (10, 10)]
+        let two = node(.horizontal([
+            node(.pane(1), w: 61, h: 35), node(.pane(2), w: 61, h: 35),
+        ]), w: 123, h: 35)
+        mirror.reconcile(layout: two)
+        #expect(Set(mirror.lastRenderedGrids.keys) == [1, 2])
+        mirror.teardown()
+        #expect(mirror.lastRenderedGrids.isEmpty)
+    }
+
     // MARK: feed-forward push contract
 
     @Test func updateClientSizeWaitsForConstantsAndContainer() {
@@ -154,9 +173,17 @@ import Testing
         // Both present: ready, and it lands per-window.
         mirror.noteContainerSize(pointSize: CGSize(width: 800, height: 620), scale: 2)
         #expect(mirror.updateClientSize())
-        #expect(pushed(connection)?.cols == 100) // native dividers replace tmux's separator columns
+        // Claims remove only real chrome; rail-rounding slack belongs to the
+        // native plan: (800 − 3 × pad 4 − 2 × (divider 1 − cell 8)) / 8 → 100.
+        #expect(pushed(connection)?.cols == 100)
         #expect(pushed(connection)?.rows == 34) // 620pt − the native 30pt pane tab bar
         #expect(connection.lastWindowSizes[0] != nil)
+        // A pass already queued on the main actor must not resurrect the
+        // claim after the window mirror is removed.
+        mirror.setNeedsSizingPass()
+        mirror.teardown()
+        mirror.performSizingPassNow()
+        #expect(connection.lastWindowSizes[0] == nil)
     }
 
     @Test func pushIsAPureFunctionOfPixelsAndStructureNotTheAssignment() {
@@ -171,6 +198,71 @@ import Testing
         let second = pushed(connection)
         #expect(first?.cols == second?.cols)
         #expect(first?.rows == second?.rows)
+    }
+
+    @Test func detachedMeasurementWaitsForAVisibleHostThenAdoptsItsBound() {
+        let initialBound = CGSize(width: 640, height: 500)
+        var hostingBound: CGSize? = initialBound
+        let (mirror, connection) = makeMirror(
+            layout: reflow123,
+            geometry: calibratedGeometry,
+            hostingContentSizeSource: { hostingBound }
+        )
+        mirror.isVisibleForSizing = true
+        mirror.noteContainerSize(pointSize: initialBound, scale: 2)
+        mirror.performSizingPassNow()
+        let attachedClaim = pushed(connection)
+        #expect(mirror.containerSizePt == hostingBound)
+        #expect(attachedClaim != nil)
+
+        // A detached portal can briefly report full-display geometry. Retain
+        // the later resize without letting it poison the validated claim.
+        hostingBound = nil
+        mirror.noteContainerSize(pointSize: CGSize(width: 1_000, height: 700), scale: 2)
+        // Portal teardown can report a final 1x1 after the useful detached
+        // measurement. It must not overwrite the pending reattach size.
+        mirror.noteContainerSize(pointSize: CGSize(width: 1, height: 1), scale: 2)
+        mirror.performSizingPassNow()
+        #expect(pushed(connection)?.cols == attachedClaim?.cols)
+
+        // The next attached pass adopts that pending measurement, bounded by
+        // the real host, even if attachment emits no new geometry callback.
+        hostingBound = CGSize(width: 1_000, height: 700)
+        mirror.performSizingPassNow()
+        #expect(mirror.containerSizePt == hostingBound)
+        #expect((pushed(connection)?.cols ?? 0) > (attachedClaim?.cols ?? 0))
+        #expect((pushed(connection)?.rows ?? 0) > (attachedClaim?.rows ?? 0))
+    }
+
+    @Test func bottomPaneTitleRowsRemainSizingChrome() {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"), sessionName: "work"
+        )
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-bottom-title-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        connection.handleMessageForTesting(.commandResult(commandNumber: 0, lines: [], isError: false))
+        connection.handleMessageForTesting(.commandResult(
+            commandNumber: 0,
+            lines: ["@1 f92f,80x24,0,0,0 f92f,80x24,0,0,0 [] one"],
+            isError: false
+        ))
+        connection.handleMessageForTesting(.commandResult(
+            commandNumber: 0,
+            lines: ["%0 0 0 80 23 1 bottom :0 \"ejc3-mac\""],
+            isError: false
+        ))
+
+        // Bottom placement changes where tmux draws the row, not whether the
+        // pane loses one grid row to that chrome.
+        #expect(connection.windowTitleRowPlacements[1] == .bottom)
     }
 
     @Test func reconcileClaimsOnceThenNeverChangesThePushedSize() {
@@ -190,6 +282,46 @@ import Testing
         #expect(pushed(connection)?.rows == claim?.rows)
     }
 
+    @Test func containerResizeReimposesDividerFractions() {
+        // A container-only resize produces no tmux layout echo, so the
+        // mirror itself must recompute the divider plan. In the normal case
+        // the imposed point extents don't change (points don't scale with
+        // the container — that staleness was a fraction disease), so the
+        // observable is the overconstrained case: a container too small for
+        // the assigned cells must rescale every imposed extent evenly.
+        let (mirror, _) = readyMirror(layout: reflow123)
+        mirror.isVisibleForSizing = true
+        mirror.reconcile(layout: reflow123)
+        // Triggers only schedule; the coalesced pass does the work.
+        mirror.performSizingPassNow()
+        let before = Self.imposedExtents(of: mirror.bonsplitController.treeSnapshot())
+        #expect(!before.isEmpty, "the sizing pass must impose exact extents")
+        // Shrink far below the layout's ideal width: extents must rescale.
+        mirror.noteContainerSize(pointSize: CGSize(width: 400, height: 620), scale: 2)
+        mirror.performSizingPassNow()
+        let after = Self.imposedExtents(of: mirror.bonsplitController.treeSnapshot())
+        #expect(Set(before.keys) == Set(after.keys))
+        for (id, extent) in after {
+            let original = before[id] ?? 0
+            #expect(
+                extent < original,
+                "imposed extent must rescale with the container: \(extent) vs \(original)"
+            )
+        }
+    }
+
+    private static func imposedExtents(of node: ExternalTreeNode) -> [String: Double] {
+        switch node {
+        case .pane:
+            return [:]
+        case .split(let split):
+            var extents = imposedExtents(of: split.first)
+                .merging(imposedExtents(of: split.second)) { first, _ in first }
+            if let imposed = split.imposedFirstExtent { extents[split.id] = imposed }
+            return extents
+        }
+    }
+
     @Test func hiddenMirrorWritesOnlyTheInitialClaim() {
         // The first per-window size on a connection drops every unclaimed
         // window to tmux's 80×24 default, so a hidden mirror claims its size
@@ -205,6 +337,112 @@ import Testing
         #expect(pushed(connection)?.cols == claim?.cols) // no re-write
         #expect(pushed(connection)?.rows == claim?.rows)
         #expect(connection.lastWindowSizes.count == 1)
+    }
+
+    @Test func hiddenOrDetachedMirrorNeverImposesAndFreezesItsContainer() {
+        // While hidden or detached, the tree lives in a portal host that no window
+        // clamps, so imposing an absolute extent there grows the host
+        // instead of shrinking the second child — and the grown bounds come
+        // back through noteContainerSize, compounding every pass (observed
+        // live: a hidden window's host at 224k points claiming 27,984
+        // columns). Hidden mirrors therefore neither impose nor record
+        // container sizes; logical visibility alone is not a trustworthy bound.
+        let (mirror, connection) = makeMirror(
+            layout: reflow123,
+            geometry: calibratedGeometry,
+            hostingContentSizeSource: { nil }
+        )
+        mirror.noteContainerSize(pointSize: CGSize(width: 800, height: 620), scale: 2)
+        mirror.isVisibleForSizing = false
+        mirror.reconcile(layout: reflow123)
+        mirror.performSizingPassNow()
+        #expect(Self.imposedExtents(of: mirror.bonsplitController.treeSnapshot()).isEmpty)
+        // Inflated portal-limbo bounds arrive while hidden: not recorded.
+        mirror.noteContainerSize(pointSize: CGSize(width: 224_000, height: 620), scale: 2)
+        mirror.isVisibleForSizing = true
+        mirror.performSizingPassNow()
+        #expect(Self.imposedExtents(of: mirror.bonsplitController.treeSnapshot()).isEmpty)
+        #expect(mirror.updateClientSize())
+        // The claim reflects the frozen 800pt container, not limbo bounds.
+        #expect(pushed(connection)?.cols == 100)
+        #expect(connection.lastWindowSizes.count == 1)
+    }
+
+    @Test func sizingTransactionSettlesAtFixedPointUnderInputStorms() {
+        // Closed-loop convergence property: throw a seeded storm of input
+        // events at the mirror in randomized order — container resizes,
+        // layout reflows, visibility flips — then drain. The transaction
+        // must reach a fixed point (a drain with unchanged inputs does
+        // nothing), and the settled tree must hold exactly the plan for
+        // the FINAL inputs, never a stale intermediate's. This is the
+        // unit-level version of the live fuzz's settle check, and it is
+        // what makes feedback loops structurally impossible: every event
+        // the storm delivers mid-drain only changes data.
+        var state: UInt64 = 0x5EED
+        func rand(_ n: Int) -> Int {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return Int(state >> 33) % n
+        }
+        let (mirror, _) = readyMirror(layout: reflow123)
+        mirror.isVisibleForSizing = true
+        mirror.reconcile(layout: reflow123)
+        mirror.performSizingPassNow()
+
+        for _ in 0..<200 {
+            switch rand(4) {
+            case 0:
+                mirror.noteContainerSize(
+                    pointSize: CGSize(
+                        width: CGFloat(500 + rand(900)),
+                        height: CGFloat(400 + rand(400))
+                    ),
+                    scale: 2
+                )
+            case 1:
+                mirror.reconcile(layout: reflow123)
+            case 2:
+                mirror.isVisibleForSizing = false
+                mirror.setNeedsSizingPass()
+            default:
+                mirror.isVisibleForSizing = true
+                mirror.setNeedsSizingPass()
+            }
+            if rand(3) == 0 { mirror.performSizingPassNow() }
+        }
+
+        // Storm over: make the mirror visible and drain to the fixed point.
+        mirror.isVisibleForSizing = true
+        mirror.performSizingPassNow()
+        let settled = Self.imposedExtents(of: mirror.bonsplitController.treeSnapshot())
+        mirror.performSizingPassNow()
+        let again = Self.imposedExtents(of: mirror.bonsplitController.treeSnapshot())
+        #expect(settled == again, "a drain with unchanged inputs must change nothing")
+        #expect(!settled.isEmpty, "the settled tree must hold impositions")
+
+        // The settled impositions are the plan for the FINAL inputs.
+        if let metrics = mirror.nativeLayoutMetrics() {
+            let planner = RemoteTmuxNativeSplitLayoutPlanner(metrics: metrics)
+            let plan = planner.plan(
+                tree: RemoteTmuxNativeMeasuredSplitTree(
+                    tree: RemoteTmuxNativeSplitTree(layout: mirror.renderedLayout),
+                    metrics: metrics
+                ),
+                parentSize: mirror.containerSizePt
+            )
+            var planned: [CGFloat] = []
+            func walk(_ node: RemoteTmuxNativeSplitLayoutPlanner.Plan) {
+                if case .split(_, _, let extent, let first, let second) = node {
+                    if let extent { planned.append(extent) }
+                    walk(first); walk(second)
+                }
+            }
+            walk(plan)
+            let settledSorted = settled.values.map { CGFloat($0) }.sorted()
+            #expect(
+                settledSorted == planned.sorted().map { $0 },
+                "settled impositions must equal the final inputs' plan"
+            )
+        }
     }
 
     @Test func degeneratePixelsClampToWorkableFloors() {
@@ -245,21 +483,6 @@ import Testing
         #expect(mirror.visibleLayout == nil)
     }
 
-    // MARK: render-mode selection
-
-    @Test func framesImposeOnlyWhenTheAssignmentMatchesF() {
-        let (mirror, _) = readyMirror(layout: reflow123)
-        // Assigned size (123×35) ≠ f for these pixels (100×34): transient mode (nil).
-        #expect(mirror.framesForRender(containerPt: CGSize(width: 800, height: 620)) == nil)
-        // A tmux layout matching f imposes.
-        let matching = node(.horizontal([
-            node(.pane(1), w: 33, h: 34), node(.pane(2), w: 33, h: 34), node(.pane(3), w: 32, h: 34),
-        ]), w: 100, h: 34)
-        mirror.reconcile(layout: matching)
-        let frames = mirror.framesForRender(containerPt: CGSize(width: 800, height: 620))
-        #expect(frames != nil)
-        #expect(frames?.paneFramesPt.count == 3)
-    }
 }
 
 /// Per-window sizing semantics on the CONNECTION: dedup per window, the

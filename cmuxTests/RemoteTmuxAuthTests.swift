@@ -371,7 +371,9 @@ import Testing
 
         connection.handleMessageForTesting(.commandResult(commandNumber: 1, lines: [], isError: false))
 
-        #expect(connection.pendingCommandKindsForTesting == [.listWindows(reorderGeneration: 0)])
+        #expect(connection.pendingCommandKindsForTesting == [
+            .listWindows(reorderGeneration: 0, retainedPaneIDs: [])
+        ])
     }
 
     @Test func pastePaneCommandsProtectOptionLookingText() throws {

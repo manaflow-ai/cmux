@@ -1,8 +1,9 @@
 import Foundation
 
 enum RemoteTmuxControlCommandKind: Equatable {
-    /// A topology snapshot tagged with the accepted reorder generation at send time.
-    case listWindows(reorderGeneration: UInt64)
+    /// A topology snapshot tagged with the accepted reorder generation and the
+    /// exact close-gap pane identities it may release when the reply succeeds.
+    case listWindows(reorderGeneration: UInt64, retainedPaneIDs: Set<Int>)
     /// An order-only snapshot used to verify a successful swap batch cheaply.
     case listWindowOrder(reorderGeneration: UInt64)
     case capturePane(Int)
@@ -18,9 +19,9 @@ enum RemoteTmuxControlCommandKind: Equatable {
     /// A `list-panes` fetch of one window's REAL pane rectangles, tagged
     /// with the pending-layout generation it publishes. The layout string
     /// alone is not truth: under `pane-border-status` tmux publishes the
-    /// pre-title tree while the displayed panes sit one row lower and
-    /// shorter, so rendering from the layout string draws every pane a row
-    /// deep. The rects are; a reply whose generation is stale is discarded.
+    /// pre-title tree while panes touching the configured edge are one row
+    /// shorter (and top-edge panes also sit one row lower). The rects are;
+    /// a reply whose generation is stale is discarded.
     case paneRects(Int, Int)
     /// One command in an atomically-enqueued `swap-window` mirror reorder.
     case windowReorder(isLast: Bool)

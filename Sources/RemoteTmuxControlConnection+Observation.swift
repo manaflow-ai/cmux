@@ -46,6 +46,8 @@ extension RemoteTmuxControlConnection {
     ///   - onSessionChanged: fires when tmux confirms a session name change via
     ///     `%session-changed` or `%session-renamed`.
     ///   - onTopologyChanged: fires when the window/pane topology changes.
+    ///   - onReconnectReady: fires after reconnect attach drainage and reseeding,
+    ///     when observers may safely schedule commands against fresh topology.
     ///   - onExit: fires once when the connection PERMANENTLY ends (a genuine tmux
     ///     `%exit`, or a session found gone on reconnect). A transient transport loss
     ///     does NOT fire this — the connection reconnects instead.
@@ -60,6 +62,7 @@ extension RemoteTmuxControlConnection {
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)? = nil,
         onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)? = nil,
         onTopologyChanged: (() -> Void)? = nil,
+        onReconnectReady: (() -> Void)? = nil,
         onExit: (() -> Void)? = nil,
         onConnectionStateChanged: ((ConnectionState) -> Void)? = nil
     ) -> ObserverToken {
@@ -70,6 +73,7 @@ extension RemoteTmuxControlConnection {
             onActivePaneChanged: onActivePaneChanged,
             onSessionChanged: onSessionChanged,
             onTopologyChanged: onTopologyChanged,
+            onReconnectReady: onReconnectReady,
             onExit: onExit,
             onConnectionStateChanged: onConnectionStateChanged
         )

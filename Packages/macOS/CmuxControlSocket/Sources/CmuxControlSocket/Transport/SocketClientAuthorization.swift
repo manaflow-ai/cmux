@@ -28,4 +28,36 @@ public struct SocketClientAuthorization {
         }
         return false
     }
+
+    /// Returns the command carried by an authorized cmux-only request.
+    ///
+    /// Descendants retain the existing process-tree authorization. The
+    /// capability parameters form the runtime seam for terminals whose
+    /// process trees are later reparented by a multiplexer.
+    ///
+    /// - Parameters:
+    ///   - command: The raw command line received from the client.
+    ///   - peerProcessID: The PID reported by the accepted socket.
+    ///   - peerHasSameUID: Whether the peer runs as the same user as cmux.
+    ///   - capabilityAuthority: The authority that verifies inherited tokens.
+    ///   - isDescendant: Predicate that verifies current process ancestry.
+    /// - Returns: The unwrapped command when authorized, otherwise `nil`.
+    public func authorizedCommand(
+        _ command: String,
+        peerProcessID: pid_t?,
+        peerHasSameUID: Bool,
+        capabilityAuthority: SocketClientCapabilityAuthority,
+        isDescendant: (pid_t) -> Bool
+    ) -> String? {
+        let envelope = SocketClientCapabilityCommand(command)
+        if let peerProcessID, isDescendant(peerProcessID) {
+            return envelope?.command ?? command
+        }
+        guard peerHasSameUID,
+              let envelope,
+              capabilityAuthority.verifies(envelope.capability) else {
+            return nil
+        }
+        return envelope.command
+    }
 }

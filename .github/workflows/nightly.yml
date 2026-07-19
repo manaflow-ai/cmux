@@ -156,6 +156,27 @@ jobs:
           set -euo pipefail
           ./scripts/select-nightly-xcodes.sh
 
+      # Xcode 26 compilation caching reuses unchanged Swift/Clang compilation
+      # results even though each nightly uses a clean DerivedData directory.
+      # Rotate the immutable Actions cache key weekly: the first nightly saves
+      # that week's snapshot, while later nightlies restore it without uploading
+      # another multi-GB copy. Do not fall back across weeks, so a rejected cache
+      # cannot be restored forever. The post-build guard also caps snapshot size.
+      - name: Compute Xcode compilation cache key
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
+        id: compilation-cache-key
+        run: |
+          set -euo pipefail
+          echo "utc_week=$(date -u +%Y-W%W)" >> "$GITHUB_OUTPUT"
+          echo "toolchain=$(xcodebuild -version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Xcode compilation results
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: build-universal/CompilationCache.noindex
+          key: xcode-compilation-nightly-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ steps.compilation-cache-key.outputs.utc_week }}
+
       # Provide node/npm explicitly. The build/sign/notarize job can land on a
       # self-hosted macOS runner (the iOS-CI minis match the same label) that has
       # no npm on PATH, so `npm install --global create-dmg` failed with
@@ -244,8 +265,11 @@ jobs:
           CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
+            -showBuildTimingSummary \
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
+            COMPILATION_CACHE_ENABLE_CACHING=YES \
+            COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
           APP_STATUS=$?
           set -e
@@ -259,6 +283,23 @@ jobs:
           if [ "$HELPER_STATUS" -ne 0 ]; then
             echo "Universal Ghostty CLI helper build failed" >&2
             exit "$HELPER_STATUS"
+          fi
+
+      - name: Bound Xcode compilation cache size
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
+        run: |
+          set -euo pipefail
+          cache_path="build-universal/CompilationCache.noindex"
+          max_cache_kib=$((3 * 1024 * 1024))
+          if [ -d "$cache_path" ]; then
+            cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
+          else
+            cache_kib=0
+          fi
+          echo "Xcode compilation cache size: ${cache_kib} KiB (limit: ${max_cache_kib} KiB)"
+          if [ "$cache_kib" -gt "$max_cache_kib" ]; then
+            echo "Xcode compilation cache exceeds 3 GiB; skipping this week's cache save"
+            rm -rf "$cache_path"
           fi
 
       - name: Inject universal Ghostty CLI helper
@@ -505,6 +546,10 @@ jobs:
           fi
 
           cp "$TMP_PROFILE" "$PROFILE_PATH"
+
+      - name: Strip nightly release binaries
+        if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
+        run: ./scripts/strip-release-bundle.sh "build-universal/Build/Products/Release/cmux NIGHTLY.app"
 
       - name: Codesign apps
         if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')

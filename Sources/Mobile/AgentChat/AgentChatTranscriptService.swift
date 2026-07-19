@@ -91,6 +91,9 @@ final class AgentChatTranscriptService {
     private static var pendingResumeIntents: [PendingResumeIntent] = []
     /// The started service, used to apply resume re-binds immediately once live.
     private static weak var liveInstance: AgentChatTranscriptService?
+    static func isValidResumeSessionID(_ value: String) -> Bool {
+        !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     /// Records, from cmux's own authority, that it is resuming `sessionID` onto
     /// `surfaceID` (see
@@ -105,6 +108,7 @@ final class AgentChatTranscriptService {
         workspaceID: String?,
         workingDirectory: String?
     ) {
+        guard isValidResumeSessionID(sessionID) else { return }
         if let live = liveInstance {
             live.noteResumeInitiated(
                 sessionID: sessionID,

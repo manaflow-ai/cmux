@@ -80,13 +80,14 @@ extension RemoteSessionCoordinator {
         }
     }
 
-    /// Retires a generation synchronously through the shared tunnel owner when
-    /// its terminal wrapper ends, even after this coordinator starts stopping.
-    public func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String) {
+    /// Claims a generation through the shared owner and enqueues its retirement,
+    /// even after this coordinator starts stopping.
+    @discardableResult
+    public func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String) -> Bool {
         let sessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
         let lifecycleID = lifecycleID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !sessionID.isEmpty, !lifecycleID.isEmpty else { return }
-        proxyBroker.acknowledgePTYLifecycleAfterWrapperEnd(
+        guard !sessionID.isEmpty, !lifecycleID.isEmpty else { return false }
+        return proxyBroker.acknowledgePTYLifecycleAfterWrapperEnd(
             sessionID: sessionID,
             lifecycleID: lifecycleID
         )

@@ -1,3 +1,5 @@
+import CMUXMobileCore
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
@@ -64,7 +66,8 @@ extension WorkspaceListView {
         for mac in store?.displayPairedMacs ?? [] {
             names[mac.macDeviceID] = mac.resolvedName
         }
-        return names
+        guard let buildScope = MobileIOSBuildScope.current() else { return names }
+        return names.mapValues(buildScope.computerDisplayName)
     }
 
     var filterMenuPresentMachineIDs: [String] {

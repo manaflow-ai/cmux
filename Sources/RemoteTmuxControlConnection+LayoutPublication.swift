@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 
 extension RemoteTmuxControlConnection {
@@ -109,6 +110,7 @@ extension RemoteTmuxControlConnection {
     func flushInitialBatchIfDrained() {
         guard let awaiting = initialBatchAwaiting, awaiting.isEmpty else { return }
         for (id, window) in initialBatchStaged { windowsByID[id] = window }
+        rebuildPublishedPaneOwnership()
         initialBatchStaged = [:]
         initialBatchAwaiting = nil
         prunePaneState(keeping: Set(windowsByID.values.flatMap { $0.paneIDsInOrder }))
@@ -147,7 +149,7 @@ extension RemoteTmuxControlConnection {
         var rects: [Int: (x: Int, y: Int, width: Int, height: Int)] = [:]
         var labels: [Int: String] = [:]
         var activePane: Int?
-        var titleRowsVisible = false
+        var titleRowPlacement: RemoteTmuxPaneTitleRowPlacement?
         for line in lines {
             // "%id left top width height active border-status :format…" —
             // the expanded pane-border-format is last (it may contain
@@ -161,11 +163,7 @@ extension RemoteTmuxControlConnection {
             else { continue }
             rects[paneId] = (x: x, y: y, width: width, height: height)
             if parts[5] == "1" { activePane = paneId }
-            // Labels render only where tmux itself draws headers: `top` rows
-            // are the strips above each pane. (`bottom` rows keep faithful
-            // GEOMETRY via the rects, but carry no label — the strip-segment
-            // match keys on pane TOP edges.)
-            if parts[6] == "top" { titleRowsVisible = true }
+            titleRowPlacement = RemoteTmuxPaneTitleRowPlacement(rawValue: String(parts[6]))
             labels[paneId] = Self.strippingStyleTokens(String(parts[7].dropFirst()))
         }
         // The reply must cover EVERY pane of the tree it will publish:
@@ -194,8 +192,8 @@ extension RemoteTmuxControlConnection {
         for (paneId, label) in labels where paneHeaderLabels[paneId] != label {
             paneHeaderLabels[paneId] = label
         }
-        if windowTitleRowsVisible[windowId] != titleRowsVisible {
-            windowTitleRowsVisible[windowId] = titleRowsVisible
+        if windowTitleRowPlacements[windowId] != titleRowPlacement {
+            windowTitleRowPlacements[windowId] = titleRowPlacement
         }
         // The fetch's #{pane_active} is a fresh server snapshot: adopt it
         // whenever it differs, not only on first sight — an active-pane
@@ -235,6 +233,10 @@ extension RemoteTmuxControlConnection {
             return
         }
         windowsByID[windowId] = published
+        recordPublishedPaneOwnership(
+            windowId: windowId,
+            paneIds: published.paneIDsInOrder
+        )
         if !windowOrder.contains(windowId) { windowOrder.append(windowId) }
         prunePaneState(keeping: Set(windowsByID.values.flatMap { $0.paneIDsInOrder }))
         observers.notifyTopologyChanged()
@@ -247,6 +249,32 @@ extension RemoteTmuxControlConnection {
         // the true pre-apply size. One-shot guarded — no-op when already
         // consumed (or when reseedAfterReconnect ran it).
         scheduleAttachRedrawKickIfNeeded()
+    }
+
+    func recordPublishedPaneOwnership(windowId: Int, paneIds: [Int]) {
+        let livePaneIds = Set(paneIds)
+        publishedWindowIdByPane = publishedWindowIdByPane.filter {
+            $0.value != windowId || livePaneIds.contains($0.key)
+        }
+        for paneId in paneIds { publishedWindowIdByPane[paneId] = windowId }
+    }
+
+    func removePublishedPaneOwnership(windowId: Int) {
+        publishedWindowIdByPane = publishedWindowIdByPane.filter { $0.value != windowId }
+    }
+
+    func prunePublishedPaneOwnership(liveWindowIds: Set<Int>) {
+        publishedWindowIdByPane = publishedWindowIdByPane.filter {
+            liveWindowIds.contains($0.value)
+        }
+    }
+
+    func rebuildPublishedPaneOwnership() {
+        publishedWindowIdByPane.removeAll(keepingCapacity: true)
+        for windowId in windowOrder {
+            guard let window = windowsByID[windowId] else { continue }
+            for paneId in window.paneIDsInOrder { publishedWindowIdByPane[paneId] = windowId }
+        }
     }
 
 

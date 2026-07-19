@@ -1,4 +1,6 @@
+import AppKit
 import CmuxCommandPalette
+import CmuxFoundation
 import Foundation
 
 extension ContentView {
@@ -44,6 +46,22 @@ extension ContentView {
 
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.globalZoomIn",
+                title: constant(String(localized: "command.globalZoomIn.title", defaultValue: "App Zoom In")),
+                subtitle: constant(String(localized: "command.triggerFlash.subtitle", defaultValue: "View")),
+                keywords: ["app", "global", "zoom", "magnification", "font", "scale", "in", "bigger"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.globalZoomOut",
+                title: constant(String(localized: "command.globalZoomOut.title", defaultValue: "App Zoom Out")),
+                subtitle: constant(String(localized: "command.triggerFlash.subtitle", defaultValue: "View")),
+                keywords: ["app", "global", "zoom", "magnification", "font", "scale", "out", "smaller"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.browserZoomIn",
                 title: constant(String(localized: "command.browserZoomIn.title", defaultValue: "Zoom In")),
                 subtitle: panelSubtitle,
@@ -80,6 +98,16 @@ extension ContentView {
         }
         registry.register(commandId: "palette.sleepyMode") {
             SleepyModeController.shared.activate()
+        }
+        registry.register(commandId: "palette.globalZoomIn") {
+            if !GlobalFontMagnification.increasePercent() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.globalZoomOut") {
+            if !GlobalFontMagnification.decreasePercent() {
+                NSSound.beep()
+            }
         }
     }
 }

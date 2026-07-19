@@ -286,19 +286,19 @@ struct TitlebarControlsSizingPolicyTests {
     }
 
     @Test
-    func testTitlebarControlsDefaultStyleIsCompact() {
-        let suiteName = "TitlebarControlsDefaultStyleIsCompact-\(UUID().uuidString)"
+    func testTitlebarControlsDefaultStyleIsClassic() {
+        let suiteName = "TitlebarControlsDefaultStyleIsClassic-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        checkEqual(TitlebarControlsStyle.defaultStyle, .compact)
-        checkEqual(TitlebarControlsStyle.stored(in: defaults), .compact)
-
-        defaults.set(TitlebarControlsStyle.classic.rawValue, forKey: TitlebarControlsStyle.storageKey)
+        checkEqual(TitlebarControlsStyle.defaultStyle, .classic)
         checkEqual(TitlebarControlsStyle.stored(in: defaults), .classic)
 
-        defaults.set(999, forKey: TitlebarControlsStyle.storageKey)
+        defaults.set(TitlebarControlsStyle.compact.rawValue, forKey: TitlebarControlsStyle.storageKey)
         checkEqual(TitlebarControlsStyle.stored(in: defaults), .compact)
+
+        defaults.set(999, forKey: TitlebarControlsStyle.storageKey)
+        checkEqual(TitlebarControlsStyle.stored(in: defaults), .classic)
     }
 
     @Test

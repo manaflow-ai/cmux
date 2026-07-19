@@ -12,6 +12,10 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     public var displayName: String?
     /// Attach routes advertised by the Mac, ordered by priority (lowest first).
     public var routes: [CmxAttachRoute]
+    /// App-instance tag reported by this Mac over authenticated host status.
+    /// `nil` means an older host has not established instance-level authority;
+    /// route refresh then requires one unambiguous route-advertising instance.
+    public var instanceTag: String?
     /// When this pairing was first recorded.
     public var createdAt: Date
     /// When this pairing was last refreshed or used.
@@ -68,7 +72,8 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         teamID: String? = nil,
         customName: String? = nil,
         customColor: String? = nil,
-        customIcon: String? = nil
+        customIcon: String? = nil,
+        instanceTag: String? = nil
     ) {
         self.macDeviceID = macDeviceID
         self.displayName = displayName
@@ -81,5 +86,6 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         self.customName = customName
         self.customColor = customColor
         self.customIcon = customIcon
+        self.instanceTag = instanceTag
     }
 }

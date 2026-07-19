@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCanvas
+import CmuxFoundation
 import CmuxPanes
 import CmuxSettings
 
@@ -69,6 +70,28 @@ extension AppDelegate {
         } else {
             _ = routedManager?.toggleFocusedSplitZoom()
         }
+    }
+
+    /// Steps the app-wide global font magnification from a keyboard shortcut.
+    /// Shares the single mutation path with the Settings stepper and command
+    /// palette: `GlobalFontMagnification` persists the percent and broadcasts
+    /// `didChangeNotification`, which every terminal, browser, and chrome
+    /// observer already applies live.
+    @discardableResult
+    func performGlobalZoomShortcut(action: KeyboardShortcutSettings.Action) -> Bool {
+        let didChange: Bool
+        switch action {
+        case .globalZoomIn:
+            didChange = GlobalFontMagnification.increasePercent()
+        case .globalZoomOut:
+            didChange = GlobalFontMagnification.decreasePercent()
+        default:
+            return false
+        }
+        // Consume the chord even at the 50–200% bounds so it never falls
+        // through to the per-pane zooms and diverges by focus.
+        if !didChange { NSSound.beep() }
+        return true
     }
 
     func performBrowserOrTextPreviewZoomShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {

@@ -61,6 +61,7 @@ params = {
     # General-pairing QR grants Mac-wide access. Per-workspace deep links
     # use a different RPC path so they can stay scoped.
     "scope": "mac",
+    "target": "physical_device",
 }
 route_id = os.environ.get("ROUTE_ID", "").strip()
 route_kind = os.environ.get("ROUTE_KIND", "").strip()
@@ -81,19 +82,16 @@ CMUX_TAG="$TAG" "$REPO_ROOT/scripts/cmux-debug-cli.sh" rpc mobile.attach_ticket.
 chmod 600 "$RAW_JSON_TMP"
 mv "$RAW_JSON_TMP" "$RAW_JSON"
 
-REPO_ROOT="$REPO_ROOT" RAW_JSON="$RAW_JSON" HTML_PATH="$HTML_PATH" ROUTE_ID="$ROUTE_ID" ROUTE_KIND="$ROUTE_KIND" node --input-type=module <<'NODE'
+REPO_ROOT="$REPO_ROOT" RAW_JSON="$RAW_JSON" HTML_PATH="$HTML_PATH" node --input-type=module <<'NODE'
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
 
 const require = createRequire(import.meta.url);
 
 const repoRoot = process.env.REPO_ROOT;
 const rawPath = process.env.RAW_JSON;
 const htmlPath = process.env.HTML_PATH;
-const routeID = (process.env.ROUTE_ID || "").trim();
-const routeKind = (process.env.ROUTE_KIND || "").trim();
 
 main().catch((error) => {
   console.error(error.stack || String(error));
@@ -101,17 +99,12 @@ main().catch((error) => {
 });
 
 async function main() {
-const { buildAttachURL } = await import(
-  pathToFileURL(path.join(repoRoot, "scripts", "lib", "attach-url.mjs")).href
-);
-
-const rawPayload = JSON.parse(fs.readFileSync(rawPath, "utf8"));
-// Shared encode recipe: filter routes, base64url-encode the ticket, build the
-// channel-specific <scheme>://attach URL (dev scheme by default so this
-// debug-CLI QR routes to the dev iOS build via the system Camera). Same module
-// dev-setup.sh uses for headless minting.
-const { attachURL, routes, payload } = buildAttachURL(rawPayload, { routeID, routeKind });
-payload.attach_url = attachURL;
+const payload = JSON.parse(fs.readFileSync(rawPath, "utf8"));
+const attachURL = payload.attach_url;
+const routes = Array.isArray(payload.routes) ? payload.routes : [];
+if (typeof attachURL !== "string" || attachURL.length === 0) {
+  throw new Error("physical-device attach ticket did not include an attach_url");
+}
 
 let qrSVG = "";
 try {

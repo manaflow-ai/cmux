@@ -54,7 +54,7 @@ extension TerminalController {
         for summary in app.listMainWindowSummaries() {
             guard let tabManager = app.tabManagerFor(windowId: summary.windowId) else { continue }
             if let workspace = tabManager.tabs.first(where: {
-                $0.remoteTmuxWindowMirror(forPanelId: surfaceID) != nil
+                $0.isRemoteTmuxControlContainer(surfaceID)
             }) {
                 return (summary.windowId, tabManager, workspace)
             }
@@ -105,11 +105,9 @@ extension TerminalController {
             }
 
             var summaries = panelIDs.flatMap { containerPanelID -> [ControlPaneSummary] in
-                guard let mirror = workspace.remoteTmuxWindowMirror(forPanelId: containerPanelID) else {
-                    return []
-                }
-                return mirror.controlPanes().map { pane in
-                    ControlPaneSummary(
+                workspace.remoteTmuxControlPanes(containerPanelID: containerPanelID).map { location in
+                    let pane = location.pane
+                    return ControlPaneSummary(
                         paneID: pane.paneID.id,
                         isFocused: workspace.focusedPanelId == containerPanelID && pane.isFocused,
                         surfaceIDs: [pane.panel.id],
@@ -121,11 +119,11 @@ extension TerminalController {
             }
 
             let standardSurfaceIDs = panelIDs.filter {
-                workspace.remoteTmuxWindowMirror(forPanelId: $0) == nil
+                !workspace.isRemoteTmuxControlContainer($0)
             }
             guard !standardSurfaceIDs.isEmpty else { return summaries }
             let selectedStandardSurfaceID = selectedPanelID.flatMap { panelID in
-                workspace.remoteTmuxWindowMirror(forPanelId: panelID) == nil ? panelID : nil
+                workspace.isRemoteTmuxControlContainer(panelID) ? nil : panelID
             }
             summaries.append(ControlPaneSummary(
                 paneID: paneID.id,
@@ -167,9 +165,11 @@ extension TerminalController {
             remotePane = remoteLocation.pane
         } else if requestedPaneID == nil,
                   let focusedPanelID = workspace.focusedPanelId,
-                  let mirror = workspace.remoteTmuxWindowMirror(forPanelId: focusedPanelID) {
-            guard let activePane = mirror.activeControlPane() else { return nil }
-            remotePane = activePane
+                  workspace.isRemoteTmuxControlContainer(focusedPanelID) {
+            guard let activePane = workspace.activeRemoteTmuxControlPane(
+                containerPanelID: focusedPanelID
+            ) else { return nil }
+            remotePane = activePane.pane
         } else {
             remotePane = nil
         }
@@ -200,7 +200,7 @@ extension TerminalController {
         let surfaces = workspace.bonsplitController.tabs(inPane: paneID).compactMap {
             tab -> ControlPaneSurfaceSummary? in
             guard let panelID = workspace.panelIdFromSurfaceId(tab.id),
-                  workspace.remoteTmuxWindowMirror(forPanelId: panelID) == nil else {
+                  !workspace.isRemoteTmuxControlContainer(panelID) else {
                 return nil
             }
             let panel = workspace.panels[panelID]
@@ -275,9 +275,10 @@ extension TerminalController {
         }
 
         return orderedPanels(in: workspace).flatMap { panel -> [ControlSurfaceSummary] in
-            if let mirror = workspace.remoteTmuxWindowMirror(forPanelId: panel.id) {
-                return mirror.controlPanes().map { remotePane in
-                    ControlSurfaceSummary(
+            if workspace.isRemoteTmuxControlContainer(panel.id) {
+                return workspace.remoteTmuxControlPanes(containerPanelID: panel.id).map { location in
+                    let remotePane = location.pane
+                    return ControlSurfaceSummary(
                         surfaceID: remotePane.panel.id,
                         typeRawValue: remotePane.panel.panelType.rawValue,
                         title: remotePane.title,
@@ -323,8 +324,8 @@ extension TerminalController {
 
     func controlSurfacePanels(workspace: Workspace) -> [any Panel] {
         orderedPanels(in: workspace).flatMap { panel -> [any Panel] in
-            if let mirror = workspace.remoteTmuxWindowMirror(forPanelId: panel.id) {
-                return mirror.controlPanes().map { $0.panel }
+            if workspace.isRemoteTmuxControlContainer(panel.id) {
+                return workspace.remoteTmuxControlPanes(containerPanelID: panel.id).map { $0.pane.panel }
             }
             return [panel]
         }

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import * as ts from "typescript";
 import {
   flatNavItems,
+  hasNavItemContent,
   navItems,
   navItemsForLocale,
 } from "../app/[locale]/components/docs-nav-items";
@@ -55,12 +56,14 @@ const docsPageMessageKeys = {
 
 export function docsSearchRoutes() {
   return routing.locales.flatMap((locale) =>
-    flatNavItems(navItemsForLocale(locale)).map((navItem) => ({
-      locale,
-      navItem,
-      href: navItem.href,
-      path: localizedDocsPath(locale, navItem.href),
-    })),
+    flatNavItems(navItemsForLocale(locale))
+      .filter((navItem) => hasNavItemContent(navItem, locale))
+      .map((navItem) => ({
+        locale,
+        navItem,
+        href: navItem.href,
+        path: localizedDocsPath(locale, navItem.href),
+      })),
   );
 }
 

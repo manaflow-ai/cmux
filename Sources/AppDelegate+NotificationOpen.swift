@@ -8,9 +8,28 @@ extension AppDelegate {
         tabId: UUID,
         surfaceId: UUID?,
         panelId: UUID? = nil,
+        retargetsToLiveSurfaceOwner: Bool = true,
         notificationId: UUID?,
         scrollPosition: TerminalNotificationScrollPosition? = nil
     ) -> Bool {
+        // Resolve move provenance at click time. Trusted local notifications
+        // follow the pane's live owner; source-confined notifications open only
+        // their authorized workspace and drop a surface that moved elsewhere.
+        var tabId = tabId
+        var surfaceId = surfaceId
+        var panelId = panelId
+        var scrollPosition = scrollPosition
+        if let liveSurfaceId = panelId ?? surfaceId,
+           let owner = workspaceContainingPanel(panelId: liveSurfaceId, preferredWorkspaceId: tabId),
+           owner.workspace.id != tabId {
+            if retargetsToLiveSurfaceOwner {
+                tabId = owner.workspace.id
+            } else {
+                surfaceId = nil
+                panelId = nil
+                scrollPosition = nil
+            }
+        }
 #if DEBUG
         let isJumpUnreadUITest = ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1"
         if isJumpUnreadUITest {

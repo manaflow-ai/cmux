@@ -15,7 +15,7 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
     case softButtons
 
     static let storageKey = "titlebarControlsStyle"
-    static let defaultStyle = TitlebarControlsStyle.compact
+    static let defaultStyle = TitlebarControlsStyle.classic
     static var defaultRawValue: Int { defaultStyle.rawValue }
 
     var id: Int { rawValue }

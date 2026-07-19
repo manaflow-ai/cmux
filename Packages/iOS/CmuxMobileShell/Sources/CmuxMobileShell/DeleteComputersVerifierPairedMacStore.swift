@@ -40,6 +40,7 @@ actor DeleteComputersVerifierPairedMacStore: MobilePairedMacStoring {
         macDeviceID: String,
         displayName: String?,
         routes: [CmxAttachRoute],
+        instanceTag: String? = nil,
         markActive: Bool,
         stackUserID: String?,
         teamID: String?,
@@ -57,6 +58,7 @@ actor DeleteComputersVerifierPairedMacStore: MobilePairedMacStoring {
         if let index = records.firstIndex(where: { $0.macDeviceID == macDeviceID }) {
             records[index].displayName = displayName
             records[index].routes = routes
+            records[index].instanceTag = instanceTag
             records[index].lastSeenAt = now
             records[index].isActive = markActive
             records[index].stackUserID = stackUserID
@@ -70,9 +72,60 @@ actor DeleteComputersVerifierPairedMacStore: MobilePairedMacStoring {
                 lastSeenAt: now,
                 isActive: markActive,
                 stackUserID: stackUserID,
+                teamID: teamID,
+                instanceTag: instanceTag
+            ))
+        }
+    }
+
+    @discardableResult
+    func upsertRoutesIfAuthorized(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        condition: MobilePairedMacRouteWriteCondition,
+        markActive: Bool?,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool {
+        let index = records.firstIndex {
+            $0.macDeviceID == macDeviceID
+                && isVisibleInLoadScope($0, stackUserID: stackUserID, teamID: teamID)
+        }
+        switch condition {
+        case .matchingInstanceTag(let expectedInstanceTag):
+            guard let index, records[index].instanceTag == expectedInstanceTag else { return false }
+        case .unclaimed:
+            guard index.flatMap({ records[$0].instanceTag }) == nil else { return false }
+        }
+        if markActive == true {
+            records = records.map { mac in
+                var copy = mac
+                if isVisibleInActiveScope(copy, stackUserID: stackUserID, teamID: teamID) {
+                    copy.isActive = false
+                }
+                return copy
+            }
+        }
+        if let index {
+            records[index].displayName = displayName
+            records[index].routes = routes
+            records[index].lastSeenAt = now
+            if let markActive { records[index].isActive = markActive }
+        } else {
+            records.append(MobilePairedMac(
+                macDeviceID: macDeviceID,
+                displayName: displayName,
+                routes: routes,
+                createdAt: now,
+                lastSeenAt: now,
+                isActive: markActive ?? false,
+                stackUserID: stackUserID,
                 teamID: teamID
             ))
         }
+        return true
     }
 
     func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {

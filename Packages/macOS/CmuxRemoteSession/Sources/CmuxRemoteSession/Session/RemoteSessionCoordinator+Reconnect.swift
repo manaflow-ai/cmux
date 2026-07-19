@@ -10,7 +10,7 @@ extension RemoteSessionCoordinator {
     func scheduleReconnectLocked(baseDelay: TimeInterval) -> RetrySchedule {
         let retryNumber = reconnectRetryCount + 1
         let retryDelay = Self.retryDelay(baseDelay: baseDelay, retry: retryNumber)
-        guard !isStopping, !reconnectSuspended else {
+        guard !isStopping, !reconnectSuspended, !isSystemSleeping else {
             return RetrySchedule(retry: retryNumber, delay: retryDelay)
         }
         cancelReconnectRetryLocked()
@@ -41,7 +41,7 @@ extension RemoteSessionCoordinator {
         guard reconnectToken == token else { return }
         reconnectTask = nil
         reconnectToken = nil
-        guard !isStopping else { return }
+        guard !isStopping, !isSystemSleeping else { return }
         guard proxyLease == nil else { return }
         beginConnectionAttemptLocked()
     }
@@ -79,7 +79,7 @@ extension RemoteSessionCoordinator {
         generation: UInt64
     ) {
         guard generation == reachabilityProbeGeneration else { return }
-        guard !isStopping, !reconnectSuspended else { return }
+        guard !isStopping, !reconnectSuspended, !isSystemSleeping else { return }
         // The probe only judges a still-pending retry; if the retry resolved
         // while the probe ran, the connected/stopped paths own the state.
         guard reconnectToken != nil else { return }

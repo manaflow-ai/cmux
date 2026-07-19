@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { createNextNavigationMock } from "./helpers/next-navigation-mock";
 
 const purchaseModule = await import("../services/billing/purchase");
 const stripeModule = await import("../services/billing/stripe");
@@ -13,13 +14,7 @@ const retrieveSession = mock(async () => ({
   subscription: { status: "active" },
 }));
 
-mock.module("next/navigation", () => ({
-  redirect,
-  notFound: () => {
-    throw new Error("notFound");
-  },
-  permanentRedirect: redirect,
-}));
+mock.module("next/navigation", () => createNextNavigationMock(redirect));
 
 let acceptLanguage = "en";
 

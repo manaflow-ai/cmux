@@ -38,8 +38,9 @@ These defaults come from `Keys::default`.
 | `Ctrl-b }` | Swap the active pane with the next pane |
 | `Ctrl-b w` | Next workspace |
 | `Ctrl-b W` | New workspace |
-| `Ctrl-b s` | Toggle the workspace sidebar |
-| `Ctrl-b S` | Focus the sidebar plugin (when `sidebar.plugin` is configured; keys forward to it, `Ctrl-b` returns focus) |
+| `Ctrl-b s` | Show or hide the sidebar |
+| `Ctrl-b e` | Toggle the built-in sidebar between files and workspaces |
+| `Ctrl-b S` | Focus the built-in sidebar or configured sidebar plugin; a prefixed command returns focus to the pane |
 | `Ctrl-b h` or `Ctrl-b Left` | Focus left |
 | `Alt-h` or `Alt-Left` | Focus left |
 | `Ctrl-b l` or `Ctrl-b Right` | Focus right |
@@ -60,6 +61,12 @@ The screen bindings intentionally use tmux verbs: `c` creates a screen, `n` and 
 `Ctrl-b x` now follows tmux and closes the active pane. `Ctrl-b X` closes the active tab. Restore the old cmux behavior with `"close-tab": "x"` and `"close-pane": "X"` in `cmux-tui.json`.
 
 `Ctrl-b ]` is unbound because cmux has no paste-buffer concept. `Ctrl-b q` is unbound because there is no pane-number quick-jump overlay yet.
+
+## Focused Sidebar
+
+When the built-in sidebar is focused, `Tab` toggles files/workspaces without leaving sidebar focus. In the files view, Up/Down and Ctrl-J/Ctrl-K move the selection, Right descends into a directory, Enter descends or opens a file in a new `$EDITOR` tab, Left goes to the parent, `c` sends a safely quoted `cd` to the focused pane, `o` opens `.html` and `.md` files in a browser tab, `.` toggles dotfiles, `/` enters filter mode, and `~` follows the focused pane cwd again. Esc clears a nonempty filter before leaving filter mode.
+
+In the workspaces view, Up/Down move the selection and Enter activates it. Any normal prefixed command leaves sidebar focus and runs through the usual action table; `prefix S` only returns focus to the pane. A configured sidebar plugin keeps its existing PTY forwarding behavior.
 
 ## Modeless Alt Layer
 
@@ -141,6 +148,7 @@ new-screen
 next-workspace
 new-workspace
 toggle-sidebar
+toggle-sidebar-view
 focus-sidebar
 focus-left
 focus-right

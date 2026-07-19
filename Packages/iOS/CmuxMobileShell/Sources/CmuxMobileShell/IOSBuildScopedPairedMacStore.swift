@@ -13,16 +13,38 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
 
     private let inner: any MobilePairedMacStoring
     private let scope: MobileIOSBuildScope
+    private let mutationGate: PairedMacMutationGate
 
     public init(inner: any MobilePairedMacStoring, scope: MobileIOSBuildScope) {
         self.inner = inner
         self.scope = scope
+        self.mutationGate = PairedMacMutationGate()
     }
 
     public func upsert(
         macDeviceID: String,
         displayName: String?,
         routes: [CmxAttachRoute],
+        instanceTag: String? = nil,
+        markActive: Bool,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        try await mutationGate.withLock {
+            try await upsertUnlocked(
+                macDeviceID: macDeviceID, displayName: displayName,
+                routes: routes, instanceTag: instanceTag, markActive: markActive,
+                stackUserID: stackUserID, teamID: teamID, now: now
+            )
+        }
+    }
+
+    private func upsertUnlocked(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        instanceTag: String?,
         markActive: Bool,
         stackUserID: String?,
         teamID: String?,
@@ -39,6 +61,7 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
             macDeviceID: macDeviceID,
             displayName: displayName,
             routes: routes,
+            instanceTag: instanceTag,
             markActive: markActive,
             stackUserID: stackUserID,
             teamID: scopedTeamID(teamID),
@@ -58,14 +81,148 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    @discardableResult
+    public func upsertIfNewer(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        instanceTag: String?,
+        customName: String?,
+        customColor: String?,
+        customIcon: String?,
+        markActive: Bool,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool {
+        try await mutationGate.withLock {
+            try await upsertIfNewerUnlocked(
+                macDeviceID: macDeviceID, displayName: displayName,
+                routes: routes, instanceTag: instanceTag,
+                customName: customName, customColor: customColor,
+                customIcon: customIcon, markActive: markActive,
+                stackUserID: stackUserID, teamID: teamID, now: now
+            )
+        }
+    }
+
+    private func upsertIfNewerUnlocked(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        instanceTag: String?,
+        customName: String?,
+        customColor: String?,
+        customIcon: String?,
+        markActive: Bool,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool {
+        let selectedTeam = normalizedTeamID(teamID)
+        let selectedRows = try await scopedRows(stackUserID: stackUserID, teamID: teamID)
+        let fallbackRows = selectedTeam == nil
+            ? []
+            : try await scopedRows(stackUserID: stackUserID, teamID: nil)
+        let selected = selectedRows.first { $0.macDeviceID == macDeviceID }
+        let fallback = fallbackRows.first { $0.macDeviceID == macDeviceID }
+        if let fallback, fallback.lastSeenAt >= now { return false }
+        let currentTargetIsActive = selected?.isActive == true || fallback?.isActive == true
+        let logicalScopeHasActive = (selectedRows + fallbackRows).contains(where: \.isActive)
+        let restoreMarkActive = selected != nil || fallback != nil
+            ? currentTargetIsActive
+            : (markActive && !logicalScopeHasActive)
+        let wrote = try await inner.upsertIfNewer(
+            macDeviceID: macDeviceID,
+            displayName: displayName,
+            routes: routes,
+            instanceTag: instanceTag,
+            customName: customName,
+            customColor: customColor,
+            customIcon: customIcon,
+            markActive: restoreMarkActive,
+            stackUserID: stackUserID,
+            teamID: scopedTeamID(teamID),
+            now: now
+        )
+        guard wrote, fallback != nil, selectedTeam != nil else { return wrote }
+        try await inner.remove(
+            macDeviceID: macDeviceID,
+            stackUserID: stackUserID,
+            teamID: scopedTeamID(nil)
+        )
+        return true
+    }
+
+    @discardableResult
+    public func upsertRoutesIfAuthorized(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        condition: MobilePairedMacRouteWriteCondition,
+        markActive: Bool?,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool {
+        try await mutationGate.withLock {
+            let selectedTeam = normalizedTeamID(teamID)
+            let selected = try await scopedRows(stackUserID: stackUserID, teamID: teamID)
+                .first { $0.macDeviceID == macDeviceID }
+            let fallback = selectedTeam == nil
+                ? nil
+                : try await scopedRows(stackUserID: stackUserID, teamID: nil)
+                    .first { $0.macDeviceID == macDeviceID }
+            let targetsFallback = fallback.map {
+                selected == nil || (selected?.lastSeenAt ?? .distantPast) < $0.lastSeenAt
+            } ?? false
+            let targetTeamID = targetsFallback ? nil : teamID
+            let wrote = try await inner.upsertRoutesIfAuthorized(
+                macDeviceID: macDeviceID,
+                displayName: displayName,
+                routes: routes,
+                condition: condition,
+                // Active selection spans selected-team and legacy fallback rows,
+                // so apply activation through this decorator after authority wins.
+                markActive: markActive == true ? nil : markActive,
+                stackUserID: stackUserID,
+                teamID: scopedTeamID(targetTeamID),
+                now: now
+            )
+            if wrote, markActive == true {
+                try await setActiveUnlocked(
+                    macDeviceID: macDeviceID,
+                    stackUserID: stackUserID,
+                    teamID: teamID
+                )
+            }
+            return wrote
+        }
+    }
+
     public func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
         var byID: [String: MobilePairedMac] = [:]
         for mac in try await scopedRows(stackUserID: stackUserID, teamID: teamID) {
             byID[mac.macDeviceID] = mac
         }
         if normalizedTeamID(teamID) != nil {
+            // Restore/live races can briefly leave a selected-team row and its
+            // teamless fallback. Newest owns the host tuple; active is logical
+            // per physical Mac, so preserve it across the duplicate rows.
             for mac in try await scopedRows(stackUserID: stackUserID, teamID: nil) {
-                byID[mac.macDeviceID] = byID[mac.macDeviceID] ?? mac
+                guard let selected = byID[mac.macDeviceID] else {
+                    byID[mac.macDeviceID] = mac
+                    continue
+                }
+                if selected.lastSeenAt < mac.lastSeenAt {
+                    var newest = mac
+                    newest.isActive = selected.isActive || mac.isActive
+                    byID[mac.macDeviceID] = newest
+                } else if mac.isActive, !selected.isActive {
+                    var newest = selected
+                    newest.isActive = true
+                    byID[mac.macDeviceID] = newest
+                }
             }
         }
         return byID.values.sorted { lhs, rhs in
@@ -79,6 +236,18 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     }
 
     public func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        try await mutationGate.withLock {
+            try await setActiveUnlocked(
+                macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: teamID
+            )
+        }
+    }
+
+    private func setActiveUnlocked(
+        macDeviceID: String,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
         if normalizedTeamID(teamID) != nil {
             try await inner.clearActive(stackUserID: stackUserID, teamID: scopedTeamID(teamID))
             try await inner.clearActive(stackUserID: stackUserID, teamID: scopedTeamID(nil))
@@ -91,6 +260,12 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     }
 
     public func clearActive(stackUserID: String?, teamID: String?) async throws {
+        try await mutationGate.withLock {
+            try await clearActiveUnlocked(stackUserID: stackUserID, teamID: teamID)
+        }
+    }
+
+    private func clearActiveUnlocked(stackUserID: String?, teamID: String?) async throws {
         if normalizedTeamID(teamID) != nil {
             try await inner.clearActive(stackUserID: stackUserID, teamID: scopedTeamID(teamID))
             try await inner.clearActive(stackUserID: stackUserID, teamID: scopedTeamID(nil))
@@ -100,6 +275,24 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     }
 
     public func setCustomization(
+        macDeviceID: String,
+        customName: String?,
+        customColor: String?,
+        customIcon: String?,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        try await mutationGate.withLock {
+            try await setCustomizationUnlocked(
+                macDeviceID: macDeviceID, customName: customName,
+                customColor: customColor, customIcon: customIcon,
+                stackUserID: stackUserID, teamID: teamID, now: now
+            )
+        }
+    }
+
+    private func setCustomizationUnlocked(
         macDeviceID: String,
         customName: String?,
         customColor: String?,
@@ -134,6 +327,18 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     }
 
     public func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        try await mutationGate.withLock {
+            try await removeUnlocked(
+                macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: teamID
+            )
+        }
+    }
+
+    private func removeUnlocked(
+        macDeviceID: String,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
         try await inner.remove(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: scopedTeamID(teamID))
         if normalizedTeamID(teamID) != nil {
             try await inner.remove(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: scopedTeamID(nil))
@@ -141,6 +346,12 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     }
 
     public func removeAll() async throws {
+        try await mutationGate.withLock {
+            try await removeAllUnlocked()
+        }
+    }
+
+    private func removeAllUnlocked() async throws {
         for mac in try await inner.loadAll(stackUserID: nil, teamID: nil) where isScoped(mac) {
             try await inner.remove(macDeviceID: mac.macDeviceID, stackUserID: mac.stackUserID, teamID: mac.teamID)
         }

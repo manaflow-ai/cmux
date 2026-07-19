@@ -135,9 +135,9 @@ public final class SocketControlServer {
     /// The composition root must run exactly one long-lived consumer over
     /// this stream for the server's lifetime; descriptor ownership transfers
     /// with each yielded ``ControlConnection``. The stream spans listener
-    /// restarts and never finishes. Connections buffered but never consumed
-    /// keep their descriptors open, so a host without an eternal consumer
-    /// leaks descriptors by construction.
+    /// restarts and never finishes. At most `maximumBufferedConnections` wait
+    /// for that consumer. When the buffer is full, the accept path closes each
+    /// newly dropped descriptor.
     public nonisolated let connections: AsyncStream<ControlConnection>
     nonisolated let connectionsContinuation: AsyncStream<ControlConnection>.Continuation
 
@@ -156,12 +156,15 @@ public final class SocketControlServer {
     ///     backoff/rearm behavior.
     ///   - recoveryClock: Clock for recovery delays; defaults to the
     ///     continuous clock.
+    ///   - maximumBufferedConnections: Maximum accepted connections waiting
+    ///     for the stream consumer. New connections are closed when full.
     ///   - events: Host callback seam.
     public init(
         initialSocketPath: String = SocketControlSettings.stableDefaultSocketPath,
         transport: SocketTransport = SocketTransport(),
         listenerPolicy: SocketListenerPolicy = SocketListenerPolicy(),
         recoveryClock: any SocketRecoveryClock = SystemSocketRecoveryClock(),
+        maximumBufferedConnections: Int = 32,
         events: SocketControlServerEvents
     ) {
         let initialState = ListenerState(socketPath: initialSocketPath)
@@ -173,7 +176,9 @@ public final class SocketControlServer {
         self.recoveryClock = recoveryClock
         self.events = events
         (self.connections, self.connectionsContinuation) =
-            AsyncStream<ControlConnection>.makeStream()
+            AsyncStream<ControlConnection>.makeStream(
+                bufferingPolicy: .bufferingOldest(max(0, maximumBufferedConnections))
+            )
     }
 
     /// Runs `body` with exclusive access to the listener state and publishes

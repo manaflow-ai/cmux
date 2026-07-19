@@ -61,6 +61,12 @@ Values: `right`, `left`, `top`, `bottom`, `newTab`, `newWorkspace`.
 
 Default: `right`.
 
+## `shortcuts.bindings.globalZoomIn` and `shortcuts.bindings.globalZoomOut`
+
+App-wide zoom. Cmd+= steps the global font magnification (`app.globalFontMagnification`) up by 10%, Cmd+- steps it down. Every surface scales together: sidebar, tab bar, terminals, browser chrome, and panels. The level persists across restarts (50-200%, default 100%).
+
+These chords are routed before the per-pane `browserZoomIn`/`markdownZoomIn` zooms and the terminal's per-pane font-size shortcuts. Unbind or rebind `globalZoomIn`/`globalZoomOut` in **Settings > Keyboard Shortcuts** or via `shortcuts.bindings` to restore the per-pane behavior on Cmd+= / Cmd+-.
+
 ## `ui.newWorkspace.menuSectionOrder`
 
 Controls the section order in the titlebar `+` button menu. The Cloud VM section is built in; the custom section comes from `ui.newWorkspace.contextMenu`.
@@ -269,3 +275,31 @@ Default: `unified`.
 ```
 
 The toolbar layout toggle persists the last user choice for future generated diff viewers. Passing `cmux diff --layout split` or `cmux diff --layout unified` overrides both the saved toolbar choice and this default for that invocation.
+
+## `sidebar.beta.workspaceTodos.checklistStyle`
+
+Workspace todos are always available. Status is inferred from live signals (agent needs input / agent running / open PR / merged PRs / dirty tree) and can be pinned manually from the glyph's status popover, the row's context menu (Status submenu, Mark as Done), the command palette, or `cmux workspace status set <lane|auto>`; checklists are managed from the row, the workspace todo pane (`cmux todo open`), `cmux todo ...`, or by agents over the control socket.
+
+`checklistStyle` picks how a row's checklist opens from its summary line: `popover` (default) anchors a checklist popover to the summary line; `inline` expands the items under the row like round one.
+
+```json
+{
+  "sidebar": {
+    "beta": {
+      "workspaceTodos": {
+        "checklistStyle": "popover"
+      }
+    }
+  }
+}
+```
+
+Default: `enabled: false`. The setting turns on automatically the first time a status or checklist mutation succeeds from any entrypoint.
+
+Three keyboard shortcuts drive the todo state, all editable in **Settings > Keyboard Shortcuts** or `shortcuts.bindings`:
+
+- `markWorkspaceDone` (default `cmd+;`) pins the selected workspace's status to done.
+- `cycleWorkspaceStatus` (default `cmd+shift+;`) advances the status one lane forward (todo → working → needs-attention → review → done → todo).
+- `toggleChecklistItemComplete` (default `cmd+return`) toggles the highlighted checklist item in the focused todo pane or checklist popover.
+
+cmux also posts a notification when a workspace's status first reaches done, and when its checklist first becomes fully complete, so you can watch agent progress without keeping the pane open.

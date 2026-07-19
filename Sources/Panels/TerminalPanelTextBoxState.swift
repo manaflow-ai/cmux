@@ -11,8 +11,17 @@ final class TerminalPanelTextBoxState {
     private(set) var launchCommand: String?
     private var observedCommandRunningSinceLaunch = false
 
+    init(defaults: UserDefaults = .standard) {
+        selectedSubmitActionID = TerminalTextBoxInputSettings.rememberedSubmitActionIDValue(defaults: defaults)
+    }
+
     var pendingLaunchCommand: String? {
         observedCommandRunningSinceLaunch ? nil : launchCommand
+    }
+
+    func selectSubmitAction(_ id: String, defaults: UserDefaults = .standard) {
+        guard TerminalTextBoxInputSettings.rememberSubmitActionID(id, defaults: defaults) else { return }
+        selectedSubmitActionID = id
     }
 
     func recordLaunchCommand(_ rawCommand: String) {

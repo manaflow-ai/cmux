@@ -64,8 +64,9 @@ verify_ipa_bundle_identity() {
   local ipa="$1"
   local expected_bundle_id="$2"
   local team_id="$3"
+  local expected_crash_reporting="${4:-}"
   local expected_app_id="$team_id.$expected_bundle_id"
-  local workdir app plist_bundle_id profile_plist profile_app_id ent ent_app_id
+  local workdir app plist_bundle_id plist_crash_reporting profile_plist profile_app_id ent ent_app_id
 
   workdir="$(mktemp -d)"
   if ! ( cd "$workdir" && unzip -q "$ipa" ); then
@@ -85,6 +86,14 @@ verify_ipa_bundle_identity() {
     echo "error: signed IPA CFBundleIdentifier is '${plist_bundle_id:-<absent>}', expected '$expected_bundle_id': $app" >&2
     rm -rf "$workdir"
     return 1
+  fi
+  if [[ -n "$expected_crash_reporting" ]]; then
+    plist_crash_reporting="$("$PLISTBUDDY" -c 'Print :CMUXCrashReportingEnabled' "$app/Info.plist" 2>/dev/null || true)"
+    if [[ "$plist_crash_reporting" != "$expected_crash_reporting" ]]; then
+      echo "error: signed IPA CMUXCrashReportingEnabled is '${plist_crash_reporting:-<absent>}', expected '$expected_crash_reporting': $app" >&2
+      rm -rf "$workdir"
+      return 1
+    fi
   fi
 
   profile_plist="$workdir/profile.plist"
@@ -424,11 +433,13 @@ case "$LANE" in
     PRODUCT_BUNDLE_IDENTIFIER="dev.cmux.app.beta"
     PROVISIONING_PROFILE_NAME="${IOS_BETA_PROVISIONING_PROFILE_NAME:-cmux Beta Distribution}"
     PRODUCT_DISPLAY_NAME="${IOS_BETA_DISPLAY_NAME:-cmux BETA}"
+    CRASH_REPORTING_ENABLED="YES"
     ;;
   appstore)
     PRODUCT_BUNDLE_IDENTIFIER="${IOS_APPSTORE_BUNDLE_ID:-com.cmux.app}"
     PROVISIONING_PROFILE_NAME="${IOS_APPSTORE_PROVISIONING_PROFILE_NAME:-cmux App Store Distribution}"
     PRODUCT_DISPLAY_NAME="${IOS_APPSTORE_DISPLAY_NAME:-cmux}"
+    CRASH_REPORTING_ENABLED="NO"
     ;;
   *)
     echo "error: unsupported lane '$LANE'" >&2
@@ -724,6 +735,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
       PRODUCT_DISPLAY_NAME="$PRODUCT_DISPLAY_NAME" \
       CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+      CMUX_CRASH_REPORTING_ENABLED="$CRASH_REPORTING_ENABLED" \
       ${MARKETING_VERSION_ARGS[@]+"${MARKETING_VERSION_ARGS[@]}"} \
       CODE_SIGN_STYLE=Automatic \
       CODE_SIGNING_ALLOWED=YES \
@@ -745,6 +757,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
       PRODUCT_DISPLAY_NAME="$PRODUCT_DISPLAY_NAME" \
       CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+      CMUX_CRASH_REPORTING_ENABLED="$CRASH_REPORTING_ENABLED" \
       ${MARKETING_VERSION_ARGS[@]+"${MARKETING_VERSION_ARGS[@]}"} \
       CODE_SIGNING_ALLOWED=NO \
       CODE_SIGNING_REQUIRED=NO \
@@ -769,6 +782,13 @@ if [[ -n "$ARCHIVE_APP" && -d "$ARCHIVE_APP" ]]; then
   if [[ -n "$ARCHIVE_APP_BUNDLE_IDENTIFIER" && "$ARCHIVE_APP_BUNDLE_IDENTIFIER" != "$PRODUCT_BUNDLE_IDENTIFIER" ]]; then
     echo "error: archive app CFBundleIdentifier is '$ARCHIVE_APP_BUNDLE_IDENTIFIER' but lane '$LANE' requires '$PRODUCT_BUNDLE_IDENTIFIER'. Re-archive for the selected lane." >&2
     exit 1
+  fi
+  if [[ "$LANE" == "appstore" ]]; then
+    ARCHIVE_CRASH_REPORTING_ENABLED="$("$PLISTBUDDY" -c 'Print :CMUXCrashReportingEnabled' "$ARCHIVE_APP/Info.plist" 2>/dev/null || true)"
+    if [[ "$ARCHIVE_CRASH_REPORTING_ENABLED" != "NO" ]]; then
+      echo "error: App Store archive CMUXCrashReportingEnabled is '${ARCHIVE_CRASH_REPORTING_ENABLED:-<absent>}', expected 'NO'; refusing to export" >&2
+      exit 1
+    fi
   fi
 fi
 
@@ -1030,7 +1050,9 @@ fi
 
 echo "IPA_PATH=$IPA_PATH"
 
-if ! verify_ipa_bundle_identity "$IPA_PATH" "$PRODUCT_BUNDLE_IDENTIFIER" "$DEVELOPMENT_TEAM"; then
+EXPECTED_IPA_CRASH_REPORTING=""
+[[ "$LANE" == "appstore" ]] && EXPECTED_IPA_CRASH_REPORTING="NO"
+if ! verify_ipa_bundle_identity "$IPA_PATH" "$PRODUCT_BUNDLE_IDENTIFIER" "$DEVELOPMENT_TEAM" "$EXPECTED_IPA_CRASH_REPORTING"; then
   echo "error: signed IPA bundle identity does not match lane '$LANE'; refusing to upload" >&2
   exit 1
 fi

@@ -1,13 +1,9 @@
 import Bonsplit
+import CmuxWorkspaces
 import Foundation
 
 @MainActor
 extension Workspace {
-    typealias RemoteTmuxControlPaneLocation = (
-        containerPanelID: UUID,
-        mirror: RemoteTmuxWindowMirror,
-        pane: RemoteTmuxControlPane
-    )
     typealias ControlSurfaceProjection = (
         surfaceID: UUID,
         paneID: UUID?,
@@ -20,21 +16,66 @@ extension Workspace {
     }
 
     func remoteTmuxControlPane(paneID: UUID) -> RemoteTmuxControlPaneLocation? {
+        if let sessionMirror = remoteTmuxSessionMirror {
+            return sessionMirror.controlPaneLocation(paneID: paneID)
+        }
         for (containerPanelID, mirror) in remoteTmuxWindowMirrors {
             if let pane = mirror.controlPane(paneID: paneID) {
-                return (containerPanelID, mirror, pane)
+                return RemoteTmuxControlPaneLocation(
+                    containerPanelID: containerPanelID,
+                    owner: mirror,
+                    windowMirror: mirror,
+                    pane: pane
+                )
             }
         }
         return nil
     }
 
     func remoteTmuxControlPane(surfaceID: UUID) -> RemoteTmuxControlPaneLocation? {
+        if let sessionMirror = remoteTmuxSessionMirror {
+            return sessionMirror.controlPaneLocation(surfaceID: surfaceID)
+        }
         for (containerPanelID, mirror) in remoteTmuxWindowMirrors {
             if let pane = mirror.controlPane(surfaceID: surfaceID) {
-                return (containerPanelID, mirror, pane)
+                return RemoteTmuxControlPaneLocation(
+                    containerPanelID: containerPanelID,
+                    owner: mirror,
+                    windowMirror: mirror,
+                    pane: pane
+                )
             }
         }
         return nil
+    }
+
+    func remoteTmuxControlPanes(
+        containerPanelID: UUID
+    ) -> [RemoteTmuxControlPaneLocation] {
+        if let sessionMirror = remoteTmuxSessionMirror {
+            return sessionMirror.controlPaneLocations(containerPanelID: containerPanelID)
+        }
+        guard let mirror = remoteTmuxWindowMirrors[containerPanelID] else { return [] }
+        return mirror.controlPanes().map {
+            RemoteTmuxControlPaneLocation(
+                containerPanelID: containerPanelID,
+                owner: mirror,
+                windowMirror: mirror,
+                pane: $0
+            )
+        }
+    }
+
+    func isRemoteTmuxControlContainer(_ panelID: UUID) -> Bool {
+        remoteTmuxSessionMirror?.windowId(forPanel: panelID) != nil
+            || remoteTmuxWindowMirrors[panelID] != nil
+    }
+
+    func activeRemoteTmuxControlPane(
+        containerPanelID: UUID
+    ) -> RemoteTmuxControlPaneLocation? {
+        let locations = remoteTmuxControlPanes(containerPanelID: containerPanelID)
+        return locations.first(where: { $0.pane.isFocused }) ?? locations.first
     }
 
     /// Resolves every mirror-owned surface identity without conflating an
@@ -43,13 +84,43 @@ extension Workspace {
         if let location = remoteTmuxControlPane(surfaceID: surfaceID) {
             return .pane(location)
         }
-        guard remoteTmuxWindowMirror(forPanelId: surfaceID) != nil else {
+        guard isRemoteTmuxControlContainer(surfaceID) else {
             return .notRemote
         }
         // The wrapper UUID identifies the mirror container, not a tmux pane.
         // Never alias it to the mutable active pane: callers may cache handles,
         // and a later focus publication would silently retarget that handle.
         return .unresolvedMirror
+    }
+
+    /// Intercepts focus requests the remote tmux layer owns. Focus activation
+    /// is dropped while mirror mutations suppress it, and a mirror-projected
+    /// pane surface — which is not a Bonsplit tab, so the ordinary focus path
+    /// cannot resolve it — routes through the pane's sole mutation owner
+    /// (select-pane on the remote) before focusing the mirror's container
+    /// panel, mirroring `focusRemoteTmuxControlPane`. A single-pane session
+    /// window projects its display panel as both container and surface; that
+    /// identity stays on the ordinary focus path, both to terminate the
+    /// container recursion and because the container is a real Bonsplit tab
+    /// the ordinary path already handles. Returns true when the request was
+    /// consumed.
+    func remoteTmuxMirrorInterceptsFocusPanel(
+        _ panelId: UUID,
+        previousHostedView: GhosttySurfaceScrollView?,
+        trigger: FocusPanelTrigger,
+        focusIntent: PanelFocusIntent?
+    ) -> Bool {
+        if remoteTmuxMirrorMutations.suppressesFocusActivation { return true }
+        guard let location = remoteTmuxControlPane(surfaceID: panelId),
+              location.containerPanelID != panelId else { return false }
+        _ = location.controlFocus()
+        focusPanel(
+            location.containerPanelID,
+            previousHostedView: previousHostedView,
+            trigger: trigger,
+            focusIntent: focusIntent
+        )
+        return true
     }
 
     /// Canonicalizes an explicit control-plane terminal target. Hidden mirror
@@ -82,9 +153,11 @@ extension Workspace {
     func controlSurfaceProjection(
         forContainerPanelID containerPanelID: UUID
     ) -> ControlSurfaceProjection? {
-        if let mirror = remoteTmuxWindowMirror(forPanelId: containerPanelID) {
-            guard let active = mirror.activeControlPane() else { return nil }
-            return (active.panel.id, active.paneID.id, active.panel)
+        if isRemoteTmuxControlContainer(containerPanelID) {
+            guard let active = activeRemoteTmuxControlPane(containerPanelID: containerPanelID) else {
+                return nil
+            }
+            return (active.pane.panel.id, active.pane.paneID.id, active.pane.panel)
         }
         guard let panel = panels[containerPanelID] else { return nil }
         return (containerPanelID, paneId(forPanelId: containerPanelID)?.id, panel)
@@ -102,7 +175,7 @@ extension Workspace {
             if let paneID = bonsplitController.allPaneIds.first(where: { $0.id == requestedPaneID }),
                let tab = bonsplitController.selectedTab(inPane: paneID),
                let panelID = panelIdFromSurfaceId(tab.id),
-               remoteTmuxWindowMirror(forPanelId: panelID) == nil,
+               !isRemoteTmuxControlContainer(panelID),
                let panel = terminalPanel(for: panelID) {
                 return (panelID, panel)
             }

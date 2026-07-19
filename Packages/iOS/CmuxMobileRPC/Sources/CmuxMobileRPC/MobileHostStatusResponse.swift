@@ -22,6 +22,9 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
     /// which paired-Mac record the connection belongs to (reconnect-on-launch
     /// and the host switcher key on it). `nil` from older Macs.
     public let macDeviceID: String?
+    /// The Mac app instance's authoritative route tag. `nil` from older Macs
+    /// that predate per-instance route authority.
+    public let macInstanceTag: String?
     /// The Mac app's marketing version, for warning-only compatibility checks.
     public let macAppVersion: String?
     /// The Mac app's build number, for warning display.
@@ -38,6 +41,7 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
         case terminalFidelity = "terminal_fidelity"
         case macDisplayName = "mac_display_name"
         case macDeviceID = "mac_device_id"
+        case macInstanceTag = "mac_instance_tag"
         case macAppVersion = "mac_app_version"
         case macAppBuild = "mac_app_build"
         case theme
@@ -49,6 +53,7 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
         terminalFidelity = try container.decodeIfPresent(String.self, forKey: .terminalFidelity)
         macDisplayName = try container.decodeIfPresent(String.self, forKey: .macDisplayName)
         macDeviceID = try container.decodeIfPresent(String.self, forKey: .macDeviceID)
+        macInstanceTag = try container.decodeIfPresent(String.self, forKey: .macInstanceTag)
         macAppVersion = try container.decodeIfPresent(String.self, forKey: .macAppVersion)
         macAppBuild = try container.decodeIfPresent(String.self, forKey: .macAppBuild)
         // A present-but-malformed `theme` must not fail the whole status decode.

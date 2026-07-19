@@ -32,12 +32,4 @@ extension RemoteTmuxWindowMirror {
         guard let activePaneId else { return nil }
         return controlPanes().first(where: { $0.tmuxPaneID == activePaneId })
     }
-
-    /// Drops app-lifetime control refs before a projected pane leaves the
-    /// mirror-owned topology; these panels bypass Workspace panel lifecycle.
-    func cleanupControlPane(tmuxPaneID: Int) {
-        guard let paneID = syntheticPaneID(forPane: tmuxPaneID),
-              let surfaceID = panel(forPane: tmuxPaneID)?.id else { return }
-        onControlPaneRemoved?(paneID, surfaceID)
-    }
 }

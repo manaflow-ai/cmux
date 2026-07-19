@@ -1,6 +1,32 @@
 import Foundation
 
 /// Resolves rendered iOS workspace list drags into Mac-facing move intents.
+///
+/// Policy table, mirroring the Mac sidebar/host write path:
+/// - Group headers move the whole group as a top-level row only; drops that
+///   visually land inside another group normalize to that group's anchor
+///   boundary. See `SidebarWorkspaceReorderDropResolver` group-header routing
+///   and `TerminalController.mobileWorkspaceMoveTopLevelBeforeID`.
+/// - Group anchors are rendered only as headers. Dragging the header moves the
+///   group; workspace-row drags never change an anchor's membership.
+/// - The gap below an expanded header joins that group, including anchor-only
+///   groups. Header/member and same-group member/member gaps also stay in-group.
+/// - Populated expanded groups render an end-of-group slot: dropping before it
+///   joins the group at its end (members and external workspaces alike), and
+///   dropping after it lands at root right after the group — the direct touch
+///   equivalent of the Mac's boundary pointer lane.
+/// - When no slot exists (empty groups, collapsed groups, or item arrays
+///   without footers), the mixed gap after a group's last member falls back to
+///   Mac neighbor inference: a workspace already in that group stays at its
+///   end; any other workspace lands at root before the next top-level row. See
+///   `WorkspaceReorderCoordinator.applyDragInferredGroupMembership` lines 421-457.
+/// - Collapsed group headers expose only a top-level root slot.
+/// - Pinned top-level rows form a leading tier. A moved workspace uses its own
+///   pin state; a moved group uses the group's pin state. In-group member order
+///   is anchor first, pinned members, then unpinned members.
+/// - Unknown groups or before-workspace IDs are rejected before an RPC can be
+///   emitted, matching the host's `not_found`/invalid-request behavior without
+///   producing a doomed optimistic order.
 struct MobileWorkspaceListMoveIntentResolver {
     let items: [MobileWorkspaceListItem]
     let workspaces: [MobileWorkspacePreview]
@@ -38,7 +64,6 @@ struct MobileWorkspaceListMoveIntentResolver {
             remainingItems.endIndex
         )
 
-        let currentGroupID = validGroupID(movedWorkspace.groupID)
         let orderedWithoutMoved = workspaces.filter { $0.id != movedWorkspace.id }
         let previousItem = insertionIndex > remainingItems.startIndex
             ? remainingItems[remainingItems.index(before: insertionIndex)]
@@ -51,31 +76,16 @@ struct MobileWorkspaceListMoveIntentResolver {
         let proposed = movesGroup
             ? rootLevelIntent(nextItem: nextItem, workspaces: orderedWithoutMoved)
             : proposedIntent(
+                movedWorkspace: movedWorkspace,
                 previousItem: previousItem,
                 nextItem: nextItem,
                 workspaces: orderedWithoutMoved
             )
 
-        guard let intent = proposed else { return nil }
-        let changesWorkspaceOrder = if movesGroup {
-            currentGroupID.map {
-                changesGroupOrder(
-                    movedGroupID: $0,
-                    beforeWorkspaceID: intent.beforeWorkspaceID
-                )
-            } ?? false
-        } else {
-            intent.groupID != currentGroupID || changesOrder(
-                draggedWorkspaceID: movedWorkspace.id,
-                beforeWorkspaceID: intent.beforeWorkspaceID
-            )
-        }
-        guard changesWorkspaceOrder else { return nil }
-        return MobileWorkspaceMoveIntent(
-            groupID: intent.groupID,
-            beforeWorkspaceID: intent.beforeWorkspaceID,
-            movesGroup: movesGroup
-        )
+        guard var proposed else { return nil }
+        proposed.movesGroup = movesGroup
+        return MobileWorkspaceMovePolicy(workspaces: workspaces, groups: groups)
+            .normalizedIntent(proposed, movedWorkspaceID: movedWorkspace.id)
     }
 
     private func movedWorkspace(for item: MobileWorkspaceListItem) -> MobileWorkspacePreview? {
@@ -97,6 +107,7 @@ struct MobileWorkspaceListMoveIntentResolver {
     }
 
     private func proposedIntent(
+        movedWorkspace: MobileWorkspacePreview,
         previousItem: MobileWorkspaceListItem?,
         nextItem: MobileWorkspaceListItem?,
         workspaces: [MobileWorkspacePreview]
@@ -130,7 +141,12 @@ struct MobileWorkspaceListMoveIntentResolver {
                         beforeWorkspaceID: nextWorkspace.id
                     )
                 }
-                return rootLevelIntent(nextItem: nextItem, workspaces: workspaces)
+                return intentAfterLastGroupMember(
+                    movedWorkspace: movedWorkspace,
+                    groupID: previousGroupID,
+                    nextItem: nextItem,
+                    workspaces: workspaces
+                )
 
             case .groupFooter(let footerGroupID):
                 guard footerGroupID == previousGroupID else {
@@ -142,12 +158,32 @@ struct MobileWorkspaceListMoveIntentResolver {
                 )
 
             case .groupHeader, nil:
-                return rootLevelIntent(nextItem: nextItem, workspaces: workspaces)
+                return intentAfterLastGroupMember(
+                    movedWorkspace: movedWorkspace,
+                    groupID: previousGroupID,
+                    nextItem: nextItem,
+                    workspaces: workspaces
+                )
             }
 
         case nil:
             return rootLevelIntent(nextItem: nextItem, workspaces: workspaces)
         }
+    }
+
+    private func intentAfterLastGroupMember(
+        movedWorkspace: MobileWorkspacePreview,
+        groupID: MobileWorkspaceGroupPreview.ID,
+        nextItem: MobileWorkspaceListItem?,
+        workspaces: [MobileWorkspacePreview]
+    ) -> MobileWorkspaceMoveIntent {
+        guard validGroupID(movedWorkspace.groupID) == groupID else {
+            return rootLevelIntent(nextItem: nextItem, workspaces: workspaces)
+        }
+        return MobileWorkspaceMoveIntent(
+            groupID: groupID,
+            beforeWorkspaceID: workspaceAfterGroup(groupID, workspaces: workspaces)
+        )
     }
 
     private func rootLevelIntent(
@@ -214,26 +250,5 @@ struct MobileWorkspaceListMoveIntentResolver {
         let nextIndex = workspaces.index(after: lastMemberIndex)
         guard nextIndex < workspaces.endIndex else { return nil }
         return workspaces[nextIndex].id
-    }
-
-    private func changesOrder(
-        draggedWorkspaceID: MobileWorkspacePreview.ID,
-        beforeWorkspaceID: MobileWorkspacePreview.ID?
-    ) -> Bool {
-        var ids = workspaces.map(\.id)
-        guard let currentIndex = ids.firstIndex(of: draggedWorkspaceID) else { return false }
-        ids.remove(at: currentIndex)
-        let targetIndex = beforeWorkspaceID.flatMap { ids.firstIndex(of: $0) } ?? ids.endIndex
-        ids.insert(draggedWorkspaceID, at: targetIndex)
-        return ids != workspaces.map(\.id)
-    }
-
-    private func changesGroupOrder(
-        movedGroupID: MobileWorkspaceGroupPreview.ID,
-        beforeWorkspaceID: MobileWorkspacePreview.ID?
-    ) -> Bool {
-        MobileWorkspaceOrderMoveApplier(workspaces: workspaces)
-            .applyingGroupMove(movedGroupID: movedGroupID, beforeWorkspaceID: beforeWorkspaceID)
-            .map(\.id) != workspaces.map(\.id)
     }
 }

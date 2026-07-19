@@ -42,6 +42,13 @@ extension BrowserPaneDropTargetView: FileDropPaneTarget {
 final class FileDropOverlayView: NSView {
     /// Fallback handler when no terminal is found under the drop point.
     var onDrop: (([URL]) -> Bool)?
+    /// Opens each dropped folder as a new workspace when a Finder folder drop
+    /// lands over the sidebar. Set in configureFileDropOverlay.
+    var onFoldersDroppedOnSidebar: (([URL]) -> Bool)?
+    /// Caches the directory filtering for one drag session so the filesystem is not
+    /// stat'd on every draggingUpdated. Keyed by draggingSequenceNumber.
+    private var sidebarDropCacheSequence: Int?
+    private var sidebarDropCacheDirectories: [URL]?
     private var isForwardingMouseEvent = false
     private weak var forwardedMouseDragTarget: NSView?
     private var forwardedMouseDragButton: ForwardedMouseDragButton?
@@ -61,6 +68,40 @@ final class FileDropOverlayView: NSView {
     let hintBadgeView = FileDropHintBadgeView(frame: .zero)
     var lastHitTestLogSignature: String?
     var lastDragRouteLogSignatureByPhase: [String: String] = [:]
+
+    enum SidebarFolderDropClassification {
+        case openFolders([URL])
+        case rejectOverSidebar
+        case notSidebar
+    }
+
+    /// Classifies a Finder file drag by whether it is over the sidebar and whether it
+    /// contains at least one directory. Folders only; a file dropped over the sidebar
+    /// is rejected so it does not fall through to terminal path insertion. Only external
+    /// (Finder) drags classify; internal app drags fall through untouched.
+    func classifySidebarFolderDrop(_ sender: any NSDraggingInfo) -> SidebarFolderDropClassification {
+        guard sender.draggingSource == nil,
+              let window,
+              SidebarDropRegionRegistry.containsWindowPoint(sender.draggingLocation, in: window)
+        else { return .notSidebar }
+        let directories = cachedDroppedDirectories(sender)
+        return directories.isEmpty ? .rejectOverSidebar : .openFolders(directories)
+    }
+
+    /// The dropped directories for this drag session. The pasteboard is immutable for the
+    /// life of a drag, so this reads and stat-checks once per draggingSequenceNumber and
+    /// reuses the result across the many draggingUpdated callbacks.
+    private func cachedDroppedDirectories(_ sender: any NSDraggingInfo) -> [URL] {
+        let sequence = sender.draggingSequenceNumber
+        if sidebarDropCacheSequence == sequence, let cached = sidebarDropCacheDirectories {
+            return cached
+        }
+        let urls = PasteboardFileURLReader.fileURLs(from: sender.draggingPasteboard)
+        let directories = DirectoryDropFilter.directories(among: urls)
+        sidebarDropCacheSequence = sequence
+        sidebarDropCacheDirectories = directories
+        return directories
+    }
 
     override var acceptsFirstResponder: Bool { false }
 
@@ -248,7 +289,7 @@ final class FileDropOverlayView: NSView {
         exitActiveDragTargets(sender)
     }
 
-    private func exitActiveDragTargets(_ sender: (any NSDraggingInfo)?) {
+    func exitActiveDragTargets(_ sender: (any NSDraggingInfo)?) {
         if let prev = activeDragWebView {
             prev.draggingExited(sender)
             activeDragWebView = nil
@@ -290,6 +331,14 @@ final class FileDropOverlayView: NSView {
             pasteboardTypes: types,
             hasLocalDraggingSource: hasLocalDraggingSource
         )
+        switch classifySidebarFolderDrop(sender) {
+        case .openFolders:
+            return true
+        case .rejectOverSidebar:
+            return false
+        case .notSidebar:
+            break
+        }
         if shouldRouteFileDropToTextDestination(sender) {
             let paneDropTarget = activePaneDropTarget ?? paneDropTargetForTextDrop(at: sender.draggingLocation)
             let webView = paneDropTarget == nil ? (activeDragWebView ?? webViewUnderPoint(sender.draggingLocation)) : nil
@@ -352,6 +401,14 @@ final class FileDropOverlayView: NSView {
             pasteboardTypes: types,
             hasLocalDraggingSource: hasLocalDraggingSource
         )
+        switch classifySidebarFolderDrop(sender) {
+        case .openFolders(let directories):
+            return onFoldersDroppedOnSidebar?(directories) ?? false
+        case .rejectOverSidebar:
+            return false
+        case .notSidebar:
+            break
+        }
         if shouldRouteFileDropToTextDestination(sender) {
             hintBadgeView.hide()
             didPerformDragAsText = false

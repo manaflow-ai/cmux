@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
+import { legalMetadata } from "../legal-metadata";
 
-export const metadata: Metadata = {
-  title: "Terms of Service — cmux",
-  description: "Terms of service for cmux",
-  alternates: { canonical: "https://cmux.com/terms-of-service" },
-};
+export const metadata: Metadata = legalMetadata(
+  "/terms-of-service",
+  "Terms of Service — cmux",
+  "Terms of service for the cmux website and macOS application",
+);
 
 export default function TermsOfServicePage() {
   return (

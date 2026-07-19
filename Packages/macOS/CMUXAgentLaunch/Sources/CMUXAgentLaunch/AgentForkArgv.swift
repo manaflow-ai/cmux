@@ -62,12 +62,17 @@ public struct AgentForkArgv: Sendable, Equatable {
     ///   - sessionId: The session/thread id to fork.
     ///   - executablePath: The captured executable path, if any.
     ///   - arguments: The captured launch argv, including the executable as element zero.
+    ///   - observedPermissionMode: The hook-observed Claude permission mode the session last ran
+    ///     in, re-applied via
+    ///     ``AgentResumeArgv/claudeArgvApplyingObservedPermissionMode(_:observedPermissionMode:)``
+    ///     for user-owned claude forks; ignored for every other kind.
     /// - Returns: The fork argv when the kind has a sanitizer-approved fork form, or `nil`.
     public func builtInKind(
         kind: String,
         sessionId: String,
         executablePath: String?,
-        arguments: [String]
+        arguments: [String],
+        observedPermissionMode: String? = nil
     ) -> [String]? {
         switch kind {
         case "claude":
@@ -75,7 +80,10 @@ public struct AgentForkArgv: Sendable, Equatable {
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: parts.tail) else {
                 return nil
             }
-            return ["claude", "--resume", sessionId, "--fork-session"] + preserved
+            return AgentResumeArgv.claudeArgvApplyingObservedPermissionMode(
+                ["claude", "--resume", sessionId, "--fork-session"] + preserved,
+                observedPermissionMode: observedPermissionMode
+            )
         case "codex":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "codex")
             guard let preserved = preservedCodexForkArguments(

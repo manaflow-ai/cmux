@@ -1,3 +1,4 @@
+import CmuxAgentChat
 import SwiftUI
 
 #if canImport(UIKit)
@@ -11,6 +12,7 @@ struct ChatBlockDetailSheetView: View {
     let onOpenTerminal: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.chatArtifactLoader) private var artifactLoader
 
     init(detail: ChatBlockDetail, onOpenTerminal: (() -> Void)? = nil) {
         self.detail = detail
@@ -29,6 +31,9 @@ struct ChatBlockDetailSheetView: View {
                     }
                     ForEach(detail.sections) { section in
                         ChatBlockDetailSectionView(section: section)
+                    }
+                    if artifactLoader.supportsArtifacts, !detail.artifactPaths.isEmpty {
+                        ChatBlockDetailArtifactActions(paths: detail.artifactPaths)
                     }
                 }
                 .padding(16)
@@ -96,5 +101,87 @@ struct ChatBlockDetailSheetView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(detail.copyText, forType: .string)
         #endif
+    }
+}
+
+private struct ChatBlockDetailArtifactActions: View {
+    let paths: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(String(localized: "chat.artifact.actions.title", defaultValue: "Referenced Files", bundle: .module))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            ForEach(deduplicatedPaths, id: \.self) { path in
+                ChatBlockDetailArtifactActionRow(path: path)
+            }
+        }
+    }
+
+    private var deduplicatedPaths: [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+        for path in paths where !path.isEmpty && seen.insert(path).inserted {
+            result.append(path)
+        }
+        return result
+    }
+}
+
+private struct ChatBlockDetailArtifactActionRow: View {
+    let path: String
+
+    @Environment(\.chatArtifactLoader) private var loader
+    @State private var stat: ChatArtifactStat?
+    @State private var selectedArtifact: ChatArtifactPathSelection?
+    @State private var selectedFolder: ChatArtifactPathSelection?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(URL(fileURLWithPath: path).lastPathComponent)
+                    .font(.footnote.weight(.medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(path)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 8)
+            if stat?.isDirectory == true {
+                Button {
+                    selectedFolder = ChatArtifactPathSelection(path: path)
+                } label: {
+                    Label(
+                        String(localized: "chat.artifact.browse_folder", defaultValue: "Browse folder", bundle: .module),
+                        systemImage: "folder"
+                    )
+                }
+                .labelStyle(.iconOnly)
+            } else {
+                Button {
+                    selectedArtifact = ChatArtifactPathSelection(path: path)
+                } label: {
+                    Label(
+                        String(localized: "chat.artifact.view_file", defaultValue: "View file", bundle: .module),
+                        systemImage: "doc.text.magnifyingglass"
+                    )
+                }
+                .labelStyle(.iconOnly)
+            }
+        }
+        .padding(10)
+        .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 8))
+        .task(id: path) {
+            stat = try? await loader.stat(path: path)
+        }
+        .sheet(item: $selectedArtifact) { selection in
+            ChatArtifactViewerSheet(path: selection.path)
+        }
+        .sheet(item: $selectedFolder) { selection in
+            ChatArtifactFolderView(path: selection.path)
+        }
     }
 }

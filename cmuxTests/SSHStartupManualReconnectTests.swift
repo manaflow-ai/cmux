@@ -187,6 +187,38 @@ struct SSHStartupManualReconnectTests {
         #expect(workspace.remoteConnectionState == .reconnecting)
     }
 
+    @MainActor
+    @Test func completedRemoteCommandKeepsLogicalSurfaceAndScrollback() async throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let output = "remote-command-output\n"
+        workspace.configureRemoteConnection(Self.makeRemoteConfiguration(), autoConnect: false)
+        workspace.restoredTerminalScrollbackByPanelId[panel.id] = output
+
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panel.id)
+        await workspace.waitForRemoteDisconnectTransition(surfaceId: panel.id)
+
+        let disconnectedPanel = try #require(workspace.terminalPanel(for: panel.id))
+        #expect(disconnectedPanel.surface !== panel.surface)
+        #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
+        let replayPath = try #require(disconnectedPanel.ownedSessionScrollbackReplayFileURL?.path)
+        defer { try? FileManager.default.removeItem(atPath: replayPath) }
+        #expect(try String(contentsOfFile: replayPath, encoding: .utf8) == output)
+        let wrapperPath = try #require(disconnectedPanel.surface.initialCommand)
+        defer { try? FileManager.default.removeItem(atPath: wrapperPath) }
+        let result = Self.runProcess(
+            executablePath: "/bin/sh",
+            arguments: [wrapperPath],
+            environment: ["PATH": "/usr/bin", SessionScrollbackReplayStore.environmentKey: replayPath],
+            timeout: 5
+        )
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout.contains(output), Comment(rawValue: result.stdout))
+        #expect(!FileManager.default.fileExists(atPath: replayPath))
+    }
+
     private static func makeRemoteConfiguration() -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",

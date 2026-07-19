@@ -1,33 +1,35 @@
 import { getTranslations } from "next-intl/server";
-import { hasFeatureWorkflowContent } from "@/i18n/locale-availability";
-import { buildAlternates } from "@/i18n/seo";
+import {
+  fallbackContentLocales,
+  hasFeatureWorkflowContent,
+} from "@/i18n/locale-availability";
+import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog.cmuxSsh" });
+  const alternates = buildAlternates(
+    locale,
+    "/blog/cmux-ssh",
+    fallbackContentLocales,
+  );
+  const title = t("metaTitle");
+  const description = seoDescription(locale, t("metaDescription"));
   return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    keywords: [
-      "cmux", "SSH", "remote development", "terminal", "macOS",
-      "port forwarding", "notifications", "AI coding agents",
-      "Claude Code", "remote workspace", "developer tools",
-    ],
+    title,
+    description,
     openGraph: {
-      title: t("metaTitle"),
-      description: t("metaDescription"),
-      type: "article",
+      ...openGraphDefaults(locale, "article"),
+      title,
+      description,
+      url: alternates.canonical,
       publishedTime: "2026-03-30T00:00:00Z",
       modifiedTime: "2026-07-03T00:00:00Z",
     },
-    twitter: {
-      card: "summary_large_image",
-      title: t("metaTitle"),
-      description: t("metaDescription"),
-    },
-    alternates: buildAlternates(locale, "/blog/cmux-ssh"),
+    twitter: twitterSummary(locale, title, description),
+    alternates,
   };
 }
 

@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileSupport
@@ -108,7 +109,7 @@ struct MobileHostPickerView: View {
                 Image(systemName: "desktopcomputer")
                     .foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(mac.displayName ?? mac.macDeviceID)
+                    Text(scopedDisplayName(mac.resolvedName))
                         .foregroundStyle(.primary)
                     Text(mac.lastSeenAt, format: .relative(presentation: .named))
                         .font(.caption)
@@ -133,6 +134,10 @@ struct MobileHostPickerView: View {
             }
             .accessibilityIdentifier("MobileHostPickerForget-\(mac.macDeviceID)")
         }
+    }
+
+    private func scopedDisplayName(_ baseName: String) -> String {
+        MobileIOSBuildScope.current()?.computerDisplayName(baseName) ?? baseName
     }
 }
 #endif

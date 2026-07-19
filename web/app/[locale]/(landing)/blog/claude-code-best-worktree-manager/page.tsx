@@ -1,6 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
+import { blogPostSeoCopy } from "@/i18n/audited-seo";
 import { Link } from "@/i18n/navigation";
 import { BlogSchema } from "../blog-schema";
 
@@ -14,26 +15,36 @@ export async function generateMetadata({
     locale,
     namespace: "blog.claudeCodeBestWorktreeManager",
   });
+  const post = await getTranslations({
+    locale,
+    namespace: "blog.posts.claudeCodeBestWorktreeManager",
+  });
+  const siteMeta = await getTranslations({ locale, namespace: "meta" });
   const rawKeywords = t.raw("metaKeywords");
   const keywords = Array.isArray(rawKeywords)
     ? rawKeywords.filter((keyword): keyword is string => typeof keyword === "string")
     : [];
+  const alternates = buildAlternates(locale, "/blog/claude-code-best-worktree-manager");
+  const { title, description } = blogPostSeoCopy(
+    locale,
+    "claudeCodeBestWorktreeManager",
+    t,
+    post,
+    siteMeta,
+  );
   return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
+    title: { absolute: title },
+    description,
     keywords,
     openGraph: {
-      title: t("metaTitle"),
-      description: t("metaDescription"),
-      type: "article",
+      ...openGraphDefaults(locale, "article"),
+      title,
+      description,
+      url: alternates.canonical,
       publishedTime: "2026-07-03T00:00:00Z",
     },
-    twitter: {
-      card: "summary_large_image",
-      title: t("metaTitle"),
-      description: t("metaDescription"),
-    },
-    alternates: buildAlternates(locale, "/blog/claude-code-best-worktree-manager"),
+    twitter: twitterSummary(locale, title, description),
+    alternates,
   };
 }
 
@@ -45,6 +56,7 @@ export default function ClaudeCodeBestWorktreeManagerPage() {
     <>
       <BlogSchema
         postKey="claudeCodeBestWorktreeManager"
+        seoKey="claudeCodeBestWorktreeManager"
         path="/blog/claude-code-best-worktree-manager"
         datePublished="2026-07-03T00:00:00Z"
       />

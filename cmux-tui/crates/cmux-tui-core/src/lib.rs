@@ -35,6 +35,7 @@ pub use surface::{
     BrowserStatus, DefaultColors, Surface, SurfaceKind, SurfaceOptions,
 };
 
+pub use cmux_tui_cdp::BrowserMode;
 pub use ghostty_vt::Rgb;
 
 pub type SurfaceId = u64;

@@ -31,6 +31,8 @@ export type PushPayload = {
   readonly body: string;
   readonly workspaceId: string | null;
   readonly surfaceId: string | null;
+  /** Whether iOS may resolve the surface outside the explicit workspace. */
+  readonly retargetsToLiveSurfaceOwner: boolean;
   /**
    * The Mac device UUID that owns the workspace/surface ids. Needed because
    * workspace ids are Mac-local and can collide across paired Macs.
@@ -125,6 +127,7 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
       notificationId: notificationId || null,
       dismissedIds: kind === "dismiss" ? dismissedIds.value : [],
       badgeCount: parseBadgeCount(body.badgeCount),
+      retargetsToLiveSurfaceOwner: kind === "notify" ? body.retargetsToLiveSurfaceOwner !== false : false,
       hideContent: body.hideContent === true,
     },
   };

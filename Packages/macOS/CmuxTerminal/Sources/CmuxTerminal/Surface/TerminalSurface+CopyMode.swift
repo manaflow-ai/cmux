@@ -16,12 +16,32 @@ extension TerminalSurface {
         }
     }
 
+    /// Performs an internal binding action without treating it as user input.
+    @discardableResult
+    public func performInternalBindingAction(_ action: String) -> Bool {
+        performBindingAction(action)
+    }
+
+    /// Performs a user-initiated Ghostty binding action after notifying the pane host.
+    ///
+    /// Internal actions such as notification scroll restoration continue to use
+    /// ``performBindingAction(_:)`` so they do not cancel their own pending state.
+    ///
+    /// - Returns: Whether the runtime performed the action.
+    @MainActor
+    @discardableResult
+    public func performExplicitInputBindingAction(_ action: String) -> Bool {
+        didReceiveExplicitInput()
+        return performBindingAction(action)
+    }
+
     /// Toggles keyboard copy mode through the surface view.
     ///
     /// - Returns: Whether the view handled the toggle.
     @discardableResult
     @MainActor
     public func toggleKeyboardCopyMode() -> Bool {
+        didReceiveExplicitInput()
         let handled = surfaceView.toggleKeyboardCopyMode()
         if handled {
             setKeyboardCopyModeActive(surfaceView.isKeyboardCopyModeActive)

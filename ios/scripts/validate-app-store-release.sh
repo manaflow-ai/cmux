@@ -14,12 +14,13 @@ STAGE_DRY_RUN=0
 SUBMIT_DRY_RUN=0
 SUBMIT_REQUESTED=0
 SUBMIT_CONFIRMED=0
+PREPARE_SUBMISSION=0
 COPY_METADATA_FROM=""
 METADATA_DIR="${IOS_APPSTORE_METADATA_DIR:-$IOS_DIR/AppStoreReview/metadata}"
 SCREENSHOTS_DIR="${IOS_APPSTORE_SCREENSHOTS_DIR:-$IOS_DIR/AppStoreReview/screenshots}"
 REVIEW_NOTES="$IOS_DIR/AppStoreReview/review-notes.md"
 CHECKLIST="$IOS_DIR/AppStoreReview/metadata-screenshots-checklist.md"
-SCREENSHOT_DEVICE_TYPES=(IPHONE_65 IPAD_PRO_3GEN_129)
+SCREENSHOT_DEVICE_TYPES=(IPHONE_69 IPAD_PRO_3GEN_129)
 SCREENSHOT_DEVICE_TYPES_EXPLICIT=0
 VALIDATE_DIGITAL_GOODS="${CMUX_APP_STORE_VALIDATE_DIGITAL_GOODS:-0}"
 
@@ -30,13 +31,15 @@ Usage:
     [--version <X.Y.Z>] [--build-number <CFBundleVersion> | --build-id <id>]
     [--strict] [--wait-build] [--metadata-dir <dir>] [--screenshots-dir <dir>]
     [--screenshot-device-type <ASC_DEVICE_TYPE>] [--copy-metadata-from <version>]
-    [--stage-dry-run] [--submit-dry-run | --submit --confirm-submit]
+    [--prepare-submission] [--stage-dry-run]
+    [--submit-dry-run | --submit --confirm-submit]
 
 Runs the cmux iOS App Store validation package. The default path is read-only:
 it checks the checked-in review package, runs canonical `asc validate`, and
 validates local metadata/screenshots when those directories exist.
 
 Mutating submission is deliberately split:
+  --prepare-submission sets content rights and attaches the selected build.
   --stage-dry-run   previews ASC release staging without mutation.
   --submit-dry-run  previews review submission without mutation.
   --submit --confirm-submit submits the prepared version for review.
@@ -50,6 +53,27 @@ read_xcconfig_setting() {
   local key="$1"
   local file="$2"
   sed -nE "s/^[[:space:]]*$key[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\\1/p" "$file" 2>/dev/null | tail -n 1
+}
+
+resolve_screenshot_validation_path() {
+  local device_type="$1"
+  local device_dir=""
+  local canonical_path=""
+
+  case "$device_type" in
+    IPHONE_*) device_dir="iphone" ;;
+    IPAD_*) device_dir="ipad" ;;
+  esac
+
+  if [[ -n "$device_dir" ]]; then
+    canonical_path="$SCREENSHOTS_DIR/en-US/$device_dir"
+    if [[ -d "$canonical_path" ]]; then
+      printf '%s\n' "$canonical_path"
+      return
+    fi
+  fi
+
+  printf '%s\n' "$SCREENSHOTS_DIR"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -72,6 +96,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --copy-metadata-from) COPY_METADATA_FROM="${2:-}"; shift 2 ;;
+    --prepare-submission) PREPARE_SUBMISSION=1; shift ;;
     --stage-dry-run) STAGE_DRY_RUN=1; shift ;;
     --submit-dry-run) SUBMIT_DRY_RUN=1; shift ;;
     --submit) SUBMIT_REQUESTED=1; shift ;;
@@ -140,6 +165,24 @@ PY
   fi
 fi
 
+if [[ "$PREPARE_SUBMISSION" -eq 1 ]]; then
+  [[ -n "$BUILD_ID" ]] || die "--prepare-submission requires --build-id or --build-number"
+  note "declaring App Store content rights"
+  asc apps update \
+    --id "$APP" \
+    --content-rights USES_THIRD_PARTY_CONTENT
+
+  VERSION_ID="$(
+    asc versions list --app "$APP" --version "$VERSION" --platform IOS --output json |
+      python3 -c 'import json,sys; body=json.load(sys.stdin); data=body.get("data") if isinstance(body,dict) else body; data=data if isinstance(data,list) else ([data] if isinstance(data,dict) else []); print(data[0].get("id", "") if data else "")'
+  )"
+  [[ -n "$VERSION_ID" ]] || die "could not resolve App Store version $VERSION for build attachment"
+  note "attaching build $BUILD_ID to App Store version $VERSION"
+  asc versions attach-build \
+    --version-id "$VERSION_ID" \
+    --build "$BUILD_ID"
+fi
+
 validate_args=(validate --app "$APP" --version "$VERSION" --platform IOS --output table)
 [[ "$STRICT" -eq 1 ]] && validate_args+=(--strict)
 note "running canonical App Store readiness validation for $APP $VERSION"
@@ -154,8 +197,9 @@ fi
 
 if [[ -d "$SCREENSHOTS_DIR" ]]; then
   for device_type in "${SCREENSHOT_DEVICE_TYPES[@]}"; do
-    note "validating screenshots at $SCREENSHOTS_DIR for $device_type"
-    asc screenshots validate --path "$SCREENSHOTS_DIR" --device-type "$device_type" --output table
+    screenshot_validation_path="$(resolve_screenshot_validation_path "$device_type")"
+    note "validating screenshots at $screenshot_validation_path for $device_type"
+    asc screenshots validate --path "$screenshot_validation_path" --device-type "$device_type" --output table
   done
 else
   note "no local screenshots dir at $SCREENSHOTS_DIR; use $CHECKLIST before staging"

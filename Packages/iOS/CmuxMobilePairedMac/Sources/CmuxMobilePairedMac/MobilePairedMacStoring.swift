@@ -12,6 +12,8 @@ public protocol MobilePairedMacStoring: Sendable {
     ///   - macDeviceID: Stable identifier of the Mac.
     ///   - displayName: Optional human-readable Mac name.
     ///   - routes: Attach routes advertised by the Mac.
+    ///   - instanceTag: Authenticated Mac app-instance tag, or `nil` when the
+    ///     host is legacy/unknown and route authority must remain conservative.
     ///   - markActive: When `true`, makes this the active pairing for its scope.
     ///   - stackUserID: Owning Stack Auth user, if any.
     ///   - teamID: Stack team this pairing belongs to; stamped on the row so the
@@ -22,11 +24,45 @@ public protocol MobilePairedMacStoring: Sendable {
         macDeviceID: String,
         displayName: String?,
         routes: [CmxAttachRoute],
+        instanceTag: String?,
         markActive: Bool,
         stackUserID: String?,
         teamID: String?,
         now: Date
     ) async throws
+
+    /// Atomically insert a missing row or replace a strictly older row. Used by
+    /// backup restore so an authenticated live write cannot land between a
+    /// freshness check and a stale restore upsert.
+    @discardableResult
+    func upsertIfNewer(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        instanceTag: String?,
+        customName: String?,
+        customColor: String?,
+        customIcon: String?,
+        markActive: Bool,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool
+
+    /// Atomically write host-owned display and route data only while the scoped
+    /// row satisfies `condition`. `markActive: nil` preserves the current
+    /// selection; a non-nil value applies the requested selection state.
+    @discardableResult
+    func upsertRoutesIfAuthorized(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        condition: MobilePairedMacRouteWriteCondition,
+        markActive: Bool?,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool
 
     /// Load all paired Macs, optionally scoped to a Stack user and team.
     /// - Parameters:
@@ -88,6 +124,81 @@ public protocol MobilePairedMacStoring: Sendable {
 }
 
 extension MobilePairedMacStoring {
+    /// In-memory/test fallback. Production SQLite and scope decorators override
+    /// this with one atomic storage operation.
+    @discardableResult
+    public func upsertRoutesIfAuthorized(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        condition: MobilePairedMacRouteWriteCondition,
+        markActive: Bool?,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool {
+        let existing = try await loadAll(stackUserID: stackUserID, teamID: teamID)
+            .first { $0.macDeviceID == macDeviceID }
+        switch condition {
+        case .matchingInstanceTag(let expectedInstanceTag):
+            guard let existing, existing.instanceTag == expectedInstanceTag else { return false }
+        case .unclaimed:
+            guard existing?.instanceTag == nil else { return false }
+        }
+        try await upsert(
+            macDeviceID: macDeviceID,
+            displayName: displayName,
+            routes: routes,
+            instanceTag: existing?.instanceTag,
+            markActive: markActive ?? existing?.isActive ?? false,
+            stackUserID: stackUserID,
+            teamID: teamID,
+            now: now
+        )
+        return true
+    }
+
+    /// In-memory/test fallback. Production SQLite and scope decorators override
+    /// this requirement with one atomic storage operation.
+    @discardableResult
+    public func upsertIfNewer(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        instanceTag: String?,
+        customName: String?,
+        customColor: String?,
+        customIcon: String?,
+        markActive: Bool,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool {
+        let existing = try await loadAll(stackUserID: stackUserID, teamID: teamID)
+            .first { $0.macDeviceID == macDeviceID }
+        if let existing, existing.lastSeenAt >= now { return false }
+        try await upsert(
+            macDeviceID: macDeviceID,
+            displayName: displayName,
+            routes: routes,
+            instanceTag: instanceTag,
+            markActive: markActive,
+            stackUserID: stackUserID,
+            teamID: teamID,
+            now: now
+        )
+        try await setCustomization(
+            macDeviceID: macDeviceID,
+            customName: customName,
+            customColor: customColor,
+            customIcon: customIcon,
+            stackUserID: stackUserID,
+            teamID: teamID,
+            now: now
+        )
+        return true
+    }
+
     /// Insert or update a paired Mac with an explicit timestamp but no team scope
     /// (`teamID: nil`). Keeps existing call sites compiling; the team-aware caller
     /// (``BackingUpPairedMacStore``) injects the team via the full requirement.
@@ -95,6 +206,7 @@ extension MobilePairedMacStoring {
         macDeviceID: String,
         displayName: String?,
         routes: [CmxAttachRoute],
+        instanceTag: String? = nil,
         markActive: Bool,
         stackUserID: String?,
         now: Date
@@ -103,6 +215,7 @@ extension MobilePairedMacStoring {
             macDeviceID: macDeviceID,
             displayName: displayName,
             routes: routes,
+            instanceTag: instanceTag,
             markActive: markActive,
             stackUserID: stackUserID,
             teamID: nil,
@@ -116,6 +229,7 @@ extension MobilePairedMacStoring {
         macDeviceID: String,
         displayName: String?,
         routes: [CmxAttachRoute],
+        instanceTag: String? = nil,
         markActive: Bool,
         stackUserID: String?
     ) async throws {
@@ -123,6 +237,7 @@ extension MobilePairedMacStoring {
             macDeviceID: macDeviceID,
             displayName: displayName,
             routes: routes,
+            instanceTag: instanceTag,
             markActive: markActive,
             stackUserID: stackUserID,
             teamID: nil,

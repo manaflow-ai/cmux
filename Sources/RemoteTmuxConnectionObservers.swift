@@ -20,6 +20,7 @@ final class RemoteTmuxConnectionObservers {
     private var activePaneObservers: [Token: (_ windowId: Int, _ paneId: Int) -> Void] = [:]
     private var sessionChangedObservers: [Token: (_ oldName: String, _ newName: String) -> Void] = [:]
     private var topologyObservers: [Token: () -> Void] = [:]
+    private var reconnectReadyObservers: [Token: () -> Void] = [:]
     private var exitObservers: [Token: () -> Void] = [:]
     private var stateObservers: [Token: (RemoteTmuxControlConnection.ConnectionState) -> Void] = [:]
 
@@ -45,6 +46,7 @@ final class RemoteTmuxConnectionObservers {
     ///     `%session-changed` or `%session-renamed`; consumers must treat this as
     ///     the authoritative point for re-keying session-owned state.
     ///   - onTopologyChanged: fires when the window/pane topology changes.
+    ///   - onReconnectReady: fires after reconnect attach drainage and reseeding.
     ///   - onExit: fires once when the connection PERMANENTLY ends (a genuine tmux
     ///     `%exit`, or a session found gone on reconnect). A transient transport loss
     ///     does NOT fire this — the connection reconnects instead.
@@ -59,6 +61,7 @@ final class RemoteTmuxConnectionObservers {
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)?,
         onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)?,
         onTopologyChanged: (() -> Void)?,
+        onReconnectReady: (() -> Void)?,
         onExit: (() -> Void)?,
         onConnectionStateChanged: ((RemoteTmuxControlConnection.ConnectionState) -> Void)?
     ) -> Token {
@@ -69,6 +72,7 @@ final class RemoteTmuxConnectionObservers {
         if let onActivePaneChanged { activePaneObservers[token] = onActivePaneChanged }
         if let onSessionChanged { sessionChangedObservers[token] = onSessionChanged }
         if let onTopologyChanged { topologyObservers[token] = onTopologyChanged }
+        if let onReconnectReady { reconnectReadyObservers[token] = onReconnectReady }
         if let onExit { exitObservers[token] = onExit }
         if let onConnectionStateChanged { stateObservers[token] = onConnectionStateChanged }
         return token
@@ -82,6 +86,7 @@ final class RemoteTmuxConnectionObservers {
         activePaneObservers[token] = nil
         sessionChangedObservers[token] = nil
         topologyObservers[token] = nil
+        reconnectReadyObservers[token] = nil
         exitObservers[token] = nil
         stateObservers[token] = nil
     }
@@ -116,6 +121,11 @@ final class RemoteTmuxConnectionObservers {
     /// Notifies every topology observer that the window/pane layout changed.
     func notifyTopologyChanged() {
         for callback in Array(topologyObservers.values) { callback() }
+    }
+
+    /// Notifies observers that reconnect commands are safe and the prior claims were reseeded.
+    func notifyReconnectReady() {
+        for callback in Array(reconnectReadyObservers.values) { callback() }
     }
 
     /// Notifies every exit observer that the connection permanently ended.

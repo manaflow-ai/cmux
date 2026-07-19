@@ -179,7 +179,7 @@ describe("billing checkout route", () => {
 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe(
-      "https://cmux.test/app-pricing?cmux_app=1&cmux_distribution=appstore&billing=unavailable&cmux_scheme=cmux",
+      "https://cmux.test/app-pricing?cmux_app=1&cmux_distribution=appstore&billing=unavailable",
     );
     expect(getUser).not.toHaveBeenCalled();
     expect(createStripeSession).not.toHaveBeenCalled();

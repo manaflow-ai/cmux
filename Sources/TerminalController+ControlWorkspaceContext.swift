@@ -692,12 +692,19 @@ extension TerminalController: ControlWorkspaceContext {
         lifecycleID: String?,
         lifecycleOnly: Bool
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution {
-        if let sessionID, let lifecycleID { remoteProxyBroker.acknowledgePTYLifecycleAfterWrapperEnd(sessionID: sessionID, lifecycleID: lifecycleID) }
+        let generationIsCurrent = switch (sessionID, lifecycleID) {
+        case let (.some(sessionID), .some(lifecycleID)):
+            remoteProxyBroker.acknowledgePTYLifecycleAfterWrapperEnd(sessionID: sessionID, lifecycleID: lifecycleID)
+        case (nil, nil): true
+        default: false
+        }
         guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
               let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
             return .notFound
         }
-        if !lifecycleOnly { workspace.markRemoteTerminalSessionEnded(surfaceId: surfaceId, relayPort: relayPort) }
+        if !lifecycleOnly, generationIsCurrent {
+            workspace.markRemoteTerminalSessionEnded(surfaceId: surfaceId, relayPort: relayPort)
+        }
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .resolved(
             windowID: windowId,

@@ -67,10 +67,11 @@ public struct MobileAnalyticsComposition {
         session: URLSession? = nil
     ) {
         let networkSession = session ?? Self.analyticsSession()
+        let uploadSession = session ?? Self.analyticsSession()
         let uploader = HTTPAnalyticsUploader(
             apiBaseURL: apiBaseURL,
             tokenProvider: AnalyticsTokenProviderBridge(tokenProvider: tokenProvider),
-            session: networkSession
+            session: uploadSession
         )
         let consent = consent ?? UserDefaultsAnalyticsConsentProvider(defaults: defaults)
         // Resolve the per-install id once, here, at the single point that owns

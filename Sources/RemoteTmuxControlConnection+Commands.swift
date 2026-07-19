@@ -50,10 +50,30 @@ extension RemoteTmuxControlConnection {
     /// id and layout tokens never do — so the result parses as
     /// `@id <layout> <name with spaces…>`.
     func requestWindows() {
-        sendInternal(
+        guard !windowListRequestInFlight else {
+            windowListRequestDirty = true
+            return
+        }
+        guard sendInternal(
             "list-windows -F \"#{window_id} #{window_layout} #{window_visible_layout} [#{window_flags}] #{window_name}\"",
-            kind: .listWindows(reorderGeneration: windowReorderGeneration)
-        )
+            kind: .listWindows(
+                reorderGeneration: windowReorderGeneration,
+                retainedPaneIDs: paneIDsRetainedUntilWindowList
+            )
+        ) else { return }
+        windowListRequestInFlight = true
+    }
+
+    func completeWindowListRequest() {
+        windowListRequestInFlight = false
+        guard windowListRequestDirty else { return }
+        windowListRequestDirty = false
+        requestWindows()
+    }
+
+    func resetWindowListRequestCoalescing() {
+        windowListRequestInFlight = false
+        windowListRequestDirty = false
     }
 
     func restartAfterWindowReorderRecoveryFailure() {
@@ -66,14 +86,18 @@ extension RemoteTmuxControlConnection {
     /// `pane-border-format` — exactly the header text a native tmux client
     /// would draw, custom formats included). The layout string is not ground
     /// truth: under `pane-border-status` tmux publishes the pre-title tree
-    /// while the displayed panes sit one row lower and shorter — placement
-    /// must render where the panes actually are, so a quarantined layout is
-    /// published only by this fetch's reply. The expanded format is LAST (it
+    /// while panes touching the configured edge are shorter (and top-edge
+    /// panes also sit lower). Placement must render where panes actually are,
+    /// so a quarantined layout is published only by this fetch's reply. The
+    /// expanded format is LAST (it
     /// may contain spaces) behind a `:` sentinel (it may expand to EMPTY,
     /// and a trailing empty field must survive line splitting).
     @discardableResult
     func requestPaneRects(windowId: Int, generation: Int) -> Bool {
-        sendInternal(
+        #if DEBUG
+        cmuxDebugLog("remote.rects.request @\(windowId) gen=\(generation)")
+        #endif
+        return sendInternal(
             "list-panes -t @\(windowId) -F \"#{pane_id} #{pane_left} #{pane_top} #{pane_width} #{pane_height} #{pane_active} #{pane-border-status} :#{T:pane-border-format}\"",
             kind: .paneRects(windowId, generation)
         )
@@ -160,14 +184,20 @@ extension RemoteTmuxControlConnection {
     /// hits the conservative no-reflow default on a slow link.
     func seedPane(paneId: Int) {
         requestPaneReflow(paneId: paneId)
-        subscribePaneReflow(paneId: paneId)
         capturePane(paneId: paneId)
         requestPanePath(paneId: paneId)
-        subscribePanePath(paneId: paneId)
-        subscribePaneHeader(paneId: paneId)
+        // One batched refresh-client for all three live subscriptions
+        // instead of three separate sends — see subscribePaneAll. Under
+        // churn this is the difference between the command FIFO keeping up
+        // with tmux and backing up into minutes-long non-convergence.
+        subscribePaneAll(paneId: paneId)
     }
 
     func reseedAfterReconnect() {
+        // The fresh ssh client has been sent nothing: the dedup baseline
+        // must reset with it, or requests matching pre-drop sends would be
+        // suppressed against a server that no longer has them.
+        sentWindowSizes.removeAll()
         if let size = lastClientSize {
             send("refresh-client -C \(size.columns)x\(size.rows)")
         }
@@ -191,6 +221,7 @@ extension RemoteTmuxControlConnection {
                 seedPane(paneId: paneId)
             }
         }
+        observers.notifyReconnectReady()
     }
 
     /// Sends literal key bytes to a pane via tmux `send-keys -H` (hex-encoded),
