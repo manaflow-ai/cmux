@@ -156,6 +156,13 @@ extension TerminalController {
                 }
             }.value
             return TerminalArtifactWire.result(chunk)
+        } catch let error as MobileHostIrohArtifactTransferRegistry.Error {
+            switch error.issueFailure {
+            case .fileNotFound:
+                return mobileTerminalArtifactError(.fileNotFound, path: context.requestedPath)
+            case .unavailable:
+                return mobileTerminalArtifactError(.unavailable, path: context.requestedPath)
+            }
         } catch TerminalArtifactReadContext.Error.forbidden {
             debugLogMobileTerminalArtifactDenial(op: "fetch", path: context.requestedPath)
             return mobileTerminalArtifactError(.forbidden, path: context.requestedPath)
@@ -277,6 +284,7 @@ extension TerminalController {
         case forbidden
         case fileNotFound
         case unsupportedMedia
+        case unavailable
     }
 
     private func debugLogMobileTerminalArtifactDenial(op: String, path: String?) {
@@ -325,6 +333,15 @@ extension TerminalController {
                     defaultValue: "This file type cannot be previewed."
                 ),
                 data: path.map { ["path": $0] }
+            )
+        case .unavailable:
+            return .err(
+                code: "unavailable",
+                message: String(
+                    localized: "mobile.chat.artifact.error.transferUnavailable",
+                    defaultValue: "Artifact transfer is temporarily unavailable."
+                ),
+                data: nil
             )
         }
     }

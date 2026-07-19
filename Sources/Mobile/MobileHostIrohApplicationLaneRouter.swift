@@ -36,6 +36,11 @@ struct MobileHostIrohRejectingArtifactLaneHandler: MobileHostIrohArtifactLaneHan
     }
 }
 
+enum MobileHostIrohArtifactTransferIssueFailure: Equatable, Sendable {
+    case fileNotFound
+    case unavailable
+}
+
 /// Runtime-scoped, peer-bound capabilities minted only after control-RPC authorization.
 actor MobileHostIrohArtifactTransferRegistry {
     enum Error: Swift.Error, Equatable {
@@ -48,6 +53,16 @@ actor MobileHostIrohArtifactTransferRegistry {
         case invalidOffset
         case alreadyInUse
         case resumeLimitExceeded
+
+        var issueFailure: MobileHostIrohArtifactTransferIssueFailure {
+            switch self {
+            case .invalidFile:
+                .fileNotFound
+            case .unavailable, .capacityExceeded, .unknownResource, .expired,
+                 .peerMismatch, .invalidOffset, .alreadyInUse, .resumeLimitExceeded:
+                .unavailable
+            }
+        }
     }
 
     struct Lease: Equatable, Sendable {
