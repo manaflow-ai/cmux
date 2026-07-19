@@ -6,6 +6,30 @@ import Testing
 
 @Suite
 struct RemoteHookInvocationBridgeTests {
+    @Test("claimed hook transfers retain their concurrency slot")
+    func claimedTransferRetainsConcurrencySlot() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hook-transfer-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bridge = RemoteHookInvocationBridge(transferRoot: root)
+        let invocation = RemoteHookInvocation(
+            arguments: ["omp", "session-start"],
+            environment: [:],
+            input: Data()
+        )
+        let transferIDs = try (0 ..< bridge.maximumConcurrentTransfers).map { _ in
+            try bridge.beginTransfer(invocation)
+        }
+
+        _ = try bridge.takeTransfer(transferIDs[0])
+        do {
+            _ = try bridge.beginTransfer(invocation)
+            Issue.record("expected claimed transfer to retain its slot")
+        } catch let error as RemoteHookInvocationBridgeError {
+            #expect(error.code == "resource_exhausted")
+        }
+    }
+
     @Test("chunked hook payloads enforce the direct invocation input limit")
     func chunkedHookInputLimit() throws {
         let root = FileManager.default.temporaryDirectory
