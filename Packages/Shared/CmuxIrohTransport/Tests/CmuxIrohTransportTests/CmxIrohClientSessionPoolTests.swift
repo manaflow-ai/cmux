@@ -578,6 +578,51 @@ struct CmxIrohClientSessionPoolTests {
         #expect(await iterator.next() != nil)
         #expect(await pool.selectedObservedPath() == .unavailable)
     }
+
+    @Test
+    func selectedPathPrefersTheActiveControlSessionOverANewerBackgroundSession() async throws {
+        let fixture = try PoolFixture()
+        let backgroundIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "ef", count: 32)
+        )
+        let backgroundRequest = CmxByteTransportRequest(
+            route: try CmxAttachRoute(
+                id: "iroh-background-session",
+                kind: .iroh,
+                endpoint: .peer(identity: backgroundIdentity, pathHints: [])
+            ),
+            expectedPeerDeviceID: "123e4567-e89b-42d3-a456-426614174031",
+            authorizationMode: .transportAdmission
+        )
+        let controlConnection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()],
+            selectedPath: .direct
+        )
+        let backgroundConnection = TestIrohConnection(
+            remoteIdentity: backgroundIdentity,
+            bidirectionalStreams: [fixture.controlStream()],
+            selectedPath: .relay(url: "https://relay.example.com/")
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: fixture.localIdentity,
+            dialResults: [
+                .connection(controlConnection),
+                .connection(backgroundConnection),
+            ]
+        )
+        let pool = try await fixture.pool(endpoint: endpoint, generation: 1)
+        let control = try CmxIrohByteTransportFactory(sessionPool: pool)
+            .makeTransport(for: fixture.request)
+
+        try await control.connect()
+        #expect(await pool.selectedObservedPath() == .direct)
+
+        _ = try await pool.session(for: backgroundRequest)
+
+        #expect(await pool.selectedObservedPath() == .direct)
+        await control.close()
+    }
 }
 
 private func waitForControlWaiter(
