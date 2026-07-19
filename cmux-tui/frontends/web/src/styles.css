@@ -111,7 +111,7 @@ button { color: inherit; touch-action: manipulation; }
 .pane-group.row { flex-direction: row; }
 .pane-group.column { flex-direction: column; }
 .pane-leaf { min-width: 0; min-height: 0; background: var(--terminal-background); }
-.pane-stack { --stack-header-height: 30px; display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; gap: 1px; overflow: hidden; background: var(--border-inactive); }
+.pane-stack { --stack-header-height: 30px; display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; gap: 1px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; background: var(--border-inactive); }
 .pane-stack > .pane-leaf { flex: 0 0 var(--stack-header-height); min-height: var(--stack-header-height); overflow: hidden; }
 .pane-stack > .pane-leaf.expanded { flex: 1 0 var(--stack-header-height); }
 .stack-pane-header { display: flex; width: 100%; height: 100%; min-width: 0; align-items: center; gap: var(--tui-cell-width); padding: 0 var(--tui-cell-width); border: 0; color: var(--terminal-foreground); background: var(--terminal-background); font: inherit; text-align: left; }

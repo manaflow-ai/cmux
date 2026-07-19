@@ -70,7 +70,7 @@ In the workspaces view, Up/Down move the selection and Enter activates it. Any n
 
 ## Modeless Alt Layer
 
-Any configured Alt chord is active without the prefix. Default modeless commands are `Alt-t`, `Alt-n`, `Alt-[`, `Alt-]`, `Alt-h/j/k/l`, Alt arrows, `Alt-=`, and `Alt--`. `Alt-n` follows Zellij's default auto-layout sequence: one full-height left pane and up to four right-side rows, balanced columns of four through twelve panes, then a stack with the focused pane expanded.
+Any configured Alt chord is active without the prefix. Default modeless commands are `Alt-t`, `Alt-n`, `Alt-[`, `Alt-]`, `Alt-h/j/k/l`, Alt arrows, `Alt-=`, and `Alt--`. `Alt-n` follows Zellij's default auto-layout sequence: one full-height left pane and up to four right-side rows, balanced columns of four through twelve panes, then one full-height left pane beside a right-side stack with the focused stack pane expanded.
 
 Set `keys.alt_shortcuts` to `false` to remove the default Alt bindings. This kill switch only removes defaults; Alt chords explicitly configured in `cmux-tui.json` still work.
 

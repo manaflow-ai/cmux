@@ -177,8 +177,8 @@ pub fn layout_screen(root: &Node, area: Rect, active_pane: Option<PaneId>) -> La
 
 /// Reproduce Zellij's default auto-layout sequence for panes in creation
 /// order. Through twelve panes, the `vertical` family fills columns of four.
-/// Above twelve panes, Zellij advances to `stacked`: every older pane keeps a
-/// one-row header and the newest pane receives the remaining height.
+/// Above twelve panes, Zellij advances to `stacked`: the first pane stays
+/// full-height on the left while the remaining panes stack on the right.
 pub fn zellij_default_pane_layout(panes: &[PaneId]) -> Option<Node> {
     let mut next_split_id = 1;
     zellij_default_pane_layout_with_ids(panes, &mut || {
@@ -195,7 +195,7 @@ pub(crate) fn zellij_default_pane_layout_with_ids(
     match panes {
         [] => None,
         [pane] => Some(Node::Leaf(*pane)),
-        panes if panes.len() > 12 => Some(zellij_stacked_layout(panes)),
+        panes if panes.len() > 12 => Some(zellij_stacked_layout(panes, next_split_id)),
         _ => {
             let first_column_len = if panes.len() <= 5 {
                 1
@@ -213,8 +213,17 @@ pub(crate) fn zellij_default_pane_layout_with_ids(
     }
 }
 
-fn zellij_stacked_layout(panes: &[PaneId]) -> Node {
-    Node::stack(panes.to_vec()).expect("stacked layout requires at least one pane")
+fn zellij_stacked_layout(panes: &[PaneId], next_split_id: &mut impl FnMut() -> SplitId) -> Node {
+    debug_assert!(panes.len() > 1);
+    Node::Split {
+        id: next_split_id(),
+        dir: SplitDir::Right,
+        ratio: 0.5,
+        a: Box::new(Node::Leaf(panes[0])),
+        b: Box::new(
+            Node::stack(panes[1..].to_vec()).expect("stacked layout requires at least one pane"),
+        ),
+    }
 }
 
 fn equal_split(

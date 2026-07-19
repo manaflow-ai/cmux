@@ -284,34 +284,11 @@ interface LayoutStackNodeProps extends Omit<LayoutNodeProps, "node"> {
   node: Extract<PaneLayoutView, { type: "stack" }>;
 }
 
-function useVisibleStackHeaders() {
-  const observer = useRef<ResizeObserver | null>(null);
-  const [visibleHeaders, setVisibleHeaders] = useState<number | null>(null);
-  const ref = useCallback((element: HTMLDivElement | null) => {
-    observer.current?.disconnect();
-    observer.current = null;
-    if (element === null || typeof ResizeObserver === "undefined") return;
-    const update = () => {
-      const headerHeight = Number.parseFloat(
-        getComputedStyle(element).getPropertyValue("--stack-header-height"),
-      ) || 30;
-      setVisibleHeaders(Math.max(0, Math.floor(
-        (element.getBoundingClientRect().height - headerHeight) / (headerHeight + 1),
-      )));
-    };
-    update();
-    observer.current = new ResizeObserver(update);
-    observer.current.observe(element);
-  }, []);
-  return { ref, visibleHeaders };
-}
-
 function LayoutStackNode({ node, screen, basis, ...actions }: LayoutStackNodeProps) {
   const style = basis === undefined ? undefined : { flex: `0 0 ${basis}%` };
-  const { ref, visibleHeaders } = useVisibleStackHeaders();
-  const panes = visibleStackPanes(node.panes, node.expanded, visibleHeaders);
+  const panes = visibleStackPanes(node.panes, node.expanded, null);
   return (
-    <div className="pane-stack" ref={ref} style={style}>
+    <div className="pane-stack" style={style}>
       {panes.map((pane) => {
         const livePane = screen.panes.find((candidate) => candidate.id === pane) ?? null;
         const expanded = pane === node.expanded;
@@ -331,11 +308,7 @@ function LayoutStackNode({ node, screen, basis, ...actions }: LayoutStackNodePro
               <button
                 aria-label={t("pane", { number: pane })}
                 className="stack-pane-header"
-                onFocus={() => actions.onSelectPane(pane)}
-                onPointerDown={(event) => {
-                  if (event.pointerType === "mouse" && event.button !== 0) return;
-                  actions.onSelectPane(pane);
-                }}
+                onClick={() => actions.onSelectPane(pane)}
                 type="button"
               >
                 <span aria-hidden="true">┌</span>

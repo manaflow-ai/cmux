@@ -912,7 +912,7 @@ Example:
 | status | implemented |
 | since | protocol 9 |
 
-Creates a PTY pane after the current panes in creation order, focuses it, and reapplies the default automatic layout. Panes one through five use one full-height left column and up to four equal right-side rows. Panes six through twelve fill balanced columns of four. Above twelve panes, non-focused panes collapse to one-row headers and the focused pane expands in the remaining stacked area. The new surface inherits the active surface working directory of `pane` when available.
+Creates a PTY pane after the current panes in creation order, focuses it, and reapplies the default automatic layout. Panes one through five use one full-height left column and up to four equal right-side rows. Panes six through twelve fill balanced columns of four. Above twelve panes, the first pane stays full-height on the left while the remaining panes form a right-side stack whose focused member expands. The new surface inherits the active surface working directory of `pane` when available.
 
 Params:
 
