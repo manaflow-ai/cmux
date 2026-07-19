@@ -208,6 +208,39 @@ struct ComputerUseUXTests {
         #expect(ComputerUseOnboardingView.initialStep == 0)
     }
 
+    @Test func completingAccessibilityAdvancesAndOpensScreenRecordingSettings() {
+        let transition = ComputerUseOnboardingStep.accessibility.continuation
+
+        #expect(transition.nextStep == .screenRecording)
+        #expect(transition.settingsStepToOpen == .screenRecording)
+    }
+
+    @Test func onboardingSitsBesideSystemSettingsOnItsActualDisplay() throws {
+        let placement = ComputerUseOnboardingWindowPlacement(gap: 12, screenInset: 16)
+        let primaryDisplay = CGRect(x: 0, y: 0, width: 1_512, height: 949)
+        let externalDisplay = CGRect(x: -575, y: 982, width: 1_920, height: 1_080)
+        let systemSettings = placement.appKitFrame(
+            fromQuartz: CGRect(x: 225, y: -1_003, width: 723, height: 762),
+            primaryScreenMaxY: 982
+        )
+        let permissionDisplay = try #require(placement.visibleFrame(
+            containing: systemSettings,
+            candidates: [primaryDisplay, externalDisplay]
+        ))
+
+        let onboarding = placement.frame(
+            onboardingSize: CGSize(width: 760, height: 520),
+            beside: systemSettings,
+            in: permissionDisplay
+        )
+
+        #expect(systemSettings == CGRect(x: 225, y: 1_223, width: 723, height: 762))
+        #expect(permissionDisplay == externalDisplay)
+        #expect(externalDisplay.contains(onboarding))
+        #expect(onboarding.maxX == systemSettings.minX - 12)
+        #expect(onboarding.maxY == systemSettings.maxY)
+    }
+
     @Test @MainActor func onboardingWindowUsesOnlyExplicitHeaderDragRegion() {
         let controller = ComputerUseOnboardingWindowController(
             runtimeService: ComputerUseRuntimeService()
