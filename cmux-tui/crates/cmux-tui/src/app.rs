@@ -7687,6 +7687,45 @@ mod tests {
     }
 
     #[test]
+    fn alt_n_rejects_a_new_pane_with_no_visible_content() {
+        let (mux, _) = test_mux("alt-n-zero-content-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+
+        for _ in 0..3 {
+            app.sync_layout((200, 40));
+            app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
+            while app.session.has_pending_mutations() {
+                let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+                app.handle(event).unwrap();
+            }
+        }
+        let before = app.tree.active_screen().unwrap().clone();
+        let mut before_panes = Vec::new();
+        before.layout.pane_ids(&mut before_panes);
+        assert_eq!(before_panes.len(), 4);
+
+        app.sync_layout((200, 4));
+        app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            app.handle(event).unwrap();
+        }
+
+        let after = app.tree.active_screen().unwrap();
+        let mut after_panes = Vec::new();
+        after.layout.pane_ids(&mut after_panes);
+        assert_eq!(after_panes, before_panes);
+        assert_eq!(after.active_pane, before.active_pane);
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface);
+        }
+    }
+
+    #[test]
     fn context_menu_selection_and_hit_testing_skip_separators() {
         let mut menu = ContextMenu::at(
             10,
