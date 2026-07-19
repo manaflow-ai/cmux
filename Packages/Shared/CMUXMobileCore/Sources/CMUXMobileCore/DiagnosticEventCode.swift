@@ -135,7 +135,8 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// A relay-policy refresh failed. `b`, when present, is
     /// ``DiagnosticFailureKind``.
     case relayPolicyRefreshFailed = 39
-    /// The selected network path changed. `a` is ``DiagnosticPathKind``.
+    /// The selected network path changed. `a` is ``DiagnosticPathKind``. The
+    /// foreground control session wins over background and feature sessions.
     case selectedPathChanged = 40
     /// An established app-transport session closed. `b`, when present, is
     /// ``DiagnosticFailureKind``; absence means an expected closure.

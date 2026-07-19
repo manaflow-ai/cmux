@@ -3201,7 +3201,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectAttemptRegistry: connectAttemptRegistry,
             stackTokenGate: stackTokenGate,
             stackTokenForceRefreshGate: stackTokenForceRefreshGate,
-            transportConnectObserver: transportConnectDiagnosticObserver
+            transportConnectObserver: transportConnectDiagnosticObserver,
+            sessionPurpose: .backgroundControl
         )
         guard let status = await fetchSecondaryHostStatus(on: client),
               MobileMacInstanceTagAuthority.secondaryStatusMatches(

@@ -592,7 +592,8 @@ struct CmxIrohClientSessionPoolTests {
                 endpoint: .peer(identity: backgroundIdentity, pathHints: [])
             ),
             expectedPeerDeviceID: "123e4567-e89b-42d3-a456-426614174031",
-            authorizationMode: .transportAdmission
+            authorizationMode: .transportAdmission,
+            sessionPurpose: .backgroundControl
         )
         let controlConnection = TestIrohConnection(
             remoteIdentity: fixture.remoteIdentity,
@@ -614,13 +615,16 @@ struct CmxIrohClientSessionPoolTests {
         let pool = try await fixture.pool(endpoint: endpoint, generation: 1)
         let control = try CmxIrohByteTransportFactory(sessionPool: pool)
             .makeTransport(for: fixture.request)
+        let background = try CmxIrohByteTransportFactory(sessionPool: pool)
+            .makeTransport(for: backgroundRequest)
 
         try await control.connect()
         #expect(await pool.selectedObservedPath() == .direct)
 
-        _ = try await pool.session(for: backgroundRequest)
+        try await background.connect()
 
         #expect(await pool.selectedObservedPath() == .direct)
+        await background.close()
         await control.close()
     }
 }

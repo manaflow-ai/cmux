@@ -95,7 +95,7 @@ public struct CMUXMobileRootScene: View {
         personalIrohRouteCatalog: MobileIrohRouteCatalog? = nil,
         personalIrohDiscovery: (any MobileIrohMacDiscovering)? = nil,
         signOutHook: MobileSignOutHook,
-        diagnosticLog: DiagnosticLog? = nil
+        diagnosticLog: DiagnosticLog
     ) {
         self.runtime = runtime
         self.auth = auth
@@ -322,7 +322,6 @@ public struct CMUXMobileRootScene: View {
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
             MobileFeedbackStamp.current()
         }
-        #if DEBUG
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
@@ -341,24 +340,5 @@ public struct CMUXMobileRootScene: View {
             feedbackStampProvider: feedbackStampProvider,
             draftStore: draftStore
         )
-        #else
-        return CMUXMobileShellStore(
-            runtime: runtime,
-            pairedMacStore: backedUpPairedMacStore,
-            buildCompatibilityPolicy: buildCompatibilityPolicy,
-            pairedMacRestoreBoundary: restoreBoundary,
-            deviceRegistry: deviceRegistry,
-            personalIrohDiscovery: personalIrohDiscovery,
-            presence: makePresenceClient(),
-            identityProvider: identityProvider,
-            teamIDProvider: { await coordinator.resolvedTeamID },
-            reachability: reachability,
-            forgottenMacStore: forgottenMacStore,
-            analytics: analytics,
-            feedbackEmailSubmitter: feedbackEmailSubmitter,
-            feedbackStampProvider: feedbackStampProvider,
-            draftStore: draftStore
-        )
-        #endif
     }
 }
