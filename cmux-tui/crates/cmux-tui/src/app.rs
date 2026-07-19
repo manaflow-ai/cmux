@@ -8041,6 +8041,80 @@ mod tests {
     }
 
     #[test]
+    fn foreign_viewport_rejects_pty_mouse_input_outside_rendered_grid() {
+        let mux = Mux::new(
+            "foreign-viewport-mouse-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("work".to_string()), Some((12, 5))).unwrap();
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let content = Rect { x: 2, y: 3, width: 20, height: 8 };
+        let live = Rect { x: content.x, y: content.y, width: 12, height: 5 };
+        app.pane_areas.push(PaneArea {
+            pane,
+            surface: surface.id,
+            rect: Rect { x: 1, y: 2, width: 23, height: 10 },
+            bar: Some(Rect { x: 1, y: 2, width: 23, height: 1 }),
+            omnibar: None,
+            content,
+            track: None,
+        });
+        app.rendered_terminal_bounds.insert(surface.id, live);
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: live.x + live.width - 1,
+            row: live.y + live.height - 1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<0;12;5M");
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { content: rect, .. }) if rect == live));
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: live.x + live.width - 1,
+            row: live.y + live.height - 1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        app.encode_buf.clear();
+        let dead_column = live.x + live.width;
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: dead_column,
+            row: live.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.encode_buf.is_empty());
+        assert!(app.drag.is_none());
+        assert!(app.selection.is_none());
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: dead_column,
+            row: live.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.encode_buf.is_empty());
+
+        mux.close_surface(surface.id);
+    }
+
+    #[test]
     fn pointer_motion_does_not_wait_for_terminal_parsing() {
         let mux = Mux::new(
             "mouse-motion-lock-test",
