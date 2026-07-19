@@ -117,7 +117,9 @@ export function relayErrorResponse(error: unknown): Response {
     console.error("relay.policy.unavailable", tag);
     return jsonResponse({ error: "relay_policy_unavailable" }, 503);
   }
-  console.error("relay.policy.unexpected", error);
+  // Unexpected errors can carry database causes, relay origins, or credentials.
+  // Keep the operational event while making its payload intentionally coarse.
+  console.error("relay.policy.unexpected", { failure: "unexpected" });
   return jsonResponse({ error: "internal_error" }, 500);
 }
 
