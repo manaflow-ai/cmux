@@ -41,7 +41,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if info.App != "cmux-tui" || info.Protocol < 5 || info.Protocol > 8 {
+	if info.App != "cmux-tui" || info.Protocol < 5 || info.Protocol > 9 {
 		return fmt.Errorf("unexpected identify result: %+v", info)
 	}
 	cols, rows := uint16(80), uint16(24)

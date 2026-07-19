@@ -48,6 +48,15 @@ func TestSetSplitRatioAcceptsNewerAdditiveProtocols(t *testing.T) {
 	}
 }
 
+func TestNewPaneRejectsServersOlderThanProtocolNine(t *testing.T) {
+	protocol := uint32(8)
+	client := &Client{protocol: &protocol}
+	_, err := client.NewPane(context.Background(), 1, NewPaneOptions{})
+	if err == nil || !errors.Is(err, ErrProtocolMismatch) {
+		t.Fatalf("NewPane() error = %v, want protocol mismatch", err)
+	}
+}
+
 func TestStreamYieldsBufferedOverflowOnceThenStops(t *testing.T) {
 	client, server := net.Pipe()
 	defer server.Close()

@@ -11,7 +11,8 @@ export type Layout =
       ratio: number;
       a: Layout;
       b: Layout;
-    };
+    }
+  | { type: "stack"; panes: [Id, ...Id[]]; expanded: Id };
 
 /** A declarative split tree used by `apply-layout`. */
 export type DeclarativeLayout =
@@ -22,7 +23,8 @@ export type DeclarativeLayout =
       ratio: number;
       a: DeclarativeLayout;
       b: DeclarativeLayout;
-    };
+    }
+  | { type: "stack"; panes: [Id, ...Id[]]; expanded: Id };
 
 /** A live PTY or browser tab. */
 export interface Tab {

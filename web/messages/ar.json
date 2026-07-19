@@ -1493,6 +1493,7 @@
       "flagName": "العلم",
       "flagDesc": "الوصف",
       "flagNameVal": "قم بتعيين عنوان مساحة العمل",
+      "flagCommand": "شغّل نص الأمر مرة واحدة في الطرفية البعيدة الأولية بعد بدء الصدفة",
       "flagPort": "منفذ SSH (الافتراضي 22)",
       "flagIdentity": "المسار إلى ملف الهوية",
       "flagSshOption": "تمرير خيارات SSH التعسفية (على سبيل المثال -o StrictHostKeyChecking=no)",
