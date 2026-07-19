@@ -12,7 +12,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     private let permissionWindowPlacement = ComputerUseOnboardingWindowPlacement()
     private var systemSettingsActivationTask: Task<Void, Never>?
     private var systemSettingsPlacementRetryTask: Task<Void, Never>?
-    private var awaitingSystemSettingsActivation = false
+    private var pendingPlacementRequestID: UUID?
 
     init(runtimeService: ComputerUseRuntimeService) {
         self.runtimeService = runtimeService
@@ -88,7 +88,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         systemSettingsActivationTask = nil
         systemSettingsPlacementRetryTask?.cancel()
         systemSettingsPlacementRetryTask = nil
-        awaitingSystemSettingsActivation = false
+        pendingPlacementRequestID = nil
     }
 
     private func observeSystemSettingsActivation() {
@@ -104,29 +104,35 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
 
     private func permissionSettingsWillOpen() {
         systemSettingsPlacementRetryTask?.cancel()
-        awaitingSystemSettingsActivation = true
+        systemSettingsPlacementRetryTask = nil
+        pendingPlacementRequestID = UUID()
         // This is provisional; activation retries against the post-request window frame.
         _ = positionBesideSystemSettingsIfNeeded()
     }
 
     private func systemSettingsDidActivate() {
-        guard awaitingSystemSettingsActivation else { return }
+        guard let requestID = pendingPlacementRequestID else { return }
         guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier
             == Self.systemSettingsBundleIdentifier
         else { return }
-        systemSettingsPlacementRetryTask?.cancel()
+        guard systemSettingsPlacementRetryTask == nil else { return }
         systemSettingsPlacementRetryTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            defer {
+                if pendingPlacementRequestID == requestID {
+                    pendingPlacementRequestID = nil
+                    systemSettingsPlacementRetryTask = nil
+                }
+            }
             let clock = ContinuousClock()
             let deadline = clock.now.advanced(by: .seconds(3))
             while !Task.isCancelled,
-                  awaitingSystemSettingsActivation,
+                  pendingPlacementRequestID == requestID,
                   clock.now < deadline,
                   NSWorkspace.shared.frontmostApplication?.bundleIdentifier
                     == Self.systemSettingsBundleIdentifier
             {
                 if positionBesideSystemSettingsIfNeeded() {
-                    awaitingSystemSettingsActivation = false
                     return
                 }
                 do {
