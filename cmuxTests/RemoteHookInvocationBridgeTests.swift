@@ -6,6 +6,30 @@ import Testing
 
 @Suite
 struct RemoteHookInvocationBridgeTests {
+    @Test("chunked hook payloads enforce the direct invocation input limit")
+    func chunkedHookInputLimit() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hook-transfer-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bridge = RemoteHookInvocationBridge(transferRoot: root)
+        let transferID = try bridge.beginTransfer(RemoteHookInvocation(
+            arguments: ["omp", "session-start"],
+            environment: [:],
+            input: Data()
+        ))
+        try bridge.append(
+            Data(repeating: 0x61, count: (8 * 1024 * 1024) + 1),
+            toTransfer: transferID
+        )
+
+        do {
+            _ = try bridge.takeTransfer(transferID)
+            Issue.record("expected chunked hook input limit failure")
+        } catch let error as RemoteHookInvocationBridgeError {
+            #expect(error.code == "invalid_params")
+        }
+    }
+
     @Test("staged hook transfers have a fixed concurrency bound")
     func stagedTransferConcurrencyBound() throws {
         let root = FileManager.default.temporaryDirectory
