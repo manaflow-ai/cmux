@@ -14,6 +14,12 @@ import {
   IrohRepositoryLive,
   type IrohRepositoryShape,
 } from "../services/iroh/repository";
+import type { RelayCatalog } from "../services/relay/model";
+import {
+  RelayRepository,
+  RelayRepositoryLive,
+  type RelayRepositoryShape,
+} from "../services/relay/repository";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
@@ -21,6 +27,7 @@ const NOW = new Date("2026-07-09T20:00:00.000Z");
 
 let sql: Sql | null = null;
 let repository: IrohRepositoryShape | null = null;
+let relayRepository: RelayRepositoryShape | null = null;
 
 beforeAll(async () => {
   if (!runDbTests) return;
@@ -30,6 +37,11 @@ beforeAll(async () => {
   repository = await Effect.runPromise(
     Effect.gen(function* () { return yield* IrohRepository; }).pipe(
       Effect.provide(IrohRepositoryLive),
+    ),
+  );
+  relayRepository = await Effect.runPromise(
+    Effect.gen(function* () { return yield* RelayRepository; }).pipe(
+      Effect.provide(RelayRepositoryLive),
     ),
   );
 });
@@ -43,6 +55,8 @@ beforeEach(async () => {
       iroh_registration_challenges,
       iroh_endpoint_bindings,
       iroh_account_security_states,
+      iroh_relay_preferences,
+      iroh_relay_catalog_state,
       account_deletion_tombstones
     restart identity cascade
   `;
@@ -54,6 +68,71 @@ afterAll(async () => {
 });
 
 describe("Iroh trust broker database behavior", () => {
+  dbTest("validates the expanded relay issuance status constraint", async () => {
+    const [constraint] = await requiredSql()<Array<{ validated: boolean }>>`
+      select convalidated as validated
+      from pg_constraint
+      where conname = 'iroh_relay_token_issuances_status_check'
+        and conrelid = 'iroh_relay_token_issuances'::regclass
+    `;
+
+    expect(constraint).toEqual({ validated: true });
+  });
+
+  dbTest("serializes and rejects unsafe managed relay catalog activation", async () => {
+    const current: RelayCatalog = {
+      version: 1,
+      sequence: 20,
+      relays: [{
+        id: "relay-a",
+        provider: "cmux",
+        region: "A",
+        url: "https://relay-a.cmux.dev/",
+      }],
+    };
+    const added: RelayCatalog = {
+      ...current,
+      sequence: 21,
+      relays: [
+        ...current.relays,
+        {
+          id: "relay-b",
+          provider: "cmux",
+          region: "B",
+          url: "https://relay-b.cmux.dev/",
+        },
+      ],
+    };
+    const removed: RelayCatalog = {
+      ...added,
+      sequence: 22,
+      relays: [added.relays[1]!],
+    };
+    const acceptCatalog = requiredRelayRepository().acceptCatalog as unknown as (
+      input: { readonly catalog: RelayCatalog; readonly nowSeconds: number },
+    ) => Effect.Effect<void, unknown>;
+
+    await Effect.runPromise(acceptCatalog({ catalog: current, nowSeconds: 1_000 }));
+    await Effect.runPromise(acceptCatalog({ catalog: added, nowSeconds: 1_001 }));
+
+    const earlyRemoval = await Effect.runPromiseExit(
+      acceptCatalog({ catalog: removed, nowSeconds: 1_300 }),
+    );
+    expect(earlyRemoval._tag).toBe("Failure");
+    expect(String(earlyRemoval)).toContain("unsafe_transition");
+
+    await Effect.runPromise(acceptCatalog({ catalog: removed, nowSeconds: 1_301 }));
+    const [state] = await requiredSql()<Array<{
+      sequence: string;
+      catalog: RelayCatalog;
+    }>>`
+      select catalog_sequence::text as sequence, catalog
+      from iroh_relay_catalog_state
+      where id = 'managed'
+    `;
+    expect(state).toEqual({ sequence: "22", catalog: removed });
+  });
+
   dbTest("blocks new trust state once account deletion wins the account fence", async () => {
     const userId = "user-deleting";
     let mutation: ReturnType<typeof Effect.runPromiseExit> | undefined;
@@ -1327,6 +1406,11 @@ async function insertBinding(input: {
   `;
   if (!row) throw new Error("binding insert returned no row");
   return row.id;
+}
+
+function requiredRelayRepository(): RelayRepositoryShape {
+  if (!relayRepository) throw new Error("relay repository not initialized");
+  return relayRepository;
 }
 
 async function pairPeer(bindingId: string): Promise<PairGrantPeer> {
