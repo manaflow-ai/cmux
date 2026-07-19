@@ -147,6 +147,7 @@ struct MobileIrohSettingsModelTests {
         await observation.value
     }
 
+    #if DEBUG
     @Test func debugTransportModeForwardsEveryChoiceAndRefreshesSnapshot() async {
         let controller = MobileIrohSettingsControllerDouble(
             snapshot: snapshot(sequence: 1, debugMode: .automatic)
@@ -164,6 +165,7 @@ struct MobileIrohSettingsModelTests {
 
         #expect(controller.debugTransportModeMutations == CmxIrohTransportVerificationMode.allCases)
     }
+    #endif
 
     private func waitUntil(_ predicate: () -> Bool) async {
         var spins = 0

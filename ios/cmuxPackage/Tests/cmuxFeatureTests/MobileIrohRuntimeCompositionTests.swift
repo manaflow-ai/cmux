@@ -69,6 +69,7 @@ struct MobileIrohRuntimeCompositionTests {
         #expect(await fixture.endpointFactory.bindCount() == 1)
     }
 
+    #if DEBUG
     @Test
     func debugTransportModePersistsAndRebindsWithoutRotatingIdentity() async throws {
         let fixture = try await MobileIrohSignOutFixture.make()
@@ -105,6 +106,7 @@ struct MobileIrohRuntimeCompositionTests {
         )
         try await fixture.expectOriginalRepositoriesRemain()
     }
+    #endif
 
     @Test
     func connectionReadinessIgnoresSupersededLifecycleCompletion() async {
