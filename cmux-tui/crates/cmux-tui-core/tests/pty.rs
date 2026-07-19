@@ -639,7 +639,7 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
 }
 
 #[test]
-fn control_socket_attach_vt_state_cursor_is_null_without_config_or_decscusr() {
+fn control_socket_attach_vt_state_reports_builtin_cursor_without_config() {
     let mux = Mux::new(unique_session("test-attach-cursor-null"), shell_opts("cat"));
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
 
@@ -650,8 +650,8 @@ fn control_socket_attach_vt_state_cursor_is_null_without_config_or_decscusr() {
 
     writeln!(writer, r#"{{"id":1,"cmd":"attach-surface","surface":{}}}"#, surface.id).unwrap();
     let vt_state = read_json_line(&mut reader).expect("vt-state event");
-    assert_eq!(vt_state["colors"]["cursor_style"], serde_json::Value::Null);
-    assert_eq!(vt_state["colors"]["cursor_blink"], serde_json::Value::Null);
+    assert_eq!(vt_state["colors"]["cursor_style"], "block");
+    assert_eq!(vt_state["colors"]["cursor_blink"], false);
 
     let response = read_json_line(&mut reader).expect("attach response");
     assert_eq!(response["ok"], true, "attach failed: {response}");
@@ -661,7 +661,7 @@ fn control_socket_attach_vt_state_cursor_is_null_without_config_or_decscusr() {
 }
 
 #[test]
-fn control_socket_attach_vt_state_reports_host_cursor_defaults_before_replay() {
+fn control_socket_attach_vt_state_reports_authoritative_cursor_before_replay() {
     let mux = Mux::new(unique_session("test-attach-cursor-override"), shell_opts("cat"));
     mux.set_default_colors(DefaultColors {
         cursor_style: Some(CursorShape::Bar),
@@ -678,8 +678,8 @@ fn control_socket_attach_vt_state_reports_host_cursor_defaults_before_replay() {
 
     writeln!(writer, r#"{{"id":1,"cmd":"attach-surface","surface":{}}}"#, surface.id).unwrap();
     let vt_state = read_json_line(&mut reader).expect("vt-state event");
-    assert_eq!(vt_state["colors"]["cursor_style"], "bar");
-    assert_eq!(vt_state["colors"]["cursor_blink"], false);
+    assert_eq!(vt_state["colors"]["cursor_style"], "underline");
+    assert_eq!(vt_state["colors"]["cursor_blink"], true);
 
     let response = read_json_line(&mut reader).expect("attach response");
     assert_eq!(response["ok"], true, "attach failed: {response}");

@@ -150,7 +150,11 @@ impl Default for TerminalColors {
 }
 
 impl TerminalColors {
-    fn from_terminal(term: &Terminal, defaults: DefaultColors) -> Self {
+    fn from_terminal(
+        term: &Terminal,
+        defaults: DefaultColors,
+        cursor_visual: Option<(CursorShape, bool)>,
+    ) -> Self {
         let (fg, bg, cursor) = term.effective_colors();
         let effective_palette = term.effective_palette().ok();
         let palette = std::array::from_fn(|index| {
@@ -166,8 +170,8 @@ impl TerminalColors {
             selection_bg: defaults.selection_bg,
             selection_fg: defaults.selection_fg,
             palette,
-            cursor_style: defaults.cursor_style,
-            cursor_blink: defaults.cursor_blink,
+            cursor_style: cursor_visual.map(|(style, _)| style).or(defaults.cursor_style),
+            cursor_blink: cursor_visual.map(|(_, blink)| blink).or(defaults.cursor_blink),
         }
     }
 }
@@ -552,7 +556,7 @@ impl Surface {
                         if term.color_revision() != color_revision {
                             let defaults =
                                 mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
-                            let mut colors = TerminalColors::from_terminal(&term, defaults);
+                            let mut colors = pty.terminal_colors_locked(&mut term, defaults);
                             // PTY color changes do not change cursor visual
                             // state; preserve the live xterm cursor.
                             colors.cursor_style = None;
@@ -871,7 +875,7 @@ impl Surface {
             term.set_default_colors(colors.fg, colors.bg, colors.cursor);
             term.set_default_palette(&colors.palette);
             term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
-            let colors = TerminalColors::from_terminal(&mut term, colors);
+            let colors = pty.terminal_colors_locked(&mut term, colors);
             let mut taps = pty.taps.lock().unwrap();
             if !taps.is_empty() {
                 taps.retain(|tap| tap.try_send(AttachFrame::ColorsChanged(Box::new(colors))));
@@ -1038,7 +1042,7 @@ impl Surface {
         let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES)?;
         let (cols, rows) = (term.cols(), term.rows());
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
-        let colors = TerminalColors::from_terminal(&mut term, defaults);
+        let colors = pty.terminal_colors_locked(&mut term, defaults);
         pty.taps.lock().unwrap().push(AttachTap {
             sender: tx,
             lifecycle: lifecycle.clone(),
@@ -1245,6 +1249,20 @@ impl ChildKiller for TestChildKiller {
 }
 
 impl PtySurface {
+    /// Snapshot colors from the terminal and the owning shared render state.
+    /// Building the generation before reading cursor metadata keeps Ghostty
+    /// damage owned by the same state that serves render clients.
+    fn terminal_colors_locked(
+        &self,
+        term: &mut Terminal,
+        defaults: DefaultColors,
+    ) -> TerminalColors {
+        let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        let _ = self.build_frame_locked(term, generation, false);
+        let cursor_visual = self.render.lock().unwrap().state.cursor_visual().ok();
+        TerminalColors::from_terminal(term, defaults, cursor_visual)
+    }
+
     fn broadcast_attach_output(&self, bytes: &[u8]) {
         let mut taps = self.taps.lock().unwrap();
         if taps.is_empty() {
@@ -1329,7 +1347,7 @@ impl PtySurface {
         let _ = term.resize(cols, rows, 8, 16);
         let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES).unwrap_or_default();
         let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
-        let colors = Box::new(TerminalColors::from_terminal(&mut term, defaults));
+        let colors = Box::new(self.terminal_colors_locked(&mut term, defaults));
         self.broadcast_attach_frame(AttachFrame::Resized { cols, rows, replay, colors });
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let _ = self.build_frame_locked(&mut term, generation, false);
@@ -1397,7 +1415,7 @@ mod tests {
         term.set_default_palette(&defaults.palette);
 
         term.vt_write(b"\x1b]4;4;#445566\x07");
-        let colors = TerminalColors::from_terminal(&mut term, defaults);
+        let colors = TerminalColors::from_terminal(&term, defaults, None);
         assert_eq!(colors.palette[4], Some(color));
         assert!(
             colors
@@ -1408,7 +1426,7 @@ mod tests {
         );
 
         term.vt_write(b"\x1b]104;4\x07");
-        let colors = TerminalColors::from_terminal(&mut term, defaults);
+        let colors = TerminalColors::from_terminal(&term, defaults, None);
         assert_eq!(colors.palette[4], None);
     }
 
@@ -1420,7 +1438,7 @@ mod tests {
         shared_render.set_clean();
 
         term.vt_write(b"changed");
-        let _ = TerminalColors::from_terminal(&term, DefaultColors::default());
+        let _ = TerminalColors::from_terminal(&term, DefaultColors::default(), None);
 
         shared_render.update(&mut term).unwrap();
         assert_ne!(shared_render.dirty(), ghostty_vt::Dirty::Clean);
