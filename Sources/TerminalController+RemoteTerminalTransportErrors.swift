@@ -45,7 +45,7 @@ extension TerminalController {
             code: "invalid_params",
             message: String(
                 localized: "socket.workspace.remote.terminalTransport.moshRequiresSSH",
-                defaultValue: "terminal_transport 'mosh' requires an SSH-managed workspace with daemon bootstrap"
+                defaultValue: "terminal_transport 'mosh' requires an SSH-managed workspace"
             ),
             data: nil
         )
