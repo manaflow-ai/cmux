@@ -1762,7 +1762,8 @@ extension CMUXCLIErrorOutputRegressionTests {
             terminalObservations: []
         ) == AgentSessionProviderSelection(
             providerID: "Custom",
-            exactObservationProviderID: "Custom"
+            exactObservationProviderID: nil,
+            caseFoldedObservationProviderID: "Custom"
         ))
 
         try Data("""
@@ -1795,6 +1796,79 @@ extension CMUXCLIErrorOutputRegressionTests {
             fileManager: .default
         )
         #expect(exactOverride.first { $0.name == "ollama" }?.displayName == "Project Ollama")
+    }
+
+    @Test func uniqueCaseFoldProviderCanonicalizesLiveObservationBeforeDurableJoin() throws {
+        let cli = CMUXCLI(args: [])
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let liveObservation = makeTerminalObservation(
+            state: .working,
+            lifecycleAuthoritative: false,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            sessionProviderID: "custom"
+        )
+        let selection = cli.agentSessionProviderSelection(
+            for: "custom",
+            availableProviderIDs: ["Custom"],
+            terminalObservations: [liveObservation]
+        )
+        #expect(cli.agentTerminalObservation(
+            liveObservation,
+            matches: selection,
+            requestedNormalizedID: "custom"
+        ))
+        let canonicalObservation = cli.agentTerminalObservation(
+            liveObservation,
+            canonicalizedFor: selection
+        )
+        #expect(canonicalObservation.sessionProviderID == "Custom")
+
+        let durableObservation = makeTerminalObservation(
+            state: .idle,
+            lifecycleAuthoritative: false,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            sessionProviderID: "Custom"
+        )
+        let durableNode = makeTerminalNodeCandidate(
+            sessionID: "durable-custom-session",
+            observation: durableObservation,
+            effectiveState: .idle
+        )
+        let merged = AgentTerminalObservationJoiner().merge(
+            nodes: [durableNode],
+            observations: [canonicalObservation],
+            activeSessionBySurface: [:]
+        )
+        let node = try #require(merged.first)
+        #expect(merged.count == 1)
+        #expect(node.provider == "Custom")
+        #expect(node.sessionId == "durable-custom-session")
+        #expect(node.effectiveState == .working)
+        #expect(node.identitySource == "hook_session")
+        #expect(!merged.contains { $0.identitySource == "terminal_process" })
+
+        let literalAliasSelection = cli.agentSessionProviderSelection(
+            for: "cursor-agent",
+            availableProviderIDs: ["cursor-agent"],
+            terminalObservations: []
+        )
+        let aliasFamilyObservation = makeTerminalObservation(
+            state: .working,
+            lifecycleAuthoritative: false,
+            sessionProviderID: "CURSOR-AGENT"
+        )
+        #expect(!cli.agentTerminalObservation(
+            aliasFamilyObservation,
+            matches: literalAliasSelection,
+            requestedNormalizedID: "cursor-agent"
+        ))
+        #expect(cli.agentTerminalObservation(
+            aliasFamilyObservation,
+            canonicalizedFor: literalAliasSelection
+        ).sessionProviderID == "CURSOR-AGENT")
     }
 
     @Test func caseDifferentStaticProviderCollisionsFailWhileExactStaticIDsRemainUsable() throws {
