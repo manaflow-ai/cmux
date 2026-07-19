@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSidebar
 import Testing
 @testable import cmux_DEV
 
