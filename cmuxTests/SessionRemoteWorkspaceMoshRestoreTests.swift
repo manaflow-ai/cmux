@@ -78,8 +78,8 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
         #expect(!command.contains("mosh"), "\(command)")
     }
 
-    @Test("Mosh snapshots do not claim SSH persistent-PTY restore")
-    func moshDoesNotRestorePersistentSSHPTY() throws {
+    @Test("Mosh restore keeps its relay namespace without claiming SSH persistent PTY")
+    func moshRestoresRelayWithoutPersistentSSHPTY() throws {
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,
             terminalTransport: .mosh,
@@ -95,5 +95,11 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
         #expect(configuration.terminalTransport == .mosh)
         #expect(!configuration.preserveAfterTerminalExit)
         #expect(configuration.persistentDaemonSlot == nil)
+        #expect(configuration.relayPort == 52_000)
+        #expect(configuration.relayID?.isEmpty == false)
+        #expect(configuration.relayToken?.isEmpty == false)
+        #expect(configuration.localSocketPath == "/tmp/cmux.sock")
+        #expect(configuration.terminalStartupCommand?.contains("52000.bootstrap.sh") == true)
+        #expect(configuration.terminalStartupCommand?.contains("cmux_remote_bootstrap_b64") == true)
     }
 }

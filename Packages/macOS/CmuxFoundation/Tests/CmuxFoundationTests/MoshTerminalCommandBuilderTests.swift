@@ -8,7 +8,10 @@ struct MoshTerminalCommandBuilderTests {
     func localMoshMissingFallsBack() throws {
         try withFakeCommands(sshStatus: 0, installMosh: false) { directory, environment in
             let result = try run(
-                builder(sshFallbackCommand: "printf 'ssh fallback\\n'"),
+                builder(
+                    sshFallbackCommand: "printf 'ssh fallback\\n'",
+                    localMoshExecutableName: "cmux-missing-mosh"
+                ),
                 environment: environment
             )
 
@@ -94,28 +97,67 @@ struct MoshTerminalCommandBuilderTests {
             #expect(result.status == 0)
             #expect(result.stdout.isEmpty)
             #expect(result.stderr.isEmpty)
-            #expect(probeArguments == [
+            #expect(Array(probeArguments.prefix(4)) == [
                 "-o", "RemoteCommand=none", "-T", "user@example.com",
-                "command -v mosh-server >/dev/null 2>&1 || exit 127",
             ])
-            #expect(moshArguments == [
-                "--experimental-remote-ip=remote",
-                "--ssh='ssh' '-o' 'RemoteCommand=none' '-p' '2222'",
-                "--",
-                "user@example.com",
-                "command",
-                "space arg",
-                "quote'arg",
+            #expect(probeArguments.last?.contains("mosh-server") == true)
+            #expect(probeArguments.last?.contains("$HOME/.local/bin") == true)
+            #expect(moshArguments[0] == "--experimental-remote-ip=remote")
+            #expect(moshArguments[1] == "--ssh='ssh' '-o' 'RemoteCommand=none' '-p' '2222'")
+            #expect(moshArguments[2].hasPrefix("--server="))
+            #expect(moshArguments[2].contains("mosh-server"))
+            #expect(Array(moshArguments.suffix(5)) == [
+                "--", "user@example.com", "command", "space arg", "quote'arg",
             ])
         }
     }
 
-    private func builder(sshFallbackCommand: String = "exit 90") -> MoshTerminalCommandBuilder {
+    @Test("keeps a large bootstrap preparation out of Mosh remote argv")
+    func largePreparationIsNotRemoteArgv() throws {
+        try withFakeCommands(sshStatus: 0) { directory, environment in
+            let largePreparation = ": # " + String(repeating: "bootstrap", count: 20_000)
+            let result = try run(
+                builder(preparationShellScript: largePreparation),
+                environment: environment
+            )
+            let moshArguments = try Data(
+                contentsOf: directory.appendingPathComponent("mosh.args")
+            )
+
+            #expect(result.status == 0)
+            #expect(moshArguments.count < 8_192)
+        }
+    }
+
+    @Test("falls back to SSH when remote preparation fails")
+    func preparationFailureFallsBack() throws {
+        try withFakeCommands(sshStatus: 0) { _, environment in
+            let result = try run(
+                builder(
+                    sshFallbackCommand: "printf 'ssh fallback\\n'",
+                    preparationShellScript: "false"
+                ),
+                environment: environment
+            )
+
+            #expect(result.status == 0)
+            #expect(result.stdout == "ssh fallback\n")
+            #expect(result.stderr == "remote probe failed\n")
+        }
+    }
+
+    private func builder(
+        sshFallbackCommand: String = "exit 90",
+        preparationShellScript: String? = nil,
+        localMoshExecutableName: String = "mosh"
+    ) -> MoshTerminalCommandBuilder {
         MoshTerminalCommandBuilder(
             capabilityProbeSSHArguments: ["ssh", "-o", "RemoteCommand=none"],
             sessionSSHArguments: ["ssh", "-o", "RemoteCommand=none", "-p", "2222"],
+            localMoshExecutableName: localMoshExecutableName,
             destination: "user@example.com",
             remoteCommandArguments: ["command", "space arg", "quote'arg"],
+            preparationShellScript: preparationShellScript,
             sshFallbackCommand: sshFallbackCommand,
             localMoshMissingMessage: "local mosh missing",
             localMoshUnsupportedMessage: "local mosh unsupported",

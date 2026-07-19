@@ -78,6 +78,12 @@ extension SessionRemoteWorkspaceSnapshot {
             normalizedLocalSocketPath != nil &&
             normalizedRelayPort != nil &&
             SSHPTYAttachStartupCommandBuilder.sshOptionsSupportReusableForegroundAuth(optionsWithRestoreControlDefaults)
+        let restoreMoshRelayNamespace =
+            restoredTerminalTransport == .mosh &&
+            skipDaemonBootstrap != true &&
+            normalizedLocalSocketPath != nil &&
+            normalizedRelayPort != nil
+        let restoreRelayNamespace = preservePTYSession || restoreMoshRelayNamespace
         let restoreDefaultFreestyleSSHD = defaultFreestyleVMID != nil
         let restoredSSHOptions = preservePTYSession ? optionsWithRestoreControlDefaults : fallbackSSHOptions
         let foregroundAuthToken = preservePTYSession ? UUID().uuidString.lowercased() : nil
@@ -90,10 +96,10 @@ extension SessionRemoteWorkspaceSnapshot {
                 token: $0
             )
         }
-        let restoredRelayID = preservePTYSession
+        let restoredRelayID = restoreRelayNamespace
             ? UUID().uuidString.lowercased()
             : nil
-        let restoredRelayToken = preservePTYSession
+        let restoredRelayToken = restoreRelayNamespace
             ? Self.restoreRelayTokenHex()
             : nil
         let restoredRemoteShellCommand = preservePTYSession
@@ -108,10 +114,10 @@ extension SessionRemoteWorkspaceSnapshot {
             identityFile: Self.normalizedIdentityPath(identityFile),
             sshOptions: restoredSSHOptions,
             localProxyPort: nil,
-            relayPort: preservePTYSession ? normalizedRelayPort : nil,
+            relayPort: restoreRelayNamespace ? normalizedRelayPort : nil,
             relayID: restoredRelayID,
             relayToken: restoredRelayToken,
-            localSocketPath: preservePTYSession ? normalizedLocalSocketPath : nil,
+            localSocketPath: restoreRelayNamespace ? normalizedLocalSocketPath : nil,
             managedCloudVMID: managedCloudVMID,
             terminalStartupCommand: {
                 if preservePTYSession {
@@ -141,6 +147,7 @@ extension SessionRemoteWorkspaceSnapshot {
                     port: normalizedPort,
                     sshOptions: restoredSSHOptions,
                     terminalProfile: restoredTerminalProfile,
+                    remoteRelayPort: restoreMoshRelayNamespace ? normalizedRelayPort : nil,
                     sshFallbackCommand: fallbackCommand
                 )
             }(),
@@ -197,6 +204,7 @@ extension SessionRemoteWorkspaceSnapshot {
         port normalizedPort: Int?,
         sshOptions reconnectSSHOptions: [String],
         terminalProfile: WorkspaceRemoteTerminalProfile,
+        remoteRelayPort: Int?,
         sshFallbackCommand: String
     ) -> String {
         let sshArguments = sshBootstrapArguments(
@@ -206,12 +214,47 @@ extension SessionRemoteWorkspaceSnapshot {
         let moshSSHArguments = [sshArguments[0]]
             + SSHHostConfiguredRemoteCommand().overrideArguments
             + sshArguments.dropFirst()
+        var remoteCommandArguments = terminalProfile.remoteCommandArguments
+        var preparationShellScript: String?
+        var effectiveSSHFallbackCommand = sshFallbackCommand
+        if let remoteRelayPort {
+            let remoteBootstrapScript = RemoteInteractiveShellBootstrapBuilder.script(
+                remoteRelayPort: remoteRelayPort,
+                shellFeatures: RemoteInteractiveShellBootstrapBuilder.shellFeatures(),
+                bundledZshIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
+                    named: "cmux-zsh-integration.zsh"
+                ),
+                bundledBashIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
+                    named: "cmux-bash-integration.bash"
+                ),
+                bundledFishIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
+                    named: "fish/config.fish"
+                ),
+                terminalProfile: terminalProfile
+            )
+            if let staging = RemoteBootstrapStagingCommandBuilder(
+                installerSSHArguments: moshSSHArguments,
+                destination: normalizedDestination,
+                remoteRelayPort: remoteRelayPort,
+                bootstrapScript: remoteBootstrapScript
+            ) {
+                remoteCommandArguments = staging.remoteExecutionCommandArguments
+                preparationShellScript = staging.preparationShellScript
+                effectiveSSHFallbackCommand = stagedSSHFallbackCommand(
+                    staging: staging,
+                    sshArguments: moshSSHArguments,
+                    destination: normalizedDestination,
+                    sshOptions: reconnectSSHOptions
+                )
+            }
+        }
         return MoshTerminalCommandBuilder(
             capabilityProbeSSHArguments: moshSSHArguments,
             sessionSSHArguments: moshSSHArguments,
             destination: normalizedDestination,
-            remoteCommandArguments: terminalProfile.remoteCommandArguments,
-            sshFallbackCommand: sshFallbackCommand,
+            remoteCommandArguments: remoteCommandArguments,
+            preparationShellScript: preparationShellScript,
+            sshFallbackCommand: effectiveSSHFallbackCommand,
             localMoshMissingMessage: String(
                 localized: "cli.ssh.mosh.localMissing",
                 defaultValue: "[cmux] Mosh is not installed locally; continuing over SSH."
@@ -229,6 +272,28 @@ extension SessionRemoteWorkspaceSnapshot {
                 defaultValue: "[cmux] Could not verify remote Mosh support; continuing over SSH."
             )
         ).command()
+    }
+
+    private func stagedSSHFallbackCommand(
+        staging: RemoteBootstrapStagingCommandBuilder,
+        sshArguments: [String],
+        destination: String,
+        sshOptions: [String]
+    ) -> String {
+        var terminalArguments = sshArguments
+        if !Self.hasSSHOptionKey(sshOptions, key: "RequestTTY") {
+            terminalArguments.append("-tt")
+        }
+        terminalArguments.append(destination)
+        terminalArguments.append(contentsOf: staging.remoteExecutionCommandArguments)
+        let invocation = terminalArguments.map(Self.shellQuote).joined(separator: " ")
+        let script = [
+            staging.preparationShellScript,
+            "if [ \"$cmux_remote_install_status\" -ne 0 ]; then exit \"$cmux_remote_install_status\"; fi",
+            "unset cmux_remote_install_status",
+            "exec \(invocation)",
+        ].joined(separator: "\n")
+        return "/bin/sh -c \(Self.shellQuote(script))"
     }
 
     private func sshBootstrapArguments(

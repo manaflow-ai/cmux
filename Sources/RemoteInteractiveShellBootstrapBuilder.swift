@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 enum RemoteInteractiveShellBootstrapBuilder {
@@ -7,7 +8,8 @@ enum RemoteInteractiveShellBootstrapBuilder {
         terminfoSource: String? = nil,
         bundledZshIntegration: String? = nil,
         bundledBashIntegration: String? = nil,
-        bundledFishIntegration: String? = nil
+        bundledFishIntegration: String? = nil,
+        terminalProfile: WorkspaceRemoteTerminalProfile = .shell
     ) -> String {
         let shellStateDir = shellStateDirForRemoteRelayPort(remoteRelayPort)
         let commonShellExportLines = commonShellLines(
@@ -85,7 +87,12 @@ enum RemoteInteractiveShellBootstrapBuilder {
         outerLines += [
             "    export CMUX_REAL_ZDOTDIR=\"${ZDOTDIR:-$HOME}\"",
             "    export ZDOTDIR=\"$cmux_shell_dir\"",
-            "    exec \"$CMUX_LOGIN_SHELL\" -il",
+            terminalLaunchLine(
+                profile: terminalProfile,
+                indentation: "    ",
+                directShellCommand: "exec \"$CMUX_LOGIN_SHELL\" -il",
+                tmuxShellCommand: "export CMUX_REAL_ZDOTDIR=\"${ZDOTDIR:-$HOME}\"; export ZDOTDIR=\"\(shellStateDir)\"; exec \"${SHELL:-/bin/zsh}\" -il"
+            ),
             "    ;;",
             "  bash)",
             "    cat > \"$cmux_shell_dir/.bashrc\" <<'CMUXBASHRC'",
@@ -106,7 +113,12 @@ enum RemoteInteractiveShellBootstrapBuilder {
         ]
         outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
         outerLines += [
-            "    exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i",
+            terminalLaunchLine(
+                profile: terminalProfile,
+                indentation: "    ",
+                directShellCommand: "exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i",
+                tmuxShellCommand: "exec \"${SHELL:-/bin/bash}\" --rcfile \"\(shellStateDir)/.bashrc\" -i"
+            ),
             "    ;;",
             "  fish)",
         ]
@@ -114,18 +126,44 @@ enum RemoteInteractiveShellBootstrapBuilder {
         outerLines += [
             "    export CMUX_FISH_INTEGRATION_FILE=\"$cmux_shell_dir/fish/config.fish\"",
             "    export CMUX_FISH_USER_CONFIG_ALREADY_LOADED=1",
-            "    exec \"$CMUX_LOGIN_SHELL\" -il --init-command 'source \"$CMUX_FISH_INTEGRATION_FILE\"'",
+            terminalLaunchLine(
+                profile: terminalProfile,
+                indentation: "    ",
+                directShellCommand: "exec \"$CMUX_LOGIN_SHELL\" -il --init-command 'source \"$CMUX_FISH_INTEGRATION_FILE\"'",
+                tmuxShellCommand: "export CMUX_FISH_INTEGRATION_FILE=\"\(shellStateDir)/fish/config.fish\"; export CMUX_FISH_USER_CONFIG_ALREADY_LOADED=1; exec \"${SHELL:-/bin/fish}\" -il --init-command 'source \"$CMUX_FISH_INTEGRATION_FILE\"'"
+            ),
             "    ;;",
             "  *)",
         ]
         outerLines.append(contentsOf: relayWarmupLines)
         outerLines += [
-            "exec \"$CMUX_LOGIN_SHELL\" -i",
+            terminalLaunchLine(
+                profile: terminalProfile,
+                indentation: "",
+                directShellCommand: "exec \"$CMUX_LOGIN_SHELL\" -i",
+                tmuxShellCommand: "exec \"${SHELL:-/bin/sh}\" -i"
+            ),
             ";;",
             "esac",
         ]
 
         return outerLines.joined(separator: "\n")
+    }
+
+    private static func terminalLaunchLine(
+        profile: WorkspaceRemoteTerminalProfile,
+        indentation: String,
+        directShellCommand: String,
+        tmuxShellCommand: String
+    ) -> String {
+        guard let sessionName = profile.tmuxSessionName else {
+            return indentation + directShellCommand
+        }
+        let command = RemoteTmuxSessionCommandBuilder(
+            sessionName: sessionName,
+            shellCommand: tmuxShellCommand
+        ).remoteShellCommand
+        return indentation + "exec " + command
     }
 
     static func shellFeatures(

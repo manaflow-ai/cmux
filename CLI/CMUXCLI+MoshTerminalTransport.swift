@@ -33,26 +33,32 @@ extension CMUXCLI {
             baseSSHArguments(options, localCommandScript: localCommandScript)
         )
         let remoteCommandArguments: [String]
+        let preparationShellScript: String?
         if !options.extraArguments.isEmpty {
             remoteCommandArguments = options.extraArguments
+            preparationShellScript = nil
         } else if let remoteBootstrapScript,
                   !remoteBootstrapScript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            remoteCommandArguments = [
-                "/bin/sh",
-                "-c",
-                encodedRemoteBootstrapCommand(
-                    remoteBootstrapScript,
-                    remoteRelayPort: options.remoteRelayPort
-                ),
-            ]
+            guard let staging = RemoteBootstrapStagingCommandBuilder(
+                installerSSHArguments: capabilityProbeSSHArguments,
+                destination: options.destination,
+                remoteRelayPort: options.remoteRelayPort,
+                bootstrapScript: remoteBootstrapScript
+            ) else {
+                return sshFallbackCommand
+            }
+            remoteCommandArguments = staging.remoteExecutionCommandArguments
+            preparationShellScript = staging.preparationShellScript
         } else {
             remoteCommandArguments = []
+            preparationShellScript = nil
         }
         return MoshTerminalCommandBuilder(
             capabilityProbeSSHArguments: capabilityProbeSSHArguments,
             sessionSSHArguments: sessionSSHArguments,
             destination: options.destination,
             remoteCommandArguments: remoteCommandArguments,
+            preparationShellScript: preparationShellScript,
             sshFallbackCommand: sshFallbackCommand,
             localMoshMissingMessage: String(
                 localized: "cli.ssh.mosh.localMissing",

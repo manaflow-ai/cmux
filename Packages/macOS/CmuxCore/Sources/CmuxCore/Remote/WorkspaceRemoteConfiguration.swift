@@ -421,6 +421,7 @@ extension WorkspaceRemoteConfiguration {
         }
 
         guard transport == .ssh else { return nil }
+        let retainsRelayNamespace = preserveAfterTerminalExit || terminalTransport == .mosh
 
         return SessionRemoteWorkspaceSnapshot(
             transport: transport,
@@ -432,7 +433,7 @@ extension WorkspaceRemoteConfiguration {
             sshOptions: sshOptionsOverride ?? Self.durableSSHOptions(sshOptions),
             preserveAfterTerminalExit: preserveAfterTerminalExit ? true : nil,
             skipDaemonBootstrap: skipDaemonBootstrap,
-            relayPort: preserveAfterTerminalExit ? relayPort : nil,
+            relayPort: retainsRelayNamespace ? relayPort : nil,
             persistentDaemonSlot: preserveAfterTerminalExit ? persistentDaemonSlot : nil,
             managedCloudVMID: managedCloudVMID
         )

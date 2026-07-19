@@ -378,6 +378,19 @@ struct WorkspaceRemoteConfigurationValueTests {
         #expect(snapshot?.persistentDaemonSlot == "slot")
     }
 
+    @Test("Mosh snapshots retain the relay namespace without persistent SSH PTY state")
+    func moshSnapshotRetainsRelayNamespace() {
+        let snapshot = makeConfiguration(
+            terminalTransport: .mosh,
+            relayPort: 52_000
+        ).sessionSnapshot()
+
+        #expect(snapshot?.terminalTransport == .mosh)
+        #expect(snapshot?.preserveAfterTerminalExit == nil)
+        #expect(snapshot?.relayPort == 52_000)
+        #expect(snapshot?.persistentDaemonSlot == nil)
+    }
+
     @Test("sshTerminalStartupEnvironment carries SSH_AUTH_SOCK only when an agent socket exists")
     func startupEnvironment() {
         #expect(makeConfiguration().sshTerminalStartupEnvironment == nil)

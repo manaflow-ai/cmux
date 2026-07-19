@@ -8925,7 +8925,7 @@ struct CMUXCLI {
                     remoteRelayPort: sshOptions.remoteRelayPort,
                     shellFeatures: shellFeaturesValue,
                     terminfoSource: terminfoSource,
-                    terminalCommand: sshOptions.terminalProfile.remoteShellCommand
+                    terminalProfile: sshOptions.terminalProfile
                 )
                 : nil
         }
@@ -9669,28 +9669,30 @@ struct CMUXCLI {
         remoteBootstrapScript: String,
         localCommandScript: String? = nil
     ) -> String {
-        let encodedBootstrapScript = Data(remoteBootstrapScript.utf8).base64EncodedString()
-        let installSSHPrefix = sshArgumentsOverridingHostRemoteCommand(baseSSHArguments(options, localCommandScript: localCommandScript)).map(shellQuote).joined(separator: " ")
+        guard let staging = RemoteBootstrapStagingCommandBuilder(
+            installerSSHArguments: sshArgumentsOverridingHostRemoteCommand(
+                baseSSHArguments(options, localCommandScript: localCommandScript)
+            ),
+            destination: options.destination,
+            remoteRelayPort: options.remoteRelayPort,
+            bootstrapScript: remoteBootstrapScript
+        ) else {
+            return ""
+        }
         let sessionSSHPrefix = baseSSHArguments(options).map(shellQuote).joined(separator: " ")
         let remoteCommandTemplate = openSSHRemoteCommandValue(
             shellScript: stagedRemoteBootstrapCommandShell(
                 remoteRelayPort: options.remoteRelayPort
             )
         )
-        let remoteBootstrapInstallCommand = posixShellCommand(
-            remoteBootstrapInstallShell(remoteRelayPort: options.remoteRelayPort)
-        )
         var lines: [String] = [
-            "cmux_workspace_id=\"${CMUX_WORKSPACE_ID:-}\"",
-            "cmux_surface_id=\"${CMUX_SURFACE_ID:-}\"",
-            "cmux_remote_bootstrap_b64=\(shellQuote(encodedBootstrapScript))",
-            "cmux_remote_bootstrap=\"$(printf %s \"$cmux_remote_bootstrap_b64\" | base64 -d 2>/dev/null || printf %s \"$cmux_remote_bootstrap_b64\" | base64 -D 2>/dev/null)\"",
-            "cmux_remote_bootstrap=\"$(printf '%s' \"$cmux_remote_bootstrap\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_surface_id/g\")\"",
-            "printf '%s' \"$cmux_remote_bootstrap\" | command \(installSSHPrefix) -T \(shellQuote(options.destination)) \(shellQuote(remoteBootstrapInstallCommand))",
-            "cmux_remote_install_status=$?",
+            staging.preparationShellScript,
             "if [ \"$cmux_remote_install_status\" -ne 0 ]; then",
             "  exit \"$cmux_remote_install_status\"",
             "fi",
+            "unset cmux_remote_install_status",
+            "cmux_workspace_id=\"${CMUX_WORKSPACE_ID:-}\"",
+            "cmux_surface_id=\"${CMUX_SURFACE_ID:-}\"",
             "cmux_remote_command_template=\(shellQuote(remoteCommandTemplate))",
             "cmux_remote_command=\"$(printf '%s' \"$cmux_remote_command_template\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_surface_id/g\")\"",
         ]
@@ -9710,17 +9712,6 @@ struct CMUXCLI {
         var lines = remoteBootstrapTTYCaptureLines(remoteRelayPort: remoteRelayPort, includeRelayRPC: true)
         lines.append("/bin/sh \"$HOME/.cmux/relay/\(remoteRelayPort).bootstrap.sh\"")
         return lines.joined(separator: "\n")
-    }
-
-    private func remoteBootstrapInstallShell(remoteRelayPort: Int) -> String {
-        [
-            "set -eu",
-            "umask 077",
-            "cmux_bootstrap_path=\"$HOME/.cmux/relay/\(remoteRelayPort).bootstrap.sh\"",
-            "mkdir -p \"$HOME/.cmux/relay\"",
-            "cat > \"$cmux_bootstrap_path\"",
-            "chmod 700 \"$cmux_bootstrap_path\" >/dev/null 2>&1 || true",
-        ].joined(separator: "\n")
     }
 
     private func runtimeEncodedRemoteBootstrapCommandShell(
@@ -9794,6 +9785,23 @@ struct CMUXCLI {
             sshArguments: baseSSHArguments(options),
             destination: options.destination,
             options: effectiveOptions
+        )
+    }
+
+    func buildInteractiveRemoteShellScript(
+        remoteRelayPort: Int,
+        shellFeatures: String,
+        terminfoSource: String? = nil,
+        terminalProfile: WorkspaceRemoteTerminalProfile
+    ) -> String {
+        RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: remoteRelayPort,
+            shellFeatures: shellFeatures,
+            terminfoSource: terminfoSource,
+            bundledZshIntegration: bundledShellIntegrationScript(named: "cmux-zsh-integration.zsh"),
+            bundledBashIntegration: bundledShellIntegrationScript(named: "cmux-bash-integration.bash"),
+            bundledFishIntegration: bundledShellIntegrationScript(named: "fish/config.fish"),
+            terminalProfile: terminalProfile
         )
     }
 
