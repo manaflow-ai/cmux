@@ -309,6 +309,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             // hardware state, which misses event-carried flags (synthetic
             // clicks, exotic input methods).
             let modifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+            // Down-then-up highlight: the optimistic paint bridges the model
+            // round trip, applied here (action == completed click), never on
+            // the press.
+            previewSelection(row: row, modifiers: modifiers, hitView: nil)
             if modifiers.contains(.command) || modifiers.contains(.shift) {
                 // Multi-select mutations are order-dependent and extend the
                 // selection the user currently sees: flush (not drop) a
@@ -322,9 +326,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             }
         } else if let headerActions = rows[row].appKitGroupHeaderActions {
             // Group headers focus their anchor workspace: same fast path as
-            // workspace rows (burst coalescing; the press already painted the
-            // optimistic anchor-active treatment).
+            // workspace rows (burst coalescing; the completed click paints
+            // the optimistic anchor-active treatment).
             let modifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+            previewSelection(row: row, modifiers: modifiers, hitView: nil)
             if modifiers.contains(.command) || modifiers.contains(.shift) {
                 selectionCoalescer.flushNow()
                 headerActions.onFocusAnchor()
@@ -621,6 +626,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     func viewportDidChange() {
         let width = currentColumnWidth()
+#if DEBUG
+        if width != lastMeasuredWidth {
+            cmuxDebugLog("sidebar.viewport width=\(width) lastMeasured=\(lastMeasuredWidth)")
+        }
+#endif
         if width > 0, width != lastMeasuredWidth {
             performLiveWidthRemeasure(width: width)
             scheduleWidthRemeasure()
@@ -644,9 +654,19 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// and hosted rows settle in the full pass at drag end.
     private func performLiveWidthRemeasure(width: CGFloat) {
         guard floor(width) != floor(lastLiveMeasuredWidth) else { return }
-        guard let table = containerView?.tableView else { return }
+        guard let table = containerView?.tableView else {
+#if DEBUG
+            cmuxDebugLog("sidebar.liveReflow.skip reason=noTable width=\(width)")
+#endif
+            return
+        }
         let visibleRange = table.rows(in: table.visibleRect)
-        guard visibleRange.length > 0 else { return }
+        guard visibleRange.length > 0 else {
+#if DEBUG
+            cmuxDebugLog("sidebar.liveReflow.skip reason=noVisibleRows width=\(width)")
+#endif
+            return
+        }
         let start = max(0, visibleRange.location - 2)
         let end = min(rows.count, visibleRange.location + visibleRange.length + 2)
         guard start < end else { return }
@@ -663,6 +683,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if !changed.isEmpty {
             noteHeightOfRowsWithoutAnimation(table, changed)
         }
+#if DEBUG
+        cmuxDebugLog(
+            "sidebar.liveReflow width=\(width) tableWidth=\(table.bounds.width) " +
+            "rows=\(start)..<\(end) changed=\(changed.count)"
+        )
+#endif
     }
 
     /// Trailing re-measure fallback for width churn with no explicit end
@@ -899,6 +925,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         reorder.performDropAtPoint = { [weak self] point, targets in
             let performed = actions.performWorkspaceDrop(point, targets)
+#if DEBUG
+            // Every silent "the workspace I dragged didn't move" report needs
+            // this line: where the drop landed, how many targets existed, and
+            // whether the shared planner accepted it.
+            cmuxDebugLog(
+                "sidebar.drop.perform point=(\(Int(point.x)),\(Int(point.y))) " +
+                "targets=\(targets.count) performed=\(performed ? 1 : 0)"
+            )
+#endif
             self?.setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
             return performed
         }
