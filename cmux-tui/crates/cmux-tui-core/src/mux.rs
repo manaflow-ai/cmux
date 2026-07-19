@@ -983,6 +983,10 @@ impl Mux {
         client: u64,
         rollback: ClientSizeRollback,
     ) {
+        let _lifecycle = self.lock_client_sizing_lifecycle();
+        if !self.control_clients.contains(client) {
+            return;
+        }
         let mut sizing = self.client_sizing.lock().unwrap();
         self.control_clients.restore_size(client, id, rollback.previous_size);
         match rollback.previous_size {
@@ -2154,6 +2158,7 @@ impl Mux {
                         entity,
                         workspace_revision: None,
                     },
+                    true,
                 )
             } else {
                 let (pane_id, pane) = self.make_pane(surface.id);
@@ -2191,10 +2196,11 @@ impl Mux {
                         entity,
                         workspace_revision: None,
                     },
+                    false,
                 )
             }
         };
-        self.emit(MuxEvent::TreeDelta(attached.1));
+        self.emit_tree_delta(attached.1, attached.2);
         self.reap_if_dead(&surface);
         Ok((surface, attached.0))
     }
@@ -5346,6 +5352,28 @@ mod tests {
             assert_eq!(state.pane_of(placement.surface), Some(placement.pane));
             assert_eq!(state.workspace_revision, 2);
         });
+    }
+
+    #[test]
+    fn create_terminal_in_existing_pane_emits_selection_resync() {
+        let mux = test_mux();
+        let initial = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let workspace = mux.with_state(|state| state.workspaces[0].id);
+        let events = mux.subscribe();
+
+        let placement =
+            mux.create_terminal_in_workspace(workspace, None, None, None, Some((80, 24))).unwrap();
+
+        assert_ne!(placement.surface, initial.id);
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::TreeDelta(TreeDelta { kind: TreeDeltaKind::TabAdded, surface, .. }))
+                if surface == Some(placement.surface)
+        ));
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::TreeSelectionChanged)
+        ));
     }
 
     #[test]

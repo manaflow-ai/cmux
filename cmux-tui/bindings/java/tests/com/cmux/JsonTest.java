@@ -75,6 +75,23 @@ public final class JsonTest {
         assertTrue(ResizeSurfaceResult.from(Map.of()).accepted(), "legacy resize accepted");
         Tree legacyTree = Tree.from(Map.of("workspaces", List.of()));
         assertEquals(0L, legacyTree.workspaceRevision(), "legacy workspace revision");
+
+        CreateTerminalRequest terminalRequest = CreateTerminalRequest.builder()
+            .key("stable")
+            .command("echo ready")
+            .cwd("/tmp")
+            .name("runner")
+            .cols(80)
+            .rows(24)
+            .build();
+        assertEquals("stable", terminalRequest.toMap().get("key"), "terminal builder key");
+        assertEquals("runner", terminalRequest.toMap().get("name"), "terminal builder name");
+        try {
+            WorkspaceSelectorRequest.builder().build();
+            throw new AssertionError("accepted missing workspace selector");
+        } catch (IllegalArgumentException expectedError) {
+            assertEquals("workspace or key is required", expectedError.getMessage(), "selector validation");
+        }
     }
 
     private static void assertReject(String input) {

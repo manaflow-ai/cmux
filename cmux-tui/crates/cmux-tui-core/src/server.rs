@@ -4508,6 +4508,26 @@ mod tests {
     }
 
     #[test]
+    fn failed_attach_rollback_does_not_restore_disconnected_client_size() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+        mux.control_clients.attach_surface(client, surface.id, stream).unwrap();
+        let resize = mux
+            .resize_surface_for_control_client_with_reservation(surface.id, client, 70, 20)
+            .unwrap();
+        assert_eq!(mux.client_surface_size(surface.id, client), Some((70, 20)));
+
+        assert!(disconnect_client(&mux, client, false));
+        mux.rollback_surface_size_client(surface.id, client, resize.rollback);
+
+        assert_eq!(mux.client_surface_size(surface.id, client), None);
+        assert!(!mux.control_clients.contains(client));
+    }
+
+    #[test]
     fn disconnect_cleanup_wins_over_a_waiting_stale_sizing_action() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
