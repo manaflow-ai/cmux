@@ -168,8 +168,10 @@ nonisolated struct RemoteHookInvocationBridge: Sendable {
     private func append(_ chunk: Data, toTransfer transferID: String) throws {
         let directory = try existingTransferDirectory(for: transferID)
         let inputURL = directory.appendingPathComponent("stdin")
-        var input = try Data(contentsOf: inputURL)
-        guard input.count + chunk.count <= maximumInputBytes else {
+        let inputHandle = try FileHandle(forWritingTo: inputURL)
+        defer { try? inputHandle.close() }
+        let currentSize = try inputHandle.seekToEnd()
+        guard currentSize <= UInt64(maximumInputBytes - chunk.count) else {
             try? FileManager.default.removeItem(at: directory)
             throw bridgeError(
                 "invalid_params",
@@ -177,8 +179,7 @@ nonisolated struct RemoteHookInvocationBridge: Sendable {
                 fallback: "Remote hook payload transfer is missing or too large."
             )
         }
-        input.append(chunk)
-        try writePrivate(input, to: inputURL)
+        try inputHandle.write(contentsOf: chunk)
     }
 
     private func takeTransfer(_ transferID: String) throws -> Invocation {
