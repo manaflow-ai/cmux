@@ -12,6 +12,7 @@ mod cli;
 mod config;
 mod host_colors;
 mod keys;
+mod localization;
 mod plugin_manager;
 mod pty_input;
 mod session;
