@@ -225,6 +225,44 @@ extension MobileHostAuthorizationTests {
         #expect(error.code == "unauthorized")
         #expect(await recorder.count() == 1)
     }
+
+    @Test func testReleasedIOSWireFrameRemainsAcceptedByLegacyTCPAuthorization() async throws {
+        let legacyFrame = Data(
+            #"""
+            {
+              "id": "legacy-workspace-list",
+              "method": "workspace.list",
+              "params": {},
+              "auth": { "stack_access_token": "legacy-stack-token" }
+            }
+            """#.utf8
+        )
+        let request: MobileHostRPCRequest
+        switch MobileHostRPCEnvelope.decodeRequest(legacyFrame) {
+        case .success(let decoded):
+            request = decoded
+        case .failure(let error):
+            Issue.record("Legacy iOS frame did not decode: \(error.code)")
+            return
+        }
+
+        let result = await MobileHostService.connectionAuthorizationError(
+            for: request,
+            authorization: .stackBearer,
+            stackAuthorization: { decoded in
+                guard decoded.auth?.stackAccessToken == "legacy-stack-token" else {
+                    return .failure(MobileHostRPCError(
+                        code: "unauthorized",
+                        message: "Legacy Stack bearer was not preserved"
+                    ))
+                }
+                return nil
+            }
+        )
+
+        #expect(result == nil)
+    }
+
     @Test func testIrohAdmittedStatusIncludesIdentityWhileTCPPublicStatusDoesNot() async throws {
         let request = MobileHostRPCRequest(
             id: "host-status",
