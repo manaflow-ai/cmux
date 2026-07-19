@@ -190,6 +190,21 @@ pub enum MuxEvent {
         reason: Arc<str>,
         default_colors: DefaultColors,
     },
+    /// The canonical Ghostty parser changed whether it owns pointer input.
+    /// Revisions are monotonic only within one exact terminal runtime epoch.
+    TerminalInteractionModeChanged {
+        surface_uuid: SurfaceUuid,
+        terminal_epoch: u64,
+        interaction_revision: u64,
+        mouse_tracking: bool,
+    },
+    /// This runtime can no longer publish an ordered interaction-mode revision.
+    /// Consumers must invalidate the whole subscription and resnapshot.
+    TerminalInteractionModeInvalidated {
+        surface_uuid: SurfaceUuid,
+        terminal_epoch: u64,
+        reason: Arc<str>,
+    },
     /// A frontend should reload its local mux configuration and redraw.
     ConfigReloadRequested,
     /// A frontend should set its host terminal window title. Empty clears it.
@@ -3623,6 +3638,10 @@ impl Mux {
 
     pub fn subscribe_renderer_lifecycle(&self) -> MuxEventReceiver {
         self.subscribers.subscribe_renderer_lifecycle()
+    }
+
+    pub fn subscribe_terminal_interaction_modes(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe_terminal_interaction_modes()
     }
 
     pub fn emit(&self, event: MuxEvent) {

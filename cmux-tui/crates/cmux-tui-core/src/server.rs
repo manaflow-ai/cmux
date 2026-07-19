@@ -2,7 +2,7 @@
 //!
 //! This is the attach surface for external frontends (the cmux app, the
 //! bundled `cmux-tui attach` client, scripts). Unix uses one JSON message
-//! per line and WebSocket uses one JSON message per text frame. Four commands
+//! per line and WebSocket uses one JSON message per text frame. Five commands
 //! additionally turn the connection full-duplex:
 //!
 //! - `subscribe` — the server pushes `{"event":...}` lines (tree-changed,
@@ -12,6 +12,8 @@
 //!   replacements from a validated snapshot cursor.
 //! - `subscribe-renderer-lifecycle` — the server pushes only renderer worker,
 //!   presentation-ready, and renderer-config invalidation events.
+//! - `subscribe-terminal-interaction-modes` — the server pushes only
+//!   revisioned canonical mouse-tracking mode changes.
 //! - `attach-surface` — PTYs receive `{"event":"vt-state"}` with a
 //!   base64 VT replay followed by live `{"event":"output"}` pty bytes.
 //!   Browsers receive `{"event":"browser-state"}` with optional latest
@@ -95,8 +97,8 @@ use crate::{
     PresentationScroll, PresentationView, PresentationZoom,
     RENDERER_LIFECYCLE_SUBSCRIPTION_CAPABILITY, RenderAttachFrame, Rgb, ScreenId,
     SidebarPluginStatus, SplitDir, SurfaceId, SurfaceKind, SurfaceNotification, SurfaceRenderFrame,
-    SurfaceUuid, TerminalColors, TopologyResume, TreeDelta, TreeDeltaKind, WorkspaceId,
-    WorkspaceUuid, ZoomMode, assign_short_ids,
+    SurfaceUuid, TERMINAL_INTERACTION_MODE_SUBSCRIPTION_CAPABILITY, TerminalColors, TopologyResume,
+    TreeDelta, TreeDeltaKind, WorkspaceId, WorkspaceUuid, ZoomMode, assign_short_ids,
 };
 
 pub const PROTOCOL_VERSION: u32 = 9;
@@ -117,6 +119,7 @@ pub const PROTOCOL_CAPABILITIES: &[&str] = &[
     "remote-tmux-producer-source-v1",
     "renderer-semantic-scene-v1",
     RENDERER_LIFECYCLE_SUBSCRIPTION_CAPABILITY,
+    TERMINAL_INTERACTION_MODE_SUBSCRIPTION_CAPABILITY,
     "renderer-worker-supervision-v1",
     "render-attach-v1",
     "stable-entity-uuid-v1",
@@ -1400,6 +1403,8 @@ enum Command {
     },
     /// Protocol-v9 frontend-only renderer worker and presentation lifecycle stream.
     SubscribeRendererLifecycle,
+    /// Protocol-v9 frontend-only canonical terminal interaction-mode stream.
+    SubscribeTerminalInteractionModes,
     /// Stream a surface: vt-state event followed by live output events.
     AttachSurface {
         surface: SurfaceId,
@@ -1494,6 +1499,7 @@ const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(100);
 const MAX_SERVER_CONNECTIONS: usize = 64;
 const MAX_TOPOLOGY_STREAMS: u64 = 256;
 const MAX_RENDERER_LIFECYCLE_STREAMS: u64 = 256;
+const MAX_TERMINAL_INTERACTION_MODE_STREAMS: u64 = 256;
 const WEBSOCKET_AUTH_MAX_BYTES: usize = 4 * 1024;
 const CONTROL_MESSAGE_MAX_BYTES: usize = 16 * 1024 * 1024;
 const BULK_COMMAND_MAX_BYTES: usize = 4 * 1024 * 1024;
@@ -1904,6 +1910,7 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             | "release-projection-navigation-v2"
             | "renderer-workers"
             | "subscribe-renderer-lifecycle"
+            | "subscribe-terminal-interaction-modes"
             | "configure-renderer-presentation"
             | "activate-renderer-presentation"
             | "detach-renderer-presentation"
@@ -2010,6 +2017,7 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
             | "terminal-activity-snapshot"
             | "mark-terminal-seen"
             | "subscribe-renderer-lifecycle"
+            | "subscribe-terminal-interaction-modes"
     );
     policy
 }
@@ -2750,6 +2758,7 @@ struct ClientRecord {
     // Stream recovery is connection replacement, so this registration bit
     // intentionally remains set after a terminal overflow ends its permit.
     renderer_lifecycle_subscribed: bool,
+    terminal_interaction_modes_subscribed: bool,
     writer: MessageWriter,
 }
 
@@ -2767,6 +2776,7 @@ pub(crate) struct ClientRegistry {
     clients: Mutex<BTreeMap<u64, ClientRecord>>,
     active_topology_streams: Arc<AtomicU64>,
     active_renderer_lifecycle_streams: Arc<AtomicU64>,
+    active_terminal_interaction_mode_streams: Arc<AtomicU64>,
     inbound_budget: Arc<InboundBudget>,
 }
 
@@ -2778,6 +2788,7 @@ impl ClientRegistry {
             clients: Mutex::new(BTreeMap::new()),
             active_topology_streams: Arc::new(AtomicU64::new(0)),
             active_renderer_lifecycle_streams: Arc::new(AtomicU64::new(0)),
+            active_terminal_interaction_mode_streams: Arc::new(AtomicU64::new(0)),
             inbound_budget: InboundBudget::new(INBOUND_INFLIGHT_MAX_BYTES),
         }
     }
@@ -2828,6 +2839,7 @@ impl ClientRegistry {
                 announced_attached: false,
                 topology_subscribed: false,
                 renderer_lifecycle_subscribed: false,
+                terminal_interaction_modes_subscribed: false,
                 writer,
             },
         );
@@ -3239,6 +3251,38 @@ impl ClientRegistry {
         self.active_renderer_lifecycle_streams.load(Ordering::Acquire)
     }
 
+    fn claim_terminal_interaction_mode_stream(
+        &self,
+        client: u64,
+    ) -> anyhow::Result<TerminalInteractionModeStreamPermit> {
+        let mut clients = self.clients.lock().unwrap();
+        let record =
+            clients.get_mut(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        if record.terminal_interaction_modes_subscribed {
+            anyhow::bail!("connection already has a terminal interaction mode subscription");
+        }
+        self.active_terminal_interaction_mode_streams
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                (count < MAX_TERMINAL_INTERACTION_MODE_STREAMS).then_some(count + 1)
+            })
+            .map_err(|_| anyhow::anyhow!("terminal interaction mode subscription limit reached"))?;
+        record.terminal_interaction_modes_subscribed = true;
+        Ok(TerminalInteractionModeStreamPermit(
+            self.active_terminal_interaction_mode_streams.clone(),
+        ))
+    }
+
+    fn cancel_terminal_interaction_mode_claim(&self, client: u64) {
+        if let Some(record) = self.clients.lock().unwrap().get_mut(&client) {
+            record.terminal_interaction_modes_subscribed = false;
+        }
+    }
+
+    #[cfg(test)]
+    fn active_terminal_interaction_mode_streams(&self) -> u64 {
+        self.active_terminal_interaction_mode_streams.load(Ordering::Acquire)
+    }
+
     pub(crate) fn client_ids(&self) -> HashSet<u64> {
         self.clients.lock().unwrap().keys().copied().collect()
     }
@@ -3272,6 +3316,14 @@ impl Drop for TopologyStreamPermit {
 struct RendererLifecycleStreamPermit(Arc<AtomicU64>);
 
 impl Drop for RendererLifecycleStreamPermit {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+struct TerminalInteractionModeStreamPermit(Arc<AtomicU64>);
+
+impl Drop for TerminalInteractionModeStreamPermit {
     fn drop(&mut self) {
         self.0.fetch_sub(1, Ordering::AcqRel);
     }
@@ -4079,6 +4131,10 @@ fn external_terminal_output_json(receipt: ExternalTerminalOutputReceipt) -> Valu
         "accepted_sequence": receipt.accepted_sequence,
         "next_sequence": receipt.next_sequence,
         "no_reflow": receipt.no_reflow,
+        "terminal_epoch": receipt.terminal_epoch,
+        "interaction_revision": receipt.interaction_revision,
+        "interaction_revision_exhausted": receipt.interaction_revision_exhausted,
+        "mouse_tracking": receipt.mouse_tracking,
         "egress": base64::engine::general_purpose::STANDARD.encode(receipt.egress),
         "replayed": receipt.replayed,
     })
@@ -4469,6 +4525,9 @@ fn terminal_interaction_json(
     });
     json!({
         "surface_uuid": surface_uuid,
+        "terminal_epoch": snapshot.terminal_epoch,
+        "interaction_revision": snapshot.interaction_revision,
+        "interaction_revision_exhausted": snapshot.interaction_revision_exhausted,
         "copy_mode": snapshot.copy_mode,
         "copy_cursor": copy_cursor,
         "cursor": cursor,
@@ -8198,6 +8257,65 @@ fn handle_command(
             drop(client_lifecycle);
             Ok(json!({}))
         }
+        Command::SubscribeTerminalInteractionModes => {
+            let client_lifecycle = mux.control_clients.read_lifecycle();
+            let permit = mux.control_clients.claim_terminal_interaction_mode_stream(client)?;
+            let outbound_stream =
+                match writer.start_stream(&terminal_interaction_mode_overflow_json()) {
+                    Ok(stream) => stream,
+                    Err(error) => {
+                        mux.control_clients.cancel_terminal_interaction_mode_claim(client);
+                        drop(permit);
+                        return Err(error.into());
+                    }
+                };
+            let events = mux.subscribe_terminal_interaction_modes();
+            let writer = writer.clone();
+            let thread = std::thread::Builder::new()
+                .name("mux-terminal-interaction-mode-out".into())
+                .spawn(move || {
+                    let _permit = permit;
+                    let mut transport_overflow = false;
+                    while writer.is_open() && outbound_stream.is_open() {
+                        let event = match events.recv_timeout(STREAM_DISCONNECT_POLL) {
+                            Ok(event) => event,
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                        };
+                        match &event {
+                            MuxEvent::TerminalInteractionModeChanged { .. } => {
+                                if let Err(error) = writer
+                                    .send_stream(&subscribed_event_json(&event), &outbound_stream)
+                                {
+                                    transport_overflow =
+                                        error.kind() == std::io::ErrorKind::WouldBlock;
+                                    break;
+                                }
+                            }
+                            MuxEvent::TerminalInteractionModeInvalidated { .. } => {
+                                let _ = writer.send_terminal(
+                                    &subscribed_event_json(&event),
+                                    &outbound_stream,
+                                );
+                                return;
+                            }
+                            _ => continue,
+                        }
+                    }
+                    if events.overflowed() || transport_overflow {
+                        let _ = writer.send_terminal(
+                            &terminal_interaction_mode_overflow_json(),
+                            &outbound_stream,
+                        );
+                    }
+                });
+            if let Err(error) = thread {
+                mux.control_clients.cancel_terminal_interaction_mode_claim(client);
+                return Err(error.into());
+            }
+            drop(client_lifecycle);
+            Ok(json!({"status": "subscribed"}))
+        }
         Command::SubscribeTopology { daemon_instance_id, session_id, revision } => {
             // Reserve connection/global capacity before the journal allocates
             // and registers a mailbox. Otherwise repeated duplicate requests
@@ -8719,6 +8837,26 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "reason": reason.as_ref(),
             "default_colors": default_colors_json(*default_colors),
         }),
+        MuxEvent::TerminalInteractionModeChanged {
+            surface_uuid,
+            terminal_epoch,
+            interaction_revision,
+            mouse_tracking,
+        } => json!({
+            "event": "terminal-interaction-mode-changed",
+            "surface_uuid": surface_uuid,
+            "terminal_epoch": terminal_epoch,
+            "interaction_revision": interaction_revision,
+            "mouse_tracking": mouse_tracking,
+        }),
+        MuxEvent::TerminalInteractionModeInvalidated { surface_uuid, terminal_epoch, reason } => {
+            json!({
+                "event": "terminal-interaction-mode-invalidated",
+                "surface_uuid": surface_uuid,
+                "terminal_epoch": terminal_epoch,
+                "reason": reason.as_ref(),
+            })
+        }
         MuxEvent::ConfigReloadRequested => json!({"event": "config-reload-requested"}),
         MuxEvent::WindowTitleRequested(title) => {
             json!({"event": "window-title-requested", "title": title})
@@ -8772,6 +8910,13 @@ fn subscription_overflow_json() -> Value {
 
 fn renderer_lifecycle_overflow_json() -> Value {
     json!({"event": "renderer-lifecycle-overflow"})
+}
+
+/// This terminal event intentionally has no surface key. One stream carries
+/// every surface, so overflow invalidates every per-surface cache and requires
+/// fresh terminal-state snapshots after connection replacement.
+fn terminal_interaction_mode_overflow_json() -> Value {
+    json!({"event": "terminal-interaction-mode-overflow"})
 }
 
 fn attach_overflow_json(surface: SurfaceId) -> Value {
@@ -10453,6 +10598,14 @@ mod tests {
         );
         drop(permits);
         assert_eq!(registry.active_terminal_interaction_mode_streams(), 0);
+        assert!(
+            registry
+                .claim_terminal_interaction_mode_stream(first)
+                .err()
+                .expect("a terminated stream must recover on a new connection")
+                .to_string()
+                .contains("already has")
+        );
     }
 
     #[test]
@@ -13667,6 +13820,58 @@ mod tests {
     }
 
     #[test]
+    fn terminal_interaction_mode_subscription_is_live_before_command_success_is_sent() {
+        let mux = test_mux();
+        let (writer, outbound) = test_writer_and_outbound();
+        let (client, _) = register_v9_client(&mux, &writer);
+
+        // `handle_message` sends this returned value only after
+        // `handle_command` completes. Emit in that exact gap to prove the
+        // receiver and output thread are already live before command success.
+        let response = handle_command(
+            &mux,
+            client,
+            Command::SubscribeTerminalInteractionModes,
+            &writer,
+        )
+        .unwrap();
+        let surface_uuid = SurfaceUuid::new();
+        mux.emit(MuxEvent::TerminalInteractionModeChanged {
+            surface_uuid,
+            terminal_epoch: 23,
+            interaction_revision: 2,
+            mouse_tracking: true,
+        });
+
+        let event = (0..100)
+            .find_map(|_| {
+                let event = outbound.try_pop();
+                if event.is_none() {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                event
+            })
+            .expect("subscription event before command success");
+        let event: Value = serde_json::from_str(&event).unwrap();
+        assert_eq!(event["event"], "terminal-interaction-mode-changed");
+        assert_eq!(event["surface_uuid"], surface_uuid.to_string());
+        assert_eq!(event["interaction_revision"], 2);
+
+        writer.send_control(&json!({"id": 73, "ok": true, "data": response})).unwrap();
+        let success: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(success["id"], 73);
+        assert_eq!(success["data"]["status"], "subscribed");
+        assert!(disconnect_client(&mux, client, false));
+        for _ in 0..100 {
+            if mux.control_clients.active_terminal_interaction_mode_streams() == 0 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(mux.control_clients.active_terminal_interaction_mode_streams(), 0);
+    }
+
+    #[test]
     fn terminal_interaction_mode_stream_excludes_frame_noise_and_releases_on_disconnect() {
         let mux = test_mux();
         let (writer, outbound) = test_writer_and_outbound();
@@ -13722,6 +13927,110 @@ mod tests {
     }
 
     #[test]
+    fn terminal_interaction_mode_invalidation_requires_connection_replacement() {
+        let mux = test_mux();
+        let (writer, outbound) = test_writer_and_outbound();
+        let (client, _) = register_v9_client(&mux, &writer);
+        handle_command(
+            &mux,
+            client,
+            Command::SubscribeTerminalInteractionModes,
+            &writer,
+        )
+        .unwrap();
+
+        let surface_uuid = SurfaceUuid::new();
+        mux.emit(MuxEvent::TerminalInteractionModeInvalidated {
+            surface_uuid,
+            terminal_epoch: 29,
+            reason: Arc::<str>::from("revision-exhausted"),
+        });
+        let terminal = (0..100)
+            .find_map(|_| {
+                let terminal = outbound.try_pop();
+                if terminal.is_none() {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                terminal
+            })
+            .expect("terminal invalidation event");
+        let terminal: Value = serde_json::from_str(&terminal).unwrap();
+        assert_eq!(
+            terminal,
+            json!({
+                "event": "terminal-interaction-mode-invalidated",
+                "surface_uuid": surface_uuid,
+                "terminal_epoch": 29,
+                "reason": "revision-exhausted",
+            })
+        );
+        for _ in 0..100 {
+            if mux.control_clients.active_terminal_interaction_mode_streams() == 0 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(mux.control_clients.active_terminal_interaction_mode_streams(), 0);
+
+        let error = handle_command(
+            &mux,
+            client,
+            Command::SubscribeTerminalInteractionModes,
+            &writer,
+        )
+        .err()
+        .expect("fatal stream invalidation must require a replacement connection");
+        assert!(error.to_string().contains("already has"));
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn terminal_interaction_mode_overflow_requires_connection_replacement() {
+        let mux = test_mux();
+        let (writer, outbound) = test_writer_and_outbound();
+        let (client, _) = register_v9_client(&mux, &writer);
+        handle_command(
+            &mux,
+            client,
+            Command::SubscribeTerminalInteractionModes,
+            &writer,
+        )
+        .unwrap();
+
+        // Unique runtime keys cannot coalesce. Leave the outbound queue
+        // undrained so the stream must terminate at its fixed transport cap.
+        for revision in 1..=OUTBOUND_CAPACITY + 1 {
+            mux.emit(MuxEvent::TerminalInteractionModeChanged {
+                surface_uuid: SurfaceUuid::new(),
+                terminal_epoch: 1,
+                interaction_revision: revision as u64,
+                mouse_tracking: true,
+            });
+        }
+        for _ in 0..100 {
+            if mux.control_clients.active_terminal_interaction_mode_streams() == 0 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(mux.control_clients.active_terminal_interaction_mode_streams(), 0);
+        let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(terminal, json!({"event": "terminal-interaction-mode-overflow"}));
+        assert!(outbound.try_pop().is_none());
+
+        let error = handle_command(
+            &mux,
+            client,
+            Command::SubscribeTerminalInteractionModes,
+            &writer,
+        )
+        .err()
+        .expect("overflowed stream must require a replacement connection");
+        assert!(error.to_string().contains("already has"));
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
     fn terminal_state_and_mutation_responses_share_the_interaction_revision_fence() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
@@ -13732,6 +14041,7 @@ mod tests {
                 .unwrap();
         assert!(initial["terminal_epoch"].as_u64().is_some_and(|epoch| epoch != 0));
         assert_eq!(initial["interaction_revision"], 1);
+        assert_eq!(initial["interaction_revision_exhausted"], false);
         assert_eq!(initial["mouse_tracking"], false);
 
         surface.inject_terminal_output(b"\x1b[?1000h").unwrap();
@@ -13740,6 +14050,7 @@ mod tests {
                 .unwrap();
         assert_eq!(changed["terminal_epoch"], initial["terminal_epoch"]);
         assert_eq!(changed["interaction_revision"], 2);
+        assert_eq!(changed["interaction_revision_exhausted"], false);
         assert_eq!(changed["mouse_tracking"], true);
 
         let selected = handle_command(
@@ -13751,6 +14062,7 @@ mod tests {
         .unwrap();
         assert_eq!(selected["state"]["terminal_epoch"], changed["terminal_epoch"]);
         assert_eq!(selected["state"]["interaction_revision"], 2);
+        assert_eq!(selected["state"]["interaction_revision_exhausted"], false);
         assert_eq!(selected["state"]["mouse_tracking"], true);
     }
 

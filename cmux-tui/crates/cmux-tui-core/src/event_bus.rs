@@ -5,7 +5,7 @@ use std::sync::mpsc::{RecvError, RecvTimeoutError, TryRecvError};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
-use crate::{MuxEvent, SurfaceId};
+use crate::{MuxEvent, SurfaceId, SurfaceUuid};
 
 // A subscriber may drain accepted events after crossing this limit, then observes a disconnect.
 const MAX_PENDING_EVENTS: usize = 4_096;
@@ -27,6 +27,7 @@ enum MuxEventFilter {
     TerminalActivity,
     ConfigReload,
     RendererLifecycle,
+    TerminalInteractionModes,
 }
 
 pub struct MuxEventReceiver {
@@ -47,6 +48,8 @@ struct MuxEventMailboxState {
     titles: BTreeMap<u128, (SurfaceId, Arc<str>)>,
     surface_output_sequences: HashMap<SurfaceId, u128>,
     surface_outputs: BTreeMap<u128, SurfaceId>,
+    terminal_interaction_mode_sequences: HashMap<(SurfaceUuid, u64), u128>,
+    terminal_interaction_modes: BTreeMap<u128, (SurfaceUuid, u64, u64, bool)>,
     closed: bool,
     overflowed: bool,
 }
@@ -70,6 +73,10 @@ impl MuxEventBroadcaster {
 
     pub fn subscribe_renderer_lifecycle(&self) -> MuxEventReceiver {
         self.subscribe_with_filter(MuxEventFilter::RendererLifecycle)
+    }
+
+    pub fn subscribe_terminal_interaction_modes(&self) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::TerminalInteractionModes)
     }
 
     fn subscribe_with_filter(&self, filter: MuxEventFilter) -> MuxEventReceiver {
@@ -110,6 +117,13 @@ impl MuxEventFilter {
                     | MuxEvent::RendererWorkerChanged { .. }
                     | MuxEvent::RendererPresentationReady { .. }
             ),
+            Self::TerminalInteractionModes => {
+                matches!(
+                    event,
+                    MuxEvent::TerminalInteractionModeChanged { .. }
+                        | MuxEvent::TerminalInteractionModeInvalidated { .. }
+                )
+            }
         }
     }
 }
@@ -153,6 +167,46 @@ impl MuxEventMailbox {
                 state.surface_output_sequences.insert(surface, sequence);
                 state.surface_outputs.insert(sequence, surface);
             }
+            MuxEvent::TerminalInteractionModeChanged {
+                surface_uuid,
+                terminal_epoch,
+                interaction_revision,
+                mouse_tracking,
+            } => {
+                let key = (surface_uuid, terminal_epoch);
+                if let Some(previous) = state.terminal_interaction_mode_sequences.get(&key).copied()
+                {
+                    state.terminal_interaction_modes.remove(&previous);
+                } else if !state.reserve_pending_slot() {
+                    self.changed.notify_all();
+                    return false;
+                }
+                state.terminal_interaction_mode_sequences.insert(key, sequence);
+                state.terminal_interaction_modes.insert(
+                    sequence,
+                    (surface_uuid, terminal_epoch, interaction_revision, mouse_tracking),
+                );
+            }
+            MuxEvent::TerminalInteractionModeInvalidated {
+                surface_uuid,
+                terminal_epoch,
+                reason,
+            } => {
+                state.terminal_interaction_mode_sequences.clear();
+                state.terminal_interaction_modes.clear();
+                if !state.reserve_pending_slot() {
+                    self.changed.notify_all();
+                    return false;
+                }
+                state.events.push_back((
+                    sequence,
+                    MuxEvent::TerminalInteractionModeInvalidated {
+                        surface_uuid,
+                        terminal_epoch,
+                        reason,
+                    },
+                ));
+            }
             MuxEvent::SurfaceExited(surface) => {
                 if let Some(previous) = state.title_sequences.remove(&surface) {
                     state.titles.remove(&previous);
@@ -186,6 +240,8 @@ impl MuxEventMailbox {
                 state.titles.clear();
                 state.surface_output_sequences.clear();
                 state.surface_outputs.clear();
+                state.terminal_interaction_mode_sequences.clear();
+                state.terminal_interaction_modes.clear();
                 state.events.push_back((sequence, MuxEvent::Empty));
                 for surface in pending_exits.into_iter().take(MAX_PENDING_EVENTS - 1) {
                     let sequence = state.next_sequence;
@@ -218,13 +274,20 @@ impl MuxEventMailbox {
         state.titles.clear();
         state.surface_output_sequences.clear();
         state.surface_outputs.clear();
+        state.terminal_interaction_mode_sequences.clear();
+        state.terminal_interaction_modes.clear();
         self.changed.notify_all();
     }
 }
 
 impl MuxEventMailboxState {
     fn reserve_pending_slot(&mut self) -> bool {
-        if self.events.len() + self.titles.len() + self.surface_outputs.len() < MAX_PENDING_EVENTS {
+        if self.events.len()
+            + self.titles.len()
+            + self.surface_outputs.len()
+            + self.terminal_interaction_modes.len()
+            < MAX_PENDING_EVENTS
+        {
             true
         } else {
             self.closed = true;
@@ -238,20 +301,37 @@ impl MuxEventMailboxState {
         let title_sequence = self.titles.first_key_value().map(|(sequence, _)| *sequence);
         let surface_output_sequence =
             self.surface_outputs.first_key_value().map(|(sequence, _)| *sequence);
-        let next_sequence = [event_sequence, title_sequence, surface_output_sequence]
-            .into_iter()
-            .flatten()
-            .min()?;
+        let terminal_interaction_mode_sequence =
+            self.terminal_interaction_modes.first_key_value().map(|(sequence, _)| *sequence);
+        let next_sequence = [
+            event_sequence,
+            title_sequence,
+            surface_output_sequence,
+            terminal_interaction_mode_sequence,
+        ]
+        .into_iter()
+        .flatten()
+        .min()?;
         if event_sequence == Some(next_sequence) {
             self.events.pop_front().map(|(_, event)| event)
         } else if title_sequence == Some(next_sequence) {
             let (_, (surface, title)) = self.titles.pop_first()?;
             self.title_sequences.remove(&surface);
             Some(MuxEvent::TitleChanged { surface, title })
-        } else {
+        } else if surface_output_sequence == Some(next_sequence) {
             let (_, surface) = self.surface_outputs.pop_first()?;
             self.surface_output_sequences.remove(&surface);
             Some(MuxEvent::SurfaceOutput(surface))
+        } else {
+            let (_, (surface_uuid, terminal_epoch, interaction_revision, mouse_tracking)) =
+                self.terminal_interaction_modes.pop_first()?;
+            self.terminal_interaction_mode_sequences.remove(&(surface_uuid, terminal_epoch));
+            Some(MuxEvent::TerminalInteractionModeChanged {
+                surface_uuid,
+                terminal_epoch,
+                interaction_revision,
+                mouse_tracking,
+            })
         }
     }
 }

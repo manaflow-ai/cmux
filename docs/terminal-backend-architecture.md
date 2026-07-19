@@ -287,8 +287,11 @@ One connection-wide bounded subscription carries interaction-mode events. The
 event mailbox keeps the latest value for each `(surface UUID, terminal epoch)`
 and never creates one server thread per visible terminal. Swift routes the
 stream into exact bounded per-surface listeners. Unknown surfaces, old terminal
-epochs, and nonincreasing revisions are rejected. Overflow invalidates the
-affected cache and requires a state resnapshot.
+epochs, and nonincreasing revisions are rejected. The overflow terminal event
+has no surface key, so it invalidates every per-surface interaction cache and
+requires fresh terminal-state snapshots after connection replacement. Revision
+exhaustion marks the terminal state exhausted, terminates the same stream, and
+also requires replacement instead of wrapping or guessing.
 
 The frame-presented callback stores only the newest fixed-size metadata off the
 main actor. Before accessibility demand, 10,000 new terminal content sequences

@@ -434,6 +434,10 @@ pub(crate) struct ExternalTerminalOutputReceipt {
     pub accepted_sequence: u64,
     pub next_sequence: u64,
     pub no_reflow: bool,
+    pub terminal_epoch: u64,
+    pub interaction_revision: u64,
+    pub interaction_revision_exhausted: bool,
+    pub mouse_tracking: bool,
     pub egress: Vec<u8>,
     pub replayed: bool,
 }
@@ -589,6 +593,9 @@ pub(crate) struct TerminalSearchSnapshot {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TerminalInteractionSnapshot {
+    pub terminal_epoch: u64,
+    pub interaction_revision: u64,
+    pub interaction_revision_exhausted: bool,
     pub copy_mode: bool,
     pub copy_cursor: Option<SelectionPoint>,
     pub selection: Option<SelectionSnapshot>,
@@ -732,6 +739,11 @@ pub struct PtySurface {
     accessibility_content_revision: AtomicU64,
     accessibility_viewport_revision: AtomicU64,
     accessibility_focus_revision: AtomicU64,
+    /// Mouse-mode revisions advance only when Ghostty's canonical parser
+    /// changes whether the application owns pointer input.
+    interaction_mode_revision: AtomicU64,
+    interaction_mode_revision_exhausted: AtomicBool,
+    published_mouse_tracking: AtomicBool,
     /// AX reads are opt-in. Once requested for a rendered terminal, retain a
     /// short exact-sequence history until the semantic renderer detaches.
     accessibility_demanded: AtomicBool,
@@ -1149,6 +1161,9 @@ impl Surface {
             accessibility_content_revision: AtomicU64::new(1),
             accessibility_viewport_revision: AtomicU64::new(1),
             accessibility_focus_revision: AtomicU64::new(1),
+            interaction_mode_revision: AtomicU64::new(1),
+            interaction_mode_revision_exhausted: AtomicBool::new(false),
+            published_mouse_tracking: AtomicBool::new(false),
             accessibility_demanded: AtomicBool::new(false),
             accessibility_frames: Mutex::new(VecDeque::new()),
             frame_requests,
@@ -1177,6 +1192,7 @@ impl Surface {
                         // the next scene so output cannot leave stale ranges.
                         let _ = pty.refresh_active_search_locked(&mut term);
                         pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+                        pty.publish_interaction_mode_if_changed_locked(&term);
                         let after = terminal_scroll_position(&term);
                         pty.broadcast_attach_output(&buf[..n]);
                         if title_changed.swap(false, Ordering::Relaxed) {
@@ -1319,6 +1335,9 @@ impl Surface {
             accessibility_content_revision: AtomicU64::new(1),
             accessibility_viewport_revision: AtomicU64::new(1),
             accessibility_focus_revision: AtomicU64::new(1),
+            interaction_mode_revision: AtomicU64::new(1),
+            interaction_mode_revision_exhausted: AtomicBool::new(false),
+            published_mouse_tracking: AtomicBool::new(false),
             accessibility_demanded: AtomicBool::new(false),
             accessibility_frames: Mutex::new(VecDeque::new()),
             frame_requests,
@@ -1426,6 +1445,9 @@ impl Surface {
             accessibility_content_revision: AtomicU64::new(1),
             accessibility_viewport_revision: AtomicU64::new(1),
             accessibility_focus_revision: AtomicU64::new(1),
+            interaction_mode_revision: AtomicU64::new(1),
+            interaction_mode_revision_exhausted: AtomicBool::new(false),
+            published_mouse_tracking: AtomicBool::new(false),
             accessibility_demanded: AtomicBool::new(false),
             accessibility_frames: Mutex::new(VecDeque::new()),
             frame_requests,
@@ -1600,6 +1622,7 @@ impl Surface {
             }
             pty.refresh_active_search_locked(&mut term)?;
             pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+            pty.publish_interaction_mode_if_changed_locked(&term);
             *pty.size.lock().unwrap() = (cols, rows);
             let _ = pty.master.lock().unwrap().resize(PtySize {
                 rows,
@@ -1632,6 +1655,7 @@ impl Surface {
             mux.emit(MuxEvent::SurfaceOutput(self.id));
         }
 
+        let interaction = self.terminal_interaction_snapshot()?;
         let mut state = external.state.lock().unwrap();
         state.output_generation = output_generation;
         state.next_output_sequence = 1;
@@ -1649,6 +1673,10 @@ impl Surface {
             accepted_sequence: 0,
             next_sequence: 1,
             no_reflow,
+            terminal_epoch: interaction.terminal_epoch,
+            interaction_revision: interaction.interaction_revision,
+            interaction_revision_exhausted: interaction.interaction_revision_exhausted,
+            mouse_tracking: interaction.mouse_tracking,
             egress,
             replayed: false,
         };
@@ -1722,6 +1750,7 @@ impl Surface {
             external.state.lock().unwrap().requires_reset = true;
             return Err(error);
         }
+        let interaction = self.terminal_interaction_snapshot()?;
         let mut state = external.state.lock().unwrap();
         if state.overflowed {
             state.requires_reset = true;
@@ -1739,6 +1768,10 @@ impl Surface {
             accepted_sequence: sequence,
             next_sequence,
             no_reflow: external.no_reflow.load(Ordering::Acquire),
+            terminal_epoch: interaction.terminal_epoch,
+            interaction_revision: interaction.interaction_revision,
+            interaction_revision_exhausted: interaction.interaction_revision_exhausted,
+            mouse_tracking: interaction.mouse_tracking,
             egress,
             replayed: false,
         };
@@ -1900,6 +1933,7 @@ impl Surface {
         let mut term = pty.term.lock().unwrap();
         let result = f(&mut term);
         pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+        pty.publish_interaction_mode_if_changed_locked(&term);
         Some(result)
     }
 
@@ -1962,7 +1996,11 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
-        Ok(f(&mut pty.term.lock().unwrap()))
+        let mut term = pty.term.lock().unwrap();
+        let result = f(&mut term);
+        pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+        pty.publish_interaction_mode_if_changed_locked(&term);
+        Ok(result)
     }
 
     /// Apply daemon-authored recovery output to canonical terminal state.
@@ -1978,6 +2016,7 @@ impl Surface {
             term.vt_write(bytes);
             pty.refresh_active_search_locked(&mut term)?;
             pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+            pty.publish_interaction_mode_if_changed_locked(&term);
             pty.broadcast_attach_output(bytes);
             let after = terminal_scroll_position(&term);
             if after != before {
@@ -2020,7 +2059,7 @@ impl Surface {
         };
         let mut term = pty.term.lock().unwrap();
         let interaction = pty.interaction.lock().unwrap();
-        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+        Ok(terminal_interaction_snapshot_locked(pty, &mut term, &interaction)?)
     }
 
     pub(crate) fn terminal_accessibility_snapshot(
@@ -2197,7 +2236,7 @@ impl Surface {
             search.selected_match = None;
         }
         pty.terminal_visual_changed_locked(&mut term)?;
-        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+        Ok(terminal_interaction_snapshot_locked(pty, &mut term, &interaction)?)
     }
 
     pub(crate) fn terminal_selection_select_all(
@@ -2213,7 +2252,7 @@ impl Surface {
             interaction.copy_cursor = Some(selection.end);
         }
         pty.terminal_visual_changed_locked(&mut term)?;
-        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+        Ok(terminal_interaction_snapshot_locked(pty, &mut term, &interaction)?)
     }
 
     pub(crate) fn terminal_copy_mode_enter(&self) -> anyhow::Result<TerminalInteractionSnapshot> {
@@ -2227,7 +2266,7 @@ impl Surface {
         interaction.copy_mode = true;
         interaction.copy_cursor = Some(cursor);
         pty.terminal_visual_changed_locked(&mut term)?;
-        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+        Ok(terminal_interaction_snapshot_locked(pty, &mut term, &interaction)?)
     }
 
     pub(crate) fn terminal_copy_mode_exit(&self) -> anyhow::Result<TerminalInteractionSnapshot> {
@@ -2240,7 +2279,7 @@ impl Surface {
         interaction.copy_mode = false;
         interaction.copy_cursor = None;
         pty.terminal_visual_changed_locked(&mut term)?;
-        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+        Ok(terminal_interaction_snapshot_locked(pty, &mut term, &interaction)?)
     }
 
     pub(crate) fn terminal_copy_mode_start_selection(
@@ -2275,7 +2314,7 @@ impl Surface {
             interaction.copy_cursor = Some(selection.end);
         }
         pty.terminal_visual_changed_locked(&mut term)?;
-        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+        Ok(terminal_interaction_snapshot_locked(pty, &mut term, &interaction)?)
     }
 
     pub(crate) fn terminal_copy_mode_adjust(
@@ -2308,7 +2347,7 @@ impl Surface {
             term.clear_selection();
         }
         pty.terminal_visual_changed_locked(&mut term)?;
-        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+        Ok(terminal_interaction_snapshot_locked(pty, &mut term, &interaction)?)
     }
 
     pub(crate) fn terminal_copy_mode_clear_selection(
@@ -2327,7 +2366,7 @@ impl Surface {
         }
         term.clear_selection();
         pty.terminal_visual_changed_locked(&mut term)?;
-        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+        Ok(terminal_interaction_snapshot_locked(pty, &mut term, &interaction)?)
     }
 
     pub(crate) fn terminal_copy_mode_copy_and_exit(
@@ -2343,7 +2382,7 @@ impl Surface {
         interaction.copy_mode = false;
         interaction.copy_cursor = None;
         pty.terminal_visual_changed_locked(&mut term)?;
-        let snapshot = terminal_interaction_snapshot_locked(&mut term, &interaction)?;
+        let snapshot = terminal_interaction_snapshot_locked(pty, &mut term, &interaction)?;
         Ok((text, snapshot))
     }
 
@@ -2354,7 +2393,7 @@ impl Surface {
         let mut term = pty.term.lock().unwrap();
         let mut interaction = pty.interaction.lock().unwrap();
         interaction.search = Some(TerminalSearchState::default());
-        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+        Ok(terminal_interaction_snapshot_locked(pty, &mut term, &interaction)?)
     }
 
     pub(crate) fn terminal_search_update(
@@ -2382,7 +2421,7 @@ impl Surface {
                 .set_presentation_highlights_locked(search_scene_highlights(&result));
         }
         pty.terminal_visual_changed_locked(&mut term)?;
-        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+        Ok(terminal_interaction_snapshot_locked(pty, &mut term, &interaction)?)
     }
 
     pub(crate) fn terminal_search_navigate(
@@ -2399,7 +2438,7 @@ impl Surface {
             .as_mut()
             .ok_or_else(|| anyhow::anyhow!("terminal search is not active"))?;
         if search.query.is_empty() {
-            return Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?);
+            return Ok(terminal_interaction_snapshot_locked(pty, &mut term, &interaction)?);
         }
         let desired = match (search.selected_match, search.total_matches, forward) {
             (_, 0, _) | (None, _, _) => 0,
@@ -2415,7 +2454,7 @@ impl Surface {
             .unwrap()
             .set_presentation_highlights_locked(search_scene_highlights(&result));
         pty.terminal_visual_changed_locked(&mut term)?;
-        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+        Ok(terminal_interaction_snapshot_locked(pty, &mut term, &interaction)?)
     }
 
     pub(crate) fn terminal_search_end(&self) -> anyhow::Result<TerminalInteractionSnapshot> {
@@ -2427,7 +2466,7 @@ impl Surface {
         interaction.search = None;
         pty.semantic_scenes.lock().unwrap().set_presentation_highlights_locked(Vec::new());
         pty.terminal_visual_changed_locked(&mut term)?;
-        Ok(terminal_interaction_snapshot_locked(&mut term, &interaction)?)
+        Ok(terminal_interaction_snapshot_locked(pty, &mut term, &interaction)?)
     }
 
     pub(crate) fn terminal_mouse_selection(
@@ -2498,7 +2537,7 @@ impl Surface {
         if handled {
             pty.terminal_visual_changed_locked(&mut term)?;
         }
-        let snapshot = terminal_interaction_snapshot_locked(&mut term, &interaction)?;
+        let snapshot = terminal_interaction_snapshot_locked(pty, &mut term, &interaction)?;
         drop(interaction);
         drop(term);
         if let Some((generation, canceled)) = start_autoscroll {
@@ -2931,6 +2970,13 @@ impl Surface {
         self.as_pty().map(|pty| pty.semantic_identity)
     }
 
+    #[cfg(test)]
+    fn force_interaction_mode_revision_for_test(&self, revision: u64) {
+        let pty = self.as_pty().expect("test surface must be a terminal");
+        pty.interaction_mode_revision.store(revision, Ordering::Release);
+        pty.interaction_mode_revision_exhausted.store(false, Ordering::Release);
+    }
+
     /// Attach a bounded full-first semantic scene stream for one renderer.
     ///
     /// The initial capture and live registration share the terminal lock, so
@@ -3229,6 +3275,7 @@ impl ChildKiller for TestChildKiller {
 }
 
 fn terminal_interaction_snapshot_locked(
+    pty: &PtySurface,
     term: &mut Terminal,
     interaction: &TerminalInteractionState,
 ) -> ghostty_vt::Result<TerminalInteractionSnapshot> {
@@ -3252,7 +3299,15 @@ fn terminal_interaction_snapshot_locked(
         u64::from(cursor.row) >= viewport.offset
             && u64::from(cursor.row) < viewport.offset.saturating_add(viewport.len)
     });
+    // Every publication update also holds `pty.term`. This caller holds the
+    // same lock, so the parser mode, revision, and exhaustion bit describe one
+    // exact point in the terminal mutation order.
     Ok(TerminalInteractionSnapshot {
+        terminal_epoch: pty.semantic_identity.runtime_epoch,
+        interaction_revision: pty.interaction_mode_revision.load(Ordering::Acquire),
+        interaction_revision_exhausted: pty
+            .interaction_mode_revision_exhausted
+            .load(Ordering::Acquire),
         copy_mode: interaction.copy_mode,
         copy_cursor: interaction.copy_cursor,
         selection: term.current_selection()?,
@@ -3265,6 +3320,41 @@ fn terminal_interaction_snapshot_locked(
 }
 
 impl PtySurface {
+    fn publish_interaction_mode_if_changed_locked(&self, term: &Terminal) {
+        let mouse_tracking = term.mouse_tracking();
+        if self.published_mouse_tracking.load(Ordering::Relaxed) == mouse_tracking {
+            return;
+        }
+        self.published_mouse_tracking.store(mouse_tracking, Ordering::Release);
+        if self.interaction_mode_revision_exhausted.load(Ordering::Acquire) {
+            return;
+        }
+        let Ok(previous_revision) = self.interaction_mode_revision.fetch_update(
+            Ordering::AcqRel,
+            Ordering::Acquire,
+            |revision| revision.checked_add(1),
+        ) else {
+            self.interaction_mode_revision_exhausted.store(true, Ordering::Release);
+            if let Some(mux) = self.mux.upgrade() {
+                mux.emit(MuxEvent::TerminalInteractionModeInvalidated {
+                    surface_uuid: self.meta.uuid,
+                    terminal_epoch: self.semantic_identity.runtime_epoch,
+                    reason: Arc::<str>::from("revision-exhausted"),
+                });
+            }
+            return;
+        };
+        let interaction_revision = previous_revision + 1;
+        if let Some(mux) = self.mux.upgrade() {
+            mux.emit(MuxEvent::TerminalInteractionModeChanged {
+                surface_uuid: self.meta.uuid,
+                terminal_epoch: self.semantic_identity.runtime_epoch,
+                interaction_revision,
+                mouse_tracking,
+            });
+        }
+    }
+
     fn refresh_active_search_locked(&self, term: &mut Terminal) -> ghostty_vt::Result<()> {
         let mut interaction = self.interaction.lock().unwrap();
         self.refresh_active_search_with_interaction_locked(term, &mut interaction)
