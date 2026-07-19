@@ -500,6 +500,27 @@ test("release gate grants asynchronous Iroh publication a bounded startup window
   );
 });
 
+test("release gate assigns direct-only to the Simulator transport proof", () => {
+  const cases = [
+    ["automatic", "app-rpc"],
+    ["relay-only", "app-rpc"],
+    ["direct-only", "simulator-direct-transport"],
+  ];
+
+  for (const [mode, expectedPlan] of cases) {
+    const result = run("bash", [
+      "scripts/run-iroh-release-gate.sh",
+      "--mode",
+      mode,
+      "--tag",
+      `plan-${mode}`,
+      "--print-plan",
+    ]);
+    assert.equal(result.status, 0, `${mode}: ${result.stderr}`);
+    assert.equal(result.stdout.trim(), expectedPlan);
+  }
+});
+
 test("mobile launch accepts an explicit no-attach override", () => {
   const result = run("bash", [
     "scripts/mobile-dev-launch.sh",
