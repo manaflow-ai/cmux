@@ -270,6 +270,16 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(SessionAgent.grok.assetName, "AgentIcons/Grok")
     }
 
+    func testBuiltInDroidRegistrationUsesFactorySessionDirectory() {
+        let registration = CmuxVaultAgentRegistration.builtInDroid
+        let agent = RegisteredSessionAgent(registration: registration)
+
+        XCTAssertEqual(registration.id, "droid")
+        XCTAssertEqual(registration.sessionDirectory, "~/.factory/sessions")
+        XCTAssertEqual(agent.displayName, "Droid")
+        XCTAssertEqual(SessionAgent.registered(agent).displayName, "Droid")
+    }
+
     func testRegisteredAgentTemplateFailsClosedWhenPlaceholderIsUnavailable() {
         let registration = CmuxVaultAgentRegistration(
             id: "acme-agent",
@@ -452,6 +462,41 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(entry.sessionId, "native-session-123")
         XCTAssertEqual(entry.title, "Resume Acme")
         XCTAssertEqual(entry.gitBranch, "issue-3575-vault-pi-agent-support")
+    }
+
+    func testDroidSessionJSONLIndexesSessionTitleAndResumeCommand() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-droid-vault-\(UUID().uuidString)", isDirectory: true)
+        let sessionDir = tempDir.appendingPathComponent("-tmp-droid-repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sessionFile = sessionDir.appendingPathComponent("644a60e0-4cf9-4833-96ee-f72c4ad14d43.jsonl")
+        try """
+        {"type":"session_start","id":"644a60e0-4cf9-4833-96ee-f72c4ad14d43","sessionTitle":"Review Droid Vault sessions","cwd":"/tmp/droid repo"}
+        {"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"assistant reply"}]}}
+        """.write(to: sessionFile, atomically: true, encoding: .utf8)
+
+        var registration = CmuxVaultAgentRegistration.builtInDroid
+        registration.sessionDirectory = tempDir.path
+
+        let entries = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: registration,
+            needle: "",
+            cwdFilter: nil,
+            offset: 0,
+            limit: 10
+        )
+
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entry.agent, .registered(RegisteredSessionAgent(registration: registration)))
+        XCTAssertEqual(entry.sessionId, "644a60e0-4cf9-4833-96ee-f72c4ad14d43")
+        XCTAssertEqual(entry.title, "Review Droid Vault sessions")
+        XCTAssertEqual(entry.cwd, "/tmp/droid repo")
+        XCTAssertEqual(
+            entry.resumeCommand,
+            "cd '/tmp/droid repo' && 'droid' '--resume' '644a60e0-4cf9-4833-96ee-f72c4ad14d43'"
+        )
     }
 
     func testRegisteredAgentCWDFilterUsesJSONLMetadataNotFallback() async throws {
