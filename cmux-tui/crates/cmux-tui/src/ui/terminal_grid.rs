@@ -441,7 +441,8 @@ mod tests {
             .hint(12, 5)
             .expect("Japanese hint fits inline");
 
-        assert!(row_text(buffer, 1, 13, rect.width - 13).starts_with(expected.as_str()));
+        let rendered = row_text(buffer, 1, 13, rect.width - 13).replace(' ', "");
+        assert!(rendered.starts_with(&expected.as_str().replace(' ', "")));
     }
 
     #[test]

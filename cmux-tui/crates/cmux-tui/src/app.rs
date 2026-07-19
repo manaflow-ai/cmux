@@ -5866,7 +5866,9 @@ impl App {
         {
             return PtyMousePressResult::NotOwned;
         }
-        let content = self.terminal_input_rect(&area);
+        let Some(content) = self.terminal_input_rect(&area) else {
+            return PtyMousePressResult::Consumed;
+        };
         if !content.contains(x, y) {
             return PtyMousePressResult::Consumed;
         }
@@ -6178,7 +6180,7 @@ impl App {
         {
             return false;
         }
-        let content = self.terminal_input_rect(&area);
+        let Some(content) = self.terminal_input_rect(&area) else { return false };
         if !content.contains(x, y) {
             return false;
         }
@@ -6470,15 +6472,15 @@ impl App {
         }
     }
 
-    fn terminal_input_rect(&self, area: &PaneArea) -> Rect {
-        self.rendered_terminal_bounds.get(&area.surface).copied().unwrap_or(area.content)
+    fn terminal_input_rect(&self, area: &PaneArea) -> Option<Rect> {
+        self.rendered_terminal_bounds.get(&area.surface).copied()
     }
 
     fn current_pty_content(&self, surface: SurfaceId) -> Option<Rect> {
         self.pane_areas
             .iter()
             .find(|area| area.surface == surface)
-            .map(|area| self.terminal_input_rect(area))
+            .and_then(|area| self.terminal_input_rect(area))
     }
 
     fn cancel_pty_release_reservation(&self) {
@@ -6814,7 +6816,9 @@ impl App {
                 {
                     return Ok(RenderAction::Draw);
                 } else {
-                    let content = self.terminal_input_rect(&area);
+                    let Some(content) = self.terminal_input_rect(&area) else {
+                        return Ok(RenderAction::Draw);
+                    };
                     if !content.contains(x, y) {
                         return Ok(RenderAction::Draw);
                     }
@@ -7273,6 +7277,12 @@ impl App {
             return Ok(RenderAction::None);
         }
         let Some(area) = self.pane_area_at(x, y).copied() else { return Ok(RenderAction::None) };
+        if self.surface_kind(area.surface) == Some(SurfaceKind::Pty)
+            && area.content.contains(x, y)
+            && !self.terminal_input_rect(&area).is_some_and(|rect| rect.contains(x, y))
+        {
+            return Ok(RenderAction::None);
+        }
         if self.active_pane() != Some(area.pane) {
             self.focus_pane_after_input(area.pane);
         }
@@ -7294,9 +7304,6 @@ impl App {
                 });
                 return Ok(RenderAction::Draw);
             }
-            return Ok(RenderAction::None);
-        }
-        if area.content.contains(x, y) && !self.terminal_input_rect(&area).contains(x, y) {
             return Ok(RenderAction::None);
         }
         if area.content.contains(x, y)
@@ -7350,14 +7357,14 @@ impl App {
         let Some(area) = self.pane_area_at(x, y).copied() else {
             return Ok(RenderAction::None);
         };
-        if self.active_pane() != Some(area.pane) {
-            self.focus_pane_after_input(area.pane);
-        }
         if self.surface_kind(area.surface) == Some(SurfaceKind::Pty)
             && area.content.contains(x, y)
-            && !self.terminal_input_rect(&area).contains(x, y)
+            && !self.terminal_input_rect(&area).is_some_and(|rect| rect.contains(x, y))
         {
             return Ok(RenderAction::None);
+        }
+        if self.active_pane() != Some(area.pane) {
+            self.focus_pane_after_input(area.pane);
         }
         if area.content.contains(x, y)
             && self.forward_pty_mouse_at(
@@ -7957,6 +7964,7 @@ mod tests {
             content,
             track: None,
         });
+        app.rendered_terminal_bounds.insert(surface.id, content);
 
         let event = |kind, modifiers| MouseEvent {
             kind,
@@ -8031,6 +8039,7 @@ mod tests {
             .unwrap();
         app.pane_areas[0].content.x += 3;
         let moved_content = app.pane_areas[0].content;
+        app.rendered_terminal_bounds.insert(surface.id, moved_content);
         let moved_event = MouseEvent {
             kind: MouseEventKind::Drag(MouseButton::Left),
             column: moved_content.x + 4,
@@ -8043,6 +8052,7 @@ mod tests {
             .unwrap();
         assert_eq!(app.encode_buf, b"\x1b[<0;5;3m");
         app.pane_areas[0].content = content;
+        app.rendered_terminal_bounds.insert(surface.id, content);
 
         app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE))
             .unwrap();
@@ -8266,6 +8276,7 @@ mod tests {
             content,
             track: None,
         });
+        app.rendered_terminal_bounds.insert(surface.id, content);
 
         let held_surface = surface.clone();
         let (locked_tx, locked_rx) = std::sync::mpsc::channel();
@@ -8315,6 +8326,7 @@ mod tests {
             content,
             track: None,
         });
+        app.rendered_terminal_bounds.insert(surface.id, content);
         app.sidebar_focused = true;
 
         assert_eq!(
@@ -10665,6 +10677,7 @@ mod tests {
             content,
             track: None,
         });
+        app.rendered_terminal_bounds.insert(surface.id, content);
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
         let event = |button| MouseEvent {
             kind: MouseEventKind::Down(button),
