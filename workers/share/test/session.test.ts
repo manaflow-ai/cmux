@@ -330,6 +330,34 @@ describe("subscriptions and binary routing", () => {
     });
   });
 
+  it("a subscriber's disconnect reports the dropped count to the host", () => {
+    // Regression: without this, the host's streamer count stays stale and a
+    // rejoining guest gets a delta as its first frame (blank pane).
+    const core = bootedCore();
+    approveGuest(core, "c-alice", ALICE);
+    core.handleGuest("c-alice", { t: "sub", ws: "workspace:1", pane: "surface:1" });
+    const effects = core.disconnect("c-alice", T0 + 5_000);
+    expect(sends(effects, "c-host")).toContainEqual({
+      t: "guest-sub",
+      ws: "workspace:1",
+      pane: "surface:1",
+      count: 0,
+    });
+  });
+
+  it("deny of a subscribed guest also reports dropped counts", () => {
+    const core = bootedCore();
+    approveGuest(core, "c-alice", ALICE);
+    core.handleGuest("c-alice", { t: "sub", ws: "workspace:1", pane: "surface:1" });
+    const effects = core.handleHost("c-host", { t: "deny", user: ALICE.user });
+    expect(sends(effects, "c-host")).toContainEqual({
+      t: "guest-sub",
+      ws: "workspace:1",
+      pane: "surface:1",
+      count: 0,
+    });
+  });
+
   it("binary frames from guests are never routed", () => {
     const core = bootedCore();
     approveGuest(core, "c-alice", ALICE);
