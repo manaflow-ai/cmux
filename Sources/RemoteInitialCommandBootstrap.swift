@@ -54,13 +54,13 @@ struct RemoteInitialCommandBootstrap {
         ].joined(separator: "; ")
     }
 
-    /// Atomically claims and runs the command in an otherwise unsupported login shell.
+    /// Atomically claims and runs the command as a script in an otherwise unsupported shell.
     var fallbackShellLines: [String] {
         guard encodedCommand != nil else { return [] }
         return [
             "cmux_initial_command_file=\"$CMUX_SHELL_INTEGRATION_DIR/initial-command\"",
             "if [ -r \"$cmux_initial_command_file\" ] && mkdir \"$CMUX_SHELL_INTEGRATION_DIR/.initial-command.started\" 2>/dev/null; then",
-            "  \"$CMUX_LOGIN_SHELL\" -l \"$cmux_initial_command_file\"",
+            "  \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command_file\"",
             "  rm -f -- \"$cmux_initial_command_file\" 2>/dev/null || true",
             "fi",
             "unset cmux_initial_command_file",
