@@ -1,6 +1,7 @@
 import CmuxAgentChat
 import CmuxIrohTransport
 import Darwin
+import Dispatch
 import Foundation
 import OSLog
 
@@ -196,6 +197,96 @@ struct MobileHostIrohArtifactFileIdentity: Equatable, Sendable {
     }
 }
 
+/// Random-access file reader backed by DispatchIO so a slow file system never
+/// blocks Swift's cooperative executor. Cancelling a lane stops pending I/O.
+private final class MobileHostIrohArtifactDispatchReader: @unchecked Sendable {
+    private static let queue = DispatchQueue(
+        label: "dev.cmux.mobile-host-iroh-artifact-read",
+        qos: .utility
+    )
+
+    private let fileDescriptor: Int32
+    private let channel: DispatchIO
+
+    init(path: String) throws {
+        let fileDescriptor = Darwin.open(path, O_RDONLY | O_CLOEXEC)
+        guard fileDescriptor >= 0 else {
+            throw MobileHostIrohArtifactTransferRegistry.Error.invalidFile
+        }
+        self.fileDescriptor = fileDescriptor
+        self.channel = DispatchIO(
+            type: .random,
+            fileDescriptor: fileDescriptor,
+            queue: Self.queue
+        ) { _ in
+            _ = Darwin.close(fileDescriptor)
+        }
+        channel.setLimit(lowWater: 1)
+    }
+
+    func snapshot() throws -> MobileHostIrohArtifactFileIdentity {
+        try MobileHostIrohArtifactFileIdentity.snapshot(fileDescriptor: fileDescriptor)
+    }
+
+    func read(offset: UInt64, maximumByteCount: Int) async throws -> Data {
+        guard offset <= UInt64(Int64.max), maximumByteCount > 0 else {
+            throw MobileHostIrohArtifactTransferRegistry.Error.invalidOffset
+        }
+        try Task.checkCancellation()
+        let channel = channel
+        let data = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Data, any Error>) in
+                let result = MobileHostIrohArtifactDispatchReadResult(
+                    continuation: continuation
+                )
+                channel.read(
+                    offset: off_t(offset),
+                    length: maximumByteCount,
+                    queue: Self.queue
+                ) { done, bytes, errorCode in
+                    result.receive(done: done, bytes: bytes, errorCode: errorCode)
+                }
+            }
+        } onCancel: {
+            channel.close(flags: .stop)
+        }
+        try Task.checkCancellation()
+        return data
+    }
+
+    func close() {
+        channel.close()
+    }
+}
+
+/// DispatchIO may deliver one read through several callbacks on its serial queue.
+private final class MobileHostIrohArtifactDispatchReadResult: @unchecked Sendable {
+    private let continuation: CheckedContinuation<Data, any Error>
+    private var data = Data()
+    private var didResume = false
+
+    init(continuation: CheckedContinuation<Data, any Error>) {
+        self.continuation = continuation
+    }
+
+    func receive(done: Bool, bytes: DispatchData?, errorCode: Int32) {
+        guard !didResume else { return }
+        if let bytes {
+            data.append(contentsOf: bytes)
+        }
+        guard done else { return }
+        didResume = true
+        if errorCode == 0 {
+            continuation.resume(returning: data)
+        } else {
+            continuation.resume(
+                throwing: POSIXError(POSIXErrorCode(rawValue: errorCode) ?? .EIO)
+            )
+        }
+    }
+}
+
 /// Concrete Mac owner for low-priority raw artifact bytes.
 struct MobileHostIrohArtifactLaneHandler: MobileHostIrohArtifactLaneHandling {
     private static let chunkByteCount = 64 * 1_024
@@ -224,27 +315,35 @@ struct MobileHostIrohArtifactLaneHandler: MobileHostIrohArtifactLaneHandling {
         }
 
         do {
-            let handle = try FileHandle(
-                forReadingFrom: URL(fileURLWithPath: lease.canonicalPath)
-            )
-            defer { try? handle.close() }
-            guard try MobileHostIrohArtifactFileIdentity.snapshot(
-                fileDescriptor: handle.fileDescriptor
-            ) == lease.identity else {
+            let reader = try MobileHostIrohArtifactDispatchReader(path: lease.canonicalPath)
+            defer { reader.close() }
+            guard try reader.snapshot() == lease.identity else {
                 throw MobileHostIrohArtifactTransferRegistry.Error.invalidFile
             }
-            try handle.seek(toOffset: lease.offset)
             try await stream.sendStream.setPriority(Self.streamPriority)
             await stream.receiveStream.stop(errorCode: 0)
-            while !Task.isCancelled,
-                  let data = try handle.read(upToCount: Self.chunkByteCount),
-                  !data.isEmpty {
+            let totalSize = UInt64(lease.totalSize)
+            var readOffset = lease.offset
+            while readOffset < totalSize {
+                try Task.checkCancellation()
+                let remainingByteCount = totalSize - readOffset
+                let readByteCount = Int(min(
+                    UInt64(Self.chunkByteCount),
+                    remainingByteCount
+                ))
+                let data = try await reader.read(
+                    offset: readOffset,
+                    maximumByteCount: readByteCount
+                )
+                guard !data.isEmpty else {
+                    throw MobileHostIrohArtifactTransferRegistry.Error.invalidFile
+                }
+                try Task.checkCancellation()
                 try await stream.sendStream.send(data)
+                readOffset += UInt64(data.count)
             }
             try Task.checkCancellation()
-            guard try MobileHostIrohArtifactFileIdentity.snapshot(
-                fileDescriptor: handle.fileDescriptor
-            ) == lease.identity else {
+            guard try reader.snapshot() == lease.identity else {
                 throw MobileHostIrohArtifactTransferRegistry.Error.invalidFile
             }
             try await stream.sendStream.finish()
