@@ -92,7 +92,7 @@ struct CmuxRunURLRequestTests {
         ).launchCommand
         let script = try #require(decodedGuardedScript(from: launchCommand))
 
-        #expect(launchCommand.hasPrefix("direct:/bin/zsh -dflc "))
+        #expect(launchCommand.hasPrefix("exec /bin/zsh -dflc "))
         #expect(script.contains("cd -- "))
         #expect(script.contains("/tmp/reviewed-directory"))
         #expect(script.contains("|| builtin exit"))
@@ -116,7 +116,7 @@ struct CmuxRunURLRequestTests {
             approvedIdentity: resolved.identity
         ).launchCommand
 
-        #expect(try runGhosttyEmbeddedCommand(launchCommand) == EXIT_SUCCESS)
+        #expect(try runInitialTerminalCommand(launchCommand) == EXIT_SUCCESS)
         #expect(fileManager.fileExists(atPath: marker.path))
     }
 
@@ -639,10 +639,9 @@ struct CmuxRunURLRequestTests {
         _ command: String,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> Int32 {
-        let arguments = try #require(directArguments(from: command))
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: arguments[0])
-        process.arguments = Array(arguments.dropFirst())
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
         process.environment = environment
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
@@ -651,30 +650,11 @@ struct CmuxRunURLRequestTests {
         return process.terminationStatus
     }
 
-    private func runGhosttyEmbeddedCommand(_ command: String) throws -> Int32 {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", command]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        process.waitUntilExit()
-        return process.terminationStatus
-    }
-
     private func decodedGuardedScript(from command: String) -> String? {
-        guard let encodedScript = directArguments(from: command)?.last,
+        guard let encodedScript = command.split(separator: " ").last,
               let data = Data(base64Encoded: encodedScript) else {
             return nil
         }
         return String(data: data, encoding: .utf8)
-    }
-
-    private func directArguments(from command: String) -> [String]? {
-        let prefix = "direct:"
-        guard command.hasPrefix(prefix) else { return nil }
-        let payload = command.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
-        let arguments = payload.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-        return arguments.isEmpty ? nil : arguments
     }
 }
