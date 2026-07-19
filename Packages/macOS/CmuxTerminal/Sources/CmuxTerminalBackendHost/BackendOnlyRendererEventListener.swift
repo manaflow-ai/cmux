@@ -7,6 +7,10 @@ final class BackendOnlyRendererEventListener {
     private var generation = UUID()
     private var task: Task<Void, Never>?
 
+    deinit {
+        task?.cancel()
+    }
+
     var isActive: Bool { task != nil }
 
     func start(

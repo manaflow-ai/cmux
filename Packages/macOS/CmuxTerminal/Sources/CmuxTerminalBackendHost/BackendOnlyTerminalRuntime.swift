@@ -212,7 +212,6 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     deinit {
         mutationContinuation.finish()
         mutationTask?.cancel()
-        rendererEventListener.cancel()
         presentationTask?.cancel()
         receiveTask?.cancel()
         accessibilityRefreshTask?.cancel()
