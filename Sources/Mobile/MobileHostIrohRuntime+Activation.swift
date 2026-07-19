@@ -203,27 +203,30 @@ extension MobileHostIrohRuntime {
                     session: session
                 )
                 let laneRouter = MobileHostIrohApplicationLaneRouter(session: session)
-                await withTaskGroup(of: Void.self) { group in
-                    group.addTask {
+                let connectionSupervisor = CmxIrohAdmittedConnectionSupervisor(
+                    runControl: {
                         await MobileHostService.acceptTransport(
                             session.controlTransport,
                             authorization: .irohAdmission(session.peer),
                             independentEventWriter: eventWriter,
                             isCurrent: isCurrent
                         )
-                    }
-                    group.addTask {
+                    },
+                    runApplicationLanes: {
                         await laneRouter.run(isCurrent: isCurrent)
+                    },
+                    closeConnection: {
+                        await session.close()
+                    },
+                    stopApplicationLanes: {
+                        await laneRouter.stop()
                     }
-                    _ = await group.next()
-                    group.cancelAll()
-                    await session.close()
-                    await laneRouter.stop()
-                    diagnosticLog.record(DiagnosticEvent(
-                        .sessionClosed,
-                        a: DiagnosticTransportKind.iroh.rawValue
-                    ))
-                }
+                )
+                await connectionSupervisor.run()
+                diagnosticLog.record(DiagnosticEvent(
+                    .sessionClosed,
+                    a: DiagnosticTransportKind.iroh.rawValue
+                ))
             },
             handleBinding: { [weak self] registration, discovery, attestation in
                 let binding = registration.binding
