@@ -250,11 +250,81 @@ actor BackendOnlyProjectionDriver {
         }
     }
 
+    /// Invalidates the socket-scoped publication while preserving absolute
+    /// intents whose result may be ambiguous until the next exact connection.
+    func prepareForReconnect() throws {
+        switch phase {
+        case .ready, .hydrating, .waitingForTopology, .reconciliationRequired:
+            publication = nil
+            phase = .reconciliationRequired
+        case .superseded:
+            throw BackendOnlyProjectionDriverError.superseded
+        case .generationExhausted:
+            throw BackendOnlyProjectionDriverError.generationExhausted
+        case .failed:
+            throw BackendOnlyProjectionDriverError.failed
+        case .idle:
+            throw BackendOnlyProjectionDriverError.notReady
+        }
+    }
+
+    /// Reconciles a topology event without issuing another ownership claim.
+    /// A claim owned by another process is terminal for this driver.
+    func refreshTopology(
+        _ topology: TopologySnapshot
+    ) async throws -> BackendOnlyProjectionDriverPublication {
+        switch phase {
+        case .ready:
+            if let current = topologySnapshot {
+                guard topology.authority == current.authority,
+                      topology.revision >= current.revision
+                else {
+                    throw BackendOnlyProjectionDriverError.unexpectedTopology
+                }
+            }
+        case .waitingForTopology(let authority, let revision):
+            guard topology.authority == authority,
+                  topology.revision == revision
+            else {
+                throw BackendOnlyProjectionDriverError.unexpectedTopology
+            }
+        case .superseded:
+            throw BackendOnlyProjectionDriverError.superseded
+        case .generationExhausted:
+            throw BackendOnlyProjectionDriverError.generationExhausted
+        case .failed:
+            throw BackendOnlyProjectionDriverError.failed
+        default:
+            throw BackendOnlyProjectionDriverError.notReady
+        }
+        guard drainTask == nil, rpcsInFlight == 0 else {
+            throw BackendOnlyProjectionDriverError.notReady
+        }
+
+        topologySnapshot = topology
+        publication = nil
+        phase = .hydrating
+        do {
+            let result = try await refreshInstalledTopology()
+            removeSatisfiedPendingIntents()
+            phase = .ready
+            startDrainIfNeeded()
+            return result
+        } catch let error as BackendOnlyProjectionDriverError {
+            if phase == .hydrating { phase = .failed }
+            throw error
+        } catch {
+            phase = .reconciliationRequired
+            throw BackendOnlyProjectionDriverError.ambiguousTransport
+        }
+    }
+
     func reconcileAfterReconnect(
         rpc: any BackendOnlyProjectionDriverRPC,
         topology: TopologySnapshot,
-        connectionGeneration: UInt64
-    ) async throws {
+        connectionGeneration: UInt64,
+        legacySelectedWorkspaceID: WorkspaceID? = nil
+    ) async throws -> BackendOnlyProjectionDriverHydrationResult {
         guard phase == .reconciliationRequired else {
             throw BackendOnlyProjectionDriverError.notReady
         }
@@ -277,8 +347,8 @@ actor BackendOnlyProjectionDriver {
         phase = .hydrating
 
         do {
-            _ = try await hydrateInstalledTopology(
-                legacySelectedWorkspaceID: nil
+            let result = try await hydrateInstalledTopology(
+                legacySelectedWorkspaceID: legacySelectedWorkspaceID
             )
             guard let navigation else {
                 throw BackendOnlyProjectionDriverError.protocolFenceMismatch
@@ -295,6 +365,7 @@ actor BackendOnlyProjectionDriver {
             removeSatisfiedPendingIntents()
             phase = .ready
             startDrainIfNeeded()
+            return result
         } catch let error as BackendOnlyProjectionDriverError {
             if phase == .hydrating { phase = .failed }
             throw error
@@ -319,9 +390,7 @@ actor BackendOnlyProjectionDriver {
         publication = nil
         phase = .hydrating
         do {
-            _ = try await hydrateInstalledTopology(
-                legacySelectedWorkspaceID: nil
-            )
+            _ = try await refreshInstalledTopology()
             removeSatisfiedPendingIntents()
             phase = .ready
             startDrainIfNeeded()
@@ -443,6 +512,90 @@ actor BackendOnlyProjectionDriver {
         )
     }
 
+    private func refreshInstalledTopology() async throws
+        -> BackendOnlyProjectionDriverPublication
+    {
+        guard let snapshot = topologySnapshot else {
+            throw BackendOnlyProjectionDriverError.invalidTopology
+        }
+        let response = try await callList(snapshot)
+        let listedStates = try appliedStates(
+            response,
+            snapshot: snapshot,
+            expectedLogicalPresentationID: nil
+        )
+        var owners: [WorkspaceID: UUID] = [:]
+        var current: BackendProjectionNavigationState?
+        for state in listedStates {
+            if state.logicalPresentationID == logicalPresentationID {
+                guard current == nil else {
+                    throw BackendOnlyProjectionDriverError.protocolFenceMismatch
+                }
+                current = state
+            }
+            for workspace in state.workspaces {
+                if let owner = owners[workspace.workspaceID],
+                   owner != state.logicalPresentationID
+                {
+                    throw BackendOnlyProjectionDriverError.protocolFenceMismatch
+                }
+                owners[workspace.workspaceID] = state.logicalPresentationID
+            }
+        }
+        guard var state = current else {
+            throw BackendOnlyProjectionDriverError.protocolFenceMismatch
+        }
+        guard state.claimID != nil,
+              state.claimedProcessInstanceID == processInstanceID
+        else {
+            phase = .superseded
+            throw BackendOnlyProjectionDriverError.superseded
+        }
+
+        let alreadyAssigned = Set(state.workspaces.map(\.workspaceID))
+        let missing = snapshot.topology.workspaces.filter { workspace in
+            let owner = owners[workspace.uuid]
+            return (owner == nil || owner == logicalPresentationID)
+                && !alreadyAssigned.contains(workspace.uuid)
+        }
+        var offset = 0
+        while offset < missing.count {
+            let end = min(
+                offset + Self.maximumOperationsPerMutation,
+                missing.count
+            )
+            state = try await mutateHydrationState(
+                state,
+                operations: missing[offset ..< end].map {
+                    .assignWorkspace(workspaceID: $0.uuid)
+                },
+                snapshot: snapshot
+            )
+            offset = end
+        }
+
+        let assigned = Set(state.workspaces.map(\.workspaceID))
+        let canonical = Set(snapshot.topology.workspaces.map(\.uuid))
+        let selectable = assigned.intersection(canonical)
+        let selected = state.selectedWorkspaceID.flatMap {
+            selectable.contains($0) ? $0 : nil
+        } ?? snapshot.topology.workspaces.lazy.map(\.uuid)
+            .first(where: selectable.contains)
+        if selected != state.selectedWorkspaceID {
+            state = try await mutateHydrationState(
+                state,
+                operations: [.selectWorkspace(workspaceID: selected)],
+                snapshot: snapshot
+            )
+        }
+
+        try install(state, snapshot: snapshot)
+        guard let publication else {
+            throw BackendOnlyProjectionDriverError.protocolFenceMismatch
+        }
+        return publication
+    }
+
     private func mutateHydrationState(
         _ state: BackendProjectionNavigationState,
         operations: [BackendProjectionNavigationOperation],
@@ -494,6 +647,13 @@ actor BackendOnlyProjectionDriver {
                 revision: currentRevision
             )
             throw BackendOnlyProjectionDriverError.unexpectedTopology
+        case .conflict(.claimLost(let logicalID, _)):
+            guard logicalID == logicalPresentationID else {
+                throw BackendOnlyProjectionDriverError.protocolFenceMismatch
+            }
+            publication = nil
+            phase = .superseded
+            throw BackendOnlyProjectionDriverError.superseded
         case .conflict(let conflict):
             throw BackendOnlyProjectionDriverError.unexpectedConflict(conflict)
         }
@@ -559,6 +719,11 @@ actor BackendOnlyProjectionDriver {
             } catch {
                 ambiguousIntents = sent
                 phase = .reconciliationRequired
+                return
+            }
+
+            guard phase == .ready else {
+                ambiguousIntents = sent
                 return
             }
 

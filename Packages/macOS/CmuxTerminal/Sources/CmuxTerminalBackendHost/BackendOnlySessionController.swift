@@ -19,15 +19,21 @@ public struct BackendOnlyHostConnection: Sendable {
     public let session: BackendCanonicalSession
     public let readiness: BackendServiceReadiness
     public let initialSnapshot: TopologySnapshot
+    public let stableClientID: UUID
+    public let processInstanceID: UUID
 
     public init(
         session: BackendCanonicalSession,
         readiness: BackendServiceReadiness,
-        initialSnapshot: TopologySnapshot
+        initialSnapshot: TopologySnapshot,
+        stableClientID: UUID,
+        processInstanceID: UUID
     ) {
         self.session = session
         self.readiness = readiness
         self.initialSnapshot = initialSnapshot
+        self.stableClientID = stableClientID
+        self.processInstanceID = processInstanceID
     }
 }
 
@@ -35,10 +41,9 @@ public struct BackendOnlyHostConnection: Sendable {
 protocol BackendOnlyHostSessionControlling: Sendable {
     func connect() async throws -> BackendOnlyHostConnection
 
-    func claimProjectionState(
-        for connection: BackendOnlyHostConnection,
-        logicalPresentationID: UUID
-    ) async throws -> BackendProjectionState
+    func projectionRPC(
+        for connection: BackendOnlyHostConnection
+    ) async throws -> any BackendOnlyProjectionDriverRPC
 
     func events(
         for connection: BackendOnlyHostConnection
@@ -47,14 +52,6 @@ protocol BackendOnlyHostSessionControlling: Sendable {
     func currentSnapshot(
         for connection: BackendOnlyHostConnection
     ) async -> TopologySnapshot?
-
-    func updateProjectionState(
-        for connection: BackendOnlyHostConnection,
-        logicalPresentationID: UUID,
-        claimID: UUID,
-        expectedGeneration: UInt64,
-        workspaces: [BackendProjectionWorkspaceState]
-    ) async throws -> BackendProjectionState
 
     func invalidate(_ connection: BackendOnlyHostConnection) async
 }
@@ -152,13 +149,10 @@ public actor BackendOnlySessionController: BackendOnlyHostSessionControlling {
         return try await task.value
     }
 
-    func claimProjectionState(
-        for connection: BackendOnlyHostConnection,
-        logicalPresentationID: UUID
-    ) async throws -> BackendProjectionState {
-        try await connection.session.claimProjectionState(
-            logicalPresentationID: logicalPresentationID
-        )
+    func projectionRPC(
+        for connection: BackendOnlyHostConnection
+    ) async throws -> any BackendOnlyProjectionDriverRPC {
+        connection.session
     }
 
     func events(
@@ -171,21 +165,6 @@ public actor BackendOnlySessionController: BackendOnlyHostSessionControlling {
         for connection: BackendOnlyHostConnection
     ) async -> TopologySnapshot? {
         await connection.session.currentSnapshot()
-    }
-
-    func updateProjectionState(
-        for connection: BackendOnlyHostConnection,
-        logicalPresentationID: UUID,
-        claimID: UUID,
-        expectedGeneration: UInt64,
-        workspaces: [BackendProjectionWorkspaceState]
-    ) async throws -> BackendProjectionState {
-        try await connection.session.updateProjectionState(
-            logicalPresentationID: logicalPresentationID,
-            claimID: claimID,
-            expectedGeneration: expectedGeneration,
-            workspaces: workspaces
-        )
     }
 
     func invalidate(_ stale: BackendOnlyHostConnection) async {
@@ -266,7 +245,9 @@ public actor BackendOnlySessionController: BackendOnlyHostSessionControlling {
             let connected = BackendOnlyHostConnection(
                 session: session,
                 readiness: readiness,
-                initialSnapshot: snapshot
+                initialSnapshot: snapshot,
+                stableClientID: registrationIdentity.clientUUID,
+                processInstanceID: registrationIdentity.processInstanceUUID
             )
             connection = connected
             clearConnectionAttempt(attemptID)

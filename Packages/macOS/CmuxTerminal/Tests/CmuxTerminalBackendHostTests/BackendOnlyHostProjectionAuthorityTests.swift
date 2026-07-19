@@ -345,6 +345,7 @@ struct BackendOnlyHostProjectionAuthorityTests {
         #expect(model.selectedWorkspaceID == topology.workspaces[1].uuid.rawValue)
         #expect(model.maximumPendingProjectionRefreshCountObserved == 1)
         #expect(await rpc.maximumRPCsInFlight == 1)
+        #expect(await rpc.claimCount == 1)
     }
 
     private func makeModel(
@@ -381,7 +382,7 @@ struct BackendOnlyHostProjectionAuthorityTests {
 }
 
 @MainActor
-private final class HostProjectionRuntimeFactory {
+final class HostProjectionRuntimeFactory {
     @MainActor
     private final class Runtime: BackendOnlyHostRuntimeLifecycle {
         let selection: BackendOnlyTerminalSelection
@@ -444,7 +445,7 @@ private final class HostProjectionRuntimeFactory {
     }
 }
 
-private actor HostProjectionFakeController: BackendOnlyHostSessionControlling {
+actor HostProjectionFakeController: BackendOnlyHostSessionControlling {
     struct Candidate: Sendable {
         let connection: BackendOnlyHostConnection
         let rpc: HostProjectionFakeRPC
@@ -539,12 +540,14 @@ private actor HostProjectionFakeController: BackendOnlyHostSessionControlling {
         }
     }
 
+    var connectAttemptCount: Int { attempts }
+
     private static func number(_ connection: BackendOnlyHostConnection) -> Int? {
         Int(connection.readiness.session.split(separator: "-").last ?? "")
     }
 }
 
-private actor HostProjectionFakeRPC: BackendOnlyProjectionDriverRPC {
+actor HostProjectionFakeRPC: BackendOnlyProjectionDriverRPC {
     private enum Failure: Error { case injected }
 
     private var snapshot: TopologySnapshot
@@ -596,8 +599,12 @@ private actor HostProjectionFakeRPC: BackendOnlyProjectionDriverRPC {
         authority: BackendAuthority,
         expectedTopologyRevision: UInt64
     ) async throws -> BackendProjectionNavigationResponse {
-        try begin(authority: authority, revision: expectedTopologyRevision)
+        begin()
         defer { end() }
+        if let conflict = topologyConflict(
+            authority: authority,
+            revision: expectedTopologyRevision
+        ) { return conflict }
         return applied(storedRecord.map { [$0] } ?? [])
     }
 
@@ -606,8 +613,12 @@ private actor HostProjectionFakeRPC: BackendOnlyProjectionDriverRPC {
         authority: BackendAuthority,
         expectedTopologyRevision: UInt64
     ) async throws -> BackendProjectionNavigationResponse {
-        try begin(authority: authority, revision: expectedTopologyRevision)
+        begin()
         defer { end() }
+        if let conflict = topologyConflict(
+            authority: authority,
+            revision: expectedTopologyRevision
+        ) { return conflict }
         if shouldFailClaim {
             shouldFailClaim = false
             throw Failure.injected
@@ -634,8 +645,12 @@ private actor HostProjectionFakeRPC: BackendOnlyProjectionDriverRPC {
         projections: [BackendProjectionNavigationMutation]
     ) async throws -> BackendProjectionNavigationResponse {
         _ = requestID
-        try begin(authority: authority, revision: expectedTopologyRevision)
+        begin()
         defer { end() }
+        if let conflict = topologyConflict(
+            authority: authority,
+            revision: expectedTopologyRevision
+        ) { return conflict }
         guard let mutation = projections.first,
               let current = storedRecord
         else { throw Failure.injected }
@@ -666,18 +681,27 @@ private actor HostProjectionFakeRPC: BackendOnlyProjectionDriverRPC {
         return applied([updated])
     }
 
-    private func begin(
-        authority: BackendAuthority,
-        revision: UInt64
-    ) throws {
-        guard authority == snapshot.authority, revision == snapshot.revision else {
-            throw Failure.injected
-        }
+    private func begin() {
         rpcsInFlight += 1
         maximumRPCsInFlight = max(maximumRPCsInFlight, rpcsInFlight)
     }
 
     private func end() { rpcsInFlight -= 1 }
+
+    private func topologyConflict(
+        authority: BackendAuthority,
+        revision: UInt64
+    ) -> BackendProjectionNavigationResponse? {
+        guard authority != snapshot.authority || revision != snapshot.revision else {
+            return nil
+        }
+        return .conflict(.staleTopology(
+            expectedAuthority: authority,
+            currentAuthority: snapshot.authority,
+            expectedRevision: revision,
+            currentRevision: snapshot.revision
+        ))
+    }
 
     private func applied(
         _ states: [BackendProjectionNavigationState]
@@ -828,7 +852,7 @@ private actor HostProjectionFakeRPC: BackendOnlyProjectionDriverRPC {
     }
 }
 
-private enum HostProjectionFixture {
+enum HostProjectionFixture {
     static func topology() throws -> CanonicalTopology {
         let simple = workspace(1, paneKinds: [["terminal"]])
         let terminalPane = pane(220, kinds: ["terminal", "terminal"])
@@ -908,7 +932,7 @@ private enum HostProjectionFixture {
             ))
         )
         let stableClientID = uuid(30_000)
-        let processInstanceID = uuid(UInt64(31_000 + number))
+        let processInstanceID = uuid(31_000)
         let registration = try #require(BackendClientRegistrationIdentity(
             clientUUID: stableClientID,
             processInstanceUUID: processInstanceID
