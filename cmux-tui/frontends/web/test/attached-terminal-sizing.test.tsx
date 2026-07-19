@@ -309,10 +309,64 @@ describe("attached terminal sizing", () => {
     const view = render(<Harness client={client} />);
 
     await waitFor(() => {
-      expect(terminalMocks.instances[0]?.writes).toEqual([new Uint8Array([1])]);
+      expect(terminalMocks.instances[0]?.writes).toEqual([
+        "\x1b]10;#eeeeee\x1b\\",
+        new Uint8Array([1]),
+      ]);
       const theme = terminalMocks.instances[0]?.options.theme as Record<string, unknown>;
-      expect(theme.foreground).toBe("#eeeeee");
+      expect(theme.foreground).not.toBe("#eeeeee");
       expect(theme.red).toBe("#replay-red");
+    });
+    view.unmount();
+  });
+
+  it("keeps live OSC colors out of xterm's restore theme", async () => {
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+    const restoreForeground = new Uint8Array([0x1b, 0x5d, 0x31, 0x31, 0x30, 0x1b, 0x5c]);
+    const client = {
+      attachSurface: vi.fn(async () => new TestStream([
+        {
+          event: "vt-state",
+          surface: 7,
+          cols: 80,
+          rows: 24,
+          data: new Uint8Array(),
+          colors: {},
+        },
+        {
+          event: "colors-changed",
+          surface: 7,
+          fg: "#112233",
+          bg: "#223344",
+          cursor: "#334455",
+          selection_bg: null,
+          selection_fg: null,
+          palette: {},
+        },
+        { event: "output", surface: 7, data: restoreForeground },
+      ])),
+      resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
+      releaseSurfaceSize: vi.fn(async () => ({})),
+      send: vi.fn(async () => ({})),
+    } as unknown as CmuxClient;
+
+    const view = render(<Harness client={client} />);
+
+    await waitFor(() => {
+      expect(terminalMocks.instances[0]?.writes).toEqual([
+        new Uint8Array(),
+        "\x1b]10;#112233\x1b\\\x1b]11;#223344\x1b\\\x1b]12;#334455\x1b\\",
+        "\x1b]104\x1b\\",
+        restoreForeground,
+      ]);
+      const theme = terminalMocks.instances[0]?.options.theme as Record<string, unknown>;
+      expect(theme.foreground).not.toBe("#112233");
+      expect(theme.background).not.toBe("#223344");
+      expect(theme.cursor).not.toBe("#334455");
     });
     view.unmount();
   });

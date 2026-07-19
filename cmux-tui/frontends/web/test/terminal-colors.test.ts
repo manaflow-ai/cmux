@@ -1,23 +1,25 @@
 import { describe, expect, it } from "vitest";
 import {
   colorsToCursorOptionsPatch,
+  colorsToDynamicColorSequence,
   colorsToPaletteSequence,
-  colorsToThemePatch,
+  colorsToSelectionThemePatch,
 } from "../src/lib/terminalColors";
 
 describe("effective terminal colors", () => {
   it("returns no patch when an older server omits colors", () => {
-    expect(colorsToThemePatch(undefined)).toBeNull();
-    expect(colorsToThemePatch(null)).toBeNull();
+    expect(colorsToSelectionThemePatch(undefined)).toBeNull();
+    expect(colorsToSelectionThemePatch(null)).toBeNull();
+    expect(colorsToDynamicColorSequence(undefined)).toBeNull();
   });
 
   it("maps only present non-null special colors", () => {
-    expect(colorsToThemePatch({ bg: "#1d1f21", cursor: null })).toEqual({
-      background: "#1d1f21",
+    expect(colorsToSelectionThemePatch({ selection_bg: "#1d1f21", cursor: null })).toEqual({
+      selectionBackground: "#1d1f21",
     });
   });
 
-  it("maps the full effective color set without indexed palette keys", () => {
+  it("maps dynamic colors to OSC without changing theme restore defaults", () => {
     const colors = {
       fg: "#d8d9da",
       bg: "#131415",
@@ -25,15 +27,15 @@ describe("effective terminal colors", () => {
       selection_bg: "#334455",
       selection_fg: "#ffffff",
     } as const;
-    const expected = {
-      foreground: "#d8d9da",
-      background: "#131415",
-      cursor: "#f0f0f0",
+    expect(colorsToDynamicColorSequence(colors)).toBe(
+      "\x1b]10;#d8d9da\x1b\\"
+      + "\x1b]11;#131415\x1b\\"
+      + "\x1b]12;#f0f0f0\x1b\\",
+    );
+    expect(colorsToSelectionThemePatch(colors)).toEqual({
       selectionBackground: "#334455",
       selectionForeground: "#ffffff",
-    };
-
-    expect(colorsToThemePatch(colors)).toEqual(expected);
+    });
   });
 
   it("builds a deterministic reset and sparse OSC 4 sequence", () => {
@@ -59,9 +61,9 @@ describe("effective terminal colors", () => {
     expect(colorsToPaletteSequence({})).toBeNull();
   });
 
-  it("returns the same harmless patch when colors-changed repeats current colors", () => {
+  it("returns the same harmless sequences when colors-changed repeats current colors", () => {
     const colors = { fg: "#d8d9da", bg: "#131415" } as const;
-    expect(colorsToThemePatch(colors)).toEqual(colorsToThemePatch(colors));
+    expect(colorsToDynamicColorSequence(colors)).toEqual(colorsToDynamicColorSequence(colors));
   });
 });
 

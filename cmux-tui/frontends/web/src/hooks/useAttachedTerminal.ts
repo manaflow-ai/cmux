@@ -17,8 +17,9 @@ import { t } from "../i18n";
 import { nextFitSize, type TerminalSize } from "../lib/fit";
 import {
   colorsToCursorOptionsPatch,
+  colorsToDynamicColorSequence,
   colorsToPaletteSequence,
-  colorsToThemePatch,
+  colorsToSelectionThemePatch,
 } from "../lib/terminalColors";
 import { terminalTheme } from "../lib/terminalTheme";
 import { tryLoadWebglRenderer } from "../lib/webglRenderer";
@@ -44,7 +45,6 @@ export function useAttachedTerminal({
     if (!host || !client || surface === null) return;
     let cancelled = false;
     const baseTheme = terminalTheme(host);
-    const stage = host.closest<HTMLElement>(".terminal-stage");
     const terminal = new Terminal({
       allowProposedApi: true,
       convertEol: false,
@@ -98,15 +98,12 @@ export function useAttachedTerminal({
     const applyColors = async (
       colors: DecodedVtStateEvent["colors"] | DecodedColorsChangedEvent | undefined,
     ) => {
-      const themePatch = colorsToThemePatch(colors);
+      const themePatch = colorsToSelectionThemePatch(colors);
       if (themePatch !== null) {
         terminal.options.theme = { ...baseTheme, ...themePatch };
-        if (themePatch.background !== undefined) {
-          stage?.style.setProperty("--surface-background", themePatch.background);
-        } else {
-          stage?.style.removeProperty("--surface-background");
-        }
       }
+      const dynamicSequence = colorsToDynamicColorSequence(colors);
+      if (dynamicSequence !== null) await writeTerminal(dynamicSequence);
       const paletteSequence = colorsToPaletteSequence(colors);
       if (paletteSequence !== null) await writeTerminal(paletteSequence);
     };
@@ -253,7 +250,6 @@ export function useAttachedTerminal({
       void client.releaseSurfaceSize(surface).catch(onError);
       webgl?.dispose();
       terminal.dispose();
-      stage?.style.removeProperty("--surface-background");
       setFocused(false);
     };
   }, [client, focusOnMount, host, onError, surface]);
