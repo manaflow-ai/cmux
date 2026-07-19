@@ -690,7 +690,10 @@ fn control_socket_attach_vt_state_prefers_surface_decscusr_cursor() {
 
 #[test]
 fn control_socket_attach_stream_receives_merged_colors_changed() {
-    let mux = Mux::new(unique_session("test-colors-changed"), shell_opts("cat"));
+    let mux = Mux::new(
+        unique_session("test-colors-changed"),
+        shell_opts("read line; printf '\\033]21;1=#112233;foreground=#445566\\033\\\\'; sleep 30"),
+    );
     mux.set_default_colors(DefaultColors {
         fg: Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }),
         bg: None,
@@ -749,6 +752,22 @@ fn control_socket_attach_stream_receives_merged_colors_changed() {
             "cursor_blink": false,
         })
     );
+
+    surface.write_bytes(b"continue\n").unwrap();
+    let live_event = wait_for(
+        || {
+            while let Some(value) = read_json_line(&mut attach_reader) {
+                if value.get("event").and_then(|value| value.as_str()) == Some("colors-changed") {
+                    return Some(value);
+                }
+            }
+            None
+        },
+        Duration::from_secs(5),
+    )
+    .expect("live colors-changed event");
+    assert_eq!(live_event["fg"], "#445566");
+    assert_eq!(live_event["palette"], serde_json::json!({"1": "#112233"}));
 
     mux.close_surface(surface.id);
     cmux_tui_core::server::cleanup(&sock_path);

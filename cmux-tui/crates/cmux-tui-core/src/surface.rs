@@ -545,10 +545,19 @@ impl Surface {
                     let generation = {
                         let mut term = pty.term.lock().unwrap();
                         let before = terminal_scroll_position(&term);
+                        let color_revision = term.color_revision();
                         term.vt_write(&buf[..n]);
                         pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                         let after = terminal_scroll_position(&term);
                         pty.broadcast_attach_output(&buf[..n]);
+                        if term.color_revision() != color_revision {
+                            let defaults =
+                                mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+                            let colors = TerminalColors::from_terminal(&term, defaults);
+                            pty.broadcast_attach_frame(AttachFrame::ColorsChanged(Box::new(
+                                colors,
+                            )));
+                        }
                         if title_changed.swap(false, Ordering::Relaxed) {
                             let title = term.title().unwrap_or_default();
                             *pty.title.lock().unwrap() = title.clone();

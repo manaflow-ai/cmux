@@ -393,11 +393,12 @@ impl CursorOverrideTracker {
 struct PaletteOverrideTracker {
     state: PaletteTrackState,
     active: [bool; 256],
+    revision: u64,
 }
 
 impl Default for PaletteOverrideTracker {
     fn default() -> Self {
-        Self { state: PaletteTrackState::Ground, active: [false; 256] }
+        Self { state: PaletteTrackState::Ground, active: [false; 256], revision: 0 }
     }
 }
 
@@ -438,6 +439,7 @@ struct PaletteCommand {
     kitty_request_count: usize,
     stopped: bool,
     overflowed: bool,
+    color_changed: bool,
 }
 
 impl PaletteCommand {
@@ -454,6 +456,7 @@ impl PaletteCommand {
             kitty_request_count: 0,
             stopped: false,
             overflowed: false,
+            color_changed: false,
         }
     }
 }
@@ -504,20 +507,26 @@ impl PaletteOverrideTracker {
                 },
                 PaletteTrackState::Osc(mut osc) => match byte {
                     0x07 | 0x9c => {
-                        osc.commit(&mut self.active);
+                        if osc.commit(&mut self.active) {
+                            self.revision = self.revision.wrapping_add(1);
+                        }
                         PaletteTrackState::Ground
                     }
                     0x18 | 0x1a => {
                         // Ghostty dispatches the OSC prefix while exiting
                         // osc_string on CAN/SUB.
-                        osc.commit(&mut self.active);
+                        if osc.commit(&mut self.active) {
+                            self.revision = self.revision.wrapping_add(1);
+                        }
                         PaletteTrackState::Ground
                     }
                     0..=0x06 | 0x08..=0x17 | 0x19 | 0x1c..=0x1f => PaletteTrackState::Osc(osc),
                     0x1b => {
                         // Ghostty exits and dispatches OSC on the ESC byte
                         // that begins ST, before the trailing `\\` arrives.
-                        osc.commit(&mut self.active);
+                        if osc.commit(&mut self.active) {
+                            self.revision = self.revision.wrapping_add(1);
+                        }
                         PaletteTrackState::Escape
                     }
                     _ => {
@@ -574,15 +583,16 @@ impl PaletteOsc {
         }
     }
 
-    fn commit(self, active: &mut [bool; 256]) {
+    fn commit(self, active: &mut [bool; 256]) -> bool {
         match self {
             Self::Operation { bytes, len, invalid: false }
                 if &bytes[..usize::from(len)] == b"104" =>
             {
                 active.fill(false);
+                true
             }
             Self::Palette(command) => command.commit(active),
-            Self::Operation { .. } | Self::Ignore => {}
+            Self::Operation { .. } | Self::Ignore => false,
         }
     }
 }
@@ -636,6 +646,7 @@ impl PaletteCommand {
                 if token != b"?" {
                     let valid = std::str::from_utf8(token).ok().and_then(parse_color).is_some();
                     if valid {
+                        self.color_changed = true;
                         if let PaletteTarget::Palette(index) = target {
                             self.pending[index as usize] = 1;
                         }
@@ -649,10 +660,14 @@ impl PaletteCommand {
                 if !token.is_empty() {
                     match Self::parse_target(token) {
                         PaletteTarget::Palette(index) => {
+                            self.color_changed = true;
                             self.pending[index as usize] = 2;
                             self.request_count += 1;
                         }
-                        PaletteTarget::Special => self.request_count += 1,
+                        PaletteTarget::Special => {
+                            self.color_changed = true;
+                            self.request_count += 1;
+                        }
                         PaletteTarget::Invalid => {}
                     }
                 }
@@ -681,6 +696,7 @@ impl PaletteCommand {
                     && (value.is_empty() || value == "?" || parse_color(value).is_some());
                 if accepted {
                     self.kitty_request_count += 1;
+                    self.color_changed |= value != "?";
                     if value.is_empty()
                         && let Some(index) = index
                     {
@@ -711,17 +727,17 @@ impl PaletteCommand {
         }
     }
 
-    fn commit(mut self: Box<Self>, active: &mut [bool; 256]) {
+    fn commit(mut self: Box<Self>, active: &mut [bool; 256]) -> bool {
         if self.overflowed {
-            return;
+            return false;
         }
         self.finish_token();
         if self.overflowed {
-            return;
+            return false;
         }
         if matches!(self.mode, PaletteOscMode::Reset) && self.request_count == 0 {
             active.fill(false);
-            return;
+            return true;
         }
         for (active, pending) in active.iter_mut().zip(self.pending) {
             match pending {
@@ -730,6 +746,7 @@ impl PaletteCommand {
                 _ => {}
             }
         }
+        self.color_changed
     }
 }
 
@@ -844,6 +861,11 @@ impl Terminal {
     /// Whether a PTY has an active OSC 4 override for this palette index.
     pub fn palette_overridden(&self, index: u8) -> bool {
         self.palette_override.active[index as usize]
+    }
+
+    /// Monotonic revision for PTY-authored palette or special-color changes.
+    pub fn color_revision(&self) -> u64 {
+        self.palette_override.revision
     }
 
     /// Current effective terminal palette without consuming render damage.
