@@ -80,10 +80,12 @@ if [[ "$PRODUCTION" -eq 1 && "$GATE_PLAN" == "host-private-path-transport" ]]; t
   exit 2
 fi
 
-case "$STAGING_BASE_URL" in
-  https://*) ;;
-  *) echo "error: --staging-base-url must use https" >&2; exit 2 ;;
-esac
+if [[ "$GATE_PLAN" != "host-private-path-transport" ]]; then
+  case "$STAGING_BASE_URL" in
+    https://*) ;;
+    *) echo "error: --staging-base-url must use https" >&2; exit 2 ;;
+  esac
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

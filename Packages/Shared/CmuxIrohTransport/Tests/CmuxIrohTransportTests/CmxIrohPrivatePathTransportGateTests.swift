@@ -11,6 +11,11 @@ import Testing
 /// the app contract without claiming that CI owns an external VPN tunnel.
 @Suite(.serialized)
 struct CmxIrohPrivatePathTransportGateTests {
+    private struct BoundServer {
+        let endpoint: any CmxIrohEndpoint
+        let port: UInt16
+    }
+
     private enum GateError: Error {
         case connectionTimedOut
         case noPrivateIPv4Interface
@@ -22,18 +27,18 @@ struct CmxIrohPrivatePathTransportGateTests {
         let now = Date()
         let fixture = try RegistryFixture(now: now)
         let ipAddress = try privateIPv4Address()
-        let port = try availableUDPPort(ipAddress: ipAddress)
         let profile = try privateNetworkProfile(id: "release-gate")
         let customPath = try CmxIrohCustomPrivatePathBootstrap(
             address: CmxIrohCustomPrivateAddress(ipAddress),
             networkProfile: profile
         )
         let clientSupervisor = try await realClientSupervisor(fixture: fixture)
-        let serverEndpoint = try await realServerEndpoint(
+        let server = try await realServerEndpoint(
             fixture: fixture,
-            ipAddress: ipAddress,
-            port: port
+            ipAddress: ipAddress
         )
+        let serverEndpoint = server.endpoint
+        let port = server.port
 
         do {
             let clientEndpoint = try await clientSupervisor.activeEndpoint()
@@ -134,13 +139,13 @@ struct CmxIrohPrivatePathTransportGateTests {
         let now = Date()
         let fixture = try RegistryFixture(now: now)
         let ipAddress = try privateIPv4Address()
-        let port = try availableUDPPort(ipAddress: ipAddress)
         let clientSupervisor = try await realClientSupervisor(fixture: fixture)
-        let serverEndpoint = try await realServerEndpoint(
+        let server = try await realServerEndpoint(
             fixture: fixture,
-            ipAddress: ipAddress,
-            port: port
+            ipAddress: ipAddress
         )
+        let serverEndpoint = server.endpoint
+        let port = server.port
         let clientEndpoint = try await clientSupervisor.activeEndpoint()
         let hint = try privateHint(
             ipAddress: ipAddress,
@@ -174,7 +179,12 @@ struct CmxIrohPrivatePathTransportGateTests {
         let now = Date()
         let fixture = try RegistryFixture(now: now)
         let ipAddress = try privateIPv4Address()
-        let serverPort = try availableUDPPort(ipAddress: ipAddress)
+        let server = try await realServerEndpoint(
+            fixture: fixture,
+            ipAddress: ipAddress
+        )
+        let serverEndpoint = server.endpoint
+        let serverPort = server.port
         let wrongPort = try differentAvailableUDPPort(
             ipAddress: ipAddress,
             excluding: serverPort
@@ -185,11 +195,6 @@ struct CmxIrohPrivatePathTransportGateTests {
             networkProfile: profile
         )
         let clientSupervisor = try await realClientSupervisor(fixture: fixture)
-        let serverEndpoint = try await realServerEndpoint(
-            fixture: fixture,
-            ipAddress: ipAddress,
-            port: serverPort
-        )
 
         do {
             let discovery = try fixture.discovery(
@@ -319,6 +324,27 @@ struct CmxIrohPrivatePathTransportGateTests {
         )
         _ = try await supervisor.activate()
         return supervisor
+    }
+
+    private func realServerEndpoint(
+        fixture: RegistryFixture,
+        ipAddress: String
+    ) async throws -> BoundServer {
+        var lastError: (any Error)?
+        for _ in 0 ..< 8 {
+            let port = try availableUDPPort(ipAddress: ipAddress)
+            do {
+                let endpoint = try await realServerEndpoint(
+                    fixture: fixture,
+                    ipAddress: ipAddress,
+                    port: port
+                )
+                return BoundServer(endpoint: endpoint, port: port)
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError ?? GateError.portAllocationFailed
     }
 
     private func realServerEndpoint(
