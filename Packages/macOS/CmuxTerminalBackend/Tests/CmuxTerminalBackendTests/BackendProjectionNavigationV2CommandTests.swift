@@ -272,6 +272,43 @@ struct BackendProjectionNavigationV2CommandTests {
         await client.close()
     }
 
+    @Test("zero-capacity limits remain structured conflicts")
+    func zeroCapacityLimitConflict() async throws {
+        let transport = ScriptedBackendTransport()
+        let client = BackendProtocolClient(transport: transport)
+        try await client.connect()
+        let authority = try authority()
+        let identifiers = try identifiers()
+
+        let task = Task {
+            try await client.claimProjectionNavigationV2(
+                logicalPresentationID: identifiers.logicalPresentationID,
+                authority: authority,
+                expectedTopologyRevision: 41
+            )
+        }
+        let request = try request(await transport.nextSent())
+        await transport.enqueue(try response(to: request, data: [
+            "status": "conflict",
+            "conflict": [
+                "code": "limit-exceeded",
+                "limit": "records-per-client",
+                "maximum": 0,
+                "attempted": 1,
+            ],
+        ]))
+        guard case .conflict(.limitExceeded(let limit, let maximum, let attempted)) =
+            try await task.value
+        else {
+            Issue.record("expected a zero-capacity limit conflict")
+            return
+        }
+        #expect(limit == .recordsPerClient)
+        #expect(maximum == 0)
+        #expect(attempted == 1)
+        await client.close()
+    }
+
     @Test("malformed structured conflicts cannot enter reconciliation")
     func malformedStructuredConflicts() async throws {
         let authority = try authority()
