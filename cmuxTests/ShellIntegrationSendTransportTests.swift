@@ -8,6 +8,24 @@ import Testing
 #endif
 
 struct ShellIntegrationSendTransportTests {
+    @Test("remote zsh reports Git metadata through the relay")
+    func remoteZshReportsGitMetadataThroughRelay() throws {
+        try assertRemoteShellReportsGitMetadataThroughRelay(
+            shell: "/bin/zsh",
+            integrationName: "cmux-zsh-integration.zsh",
+            shellArguments: ["-f", "-c"]
+        )
+    }
+
+    @Test("remote bash reports Git metadata through the relay")
+    func remoteBashReportsGitMetadataThroughRelay() throws {
+        try assertRemoteShellReportsGitMetadataThroughRelay(
+            shell: "/bin/bash",
+            integrationName: "cmux-bash-integration.bash",
+            shellArguments: ["--noprofile", "--norc", "-c"]
+        )
+    }
+
     @Test("reattached tmux zsh adopts the named session workspace binding")
     func tmuxZshAdoptsSessionWorkspaceBinding() throws {
         try assertTmuxShellAdoptsSessionWorkspaceBinding(
@@ -69,6 +87,74 @@ struct ShellIntegrationSendTransportTests {
         #expect(output.contains("socket=127.0.0.1:55272"), output)
         #expect(output.contains("surface=<unset>"), output)
         #expect(output.contains("panel=<unset>"), output)
+    }
+
+    private func assertRemoteShellReportsGitMetadataThroughRelay(
+        shell: String,
+        integrationName: String,
+        shellArguments: [String]
+    ) throws {
+        let integration = try #require(
+            RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(named: integrationName)
+        )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-relay-git-\(UUID().uuidString)", isDirectory: true)
+        let repository = directory.appendingPathComponent("repository", isDirectory: true)
+        let gitDirectory = repository.appendingPathComponent(".git", isDirectory: true)
+        let binDirectory = directory.appendingPathComponent("bin", isDirectory: true)
+        let integrationFile = directory.appendingPathComponent(integrationName)
+        let cmuxFile = binDirectory.appendingPathComponent("cmux")
+        let logFile = directory.appendingPathComponent("relay.log")
+        try FileManager.default.createDirectory(at: gitDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try integration.write(to: integrationFile, atomically: true, encoding: .utf8)
+        try "ref: refs/heads/feature/mosh-parity\n".write(
+            to: gitDirectory.appendingPathComponent("HEAD"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '\(logFile.path)'\n".write(
+            to: cmuxFile,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cmuxFile.path)
+
+        let process = Process()
+        let standardOutput = Pipe()
+        let standardError = Pipe()
+        process.executableURL = URL(fileURLWithPath: shell)
+        process.arguments = shellArguments + [
+            "source '\(integrationFile.path)'; _cmux_report_git_branch_for_path \"$PWD\"; cat '\(logFile.path)'"
+        ]
+        process.currentDirectoryURL = repository
+        process.environment = [
+            "CMUX_BUNDLED_CLI_PATH": cmuxFile.path,
+            "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+            "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
+            "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+            "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+            "HOME": directory.path,
+            "PATH": "\(binDirectory.path):/usr/bin:/bin",
+            "TERM": "xterm-256color",
+        ]
+        process.standardOutput = standardOutput
+        process.standardError = standardError
+        try process.run()
+        process.waitUntilExit()
+        let output = String(decoding: standardOutput.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let error = String(decoding: standardError.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+
+        #expect(process.terminationStatus == 0, "\(error)\n\(output)")
+        #expect(
+            output.contains(
+                #"rpc surface.report_git_branch {"workspace_id":"11111111-1111-1111-1111-111111111111","branch":"feature/mosh-parity","surface_id":"22222222-2222-2222-2222-222222222222"}"#
+            ),
+            output
+        )
     }
 
     /// End-to-end contract for `_cmux_send`: sourcing the bundled integration
