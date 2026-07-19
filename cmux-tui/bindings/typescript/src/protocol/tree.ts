@@ -23,7 +23,8 @@ export type DeclarativeLayout =
       ratio: number;
       a: DeclarativeLayout;
       b: DeclarativeLayout;
-    };
+    }
+  | { type: "stack"; panes: [Id, ...Id[]]; expanded: Id };
 
 /** A live PTY or browser tab. */
 export interface Tab {

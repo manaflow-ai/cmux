@@ -220,6 +220,7 @@ pub struct LayoutLeafSpec {
 pub enum LayoutSpec {
     Leaf(LayoutLeafSpec),
     Split { dir: SplitDir, ratio: f32, a: Box<LayoutSpec>, b: Box<LayoutSpec> },
+    Stack { pane_count: usize, expanded_index: usize },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2660,10 +2661,11 @@ impl Mux {
                     return Err(err);
                 }
             };
-        let Some(active_pane) = created.first().map(|pane| pane.pane) else {
+        if created.is_empty() {
             self.discard_spawned(spawned);
             anyhow::bail!("layout must contain at least one leaf");
-        };
+        }
+        let active_pane = root.first_visible_pane();
         let screen_id = self.next_id();
         let notifications = self.surface_notifications();
         let delta = {
@@ -2797,6 +2799,28 @@ impl Mux {
                 a: Box::new(self.instantiate_layout(a, size, panes, created, spawned)?),
                 b: Box::new(self.instantiate_layout(b, size, panes, created, spawned)?),
             }),
+            LayoutSpec::Stack { pane_count, expanded_index } => {
+                if *pane_count == 0 {
+                    anyhow::bail!("stack must contain at least one pane");
+                }
+                if *expanded_index >= *pane_count {
+                    anyhow::bail!("stack expanded pane must be a member");
+                }
+                let mut pane_ids = Vec::with_capacity(*pane_count);
+                for _ in 0..*pane_count {
+                    let node = self.instantiate_layout(
+                        &LayoutSpec::Leaf(LayoutLeafSpec { cwd: None, command: None }),
+                        size,
+                        panes,
+                        created,
+                        spawned,
+                    )?;
+                    let Node::Leaf(pane_id) = node else { unreachable!() };
+                    pane_ids.push(pane_id);
+                }
+                let expanded = pane_ids[*expanded_index];
+                Ok(Node::stack_with_expanded(pane_ids, expanded).expect("validated stack"))
+            }
         }
     }
 
@@ -4008,6 +4032,9 @@ mod tests {
                     spec_shape(b)
                 )
             }
+            LayoutSpec::Stack { pane_count, expanded_index } => {
+                format!("stack:{pane_count}:{expanded_index}")
+            }
         }
     }
 
@@ -4048,7 +4075,13 @@ mod tests {
                     Node::Split { dir, ratio, a, b, .. } => {
                         split_spec(*dir, *ratio, from_node(a), from_node(b))
                     }
-                    Node::Stack { .. } => panic!("apply-layout does not construct stacks"),
+                    Node::Stack { panes, expanded } => LayoutSpec::Stack {
+                        pane_count: panes.len(),
+                        expanded_index: panes
+                            .iter()
+                            .position(|pane| pane == expanded)
+                            .expect("valid stack expansion"),
+                    },
                 }
             }
             from_node(&s.workspaces[0].screens[0].root)
@@ -4061,6 +4094,29 @@ mod tests {
         assert_eq!(applied_shape, exported_shape);
         assert_eq!(first.panes.len(), 3);
         assert_eq!(second.panes.len(), 3);
+    }
+
+    #[test]
+    fn apply_layout_constructs_stack_with_requested_expansion() {
+        let mux = test_mux();
+        let applied = mux
+            .apply_layout(
+                None,
+                Some("stack".into()),
+                &LayoutSpec::Stack { pane_count: 3, expanded_index: 1 },
+                None,
+            )
+            .unwrap();
+        let root = screen_root(&mux, applied.screen);
+
+        assert!(matches!(
+            root,
+            Node::Stack { ref panes, expanded }
+                if panes.len() == 3 && expanded == applied.panes[1].pane
+        ));
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces[0].screens[0].active_pane, applied.panes[1].pane);
+        });
     }
 
     #[test]

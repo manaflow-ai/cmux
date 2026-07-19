@@ -25,6 +25,7 @@ const requests = [
   { cmd: "list-workspaces" },
   { cmd: "export-layout", screen: 1 },
   { cmd: "apply-layout", layout: { type: "leaf" } },
+  { cmd: "apply-layout", layout: { type: "stack", panes: [1, 2], expanded: 2 } },
   { cmd: "send", surface: 1, text: "ls\r" },
   { cmd: "send", surface: 1, bytes: "AAEC", paste: true },
   { cmd: "read-screen", surface: 1 },

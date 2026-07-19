@@ -117,6 +117,14 @@ impl Node {
         }
     }
 
+    pub(crate) fn first_visible_pane(&self) -> PaneId {
+        match self {
+            Node::Leaf(pane) => *pane,
+            Node::Split { a, .. } => a.first_visible_pane(),
+            Node::Stack { expanded, .. } => *expanded,
+        }
+    }
+
     pub fn contains_split(&self, target: SplitId) -> bool {
         match self {
             Node::Leaf(_) => false,
@@ -189,7 +197,8 @@ impl Node {
                 a.split_leaf(target, split_id, dir, new_pane)
                     || b.split_leaf(target, split_id, dir, new_pane)
             }
-            Node::Stack { panes, .. } if panes.contains(&target) => {
+            Node::Stack { panes, expanded } if panes.contains(&target) => {
+                *expanded = target;
                 let old = std::mem::replace(self, Node::Leaf(target));
                 *self = Node::Split {
                     id: split_id,

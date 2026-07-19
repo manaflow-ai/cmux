@@ -3582,6 +3582,9 @@ impl App {
         // cached transport state, the shared-size ownership boundary.
         for index in 0..self.pane_areas.len() {
             let area = self.pane_areas[index];
+            if area.content.width == 0 || area.content.height == 0 {
+                continue;
+            }
             let Some(pane) = screen.pane(area.pane) else { continue };
             for tab in &pane.tabs {
                 if self.session.has_surface(tab.surface) {
@@ -3595,10 +3598,6 @@ impl App {
                 {
                     self.session.attach_surface(tab.surface, size);
                 }
-            }
-
-            if area.content.width == 0 || area.content.height == 0 {
-                continue;
             }
             let Some(surface) = self.session.surface(area.surface) else { continue };
             let desired = (area.content.width, area.content.height);

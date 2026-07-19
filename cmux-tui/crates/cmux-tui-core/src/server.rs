@@ -463,6 +463,10 @@ enum LayoutRequest {
         a: Box<LayoutRequest>,
         b: Box<LayoutRequest>,
     },
+    Stack {
+        panes: Vec<PaneId>,
+        expanded: PaneId,
+    },
 }
 
 #[derive(Serialize)]
@@ -1638,6 +1642,15 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
             a: Box::new(layout_request_to_spec(*a)?),
             b: Box::new(layout_request_to_spec(*b)?),
         }),
+        LayoutRequest::Stack { panes, expanded } => {
+            if panes.is_empty() {
+                anyhow::bail!("stack must contain at least one pane");
+            }
+            let Some(expanded_index) = panes.iter().position(|pane| *pane == expanded) else {
+                anyhow::bail!("stack expanded pane must be a member");
+            };
+            Ok(LayoutSpec::Stack { pane_count: panes.len(), expanded_index })
+        }
     }
 }
 
@@ -3316,7 +3329,8 @@ mod tests {
             "expanded": 4
         }));
 
-        assert!(request.is_ok());
+        let spec = layout_request_to_spec(request.unwrap()).unwrap();
+        assert!(matches!(spec, LayoutSpec::Stack { pane_count: 3, expanded_index: 1 }));
     }
 
     #[test]
