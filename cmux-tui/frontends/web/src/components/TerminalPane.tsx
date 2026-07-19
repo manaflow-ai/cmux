@@ -96,6 +96,7 @@ interface PaneLeafProps extends Omit<TerminalPaneProps, "screen" | "onSetSplitRa
   paneId: Id;
   active: boolean;
   zoomed: boolean;
+  focusTerminalOnMount?: boolean;
 }
 
 function PaneLeaf({
@@ -105,6 +106,7 @@ function PaneLeaf({
   paneId,
   active,
   zoomed,
+  focusTerminalOnMount = false,
   onSelectTab,
   onNewTab,
   onSplit,
@@ -201,6 +203,7 @@ function PaneLeaf({
               surface={surface}
               active={active}
               error={terminalError}
+              focusOnMount={focusTerminalOnMount}
               onError={reportError}
             />
           ) : surface !== null ? (
@@ -208,6 +211,7 @@ function PaneLeaf({
               client={client}
               surface={surface}
               error={terminalError}
+              focusOnMount={focusTerminalOnMount}
               onError={reportError}
             />
           ) : (
@@ -289,6 +293,7 @@ function LayoutStackNode({ node, screen, basis, ...actions }: LayoutStackNodePro
   const panes = visibleStackPanes(node.panes, node.expanded, null);
   const expandedIndex = panes.indexOf(node.expanded);
   const expandedPane = screen.panes.find((candidate) => candidate.id === node.expanded) ?? null;
+  const [focusRequest, setFocusRequest] = useState<Id | null>(null);
   const renderHeader = (pane: Id) => {
     const livePane = screen.panes.find((candidate) => candidate.id === pane) ?? null;
     const activeTab = livePane?.tabs[livePane.active_tab] ?? null;
@@ -298,7 +303,10 @@ function LayoutStackNode({ node, screen, basis, ...actions }: LayoutStackNodePro
         <button
           aria-label={t("pane", { number: pane })}
           className="stack-pane-header"
-          onClick={() => actions.onSelectPane(pane)}
+          onClick={() => {
+            setFocusRequest(pane);
+            actions.onSelectPane(pane);
+          }}
           type="button"
         >
           <span aria-hidden="true">┌</span>
@@ -319,6 +327,7 @@ function LayoutStackNode({ node, screen, basis, ...actions }: LayoutStackNodePro
           pane={expandedPane}
           paneId={node.expanded}
           active={screen.activePane === node.expanded}
+          focusTerminalOnMount={focusRequest === node.expanded}
           zoomed={screen.zoomedPane === node.expanded}
         />
       </div>
