@@ -466,6 +466,7 @@ class TabManager: ObservableObject {
         initialWorkingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
         autoWelcomeIfNeeded: Bool = true,
+        createInitialWorkspace: Bool = true,
         commandRunner: any CommandRunning = CommandRunner(),
         gitMetadataService: GitMetadataService = GitMetadataService(),
         pullRequestProbeService: PullRequestProbeService? = nil,
@@ -532,12 +533,17 @@ class TabManager: ObservableObject {
         workspaces.attach(host: self)
         workspaceReordering.attach(host: self)
         workspaceGrouping.attach(host: self)
-        addWorkspace(
-            title: initialWorkspaceTitle,
-            workingDirectory: initialWorkingDirectory,
-            initialTerminalInput: initialTerminalInput,
-            autoWelcomeIfNeeded: autoWelcomeIfNeeded
-        )
+        // The SwiftUI app root needs a command-routing fallback before AppKit
+        // registers the real per-window manager. It must not create a terminal:
+        // SwiftUI may initialize the app value more than once during launch.
+        if createInitialWorkspace {
+            addWorkspace(
+                title: initialWorkspaceTitle,
+                workingDirectory: initialWorkingDirectory,
+                initialTerminalInput: initialTerminalInput,
+                autoWelcomeIfNeeded: autoWelcomeIfNeeded
+            )
+        }
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
             object: nil,
