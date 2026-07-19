@@ -36,7 +36,10 @@ actor CmxIrohPooledByteTransport: CmxByteTransport {
         do {
             return try await session.receiveControl()
         } catch {
-            await releaseOwnedControlSession()
+            await releaseOwnedControlSession(
+                reason: .controlReadFailed,
+                failure: DiagnosticFailureKind.classify(error)
+            )
             self.session = nil
             throw error
         }
@@ -48,7 +51,10 @@ actor CmxIrohPooledByteTransport: CmxByteTransport {
         do {
             try await session.sendControl(data)
         } catch {
-            await releaseOwnedControlSession()
+            await releaseOwnedControlSession(
+                reason: .controlWriteFailed,
+                failure: DiagnosticFailureKind.classify(error)
+            )
             self.session = nil
             throw error
         }
@@ -61,12 +67,23 @@ actor CmxIrohPooledByteTransport: CmxByteTransport {
         // The mobile RPC session owns control framing and may leave a cancelled
         // read or partial frame behind. Never hand that stream to a replacement
         // RPC owner; close the peer session so the next control transport redials.
-        await releaseOwnedControlSession()
+        await releaseOwnedControlSession(
+            reason: .controlOwnerReleased,
+            failure: .none
+        )
     }
 
-    private func releaseOwnedControlSession() async {
+    private func releaseOwnedControlSession(
+        reason: DiagnosticSessionLifecycleKind,
+        failure: DiagnosticFailureKind
+    ) async {
         guard ownsControlSession else { return }
         ownsControlSession = false
-        await pool.releaseControlSession(for: request, ownerID: ownerID)
+        await pool.releaseControlSession(
+            for: request,
+            ownerID: ownerID,
+            reason: reason,
+            failure: failure
+        )
     }
 }

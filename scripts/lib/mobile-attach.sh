@@ -96,6 +96,26 @@ cmux_attach_socket_path() {
   printf '/tmp/cmux-debug-%s.sock' "$(cmux_attach__slug "$1")"
 }
 
+# Remove a stale socket only for one validated tagged-build identity. Callers
+# must first prove the exact tagged app process has exited. Refuse regular files
+# and symlinks so this cleanup cannot delete an unrelated path substituted at
+# the tag's predictable socket location.
+cmux_attach_remove_stale_socket() {
+  local tag="$1" sock
+  cmux_attach_validate_dev_tag "$tag" || return 1
+  sock="$(cmux_attach_socket_path "$tag")"
+  if [[ -L "$sock" ]]; then
+    echo "error: refusing to remove symlink at tagged socket path: $sock" >&2
+    return 1
+  fi
+  if [[ -e "$sock" ]] && [[ ! -S "$sock" ]]; then
+    echo "error: refusing to remove non-socket at tagged socket path: $sock" >&2
+    return 1
+  fi
+  [[ -S "$sock" ]] || return 0
+  rm -f -- "$sock"
+}
+
 # The locally-built tagged macOS Debug .app bundle path (cloud/local reloads both
 # download/install here). Both the DerivedData dir AND the .app basename use the
 # sanitized slug, matching reload.sh (`APP_NAME="cmux DEV ${TAG_SLUG}"`); the raw

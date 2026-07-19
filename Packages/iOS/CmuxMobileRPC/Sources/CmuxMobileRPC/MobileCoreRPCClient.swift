@@ -44,7 +44,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         abandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000,
         lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,
         stackTokenGateResetNanoseconds: UInt64 = 30_000_000_000,
-        transportConnectObserver: (@Sendable (MobileRPCTransportConnectEvent) -> Void)? = nil
+        transportConnectObserver: (@Sendable (MobileRPCTransportConnectEvent) -> Void)? = nil,
+        sessionPurpose: CmxTransportSessionPurpose = .foregroundControl
     ) {
         self.runtime = runtime
         self.route = route
@@ -52,7 +53,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         let transportRequest = CmxByteTransportRequest(
             route: route,
             expectedPeerDeviceID: ticket.macDeviceID,
-            authorizationMode: route.kind == .iroh ? .transportAdmission : .stackBearer
+            authorizationMode: route.kind == .iroh ? .transportAdmission : .stackBearer,
+            sessionPurpose: sessionPurpose
         )
         self.transportRequest = transportRequest
         self.allowsStackAuthFallback = allowsStackAuthFallback

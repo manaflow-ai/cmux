@@ -41,6 +41,23 @@ function resolveDevAPIBaseURL(fallback, override = "") {
   ]);
 }
 
+function removeStaleSocket(socketPath) {
+  return run(
+    "bash",
+    [
+      "-c",
+      [
+        'source "$1"',
+        'cmux_attach_socket_path() { printf "%s" "$CMUX_TEST_SOCKET"; }',
+        'cmux_attach_remove_stale_socket "release-gate"',
+      ].join("; "),
+      "mobile-attach-test",
+      validator,
+    ],
+    { CMUX_TEST_SOCKET: socketPath },
+  );
+}
+
 function extractShellFunction(source, name) {
   const start = source.indexOf(`${name}() {`);
   assert.notEqual(start, -1, `missing shell function ${name}`);
@@ -260,6 +277,43 @@ test("shared dev API origin accepts an explicit trusted backend", () => {
   assert.equal(result.stdout, "https://cmux-staging.vercel.app");
 });
 
+test("tagged stale-socket cleanup removes only the exact Unix socket", async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-stale-socket-test-"));
+  const socketPath = path.join(tempRoot, "release-gate.sock");
+  const neighborPath = path.join(tempRoot, "neighbor.sock");
+  fs.writeFileSync(neighborPath, "keep");
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+
+  try {
+    const result = removeStaleSocket(socketPath);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.existsSync(socketPath), false);
+    assert.equal(fs.readFileSync(neighborPath, "utf8"), "keep");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("tagged stale-socket cleanup refuses a non-socket path", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-stale-socket-test-"));
+  const socketPath = path.join(tempRoot, "release-gate.sock");
+  fs.writeFileSync(socketPath, "keep");
+
+  try {
+    const result = removeStaleSocket(socketPath);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /refusing to remove non-socket/);
+    assert.equal(fs.readFileSync(socketPath, "utf8"), "keep");
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("macOS and iOS reloads share the dev API backend override", () => {
   const macReload = fs.readFileSync(path.join(repoRoot, "scripts/reload.sh"), "utf8");
   const iosReload = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
@@ -420,6 +474,30 @@ test("physical-device mint retries transient empty responses", async () => {
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, payload.attach_url);
   assert.equal(result.callCount, 2);
+});
+
+test("release gate grants asynchronous Iroh publication a bounded startup window", () => {
+  const launcher = fs.readFileSync(
+    path.join(repoRoot, "scripts/mobile-dev-launch.sh"),
+    "utf8",
+  );
+  const gate = fs.readFileSync(
+    path.join(repoRoot, "scripts/run-iroh-release-gate.sh"),
+    "utf8",
+  );
+
+  assert.match(
+    launcher,
+    /ATTACH_MINT_MAX_ATTEMPTS="\$\{CMUX_ATTACH_MINT_MAX_ATTEMPTS:-20\}"/,
+  );
+  assert.match(
+    launcher,
+    /cmux_attach_mint_url[^\n]+"\$ATTACH_TARGET" "\$ATTACH_MINT_MAX_ATTEMPTS"/,
+  );
+  assert.match(
+    gate,
+    /CMUX_ATTACH_MINT_MAX_ATTEMPTS=120 \\\n+\.\/scripts\/mobile-dev-launch\.sh/,
+  );
 });
 
 test("mobile launch accepts an explicit no-attach override", () => {

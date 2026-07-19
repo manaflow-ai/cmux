@@ -106,6 +106,10 @@ export type IrohRepositoryShape = {
     userId: string,
     bindingIds: readonly string[],
   ) => Effect.Effect<IrohBindingRecord[], RepositoryError>;
+  readonly findActiveBindingByEndpoint: (
+    userId: string,
+    endpointId: string,
+  ) => Effect.Effect<IrohBindingRecord | null, RepositoryError>;
   /** Returns true when the exact binding is owned and revoked, including retries. */
   readonly revokeBinding: (input: {
     readonly userId: string;
@@ -463,6 +467,22 @@ function makeLiveRepository(): IrohRepositoryShape {
           ));
       });
     }),
+
+    findActiveBindingByEndpoint: (userId, endpointId) => repositoryEffect(
+      "find_binding_by_endpoint",
+      async () => {
+        const [binding] = await cloudDb()
+          .select()
+          .from(irohEndpointBindings)
+          .where(and(
+            eq(irohEndpointBindings.userId, userId),
+            eq(irohEndpointBindings.endpointId, endpointId),
+            isNull(irohEndpointBindings.revokedAt),
+          ))
+          .limit(1);
+        return binding ?? null;
+      },
+    ),
 
     revokeBinding: (input) => repositoryEffect("revoke_binding", async () => {
       return await cloudDb().transaction(async (tx) => {

@@ -14,7 +14,7 @@ let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedM
 /// inject it as `any MobilePairedMacStoring`.
 public actor MobilePairedMacStore: MobilePairedMacStoring {
     /// The schema version this build creates and migrates to.
-    public static let currentSchemaVersion: Int32 = 6
+    public static let currentSchemaVersion: Int32 = 7
 
     private let dbPath: String
     // `nonisolated(unsafe)` only so the (Swift 6 nonisolated) `deinit` can close
@@ -111,7 +111,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV4()
                 try migrateToV5()
                 try migrateToV6()
-                try setUserVersion(6)
+                try migrateToV7()
+                try setUserVersion(7)
             }
         case 1:
             try transaction {
@@ -120,7 +121,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV4()
                 try migrateToV5()
                 try migrateToV6()
-                try setUserVersion(6)
+                try migrateToV7()
+                try setUserVersion(7)
             }
         case 2:
             try transaction {
@@ -128,27 +130,36 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV4()
                 try migrateToV5()
                 try migrateToV6()
-                try setUserVersion(6)
+                try migrateToV7()
+                try setUserVersion(7)
             }
         case 3:
             try transaction {
                 try migrateToV4()
                 try migrateToV5()
                 try migrateToV6()
-                try setUserVersion(6)
+                try migrateToV7()
+                try setUserVersion(7)
             }
         case 4:
             try transaction {
                 try migrateToV5()
                 try migrateToV6()
-                try setUserVersion(6)
+                try migrateToV7()
+                try setUserVersion(7)
             }
         case 5:
             try transaction {
                 try migrateToV6()
-                try setUserVersion(6)
+                try migrateToV7()
+                try setUserVersion(7)
             }
         case 6:
+            try transaction {
+                try migrateToV7()
+                try setUserVersion(7)
+            }
+        case 7:
             break
         default:
             // A newer build wrote a higher schema version. Schema migrations are
@@ -510,6 +521,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         routeWriteCondition: MobilePairedMacRouteWriteCondition? = nil
     ) throws -> Bool {
         try ensureReady()
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
         var didWrite = false
         try transaction {
             let recordInstanceTag: String?
@@ -724,6 +736,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         teamID: String? = nil
     ) throws {
         try ensureReady()
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
         let instanceTag = try fetchAllMacs(
             stackUserID: stackUserID,
             teamID: teamID
@@ -744,6 +757,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         teamID: String? = nil
     ) throws {
         try ensureReady()
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
         let ownerKey = Self.ownerKey(
             stackUserID: stackUserID,
             teamID: teamID,
@@ -773,6 +787,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         now: Date = Date()
     ) throws {
         try ensureReady()
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
         let instanceTag = try fetchAllMacs(
             stackUserID: stackUserID,
             teamID: teamID
@@ -801,6 +816,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         now: Date = Date()
     ) throws {
         try ensureReady()
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
         // Bump last_seen_at so the change is the freshest write for this record and
         // the LWW backup/restore propagates it to the user's other devices. Leaves
         // display_name / routes / is_active untouched (the Mac owns those).
@@ -828,6 +844,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         stackUserID: String? = nil,
         teamID: String? = nil
     ) throws {
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
         if stackUserID == nil && teamID == nil {
             try ensureReady()
             try exec("DELETE FROM paired_macs WHERE mac_device_id = ?;",
@@ -855,6 +872,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         teamID: String? = nil
     ) throws {
         try ensureReady()
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
         try exec(
             "DELETE FROM paired_macs WHERE mac_device_id = ? AND owner_key = ?;",
             binding: [.text(macDeviceID), .text(Self.ownerKey(

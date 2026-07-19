@@ -908,6 +908,11 @@ class MemoryRepository implements IrohRepositoryShape {
       row.userId === userId && bindingIds.includes(row.id) && !row.revokedAt));
   }
 
+  findActiveBindingByEndpoint(userId: string, endpointId: string) {
+    return Effect.succeed(this.bindings.find((row) =>
+      row.userId === userId && row.endpointId === endpointId && !row.revokedAt) ?? null);
+  }
+
   revokeBinding(input: Parameters<IrohRepositoryShape["revokeBinding"]>[0]) {
     const row = this.bindings.find((candidate) =>
       candidate.id === input.bindingId && candidate.userId === input.userId);
