@@ -110,15 +110,15 @@ struct RemoteSessionSSHRemoteCommandOverrideTests {
         return RemoteSessionCoordinator(
             host: NoopRemoteSessionHost(),
             configuration: configuration,
-            proxyBroker: UnusedRemoteProxyBroker(),
+            proxyBroker: SSHOverrideUnusedRemoteProxyBroker(),
             connectionBroker: NativeSSHConnectionBroker(),
             manifestRepository: RemoteDaemonManifestRepository(
                 homeDirectory: FileManager.default.temporaryDirectory
             ),
             processRunner: runner,
-            reachabilityProbe: NoopReachabilityProbe(),
-            relayCommandRewriter: PassthroughRelayCommandRewriter(),
-            buildInfo: StubBuildInfo(),
+            reachabilityProbe: SSHOverrideNoopReachabilityProbe(),
+            relayCommandRewriter: SSHOverridePassthroughRelayCommandRewriter(),
+            buildInfo: SSHOverrideStubBuildInfo(),
             daemonStrings: RemoteDaemonStrings(
                 missingPersistentPTYCapability: "",
                 missingRequiredFunctionality: ""
@@ -171,13 +171,13 @@ struct NoopRemoteSessionHost: RemoteSessionHosting {
     func publishBootstrapRemoteTTY(_ ttyName: String) {}
 }
 
-final class UnusedRemoteProxyBroker: RemoteProxyBrokering, @unchecked Sendable {
+final class SSHOverrideUnusedRemoteProxyBroker: RemoteProxyBrokering, @unchecked Sendable {
     func acquire(
         configuration: WorkspaceRemoteConfiguration,
         remotePath: String,
         onUpdate: @escaping @Sendable (RemoteProxyBrokerUpdate) -> Void
     ) -> RemoteProxyLease {
-        fatalError("UnusedRemoteProxyBroker.acquire is not exercised by these tests")
+        fatalError("SSHOverrideUnusedRemoteProxyBroker.acquire is not exercised by these tests")
     }
 
     func listPTY(configuration: WorkspaceRemoteConfiguration) throws -> [[String: Any]] { [] }
@@ -219,11 +219,11 @@ final class UnusedRemoteProxyBroker: RemoteProxyBrokering, @unchecked Sendable {
         command: String?,
         requireExisting: Bool
     ) throws -> RemotePTYBridgeServer.Endpoint {
-        fatalError("UnusedRemoteProxyBroker.startPTYBridge is not exercised by these tests")
+        fatalError("SSHOverrideUnusedRemoteProxyBroker.startPTYBridge is not exercised by these tests")
     }
 }
 
-struct NoopReachabilityProbe: RemoteHostReachabilityProbing {
+struct SSHOverrideNoopReachabilityProbe: RemoteHostReachabilityProbing {
     func probe(
         destination: String,
         port: Int?,
@@ -233,7 +233,7 @@ struct NoopReachabilityProbe: RemoteHostReachabilityProbing {
     ) {}
 }
 
-struct PassthroughRelayCommandRewriter: RemoteRelayCommandRewriting {
+struct SSHOverridePassthroughRelayCommandRewriter: RemoteRelayCommandRewriting {
     func rewriteRemoteRelayCommandLine(
         _ commandLine: Data,
         workspaceAliases: [UUID: UUID],
@@ -243,7 +243,7 @@ struct PassthroughRelayCommandRewriter: RemoteRelayCommandRewriting {
     }
 }
 
-struct StubBuildInfo: RemoteSessionBuildInfoProviding {
+struct SSHOverrideStubBuildInfo: RemoteSessionBuildInfoProviding {
     func appVersion() -> String? { nil }
     func embeddedDaemonManifest() -> WorkspaceRemoteDaemonManifest? { nil }
     func executableDirectoryURL() -> URL? { nil }

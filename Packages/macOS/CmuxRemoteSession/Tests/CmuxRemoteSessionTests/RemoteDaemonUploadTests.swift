@@ -120,13 +120,13 @@ struct RemoteDaemonUploadTests {
         return RemoteSessionCoordinator(
             host: NoopRemoteSessionHost(),
             configuration: configuration,
-            proxyBroker: UnusedRemoteProxyBroker(),
+            proxyBroker: SSHOverrideUnusedRemoteProxyBroker(),
             connectionBroker: NativeSSHConnectionBroker(),
             manifestRepository: RemoteDaemonManifestRepository(homeDirectory: FileManager.default.temporaryDirectory),
             processRunner: runner,
-            reachabilityProbe: NoopReachabilityProbe(),
-            relayCommandRewriter: PassthroughRelayCommandRewriter(),
-            buildInfo: StubBuildInfo(),
+            reachabilityProbe: SSHOverrideNoopReachabilityProbe(),
+            relayCommandRewriter: SSHOverridePassthroughRelayCommandRewriter(),
+            buildInfo: SSHOverrideStubBuildInfo(),
             daemonStrings: RemoteDaemonStrings(
                 missingPersistentPTYCapability: "",
                 missingRequiredFunctionality: ""
