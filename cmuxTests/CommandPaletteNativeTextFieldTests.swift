@@ -23,6 +23,7 @@ struct CommandPaletteNativeTextFieldTests {
         window.contentView?.addSubview(field)
         _ = window.makeFirstResponder(nil)
 
+        #expect(window.initialFirstResponder === field)
         field.requestsFirstResponder = true
         #expect(window.firstResponder !== field)
 
