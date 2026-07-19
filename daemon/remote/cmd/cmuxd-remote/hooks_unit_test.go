@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -72,6 +73,31 @@ func TestRemoteHookSnapshotPayloadAllowsBase64Expansion(t *testing.T) {
 	}
 	if len(payload) <= remoteHookMaxConfigurationBytes {
 		t.Fatalf("test payload did not exercise base64 expansion: %d bytes", len(payload))
+	}
+}
+
+func TestRemoteHookSnapshotEncodesMissingConfigurationAsEmptyArray(t *testing.T) {
+	entries, err := snapshotRemoteHookPaths(
+		[]string{filepath.Join(t.TempDir(), "missing-hooks.json")},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("snapshot missing hook configuration: %v", err)
+	}
+	payload, err := encodeRemoteHookSnapshot(remoteHookSnapshot{
+		Agent: "omp", Action: "install", Entries: entries,
+	})
+	if err != nil {
+		t.Fatalf("encode empty hook snapshot: %v", err)
+	}
+	var encoded struct {
+		Entries json.RawMessage `json:"entries"`
+	}
+	if err := json.Unmarshal(payload, &encoded); err != nil {
+		t.Fatalf("decode empty hook snapshot: %v", err)
+	}
+	if string(encoded.Entries) != "[]" {
+		t.Fatalf("missing hook configuration must encode entries as an array, got %s", encoded.Entries)
 	}
 }
 
