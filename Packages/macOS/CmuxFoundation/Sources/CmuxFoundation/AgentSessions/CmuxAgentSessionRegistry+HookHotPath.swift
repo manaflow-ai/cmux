@@ -1464,13 +1464,31 @@ extension CmuxAgentSessionRegistry {
         if try schemaVersion(database) < 5 {
             try transaction(database, retryBeginContention: false) {
                 guard try schemaVersion(database) < 5 else { return }
+                let metadataColumns = try hookSchemaColumns(
+                    database,
+                    table: "agent_provider_metadata"
+                )
+                if !metadataColumns.contains("record_bytes") {
+                    try execute(
+                        database,
+                        sql: """
+                        ALTER TABLE agent_provider_metadata
+                            ADD COLUMN record_bytes INTEGER NOT NULL DEFAULT 0
+                        """
+                    )
+                }
+                if !metadataColumns.contains("slot_bytes") {
+                    try execute(
+                        database,
+                        sql: """
+                        ALTER TABLE agent_provider_metadata
+                            ADD COLUMN slot_bytes INTEGER NOT NULL DEFAULT 0
+                        """
+                    )
+                }
                 try execute(
                     database,
                     sql: """
-                    ALTER TABLE agent_provider_metadata
-                        ADD COLUMN record_bytes INTEGER NOT NULL DEFAULT 0;
-                    ALTER TABLE agent_provider_metadata
-                        ADD COLUMN slot_bytes INTEGER NOT NULL DEFAULT 0;
                     UPDATE agent_provider_metadata SET
                         record_bytes = COALESCE((
                             SELECT SUM(length(record_json)) FROM agent_sessions
@@ -1585,31 +1603,40 @@ extension CmuxAgentSessionRegistry {
         if try schemaVersion(database) < 6 {
             try transaction(database, retryBeginContention: false) {
                 guard try schemaVersion(database) < 6 else { return }
-                try execute(
-                    database,
-                    sql: """
-                    ALTER TABLE agent_legacy_sources
-                        ADD COLUMN quarantined INTEGER NOT NULL DEFAULT 0;
-                    PRAGMA user_version=6;
-                    """
-                )
+                if try !hookSchemaColumns(database, table: "agent_legacy_sources")
+                    .contains("quarantined") {
+                    try execute(
+                        database,
+                        sql: """
+                        ALTER TABLE agent_legacy_sources
+                            ADD COLUMN quarantined INTEGER NOT NULL DEFAULT 0
+                        """
+                    )
+                }
+                try execute(database, sql: "PRAGMA user_version=6")
             }
         }
         if try schemaVersion(database) < 7 {
             try transaction(database, retryBeginContention: false) {
                 guard try schemaVersion(database) < 7 else { return }
-                try execute(
+                let legacyColumns = try hookSchemaColumns(
                     database,
-                    sql: """
-                    ALTER TABLE agent_legacy_sources ADD COLUMN device_id INTEGER;
-                    ALTER TABLE agent_legacy_sources ADD COLUMN inode INTEGER;
-                    ALTER TABLE agent_legacy_sources ADD COLUMN modified_seconds INTEGER;
-                    ALTER TABLE agent_legacy_sources ADD COLUMN modified_nanoseconds INTEGER;
-                    ALTER TABLE agent_legacy_sources ADD COLUMN changed_seconds INTEGER;
-                    ALTER TABLE agent_legacy_sources ADD COLUMN changed_nanoseconds INTEGER;
-                    PRAGMA user_version=7;
-                    """
+                    table: "agent_legacy_sources"
                 )
+                for column in [
+                    "device_id",
+                    "inode",
+                    "modified_seconds",
+                    "modified_nanoseconds",
+                    "changed_seconds",
+                    "changed_nanoseconds",
+                ] where !legacyColumns.contains(column) {
+                    try execute(
+                        database,
+                        sql: "ALTER TABLE agent_legacy_sources ADD COLUMN \(column) INTEGER"
+                    )
+                }
+                try execute(database, sql: "PRAGMA user_version=7")
             }
         }
         // Provider discovery ignores historical metadata rows whose canonical
@@ -1626,6 +1653,26 @@ extension CmuxAgentSessionRegistry {
             WHERE record_bytes > 0 OR slot_bytes > 0
             """
         )
+    }
+
+    private func hookSchemaColumns(
+        _ database: OpaquePointer,
+        table: String
+    ) throws -> Set<String> {
+        let allowedTables = ["agent_provider_metadata", "agent_legacy_sources"]
+        guard allowedTables.contains(table) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        let statement = try prepare(database, "PRAGMA table_info(\(table))")
+        defer { sqlite3_finalize(statement) }
+        var columns = Set<String>()
+        while try stepRow(statement, database: database, operation: "inspect hook schema") {
+            guard let name = text(statement, column: 1) else {
+                throw corruptRowError(operation: "inspect hook schema")
+            }
+            columns.insert(name)
+        }
+        return columns
     }
 
     private func hookMutationContext(
