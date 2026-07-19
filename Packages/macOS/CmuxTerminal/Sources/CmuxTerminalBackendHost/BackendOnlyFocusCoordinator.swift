@@ -48,7 +48,7 @@ nonisolated enum BackendOnlyFocusActionReceiptOutcome: Equatable, Sendable {
 /// Authoritative daemon result for one exact focus action.
 nonisolated struct BackendOnlyFocusActionReceipt: Equatable, Sendable {
     let actionID: UInt64
-    let authorityRevision: UInt64
+    let fence: BackendOnlyProjectionRuntimeFence
     let outcome: BackendOnlyFocusActionReceiptOutcome
     let activeSlotID: BackendOnlyProjectionSlotID
     let selectedSurfaceID: SurfaceID
@@ -87,7 +87,7 @@ final class BackendOnlyFocusCoordinator {
     private var newestRequestedActionID: UInt64 = 0
 
     private(set) var authoritativeActiveSlotID: BackendOnlyProjectionSlotID?
-    private(set) var authorityRevision: UInt64 = 0
+    private(set) var authorityFence: BackendOnlyProjectionRuntimeFence?
     private(set) var firstResponderOwnedSlotID: BackendOnlyProjectionSlotID?
     private(set) var isWindowKey = false
 
@@ -145,10 +145,18 @@ final class BackendOnlyFocusCoordinator {
     @discardableResult
     func installAuthoritativeActiveSlot(
         _ slotID: BackendOnlyProjectionSlotID?,
-        authorityRevision incomingRevision: UInt64
+        fence incomingFence: BackendOnlyProjectionRuntimeFence
     ) -> Bool {
-        guard incomingRevision > authorityRevision else { return false }
-        authorityRevision = incomingRevision
+        guard Self.isValid(incomingFence),
+              slotID.map({
+                  $0.logicalPresentationID == incomingFence.logicalPresentationID
+              }) ?? true else { return false }
+        if let authorityFence {
+            guard compare(incomingFence, with: authorityFence) == .newer else {
+                return false
+            }
+        }
+        authorityFence = incomingFence
         authoritativeActiveSlotID = slotID
         if firstResponderOwnedSlotID != slotID {
             firstResponderOwnedSlotID = nil
@@ -228,13 +236,28 @@ final class BackendOnlyFocusCoordinator {
             reconcileProgrammaticFocus()
             return .rejected
         }
-        guard receipt.authorityRevision > authorityRevision,
-              receipt.activeSlotID == action.targetSlotID,
+        guard receipt.activeSlotID == action.targetSlotID,
+              receipt.activeSlotID.logicalPresentationID
+                == receipt.fence.logicalPresentationID,
               receipt.selectedSurfaceID == action.desiredSurfaceID else {
             return .ignoredStaleReceipt
         }
 
-        authorityRevision = receipt.authorityRevision
+        let fenceOrder: AuthorityFenceOrder
+        if let authorityFence {
+            guard let order = compare(receipt.fence, with: authorityFence) else {
+                return .ignoredStaleReceipt
+            }
+            fenceOrder = order
+        } else {
+            guard Self.isValid(receipt.fence) else {
+                return .ignoredStaleReceipt
+            }
+            fenceOrder = .newer
+        }
+        guard fenceOrder == .newer else { return .ignoredStaleReceipt }
+
+        authorityFence = receipt.fence
         authoritativeActiveSlotID = receipt.activeSlotID
         if var registration = registrations[receipt.activeSlotID] {
             registration.content = registration.content.selecting(
@@ -247,6 +270,54 @@ final class BackendOnlyFocusCoordinator {
         }
         reconcileProgrammaticFocus()
         return .applied
+    }
+
+    private enum AuthorityFenceOrder: Equatable {
+        case older
+        case same
+        case newer
+    }
+
+    private func compare(
+        _ incoming: BackendOnlyProjectionRuntimeFence,
+        with current: BackendOnlyProjectionRuntimeFence
+    ) -> AuthorityFenceOrder? {
+        guard Self.isValid(incoming) else { return nil }
+        if incoming.connectionGeneration < current.connectionGeneration {
+            return .older
+        }
+        if incoming.connectionGeneration > current.connectionGeneration {
+            return .newer
+        }
+        guard incoming.authority == current.authority,
+              incoming.logicalPresentationID == current.logicalPresentationID else {
+            return nil
+        }
+        guard incoming.topologyRevision >= current.topologyRevision,
+              incoming.projectionGeneration >= current.projectionGeneration else {
+            return .older
+        }
+        if incoming.topologyRevision == current.topologyRevision,
+           incoming.projectionGeneration == current.projectionGeneration {
+            return .same
+        }
+        return .newer
+    }
+
+    private static func isValid(_ fence: BackendOnlyProjectionRuntimeFence) -> Bool {
+        fence.connectionGeneration > 0
+            && fence.topologyRevision > 0
+            && fence.projectionGeneration > 0
+            && !isNil(fence.logicalPresentationID)
+            && !isNil(fence.authority.daemonInstanceID.rawValue)
+            && !isNil(fence.authority.sessionID.rawValue)
+    }
+
+    private static func isNil(_ identifier: UUID) -> Bool {
+        identifier == UUID(uuid: (
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0
+        ))
     }
 
     private func reconcileProgrammaticFocus() {
