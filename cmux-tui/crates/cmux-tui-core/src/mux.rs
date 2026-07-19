@@ -2373,17 +2373,25 @@ impl Mux {
         pane: Option<PaneId>,
         dir: Direction,
     ) -> anyhow::Result<PaneId> {
+        self.focus_direction_if_possible(pane, dir)?.ok_or_else(|| anyhow::anyhow!("no neighbor"))
+    }
+
+    pub fn focus_direction_if_possible(
+        self: &Arc<Self>,
+        pane: Option<PaneId>,
+        dir: Direction,
+    ) -> anyhow::Result<Option<PaneId>> {
         let target = self.with_state(|state| pane.or_else(|| state.active_pane()));
         let Some(target) = target else {
             anyhow::bail!("no active pane");
         };
         let Some(next) = self.pane_neighbor(target, dir)? else {
-            anyhow::bail!("no neighbor");
+            return Ok(None);
         };
         if !self.focus_pane(next) {
             anyhow::bail!("unknown pane {next}");
         }
-        Ok(next)
+        Ok(Some(next))
     }
 
     pub fn swap_panes(&self, pane: PaneId, target: PaneId) -> bool {

@@ -16,8 +16,9 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserSource, BrowserStatus, MuxEvent, PairingChallenge, PaneId, Rect, SplitDir, SplitEdge,
-    SurfaceId, SurfaceKind, WorkspaceId, layout_screen, split_for_pane_edge, split_sides,
+    BrowserSource, BrowserStatus, Direction, MuxEvent, PairingChallenge, PaneId, Rect, SplitDir,
+    SplitEdge, SurfaceId, SurfaceKind, WorkspaceId, layout_screen, split_for_pane_edge,
+    split_sides,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -1704,6 +1705,10 @@ impl OrderedSession {
         self.enqueue_routing("focus pane", move |session| session.focus_pane(pane));
     }
 
+    pub fn focus_direction(&self, direction: Direction) {
+        self.enqueue_routing("focus direction", move |session| session.focus_direction(direction));
+    }
+
     pub fn select_tab(&self, pane: Option<PaneId>, index: Option<usize>, delta: Option<isize>) {
         self.enqueue_routing("select tab", move |session| session.select_tab(pane, index, delta));
     }
@@ -2429,11 +2434,6 @@ pub struct App {
     pub graphics_supported: bool,
     stdout_lock: Arc<Mutex<()>>,
     pub pane_areas: Vec<PaneArea>,
-    /// Client-side focus timestamps follow the mux's pane `active_at` semantics
-    /// so local and attached TUIs make the same Zellij-style directional choice.
-    pane_focus_recency: HashMap<PaneId, u64>,
-    pane_focus_epoch: u64,
-    observed_active_pane: Option<PaneId>,
     /// Surfaces whose active tabs were visible in the previous layout pass.
     /// Attach streams may outlive this set, but only members hold size leases.
     visible_size_surfaces: HashSet<SurfaceId>,
@@ -2809,9 +2809,6 @@ pub fn run(
         graphics_supported,
         stdout_lock: stdout_lock.clone(),
         pane_areas: Vec::new(),
-        pane_focus_recency: HashMap::new(),
-        pane_focus_epoch: 0,
-        observed_active_pane: None,
         visible_size_surfaces: HashSet::new(),
         pending_size_releases: HashSet::new(),
         prefix_armed: false,
@@ -3214,40 +3211,8 @@ impl App {
             self.browser_input.forget_surface(surface);
         }
         self.tree = tree;
-        self.sync_pane_focus_history();
         self.rebuild_tab_locations();
         self.reapply_mux_titles();
-    }
-
-    fn record_pane_focus(&mut self, pane: PaneId) {
-        self.pane_focus_epoch = self.pane_focus_epoch.saturating_add(1);
-        self.pane_focus_recency.insert(pane, self.pane_focus_epoch);
-    }
-
-    fn sync_pane_focus_history(&mut self) {
-        let live_panes = self
-            .tree
-            .workspaces
-            .iter()
-            .flat_map(|workspace| workspace.screens.iter())
-            .flat_map(|screen| screen.panes.iter())
-            .map(|pane| pane.id)
-            .collect::<Vec<_>>();
-        for pane in &live_panes {
-            if !self.pane_focus_recency.contains_key(pane) {
-                self.record_pane_focus(*pane);
-            }
-        }
-        let live_panes = live_panes.into_iter().collect::<HashSet<_>>();
-        self.pane_focus_recency.retain(|pane, _| live_panes.contains(pane));
-
-        let active = self.active_pane();
-        if active != self.observed_active_pane {
-            if let Some(pane) = active {
-                self.record_pane_focus(pane);
-            }
-            self.observed_active_pane = active;
-        }
     }
 
     fn replace_authoritative_tree(&mut self, tree: TreeView, routing_generation: u64) {
@@ -5108,10 +5073,10 @@ impl App {
             }
             Action::ToggleSidebarView => self.toggle_sidebar_view(),
             Action::FocusSidebar => self.toggle_sidebar_focus(),
-            Action::FocusLeft => self.move_focus(-1, 0),
-            Action::FocusRight => self.move_focus(1, 0),
-            Action::FocusUp => self.move_focus(0, -1),
-            Action::FocusDown => self.move_focus(0, 1),
+            Action::FocusLeft => self.move_focus(Direction::Left),
+            Action::FocusRight => self.move_focus(Direction::Right),
+            Action::FocusUp => self.move_focus(Direction::Up),
+            Action::FocusDown => self.move_focus(Direction::Down),
             Action::FocusNextPane => self.focus_next_pane(),
             Action::SwapPanePrev => self.swap_pane_by_order(-1),
             Action::SwapPaneNext => self.swap_pane_by_order(1),
@@ -5420,16 +5385,9 @@ impl App {
         Ok(())
     }
 
-    fn move_focus(&mut self, dx: i32, dy: i32) {
-        let Some(active) = self.active_pane() else { return };
-        // Re-derive the layout geometry from the frame's pane areas.
-        let layout = cmux_tui_core::LayoutResult {
-            panes: self.pane_areas.iter().map(|a| (a.pane, a.rect)).collect(),
-        };
-        if let Some(next) = layout.neighbor_by_recency(active, dx, dy, |pane| {
-            self.pane_focus_recency.get(&pane).copied().unwrap_or_default()
-        }) {
-            self.focus_pane_after_input(next);
+    fn move_focus(&mut self, direction: Direction) {
+        if self.prepare_pty_input_before_mutation() {
+            self.session.focus_direction(direction);
         }
     }
 
@@ -6430,7 +6388,6 @@ impl App {
 
     fn focus_pane_after_input(&mut self, pane: PaneId) {
         if self.prepare_pty_input_before_mutation() {
-            self.record_pane_focus(pane);
             if self.session.remote
                 && let Some(screen) = self.tree.active_workspace_mut_screen()
                 && screen.panes.iter().any(|candidate| candidate.id == pane)
@@ -10858,9 +10815,6 @@ mod tests {
             graphics_supported: false,
             stdout_lock: Arc::new(Mutex::new(())),
             pane_areas: Vec::new(),
-            pane_focus_recency: HashMap::new(),
-            pane_focus_epoch: 0,
-            observed_active_pane: None,
             visible_size_surfaces: HashSet::new(),
             pending_size_releases: HashSet::new(),
             prefix_armed: false,

@@ -55,6 +55,10 @@ impl RemoteRequestError {
     pub(crate) fn is_timeout(&self) -> bool {
         matches!(self, Self::Timeout)
     }
+
+    pub(crate) fn is_rejected_as(&self, expected: &str) -> bool {
+        matches!(self, Self::Rejected(message) if message == expected)
+    }
 }
 
 impl std::fmt::Display for RemoteRequestError {

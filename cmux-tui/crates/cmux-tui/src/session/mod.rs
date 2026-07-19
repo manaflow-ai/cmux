@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use cmux_tui_core::{
-    BrowserFrame, BrowserStatus, DefaultColors, Mux, MuxEventReceiver, PaneId, ScreenId,
+    BrowserFrame, BrowserStatus, DefaultColors, Direction, Mux, MuxEventReceiver, PaneId, ScreenId,
     SidebarPluginStatus, SplitDir, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame,
     SurfaceResizeReporter, WorkspaceId, ZoomMode,
 };
@@ -815,6 +815,31 @@ impl Session {
             }
             Session::Remote(remote) => {
                 remote.request(json!({"cmd": "focus-pane", "pane": pane})).map(|_| ())
+            }
+        }
+    }
+
+    pub fn focus_direction(&self, direction: Direction) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux.focus_direction_if_possible(None, direction).map(|_| ()),
+            Session::Remote(remote) => {
+                let direction = match direction {
+                    Direction::Left => "left",
+                    Direction::Right => "right",
+                    Direction::Up => "up",
+                    Direction::Down => "down",
+                };
+                match remote.request(json!({"cmd": "focus-direction", "dir": direction})) {
+                    Ok(_) => Ok(()),
+                    Err(error)
+                        if error
+                            .downcast_ref::<remote::RemoteRequestError>()
+                            .is_some_and(|error| error.is_rejected_as("no neighbor")) =>
+                    {
+                        Ok(())
+                    }
+                    Err(error) => Err(error),
+                }
             }
         }
     }
