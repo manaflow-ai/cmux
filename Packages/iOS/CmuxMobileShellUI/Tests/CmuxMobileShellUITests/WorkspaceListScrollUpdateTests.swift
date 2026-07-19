@@ -16,6 +16,16 @@ private final class WorkspaceListInteractionTestTableView: WorkspaceListUITableV
 }
 
 @MainActor
+private final class WorkspaceListInteractionTestPanGestureRecognizer: UIPanGestureRecognizer {
+    var reportedState: UIGestureRecognizer.State = .possible
+
+    override var state: UIGestureRecognizer.State {
+        get { reportedState }
+        set { reportedState = newValue }
+    }
+}
+
+@MainActor
 @Suite struct WorkspaceListScrollUpdateTests {
     @Test func liveSnapshotWaitsForDirectionReversalToFinish() {
         let initial = configuration(workspaceIDs: ["workspace-1"])
@@ -89,6 +99,53 @@ private final class WorkspaceListInteractionTestTableView: WorkspaceListUITableV
         #expect(
             tableView.numberOfRows(inSection: 0) == 2,
             "The staged snapshot must apply after uninterrupted momentum ends."
+        )
+    }
+
+    @Test func panEndWaitsForUIKitDecelerationDecision() {
+        let initial = configuration(workspaceIDs: ["workspace-1"])
+        let coordinator = WorkspaceListTableCoordinator(configuration: initial)
+        let tableView = WorkspaceListInteractionTestTableView(
+            frame: CGRect(x: 0, y: 0, width: 390, height: 844)
+        )
+        coordinator.attach(to: tableView)
+        coordinator.update(configuration: initial, in: tableView)
+
+        tableView.reportsDragging = true
+        coordinator.update(
+            configuration: configuration(workspaceIDs: ["workspace-1", "workspace-2"]),
+            in: tableView
+        )
+        #expect(tableView.numberOfRows(inSection: 0) == 1)
+
+        // UIScrollView's private pan target can finish before UIKit calls the
+        // delegate with its authoritative willDecelerate decision. The
+        // auxiliary target must not flush in that transient idle-looking gap.
+        tableView.reportsDragging = false
+        let selector = NSSelectorFromString("scrollPanGestureStateChanged:")
+        #expect(coordinator.responds(to: selector))
+        let panGesture = WorkspaceListInteractionTestPanGestureRecognizer(
+            target: nil,
+            action: nil
+        )
+        tableView.addGestureRecognizer(panGesture)
+        panGesture.reportedState = .ended
+        coordinator.perform(selector, with: panGesture)
+        #expect(
+            tableView.numberOfRows(inSection: 0) == 1,
+            "Pan end must wait for UIKit to decide whether momentum or a boundary spring follows."
+        )
+
+        let scrollDelegate: any UIScrollViewDelegate = coordinator
+        tableView.reportsDecelerating = true
+        scrollDelegate.scrollViewDidEndDragging?(tableView, willDecelerate: true)
+        #expect(tableView.numberOfRows(inSection: 0) == 1)
+
+        tableView.reportsDecelerating = false
+        scrollDelegate.scrollViewDidEndDecelerating?(tableView)
+        #expect(
+            tableView.numberOfRows(inSection: 0) == 2,
+            "The staged snapshot must apply only after UIKit reports that continued motion ended."
         )
     }
 
