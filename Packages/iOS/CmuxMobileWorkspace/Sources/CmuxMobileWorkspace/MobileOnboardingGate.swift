@@ -3,9 +3,10 @@ public import CmuxMobileShellModel
 /// Pure gating policy for the first-run onboarding screen in the mobile root scene.
 ///
 /// Onboarding demonstrates the product before authentication, then hands into
-/// sign-in and computer pairing at the connection milestone. The single decision
-/// uses only durable onboarding progress. Live pairing state never suppresses an
-/// unfinished flow, so cancelling QR setup returns to the connection step.
+/// sign-in and same-account computer discovery at the connection milestone. The
+/// single decision uses only durable onboarding progress. Live connection state
+/// never suppresses an unfinished flow, so cancelling QR fallback returns to the
+/// connection step.
 public struct MobileOnboardingGate {
     private init() {}
 

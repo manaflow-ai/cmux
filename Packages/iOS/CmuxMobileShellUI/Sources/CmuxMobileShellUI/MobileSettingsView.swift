@@ -353,16 +353,20 @@ struct MobileSettingsView: View {
                     initialStage: .agents,
                     context: .replay,
                     isAuthenticated: true,
-                    isMacReady: store?.connectionState == .connected,
+                    connectionPhase: OnboardingConnectionPhase.resolve(
+                        isMacReady: store?.connectionState == .connected,
+                        isSearching: store?.isReconnectingStoredMac == true,
+                        didFinishSearch: store?.didFinishStoredMacReconnectAttempt ?? true
+                    ),
                     onReachedConnection: {},
                     onSkip: { showingOnboarding = false },
-                    onStartPairing: {
+                    onRetryConnection: retryAutomaticConnection,
+                    onStartFallbackPairing: {
                         showingOnboarding = false
                         (startPairing ?? rescanQR)?()
                         dismiss()
                     },
-                    onComplete: { showingOnboarding = false },
-                    setupHelpHighlight: setupHelpHighlight
+                    onComplete: { showingOnboarding = false }
                 )
             }
             .sheet(isPresented: $showingSetupHelp) {
@@ -384,6 +388,14 @@ struct MobileSettingsView: View {
             enabled.caseInsensitiveCompare("NO") != .orderedSame
         default:
             true
+        }
+    }
+
+    private func retryAutomaticConnection() {
+        guard let store else { return }
+        let stackUserID = authManager.currentUser?.id
+        Task {
+            _ = await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
         }
     }
 

@@ -157,6 +157,24 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the isolated onboarding preview shows QR recovery after
+    /// same-account discovery finishes without finding a Mac.
+    ///
+    /// Automatic discovery remains the default. Tests opt into the fallback
+    /// state with CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK=1. DEBUG-only.
+    public static var onboardingConnectionFallbackEnabled: Bool {
+        onboardingConnectionFallbackEnabled(from: ProcessInfo.processInfo.environment)
+    }
+
+    /// Evaluates the onboarding connection fallback against an explicit environment.
+    public static func onboardingConnectionFallbackEnabled(from env: [String: String]) -> Bool {
+        #if DEBUG
+        return env["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether QR pairing renders a deterministic camera-free preview.
     ///
     /// `CMUX_UITEST_SCANNER_PREVIEW=1` lets XCUITest verify scanner

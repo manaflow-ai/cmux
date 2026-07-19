@@ -5,7 +5,7 @@ struct OnboardingSceneContainer<Visual: View>: View {
     let stage: OnboardingStage
     let title: String
     let message: String
-    let primaryTitle: String
+    let primaryTitle: String?
     let secondaryTitle: String?
     let showsBack: Bool
     let showsSkip: Bool

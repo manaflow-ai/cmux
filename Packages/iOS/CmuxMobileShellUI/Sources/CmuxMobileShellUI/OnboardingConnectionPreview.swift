@@ -3,22 +3,17 @@ import CmuxMobileSupport
 import SwiftUI
 
 struct OnboardingConnectionPreview: View {
-    let isReady: Bool
+    let phase: OnboardingConnectionPhase
 
     var body: some View {
-        VStack(spacing: 22) {
+        VStack(spacing: 20) {
             HStack(spacing: 14) {
-                deviceCircle(systemImage: "desktopcomputer", tint: .indigo)
-
-                Image(systemName: isReady ? "checkmark" : "qrcode")
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(isReady ? .green : .secondary)
-                    .frame(width: 46, height: 46)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-                    .accessibilityHidden(true)
-
-                deviceCircle(systemImage: "iphone", tint: .blue)
+                OnboardingConnectionDeviceIcon(systemImage: "desktopcomputer", tint: .indigo)
+                OnboardingConnectionAccountLink(phase: phase)
+                OnboardingConnectionDeviceIcon(systemImage: "iphone", tint: .blue)
             }
+
+            OnboardingConnectionStatus(phase: phase)
 
             Label(
                 L10n.string(
@@ -27,31 +22,108 @@ struct OnboardingConnectionPreview: View {
                 ),
                 systemImage: "lock.fill"
             )
-            .font(.subheadline.weight(.semibold))
+            .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 24)
-        .padding(.vertical, 30)
+        .padding(.vertical, 28)
         .frame(maxWidth: .infinity)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileOnboardingConnectionPreview")
     }
+}
 
-    private func deviceCircle(systemImage: String, tint: Color) -> some View {
+private struct OnboardingConnectionDeviceIcon: View {
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
         Circle()
             .fill(tint.gradient)
-            .frame(width: 78, height: 78)
+            .frame(width: 74, height: 74)
             .overlay {
                 Image(systemName: systemImage)
                     .font(.title.weight(.medium))
                     .foregroundStyle(.white)
             }
             .accessibilityHidden(true)
+    }
+}
+
+private struct OnboardingConnectionAccountLink: View {
+    let phase: OnboardingConnectionPhase
+
+    var body: some View {
+        VStack(spacing: 5) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .fill(.thinMaterial)
+                    .frame(width: 52, height: 52)
+
+                Image(systemName: phase == .ready
+                    ? "person.crop.circle.badge.checkmark"
+                    : "person.crop.circle")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(phase == .ready ? Color.green : Color.accentColor)
+            }
+
+            Text(L10n.string(
+                "mobile.onboarding.connect.sameAccount",
+                defaultValue: "Same account"
+            ))
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+private struct OnboardingConnectionStatus: View {
+    let phase: OnboardingConnectionPhase
+
+    var body: some View {
+        switch phase {
+        case .searching:
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(L10n.string(
+                    "mobile.onboarding.connect.searching",
+                    defaultValue: "Looking for your Mac…"
+                ))
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier("MobileOnboardingConnectionSearching")
+        case .fallback:
+            Label(
+                L10n.string(
+                    "mobile.onboarding.connect.fallbackStatus",
+                    defaultValue: "No Mac appeared on this account"
+                ),
+                systemImage: "exclamationmark.circle"
+            )
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier("MobileOnboardingConnectionFallback")
+        case .ready:
+            Label(
+                L10n.string(
+                    "mobile.onboarding.connect.connectedStatus",
+                    defaultValue: "Connected securely"
+                ),
+                systemImage: "checkmark.circle.fill"
+            )
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.green)
+            .accessibilityIdentifier("MobileOnboardingConnectionReady")
+        }
     }
 }
 #endif

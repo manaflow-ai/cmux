@@ -23,7 +23,7 @@ struct SetupHelpGateContent {
                 title: L10n.string("mobile.setupHelp.signInTitle", defaultValue: "Sign in"),
                 body: L10n.string(
                     "mobile.setupHelp.signInBody",
-                    defaultValue: "Sign in to cmux on this phone with the same account the paired computer uses. Without that, there is nothing to connect to."
+                    defaultValue: "Sign in to cmux on this phone with the same account as your computer. Same-account Macs appear automatically while cmux is running."
                 ),
                 link: nil,
                 identifierSuffix: "notSignedIn",
@@ -35,7 +35,7 @@ struct SetupHelpGateContent {
                 title: L10n.string("mobile.setupHelp.macAppTitle", defaultValue: "Run cmux on your computer"),
                 body: L10n.string(
                     "mobile.setupHelp.macAppBody",
-                    defaultValue: "Install cmux on your computer and leave it running, signed in to the same account. The phone pairs to a running cmux build, so a quit or never-installed app is the most common reason pairing does nothing."
+                    defaultValue: "Install cmux on your computer, leave it running, and sign in to the same account. Your phone discovers it automatically. If it does not appear, use Pair iPhone and scan the QR code."
                 ),
                 link: nil,
                 identifierSuffix: "signedInNeverPaired",

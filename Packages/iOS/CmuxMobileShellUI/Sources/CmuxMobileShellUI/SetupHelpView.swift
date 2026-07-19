@@ -124,7 +124,7 @@ struct SetupHelpView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(L10n.string(
                     "mobile.setupHelp.networkBody",
-                    defaultValue: "Scan the Iroh code shown by cmux on the Mac. Iroh connects directly when possible and uses a cmux relay when needed, while verifying the Mac identity and your cmux account end to end. Tailscale is not required."
+                    defaultValue: "Iroh connects live Macs on your cmux account automatically. It connects directly when possible and uses a cmux relay when needed. QR pairing is available if a Mac does not appear. Tailscale is not required."
                 ))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

@@ -187,6 +187,22 @@ import Testing
         ) == false)
     }
 
+    @Test func onboardingConnectionFallbackFlagIsDebugOnly() {
+        let env = ["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK": "1"]
+        #if DEBUG
+        #expect(UITestConfig.onboardingConnectionFallbackEnabled(from: env) == true)
+        #else
+        #expect(UITestConfig.onboardingConnectionFallbackEnabled(from: env) == false)
+        #endif
+    }
+
+    @Test func onboardingConnectionFallbackFlagRequiresOne() {
+        #expect(UITestConfig.onboardingConnectionFallbackEnabled(from: [:]) == false)
+        #expect(UITestConfig.onboardingConnectionFallbackEnabled(
+            from: ["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK": "0"]
+        ) == false)
+    }
+
     @Test func pairingScannerPreviewFlagRequiresOne() {
         #expect(UITestConfig.pairingScannerPreviewEnabled(from: [:]) == false)
         #expect(UITestConfig.pairingScannerPreviewEnabled(

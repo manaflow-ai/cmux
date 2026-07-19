@@ -3,10 +3,10 @@ import CmuxMobileSupport
 import SwiftUI
 
 struct OnboardingConnectionView: View {
-    let isMacReady: Bool
+    let phase: OnboardingConnectionPhase
     let onBack: () -> Void
     let onPrimary: () -> Void
-    let onHelp: () -> Void
+    let onFallback: () -> Void
 
     var body: some View {
         OnboardingSceneContainer(
@@ -14,22 +14,19 @@ struct OnboardingConnectionView: View {
             title: title,
             message: message,
             primaryTitle: primaryTitle,
-            secondaryTitle: isMacReady ? nil : L10n.string(
-                "mobile.onboarding.connect.help",
-                defaultValue: "Having trouble connecting?"
-            ),
+            secondaryTitle: secondaryTitle,
             showsBack: true,
             showsSkip: false,
             onBack: onBack,
             onSkip: {},
             onPrimary: onPrimary,
-            onSecondary: onHelp,
-            visual: OnboardingConnectionPreview(isReady: isMacReady)
+            onSecondary: onFallback,
+            visual: OnboardingConnectionPreview(phase: phase)
         )
     }
 
     private var title: String {
-        if isMacReady {
+        if phase == .ready {
             return L10n.string(
                 "mobile.onboarding.ready.title",
                 defaultValue: "Your Mac is connected"
@@ -37,12 +34,12 @@ struct OnboardingConnectionView: View {
         }
         return L10n.string(
             "mobile.onboarding.connect.title",
-            defaultValue: "Connect your Mac"
+            defaultValue: "Your Mac connects automatically"
         )
     }
 
     private var message: String {
-        if isMacReady {
+        if phase == .ready {
             return L10n.string(
                 "mobile.onboarding.ready.body",
                 defaultValue: "Open a workspace to see the latest activity and respond when an agent needs you."
@@ -50,20 +47,32 @@ struct OnboardingConnectionView: View {
         }
         return L10n.string(
             "mobile.onboarding.connect.body",
-            defaultValue: "On your Mac, open cmux and choose Pair iPhone. Then scan the code."
+            defaultValue: "Keep cmux open on your Mac and sign in with the same account. cmux finds it and connects securely."
         )
     }
 
-    private var primaryTitle: String {
-        if isMacReady {
-            return L10n.string(
+    private var primaryTitle: String? {
+        switch phase {
+        case .searching:
+            nil
+        case .fallback:
+            L10n.string(
+                "mobile.onboarding.connect.primary",
+                defaultValue: "Check Again"
+            )
+        case .ready:
+            L10n.string(
                 "mobile.onboarding.ready.primary",
                 defaultValue: "Open Workspaces"
             )
         }
+    }
+
+    private var secondaryTitle: String? {
+        guard phase == .fallback else { return nil }
         return L10n.string(
-            "mobile.onboarding.connect.primary",
-            defaultValue: "Scan Mac QR"
+            "mobile.onboarding.connect.fallback",
+            defaultValue: "Use QR Code Instead"
         )
     }
 }

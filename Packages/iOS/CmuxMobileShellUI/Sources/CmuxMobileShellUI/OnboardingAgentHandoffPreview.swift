@@ -6,17 +6,17 @@ struct OnboardingAgentHandoffPreview: View {
     let onRespond: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var didReply = false
+    @State private var answer: OnboardingDemoAnswer?
 
     var body: some View {
         VStack(spacing: 16) {
-            agentMessage
+            OnboardingAgentQuestionCard()
 
-            if didReply {
-                replyConfirmation
+            if let answer {
+                OnboardingAgentAnswerReceipt(answer: answer)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             } else {
-                replyAction
+                OnboardingAgentAnswerChoices(onChoose: send)
                     .transition(.opacity)
             }
         }
@@ -31,14 +31,43 @@ struct OnboardingAgentHandoffPreview: View {
         .accessibilityIdentifier("MobileOnboardingHandoffPreview")
     }
 
-    private var agentMessage: some View {
+    private func send(_ answer: OnboardingDemoAnswer) {
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.24)) {
+            self.answer = answer
+        }
+        onRespond()
+    }
+}
+
+private enum OnboardingDemoAnswer: Equatable {
+    case currentPR
+    case followUpPR
+
+    var title: String {
+        switch self {
+        case .currentPR:
+            L10n.string(
+                "mobile.onboarding.handoff.replyAlternative",
+                defaultValue: "Fix it in this PR"
+            )
+        case .followUpPR:
+            L10n.string(
+                "mobile.onboarding.handoff.reply",
+                defaultValue: "Open a follow-up PR"
+            )
+        }
+    }
+}
+
+private struct OnboardingAgentQuestionCard: View {
+    var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
                 Circle()
                     .fill(Color.indigo.gradient)
                     .frame(width: 34, height: 34)
                     .overlay {
-                        Image(systemName: "sparkles")
+                        Image(systemName: "desktopcomputer")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.white)
                     }
@@ -47,13 +76,14 @@ struct OnboardingAgentHandoffPreview: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(L10n.string(
                         "mobile.onboarding.handoff.agent",
-                        defaultValue: "Agent needs your input"
+                        defaultValue: "Question from your Mac"
                     ))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
+
                     Text(L10n.string(
                         "mobile.onboarding.handoff.workspace",
-                        defaultValue: "Fix reconnect test · now"
+                        defaultValue: "MacBook Pro · Fix reconnect test"
                     ))
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.58))
@@ -62,7 +92,7 @@ struct OnboardingAgentHandoffPreview: View {
 
             Text(L10n.string(
                 "mobile.onboarding.handoff.question",
-                defaultValue: "The integration suite is flaky. How should I handle it?"
+                defaultValue: "Where should I put this fix?"
             ))
             .font(.body.weight(.medium))
             .foregroundStyle(.white)
@@ -72,57 +102,92 @@ struct OnboardingAgentHandoffPreview: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
+}
 
-    private var replyAction: some View {
-        Button {
-            withAnimation(reduceMotion ? nil : .snappy(duration: 0.24)) {
-                didReply = true
+private struct OnboardingAgentAnswerChoices: View {
+    let onChoose: (OnboardingDemoAnswer) -> Void
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                alternativeButton
+                primaryButton
             }
-            onRespond()
+            VStack(spacing: 10) {
+                primaryButton
+                alternativeButton
+            }
+        }
+    }
+
+    private var alternativeButton: some View {
+        Button {
+            onChoose(.currentPR)
         } label: {
-            Label(
-                L10n.string(
-                    "mobile.onboarding.handoff.reply",
-                    defaultValue: "Separate PR"
-                ),
-                systemImage: "arrow.up"
-            )
-            .font(.subheadline.weight(.semibold))
-            .frame(maxWidth: .infinity)
+            Text(OnboardingDemoAnswer.currentPR.title)
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .tint(.white)
+        .accessibilityHint(replyHint)
+        .accessibilityIdentifier("MobileOnboardingDemoReplyAlternativeButton")
+    }
+
+    private var primaryButton: some View {
+        Button {
+            onChoose(.followUpPR)
+        } label: {
+            Text(OnboardingDemoAnswer.followUpPR.title)
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
-        .accessibilityHint(L10n.string(
-            "mobile.onboarding.handoff.replyHint",
-            defaultValue: "Sends the reply in this interactive preview"
-        ))
+        .accessibilityHint(replyHint)
         .accessibilityIdentifier("MobileOnboardingDemoReplyButton")
     }
 
-    private var replyConfirmation: some View {
+    private var replyHint: String {
+        L10n.string(
+            "mobile.onboarding.handoff.replyHint",
+            defaultValue: "Sends this answer in the interactive preview"
+        )
+    }
+}
+
+private struct OnboardingAgentAnswerReceipt: View {
+    let answer: OnboardingDemoAnswer
+
+    var body: some View {
         VStack(alignment: .trailing, spacing: 10) {
-            Text(L10n.string(
-                "mobile.onboarding.handoff.reply",
-                defaultValue: "Separate PR"
-            ))
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(Color.accentColor, in: Capsule())
+            Text(answer.title)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(Color.accentColor, in: Capsule())
 
             Label(
                 L10n.string(
-                    "mobile.onboarding.handoff.continuing",
-                    defaultValue: "Continuing on your Mac"
+                    "mobile.onboarding.handoff.sent",
+                    defaultValue: "Answer sent from iPhone"
                 ),
                 systemImage: "checkmark.circle.fill"
             )
-            .font(.caption.weight(.medium))
+            .font(.caption.weight(.semibold))
             .foregroundStyle(.green)
+
+            Text(L10n.string(
+                "mobile.onboarding.handoff.continuing",
+                defaultValue: "Agent continuing on your Mac"
+            ))
+            .font(.caption)
+            .foregroundStyle(.white.opacity(0.62))
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileOnboardingDemoReplySent")
     }
 }

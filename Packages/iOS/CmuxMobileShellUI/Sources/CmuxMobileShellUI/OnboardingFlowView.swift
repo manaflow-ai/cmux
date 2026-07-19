@@ -1,23 +1,21 @@
 #if os(iOS)
 import CMUXMobileCore
 import CmuxMobileSupport
-import CmuxMobileWorkspace
 import SwiftUI
 
 /// A short product demonstration that hands directly into authentication and
-/// computer pairing without duplicating either production flow.
+/// same-account computer discovery, with QR available only as fallback.
 struct OnboardingFlowView: View {
     let context: OnboardingContext
     let isAuthenticated: Bool
-    let isMacReady: Bool
+    let connectionPhase: OnboardingConnectionPhase
     let onReachedConnection: () -> Void
     let onSkip: () -> Void
-    let onStartPairing: () -> Void
+    let onRetryConnection: () -> Void
+    let onStartFallbackPairing: () -> Void
     let onComplete: () -> Void
-    var setupHelpHighlight: MobileSetupGuidanceState? = .signedInNeverPaired
 
     @State private var stage: OnboardingStage
-    @State private var isShowingSetupHelp = false
     @Environment(\.analytics) private var analytics
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -25,21 +23,21 @@ struct OnboardingFlowView: View {
         initialStage: OnboardingStage,
         context: OnboardingContext,
         isAuthenticated: Bool,
-        isMacReady: Bool,
+        connectionPhase: OnboardingConnectionPhase,
         onReachedConnection: @escaping () -> Void,
         onSkip: @escaping () -> Void,
-        onStartPairing: @escaping () -> Void,
-        onComplete: @escaping () -> Void,
-        setupHelpHighlight: MobileSetupGuidanceState? = .signedInNeverPaired
+        onRetryConnection: @escaping () -> Void,
+        onStartFallbackPairing: @escaping () -> Void,
+        onComplete: @escaping () -> Void
     ) {
         self.context = context
         self.isAuthenticated = isAuthenticated
-        self.isMacReady = isMacReady
+        self.connectionPhase = connectionPhase
         self.onReachedConnection = onReachedConnection
         self.onSkip = onSkip
-        self.onStartPairing = onStartPairing
+        self.onRetryConnection = onRetryConnection
+        self.onStartFallbackPairing = onStartFallbackPairing
         self.onComplete = onComplete
-        self.setupHelpHighlight = setupHelpHighlight
         _stage = State(initialValue: initialStage)
     }
 
@@ -47,14 +45,10 @@ struct OnboardingFlowView: View {
         scene
             .animation(reduceMotion ? nil : .snappy(duration: 0.24), value: stage)
             .interactiveDismissDisabled()
-            .sheet(isPresented: $isShowingSetupHelp) {
-                SetupHelpView(highlight: setupHelpHighlight) {
-                    isShowingSetupHelp = false
-                }
-            }
             .onAppear { captureSceneViewed() }
             .onChange(of: stage) { _, _ in captureSceneViewed() }
             .onChange(of: isAuthenticated) { _, _ in captureSceneViewed() }
+            .onChange(of: connectionPhase) { _, _ in captureSceneViewed() }
     }
 
     @ViewBuilder
@@ -70,7 +64,6 @@ struct OnboardingFlowView: View {
                 )
             case .handoff:
                 OnboardingHandoffView(
-                    isMacReady: isMacReady,
                     onBack: showAgents,
                     onSkip: skip,
                     onRespond: captureDemoReply,
@@ -78,10 +71,10 @@ struct OnboardingFlowView: View {
                 )
             case .connect:
                 OnboardingConnectionView(
-                    isMacReady: isMacReady,
+                    phase: connectionPhase,
                     onBack: showHandoff,
-                    onPrimary: finishOrPair,
-                    onHelp: showHelp
+                    onPrimary: finishOrRetry,
+                    onFallback: startFallbackPairing
                 )
             }
         }
@@ -105,19 +98,24 @@ struct OnboardingFlowView: View {
         onSkip()
     }
 
-    private func finishOrPair() {
-        if isMacReady {
+    private func finishOrRetry() {
+        switch connectionPhase {
+        case .searching:
+            break
+        case .fallback:
+            analytics.capture("ios_onboarding_connection_retried", eventProperties)
+            onRetryConnection()
+        case .ready:
             analytics.capture("ios_onboarding_completed", eventProperties)
             onComplete()
-        } else {
-            analytics.capture("ios_onboarding_pairing_started", eventProperties)
-            onStartPairing()
         }
     }
 
-    private func showHelp() {
-        analytics.capture("ios_onboarding_help_opened", eventProperties)
-        isShowingSetupHelp = true
+    private func startFallbackPairing() {
+        var properties = eventProperties
+        properties["source"] = .string("qr_fallback")
+        analytics.capture("ios_onboarding_pairing_started", properties)
+        onStartFallbackPairing()
     }
 
     private func captureDemoReply() {

@@ -3,7 +3,6 @@ import CmuxMobileSupport
 import SwiftUI
 
 struct OnboardingHandoffView: View {
-    let isMacReady: Bool
     let onBack: () -> Void
     let onSkip: () -> Void
     let onRespond: () -> Void
@@ -14,13 +13,16 @@ struct OnboardingHandoffView: View {
             stage: .handoff,
             title: L10n.string(
                 "mobile.onboarding.handoff.title",
-                defaultValue: "Step in when they need you"
+                defaultValue: "Answer agents from your phone"
             ),
             message: L10n.string(
                 "mobile.onboarding.handoff.body",
-                defaultValue: "Answer a question, approve a command, or send a message from your phone."
+                defaultValue: "Choose an answer when an agent needs a decision. It keeps working on your Mac."
             ),
-            primaryTitle: primaryTitle,
+            primaryTitle: L10n.string(
+                "mobile.onboarding.handoff.primaryContinue",
+                defaultValue: "Continue"
+            ),
             secondaryTitle: nil,
             showsBack: true,
             showsSkip: true,
@@ -29,19 +31,6 @@ struct OnboardingHandoffView: View {
             onPrimary: onContinue,
             onSecondary: {},
             visual: OnboardingAgentHandoffPreview(onRespond: onRespond)
-        )
-    }
-
-    private var primaryTitle: String {
-        if isMacReady {
-            return L10n.string(
-                "mobile.onboarding.handoff.primaryContinue",
-                defaultValue: "Continue"
-            )
-        }
-        return L10n.string(
-            "mobile.onboarding.handoff.primaryConnect",
-            defaultValue: "Connect my Mac"
         )
     }
 }

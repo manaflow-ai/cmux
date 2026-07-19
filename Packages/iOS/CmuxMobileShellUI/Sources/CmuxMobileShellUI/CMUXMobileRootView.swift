@@ -346,10 +346,11 @@ struct CMUXMobileRootView: View {
             initialStage: initialOnboardingStage,
             context: .firstRun,
             isAuthenticated: isAuthenticated,
-            isMacReady: store.connectionState == .connected,
+            connectionPhase: onboardingConnectionPhase,
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
-            onStartPairing: showPairingScanner,
+            onRetryConnection: retryAutomaticConnection,
+            onStartFallbackPairing: showPairingScanner,
             onComplete: completeOnboarding
         )
         #else
@@ -364,10 +365,13 @@ struct CMUXMobileRootView: View {
             initialStage: initialOnboardingStage,
             context: .preview,
             isAuthenticated: true,
-            isMacReady: false,
+            connectionPhase: UITestConfig.onboardingConnectionFallbackEnabled
+                ? .fallback
+                : .searching,
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
-            onStartPairing: showPairingScanner,
+            onRetryConnection: {},
+            onStartFallbackPairing: showPairingScanner,
             onComplete: completeOnboarding
         )
         #else
@@ -378,6 +382,14 @@ struct CMUXMobileRootView: View {
     #if os(iOS)
     private var initialOnboardingStage: OnboardingStage {
         onboardingProgress == .connect ? .connect : .agents
+    }
+
+    private var onboardingConnectionPhase: OnboardingConnectionPhase {
+        OnboardingConnectionPhase.resolve(
+            isMacReady: store.connectionState == .connected,
+            isSearching: store.isReconnectingStoredMac,
+            didFinishSearch: store.didFinishStoredMacReconnectAttempt
+        )
     }
 
     private func markOnboardingReadyToConnect() {
@@ -444,6 +456,15 @@ struct CMUXMobileRootView: View {
         Task {
             _ = await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
             startupConnectionCoordinator.finishStoredReconnect(startupAttempt)
+        }
+    }
+
+    /// A user retry intentionally supersedes any startup attempt that is still
+    /// winding down after the restoring deadline exposed the fallback UI.
+    private func retryAutomaticConnection() {
+        let stackUserID = authManager.currentUser?.id
+        Task {
+            _ = await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
         }
     }
 

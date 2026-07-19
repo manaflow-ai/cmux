@@ -2897,13 +2897,64 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "On your Mac, open cmux and choose Pair iPhone. Then scan the code."
+            "value": "Keep cmux open on your Mac and sign in with the same account. cmux finds it and connects securely."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macでcmuxを開き、「iPhoneをペアリング」を選んで、表示されたコードをスキャンします。"
+            "value": "Macでcmuxを開いたまま、同じアカウントでサインインしてください。cmuxがMacを見つけて安全に接続します。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.connectedStatus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected securely"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全に接続済み"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.fallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use QR Code Instead"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代わりにQRコードを使用"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.fallbackStatus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Mac appeared on this account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントのMacが見つかりませんでした"
           }
         }
       }
@@ -2931,13 +2982,47 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scan Mac QR"
+            "value": "Check Again"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacのQRコードをスキャン"
+            "value": "もう一度検索"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.sameAccount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Same account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じアカウント"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.searching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Looking for your Mac…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macを検索中…"
           }
         }
       }
@@ -2948,13 +3033,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connect your Mac"
+            "value": "Your Mac connects automatically"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macを接続"
+            "value": "Macは自動的に接続されます"
           }
         }
       }
@@ -2982,13 +3067,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent needs your input"
+            "value": "Question from your Mac"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントが返答を待っています"
+            "value": "Macからの質問"
           }
         }
       }
@@ -2999,13 +3084,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Answer a question, approve a command, or send a message from your phone."
+            "value": "Choose an answer when an agent needs a decision. It keeps working on your Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhoneから質問に答え、コマンドを承認し、メッセージを送れます。"
+            "value": "エージェントが判断を求めたら、iPhoneで回答できます。作業はMacで続きます。"
           }
         }
       }
@@ -3016,13 +3101,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Continuing on your Mac"
+            "value": "Agent continuing on your Mac"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macで作業を続けています"
+            "value": "エージェントはMacで作業を続行中"
           }
         }
       }
@@ -3067,13 +3152,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The integration suite is flaky. How should I handle it?"
+            "value": "Where should I put this fix?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "統合テストが不安定です。どう対応すればよいですか？"
+            "value": "この修正はどこに入れますか？"
           }
         }
       }
@@ -3084,13 +3169,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Separate PR"
+            "value": "Open a follow-up PR"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "別のPRで対応"
+            "value": "フォローアップPRを作成"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.handoff.replyAlternative": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix it in this PR"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このPRで修正"
           }
         }
       }
@@ -3101,13 +3203,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sends this reply in the preview"
+            "value": "Sends this answer in the interactive preview"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このプレビュー内で返答を送信します"
+            "value": "このプレビューで回答を送信します"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.handoff.sent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answer sent from iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhoneから回答を送信"
           }
         }
       }
@@ -3118,13 +3237,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Step in when they need you"
+            "value": "Answer agents from your phone"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントに呼ばれたら、すぐに対応"
+            "value": "iPhoneからエージェントに返答"
           }
         }
       }
@@ -3135,13 +3254,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fix reconnect test · now"
+            "value": "MacBook Pro · Fix reconnect test"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "再接続テストを修正 · 今"
+            "value": "MacBook Pro · 再接続テストを修正"
           }
         }
       }
@@ -5719,13 +5838,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install cmux on your computer and leave it running, signed in to the same account. The phone pairs to a running cmux build, so a quit or never-installed app is the most common reason pairing does nothing."
+            "value": "Install cmux on your computer, leave it running, and sign in to the same account. Your phone discovers it automatically. If it does not appear, use Pair iPhone and scan the QR code."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータにcmuxをインストールし、同じアカウントでサインインしたまま起動しておきます。iPhoneは起動中のcmuxビルドとペアリングするため、アプリが終了している、または未インストールであることが、ペアリングが進まない最も多い原因です。"
+            "value": "コンピュータにcmuxをインストールして起動したまま、同じアカウントでサインインします。iPhoneが自動的にMacを検出します。表示されない場合は「iPhoneをペアリング」を選び、QRコードをスキャンしてください。"
           }
         }
       }
@@ -5804,13 +5923,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scan the Iroh code shown by cmux on the Mac. Iroh connects directly when possible and uses a cmux relay when needed, while verifying the Mac identity and your cmux account end to end. Tailscale is not required."
+            "value": "Iroh connects live Macs on your cmux account automatically. It connects directly when possible and uses a cmux relay when needed. QR pairing is available if a Mac does not appear. Tailscale is not required."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macのcmuxに表示されるIrohコードをスキャンします。Irohは可能な場合は直接接続し、必要な場合はcmuxリレーを使いながら、MacのIDとcmuxアカウントをエンドツーエンドで検証します。Tailscaleは必須ではありません。"
+            "value": "Irohはcmuxアカウント上で起動中のMacに自動接続します。可能な場合は直接接続し、必要な場合はcmuxリレーを使用します。Macが表示されない場合はQRコードでペアリングできます。Tailscaleは必須ではありません。"
           }
         }
       }
@@ -5855,13 +5974,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in to cmux on this phone with the same account the paired computer uses. Without that, there is nothing to connect to."
+            "value": "Sign in to cmux on this phone with the same account as your computer. Same-account Macs appear automatically while cmux is running."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この端末で、ペアリング済みコンピュータと同じアカウントを使ってcmuxにサインインします。サインインしないと、接続先がありません。"
+            "value": "この端末とコンピュータで同じcmuxアカウントにサインインします。コンピュータでcmuxが起動していれば、Macは自動的に表示されます。"
           }
         }
       }
