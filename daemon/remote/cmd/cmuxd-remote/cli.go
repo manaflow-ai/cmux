@@ -116,6 +116,10 @@ func init() {
 
 // runCLI is the entry point for the "cli" subcommand (or busybox "cmux" invocation).
 func runCLI(args []string) int {
+	return runCLIWithInput(args, os.Stdin)
+}
+
+func runCLIWithInput(args []string, input io.Reader) int {
 	socketPath := os.Getenv("CMUX_SOCKET_PATH")
 
 	// Parse global flags
@@ -187,7 +191,7 @@ doneFlags:
 		return runBrowserRelay(socketPath, cmdArgs, jsonOutput, refreshAddr)
 	}
 	if cmdName == "hooks" {
-		return runHooksRelay(socketPath, cmdArgs, refreshAddr)
+		return runHooksRelay(socketPath, cmdArgs, input, refreshAddr)
 	}
 
 	// Workspace group subcommands: "workspace-group <sub>" and the canonical

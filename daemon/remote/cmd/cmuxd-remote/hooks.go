@@ -101,7 +101,7 @@ type remoteHookMutation struct {
 	Mode          uint32 `json:"mode,omitempty"`
 }
 
-func runHooksRelay(socketPath string, args []string, refreshAddr func() string) int {
+func runHooksRelay(socketPath string, args []string, input io.Reader, refreshAddr func() string) int {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		fmt.Fprintln(os.Stdout, "Usage: cmux hooks <setup|uninstall|agent> [args...]")
 		return 0
@@ -113,7 +113,7 @@ func runHooksRelay(socketPath string, args []string, refreshAddr func() string) 
 	case "uninstall":
 		return runRemoteHookSetup(socketPath, args[1:], true, refreshAddr)
 	case "feed", "claude":
-		stdin, err := readRemoteHookStdin()
+		stdin, err := readRemoteHookStdin(input)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "cmux hooks: %v\n", err)
 			return 1
@@ -132,7 +132,7 @@ func runHooksRelay(socketPath string, args []string, refreshAddr func() string) 
 			return configureRemoteHook(socketPath, descriptor, action, args[2:], refreshAddr)
 		}
 	}
-	stdin, err := readRemoteHookStdin()
+	stdin, err := readRemoteHookStdin(input)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cmux hooks: %v\n", err)
 		return 1
@@ -345,8 +345,8 @@ func configureRemoteHook(socketPath string, descriptor remoteHookDescriptor, act
 	return 0
 }
 
-func readRemoteHookStdin() ([]byte, error) {
-	data, err := io.ReadAll(io.LimitReader(os.Stdin, remoteHookMaxInput+1))
+func readRemoteHookStdin(input io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(input, remoteHookMaxInput+1))
 	if err != nil {
 		return nil, err
 	}

@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/base64"
-	"os"
+	"strings"
 	"testing"
 )
 
@@ -11,26 +11,11 @@ func TestHooksEventRelaysPayloadAndRemoteTarget(t *testing.T) {
 	t.Setenv("CMUX_WORKSPACE_ID", "remote-workspace")
 	t.Setenv("CMUX_SURFACE_ID", "remote-surface")
 
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe stdin: %v", err)
-	}
-	originalStdin := os.Stdin
-	os.Stdin = reader
-	t.Cleanup(func() {
-		os.Stdin = originalStdin
-		_ = reader.Close()
-	})
-
 	payload := `{"session_id":"omp-session","cwd":"/home/alex/project"}`
-	if _, err := writer.WriteString(payload); err != nil {
-		t.Fatalf("write stdin: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close stdin writer: %v", err)
-	}
-
-	code := runCLI([]string{"--socket", sockPath, "hooks", "omp", "session-start"})
+	code := runCLIWithInput(
+		[]string{"--socket", sockPath, "hooks", "omp", "session-start"},
+		strings.NewReader(payload),
+	)
 	if code != 0 {
 		t.Fatalf("hooks omp session-start: exit %d", code)
 	}
