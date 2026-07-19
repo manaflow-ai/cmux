@@ -289,15 +289,30 @@ struct AgentHookSessionRegistryBridge {
         let admissions = preflight.admissions
         let maximumRecordsPerProvider = max(0, maximumRecordsPerProvider)
         let decoder = JSONDecoder()
-        func validateRecord(
+        let canonicalizer = AgentSessionRunCanonicalizer()
+        func projectRecord(
             provider: String,
             stored: CmuxAgentSessionRegistry.Record
-        ) throws {
+        ) throws -> CmuxAgentSessionRegistry.HookListOrderKey {
             do {
                 let record = try decoder.decode(ClaudeHookSessionRecord.self, from: stored.json)
                 guard record.sessionId == stored.sessionID else {
                     throw ProjectionError.recordIdentityMismatch
                 }
+                let run = canonicalizer.projectedRun(record: record, provider: provider)
+                return CmuxAgentSessionRegistry.HookListOrderKey(
+                    updatedAt: run.updatedAt,
+                    sortValues: .init(
+                        sessionID: record.sessionId,
+                        agent: provider,
+                        runID: run.runId,
+                        workspaceID: record.workspaceId,
+                        surfaceID: record.surfaceId,
+                        identitySource: "hook_session",
+                        pid: run.pid,
+                        processStartedAt: run.processStartedAt
+                    )
+                )
             } catch {
                 throw CmuxAgentSessionRegistry.HookListProjectionValidationError(
                     provider: provider
@@ -328,7 +343,7 @@ struct AgentHookSessionRegistryBridge {
                 admissions: admissions,
                 maximumRecords: maximumRecordsPerProvider,
                 maximumGraphNodes: max(0, maximumLegacyGraphNodes),
-                validateRecord: validateRecord,
+                projectRecord: projectRecord,
                 validateActiveSlot: validateActiveSlot
             )
             return AgentHookSessionRegistrySnapshots(
@@ -355,14 +370,14 @@ struct AgentHookSessionRegistryBridge {
             var warnings = preflight.warnings
             for source in sources {
                 do {
-                    let bounded = try registry.boundedRecentSnapshotsImportingAdmittedLegacy(
+                    let bounded = try registry.globallyBoundedRecentSnapshotsImportingAdmittedLegacy(
                         sources: [source],
                         admissions: admissions.filter {
                             $0.source.provider == source.provider
                         },
-                        maximumRecordsPerProvider: maximumRecordsPerProvider,
+                        maximumRecords: maximumRecordsPerProvider,
                         maximumGraphNodes: max(0, maximumLegacyGraphNodes),
-                        validateRecord: validateRecord,
+                        projectRecord: projectRecord,
                         validateActiveSlot: validateActiveSlot
                     )[source.provider] ?? CmuxAgentSessionRegistry.BoundedRecentSnapshot(
                         snapshot: .init(records: [], activeSlots: []),
@@ -386,18 +401,18 @@ struct AgentHookSessionRegistryBridge {
                 } catch let failure as CmuxAgentSessionRegistry.HookLegacySourceImportError
                     where failure.provider == source.provider {
                     do {
-                        let fallback = try registry.hookBoundedRecentSnapshot(
-                            provider: source.provider,
-                            maximumRecords: maximumRecordsPerProvider,
-                            validateRecord: { try validateRecord(
-                                provider: source.provider,
-                                stored: $0
-                            ) },
-                            validateActiveSlot: { try validateActiveSlot(
-                                provider: source.provider,
-                                stored: $0
-                            ) }
-                        )
+                        let fallback = try registry
+                            .globallyBoundedRecentSnapshotsImportingAdmittedLegacy(
+                                sources: [source],
+                                admissions: [],
+                                maximumRecords: maximumRecordsPerProvider,
+                                maximumGraphNodes: max(0, maximumLegacyGraphNodes),
+                                projectRecord: projectRecord,
+                                validateActiveSlot: validateActiveSlot
+                            )[source.provider] ?? CmuxAgentSessionRegistry.BoundedRecentSnapshot(
+                                snapshot: .init(records: [], activeSlots: []),
+                                totalRecordCount: 0
+                            )
                         guard fallback.totalRecordCount > 0 else {
                             throw AgentHookSessionStoreLoadFailure(
                                 provider: source.provider,
@@ -461,7 +476,7 @@ struct AgentHookSessionRegistryBridge {
                     admissions: [],
                     maximumRecords: maximumRecordsPerProvider,
                     maximumGraphNodes: max(0, maximumLegacyGraphNodes),
-                    validateRecord: validateRecord,
+                    projectRecord: projectRecord,
                     validateActiveSlot: validateActiveSlot
                 )
             } catch let error as CmuxAgentSessionRegistry.HookInspectionGraphUnionLimitError {

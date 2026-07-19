@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 import SQLite3
 
 extension CmuxAgentSessionRegistry {
@@ -27,6 +27,75 @@ extension CmuxAgentSessionRegistry {
             self.sessionID = sessionID
             self.observed = observed
             self.maximum = maximum
+        }
+    }
+
+    /// Exact secondary ordering shared by the registry's bounded projection
+    /// and the CLI's final list accumulator. Swift string comparison is
+    /// intentional: it keeps canonically equivalent Unicode identifiers on
+    /// the same ordering path as the final user-visible sort.
+    public struct HookListSortValues: Equatable, Sendable {
+        public var sessionID: String?
+        public var agent: String?
+        public var runID: String?
+        public var workspaceID: String?
+        public var surfaceID: String?
+        public var identitySource: String?
+        public var pid: Int?
+        public var processStartedAt: TimeInterval?
+
+        public init(
+            sessionID: String?,
+            agent: String?,
+            runID: String?,
+            workspaceID: String?,
+            surfaceID: String?,
+            identitySource: String?,
+            pid: Int?,
+            processStartedAt: TimeInterval?
+        ) {
+            self.sessionID = sessionID
+            self.agent = agent
+            self.runID = runID
+            self.workspaceID = workspaceID
+            self.surfaceID = surfaceID
+            self.identitySource = identitySource
+            self.pid = pid
+            self.processStartedAt = processStartedAt
+        }
+
+        public static func isOrderedBefore(_ lhs: Self, _ rhs: Self) -> Bool {
+            if let result = stringPrecedes(lhs.sessionID, rhs.sessionID) { return result }
+            if let result = stringPrecedes(lhs.agent, rhs.agent) { return result }
+            if let result = stringPrecedes(lhs.runID, rhs.runID) { return result }
+            if let result = stringPrecedes(lhs.workspaceID, rhs.workspaceID) { return result }
+            if let result = stringPrecedes(lhs.surfaceID, rhs.surfaceID) { return result }
+            if let result = stringPrecedes(lhs.identitySource, rhs.identitySource) { return result }
+            let lhsPID = lhs.pid ?? Int.min
+            let rhsPID = rhs.pid ?? Int.min
+            if lhsPID != rhsPID { return lhsPID < rhsPID }
+            return (lhs.processStartedAt ?? -.infinity) < (rhs.processStartedAt ?? -.infinity)
+        }
+
+        private static func stringPrecedes(_ lhs: String?, _ rhs: String?) -> Bool? {
+            let lhs = lhs ?? ""
+            let rhs = rhs ?? ""
+            return lhs == rhs ? nil : lhs < rhs
+        }
+    }
+
+    public struct HookListOrderKey: Equatable, Sendable {
+        public var updatedAt: TimeInterval
+        public var sortValues: HookListSortValues
+
+        public init(updatedAt: TimeInterval, sortValues: HookListSortValues) {
+            self.updatedAt = updatedAt
+            self.sortValues = sortValues
+        }
+
+        public static func isOrderedBefore(_ lhs: Self, _ rhs: Self) -> Bool {
+            if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
+            return HookListSortValues.isOrderedBefore(lhs.sortValues, rhs.sortValues)
         }
     }
 
@@ -164,7 +233,7 @@ extension CmuxAgentSessionRegistry {
         maximumRecordBytes: Int64 = 4 * 1_024 * 1_024,
         maximumProviderBytes: Int64 = 64 * 1_024 * 1_024,
         maximumSelectionBytes: Int64 = 128 * 1_024 * 1_024,
-        validateRecord: ((String, Record) throws -> Void)? = nil,
+        projectRecord: (String, Record) throws -> HookListOrderKey,
         validateActiveSlot: ((String, ActiveSlot) throws -> Void)? = nil
     ) throws -> [String: BoundedRecentSnapshot] {
         let sources = uniqueInspectionSources(sources)
@@ -192,25 +261,13 @@ extension CmuxAgentSessionRegistry {
                     maximumSelectionBytes: maximumSelectionBytes
                 )
                 guard !providers.isEmpty else { return [:] }
-                if let validateRecord {
-                    try validateGlobalListRecordPayloads(
-                        database: database,
-                        providers: providers,
-                        validate: validateRecord
-                    )
-                } else {
-                    for provider in providers {
-                        try validateBoundedListRecords(
-                            database: database,
-                            provider: provider
-                        )
-                    }
-                }
-                let records = try readGloballyBoundedListRecords(
+                let selection = try selectGloballyBoundedListRecords(
                     database: database,
                     providers: providers,
-                    limit: maximumRecords
+                    limit: maximumRecords,
+                    project: projectRecord
                 )
+                let records = selection.records
                 let selectedSessionIDs = Dictionary(
                     grouping: records,
                     by: \.provider
@@ -223,10 +280,6 @@ extension CmuxAgentSessionRegistry {
                 )
                 let recordsByProvider = Dictionary(grouping: records, by: \.provider)
                 let slotsByProvider = Dictionary(grouping: slots, by: \.provider)
-                let counts = try globalRecordCounts(
-                    database: database,
-                    providers: providers
-                )
                 return Dictionary(uniqueKeysWithValues: providers.map { provider in
                     (
                         provider,
@@ -235,7 +288,7 @@ extension CmuxAgentSessionRegistry {
                                 records: recordsByProvider[provider] ?? [],
                                 activeSlots: slotsByProvider[provider] ?? []
                             ),
-                            totalRecordCount: counts[provider] ?? 0
+                            totalRecordCount: selection.counts[provider] ?? 0
                         )
                     )
                 })
@@ -243,11 +296,12 @@ extension CmuxAgentSessionRegistry {
         }
     }
 
-    private func validateGlobalListRecordPayloads(
+    private func selectGloballyBoundedListRecords(
         database: OpaquePointer,
         providers: [String],
-        validate: (String, Record) throws -> Void
-    ) throws {
+        limit: Int,
+        project: (String, Record) throws -> HookListOrderKey
+    ) throws -> (records: [Record], counts: [String: Int]) {
         let placeholders = selectedProviderPlaceholders(count: providers.count)
         let statement = try prepare(
             database,
@@ -260,15 +314,18 @@ extension CmuxAgentSessionRegistry {
         )
         defer { sqlite3_finalize(statement) }
         try bindSelectedProviders(providers, to: statement)
+        var counts: [String: Int] = [:]
+        counts.reserveCapacity(providers.count)
+        var accumulator = HookListRecordAccumulator(limit: limit)
         while try stepRow(
             statement,
             database: database,
-            operation: "validate global bounded list sessions"
+            operation: "project global bounded list sessions"
         ) {
             guard let provider = text(statement, column: 0),
                   let sessionID = text(statement, column: 1),
                   let json = data(statement, column: 4) else {
-                throw corruptRowError(operation: "validate global bounded list sessions")
+                throw corruptRowError(operation: "project global bounded list sessions")
             }
             let record = Record(
                 provider: provider,
@@ -277,100 +334,11 @@ extension CmuxAgentSessionRegistry {
                 writerGeneration: Int(sqlite3_column_int64(statement, 3)),
                 json: json
             )
-            try autoreleasepool { try validate(provider, record) }
+            counts[provider, default: 0] += 1
+            let key = try autoreleasepool { try project(provider, record) }
+            accumulator.insert(record: record, key: key)
         }
-    }
-
-    private func readGloballyBoundedListRecords(
-        database: OpaquePointer,
-        providers: [String],
-        limit: Int
-    ) throws -> [Record] {
-        guard limit > 0 else { return [] }
-        let placeholders = selectedProviderPlaceholders(count: providers.count)
-        let limitIndex = providers.count + 1
-        let statement = try prepare(
-            database,
-            """
-            SELECT session.provider, session.session_id, session.updated_at,
-                   session.writer_generation, session.record_json,
-                   CASE
-                     WHEN json_type(session.record_json, '$.runs') = 'array'
-                          AND json_array_length(session.record_json, '$.runs') > 0
-                     THEN COALESCE(
-                       (
-                         SELECT MAX(CAST(json_extract(run.value, '$.updatedAt') AS REAL))
-                         FROM json_each(session.record_json, '$.runs') AS run
-                         WHERE json_extract(run.value, '$.runId') =
-                               json_extract(session.record_json, '$.activeRunId')
-                       ),
-                       (
-                         SELECT MAX(CAST(json_extract(run.value, '$.updatedAt') AS REAL))
-                         FROM json_each(session.record_json, '$.runs') AS run
-                       ),
-                       CAST(json_extract(session.record_json, '$.updatedAt') AS REAL)
-                     )
-                     ELSE CAST(json_extract(session.record_json, '$.updatedAt') AS REAL)
-                   END AS list_updated_at
-            FROM agent_sessions AS session
-            WHERE session.provider IN (\(placeholders))
-            ORDER BY list_updated_at DESC, session.session_id ASC, session.provider ASC
-            LIMIT ?\(limitIndex)
-            """
-        )
-        defer { sqlite3_finalize(statement) }
-        try bindSelectedProviders(providers, to: statement)
-        sqlite3_bind_int64(statement, Int32(limitIndex), sqlite3_int64(limit))
-        var records: [Record] = []
-        records.reserveCapacity(min(limit, 1_024))
-        while try stepRow(
-            statement,
-            database: database,
-            operation: "read global bounded list sessions"
-        ) {
-            guard let provider = text(statement, column: 0),
-                  let sessionID = text(statement, column: 1),
-                  let json = data(statement, column: 4) else {
-                throw corruptRowError(operation: "read global bounded list sessions")
-            }
-            records.append(Record(
-                provider: provider,
-                sessionID: sessionID,
-                updatedAt: sqlite3_column_double(statement, 2),
-                writerGeneration: Int(sqlite3_column_int64(statement, 3)),
-                json: json
-            ))
-        }
-        return records
-    }
-
-    private func globalRecordCounts(
-        database: OpaquePointer,
-        providers: [String]
-    ) throws -> [String: Int] {
-        let placeholders = selectedProviderPlaceholders(count: providers.count)
-        let statement = try prepare(
-            database,
-            """
-            SELECT provider, COUNT(*) FROM agent_sessions
-            WHERE provider IN (\(placeholders))
-            GROUP BY provider
-            """
-        )
-        defer { sqlite3_finalize(statement) }
-        try bindSelectedProviders(providers, to: statement)
-        var counts: [String: Int] = [:]
-        while try stepRow(
-            statement,
-            database: database,
-            operation: "count global bounded list sessions"
-        ) {
-            guard let provider = text(statement, column: 0) else {
-                throw corruptRowError(operation: "count global bounded list sessions")
-            }
-            counts[provider] = Int(sqlite3_column_int64(statement, 1))
-        }
-        return counts
+        return (accumulator.sortedRecords, counts)
     }
 
     private func readGlobalListSlots(
@@ -580,5 +548,75 @@ extension CmuxAgentSessionRegistry {
                 )
             }
         }
+    }
+}
+
+private struct HookListRecordAccumulator {
+    private struct Candidate {
+        var record: CmuxAgentSessionRegistry.Record
+        var key: CmuxAgentSessionRegistry.HookListOrderKey
+    }
+
+    private let limit: Int
+    private var retained: [Candidate] = []
+
+    init(limit: Int) {
+        precondition(limit >= 0)
+        self.limit = limit
+        retained.reserveCapacity(min(limit, 1_024))
+    }
+
+    var sortedRecords: [CmuxAgentSessionRegistry.Record] {
+        retained.sorted {
+            CmuxAgentSessionRegistry.HookListOrderKey.isOrderedBefore($0.key, $1.key)
+        }.map(\.record)
+    }
+
+    mutating func insert(
+        record: CmuxAgentSessionRegistry.Record,
+        key: CmuxAgentSessionRegistry.HookListOrderKey
+    ) {
+        guard limit > 0 else { return }
+        let candidate = Candidate(record: record, key: key)
+        guard retained.count == limit else {
+            retained.append(candidate)
+            siftUp(from: retained.count - 1)
+            return
+        }
+        guard let worst = retained.first, isOrderedBefore(candidate, worst) else { return }
+        retained[0] = candidate
+        siftDown(from: 0)
+    }
+
+    private mutating func siftUp(from start: Int) {
+        var child = start
+        while child > 0 {
+            let parent = (child - 1) / 2
+            guard isWorse(retained[child], than: retained[parent]) else { return }
+            retained.swapAt(child, parent)
+            child = parent
+        }
+    }
+
+    private mutating func siftDown(from start: Int) {
+        var parent = start
+        while true {
+            let left = parent * 2 + 1
+            guard left < retained.count else { return }
+            let right = left + 1
+            let worseChild = right < retained.count
+                && isWorse(retained[right], than: retained[left]) ? right : left
+            guard isWorse(retained[worseChild], than: retained[parent]) else { return }
+            retained.swapAt(parent, worseChild)
+            parent = worseChild
+        }
+    }
+
+    private func isOrderedBefore(_ lhs: Candidate, _ rhs: Candidate) -> Bool {
+        CmuxAgentSessionRegistry.HookListOrderKey.isOrderedBefore(lhs.key, rhs.key)
+    }
+
+    private func isWorse(_ lhs: Candidate, than rhs: Candidate) -> Bool {
+        isOrderedBefore(rhs, lhs)
     }
 }

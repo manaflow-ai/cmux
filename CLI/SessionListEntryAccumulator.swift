@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Retains the exact sorted prefix for a bounded `agents list` query without
@@ -5,67 +6,7 @@ import Foundation
 struct SessionListEntryAccumulator {
     typealias Enrichment = (inout [String: Any]) -> Void
     typealias PayloadFactory = () -> [String: Any]
-
-    struct SortValues {
-        var sessionID: String?
-        var agent: String?
-        var runID: String?
-        var workspaceID: String?
-        var surfaceID: String?
-        var identitySource: String?
-        var pid: Int?
-        var processStartedAt: TimeInterval?
-
-        init(
-            sessionID: String?,
-            agent: String?,
-            runID: String?,
-            workspaceID: String?,
-            surfaceID: String?,
-            identitySource: String?,
-            pid: Int?,
-            processStartedAt: TimeInterval?
-        ) {
-            self.sessionID = sessionID
-            self.agent = agent
-            self.runID = runID
-            self.workspaceID = workspaceID
-            self.surfaceID = surfaceID
-            self.identitySource = identitySource
-            self.pid = pid
-            self.processStartedAt = processStartedAt
-        }
-
-        init(payload: [String: Any]) {
-            sessionID = payload["session_id"] as? String
-            agent = payload["agent"] as? String
-            runID = payload["run_id"] as? String
-            workspaceID = payload["workspace_id"] as? String
-            surfaceID = payload["surface_id"] as? String
-            identitySource = payload["identity_source"] as? String
-            pid = payload["pid"] as? Int
-            processStartedAt = payload["process_started_at"] as? TimeInterval
-        }
-
-        static func isOrderedBefore(_ lhs: Self, _ rhs: Self) -> Bool {
-            if let result = stringPrecedes(lhs.sessionID, rhs.sessionID) { return result }
-            if let result = stringPrecedes(lhs.agent, rhs.agent) { return result }
-            if let result = stringPrecedes(lhs.runID, rhs.runID) { return result }
-            if let result = stringPrecedes(lhs.workspaceID, rhs.workspaceID) { return result }
-            if let result = stringPrecedes(lhs.surfaceID, rhs.surfaceID) { return result }
-            if let result = stringPrecedes(lhs.identitySource, rhs.identitySource) { return result }
-            let lhsPID = lhs.pid ?? Int.min
-            let rhsPID = rhs.pid ?? Int.min
-            if lhsPID != rhsPID { return lhsPID < rhsPID }
-            return (lhs.processStartedAt ?? -.infinity) < (rhs.processStartedAt ?? -.infinity)
-        }
-
-        private static func stringPrecedes(_ lhs: String?, _ rhs: String?) -> Bool? {
-            let lhs = lhs ?? ""
-            let rhs = rhs ?? ""
-            return lhs == rhs ? nil : lhs < rhs
-        }
-    }
+    typealias SortValues = CmuxAgentSessionRegistry.HookListSortValues
 
     private struct Entry {
         var updatedAt: TimeInterval
@@ -183,11 +124,28 @@ struct SessionListEntryAccumulator {
     }
 
     private static func isOrderedBefore(_ lhs: Entry, _ rhs: Entry) -> Bool {
-        if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
-        return SortValues.isOrderedBefore(lhs.sortValues, rhs.sortValues)
+        CmuxAgentSessionRegistry.HookListOrderKey.isOrderedBefore(
+            .init(updatedAt: lhs.updatedAt, sortValues: lhs.sortValues),
+            .init(updatedAt: rhs.updatedAt, sortValues: rhs.sortValues)
+        )
     }
 
     private static func isWorse(_ lhs: Entry, than rhs: Entry) -> Bool {
         isOrderedBefore(rhs, lhs)
+    }
+}
+
+private extension CmuxAgentSessionRegistry.HookListSortValues {
+    init(payload: [String: Any]) {
+        self.init(
+            sessionID: payload["session_id"] as? String,
+            agent: payload["agent"] as? String,
+            runID: payload["run_id"] as? String,
+            workspaceID: payload["workspace_id"] as? String,
+            surfaceID: payload["surface_id"] as? String,
+            identitySource: payload["identity_source"] as? String,
+            pid: payload["pid"] as? Int,
+            processStartedAt: payload["process_started_at"] as? TimeInterval
+        )
     }
 }

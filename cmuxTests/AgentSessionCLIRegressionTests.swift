@@ -2905,6 +2905,100 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
     }
 
+    @Test func registryAndFinalListHeapsRetainTheSameRandomizedUnicodeTies() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-list-heap-parity-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let registry = CmuxAgentSessionRegistry(
+            url: root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        let provider = "heap-parity"
+        let limit = 37
+        let stringValues: [String?] = [
+            nil, "", "alpha", "beta", "é", "e\u{301}", "日本語", "🙂", "Ω",
+        ]
+        var randomState: UInt64 = 0xC0FFEE_F00D_BAAD
+        func nextRandom() -> UInt64 {
+            randomState = randomState &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            return randomState
+        }
+        func randomString() -> String? {
+            stringValues[Int(nextRandom() % UInt64(stringValues.count))]
+        }
+
+        var keysBySessionID: [String: CmuxAgentSessionRegistry.HookListOrderKey] = [:]
+        var finalAccumulator = SessionListEntryAccumulator(limit: limit)
+        var records: [CmuxAgentSessionRegistry.Record] = []
+        for index in 0..<512 {
+            let storedSessionID = String(format: "stored-%04d", index)
+            let sortValues = CmuxAgentSessionRegistry.HookListSortValues(
+                sessionID: randomString(),
+                agent: randomString(),
+                runID: randomString(),
+                workspaceID: randomString(),
+                surfaceID: randomString(),
+                identitySource: randomString(),
+                pid: nextRandom().isMultiple(of: 4) ? nil : Int(nextRandom() % 7),
+                processStartedAt: nextRandom().isMultiple(of: 4)
+                    ? nil : TimeInterval(nextRandom() % 5)
+            )
+            let key = CmuxAgentSessionRegistry.HookListOrderKey(
+                updatedAt: TimeInterval(nextRandom() % 5),
+                sortValues: sortValues
+            )
+            keysBySessionID[storedSessionID] = key
+            finalAccumulator.insert(
+                updatedAt: key.updatedAt,
+                sortValues: key.sortValues,
+                payloadFactory: { [storedSessionID] in ["session_id": storedSessionID] }
+            )
+            let json = try JSONSerialization.data(withJSONObject: [
+                "sessionId": storedSessionID,
+                "workspaceId": "workspace-\(index)",
+                "surfaceId": "surface-\(index)",
+                "startedAt": 100.0,
+                "updatedAt": 100.0,
+            ], options: [.sortedKeys])
+            records.append(.init(
+                provider: provider,
+                sessionID: storedSessionID,
+                updatedAt: 100,
+                json: json
+            ))
+        }
+        try registry.apply(provider: provider, records: records)
+
+        let snapshots = try registry.globallyBoundedRecentSnapshotsImportingAdmittedLegacy(
+            sources: [.init(
+                provider: provider,
+                url: root.appendingPathComponent("unused-legacy.json")
+            )],
+            admissions: [],
+            maximumRecords: limit,
+            projectRecord: { projectedProvider, record in
+                guard projectedProvider == provider,
+                      let key = keysBySessionID[record.sessionID] else {
+                    throw CmuxAgentSessionRegistry.HookListProjectionValidationError(
+                        provider: projectedProvider
+                    )
+                }
+                return key
+            }
+        )
+        let registryRows = Set(
+            snapshots[provider]?.snapshot.records.map(\.sessionID) ?? []
+        )
+        let finalRows = Set(finalAccumulator.sortedPayloads.compactMap {
+            $0["session_id"] as? String
+        })
+
+        #expect(registryRows.count == limit)
+        #expect(finalRows.count == limit)
+        #expect(registryRows == finalRows)
+    }
+
     @Test func streamedAgentListPayloadsReleaseEachEnrichmentBeforeTheNextRow() throws {
         let lifetime = AgentListPayloadLifetimeCounter()
         var entries = SessionListEntryAccumulator(limit: .max)

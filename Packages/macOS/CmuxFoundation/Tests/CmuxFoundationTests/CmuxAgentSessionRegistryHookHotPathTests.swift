@@ -362,7 +362,8 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
                     )
                 },
                 admissions: [],
-                maximumRecords: 3
+                maximumRecords: 3,
+                projectRecord: { try listOrderKey(provider: $0, record: $1) }
             )
 
         #expect(snapshots.values.reduce(0) { $0 + $1.snapshot.records.count } == 3)
@@ -477,7 +478,8 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
                     )
                 },
                 admissions: [],
-                maximumRecords: 4
+                maximumRecords: 4,
+                projectRecord: { try listOrderKey(provider: $0, record: $1) }
             )
         let selected = Set(snapshots.flatMap { provider, snapshot in
             snapshot.snapshot.records.map { "\(provider):\($0.sessionID)" }
@@ -488,13 +490,12 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
             "gamma:missing-active-run",
             "delta:invalid-active-run-reference",
             "alpha:equal-session",
-            "beta:equal-session",
         ]))
-        #expect(snapshots["beta"]?.snapshot.records.count == 1)
+        #expect(snapshots["beta"]?.snapshot.records.isEmpty == true)
     }
 
-    @Test("global bounded list retains the full timestamp cutoff tie")
-    func globallyBoundedListDefersCanonicalUnicodeTieOrderingToSwift() throws {
+    @Test("global bounded list resolves canonical Unicode ties within K")
+    func globallyBoundedListUsesSwiftCanonicalUnicodeOrdering() throws {
         let fixture = try makeFixture()
         let decomposedSessionID = "e\u{301}"
         let precomposedSessionID = "\u{e9}"
@@ -523,12 +524,13 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
                     )
                 },
                 admissions: [],
-                maximumRecords: 1
+                maximumRecords: 1,
+                projectRecord: { try listOrderKey(provider: $0, record: $1) }
             )
 
-        #expect(snapshots.values.reduce(0) { $0 + $1.snapshot.records.count } == 2)
+        #expect(snapshots.values.reduce(0) { $0 + $1.snapshot.records.count } == 1)
         #expect(snapshots["alpha"]?.snapshot.records.first?.sessionID == precomposedSessionID)
-        #expect(snapshots["zeta"]?.snapshot.records.first?.sessionID == decomposedSessionID)
+        #expect(snapshots["zeta"]?.snapshot.records.isEmpty == true)
     }
 
     @Test("bounded validation selection and count share one WAL snapshot")
@@ -904,8 +906,8 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
         #expect(error.provider == provider)
     }
 
-    @Test("twenty thousand list payloads receive streaming full validation")
-    func boundedListFullValidationStreamsEveryRecord() throws {
+    @Test("global top K validates twenty thousand equal-time rows with bounded retention")
+    func globalBoundedListFullValidationStreamsEveryEqualTimeRecord() throws {
         let fixture = try makeFixture()
         let provider = "stream-validation"
         let records = try (0..<20_000).map { index in
@@ -914,47 +916,34 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
                 sessionID: String(format: "session-%05d", index),
                 workspaceID: "workspace-\(index % 100)",
                 surfaceID: "surface-\(index)",
-                updatedAt: TimeInterval(index)
+                updatedAt: 100
             )
         }
         try fixture.registry.apply(provider: provider, records: records)
 
-        let decoder = JSONDecoder()
         var validatedRecords = 0
-        var validatedSlots = 0
         let startedAt = Date().timeIntervalSinceReferenceDate
-        let snapshots = try fixture.registry.boundedRecentSnapshotsImportingLegacy(
+        let snapshots = try fixture.registry.globallyBoundedRecentSnapshotsImportingAdmittedLegacy(
             sources: [.init(
                 provider: provider,
                 url: fixture.directory.appendingPathComponent("stream-validation.json")
             )],
-            maximumRecordsPerProvider: 100,
-            validateRecord: { validatedProvider, record in
+            admissions: [],
+            maximumRecords: 100,
+            projectRecord: { validatedProvider, record in
                 #expect(validatedProvider == provider)
-                let decoded = try decoder.decode(
-                    StreamingListRecord.self,
-                    from: record.json
-                )
-                #expect(decoded.sessionId == record.sessionID)
                 validatedRecords += 1
-            },
-            validateActiveSlot: { validatedProvider, slot in
-                #expect(validatedProvider == provider)
-                let decoded = try decoder.decode(
-                    StreamingListSlot.self,
-                    from: slot.json
-                )
-                #expect(decoded.sessionId == slot.sessionID)
-                validatedSlots += 1
+                return try listOrderKey(provider: validatedProvider, record: record)
             }
         )
         let elapsed = Date().timeIntervalSinceReferenceDate - startedAt
-        print("bounded list full-decode 20000-row elapsed: \(elapsed) seconds")
+        print("global bounded list heap 20000 equal-time rows elapsed: \(elapsed) seconds")
 
         #expect(validatedRecords == 20_000)
-        #expect(validatedSlots == 0)
         #expect(snapshots[provider]?.totalRecordCount == 20_000)
         #expect(snapshots[provider]?.snapshot.records.count == 100)
+        #expect(snapshots[provider]?.snapshot.records.first?.sessionID == "session-00000")
+        #expect(snapshots[provider]?.snapshot.records.last?.sessionID == "session-00099")
     }
 
     @Test("hibernation projection reads only active owners and exact detected sessions")
@@ -2362,6 +2351,35 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
         return Fixture(directory: directory)
     }
 
+    private func listOrderKey(
+        provider: String,
+        record: CmuxAgentSessionRegistry.Record
+    ) throws -> CmuxAgentSessionRegistry.HookListOrderKey {
+        let decoded = try JSONDecoder().decode(StreamingListRecord.self, from: record.json)
+        guard decoded.sessionId == record.sessionID else {
+            throw CmuxAgentSessionRegistry.HookListProjectionValidationError(provider: provider)
+        }
+        let run = decoded.runs.flatMap {
+            CmuxAgentSessionRunAuthorityProjection().projectedRun(
+                runs: $0,
+                activeRunId: decoded.activeRunId
+            )
+        }
+        return .init(
+            updatedAt: run?.updatedAt ?? decoded.updatedAt,
+            sortValues: .init(
+                sessionID: decoded.sessionId,
+                agent: provider,
+                runID: run?.runId ?? decoded.runId ?? "session:\(provider):\(decoded.sessionId)",
+                workspaceID: decoded.workspaceId,
+                surfaceID: decoded.surfaceId,
+                identitySource: "hook_session",
+                pid: run?.pid ?? decoded.pid,
+                processStartedAt: run?.processStartedAt
+            )
+        )
+    }
+
     private func record(
         provider: String,
         sessionID: String,
@@ -2661,8 +2679,12 @@ private struct StreamingListRecord: Decodable {
     var sessionId: String
     var workspaceId: String
     var surfaceId: String
+    var runId: String?
+    var pid: Int?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
+    var runs: [CmuxAgentSessionRunAuthorityProjection.Run]?
+    var activeRunId: String?
 }
 
 private struct StreamingListSlot: Decodable {
