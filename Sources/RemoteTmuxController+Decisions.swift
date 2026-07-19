@@ -64,38 +64,12 @@ extension RemoteTmuxController {
             sourcePanelId: workingDirectorySourcePanelId,
             windowIdForPanel: mirror.windowId(forPanel:)
         )
-        // Multiplexer: anchor on the home session by name/id. A window id is
-        // ambiguous here (the window is linked into both the home session and the
-        // hidden view), and `{end}` resolves against the ATTACHED view session, so a
-        // bare target would create the tab inside the view. The new window isn't
-        // linked into the view yet (no %window-add on the view stream), so nudge a
-        // reconcile to link + surface it.
-        if isMultiplexed(mirror) {
-            let command = Self.newWindowCommandInSession(
-                mirror.sessionName,
-                sessionId: mirror.connection.sessionId ?? mirror.seededSessionId,
-                workingDirectory: commandWorkingDirectory,
-                focus: focus
-            )
-            let view = multiplexedViewsByHost[mirror.host.connectionHash]
-            let sent: Bool
-            if focus {
-                sent = mirror.connection.sendNewWindow(command) { [weak mirror] windowId in
-                    guard let windowId else { return }
-                    mirror?.focusWindowWhenAvailable(windowId)
-                }
-            } else {
-                sent = mirror.connection.send(command)
-            }
-            if sent { view?.requestReconcile() }
-            return sent
-        }
-        let command = Self.newWindowCommand(
+        return routeMirrorNewWindow(
+            through: mirror,
             afterWindowId: afterWindowId,
             workingDirectory: commandWorkingDirectory,
             focus: focus
         )
-        return sendMirrorNewWindow(command, through: mirror, focus: focus)
     }
 
     /// Routes a projected control-pane target to a new tmux window immediately
@@ -111,9 +85,45 @@ extension RemoteTmuxController {
               let afterWindowId = mirror.windowIdByPane[targetPaneId] else {
             return false
         }
-        let command = Self.newWindowCommand(
+        return routeMirrorNewWindow(
+            through: mirror,
             afterWindowId: afterWindowId,
             workingDirectory: mirror.cwdByPane[targetPaneId],
+            focus: focus
+        )
+    }
+
+    /// Single new-window action path for a mirror, routed by transport so both the
+    /// placement and pane-targeted entry points behave identically. In multiplexer
+    /// mode the window MUST be created through the session-scoped builder: a bare
+    /// `{end}` (or a window-id) target resolves against the ATTACHED view session —
+    /// the window is linked into both the home and hidden-view sessions — so it would
+    /// otherwise land in the hidden view. The new window isn't linked into the view
+    /// yet (no `%window-add` on the view stream), so nudge a reconcile to link +
+    /// surface it. Placement is session-end in this mode: precise after-window
+    /// ordering is ambiguous while the window is linked into both sessions, and the
+    /// reconcile reflects tmux's resulting order. The GA transport honors
+    /// `afterWindowId` directly.
+    private func routeMirrorNewWindow(
+        through mirror: RemoteTmuxSessionMirror,
+        afterWindowId: Int?,
+        workingDirectory: String?,
+        focus: Bool
+    ) -> Bool {
+        if isMultiplexed(mirror) {
+            let command = Self.newWindowCommandInSession(
+                mirror.sessionName,
+                sessionId: mirror.connection.sessionId ?? mirror.seededSessionId,
+                workingDirectory: workingDirectory,
+                focus: focus
+            )
+            let sent = sendMirrorNewWindow(command, through: mirror, focus: focus)
+            if sent { multiplexedViewsByHost[mirror.host.connectionHash]?.requestReconcile() }
+            return sent
+        }
+        let command = Self.newWindowCommand(
+            afterWindowId: afterWindowId,
+            workingDirectory: workingDirectory,
             focus: focus
         )
         return sendMirrorNewWindow(command, through: mirror, focus: focus)
@@ -460,15 +470,20 @@ extension RemoteTmuxController {
 
         // Dedicated transport: create the session over the shared master, then mirror
         // it into the reference workspace's window (the same window Cmd-N targets).
-        let created: String?
+        let result: RemoteTmuxCommandResult
         do {
-            let result = try await transport(for: host).runTmux(Self.detachedSessionArgv(named: name))
-            let out = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-            created = (result.succeeded && !out.isEmpty) ? out : nil
+            result = try await transport(for: host).runTmux(Self.detachedSessionArgv(named: name))
         } catch {
-            created = nil
+            // A thrown transport/timeout error may have reached tmux and created the
+            // session before the error surfaced. Mapping this to `.createFailed` would
+            // invite a duplicate-creating retry, so report indeterminate — mirroring the
+            // multiplexed branch above. `.createFailed` is reserved for a RETURNED,
+            // confirmed command failure (below), where no session was created.
+            return .createIndeterminate
         }
-        guard let sessionName = created else { return .createFailed }
+        let out = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard result.succeeded, !out.isEmpty else { return .createFailed }
+        let sessionName = out
         // The session now EXISTS. From here every failure to mirror it reports the
         // created name (recover) — never a bare failure that invites a duplicate.
         // Revalidate the target window across the ssh round trip (it may have closed).
