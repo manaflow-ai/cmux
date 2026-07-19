@@ -76,7 +76,7 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
     private let agentStateRuntime: AgentTerminalStateRuntime
 
     private static var isRunningTests: Bool {
-        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+        SessionRestorePolicy.isRunningUnderAutomatedTests()
     }
 
     @MainActor
