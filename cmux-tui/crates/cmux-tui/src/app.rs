@@ -2442,6 +2442,10 @@ impl PaneFocusHistory {
             .map(|sequence| (true, sequence))
             .unwrap_or((false, authoritative))
     }
+
+    fn retain_present(&mut self, tree: &TreeView) {
+        self.recency.retain(|pane, _| tree.pane(*pane).is_some());
+    }
 }
 
 pub struct App {
@@ -3199,6 +3203,9 @@ impl App {
         for surface in removed_browsers {
             self.browser_input.forget_surface(surface);
         }
+        // This walks only panes this client has focused, without allocating or
+        // scanning every pane on ordinary redraws.
+        self.pane_focus_history.retain_present(&tree);
         self.tree = tree;
         if self.active_pane() != previous_active
             && let Some(active) = self.active_pane()
@@ -7675,6 +7682,18 @@ mod tests {
         history.record(2);
         assert_eq!(history.recency(2, 99), (true, 1));
         assert_eq!(history.recency(3, 12), (false, 12));
+    }
+
+    #[test]
+    fn pane_focus_history_prunes_closed_panes() {
+        let mut history = PaneFocusHistory::default();
+        history.record(2);
+        history.record(99);
+
+        history.retain_present(&notify_tree(1, false));
+
+        assert_eq!(history.recency(2, 0), (true, 1));
+        assert_eq!(history.recency(99, 7), (false, 7));
     }
 
     #[test]

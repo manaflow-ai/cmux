@@ -3645,6 +3645,22 @@ impl Mux {
                 Rect { x: 0, y: 0, width: 10_000, height: 10_000 },
                 Some(screen.active_pane),
             );
+            Ok(layout.neighbor(pane, dx, dy))
+        })
+    }
+
+    fn pane_focus_neighbor(&self, pane: PaneId, dir: Direction) -> anyhow::Result<Option<PaneId>> {
+        self.with_state(|state| {
+            let Some((wi, si)) = state.screen_of(pane) else {
+                anyhow::bail!("unknown pane {pane}");
+            };
+            let screen = &state.workspaces[wi].screens[si];
+            let (dx, dy) = dir.delta();
+            let layout = layout_screen(
+                &screen.root,
+                Rect { x: 0, y: 0, width: 10_000, height: 10_000 },
+                Some(screen.active_pane),
+            );
             Ok(layout.neighbor_by_recency(pane, dx, dy, |candidate| {
                 state.panes.get(&candidate).map(|pane| pane.focused_at).unwrap_or_default()
             }))
@@ -3660,7 +3676,7 @@ impl Mux {
         let Some(target) = target else {
             anyhow::bail!("no active pane");
         };
-        let Some(next) = self.pane_neighbor(target, dir)? else {
+        let Some(next) = self.pane_focus_neighbor(target, dir)? else {
             anyhow::bail!("no neighbor");
         };
         if !self.focus_pane(next) {
@@ -5416,7 +5432,7 @@ mod tests {
         let p2 = applied.panes[1].pane;
         let p3 = applied.panes[2].pane;
 
-        assert_eq!(mux.pane_neighbor(p1, Direction::Right).unwrap(), Some(p3));
+        assert_eq!(mux.pane_neighbor(p1, Direction::Right).unwrap(), Some(p2));
         assert_eq!(mux.pane_neighbor(p2, Direction::Down).unwrap(), Some(p3));
         assert_eq!(mux.pane_neighbor(p1, Direction::Left).unwrap(), None);
     }
