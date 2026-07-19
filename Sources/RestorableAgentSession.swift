@@ -378,6 +378,135 @@ enum AgentResumeCommandBuilder {
             additionalEnvironment: ["CMUX_AGENT_PARENT_SESSION_ID": sessionId, "CMUX_AGENT_RELATIONSHIP": "forked"]
         )
     }
+
+    static func resumeExecutionDescriptor(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        transcriptPath: String? = nil,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        registrationOverride: CmuxVaultAgentRegistration? = nil,
+        observedPermissionMode: String? = nil
+    ) -> AgentCommandExecutionDescriptor? {
+        guard let argv = resumeArguments(
+            kind: kind,
+            sessionId: sessionId,
+            transcriptPath: transcriptPath,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            customRegistration: registrationOverride,
+            observedPermissionMode: observedPermissionMode
+        ) else {
+            return nil
+        }
+        return executionDescriptor(
+            argv: argv,
+            kind: kind,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            customRegistration: registrationOverride
+        )
+    }
+
+    static func forkExecutionDescriptor(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        registrationOverride: CmuxVaultAgentRegistration? = nil,
+        observedPermissionMode: String? = nil
+    ) -> AgentCommandExecutionDescriptor? {
+        guard let argv = forkArguments(
+            kind: kind,
+            sessionId: sessionId,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            customRegistration: registrationOverride,
+            observedPermissionMode: observedPermissionMode
+        ) else {
+            return nil
+        }
+        return executionDescriptor(
+            argv: argv,
+            kind: kind,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            customRegistration: registrationOverride
+        )
+    }
+
+    static func surfaceResumeBindingExecutionDescriptor(
+        command: String,
+        kind rawKind: String?,
+        environment: [String: String]?,
+        workingDirectory: String?
+    ) -> AgentCommandExecutionDescriptor? {
+        guard let rawKind = normalized(rawKind),
+              let kind = RestorableAgentKind(rawValue: rawKind) else {
+            return nil
+        }
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command)
+        guard let executableIndex = SurfaceResumeCommandCanonicalizer.commandExecutableWordIndex(
+            in: words,
+            command: command
+        ) else {
+            return nil
+        }
+        let commandStartIndex = words[..<executableIndex]
+            .lastIndex { $0.value == "&&" }
+            .map { words.index(after: $0) }
+            ?? words.startIndex
+        guard commandStartIndex <= executableIndex else { return nil }
+        var argv = Array(words[commandStartIndex...].map(\.value))
+        let relativeExecutableIndex = words.distance(
+            from: commandStartIndex,
+            to: executableIndex
+        )
+        guard argv.indices.contains(relativeExecutableIndex) else { return nil }
+
+        // Agent-hook bindings are repaired immediately before launch. Mirror
+        // that portable-wrapper decision here so stale managed Claude/Codex
+        // paths validate the binary the wrapper will actually execute.
+        let repairedCommand = SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
+            in: command,
+            kind: rawKind
+        )
+        if repairedCommand != command {
+            let capturedExecutable = argv[relativeExecutableIndex]
+            switch kind {
+            case .claude:
+                argv[relativeExecutableIndex] = "claude"
+            case .codex:
+                argv[relativeExecutableIndex] = "codex"
+                let assignment = "CMUX_CUSTOM_CODEX_PATH=\(capturedExecutable)"
+                if argv.first.map({ ($0 as NSString).lastPathComponent }) == "env" {
+                    argv.insert(assignment, at: relativeExecutableIndex)
+                } else {
+                    argv.insert(contentsOf: ["env", assignment], at: 0)
+                }
+            default:
+                break
+            }
+        }
+
+        return executionDescriptor(
+            argv: argv,
+            kind: kind,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: rawKind,
+                executablePath: nil,
+                arguments: argv,
+                workingDirectory: workingDirectory,
+                environment: environment,
+                capturedAt: 0,
+                source: "agent-hook"
+            ),
+            workingDirectory: workingDirectory,
+            customRegistration: nil,
+            baseSearchPath: environment?["PATH"]
+        )
+    }
+
     private static func shellCommand(
         argv: [String],
         kind: RestorableAgentKind,
@@ -468,21 +597,9 @@ enum AgentResumeCommandBuilder {
         kind: RestorableAgentKind,
         environment: [String: String]?
     ) -> [String] {
-        guard let environment, !environment.isEmpty else {
-            return []
-        }
-
         var environmentParts: [String] = []
         var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
-        var selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: environment, kind: kind.rawValue)
-        let piFamilyUsesCapturedPath = kind == .pi
-            || kind.customAgentID == "pi"
-            || kind.customAgentID == "omp"
-        if piFamilyUsesCapturedPath,
-           let path = environment["PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !path.isEmpty {
-            selectedEnvironment["PATH"] = path
-        }
+        let selectedEnvironment = launchEnvironment(kind: kind, environment: environment)
         for key in selectedEnvironment.keys.sorted() {
             guard let value = selectedEnvironment[key] else { continue }
             environmentParts.append("\(key)=\(value)")
@@ -498,6 +615,123 @@ enum AgentResumeCommandBuilder {
             )
         }
         return environmentParts
+    }
+
+    private static func launchEnvironment(
+        kind: RestorableAgentKind,
+        environment: [String: String]?
+    ) -> [String: String] {
+        guard let environment, !environment.isEmpty else { return [:] }
+        var selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: environment,
+            kind: kind.rawValue
+        )
+        let piFamilyUsesCapturedPath = kind == .pi
+            || kind.customAgentID == "pi"
+            || kind.customAgentID == "omp"
+        if piFamilyUsesCapturedPath,
+           let path = normalized(environment["PATH"]) {
+            selectedEnvironment["PATH"] = path
+        }
+        return selectedEnvironment
+    }
+
+    static func executionDescriptor(
+        argv: [String],
+        kind: RestorableAgentKind,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        customRegistration: CmuxVaultAgentRegistration?,
+        baseSearchPath: String? = nil
+    ) -> AgentCommandExecutionDescriptor? {
+        guard !argv.isEmpty else { return nil }
+        var searchPath = baseSearchPath ?? launchEnvironment(
+            kind: kind,
+            environment: launchCommand?.environment
+        )["PATH"] ?? ProcessInfo.processInfo.environment["PATH"]
+        var customCodexPath: String?
+        var index = 0
+
+        func consumeAssignment(_ argument: String) -> Bool {
+            guard let equals = argument.firstIndex(of: "="),
+                  equals != argument.startIndex else {
+                return false
+            }
+            let key = argument[..<equals]
+            let value = String(argument[argument.index(after: equals)...])
+            if key == "PATH" {
+                searchPath = value
+            } else if key == "CMUX_CUSTOM_CODEX_PATH" {
+                customCodexPath = normalized(value)
+            }
+            return true
+        }
+
+        while index < argv.count, consumeAssignment(argv[index]) {
+            index += 1
+        }
+        if index < argv.count,
+           (argv[index] as NSString).lastPathComponent == "env" {
+            index += 1
+            while index < argv.count {
+                let argument = argv[index]
+                if argument == "--" {
+                    index += 1
+                    break
+                }
+                if argument == "-i" || argument == "--ignore-environment" {
+                    searchPath = nil
+                    index += 1
+                    continue
+                }
+                if argument == "-u", index + 1 < argv.count {
+                    if argv[index + 1] == "PATH" { searchPath = nil }
+                    index += 2
+                    continue
+                }
+                if argument.hasPrefix("--unset=") {
+                    if argument.dropFirst("--unset=".count) == "PATH" { searchPath = nil }
+                    index += 1
+                    continue
+                }
+                guard consumeAssignment(argument) else { break }
+                index += 1
+            }
+        }
+        while index < argv.count, (argv[index] == "command" || argv[index] == "exec") {
+            index += 1
+            if index < argv.count, argv[index] == "--" { index += 1 }
+        }
+        guard index < argv.count,
+              let executable = normalized(argv[index]) else {
+            return nil
+        }
+        let cwd = customRegistration?.cwd == .ignore
+            ? nil
+            : normalized(workingDirectory ?? launchCommand?.workingDirectory)
+        let preferredExecutable: String
+        let fallbackExecutables: [String]
+        if kind == .codex,
+           executable == "codex",
+           let customCodexPath {
+            preferredExecutable = customCodexPath
+            fallbackExecutables = [executable]
+        } else if kind == .claude,
+                  executable == "claude",
+                  let configuredClaudePath = AgentExecutableResolver
+                    .cmuxConfiguredExecutablePaths()[.claude] {
+            preferredExecutable = configuredClaudePath
+            fallbackExecutables = [executable]
+        } else {
+            preferredExecutable = executable
+            fallbackExecutables = []
+        }
+        return AgentCommandExecutionDescriptor(
+            executable: preferredExecutable,
+            searchPath: searchPath,
+            workingDirectory: cwd,
+            fallbackExecutables: fallbackExecutables
+        )
     }
 
     private static func resumeArguments(
@@ -522,14 +756,17 @@ enum AgentResumeCommandBuilder {
         }
         if case .custom = kind {
             guard let customRegistration else { return nil }
-            if let arguments = campfireBuiltInResumeArguments(customRegistration: customRegistration, sessionId: sessionId, launchCommand: launchCommand) { return arguments }
-            if customRegistration.id == CmuxVaultAgentRegistration.builtInAntigravity.id {
-                return resumeWithOption(
-                    kind: "antigravity",
-                    launchCommand: launchCommand,
-                    fallbackExecutable: customRegistration.defaultExecutable,
-                    option: "--conversation",
-                    sessionId: sessionId
+            if let builtInKind = matchingBuiltInResumeKind(registration: customRegistration) {
+                return AgentResumeArgv().builtInKind(
+                    kind: builtInKind,
+                    sessionId: sessionId,
+                    executablePath: capturedOrRegisteredExecutablePath(
+                        registration: customRegistration,
+                        launchCommand: launchCommand
+                    ),
+                    arguments: launchCommand?.arguments ?? [],
+                    observedPermissionMode: observedPermissionMode,
+                    transcriptPath: transcriptPath
                 )
             }
             let arguments = customResumeArguments(
@@ -574,6 +811,18 @@ enum AgentResumeCommandBuilder {
 
         if case .custom = kind {
             guard let customRegistration else { return nil }
+            if let builtInKind = matchingBuiltInForkKind(registration: customRegistration) {
+                return forkArgv.builtInKind(
+                    kind: builtInKind,
+                    sessionId: sessionId,
+                    executablePath: capturedOrRegisteredExecutablePath(
+                        registration: customRegistration,
+                        launchCommand: launchCommand
+                    ),
+                    arguments: launchCommand?.arguments ?? [],
+                    observedPermissionMode: observedPermissionMode
+                )
+            }
             let arguments = customForkArguments(
                 registration: customRegistration,
                 sessionId: sessionId,

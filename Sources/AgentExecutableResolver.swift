@@ -1,4 +1,5 @@
 import CmuxSettings
+import Darwin
 import Foundation
 
 struct AgentExecutableResolver {
@@ -278,5 +279,223 @@ struct AgentExecutableResolver {
             return index
         }
         return nil
+    }
+}
+
+/// The executable lookup inputs derived from the same argv and environment policy
+/// used to render a resume or fork command. Only PATH affects executable lookup,
+/// so keeping that value instead of the complete process environment makes this a
+/// compact cache key during large session restores.
+struct AgentCommandExecutionDescriptor: Hashable, Sendable {
+    let executable: String
+    let searchPath: String?
+    let workingDirectory: String?
+    let fallbackExecutables: [String]
+
+    init(
+        executable: String,
+        searchPath: String?,
+        workingDirectory: String?,
+        fallbackExecutables: [String] = []
+    ) {
+        self.executable = executable
+        self.searchPath = searchPath
+        self.workingDirectory = workingDirectory
+        self.fallbackExecutables = fallbackExecutables
+    }
+}
+
+struct AgentCommandExecutableResolution: Hashable, Sendable {
+    let descriptor: AgentCommandExecutionDescriptor
+    let lookupPath: String
+    let realPath: String
+    let cachePart: String
+    let watchDirectories: [String]
+}
+
+struct AgentCommandExecutableLookup: Sendable, Equatable {
+    let resolution: AgentCommandExecutableResolution?
+    let candidateLookupPath: String?
+    let watchDirectories: [String]
+}
+
+/// Resolves generated agent commands without invoking a shell. One resolver is
+/// shared across a restore batch so equal command/PATH/cwd triples are statted once.
+final class AgentCommandExecutableResolver {
+    private enum CachedLookup {
+        case value(AgentCommandExecutableLookup)
+    }
+
+    private var lookupsByDescriptor: [AgentCommandExecutionDescriptor: CachedLookup] = [:]
+
+    func lookup(_ descriptor: AgentCommandExecutionDescriptor) -> AgentCommandExecutableLookup {
+        if case .value(let cached)? = lookupsByDescriptor[descriptor] {
+            return cached
+        }
+        let lookup = Self.lookupUncached(descriptor)
+        lookupsByDescriptor[descriptor] = .value(lookup)
+        return lookup
+    }
+
+    func resolve(_ descriptor: AgentCommandExecutionDescriptor) -> AgentCommandExecutableResolution? {
+        lookup(descriptor).resolution
+    }
+
+    static func revalidate(_ resolution: AgentCommandExecutableResolution) -> Bool {
+        lookupUncached(resolution.descriptor).resolution == resolution
+    }
+
+    static func lookupUncached(
+        _ descriptor: AgentCommandExecutionDescriptor
+    ) -> AgentCommandExecutableLookup {
+        if !descriptor.fallbackExecutables.isEmpty {
+            var firstCandidate: String?
+            var watchDirectories: [String] = []
+            var seenWatchDirectories = Set<String>()
+            for executable in [descriptor.executable] + descriptor.fallbackExecutables {
+                let candidateDescriptor = AgentCommandExecutionDescriptor(
+                    executable: executable,
+                    searchPath: descriptor.searchPath,
+                    workingDirectory: descriptor.workingDirectory
+                )
+                let lookup = lookupUncached(candidateDescriptor)
+                firstCandidate = firstCandidate ?? lookup.candidateLookupPath
+                for directory in lookup.watchDirectories
+                where seenWatchDirectories.insert(directory).inserted {
+                    watchDirectories.append(directory)
+                }
+                if let resolution = lookup.resolution {
+                    return AgentCommandExecutableLookup(
+                        resolution: AgentCommandExecutableResolution(
+                            descriptor: descriptor,
+                            lookupPath: resolution.lookupPath,
+                            realPath: resolution.realPath,
+                            cachePart: resolution.cachePart,
+                            watchDirectories: watchDirectories
+                        ),
+                        candidateLookupPath: resolution.lookupPath,
+                        watchDirectories: watchDirectories
+                    )
+                }
+            }
+            return AgentCommandExecutableLookup(
+                resolution: nil,
+                candidateLookupPath: firstCandidate,
+                watchDirectories: watchDirectories
+            )
+        }
+        let normalizedWorkingDirectory = descriptor.workingDirectory?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let baseURL = normalizedWorkingDirectory.flatMap { directory in
+            directory.hasPrefix("/") ? URL(fileURLWithPath: directory, isDirectory: true) : nil
+        }
+
+        func absolutePath(_ path: String) -> String? {
+            if path.hasPrefix("/") {
+                return URL(fileURLWithPath: path, isDirectory: false).standardizedFileURL.path
+            }
+            guard let baseURL else { return nil }
+            return URL(fileURLWithPath: path, relativeTo: baseURL).standardizedFileURL.path
+        }
+
+        if descriptor.executable.contains("/") {
+            guard let candidate = absolutePath(descriptor.executable) else {
+                // A cwd-ignored command runs in the destination terminal's
+                // startup directory, not cmux's process directory. Relative
+                // executable lookup is therefore unknowable here and must not
+                // be authorized against an unrelated local file.
+                return AgentCommandExecutableLookup(
+                    resolution: nil,
+                    candidateLookupPath: nil,
+                    watchDirectories: []
+                )
+            }
+            let watchDirectories = [URL(fileURLWithPath: candidate).deletingLastPathComponent().path]
+            return AgentCommandExecutableLookup(
+                resolution: executableResolution(
+                    descriptor: descriptor,
+                    lookupPath: candidate,
+                    watchDirectories: watchDirectories
+                ),
+                candidateLookupPath: candidate,
+                watchDirectories: watchDirectories
+            )
+        }
+
+        let rawSearchPath = descriptor.searchPath ?? "/usr/bin:/bin"
+        let searchDirectories = rawSearchPath.isEmpty
+            ? [""]
+            : rawSearchPath.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        var firstCandidate: String?
+        var watchDirectories: [String] = []
+        var seenWatchDirectories = Set<String>()
+        for directory in searchDirectories {
+            let relativeCandidate = (directory.isEmpty ? "." : directory) + "/" + descriptor.executable
+            guard let candidate = absolutePath(relativeCandidate) else {
+                // Empty and relative PATH components are evaluated against the
+                // shell's cwd in order. If that cwd is unknown, even a later
+                // absolute match is ambiguous because an earlier candidate may
+                // win when the command actually runs.
+                return AgentCommandExecutableLookup(
+                    resolution: nil,
+                    candidateLookupPath: firstCandidate,
+                    watchDirectories: watchDirectories
+                )
+            }
+            firstCandidate = firstCandidate ?? candidate
+            let watchDirectory = URL(fileURLWithPath: candidate).deletingLastPathComponent().path
+            if seenWatchDirectories.insert(watchDirectory).inserted {
+                watchDirectories.append(watchDirectory)
+            }
+            if let resolution = executableResolution(
+                descriptor: descriptor,
+                lookupPath: candidate,
+                watchDirectories: watchDirectories
+            ) {
+                return AgentCommandExecutableLookup(
+                    resolution: resolution,
+                    candidateLookupPath: candidate,
+                    watchDirectories: watchDirectories
+                )
+            }
+        }
+        return AgentCommandExecutableLookup(
+            resolution: nil,
+            candidateLookupPath: firstCandidate,
+            watchDirectories: watchDirectories
+        )
+    }
+
+    private static func executableResolution(
+        descriptor: AgentCommandExecutionDescriptor,
+        lookupPath: String,
+        watchDirectories: [String]
+    ) -> AgentCommandExecutableResolution? {
+        var status = stat()
+        guard stat(lookupPath, &status) == 0,
+              (status.st_mode & S_IFMT) == S_IFREG,
+              Darwin.access(lookupPath, X_OK) == 0 else {
+            return nil
+        }
+        let realPath = Darwin.realpath(lookupPath, nil).map { pointer in
+            defer { free(pointer) }
+            return String(cString: pointer)
+        } ?? lookupPath
+        let cachePart = [
+            realPath,
+            "dev=\(status.st_dev)",
+            "ino=\(status.st_ino)",
+            "mode=\(status.st_mode)",
+            "size=\(status.st_size)",
+            "mtime=\(status.st_mtimespec.tv_sec).\(status.st_mtimespec.tv_nsec)",
+            "ctime=\(status.st_ctimespec.tv_sec).\(status.st_ctimespec.tv_nsec)",
+        ].joined(separator: ":")
+        return AgentCommandExecutableResolution(
+            descriptor: descriptor,
+            lookupPath: lookupPath,
+            realPath: realPath,
+            cachePart: cachePart,
+            watchDirectories: watchDirectories
+        )
     }
 }

@@ -75,9 +75,40 @@ extension SessionRestorableAgentSnapshot {
         )
     }
 
+    var resumeExecutionDescriptor: AgentCommandExecutionDescriptor? {
+        if kind.restoreMode == .relaunchCommand {
+            return AgentRelaunchCommandBuilder().executionDescriptor(
+                kind: kind,
+                launchCommand: launchCommand,
+                workingDirectory: workingDirectory
+            )
+        }
+        return AgentResumeCommandBuilder.resumeExecutionDescriptor(
+            kind: kind,
+            sessionId: sessionId,
+            transcriptPath: transcriptPath,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            registrationOverride: registration,
+            observedPermissionMode: permissionMode
+        )
+    }
+
     var forkCommand: String? {
         guard kind.restoreMode == .resumeSession else { return nil }
         return AgentResumeCommandBuilder.forkShellCommand(
+            kind: kind,
+            sessionId: sessionId,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            registrationOverride: registration,
+            observedPermissionMode: permissionMode
+        )
+    }
+
+    var forkExecutionDescriptor: AgentCommandExecutionDescriptor? {
+        guard kind.restoreMode == .resumeSession else { return nil }
+        return AgentResumeCommandBuilder.forkExecutionDescriptor(
             kind: kind,
             sessionId: sessionId,
             launchCommand: launchCommand,
@@ -93,5 +124,17 @@ extension SessionRestorableAgentSnapshot {
             return name
         }
         return kind.displayName
+    }
+}
+
+extension SurfaceResumeBindingSnapshot {
+    var agentHookExecutionDescriptor: AgentCommandExecutionDescriptor? {
+        guard isAgentHookBinding else { return nil }
+        return AgentResumeCommandBuilder.surfaceResumeBindingExecutionDescriptor(
+            command: command,
+            kind: kind,
+            environment: environment,
+            workingDirectory: cwd
+        )
     }
 }

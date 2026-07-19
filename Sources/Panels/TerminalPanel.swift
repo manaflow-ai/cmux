@@ -36,6 +36,7 @@ struct AgentHibernationResumePlan: Sendable {
     let sessionId: String
     let hibernatedAt: Date
     let temporaryDirectory: URL
+    let executableResolution: AgentCommandExecutableResolution
 
     func matches(_ state: AgentHibernationPanelState) -> Bool {
         kind == state.agent.kind
@@ -724,13 +725,21 @@ final class TerminalPanel: Panel, ObservableObject {
         hibernatedAt: Date = Date(),
         finalValidation: @escaping @Sendable () async -> Bool,
         finalTeardownPreparation: @escaping @Sendable () -> (@Sendable () -> Void)? = { {} },
-        finalCommit: @escaping @Sendable () -> Bool = { true }
+        finalCommit: @escaping @Sendable () -> Bool = { true },
+        executableResolver: AgentCommandExecutableResolver = AgentCommandExecutableResolver()
     ) async -> Bool {
         guard agentHibernationState == nil,
+              let descriptor = agent.resumeExecutionDescriptor,
+              let executableResolution = executableResolver.resolve(descriptor),
               await surface.suspendRuntimeSurfaceForAgentHibernation(
                   reason: "agentHibernation",
                   finalValidation: finalValidation,
-                  finalTeardownPreparation: finalTeardownPreparation,
+                  finalTeardownPreparation: {
+                      guard AgentCommandExecutableResolver.revalidate(executableResolution) else {
+                          return nil
+                      }
+                      return finalTeardownPreparation()
+                  },
                   finalCommit: finalCommit
               ) else {
             return false
@@ -769,18 +778,21 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func agentHibernationResumePlan(
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        executableResolver: AgentCommandExecutableResolver = AgentCommandExecutableResolver()
     ) -> AgentHibernationResumePlan? {
         guard let state = agentHibernationState,
               surface.canPrepareAgentHibernationResume,
-              state.agent.resumeCommand != nil else {
+              let descriptor = state.agent.resumeExecutionDescriptor,
+              let executableResolution = executableResolver.resolve(descriptor) else {
             return nil
         }
         return AgentHibernationResumePlan(
             kind: state.agent.kind,
             sessionId: state.agent.sessionId,
             hibernatedAt: state.hibernatedAt,
-            temporaryDirectory: temporaryDirectory
+            temporaryDirectory: temporaryDirectory,
+            executableResolution: executableResolution
         )
     }
 
@@ -792,6 +804,7 @@ final class TerminalPanel: Panel, ObservableObject {
         guard let state = agentHibernationState,
               plan.matches(state),
               surface.canPrepareAgentHibernationResume,
+              AgentCommandExecutableResolver.revalidate(plan.executableResolution),
               let startupInput = state.agent.resumeStartupInput(
                   temporaryDirectory: plan.temporaryDirectory,
                   hibernationResumeAttemptId: hibernationResumeAttemptId

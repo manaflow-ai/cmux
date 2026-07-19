@@ -6013,6 +6013,7 @@ extension TabManager {
         let workspaceSnapshots = normalizedWorkspaceSnapshots
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         var restoredOriginalWorkspaceIds: [UUID?] = []
+        let agentCommandExecutableResolver = AgentCommandExecutableResolver()
         for workspaceSnapshot in workspaceSnapshots {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
@@ -6027,7 +6028,8 @@ extension TabManager {
             let restoredPanelIds = workspace.restoreSessionSnapshot(
                 workspaceSnapshot,
                 excludingStableIdentities: excludingStableIdentities,
-                restoredAgentHibernationAdoptionBatch: restoredAgentHibernationAdoptionBatch
+                restoredAgentHibernationAdoptionBatch: restoredAgentHibernationAdoptionBatch,
+                agentCommandExecutableResolver: agentCommandExecutableResolver
             )
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)

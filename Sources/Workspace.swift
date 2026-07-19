@@ -277,7 +277,8 @@ extension Workspace {
     func restoreSessionSnapshot(
         _ snapshot: SessionWorkspaceSnapshot,
         excludingStableIdentities: Set<UUID> = [],
-        restoredAgentHibernationAdoptionBatch: RestoredAgentHibernationAdoptionBatch? = nil
+        restoredAgentHibernationAdoptionBatch: RestoredAgentHibernationAdoptionBatch? = nil,
+        agentCommandExecutableResolver providedAgentCommandExecutableResolver: AgentCommandExecutableResolver? = nil
     ) -> [UUID: UUID] {
         let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
         let hibernationSuppression = beginAgentHibernationRestoreSuppression()
@@ -351,6 +352,8 @@ extension Workspace {
         var oldToNewPanelIds: [UUID: UUID] = [:]
         var pendingAgentHibernationAdoptions: [PendingRestoredAgentHibernationAdoption] = []
         var startupBreadcrumbEvents: [StartupBreadcrumbEvent] = []
+        let agentCommandExecutableResolver = providedAgentCommandExecutableResolver
+            ?? AgentCommandExecutableResolver()
 
         for entry in leafEntries {
             restorePane(
@@ -361,7 +364,8 @@ extension Workspace {
                 shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal,
                 oldToNewPanelIds: &oldToNewPanelIds,
                 startupBreadcrumbEvents: &startupBreadcrumbEvents,
-                pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions
+                pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions,
+                agentCommandExecutableResolver: agentCommandExecutableResolver
             )
         }
         if !startupBreadcrumbEvents.isEmpty {
@@ -1259,7 +1263,8 @@ extension Workspace {
             shouldRestoreSingleDefaultCloudTerminal: false,
             recordsStartupBreadcrumb: false,
             startupBreadcrumbEvents: &discardedStartupBreadcrumbEvents,
-            pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions
+            pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions,
+            agentCommandExecutableResolver: AgentCommandExecutableResolver()
         ) else { return nil }
         finalizeRestoredAgentHibernationAdoptions(pendingAgentHibernationAdoptions)
 
@@ -1306,7 +1311,8 @@ extension Workspace {
             shouldRestoreSingleDefaultCloudTerminal: false,
             recordsStartupBreadcrumb: false,
             startupBreadcrumbEvents: &discardedStartupBreadcrumbEvents,
-            pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions
+            pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions,
+            agentCommandExecutableResolver: AgentCommandExecutableResolver()
         ) else {
             _ = closePanel(placeholderPanel.id, force: true)
             return nil
@@ -1408,9 +1414,7 @@ extension Workspace {
         guard binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines) == restorableAgent.sessionId else {
             return binding
         }
-        if let bindingKind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !bindingKind.isEmpty,
-           RestorableAgentKind(rawValue: bindingKind) != restorableAgent.kind {
+        if !resumeBindingProviderMatches(binding.kind, agent: restorableAgent) {
             return binding
         }
 
@@ -1442,13 +1446,18 @@ extension Workspace {
            checkpointId != restorableAgent.sessionId {
             return nil
         }
-        if let kindValue = normalizedResumeBindingValue(resumeBinding.kind) {
-            guard let bindingKind = RestorableAgentKind(rawValue: kindValue),
-                  bindingKind == restorableAgent.kind else {
-                return nil
-            }
+        if !resumeBindingProviderMatches(resumeBinding.kind, agent: restorableAgent) {
+            return nil
         }
         return restorableAgent
+    }
+
+    nonisolated private static func resumeBindingProviderMatches(
+        _ rawKind: String?,
+        agent: SessionRestorableAgentSnapshot
+    ) -> Bool {
+        guard let kind = normalizedResumeBindingValue(rawKind) else { return true }
+        return kind == agent.kind.rawValue
     }
 
     nonisolated private static func normalizedResumeBindingValue(_ value: String?) -> String? {
@@ -1600,7 +1609,8 @@ extension Workspace {
         shouldRestoreSingleDefaultCloudTerminal: Bool,
         oldToNewPanelIds: inout [UUID: UUID],
         startupBreadcrumbEvents: inout [StartupBreadcrumbEvent],
-        pendingAgentHibernationAdoptions: inout [PendingRestoredAgentHibernationAdoption]
+        pendingAgentHibernationAdoptions: inout [PendingRestoredAgentHibernationAdoption],
+        agentCommandExecutableResolver: AgentCommandExecutableResolver
     ) {
         let existingPanelIds = bonsplitController
             .tabs(inPane: paneId)
@@ -1618,7 +1628,8 @@ extension Workspace {
                 shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal,
                 recordsStartupBreadcrumb: true,
                 startupBreadcrumbEvents: &startupBreadcrumbEvents,
-                pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions
+                pendingAgentHibernationAdoptions: &pendingAgentHibernationAdoptions,
+                agentCommandExecutableResolver: agentCommandExecutableResolver
             )
             if panelSnapshot.type != .terminal {
                 recordSessionRestorePanelBreadcrumb(
@@ -1709,7 +1720,8 @@ extension Workspace {
         shouldRestoreSingleDefaultCloudTerminal: Bool,
         recordsStartupBreadcrumb: Bool,
         startupBreadcrumbEvents: inout [StartupBreadcrumbEvent],
-        pendingAgentHibernationAdoptions: inout [PendingRestoredAgentHibernationAdoption]
+        pendingAgentHibernationAdoptions: inout [PendingRestoredAgentHibernationAdoption],
+        agentCommandExecutableResolver: AgentCommandExecutableResolver
     ) -> UUID? {
         let restoresUntrustedSavedDirectory = snapshot.directoryIsTrustedRemoteReport != true &&
             (snapshot.directoryRequiresRemoteTrust == true ||
@@ -1746,7 +1758,24 @@ extension Workspace {
             let restoresRemoteWorkspaceTerminalSnapshot =
                 remoteStartupCommand != nil &&
                 (snapshot.terminal?.isRemoteTerminal != false || shouldRestoreSingleDefaultCloudTerminal)
-            let restoredBindingLaunch: SurfaceResumeStartupLaunch? = if restoresRemoteWorkspaceTerminalSnapshot {
+            let selectedAgentHookBinding = effectiveResumeBindingForStartup.flatMap {
+                $0.isAgentHookBinding ? $0 : nil
+            }
+            let shouldPreflightResumeExecutable = !restoresRemoteWorkspaceTerminalSnapshot
+                && shouldAutoResumeAgent
+                && restoredHibernation == nil
+            let selectedAgentHookBindingExecutableUnavailable = selectedAgentHookBinding.map { binding in
+                guard let descriptor = binding.agentHookExecutionDescriptor else { return true }
+                return agentCommandExecutableResolver.resolve(descriptor) == nil
+            } ?? false
+            let selectedBindingExecutableUnavailable = shouldPreflightResumeExecutable
+                && selectedAgentHookBinding != nil
+                && selectedAgentHookBindingExecutableUnavailable
+            let candidateRestoredBindingLaunch: SurfaceResumeStartupLaunch? = if selectedBindingExecutableUnavailable {
+                // Do not write an oversized launcher script for a command that
+                // cannot pass local executable preflight.
+                nil
+            } else if restoresRemoteWorkspaceTerminalSnapshot {
                 effectiveResumeBindingForStartup?.remoteStartupInputWithLauncherScript(allowLauncherScript: false)
                     .map(SurfaceResumeStartupLaunch.input)
             } else {
@@ -1757,6 +1786,18 @@ extension Workspace {
                     )
                 }
             }
+            let restorableAgentExecutableUnavailable = restorableAgent.map { agent in
+                guard let descriptor = agent.resumeExecutionDescriptor else { return true }
+                return agentCommandExecutableResolver.resolve(descriptor) == nil
+            } ?? false
+            let selectedRestorableAgentExecutableUnavailable = shouldPreflightResumeExecutable
+                && selectedAgentHookBinding == nil
+                && candidateRestoredBindingLaunch == nil
+                && restorableAgent != nil
+                && restorableAgentExecutableUnavailable
+            let resumeExecutableUnavailable = selectedBindingExecutableUnavailable
+                || selectedRestorableAgentExecutableUnavailable
+            let restoredBindingLaunch = candidateRestoredBindingLaunch
             let effectiveResumeBinding = restoredBindingLaunch == nil ? nil : resumeBinding
             let savedWorkingDirectory = effectiveResumeBinding?.cwd
                 ?? (restoresUntrustedSavedDirectory ? nil : snapshot.terminal?.workingDirectory)
@@ -1791,7 +1832,11 @@ extension Workspace {
             }
             let restoredTmuxStartCommand = restoredTmuxStartupScript == nil ? nil : restorableTmuxStartCommand
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
-                if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil {
+                if shouldAutoResumeAgent
+                    && restoredHibernation == nil
+                    && restoredBindingLaunch == nil
+                    && selectedAgentHookBinding == nil
+                    && !resumeExecutableUnavailable {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         restorableAgent?.resumeStartupInput(allowLauncherScript: false, allowOversizedInlineInput: true)
                             .map(SurfaceResumeStartupLaunch.input)
@@ -1927,6 +1972,7 @@ extension Workspace {
                 if restoredBindingLaunch != nil { return "binding" }
                 if restoredAgentResumeLaunch != nil { return "agent" }
                 if restoredHibernation != nil { return "hibernated" }
+                if resumeExecutableUnavailable { return "resume_executable_unavailable" }
                 if snapshot.terminal?.resumeBinding != nil {
                     switch bindingReason {
                     case "auto_resume_disabled": return "auto_resume_disabled"
@@ -2073,6 +2119,7 @@ extension Workspace {
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: terminalPanel.id)
             }
             let shouldRecordResumeIntent = restoredHibernation == nil
+                && (restoredBindingLaunch != nil || restoredAgentResumeLaunch != nil)
             if let restorableAgent {
                 seedSessionRestoredAgentState(
                     panelId: terminalPanel.id,
@@ -5241,11 +5288,14 @@ final class Workspace: Identifiable, ObservableObject {
         agent: SessionRestorableAgentSnapshot,
         lastActivityAt: Date,
         finalValidation: @escaping @Sendable () async -> Bool,
-        finalTeardownPreparation: @escaping @Sendable () -> (@Sendable () -> Void)? = { {} }
+        finalTeardownPreparation: @escaping @Sendable () -> (@Sendable () -> Void)? = { {} },
+        executableResolver: AgentCommandExecutableResolver = AgentCommandExecutableResolver()
     ) async -> Bool {
         guard let terminalPanel = panels[panelId] as? TerminalPanel,
               !terminalPanel.isAgentHibernated,
-              agent.resumeCommand != nil else {
+              agent.resumeCommand != nil,
+              let resumeExecutionDescriptor = agent.resumeExecutionDescriptor,
+              executableResolver.resolve(resumeExecutionDescriptor) != nil else {
             return false
         }
         let agentHookBinding = surfaceResumeBindingsByPanelId[panelId].flatMap {
@@ -5278,7 +5328,8 @@ final class Workspace: Identifiable, ObservableObject {
                     attemptId: hibernationAttemptId,
                     now: hibernatedAtTimestamp
                 ) == .acquired
-            }
+            },
+            executableResolver: executableResolver
         )
         guard didHibernate else {
             if requiresDurableAuthority {
@@ -5363,13 +5414,16 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func agentHibernationResumeCandidate(
-        panelId: UUID
+        panelId: UUID,
+        executableResolver: AgentCommandExecutableResolver
     ) -> AgentHibernationResumeCandidate? {
         guard pendingRestoredAgentHibernationAdoptionsByPanelId[panelId] == nil,
               let terminalPanel = panels[panelId] as? TerminalPanel,
               terminalPanel.isAgentHibernated,
               let hibernatedAgent = terminalPanel.agentHibernationState?.agent,
-              let plan = terminalPanel.agentHibernationResumePlan() else {
+              let plan = terminalPanel.agentHibernationResumePlan(
+                  executableResolver: executableResolver
+              ) else {
             return nil
         }
         guard let agentHookBinding = surfaceResumeBindingsByPanelId[panelId].flatMap({
@@ -5408,7 +5462,7 @@ final class Workspace: Identifiable, ObservableObject {
         let kind = binding.kind?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return (checkpointId == nil || checkpointId == agent.sessionId)
-            && (kind.map { RestorableAgentKind(rawValue: $0) == agent.kind } ?? true)
+            && Self.resumeBindingProviderMatches(kind, agent: agent)
     }
 
     @discardableResult
@@ -5424,9 +5478,15 @@ final class Workspace: Identifiable, ObservableObject {
             AgentHookSessionStateWriter.acquireHibernatedResumeAuthorities($0)
         }
     ) -> Bool {
+        let executableResolver = AgentCommandExecutableResolver()
         let candidates = panelIds
             .sorted { $0.uuidString < $1.uuidString }
-            .compactMap(agentHibernationResumeCandidate(panelId:))
+            .compactMap {
+                agentHibernationResumeCandidate(
+                    panelId: $0,
+                    executableResolver: executableResolver
+                )
+            }
         let authorityRequests = candidates.compactMap { candidate in
             if case .claim(let request) = candidate.authority { return request }
             return nil

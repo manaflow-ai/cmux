@@ -1296,11 +1296,28 @@ final class SharedLiveAgentIndex {
                     watchGeneration = nil
                     refreshBeforeReuse = false
                 case "unresolved":
+                    let watchGeneration = await updateForkExecutableWatch(
+                        for: resolvedProbeKey,
+                        requestingPanelKey: panelKey,
+                        lookupPath: executableResolutionBeforeProbe.lookupPath,
+                        realPath: nil,
+                        watchDirectories: executableResolutionBeforeProbe.watchDirectories
+                    )
+                    guard !Task.isCancelled else {
+                        markCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
+                        removeForkSupportValidation(for: resolvedProbeKey)
+                        restorePendingForkValidationsAfterCancellation(
+                            unprocessedRequestsByProbeKey,
+                            dropping: pendingRequestIDsToRemoveOnCancellation
+                        )
+                        return processedPanelIdsByWorkspaceId
+                    }
                     storeRejectedForkSupportValidation(
                         identity: identity,
                         for: resolvedProbeKey,
                         requiresLiveIndexPanel: validationRequiresLiveIndexPanel,
-                        refreshBeforeReuse: false
+                        refreshBeforeReuse: watchGeneration == nil,
+                        preserveExecutableWatch: watchGeneration != nil
                     )
                     continue
                 case "resolved":
@@ -1513,9 +1530,12 @@ final class SharedLiveAgentIndex {
         identity: String,
         for probeKey: ForkProbeKey,
         requiresLiveIndexPanel: Bool,
-        refreshBeforeReuse: Bool = false
+        refreshBeforeReuse: Bool = false,
+        preserveExecutableWatch: Bool = false
     ) {
-        clearForkExecutableWatch(for: probeKey)
+        if !preserveExecutableWatch {
+            clearForkExecutableWatch(for: probeKey)
+        }
         validatedForkSupport[probeKey] = ForkSupportValidation(
             identity: identity,
             executableFingerprint: nil,
@@ -1621,7 +1641,7 @@ final class SharedLiveAgentIndex {
         watchDirectories: [String]
     ) async -> UUID? {
         clearForkExecutableWatch(for: probeKey)
-        guard let lookupPath, let realPath else { return nil }
+        guard let lookupPath else { return nil }
         let resolvedWatchPaths = await resolveForkExecutableWatchPaths(
             lookupPath: lookupPath,
             realPath: realPath,
@@ -1725,7 +1745,7 @@ final class SharedLiveAgentIndex {
 
     private func resolveForkExecutableWatchPaths(
         lookupPath: String,
-        realPath: String,
+        realPath: String?,
         watchDirectories: [String]
     ) async -> ForkExecutableWatchKey? {
         let key = Self.forkExecutableWatchPathTaskKey(
@@ -1835,10 +1855,10 @@ final class SharedLiveAgentIndex {
 
     nonisolated private static func forkExecutableWatchPathTaskKey(
         lookupPath: String,
-        realPath: String,
+        realPath: String?,
         watchDirectories: [String]
     ) -> String {
-        ([lookupPath, realPath] + watchDirectories.sorted()).joined(separator: "\u{1f}")
+        ([lookupPath, realPath ?? ""] + watchDirectories.sorted()).joined(separator: "\u{1f}")
     }
 
     nonisolated private static func forkExecutableWatchOpenTaskKey(
@@ -1867,13 +1887,21 @@ final class SharedLiveAgentIndex {
 
     nonisolated private static func forkExecutableWatchPaths(
         lookupPath: String,
-        realPath: String,
+        realPath: String?,
         watchDirectories: [String]
     ) -> [String]? {
         var watchPaths = Set<String>()
-        watchPaths.insert(realPath)
+        if let realPath,
+           FileManager.default.fileExists(atPath: realPath) {
+            watchPaths.insert(realPath)
+        }
         let lookupDirectory = URL(fileURLWithPath: lookupPath).deletingLastPathComponent().path
-        watchPaths.insert(lookupDirectory)
+        guard let watchableLookupDirectory = watchableDirectoryPath(
+            forDirectoryPath: lookupDirectory
+        ) else {
+            return nil
+        }
+        watchPaths.insert(watchableLookupDirectory)
         guard insertForkExecutableSymlinkRetargetWatchPaths(
             forPath: lookupDirectory,
             into: &watchPaths

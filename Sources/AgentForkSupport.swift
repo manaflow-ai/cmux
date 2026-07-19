@@ -47,6 +47,7 @@ enum AgentForkSupport {
         case notRequired
         case skipRemoteLikeContext
         case unresolved
+        case command(AgentCommandExecutionDescriptor)
         case run(
             probe: (executable: String, arguments: [String]),
             processEnvironment: [String: String],
@@ -101,6 +102,18 @@ enum AgentForkSupport {
         if isRemoteContext,
            snapshot.forkStartupInput(allowLauncherScript: false) == nil {
             return false
+        }
+        let capabilityProbeOwnsExecutableValidation = requiresLocalPiFamilyCapabilityProbe(snapshot)
+            || (snapshot.kind == .opencode
+                && snapshot.launchCommand?.launcher != "omo"
+                && AgentResumeCommandBuilder.openCodeVersionProbe(
+                    launchCommand: snapshot.launchCommand
+                ) != nil)
+        if !isRemoteContext && !capabilityProbeOwnsExecutableValidation {
+            guard let descriptor = snapshot.forkExecutionDescriptor,
+                  AgentCommandExecutableResolver().resolve(descriptor) != nil else {
+                return false
+            }
         }
         if requiresLocalPiFamilyCapabilityProbe(snapshot) {
             if isRemoteContext {
@@ -619,8 +632,6 @@ enum AgentForkSupport {
             return nil
         case .rejectMissingWorkingDirectory:
             return nil
-        case .rejectMissingExecutable:
-            return nil
         }
         return forkProbeExecutableIdentity(
             executable: probe.executable,
@@ -634,36 +645,19 @@ enum AgentForkSupport {
         processEnvironment: [String: String],
         workingDirectory: String?
     ) -> ForkProbeExecutableIdentity? {
-        guard let executableResolution = resolvedProbeExecutable(
+        let descriptor = AgentCommandExecutionDescriptor(
             executable: executable,
-            processEnvironment: processEnvironment,
+            searchPath: processEnvironment["PATH"],
             workingDirectory: workingDirectory
-        ) else {
+        )
+        guard let resolution = AgentCommandExecutableResolver().resolve(descriptor) else {
             return nil
         }
-        let executablePath = executableResolution.path
-        var status = stat()
-        guard stat(executablePath, &status) == 0 else {
-            return nil
-        }
-        let realPath = realpath(executablePath, nil).map { pointer in
-            defer { free(pointer) }
-            return String(cString: pointer)
-        } ?? executablePath
-        let cachePart = [
-            realPath,
-            "dev=\(status.st_dev)",
-            "ino=\(status.st_ino)",
-            "mode=\(status.st_mode)",
-            "size=\(status.st_size)",
-            "mtime=\(status.st_mtimespec.tv_sec).\(status.st_mtimespec.tv_nsec)",
-            "ctime=\(status.st_ctimespec.tv_sec).\(status.st_ctimespec.tv_nsec)",
-        ].joined(separator: ":")
         return (
-            lookupPath: executablePath,
-            realPath: realPath,
-            cachePart: cachePart,
-            watchDirectories: executableResolution.watchDirectories
+            lookupPath: resolution.lookupPath,
+            realPath: resolution.realPath,
+            cachePart: resolution.cachePart,
+            watchDirectories: resolution.watchDirectories
         )
     }
 
@@ -671,13 +665,7 @@ enum AgentForkSupport {
         snapshot: SessionRestorableAgentSnapshot,
         isRemoteContext: Bool = false
     ) -> Bool {
-        guard !isRemoteContext else { return false }
-        if requiresLocalPiFamilyCapabilityProbe(snapshot) {
-            return true
-        }
-        return snapshot.kind == .opencode
-            && snapshot.launchCommand?.launcher != "omo"
-            && AgentResumeCommandBuilder.openCodeVersionProbe(launchCommand: snapshot.launchCommand) != nil
+        !isRemoteContext && snapshot.forkExecutionDescriptor != nil
     }
 
     static func forkValidationExecutableResolution(
@@ -694,15 +682,47 @@ enum AgentForkSupport {
             return ("skipRemoteLikeContext", nil, nil, nil, [])
         case .unresolved:
             return ("unresolved", nil, nil, nil, [])
-        case .run(let probe, let processEnvironment, let workingDirectory, _):
-            guard let identity = forkProbeExecutableIdentity(
-                executable: probe.executable,
-                processEnvironment: processEnvironment,
-                workingDirectory: workingDirectory
-            ) else {
-                return ("unresolved", nil, nil, nil, [])
+        case .command(let descriptor):
+            let lookup = AgentCommandExecutableResolver().lookup(descriptor)
+            guard let resolution = lookup.resolution else {
+                return (
+                    "unresolved",
+                    lookup.candidateLookupPath,
+                    nil,
+                    nil,
+                    lookup.watchDirectories
+                )
             }
-            return ("resolved", identity.lookupPath, identity.realPath, identity.cachePart, identity.watchDirectories)
+            return (
+                "resolved",
+                resolution.lookupPath,
+                resolution.realPath,
+                resolution.cachePart,
+                resolution.watchDirectories
+            )
+        case .run(let probe, let processEnvironment, let workingDirectory, _):
+            let descriptor = AgentCommandExecutionDescriptor(
+                executable: probe.executable,
+                searchPath: processEnvironment["PATH"],
+                workingDirectory: workingDirectory
+            )
+            let lookup = AgentCommandExecutableResolver().lookup(descriptor)
+            guard let resolution = lookup.resolution else {
+                return (
+                    "unresolved",
+                    lookup.candidateLookupPath,
+                    nil,
+                    nil,
+                    lookup.watchDirectories
+                )
+            }
+            return (
+                "resolved",
+                resolution.lookupPath,
+                resolution.realPath,
+                resolution.cachePart,
+                resolution.watchDirectories
+            )
         }
     }
 
@@ -723,6 +743,13 @@ enum AgentForkSupport {
             ] + probe.arguments + processEnvironment.keys.sorted().compactMap { key in
                 processEnvironment[key].map { "\(key)=\($0)" }
             }).joined(separator: "\u{1f}")
+        case .command(let descriptor):
+            return ([
+                "remote=\(isRemoteContext)",
+                descriptor.executable,
+                "path=\(descriptor.searchPath ?? "")",
+                "cwd=\(descriptor.workingDirectory ?? "")",
+            ] + descriptor.fallbackExecutables).joined(separator: "\u{1f}")
         case .notRequired, .skipRemoteLikeContext, .unresolved:
             return nil
         }
@@ -754,7 +781,10 @@ enum AgentForkSupport {
             probe = openCodeProbe
             useDefaultDirectoryWhenWorkingDirectoryIsMissing = false
         } else {
-            return .notRequired
+            guard let descriptor = snapshot.forkExecutionDescriptor else {
+                return .notRequired
+            }
+            return .command(descriptor)
         }
 
         let requestedWorkingDirectory = probeWorkingDirectory(snapshot: snapshot)
@@ -771,8 +801,6 @@ enum AgentForkSupport {
         case .skipRemoteLikeContext:
             return .skipRemoteLikeContext
         case .rejectMissingWorkingDirectory:
-            return .unresolved
-        case .rejectMissingExecutable:
             return .unresolved
         }
         return .run(
@@ -823,48 +851,6 @@ enum AgentForkSupport {
             return nil
         }
         return (lookupPath, realPath, cachePart)
-    }
-
-    private static func resolvedProbeExecutable(
-        executable: String,
-        processEnvironment: [String: String],
-        workingDirectory: String?
-    ) -> (path: String, watchDirectories: [String])? {
-        let baseDirectory = workingDirectory ?? FileManager.default.currentDirectoryPath
-        func absolutePath(_ path: String) -> String {
-            if path.hasPrefix("/") {
-                return path
-            }
-            return URL(fileURLWithPath: path, relativeTo: URL(fileURLWithPath: baseDirectory, isDirectory: true))
-                .standardizedFileURL
-                .path
-        }
-
-        if executable.contains("/") {
-            let path = absolutePath(executable)
-            guard isRegularExecutableFile(atPath: path) else { return nil }
-            return (path, [URL(fileURLWithPath: path).deletingLastPathComponent().path])
-        }
-
-        let pathDirectories = (processEnvironment["PATH"] ?? "")
-            .split(separator: ":", omittingEmptySubsequences: false)
-            .map(String.init)
-        var watchDirectories: [String] = []
-        for directory in pathDirectories {
-            let candidate = absolutePath((directory.isEmpty ? "." : directory) + "/" + executable)
-            watchDirectories.append(URL(fileURLWithPath: candidate).deletingLastPathComponent().path)
-            if isRegularExecutableFile(atPath: candidate) {
-                return (candidate, watchDirectories)
-            }
-        }
-        return nil
-    }
-
-    private static func isRegularExecutableFile(atPath path: String) -> Bool {
-        var status = stat()
-        guard stat(path, &status) == 0 else { return false }
-        guard (status.st_mode & S_IFMT) == S_IFREG else { return false }
-        return access(path, X_OK) == 0
     }
 
     static func probeOutputPipeHandles(
@@ -1197,20 +1183,14 @@ enum AgentForkSupport {
         case run
         case skipRemoteLikeContext
         case rejectMissingWorkingDirectory
-        case rejectMissingExecutable
     }
 
     private static func localForkProbeDecision(
-        probe: (executable: String, arguments: [String]),
+        probe _: (executable: String, arguments: [String]),
         workingDirectory: String?
     ) -> LocalForkProbeDecision {
         if let workingDirectory, localDirectoryURL(path: workingDirectory) == nil {
             return .rejectMissingWorkingDirectory
-        }
-        if probe.executable.hasPrefix("/") {
-            return isRegularExecutableFile(atPath: probe.executable)
-                ? .run
-                : .rejectMissingExecutable
         }
         return .run
     }

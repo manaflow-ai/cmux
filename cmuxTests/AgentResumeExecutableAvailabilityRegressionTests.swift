@@ -430,6 +430,124 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @MainActor
+    @Test func missingExecutableRejectsLiveHibernationBeforeValidationOrAuthorityCommit() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-live-hibernation-missing-executable-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let missingExecutable = root.appendingPathComponent("missing-agent", isDirectory: false)
+        let agent = resumeExecutableTestAgent(
+            kind: .amp,
+            sessionID: "live-hibernation-missing-executable",
+            executable: missingExecutable.path,
+            workingDirectory: root.path
+        )
+        let workspace = Workspace(workingDirectory: root.path)
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.terminalPanel(for: panelID))
+        let runtimeSurface = UnsafeMutableRawPointer(bitPattern: 0x78670001)!
+        panel.surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        let validationCalled = AtomicBooleanGate(false)
+        let teardownPreparationCalled = AtomicBooleanGate(false)
+        let authorityCommitCalled = AtomicBooleanGate(false)
+        let nativeFreeCalled = AtomicBooleanGate(false)
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            nativeFreeCalled.storeRelease(true)
+        }
+        defer {
+            if panel.surface.surface == runtimeSurface {
+                panel.surface.teardownSurface()
+            }
+            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
+        }
+
+        let didHibernate = await panel.enterAgentHibernation(
+            agent: agent,
+            lastActivityAt: Date(timeIntervalSince1970: 10),
+            finalValidation: {
+                validationCalled.storeRelease(true)
+                return true
+            },
+            finalTeardownPreparation: {
+                teardownPreparationCalled.storeRelease(true)
+                return {}
+            },
+            finalCommit: {
+                authorityCommitCalled.storeRelease(true)
+                return true
+            }
+        )
+
+        #expect(!didHibernate)
+        #expect(!panel.isAgentHibernated)
+        #expect(panel.surface.surface == runtimeSurface)
+        #expect(!validationCalled.loadAcquire())
+        #expect(!teardownPreparationCalled.loadAcquire())
+        #expect(!authorityCommitCalled.loadAcquire())
+        #expect(!nativeFreeCalled.loadAcquire())
+    }
+
+    @MainActor
+    @Test func executableRemovedDuringValidationRejectsLiveHibernationBeforeFinalTeardown() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-live-hibernation-executable-race-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let executable = root.appendingPathComponent("agent", isDirectory: false)
+        try writeResumeTestExecutable(at: executable)
+        let agent = resumeExecutableTestAgent(
+            kind: .amp,
+            sessionID: "live-hibernation-executable-race",
+            executable: executable.path,
+            workingDirectory: root.path
+        )
+        let workspace = Workspace(workingDirectory: root.path)
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.terminalPanel(for: panelID))
+        let runtimeSurface = UnsafeMutableRawPointer(bitPattern: 0x78670002)!
+        panel.surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        let validationCalled = AtomicBooleanGate(false)
+        let teardownPreparationCalled = AtomicBooleanGate(false)
+        let authorityCommitCalled = AtomicBooleanGate(false)
+        let nativeFreeCalled = AtomicBooleanGate(false)
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            nativeFreeCalled.storeRelease(true)
+        }
+        defer {
+            if panel.surface.surface == runtimeSurface {
+                panel.surface.teardownSurface()
+            }
+            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
+        }
+
+        let didHibernate = await panel.enterAgentHibernation(
+            agent: agent,
+            lastActivityAt: Date(timeIntervalSince1970: 10),
+            finalValidation: {
+                validationCalled.storeRelease(true)
+                try? FileManager.default.removeItem(at: executable)
+                return true
+            },
+            finalTeardownPreparation: {
+                teardownPreparationCalled.storeRelease(true)
+                return {}
+            },
+            finalCommit: {
+                authorityCommitCalled.storeRelease(true)
+                return true
+            }
+        )
+
+        #expect(!didHibernate)
+        #expect(!panel.isAgentHibernated)
+        #expect(panel.surface.surface == runtimeSurface)
+        #expect(validationCalled.loadAcquire())
+        #expect(!teardownPreparationCalled.loadAcquire())
+        #expect(!authorityCommitCalled.loadAcquire())
+        #expect(!nativeFreeCalled.loadAcquire())
+    }
+
+    @MainActor
     @Test func missingExecutableOrdinaryAutoRestoreFallsBackToManualResume() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-auto-restore-missing-executable-\(UUID().uuidString)", isDirectory: true)
@@ -487,6 +605,192 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
     }
 
+    @Test func cwdIgnoredCommandsFailClosedWhenExecutableLookupDependsOnUnknownCWD() throws {
+        let currentDirectory = URL(
+            fileURLWithPath: FileManager.default.currentDirectoryPath,
+            isDirectory: true
+        ).standardizedFileURL
+        let upwardComponents = Array(
+            repeating: "..",
+            count: max(0, currentDirectory.pathComponents.count - 1)
+        )
+        let relativeSystemShell = (upwardComponents + ["bin", "sh"]).joined(separator: "/")
+        var registration = CmuxVaultAgentRegistration.builtInOmp
+        registration.cwd = .ignore
+        let relativeExecutableAgent = resumeExecutableTestAgent(
+            kind: .custom("omp"),
+            sessionID: "cwd-ignore-relative-executable",
+            executable: relativeSystemShell,
+            workingDirectory: "/tmp/ignored-launch-cwd",
+            registration: registration,
+            launchEnvironment: ["PATH": "/usr/bin:/bin"]
+        )
+        let relativeDescriptor = try #require(relativeExecutableAgent.resumeExecutionDescriptor)
+        #expect(relativeDescriptor.workingDirectory == nil)
+        #expect(AgentCommandExecutableResolver().resolve(relativeDescriptor) == nil)
+
+        let emptyPATHAgent = resumeExecutableTestAgent(
+            kind: .custom("omp"),
+            sessionID: "cwd-ignore-empty-path-entry",
+            executable: "sh",
+            workingDirectory: "/tmp/ignored-launch-cwd",
+            registration: registration,
+            launchEnvironment: ["PATH": ":/usr/bin"]
+        )
+        let emptyPATHDescriptor = try #require(emptyPATHAgent.resumeExecutionDescriptor)
+        #expect(emptyPATHDescriptor.workingDirectory == nil)
+        #expect(emptyPATHDescriptor.searchPath == ":/usr/bin")
+        #expect(AgentCommandExecutableResolver().resolve(emptyPATHDescriptor) == nil)
+    }
+
+    @Test func bindingPreflightMirrorsPortableWrapperFallbackWithoutGeneralAbsoluteFallback() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-binding-wrapper-preflight-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bareCodex = bin.appendingPathComponent("codex", isDirectory: false)
+        let bareAmp = bin.appendingPathComponent("amp", isDirectory: false)
+        let bareClaude = bin.appendingPathComponent("claude", isDirectory: false)
+        try writeResumeTestExecutable(at: bareCodex)
+        try writeResumeTestExecutable(at: bareAmp)
+        try writeResumeTestExecutable(at: bareClaude)
+
+        let staleCodex = root
+            .appendingPathComponent("removed", isDirectory: true)
+            .appendingPathComponent("codex", isDirectory: false)
+        let codexBinding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "'\(staleCodex.path)' 'resume' 'binding-codex-session'",
+            cwd: root.path,
+            checkpointId: "binding-codex-session",
+            source: "agent-hook",
+            environment: ["PATH": bin.path],
+            autoResume: true
+        )
+        let codexDescriptor = try #require(codexBinding.agentHookExecutionDescriptor)
+        #expect(codexDescriptor.executable == staleCodex.path)
+        #expect(codexDescriptor.fallbackExecutables == ["codex"])
+        #expect(AgentCommandExecutableResolver().resolve(codexDescriptor)?.lookupPath == bareCodex.path)
+
+        let staleAmp = root
+            .appendingPathComponent("removed", isDirectory: true)
+            .appendingPathComponent("amp", isDirectory: false)
+        let ampBinding = SurfaceResumeBindingSnapshot(
+            kind: "amp",
+            command: "'\(staleAmp.path)' 'threads' 'continue' 'binding-amp-session'",
+            cwd: root.path,
+            checkpointId: "binding-amp-session",
+            source: "agent-hook",
+            environment: ["PATH": bin.path],
+            autoResume: true
+        )
+        let ampDescriptor = try #require(ampBinding.agentHookExecutionDescriptor)
+        #expect(ampDescriptor.executable == staleAmp.path)
+        #expect(ampDescriptor.fallbackExecutables.isEmpty)
+        #expect(AgentCommandExecutableResolver().resolve(ampDescriptor) == nil)
+
+        let managedClaude = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/bin/claude", isDirectory: false)
+        let claudeBinding = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "'\(managedClaude.path)' '--resume' 'binding-claude-session'",
+            cwd: root.path,
+            checkpointId: "binding-claude-session",
+            source: "agent-hook",
+            environment: ["PATH": bin.path],
+            autoResume: true
+        )
+        let claudeDescriptor = try #require(claudeBinding.agentHookExecutionDescriptor)
+        if claudeDescriptor.executable == "claude" {
+            #expect(claudeDescriptor.fallbackExecutables.isEmpty)
+        } else {
+            #expect(claudeDescriptor.fallbackExecutables == ["claude"])
+        }
+        #expect(AgentCommandExecutableResolver().resolve(claudeDescriptor) != nil)
+    }
+
+    @MainActor
+    @Test func unavailableWinningAgentHookBindingSuppressesSnapshotAndBindingOnlyAutoResume() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-binding-executable-unavailable-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let availableSnapshotExecutable = root.appendingPathComponent("available-amp", isDirectory: false)
+        try writeResumeTestExecutable(at: availableSnapshotExecutable)
+        let missingBindingExecutable = root.appendingPathComponent("missing-amp", isDirectory: false)
+        let defaultsSuite = "cmux-binding-executable-unavailable-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuite))
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+
+        for includesSnapshot in [true, false] {
+            let sessionID = includesSnapshot
+                ? "stale-snapshot-binding-session"
+                : "binding-only-missing-session"
+            let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+            let sourcePanelID = try #require(source.focusedPanelId)
+            var snapshot = source.sessionSnapshot(includeScrollback: false)
+            let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelID })
+            var terminal = try #require(snapshot.panels[panelIndex].terminal)
+            if includesSnapshot {
+                terminal.agent = resumeExecutableTestAgent(
+                    kind: .amp,
+                    sessionID: sessionID,
+                    executable: availableSnapshotExecutable.path,
+                    workingDirectory: root.path
+                )
+            } else {
+                terminal.agent = nil
+            }
+            terminal.resumeBinding = SurfaceResumeBindingSnapshot(
+                name: "Amp",
+                kind: "amp",
+                command: "'\(missingBindingExecutable.path)' 'threads' 'continue' '\(sessionID)'",
+                cwd: root.path,
+                checkpointId: sessionID,
+                source: "agent-hook",
+                autoResume: true,
+                updatedAt: 20
+            )
+            terminal.hibernation = nil
+            terminal.wasAgentRunning = true
+            terminal.scrollback = "saved binding output"
+            snapshot.panels[panelIndex].terminal = terminal
+            var breadcrumbs: [[StartupBreadcrumbEvent]] = []
+
+            let restored = Workspace(
+                agentSessionAutoResumeDefaults: defaults,
+                startupBreadcrumbBatchWriter: { breadcrumbs.append($0) }
+            )
+            let mapping = restored.restoreSessionSnapshot(snapshot)
+            let panelID = try #require(mapping[sourcePanelID])
+            let panel = try #require(restored.terminalPanel(for: panelID))
+            #expect(panel.surface.debugInitialCommand() == nil, Comment(rawValue: sessionID))
+            #expect(!panel.surface.debugInitialInputMetadata().hasInitialInput, Comment(rawValue: sessionID))
+            let persistedTerminal = try #require(
+                restored.sessionSnapshot(includeScrollback: false)
+                    .panels.first { $0.id == panelID }?.terminal
+            )
+            #expect(
+                persistedTerminal.resumeBinding?.command.contains(missingBindingExecutable.path) == true,
+                Comment(rawValue: sessionID)
+            )
+            #expect(
+                (restored.restoredAgentSnapshotForTesting(panelId: panelID) != nil) == includesSnapshot,
+                Comment(rawValue: sessionID)
+            )
+            let event = try #require(breadcrumbs.flatMap { $0 }.first {
+                $0.fields["panel"] == String(sourcePanelID.uuidString.lowercased().prefix(8))
+            })
+            #expect(event.fields["resume"] == "suppressed", Comment(rawValue: sessionID))
+            #expect(
+                event.fields["resumeReason"] == "resume_executable_unavailable",
+                Comment(rawValue: sessionID)
+            )
+        }
+    }
+
     @MainActor
     @Test func registryOwnedCustomProviderBindingsSurviveRoundTripAndClaimExactAuthority() throws {
         let root = FileManager.default.temporaryDirectory
@@ -518,13 +822,14 @@ extension CMUXCLIErrorOutputRegressionTests {
                 registrations[index].detect = CmuxVaultAgentDetectRule(processName: executable.lastPathComponent)
                 let workingDirectory = root.appendingPathComponent("\(provider)-working", isDirectory: true)
                 try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
-                let agent = resumeExecutableTestAgent(
+                var agent = resumeExecutableTestAgent(
                     kind: .custom(provider),
                     sessionID: "registry-owned-\(provider)-session",
                     executable: executable.path,
                     workingDirectory: workingDirectory.path,
                     registration: registrations[index]
                 )
+                if provider == "grok" { agent.launchCommand?.executablePath = nil }
                 let fixture = try makeHibernatedRestoreFixture(root: root, agent: agent)
                 var snapshot = fixture.snapshot
                 let sourcePanelIndex = try #require(
@@ -883,15 +1188,6 @@ extension WorkspaceForkConversationContextMenuTests {
         let bin = root.appendingPathComponent("bin", isDirectory: true)
         try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
-        let previousPATH = ProcessInfo.processInfo.environment["PATH"]
-        setenv("PATH", bin.path, 1)
-        defer {
-            if let previousPATH {
-                setenv("PATH", previousPATH, 1)
-            } else {
-                unsetenv("PATH")
-            }
-        }
 
         let customRegistration = CmuxVaultAgentRegistration(
             id: "fork-executable-vault",
@@ -901,6 +1197,8 @@ extension WorkspaceForkConversationContextMenuTests {
             resumeCommand: "{{executable}} --resume {{sessionId}}",
             forkCommand: "{{executable}} --fork {{sessionId}}"
         )
+        let grokExecutable = bin.appendingPathComponent("grok-fork", isDirectory: false)
+        let vaultExecutable = bin.appendingPathComponent("vault-fork", isDirectory: false)
         let cases: [(name: String, snapshot: SessionRestorableAgentSnapshot, executable: URL)] = [
             (
                 "native-grok",
@@ -910,15 +1208,15 @@ extension WorkspaceForkConversationContextMenuTests {
                     workingDirectory: root.path,
                     launchCommand: AgentLaunchCommandSnapshot(
                         launcher: "grok",
-                        executablePath: "grok-fork",
-                        arguments: ["grok-fork"],
+                        executablePath: grokExecutable.path,
+                        arguments: [grokExecutable.path],
                         workingDirectory: root.path,
                         environment: nil,
                         capturedAt: 123,
                         source: "process"
                     )
                 ),
-                bin.appendingPathComponent("grok-fork", isDirectory: false)
+                grokExecutable
             ),
             (
                 "custom-vault",
@@ -928,8 +1226,8 @@ extension WorkspaceForkConversationContextMenuTests {
                     workingDirectory: root.path,
                     launchCommand: AgentLaunchCommandSnapshot(
                         launcher: customRegistration.id,
-                        executablePath: "vault-fork",
-                        arguments: ["vault-fork"],
+                        executablePath: vaultExecutable.path,
+                        arguments: [vaultExecutable.path],
                         workingDirectory: root.path,
                         environment: nil,
                         capturedAt: 123,
@@ -937,7 +1235,7 @@ extension WorkspaceForkConversationContextMenuTests {
                     ),
                     registration: customRegistration
                 ),
-                bin.appendingPathComponent("vault-fork", isDirectory: false)
+                vaultExecutable
             ),
         ]
 
