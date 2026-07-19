@@ -24,6 +24,7 @@ extension RemoteTmuxControlConnection {
               let index = seeds.firstIndex(where: { $0.id == seedID }) else { return }
         seeds.remove(at: index)
         pendingPaneSeeds[paneId] = seeds.isEmpty ? nil : seeds
+        resolveReconnectSeed(seedID)
     }
 
     func appendPaneSeedPrefix(paneId: Int, seedID: UUID, data: Data) {
@@ -69,6 +70,7 @@ extension RemoteTmuxControlConnection {
         guard var seeds = pendingPaneSeeds[paneId], seeds.first?.id == seedID else { return }
         let completed = seeds.removeFirst()
         pendingPaneSeeds[paneId] = seeds.isEmpty ? nil : seeds
+        defer { resolveReconnectSeed(seedID) }
         guard completed.isCaptureInstalled else {
             emitBufferedPaneOutput(completed, paneId: paneId)
             return
@@ -88,7 +90,9 @@ extension RemoteTmuxControlConnection {
         let paneId: Int
         let seedID: UUID
         switch kind {
-        case let .capturePane(id, token), let .paneState(id, token):
+        case let .paneOutputReset(id, token),
+             let .capturePane(id, token),
+             let .paneState(id, token):
             paneId = id
             seedID = token
         case .paneAltScreen:
@@ -97,11 +101,23 @@ extension RemoteTmuxControlConnection {
             return
         }
         guard var seeds = pendingPaneSeeds[paneId], seeds.first?.id == seedID else { return }
+        // Once this client's cursor was reset, replaying buffered bytes after a
+        // failed capture would either duplicate the grid or lose the reset backlog.
+        // A fresh control client is the only authoritative recovery. The reset
+        // itself failing has the same answer: do not continue a seed whose boundary
+        // the server did not establish.
+        switch kind {
+        case .paneOutputReset, .capturePane:
+            record("pane-seed-boundary-error %\(paneId)")
+            beginReconnecting()
+            return
+        default:
+            break
+        }
         let failed = seeds.removeFirst()
         pendingPaneSeeds[paneId] = seeds.isEmpty ? nil : seeds
+        defer { resolveReconnectSeed(seedID) }
         switch kind {
-        case .capturePane:
-            emitBufferedPaneOutput(failed, paneId: paneId)
         case .paneState where failed.isCaptureInstalled:
             observers.emitPaneSeed(
                 paneId,
@@ -121,10 +137,35 @@ extension RemoteTmuxControlConnection {
 
     func discardPendingPaneSeeds() {
         pendingPaneSeeds.removeAll(keepingCapacity: false)
+        pendingReconnectSeedIDs.removeAll(keepingCapacity: false)
     }
 
     func discardPendingPaneSeeds(keeping livePanes: Set<Int>) {
+        let removedSeedIDs = pendingPaneSeeds
+            .filter { !livePanes.contains($0.key) }
+            .flatMap { $0.value.map(\.id) }
         pendingPaneSeeds = pendingPaneSeeds.filter { livePanes.contains($0.key) }
+        for seedID in removedSeedIDs { resolveReconnectSeed(seedID) }
+    }
+
+    func discardPendingPaneSeeds(paneId: Int) {
+        let removedSeedIDs = pendingPaneSeeds.removeValue(forKey: paneId)?.map(\.id) ?? []
+        for seedID in removedSeedIDs { resolveReconnectSeed(seedID) }
+    }
+
+    func resolveReconnectSeed(_ seedID: UUID) {
+        guard pendingReconnectSeedIDs.remove(seedID) != nil else { return }
+        notifyReconnectReadyIfSeedBatchDrained()
+    }
+
+    func notifyReconnectReadyIfSeedBatchDrained() {
+        guard connectionState == .connected, pendingReconnectSeedIDs.isEmpty else { return }
+        // The re-applied size is usually a no-op (the server kept the window at
+        // our size across the drop), so a TUI may still need the attach redraw
+        // kick. Queue it only after every authoritative seed has landed; otherwise
+        // its redraw can race a slow transport's still-pending capture.
+        scheduleAttachRedrawKickIfNeeded()
+        observers.notifyReconnectReady()
     }
 
     /// Repaints panes whose verified tmux assignment grew since the last

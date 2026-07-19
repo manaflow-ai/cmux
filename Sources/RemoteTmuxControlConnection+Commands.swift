@@ -154,8 +154,16 @@ extension RemoteTmuxControlConnection {
     /// and drag in the mirror are forwarded to the remote app — so drag-to-select
     /// becomes the app's own selection/OSC 52 copy, and **Shift+drag** does a native
     /// cmux copy (exactly as a local terminal behaves with a mouse-mode app).
-    func capturePane(paneId: Int, clearScrollback: Bool = false) {
+    @discardableResult
+    func capturePane(paneId: Int, clearScrollback: Bool = false) -> UUID? {
         let seedID = beginPaneSeed(paneId: paneId, clearScrollback: clearScrollback)
+        // Reset this control client's pane-output cursor before reading the
+        // authoritative grid. tmux applies both -A transitions synchronously in
+        // one command: `off` advances past any backlog and `on` resumes future
+        // output, without a transport-visible gap where live bytes can be lost.
+        // Buffering already started above, so output concurrent with the reset is
+        // reconciled by the capture boundary regardless of SSH chunking/latency.
+        let outputResetCommand = "refresh-client -A %\(paneId):off -A %\(paneId):on"
         // Match the remote pane's screen (primary vs alternate) BEFORE seeding the
         // captured rows. An alt-screen TUI (e.g. claude) must render on the mirror's
         // alternate screen so resize matches the remote (the alternate screen does
@@ -183,16 +191,23 @@ extension RemoteTmuxControlConnection {
         // escapes are built in `paneStateSeedSequence`). See the doc comment for why
         // restoring this matters.
         guard sendBatchInternal(
-            [altScreenCommand, captureCommand, Self.paneStateQueryCommand(paneId: paneId)],
+            [
+                outputResetCommand,
+                altScreenCommand,
+                captureCommand,
+                Self.paneStateQueryCommand(paneId: paneId),
+            ],
             kinds: [
+                .paneOutputReset(paneId, seedID),
                 .paneAltScreen(paneId, seedID),
                 .capturePane(paneId, seedID),
                 .paneState(paneId, seedID),
             ]
         ) else {
             cancelPaneSeed(paneId: paneId, seedID: seedID)
-            return
+            return nil
         }
+        return seedID
     }
 
     /// Repaints ONE mirrored pane from tmux's current visible screen, for cells a
@@ -220,10 +235,15 @@ extension RemoteTmuxControlConnection {
         let seedID = beginPaneSeed(paneId: paneId, clearScrollback: false)
         guard sendBatchInternal(
             [
+                "refresh-client -A %\(paneId):off -A %\(paneId):on",
                 "capture-pane -p -e -t %\(paneId)",
                 Self.paneStateQueryCommand(paneId: paneId),
             ],
-            kinds: [.capturePane(paneId, seedID), .paneState(paneId, seedID)]
+            kinds: [
+                .paneOutputReset(paneId, seedID),
+                .capturePane(paneId, seedID),
+                .paneState(paneId, seedID),
+            ]
         ) else {
             cancelPaneSeed(paneId: paneId, seedID: seedID)
             return
@@ -249,18 +269,20 @@ extension RemoteTmuxControlConnection {
     /// classification FIRST (the one-shot query — always works — then the live
     /// subscription for re-classification, e.g. bash → node), then the content
     /// capture, then cwd tracking (initial value + live `cd`). Classification is
-    /// queued before the (3-command) capture because it only matters at the next
+    /// queued before the four-command capture because it only matters at the next
     /// resize — the earlier it lands, the smaller the window in which a resize
     /// hits the conservative no-reflow default on a slow link.
-    func seedPane(paneId: Int, clearScrollback: Bool = false) {
+    @discardableResult
+    func seedPane(paneId: Int, clearScrollback: Bool = false) -> UUID? {
         requestPaneReflow(paneId: paneId)
-        capturePane(paneId: paneId, clearScrollback: clearScrollback)
+        let seedID = capturePane(paneId: paneId, clearScrollback: clearScrollback)
         requestPanePath(paneId: paneId)
         // One batched refresh-client for all three live subscriptions
         // instead of three separate sends — see subscribePaneAll. Under
         // churn this is the difference between the command FIFO keeping up
         // with tmux and backing up into minutes-long non-convergence.
         subscribePaneAll(paneId: paneId)
+        return seedID
     }
 
     func reseedAfterReconnect() {
@@ -287,17 +309,22 @@ extension RemoteTmuxControlConnection {
                 sendPerWindowSize(windowId: windowId, columns: size.0, rows: size.1)
             }
         }
-        // The re-applied size is usually a no-op (the server kept the window at our
-        // size across the transport drop), so TUIs get no SIGWINCH — kick them so
-        // they repaint over the re-seeded (possibly stale) frame. FIFO-safe: the
-        // captures below are queued before the kick task's first push can run.
-        scheduleAttachRedrawKickIfNeeded()
-        for window in windowsByID.values {
+        pendingReconnectSeedIDs.removeAll(keepingCapacity: true)
+        var reconnectSeedIDs: Set<UUID> = []
+        for windowId in windowsByID.keys.sorted() {
+            guard let window = windowsByID[windowId] else { continue }
             for paneId in window.paneIDsInOrder {
-                seedPane(paneId: paneId, clearScrollback: true)
+                if let seedID = seedPane(paneId: paneId, clearScrollback: true) {
+                    reconnectSeedIDs.insert(seedID)
+                }
             }
         }
-        observers.notifyReconnectReady()
+        // A batch rejection synchronously begins another reconnect and discards
+        // its seeds. Never resurrect those IDs or announce readiness for the dead
+        // stream after the loop returns.
+        guard connectionState == .connected else { return }
+        pendingReconnectSeedIDs = reconnectSeedIDs
+        notifyReconnectReadyIfSeedBatchDrained()
     }
 
     /// Sends literal key bytes to a pane via tmux `send-keys -H` (hex-encoded),

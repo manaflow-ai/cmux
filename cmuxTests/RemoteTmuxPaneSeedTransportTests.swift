@@ -39,6 +39,14 @@ import Testing
         let resetOutputCursor = commands.contains(
             "refresh-client -A %7:off -A %7:on"
         )
+        let commandLines = commands.split(separator: "\n").map(String.init)
+        let resetIndex = try #require(
+            commandLines.firstIndex(of: "refresh-client -A %7:off -A %7:on")
+        )
+        let captureIndex = try #require(
+            commandLines.firstIndex { $0.hasPrefix("capture-pane ") }
+        )
+        #expect(resetIndex < captureIndex)
         let marker = "AUTORECONNECT_STREAM_29"
         var stream = Data()
         var commandNumber = 20
@@ -130,6 +138,54 @@ import Testing
 
         #expect(finishedPaneSeeds == 2)
         #expect(reconnectReadyCount == 1)
+    }
+
+    @Test func outputCursorResetFailureReconnectsWithoutReplayingBacklog() {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        var rendered = Data()
+        let token = fixture.connection.addObserver(onPaneOutput: { _, data in
+            rendered.append(data)
+        })
+        defer { fixture.connection.removeObserver(token) }
+
+        fixture.connection.capturePane(paneId: 7)
+        fixture.connection.handleMessageForTesting(.output(paneId: 7, data: Data("stale".utf8)))
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 40, lines: ["reset failed"], isError: true)
+        )
+
+        #expect(fixture.connection.connectionState == .reconnecting)
+        #expect(fixture.connection.pendingPaneSeeds.isEmpty)
+        #expect(rendered.isEmpty)
+    }
+
+    @Test func captureFailureAfterCursorResetReconnectsWithoutReplayingBacklog() {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        var rendered = Data()
+        let token = fixture.connection.addObserver(onPaneOutput: { _, data in
+            rendered.append(data)
+        })
+        defer { fixture.connection.removeObserver(token) }
+
+        fixture.connection.capturePane(paneId: 7)
+        fixture.connection.handleMessageForTesting(.output(paneId: 7, data: Data("stale".utf8)))
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 41, lines: [], isError: false)
+        )
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 42, lines: ["0"], isError: false)
+        )
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 43, lines: ["capture failed"], isError: true)
+        )
+
+        #expect(fixture.connection.connectionState == .reconnecting)
+        #expect(fixture.connection.pendingPaneSeeds.isEmpty)
+        #expect(rendered.isEmpty)
     }
 
     @Test func rechunkedLiveEchoCutsOverAtomicallyAtCaptureReply() throws {
@@ -262,6 +318,8 @@ import Testing
         paneID: Int = 7
     ) -> Data {
         let text = "%output %\(paneID) \(preCaptureOutput)\r\n"
+            + "%begin 1700000000 10 0\r\n"
+            + "%end 1700000000 10 0\r\n"
             + "%begin 1700000000 11 0\r\n"
             + "0\r\n"
             + "%end 1700000000 11 0\r\n"
@@ -348,6 +406,7 @@ import Testing
         let pipe: Pipe
 
         @MainActor func close() {
+            connection.stop()
             writer.close()
             try? pipe.fileHandleForReading.close()
         }

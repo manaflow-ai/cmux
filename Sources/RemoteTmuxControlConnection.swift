@@ -58,6 +58,8 @@ final class RemoteTmuxControlConnection {
     var totalOutputBytes = 0
     /// Per-pane capture/state transactions owning the snapshot-to-live cutover.
     var pendingPaneSeeds: [Int: [RemoteTmuxPendingPaneSeed]] = [:]
+    /// Reconnect seeds that must finish before consumers can resume resize work.
+    var pendingReconnectSeedIDs: Set<UUID> = []
     /// Per-pane header-strip labels: the pane's EXPANDED `pane-border-format`
     /// (style tokens stripped) — exactly the text a native tmux client draws
     /// in that pane's header, custom formats included. Seeded by the
@@ -812,7 +814,7 @@ final class RemoteTmuxControlConnection {
             // it doesn't accumulate across window churn.
             if let closing = windowsByID[id] {
                 for pane in closing.paneIDsInOrder {
-                    pendingPaneSeeds[pane] = nil
+                    discardPendingPaneSeeds(paneId: pane)
                     paneOutputByteCounts[pane] = nil
                     paneForegroundStates[pane] = nil
                     paneHeaderLabels[pane] = nil

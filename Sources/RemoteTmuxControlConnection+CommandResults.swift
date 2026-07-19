@@ -277,6 +277,9 @@ extension RemoteTmuxControlConnection {
                 windowOrder = reconciledOrder
                 observers.notifyTopologyChanged()
             }
+        case .paneOutputReset:
+            // Server-side output-cursor barrier only; capture owns the paint.
+            break
         case let .capturePane(paneId, seedID):
             // capture-pane -e -S output is the pane's history + visible rows (with
             // SGR escapes). Home + clear the VISIBLE SCREEN (ESC[2J — NOT ESC[3J,
