@@ -11512,6 +11512,160 @@ mod tests {
     }
 
     #[test]
+    fn protocol_v9_accessibility_demand_wire_payloads_decode_to_typed_variants() {
+        let presentation_id = PresentationId::new();
+        let request_id = uuid::Uuid::new_v4();
+        let acquire: Request = serde_json::from_value(json!({
+            "id": 12,
+            "cmd": "acquire-terminal-accessibility-demand",
+            "request_id": request_id,
+            "presentation_id": presentation_id,
+            "expected_generation": 7,
+        }))
+        .unwrap();
+        assert!(matches!(
+            acquire.cmd,
+            Command::AcquireTerminalAccessibilityDemand {
+                request_id: decoded_request,
+                presentation_id: decoded_presentation,
+                expected_generation: 7,
+            } if decoded_request == request_id && decoded_presentation == presentation_id
+        ));
+
+        let release: Request = serde_json::from_value(json!({
+            "id": 13,
+            "cmd": "release-terminal-accessibility-demand",
+            "presentation_id": presentation_id,
+            "expected_generation": 7,
+            "demand_generation": 9,
+        }))
+        .unwrap();
+        assert!(matches!(
+            release.cmd,
+            Command::ReleaseTerminalAccessibilityDemand {
+                presentation_id: decoded_presentation,
+                expected_generation: 7,
+                demand_generation: 9,
+            } if decoded_presentation == presentation_id
+        ));
+    }
+
+    #[test]
+    fn accessibility_demand_commands_fence_reenable_and_detach_clears_retention() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(Some("ax-demand".into()), Some((80, 24))).unwrap();
+        let writer = test_writer();
+        let (client, _) = register_v9_client(&mux, &writer);
+        let (presentation_id, presentation_generation) =
+            open_visible_terminal_presentation(&mux, &writer, client, surface.uuid);
+        let request_id = uuid::Uuid::new_v4();
+
+        let first = handle_command(
+            &mux,
+            client,
+            Command::AcquireTerminalAccessibilityDemand {
+                request_id,
+                presentation_id,
+                expected_generation: presentation_generation,
+            },
+            &writer,
+        )
+        .unwrap();
+        let replay = handle_command(
+            &mux,
+            client,
+            Command::AcquireTerminalAccessibilityDemand {
+                request_id,
+                presentation_id,
+                expected_generation: presentation_generation,
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(replay, first);
+
+        let replacement = handle_command(
+            &mux,
+            client,
+            Command::AcquireTerminalAccessibilityDemand {
+                request_id: uuid::Uuid::new_v4(),
+                presentation_id,
+                expected_generation: presentation_generation,
+            },
+            &writer,
+        )
+        .unwrap();
+        let first_generation = first["demand_generation"].as_u64().unwrap();
+        let replacement_generation = replacement["demand_generation"].as_u64().unwrap();
+        assert!(replacement_generation > first_generation);
+
+        let late = handle_command(
+            &mux,
+            client,
+            Command::ReleaseTerminalAccessibilityDemand {
+                presentation_id,
+                expected_generation: presentation_generation,
+                demand_generation: first_generation,
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(late["released"], false);
+        assert_eq!(surface.accessibility_demand_count_for_test(), 1);
+
+        handle_command(
+            &mux,
+            client,
+            Command::DetachRendererPresentation {
+                presentation_id,
+                expected_generation: presentation_generation,
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(surface.accessibility_demand_count_for_test(), 0);
+    }
+
+    #[test]
+    fn accessibility_demand_is_owned_and_disconnect_releases_it() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(Some("ax-owner".into()), Some((80, 24))).unwrap();
+        let writer = test_writer();
+        let (owner, _) = register_v9_client(&mux, &writer);
+        let (presentation_id, presentation_generation) =
+            open_visible_terminal_presentation(&mux, &writer, owner, surface.uuid);
+        let acquired = handle_command(
+            &mux,
+            owner,
+            Command::AcquireTerminalAccessibilityDemand {
+                request_id: uuid::Uuid::new_v4(),
+                presentation_id,
+                expected_generation: presentation_generation,
+            },
+            &writer,
+        )
+        .unwrap();
+
+        let (other, _) = register_v9_client(&mux, &writer);
+        let foreign = handle_command(
+            &mux,
+            other,
+            Command::ReleaseTerminalAccessibilityDemand {
+                presentation_id,
+                expected_generation: presentation_generation,
+                demand_generation: acquired["demand_generation"].as_u64().unwrap(),
+            },
+            &writer,
+        )
+        .unwrap_err();
+        assert!(foreign.to_string().contains("owned by another client"));
+        assert_eq!(surface.accessibility_demand_count_for_test(), 1);
+
+        assert!(disconnect_client(&mux, owner, false));
+        assert_eq!(surface.accessibility_demand_count_for_test(), 0);
+    }
+
+    #[test]
     fn protocol_v9_lease_orders_input_and_geometry_without_legacy_size_reduction() {
         let mux = test_mux();
         mux.new_workspace(Some("leased".into()), Some((80, 24))).unwrap();

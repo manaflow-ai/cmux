@@ -4635,6 +4635,124 @@ mod tests {
     }
 
     #[test]
+    fn terminal_accessibility_demand_is_idempotent_and_generation_fenced() {
+        let mux = Mux::new_for_test("accessibility-demand-fence", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let presentation_id = crate::PresentationId::new();
+        let first_request = uuid::Uuid::new_v4();
+
+        let first = surface
+            .acquire_terminal_accessibility_demand(first_request, presentation_id, 7)
+            .unwrap();
+        let replay = surface
+            .acquire_terminal_accessibility_demand(first_request, presentation_id, 7)
+            .unwrap();
+        assert_eq!(replay, first);
+        assert_eq!(surface.accessibility_demand_count_for_test(), 1);
+
+        let replacement = surface
+            .acquire_terminal_accessibility_demand(
+                uuid::Uuid::new_v4(),
+                presentation_id,
+                7,
+            )
+            .unwrap();
+        assert!(replacement.demand_generation > first.demand_generation);
+        assert!(!surface.release_terminal_accessibility_demand(
+            presentation_id,
+            7,
+            first.demand_generation,
+        ));
+        assert_eq!(surface.accessibility_demand_count_for_test(), 1);
+        assert!(surface.release_terminal_accessibility_demand(
+            presentation_id,
+            7,
+            replacement.demand_generation,
+        ));
+        assert_eq!(surface.accessibility_demand_count_for_test(), 0);
+    }
+
+    #[test]
+    fn terminal_accessibility_demand_is_reference_counted_across_presentations() {
+        let mux = Mux::new_for_test("accessibility-demand-count", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let first_presentation = crate::PresentationId::new();
+        let second_presentation = crate::PresentationId::new();
+        let first = surface
+            .acquire_terminal_accessibility_demand(
+                uuid::Uuid::new_v4(),
+                first_presentation,
+                3,
+            )
+            .unwrap();
+        let second = surface
+            .acquire_terminal_accessibility_demand(
+                uuid::Uuid::new_v4(),
+                second_presentation,
+                5,
+            )
+            .unwrap();
+
+        let sequence = surface.as_pty().unwrap().render_generation.load(Ordering::Acquire);
+        let snapshot = surface
+            .terminal_accessibility_snapshot_at(first_presentation, 3, true, sequence)
+            .unwrap();
+        surface.as_pty().unwrap().cache_accessibility_frame(snapshot);
+        assert!(!surface.as_pty().unwrap().accessibility_frames.lock().unwrap().is_empty());
+
+        assert!(surface.release_terminal_accessibility_demand(
+            first_presentation,
+            3,
+            first.demand_generation,
+        ));
+        assert_eq!(surface.accessibility_demand_count_for_test(), 1);
+        assert!(!surface.as_pty().unwrap().accessibility_frames.lock().unwrap().is_empty());
+
+        assert!(surface.drop_terminal_accessibility_demand(second_presentation));
+        assert_eq!(surface.accessibility_demand_count_for_test(), 0);
+        assert!(surface.as_pty().unwrap().accessibility_frames.lock().unwrap().is_empty());
+        assert!(!surface.release_terminal_accessibility_demand(
+            second_presentation,
+            5,
+            second.demand_generation,
+        ));
+    }
+
+    #[test]
+    fn terminal_accessibility_demand_rejects_identity_reuse_and_generation_exhaustion() {
+        let mux = Mux::new_for_test("accessibility-demand-exhaustion", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let presentation_id = crate::PresentationId::new();
+        let request_id = uuid::Uuid::new_v4();
+        surface
+            .acquire_terminal_accessibility_demand(request_id, presentation_id, 1)
+            .unwrap();
+        assert!(
+            surface
+                .acquire_terminal_accessibility_demand(request_id, presentation_id, 2)
+                .unwrap_err()
+                .to_string()
+                .contains("request identity reused")
+        );
+
+        surface.set_accessibility_demand_generation_for_test(u64::MAX);
+        assert!(
+            surface
+                .acquire_terminal_accessibility_demand(
+                    uuid::Uuid::new_v4(),
+                    presentation_id,
+                    1,
+                )
+                .unwrap_err()
+                .to_string()
+                .contains("generation exhausted")
+        );
+    }
+
+    #[test]
     fn terminal_accessibility_focus_change_advances_only_terminal_revision() {
         let mux = Mux::new_for_test("accessibility-focus", SurfaceOptions::default());
         let surface =
