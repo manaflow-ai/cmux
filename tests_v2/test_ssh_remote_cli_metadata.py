@@ -264,13 +264,18 @@ def main() -> int:
             )
             remote_bootstrap = base64.b64decode(str(bootstrap_b64_match.group(1))).decode("utf-8")
             initial_command_b64_match = re.search(
-                r"^\s*cmux_initial_command_b64='([A-Za-z0-9+/=]+)'$",
+                r"^\s*if \(umask 077; printf %s '([A-Za-z0-9+/=]+)' > \"\$cmux_initial_command_tmp\"\)",
                 remote_bootstrap,
                 re.MULTILINE,
             )
             _must(
                 initial_command_b64_match is not None,
                 f"cmux ssh should stage the initial command as inert base64 data: {remote_bootstrap!r}",
+            )
+            _must(
+                "export CMUX_INITIAL_COMMAND_B64" not in remote_bootstrap
+                and "export CMUX_INITIAL_COMMAND_FILE" in remote_bootstrap,
+                f"cmux ssh should expose only the private payload path to shell startup: {remote_bootstrap!r}",
             )
             decoded_initial_command = base64.b64decode(
                 str(initial_command_b64_match.group(1))
