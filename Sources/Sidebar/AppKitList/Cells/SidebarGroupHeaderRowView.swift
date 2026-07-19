@@ -630,7 +630,7 @@ final class SidebarShortcutHintPillView: NSVisualEffectView {
 
     func fittingPillSize() -> NSSize {
         guard !isHidden else { return .zero }
-        let textSize = label.intrinsicContentSize
+        let textSize = label.sidebarNaturalCellSize
         return NSSize(width: ceil(textSize.width) + 12, height: ceil(textSize.height) + 4)
     }
 

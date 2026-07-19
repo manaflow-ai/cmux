@@ -154,6 +154,17 @@ import Testing
             pairedMacHintUndetermined: false,
             didFinishStoredMacReconnectAttempt: true
         ))
+        // A later runtime redial must keep the established workspace shell
+        // mounted. Re-entering the launch-only restoring branch destroys the
+        // shell's compact navigation path and returns the user to the list.
+        #expect(!MobileRootAuthGate.shouldShowRestoringStoredMac(
+            authenticated: true,
+            connectionState: .disconnected,
+            isReconnectingStoredMac: true,
+            hasKnownPairedMac: true,
+            pairedMacHintUndetermined: false,
+            didFinishStoredMacReconnectAttempt: true
+        ))
         // Never paired (hint determined-false): add-device immediately, no flash.
         #expect(!MobileRootAuthGate.shouldShowRestoringStoredMac(
             authenticated: true,
