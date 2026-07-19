@@ -3416,6 +3416,9 @@ impl Mux {
         }
         let key = match requested_key.as_ref() {
             Some(key) if key.trim().is_empty() => anyhow::bail!("workspace key cannot be empty"),
+            Some(key) if !crate::workspace_registry::is_canonical_workspace_key(key) => {
+                anyhow::bail!("workspace key must be a lowercase UUID")
+            }
             Some(key) => key.clone(),
             None => Self::new_workspace_key()?,
         };
@@ -8398,7 +8401,9 @@ mod tests {
         const TERMINAL: &str = "00000000000040008000000000000010";
         const INCARNATION: &str = "10000000000040008000000000000010";
         let mux = test_mux();
-        let workspace = mux.create_empty_workspace(None, Some("close-pane".into()), None).unwrap();
+        let workspace = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001002".into()), None)
+            .unwrap();
         let surface =
             insert_running_terminal_identity_surface(&mux, TERMINAL, INCARNATION, &workspace.key);
         let pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
@@ -8443,8 +8448,9 @@ mod tests {
         const TERMINAL: &str = "00000000000040008000000000000011";
         const INCARNATION: &str = "10000000000040008000000000000011";
         let mux = test_mux();
-        let workspace =
-            mux.create_empty_workspace(None, Some("close-screen".into()), None).unwrap();
+        let workspace = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001003".into()), None)
+            .unwrap();
         let surface =
             insert_running_terminal_identity_surface(&mux, TERMINAL, INCARNATION, &workspace.key);
         let screen = mux.with_state(|state| surface_screen_id(state, surface.id).unwrap());
@@ -9279,6 +9285,18 @@ mod tests {
     fn empty_workspace_registry_has_stable_keys_revisions_and_close() {
         let mux = test_mux();
         let events = mux.subscribe();
+        let invalid = mux
+            .create_empty_workspace(
+                Some("invalid".into()),
+                Some("frontend-scaling-not-a-uuid".into()),
+                None,
+            )
+            .expect_err("noncanonical workspace key must fail");
+        assert_eq!(invalid.to_string(), "workspace key must be a lowercase UUID");
+        mux.with_state(|state| {
+            assert_eq!(state.workspace_revision, 0);
+            assert!(state.workspaces.is_empty());
+        });
         let key = "018f6e21-7b70-7e70-8000-000000000001".to_string();
         let first = mux
             .create_empty_workspace(Some("empty".into()), Some(key.clone()), None)
@@ -9542,10 +9560,18 @@ mod tests {
         let (registry_id, generation) = {
             let mux = Mux::open_persistent("recover", SurfaceOptions::default(), &root).unwrap();
             let first = mux
-                .create_empty_workspace(Some("one".into()), Some("stable-one".into()), Some(0))
+                .create_empty_workspace(
+                    Some("one".into()),
+                    Some("018f6e21-7b70-7e70-8000-000000001004".into()),
+                    Some(0),
+                )
                 .unwrap();
             let second = mux
-                .create_empty_workspace(Some("two".into()), Some("stable-two".into()), Some(1))
+                .create_empty_workspace(
+                    Some("two".into()),
+                    Some("018f6e21-7b70-7e70-8000-000000001005".into()),
+                    Some(1),
+                )
                 .unwrap();
             assert_eq!(
                 mux.rename_workspace_at_revision(second.workspace, "renamed".into(), Some(2))
@@ -9567,9 +9593,9 @@ mod tests {
         recovered.with_state(|state| {
             assert_eq!(state.workspace_revision, 4);
             assert_eq!(state.workspaces.len(), 2);
-            assert_eq!(state.workspaces[0].key, "stable-two");
+            assert_eq!(state.workspaces[0].key, "018f6e21-7b70-7e70-8000-000000001005");
             assert_eq!(state.workspaces[0].name, "renamed");
-            assert_eq!(state.workspaces[1].key, "stable-one");
+            assert_eq!(state.workspaces[1].key, "018f6e21-7b70-7e70-8000-000000001004");
             assert!(state.workspaces.iter().all(|workspace| workspace.screens.is_empty()));
         });
         std::fs::remove_dir_all(root).unwrap();
@@ -9739,8 +9765,12 @@ mod tests {
         const TERMINAL: &str = "0000000000004000800000000000000d";
         const INCARNATION: &str = "1000000000004000800000000000000d";
         let mux = test_mux();
-        let first = mux.create_empty_workspace(None, Some("launch-a".into()), None).unwrap();
-        let second = mux.create_empty_workspace(None, Some("launch-b".into()), None).unwrap();
+        let first = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001006".into()), None)
+            .unwrap();
+        let second = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001007".into()), None)
+            .unwrap();
         commit_terminal_transition(
             &mut mux.workspace_registry.lock().unwrap(),
             "terminal-reserved",
@@ -9813,8 +9843,12 @@ mod tests {
         const TERMINAL: &str = "00000000000040008000000000000002";
         const INCARNATION: &str = "10000000000040008000000000000001";
         let mux = test_mux();
-        let first = mux.create_empty_workspace(None, Some("first".into()), None).unwrap();
-        let second = mux.create_empty_workspace(None, Some("second".into()), None).unwrap();
+        let first = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001008".into()), None)
+            .unwrap();
+        let second = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001009".into()), None)
+            .unwrap();
         {
             let mut registry = mux.workspace_registry.lock().unwrap();
             let reserved = RegistryTerminal {
@@ -9863,9 +9897,15 @@ mod tests {
     fn stale_move_replay_projects_the_latest_canonical_workspace() {
         const TERMINAL: &str = "00000000000040008000000000000003";
         let mux = test_mux();
-        let first = mux.create_empty_workspace(None, Some("move-a".into()), None).unwrap();
-        let second = mux.create_empty_workspace(None, Some("move-b".into()), None).unwrap();
-        let third = mux.create_empty_workspace(None, Some("move-c".into()), None).unwrap();
+        let first = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001010".into()), None)
+            .unwrap();
+        let second = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001011".into()), None)
+            .unwrap();
+        let third = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001012".into()), None)
+            .unwrap();
         {
             let mut registry = mux.workspace_registry.lock().unwrap();
             commit_terminal_transition(
@@ -9920,9 +9960,15 @@ mod tests {
         const TERMINAL: &str = "0000000000004000800000000000000a";
         const INCARNATION: &str = "1000000000004000800000000000000a";
         let mux = test_mux();
-        let first = mux.create_empty_workspace(None, Some("race-a".into()), None).unwrap();
-        let second = mux.create_empty_workspace(None, Some("race-b".into()), None).unwrap();
-        let third = mux.create_empty_workspace(None, Some("race-c".into()), None).unwrap();
+        let first = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001013".into()), None)
+            .unwrap();
+        let second = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001014".into()), None)
+            .unwrap();
+        let third = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001015".into()), None)
+            .unwrap();
         commit_terminal_transition(
             &mut mux.workspace_registry.lock().unwrap(),
             "terminal-reserved",
@@ -10006,8 +10052,12 @@ mod tests {
         const TERMINAL: &str = "0000000000004000800000000000000b";
         const INCARNATION: &str = "1000000000004000800000000000000b";
         let mux = test_mux();
-        let first = mux.create_empty_workspace(None, Some("close-race-a".into()), None).unwrap();
-        let second = mux.create_empty_workspace(None, Some("close-race-b".into()), None).unwrap();
+        let first = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001016".into()), None)
+            .unwrap();
+        let second = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001017".into()), None)
+            .unwrap();
         commit_terminal_transition(
             &mut mux.workspace_registry.lock().unwrap(),
             "terminal-reserved",
@@ -10083,7 +10133,9 @@ mod tests {
     fn move_terminal_to_missing_workspace_fails_without_changing_placement() {
         const TERMINAL: &str = "00000000000040008000000000000004";
         let mux = test_mux();
-        let first = mux.create_empty_workspace(None, Some("move-live".into()), None).unwrap();
+        let first = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001018".into()), None)
+            .unwrap();
         {
             let mut registry = mux.workspace_registry.lock().unwrap();
             commit_terminal_transition(
@@ -10151,7 +10203,7 @@ mod tests {
             workers.push(std::thread::spawn(move || {
                 mux.create_empty_workspace(
                     Some(format!("workspace-{index}")),
-                    Some(format!("stable-{index}")),
+                    Some(format!("00000000-0000-4000-8000-{index:012x}")),
                     None,
                 )
                 .unwrap()
@@ -10571,7 +10623,11 @@ mod tests {
     fn run_materializes_active_empty_workspace() {
         let mux = test_mux();
         let placement = mux
-            .create_empty_workspace(Some("gui".into()), Some("gui-stable".into()), None)
+            .create_empty_workspace(
+                Some("gui".into()),
+                Some("018f6e21-7b70-7e70-8000-000000001019".into()),
+                None,
+            )
             .unwrap();
         let run = mux
             .run_command_surface(

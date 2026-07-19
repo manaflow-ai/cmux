@@ -1634,6 +1634,18 @@ pub(crate) fn new_uuid_v4() -> String {
     )
 }
 
+pub(crate) fn is_canonical_workspace_key(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 36
+        && bytes.iter().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                *byte == b'-'
+            } else {
+                matches!(*byte, b'0'..=b'9' | b'a'..=b'f')
+            }
+        })
+}
+
 struct SessionLease {
     file: File,
     path: PathBuf,

@@ -281,7 +281,7 @@ fn durable_registry_survives_sigkill_and_rejects_a_second_writer() {
             "id":2,
             "cmd":"create-workspace",
             "name":"survivor",
-            "key":"durable-key",
+            "key":"018f6e21-7b70-7e70-8000-000000000044",
             "origin":"process-test",
             "mutation_id":"create-durable",
             "expected_revision":0,
@@ -309,7 +309,7 @@ fn durable_registry_survives_sigkill_and_rejects_a_second_writer() {
     assert_eq!(recovered["registry_id"], registry_id);
     assert_ne!(recovered["generation"], generation);
     assert_eq!(recovered["workspace_revision"], 1);
-    assert_eq!(recovered["workspaces"][0]["key"], "durable-key");
+    assert_eq!(recovered["workspaces"][0]["key"], "018f6e21-7b70-7e70-8000-000000000044");
     assert_eq!(recovered["workspaces"][0]["name"], "survivor");
     assert!(recovered["workspaces"][0]["screens"].as_array().unwrap().is_empty());
 

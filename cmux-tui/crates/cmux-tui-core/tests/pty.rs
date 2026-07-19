@@ -1440,6 +1440,20 @@ fn create_empty_workspace_is_visible_and_materialized_in_place() {
     let mut reader = BufReader::new(commands);
     let key = "018f6e21-7b70-7e70-8000-000000000042";
 
+    let invalid = socket_response(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 0,
+            "cmd": "create-workspace",
+            "name": "invalid",
+            "key": "not-a-durable-uuid",
+            "expected_revision": 0,
+        }),
+    );
+    assert_eq!(invalid["ok"], false);
+    assert_eq!(invalid["error"], "workspace key must be a lowercase UUID");
+
     let created = socket_request(
         &mut writer,
         &mut reader,
@@ -1542,11 +1556,12 @@ fn create_empty_workspace_is_visible_and_materialized_in_place() {
 fn workspace_mutations_are_exactly_once_before_guards_and_close_resolution() {
     let mux = Mux::new(unique_session("test-workspace-dedupe"), SurfaceOptions::default());
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let workspace_key = "018f6e21-7b70-7e70-8000-000000000043";
     let request = serde_json::json!({
         "id": 1,
         "cmd": "create-workspace",
         "name": "once",
-        "key": "stable-once",
+        "key": workspace_key,
         "origin": "browser-profile-a",
         "mutation_id": "create-once",
         "expected_revision": 0,
@@ -1586,7 +1601,7 @@ fn workspace_mutations_are_exactly_once_before_guards_and_close_resolution() {
             "id": 2,
             "cmd": "create-workspace",
             "name": "different",
-            "key": "stable-once",
+            "key": workspace_key,
             "origin": "browser-profile-a",
             "mutation_id": "create-once",
             "expected_revision": 1,
@@ -1599,7 +1614,7 @@ fn workspace_mutations_are_exactly_once_before_guards_and_close_resolution() {
     let close = serde_json::json!({
         "id": 3,
         "cmd": "close-workspace",
-        "key": "stable-once",
+        "key": workspace_key,
         "origin": "browser-profile-a",
         "mutation_id": "close-once",
         "expected_generation": generation,
@@ -1614,7 +1629,7 @@ fn workspace_mutations_are_exactly_once_before_guards_and_close_resolution() {
     let close_retry = socket_request(&mut writer, &mut reader, stale_guard_retry);
     assert_eq!(close_retry["data"]["workspace_revision"], 2);
     assert_eq!(close_retry["data"]["replayed"], true);
-    assert_eq!(close_retry["data"]["key"], "stable-once");
+    assert_eq!(close_retry["data"]["key"], workspace_key);
     mux.with_state(|state| assert!(state.workspaces.is_empty()));
 
     cmux_tui_core::server::cleanup(&sock_path);

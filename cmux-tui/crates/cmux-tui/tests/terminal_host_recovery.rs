@@ -1034,7 +1034,7 @@ fn client_reserved_create_retry_returns_original_binding_without_second_host() {
             "id":1,
             "cmd":"create-workspace",
             "name":"Browser",
-            "key":"browser-workspace",
+            "key":"018f6e21-7b70-7e70-8000-000000000045",
             "origin":"browser",
             "mutation_id":"workspace-create",
             "expected_revision":0,
@@ -1044,7 +1044,7 @@ fn client_reserved_create_retry_returns_original_binding_without_second_host() {
     let create = serde_json::json!({
         "id":2,
         "cmd":"create-terminal",
-        "key":"browser-workspace",
+        "key":"018f6e21-7b70-7e70-8000-000000000045",
         "argv":["/bin/cat"],
         "terminal_id":terminal_id,
         "origin":"browser",
@@ -1072,7 +1072,7 @@ fn client_reserved_create_retry_returns_original_binding_without_second_host() {
         serde_json::json!({
             "id":3,
             "cmd":"create-terminal",
-            "key":"browser-workspace",
+            "key":"018f6e21-7b70-7e70-8000-000000000045",
             "argv":["/bin/echo","different"],
             "terminal_id":terminal_id,
             "origin":"browser",

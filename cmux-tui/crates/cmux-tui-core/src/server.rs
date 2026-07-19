@@ -3457,6 +3457,11 @@ fn handle_command(
             Ok(json!({ "surface": surface.id }))
         }
         Command::CreateWorkspace { name, key, mutation } => {
+            if let Some(key) = key.as_deref()
+                && !crate::workspace_registry::is_canonical_workspace_key(key)
+            {
+                anyhow::bail!("workspace key must be a lowercase UUID");
+            }
             let workspace_mutation = workspace_mutation(&mutation)?;
             let placement = mux.create_empty_workspace_with_mutation(
                 name,
@@ -5198,8 +5203,9 @@ mod tests {
         const TERMINAL: &str = "00000000000040008000000000000012";
         const INCARNATION: &str = "10000000000040008000000000000012";
         let mux = test_mux();
-        let workspace =
-            mux.create_empty_workspace(None, Some("server-close".into()), None).unwrap();
+        let workspace = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001001".into()), None)
+            .unwrap();
         let surface =
             mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
         let (pane, screen) = mux.with_state(|state| {
