@@ -117,8 +117,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let start = context.state.snapshot().count
         try runGrokNoiseHook(context, "notification", payload: antigravityNoisePayload(context, event: "Notification", message: "Build failed: exit 1"))
 
-        let notifications = notifyCommands(in: Array(context.state.snapshot().dropFirst(start)))
-        XCTAssertEqual(notifications.count, 1, "Expected one Antigravity error notification, saw \(notifications)")
+        let commands = Array(context.state.snapshot().dropFirst(start))
+        let notifications = notifyCommands(in: commands)
+        XCTAssertEqual(
+            notifications.count,
+            1,
+            "Expected one Antigravity error notification, saw \(notifications); commands: \(commands)"
+        )
         XCTAssertFalse(
             notifications.first?.contains("|c=") == true,
             "Error notifications should remain untagged, saw \(notifications)"
@@ -135,9 +140,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let surfaceId: String
         let sessionId: String
         let agent: String
+        let agentProcess: Process
         let environment: [String: String]
 
         func cleanup() {
+            if agentProcess.isRunning {
+                agentProcess.terminate()
+            }
+            agentProcess.waitUntilExit()
+            Darwin.shutdown(listenerFD, SHUT_RDWR)
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
@@ -161,7 +172,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let grokHome = root.appendingPathComponent("grok-home", isDirectory: true)
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let environment: [String: String] = [
+        let agentExecutable = root.appendingPathComponent(agent, isDirectory: false)
+        try FileManager.default.createSymbolicLink(
+            at: agentExecutable,
+            withDestinationURL: URL(fileURLWithPath: "/bin/sleep", isDirectory: false)
+        )
+        let agentProcess = Process()
+        agentProcess.executableURL = agentExecutable
+        agentProcess.arguments = ["30"]
+        agentProcess.standardOutput = FileHandle.nullDevice
+        agentProcess.standardError = FileHandle.nullDevice
+        try agentProcess.run()
+
+        var environment: [String: String] = [
             "HOME": root.path,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "PWD": root.path,
@@ -172,6 +195,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "GROK_HOME": grokHome.path,
         ]
+        environment[agent == "grok" ? "CMUX_GROK_PID" : "CMUX_ANTIGRAVITY_PID"] = String(
+            agentProcess.processIdentifier
+        )
 
         startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 128)
         return GrokNoiseContext(
@@ -184,6 +210,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             surfaceId: surfaceId,
             sessionId: sessionId,
             agent: agent,
+            agentProcess: agentProcess,
             environment: environment
         )
     }

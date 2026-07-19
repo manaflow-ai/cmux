@@ -298,6 +298,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
+            Darwin.shutdown(listenerFD, SHUT_RDWR)
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
@@ -565,6 +566,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
+            Darwin.shutdown(listenerFD, SHUT_RDWR)
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
@@ -1406,6 +1408,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
+            Darwin.shutdown(listenerFD, SHUT_RDWR)
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)

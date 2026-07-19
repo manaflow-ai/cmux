@@ -110,9 +110,9 @@ struct AgentNotificationOwnershipRegressionTests {
 
     private func startCodexFixture(in root: URL) throws -> Process {
         let executable = root.appendingPathComponent("codex", isDirectory: false)
-        try FileManager.default.copyItem(
-            at: URL(fileURLWithPath: "/bin/sleep", isDirectory: false),
-            to: executable
+        try FileManager.default.createSymbolicLink(
+            at: executable,
+            withDestinationURL: URL(fileURLWithPath: "/bin/sleep", isDirectory: false)
         )
         let process = Process()
         process.executableURL = executable

@@ -374,6 +374,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         process.standardInput = stdinPipe ?? FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
+        let exitSignal = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            exitSignal.signal()
+        }
 
         do {
             try process.run()
@@ -406,12 +410,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             stderrData = data
             outputLock.unlock()
             outputGroup.leave()
-        }
-
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
         }
 
         let timedOut = exitSignal.wait(timeout: .now() + processTimeout(timeout)) == .timedOut

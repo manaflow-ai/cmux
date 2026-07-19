@@ -12,6 +12,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let socketPath = makeSocketPath("agent-exact-observation-owner")
         let listenerFD = try bindUnixSocket(at: socketPath)
         defer {
+            Darwin.shutdown(listenerFD, SHUT_RDWR)
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
@@ -128,6 +129,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let socketPath = makeSocketPath("agent-live-list")
         let listenerFD = try bindUnixSocket(at: socketPath)
         defer {
+            Darwin.shutdown(listenerFD, SHUT_RDWR)
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
@@ -443,6 +445,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let socketPath = makeSocketPath("agent-filtered-shared-process")
         let listenerFD = try bindUnixSocket(at: socketPath)
         defer {
+            Darwin.shutdown(listenerFD, SHUT_RDWR)
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
@@ -630,6 +633,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let socketPath = makeSocketPath("agent-live-moved-workspace")
         let listenerFD = try bindUnixSocket(at: socketPath)
         defer {
+            Darwin.shutdown(listenerFD, SHUT_RDWR)
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
@@ -821,6 +825,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let socketPath = makeSocketPath("agent-family-aliases")
         let listenerFD = try bindUnixSocket(at: socketPath)
         defer {
+            Darwin.shutdown(listenerFD, SHUT_RDWR)
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
@@ -1095,6 +1100,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let socketPath = makeSocketPath("agent-ambient-runtime")
         let listenerFD = try bindUnixSocket(at: socketPath)
         defer {
+            Darwin.shutdown(listenerFD, SHUT_RDWR)
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
@@ -1164,6 +1170,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let socketPath = makeSocketPath("agent-timeout")
         let listenerFD = try bindUnixSocket(at: socketPath)
         defer {
+            Darwin.shutdown(listenerFD, SHUT_RDWR)
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
@@ -1276,6 +1283,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let socketPath = makeSocketPath("agent-runtime")
         let listenerFD = try bindUnixSocket(at: socketPath)
         defer {
+            Darwin.shutdown(listenerFD, SHUT_RDWR)
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)

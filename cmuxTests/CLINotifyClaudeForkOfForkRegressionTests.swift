@@ -84,6 +84,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let surfaceId: String
 
         func cleanup() {
+            Darwin.shutdown(listenerFD, SHUT_RDWR)
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)

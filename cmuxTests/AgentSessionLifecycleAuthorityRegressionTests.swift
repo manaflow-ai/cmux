@@ -66,7 +66,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             .appendingPathComponent("cmux-agent-exited-one-shot-\(UUID().uuidString)", isDirectory: true)
         let executable = root.appendingPathComponent("codex", isDirectory: false)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+        try FileManager.default.createSymbolicLink(atPath: executable.path, withDestinationPath: "/bin/sleep")
         defer { try? FileManager.default.removeItem(at: root) }
 
         let process = Process()
@@ -158,7 +158,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             .appendingPathComponent("cmux-agent-stale-stop-newer-run-\(UUID().uuidString)", isDirectory: true)
         let executable = root.appendingPathComponent("codex", isDirectory: false)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+        try FileManager.default.createSymbolicLink(atPath: executable.path, withDestinationPath: "/bin/sleep")
         defer { try? FileManager.default.removeItem(at: root) }
 
         let process = Process()
@@ -214,7 +214,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             .appendingPathComponent("cmux-agent-reused-stop-pid-\(UUID().uuidString)", isDirectory: true)
         let executable = root.appendingPathComponent("codex", isDirectory: false)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+        try FileManager.default.createSymbolicLink(atPath: executable.path, withDestinationPath: "/bin/sleep")
         defer { try? FileManager.default.removeItem(at: root) }
 
         let process = Process()
@@ -298,7 +298,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             .appendingPathComponent("cmux-agent-legacy-stop-generation-\(UUID().uuidString)", isDirectory: true)
         let executable = root.appendingPathComponent("codex", isDirectory: false)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+        try FileManager.default.createSymbolicLink(atPath: executable.path, withDestinationPath: "/bin/sleep")
         defer { try? FileManager.default.removeItem(at: root) }
 
         let process = Process()
@@ -807,7 +807,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             .appendingPathComponent("cmux-agent-ended-stop-replacement-\(UUID().uuidString)", isDirectory: true)
         let executable = root.appendingPathComponent("codex", isDirectory: false)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+        try FileManager.default.createSymbolicLink(atPath: executable.path, withDestinationPath: "/bin/sleep")
         defer { try? FileManager.default.removeItem(at: root) }
 
         let process = Process()
@@ -869,7 +869,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             .appendingPathComponent("cmux-agent-reused-stop-replacement-\(UUID().uuidString)", isDirectory: true)
         let executable = root.appendingPathComponent("codex", isDirectory: false)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+        try FileManager.default.createSymbolicLink(atPath: executable.path, withDestinationPath: "/bin/sleep")
         defer { try? FileManager.default.removeItem(at: root) }
 
         let process = Process()
@@ -999,7 +999,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             .appendingPathComponent("cmux-agent-no-pid-newer-generation-\(UUID().uuidString)", isDirectory: true)
         let executable = root.appendingPathComponent("codex", isDirectory: false)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+        try FileManager.default.createSymbolicLink(atPath: executable.path, withDestinationPath: "/bin/sleep")
         defer { try? FileManager.default.removeItem(at: root) }
 
         let process = Process()

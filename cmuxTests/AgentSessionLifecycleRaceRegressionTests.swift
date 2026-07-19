@@ -1015,7 +1015,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let fakeCmux = root.appendingPathComponent("cmux")
         let pidFile = root.appendingPathComponent("agent-pid")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: customAgent.path)
+        try FileManager.default.createSymbolicLink(atPath: customAgent.path, withDestinationPath: "/bin/sleep")
         try FileManager.default.copyItem(atPath: "/bin/sh", toPath: fakeCmux.path)
         defer { try? FileManager.default.removeItem(at: root) }
 

@@ -25735,6 +25735,7 @@ struct CMUXCLI {
         case "codex": envKey = "CMUX_CODEX_PID"
         case "cursor": envKey = "CMUX_CURSOR_PID"
         case "gemini": envKey = "CMUX_GEMINI_PID"
+        case "grok": envKey = "CMUX_GROK_PID"
         case "antigravity": envKey = "CMUX_ANTIGRAVITY_PID"
         case "rovodev": envKey = "CMUX_ROVODEV_PID"
         case "hermes-agent": envKey = "CMUX_HERMES_AGENT_PID"
