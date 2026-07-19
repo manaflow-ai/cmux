@@ -323,18 +323,25 @@ final class SidebarRowPullRequestLine: NSView {
             x: 0, y: (bounds.height - iconSize.height) / 2,
             width: iconSize.width, height: iconSize.height
         )
-        let statusSize = statusLabel.intrinsicContentSize
+        // sidebarNaturalCellSize, never intrinsicContentSize: see the
+        // extension note — a pooled truncating label laid out narrow once
+        // reports the truncated width forever ("PR #4  o…").
+        let statusSize = statusLabel.sidebarNaturalCellSize
         let titleX = iconSize.width + 4
-        let titleWidth = max(10, bounds.width - titleX - statusSize.width - 8)
+        // The short status word keeps its natural width; the title absorbs
+        // any shortfall (it is the long, truncatable part).
+        let titleWidth = max(10, bounds.width - titleX - ceil(statusSize.width) - 8)
         let title: NSView = titleButton.isHidden ? titleLabel : titleButton
-        let titleSize = titleButton.isHidden ? titleLabel.intrinsicContentSize : titleButton.intrinsicContentSize
+        let titleSize = titleButton.isHidden
+            ? titleLabel.sidebarNaturalCellSize
+            : titleButton.intrinsicContentSize
         title.frame = NSRect(
             x: titleX, y: (bounds.height - titleSize.height) / 2,
             width: min(ceil(titleSize.width), titleWidth), height: titleSize.height
         )
         statusLabel.frame = NSRect(
             x: title.frame.maxX + 4, y: (bounds.height - statusSize.height) / 2,
-            width: statusSize.width, height: statusSize.height
+            width: ceil(statusSize.width), height: statusSize.height
         )
     }
 }
@@ -416,6 +423,14 @@ final class SidebarRowChecklistSection: NSView {
     ) {
         self.model = model
         self.actions = actions
+        // Keep an open popover in sync: mutations flow through this configure
+        // pass, and the popover otherwise shows its creation-time items until
+        // reopened.
+        if let popover, popover.isShown,
+           let controller = popover.contentViewController as? SidebarRowChecklistPopoverController {
+            controller.update(model: model, actions: actions)
+            popover.contentSize = controller.view.frame.size
+        }
         let snapshot = model.snapshot
         let mounted = !snapshot.checklistItems.isEmpty || model.checklistAddFieldActivationToken > 0
         isHidden = !mounted
@@ -691,9 +706,8 @@ extension SidebarWorkspaceRowTableCellView {
 /// as the inline section, in a fixed-width transient panel.
 @MainActor
 final class SidebarRowChecklistPopoverController: NSViewController {
-    private let model: SidebarWorkspaceRowModel
-    private let actions: SidebarAppKitRowActions
-    private var itemLines: [SidebarRowChecklistItemLine] = []
+    private var model: SidebarWorkspaceRowModel
+    private var actions: SidebarAppKitRowActions
 
     init(model: SidebarWorkspaceRowModel, actions: SidebarAppKitRowActions) {
         self.model = model
@@ -706,7 +720,25 @@ final class SidebarRowChecklistPopoverController: NSViewController {
     }
 
     override func loadView() {
-        let palette = SidebarRowPalette(model: model)
+        view = Self.makeContent(model: model, actions: actions)
+    }
+
+    /// Live refresh while the popover is open: checklist mutations reach the
+    /// row through the normal configure pass, which forwards the fresh model
+    /// here so open popovers repaint instead of showing creation-time state.
+    func update(model: SidebarWorkspaceRowModel, actions: SidebarAppKitRowActions) {
+        let contentChanged = self.model.snapshot.checklistItems != model.snapshot.checklistItems
+            || self.model.fontScale != model.fontScale
+        self.model = model
+        self.actions = actions
+        guard isViewLoaded, contentChanged else { return }
+        view = Self.makeContent(model: model, actions: actions)
+    }
+
+    private static func makeContent(
+        model: SidebarWorkspaceRowModel,
+        actions: SidebarAppKitRowActions
+    ) -> NSView {
         let width: CGFloat = 260
         let rowHeight = 11 * model.fontScale + 8
         let padding: CGFloat = 12
@@ -739,7 +771,6 @@ final class SidebarRowChecklistPopoverController: NSViewController {
             container.addSubview(line)
             y -= rowHeight + 2
         }
-        _ = palette
-        view = container
+        return container
     }
 }

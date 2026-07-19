@@ -10,7 +10,11 @@ protocol RemoteTmuxControlPaneMutationOwner: AnyObject {
         toPane tmuxPaneID: Int,
         name: String
     ) -> RemoteTmuxControlKeySendResult
-    func requestSplit(fromPane tmuxPaneID: Int, vertical: Bool) -> Bool
+    func requestSplit(
+        fromPane tmuxPaneID: Int,
+        vertical: Bool,
+        focusIntent: RemoteTmuxSplitFocusIntent
+    ) -> Bool
     func requestResizePane(_ tmuxPaneID: Int, direction: String, amountCells: Int) -> Bool
     func requestResizePane(_ tmuxPaneID: Int, absoluteAxis: String, targetCells: Int) -> Bool
     func requestResizePane(
