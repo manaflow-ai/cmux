@@ -222,10 +222,39 @@ const legacyWorkspaceDelta: TreeDeltaEvent = {
     screens: [],
   },
 };
+const movedWorkspaceDelta: TreeDeltaEvent = {
+  event: "workspace-moved",
+  workspace: 1,
+  index: 0,
+  workspace_revision: 2,
+  entity: {
+    id: 1,
+    key: "stable",
+    name: "moved",
+    active: true,
+    screens: [],
+  },
+};
+// `workspace-moved` was introduced with the registry capability, so it has no
+// legacy shape without a revision and stable key.
+// @ts-expect-error missing registry revision and stable key
+const invalidMovedWorkspaceDelta: TreeDeltaEvent = {
+  event: "workspace-moved",
+  workspace: 1,
+  index: 0,
+  entity: {
+    id: 1,
+    name: "moved",
+    active: true,
+    screens: [],
+  },
+};
 void renderState;
 void renderDelta;
 void treeDelta;
 void legacyWorkspaceDelta;
+void movedWorkspaceDelta;
+void invalidMovedWorkspaceDelta;
 
 async function typedAttachModes(client: CmuxClient): Promise<void> {
   const bytes: CmuxStream<DecodedAttachEvent> = await client.attachSurface(1);

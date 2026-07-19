@@ -26,10 +26,12 @@ println!("{}", client.read_screen(surface)?.text);
 
 ## 0.3 migration
 
-Protocol v8 adds `IdentifyResult.capabilities`, `Tree.workspace_revision`, and
-`Workspace.key`. Code that constructs these public structs directly must supply
-the new fields; deserialization remains compatible with older servers through
-Serde defaults.
+`identify()` keeps the legacy `IdentifyResult` shape. Use `identify_details()`
+and `IdentifyDetails.capabilities` to discover optional server behavior. Gate
+ordered workspace registry commands on `workspace-registry-v1` and initial
+attach dimensions on `attach-initial-size`; do not infer either feature from the
+protocol number. `Tree.workspace_revision` and `Workspace.key` remain optional
+so deserialization stays compatible with older servers.
 
 ## E2E
 

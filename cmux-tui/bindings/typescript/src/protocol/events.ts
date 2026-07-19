@@ -90,9 +90,8 @@ export interface WorkspaceMovedEvent {
   event: "workspace-moved";
   workspace: Id;
   index: number;
-  /** Absent when the server does not advertise `workspace-registry-v1`. */
-  workspace_revision?: number;
-  entity: Workspace;
+  workspace_revision: number;
+  entity: Workspace & { key: string };
 }
 export interface ScreenAddedEvent {
   event: "screen-added";
