@@ -100,16 +100,23 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
           stage?.style.removeProperty("--surface-background");
         }
       }
-      const cursorPatch = colorsToCursorOptionsPatch(colors);
-      if (cursorPatch !== null) Object.assign(terminal.options, cursorPatch);
       const paletteSequence = colorsToPaletteSequence(colors);
       if (paletteSequence !== null) await writeTerminal(paletteSequence);
+    };
+    const applyCursorDefaults = (
+      colors: DecodedVtStateEvent["colors"] | DecodedColorsChangedEvent | undefined,
+    ) => {
+      const cursorPatch = colorsToCursorOptionsPatch(colors);
+      if (cursorPatch !== null) Object.assign(terminal.options, cursorPatch);
     };
     const writeReplay = async (
       data: Uint8Array,
       colors: DecodedVtStateEvent["colors"] | DecodedResizedEvent["colors"],
     ) => {
       const hasSparsePalette = colors?.palette !== undefined;
+      // Host defaults must precede replay so DECSCUSR and mode changes in
+      // the authoritative replay remain in force.
+      applyCursorDefaults(colors);
       // Protocol-v6 servers omit sparse palette metadata, so preserve the
       // replay-authored OSC palette by applying special colors first.
       if (!hasSparsePalette) await applyColors(colors);
@@ -180,7 +187,9 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
               await writeReplay(resized.data, resized.colors);
               if (cancelled) return;
             } else if (event.event === "colors-changed") {
-              await applyColors(event as DecodedColorsChangedEvent);
+              const colors = event as DecodedColorsChangedEvent;
+              applyCursorDefaults(colors);
+              await applyColors(colors);
             } else if (event.event === "overflow") {
               const overflow = event as OverflowEvent;
               if (overflow.scope === "surface" && overflow.surface === surface) {

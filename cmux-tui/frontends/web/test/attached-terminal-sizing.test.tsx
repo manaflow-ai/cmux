@@ -42,6 +42,8 @@ vi.mock("@xterm/xterm", () => ({
           red: "#replay-red",
           extendedAnsi: ["#replay-extended"],
         };
+        this.options.cursorStyle = "underline";
+        this.options.cursorBlink = true;
       }
       callback?.();
     }
@@ -170,7 +172,11 @@ describe("attached terminal sizing", () => {
         cols: 80,
         rows: 24,
         data: new Uint8Array([1]),
-        colors: { palette: { "1": "#112233", "20": "#445566" } },
+        colors: {
+          palette: { "1": "#112233", "20": "#445566" },
+          cursor_style: "bar",
+          cursor_blink: false,
+        },
       },
       {
         event: "colors-changed",
@@ -196,6 +202,8 @@ describe("attached terminal sizing", () => {
           selection_bg: null,
           selection_fg: null,
           palette: { "3": "#abcdef", "22": "#fedcba" },
+          cursor_style: "bar",
+          cursor_blink: false,
         },
       },
     ]);
@@ -224,6 +232,8 @@ describe("attached terminal sizing", () => {
       );
       const theme = terminalMocks.instances[0]?.options.theme as Record<string, unknown>;
       expect(theme.red).not.toBe("#replay-red");
+      expect(terminalMocks.instances[0]?.options.cursorStyle).toBe("underline");
+      expect(terminalMocks.instances[0]?.options.cursorBlink).toBe(true);
     });
     view.unmount();
   });

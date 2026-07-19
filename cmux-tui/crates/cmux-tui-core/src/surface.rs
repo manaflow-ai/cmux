@@ -153,7 +153,6 @@ impl TerminalColors {
     fn from_terminal(term: &Terminal, defaults: DefaultColors) -> Self {
         let (fg, bg, cursor) = term.effective_colors();
         let effective_palette = term.effective_palette().ok();
-        let cursor_visual = term.cursor_visual_override();
         let palette = std::array::from_fn(|index| {
             effective_palette.as_ref().and_then(|palette| {
                 let index = index as u8;
@@ -167,8 +166,8 @@ impl TerminalColors {
             selection_bg: defaults.selection_bg,
             selection_fg: defaults.selection_fg,
             palette,
-            cursor_style: cursor_visual.map(|(style, _)| style).or(defaults.cursor_style),
-            cursor_blink: cursor_visual.map(|(_, blink)| blink).or(defaults.cursor_blink),
+            cursor_style: defaults.cursor_style,
+            cursor_blink: defaults.cursor_blink,
         }
     }
 }
@@ -553,7 +552,11 @@ impl Surface {
                         if term.color_revision() != color_revision {
                             let defaults =
                                 mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
-                            let colors = TerminalColors::from_terminal(&term, defaults);
+                            let mut colors = TerminalColors::from_terminal(&term, defaults);
+                            // PTY color changes do not change cursor visual
+                            // state; preserve the live xterm cursor.
+                            colors.cursor_style = None;
+                            colors.cursor_blink = None;
                             pty.broadcast_attach_frame(AttachFrame::ColorsChanged(Box::new(
                                 colors,
                             )));

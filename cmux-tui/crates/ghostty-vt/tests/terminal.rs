@@ -165,9 +165,11 @@ fn render_state_cursor_visual_tracks_defaults_and_decscusr() {
 }
 
 #[test]
-fn cursor_override_tracker_ignores_control_text() {
+fn cursor_override_tracker_matches_control_string_exits() {
     let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
     term.vt_write(b"\x1b]2;not-a-sequence \x1b[3 q\x07");
+    assert!(term.cursor_overridden(), "ESC exits OSC before the following DECSCUSR");
+    term.vt_write(b"\x1bc");
     assert!(!term.cursor_overridden());
 
     term.vt_write(b"\x1b[3q");
@@ -175,15 +177,12 @@ fn cursor_override_tracker_ignores_control_text() {
 
     term.vt_write(b"\x1b[5 q");
     assert!(term.cursor_overridden());
-    assert_eq!(term.cursor_visual_override(), Some((CursorShape::Bar, true)));
     term.vt_write(b"\x1bPab\x18\x1b[3 q");
-    assert_eq!(
-        term.cursor_visual_override(),
-        Some((CursorShape::Underline, true)),
-        "CAN must abort DCS before the next DECSCUSR"
-    );
+    assert!(term.cursor_overridden(), "CAN must abort DCS before the next DECSCUSR");
     term.vt_write(b"\x1bc");
     assert!(!term.cursor_overridden());
+    term.vt_write(b"\x1bPab\x1b[5 q");
+    assert!(term.cursor_overridden(), "ESC must leave DCS before the next DECSCUSR");
 }
 
 #[test]
@@ -456,6 +455,10 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     assert!(term.palette_overridden(16), "CAN dispatches Ghostty's valid OSC prefix");
     state.update(&mut term).unwrap();
     assert_eq!(state.palette_color(16), Rgb { r: 0x16, g: 0x16, b: 0x16 });
+    term.vt_write(b"\x1bPab\x1b]4;17;#171717\x07");
+    assert!(term.palette_overridden(17), "ESC must leave DCS before the next OSC");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(17), Rgb { r: 0x17, g: 0x17, b: 0x17 });
 
     term.vt_write(b"\x1b]104;1\x1b\\");
     assert!(!term.palette_overridden(1));

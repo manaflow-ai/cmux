@@ -661,7 +661,7 @@ fn control_socket_attach_vt_state_cursor_is_null_without_config_or_decscusr() {
 }
 
 #[test]
-fn control_socket_attach_vt_state_prefers_surface_decscusr_cursor() {
+fn control_socket_attach_vt_state_reports_host_cursor_defaults_before_replay() {
     let mux = Mux::new(unique_session("test-attach-cursor-override"), shell_opts("cat"));
     mux.set_default_colors(DefaultColors {
         cursor_style: Some(CursorShape::Bar),
@@ -678,8 +678,8 @@ fn control_socket_attach_vt_state_prefers_surface_decscusr_cursor() {
 
     writeln!(writer, r#"{{"id":1,"cmd":"attach-surface","surface":{}}}"#, surface.id).unwrap();
     let vt_state = read_json_line(&mut reader).expect("vt-state event");
-    assert_eq!(vt_state["colors"]["cursor_style"], "underline");
-    assert_eq!(vt_state["colors"]["cursor_blink"], true);
+    assert_eq!(vt_state["colors"]["cursor_style"], "bar");
+    assert_eq!(vt_state["colors"]["cursor_blink"], false);
 
     let response = read_json_line(&mut reader).expect("attach response");
     assert_eq!(response["ok"], true, "attach failed: {response}");

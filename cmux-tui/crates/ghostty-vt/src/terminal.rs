@@ -242,7 +242,6 @@ pub struct Terminal {
 struct CursorOverrideTracker {
     state: CursorTrackState,
     active: bool,
-    visual: Option<(CursorShape, bool)>,
 }
 
 #[derive(Default)]
@@ -253,9 +252,6 @@ enum CursorTrackState {
     EscapeIntermediate,
     Csi(CursorCsi),
     String {
-        bell_terminated: bool,
-    },
-    StringEscape {
         bell_terminated: bool,
     },
 }
@@ -285,14 +281,7 @@ impl CursorOverrideTracker {
                     0x07 if bell_terminated => CursorTrackState::Ground,
                     0x9c => CursorTrackState::Ground,
                     0x18 | 0x1a => CursorTrackState::Ground,
-                    0x1b => CursorTrackState::StringEscape { bell_terminated },
-                    _ => CursorTrackState::String { bell_terminated },
-                },
-                CursorTrackState::StringEscape { bell_terminated } => match byte {
-                    b'\\' | 0x9c => CursorTrackState::Ground,
-                    0x18 | 0x1a => CursorTrackState::Ground,
-                    0x1b => CursorTrackState::StringEscape { bell_terminated },
-                    0x07 if bell_terminated => CursorTrackState::Ground,
+                    0x1b => CursorTrackState::Escape,
                     _ => CursorTrackState::String { bell_terminated },
                 },
             };
@@ -318,7 +307,6 @@ impl CursorOverrideTracker {
             b'P' | b'X' | b'^' | b'_' => CursorTrackState::String { bell_terminated: false },
             b'c' => {
                 self.active = false;
-                self.visual = None;
                 CursorTrackState::Ground
             }
             0x1b => CursorTrackState::Escape,
@@ -351,32 +339,8 @@ impl CursorOverrideTracker {
                     match (csi.digits, csi.value) {
                         (false, _) | (true, 0) => {
                             self.active = false;
-                            self.visual = None;
                         }
-                        (true, 1) => {
-                            self.active = true;
-                            self.visual = Some((CursorShape::Block, true));
-                        }
-                        (true, 2) => {
-                            self.active = true;
-                            self.visual = Some((CursorShape::Block, false));
-                        }
-                        (true, 3) => {
-                            self.active = true;
-                            self.visual = Some((CursorShape::Underline, true));
-                        }
-                        (true, 4) => {
-                            self.active = true;
-                            self.visual = Some((CursorShape::Underline, false));
-                        }
-                        (true, 5) => {
-                            self.active = true;
-                            self.visual = Some((CursorShape::Bar, true));
-                        }
-                        (true, 6) => {
-                            self.active = true;
-                            self.visual = Some((CursorShape::Bar, false));
-                        }
+                        (true, 1..=6) => self.active = true,
                         _ => {}
                     }
                 }
@@ -410,9 +374,6 @@ enum PaletteTrackState {
     EscapeIntermediate,
     Osc(PaletteOsc),
     String {
-        bell_terminated: bool,
-    },
-    StringEscape {
         bell_terminated: bool,
     },
 }
@@ -538,14 +499,7 @@ impl PaletteOverrideTracker {
                     0x07 if bell_terminated => PaletteTrackState::Ground,
                     0x9c => PaletteTrackState::Ground,
                     0x18 | 0x1a => PaletteTrackState::Ground,
-                    0x1b => PaletteTrackState::StringEscape { bell_terminated },
-                    _ => PaletteTrackState::String { bell_terminated },
-                },
-                PaletteTrackState::StringEscape { bell_terminated } => match byte {
-                    b'\\' | 0x9c => PaletteTrackState::Ground,
-                    0x18 | 0x1a => PaletteTrackState::Ground,
-                    0x1b => PaletteTrackState::StringEscape { bell_terminated },
-                    0x07 if bell_terminated => PaletteTrackState::Ground,
+                    0x1b => PaletteTrackState::Escape,
                     _ => PaletteTrackState::String { bell_terminated },
                 },
             };
@@ -851,11 +805,6 @@ impl Terminal {
     /// override rather than the embedder defaults.
     pub fn cursor_overridden(&self) -> bool {
         self.cursor_override.active
-    }
-
-    /// Current DECSCUSR-authored cursor shape and blink mode, if active.
-    pub fn cursor_visual_override(&self) -> Option<(CursorShape, bool)> {
-        self.cursor_override.visual
     }
 
     /// Whether a PTY has an active OSC 4 override for this palette index.
