@@ -78,7 +78,8 @@ struct RemoteTmuxControlStreamParser {
         if !inBlock {
             bytes = Self.removingST(bytes)
         }
-        if bytes.isEmpty { return prefixMessages }
+        // Empty command-block rows are pane content; only empty notifications vanish.
+        if bytes.isEmpty, !inBlock { return prefixMessages }
 
         // `%output` is the only notification whose payload carries raw, possibly
         // multi-byte UTF-8 pane bytes. Parse it straight from the raw bytes so a
