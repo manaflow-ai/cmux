@@ -456,6 +456,16 @@ private final class HibernationSurfaceRegistry: TerminalSurfaceRegistering, @unc
         liveSurface.teardownSurface()
     }
 
+    @Test func directInputRejectsSuspendedHibernatedSurfaceInsteadOfStrandingBytes() {
+        let surface = makeSurface()
+        #expect(surface.markRuntimeSurfaceSuspendedForRestoredAgentHibernation())
+
+        #expect(surface.sendInputResult("pwd\r") == .surfaceUnavailable)
+        let pending = surface.debugPendingSocketInputForTesting()
+        #expect(pending.items == 0)
+        #expect(pending.bytes == 0)
+    }
+
     @Test func deinitKeepsTeeLeaseUntilCoordinatorFree() async {
         let recorder = TeardownOrderRecorder()
         var surface: TerminalSurface? = makeSurface()
