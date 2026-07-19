@@ -50,6 +50,7 @@ pub struct PaneView {
     pub name: Option<String>,
     pub tabs: Vec<TabView>,
     pub active_tab: usize,
+    pub focused_at: u64,
 }
 
 #[derive(Clone)]
@@ -186,6 +187,7 @@ pub fn tree_from_state_with_notifications(
             short_id: short_ids.get(&pane.id).cloned().unwrap_or_default(),
             name: pane.name.clone(),
             active_tab: pane.active_tab,
+            focused_at: pane.focused_at,
             tabs: pane
                 .tabs
                 .iter()
@@ -280,6 +282,7 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
         short_id: value.get("short_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
         name: value.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
         active_tab: value.get("active_tab").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
+        focused_at: value.get("focused_at").and_then(|v| v.as_u64()).unwrap_or(0),
         tabs: value
             .get("tabs")
             .and_then(|v| v.as_array())
@@ -434,5 +437,17 @@ mod tests {
         .unwrap();
 
         assert!(matches!(layout, Node::Stack { expanded: 4, .. }));
+    }
+
+    #[test]
+    fn pane_parser_preserves_authoritative_focus_recency() {
+        let pane = parse_pane(&json!({
+            "id": 3,
+            "focused_at": 42,
+            "tabs": []
+        }))
+        .unwrap();
+
+        assert_eq!(pane.focused_at, 42);
     }
 }

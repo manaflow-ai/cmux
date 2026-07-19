@@ -1607,6 +1607,7 @@ impl Mux {
     /// A fresh single-tab pane wrapping `surface`.
     fn make_pane(&self, surface: SurfaceId) -> (PaneId, Pane) {
         let id = self.next_id();
+        let active_at = self.next_active_at();
         (
             id,
             Pane {
@@ -1614,7 +1615,8 @@ impl Mux {
                 name: None,
                 tabs: vec![surface],
                 active_tab: 0,
-                active_at: self.next_active_at(),
+                active_at,
+                focused_at: active_at,
             },
         )
     }
@@ -2934,6 +2936,7 @@ impl Mux {
                         tabs: vec![surface.id],
                         active_tab: 0,
                         active_at,
+                        focused_at: active_at,
                     },
                 );
                 let entity = crate::server::tree_entity_json(
@@ -3035,6 +3038,7 @@ impl Mux {
                         tabs: vec![surface.id],
                         active_tab: 0,
                         active_at,
+                        focused_at: active_at,
                     },
                 );
                 Self::rebuild_split_screen_index(&mut state);
@@ -3553,7 +3557,7 @@ impl Mux {
                     screen.root.expand_stack_pane(previous);
                     screen.root.expand_stack_pane(pane);
                     screen.active_pane = pane;
-                    stamp_pane(&mut state, pane, active_at);
+                    stamp_pane_focus(&mut state, pane, active_at);
                     (true, Self::active_surface_in_state(&state), layout_changed)
                 }
                 None => (false, None, None),
@@ -3641,7 +3645,9 @@ impl Mux {
                 Rect { x: 0, y: 0, width: 10_000, height: 10_000 },
                 Some(screen.active_pane),
             );
-            Ok(layout.neighbor(pane, dx, dy))
+            Ok(layout.neighbor_by_recency(pane, dx, dy, |candidate| {
+                state.panes.get(&candidate).map(|pane| pane.focused_at).unwrap_or_default()
+            }))
         })
     }
 
@@ -3941,7 +3947,9 @@ impl Mux {
             let (moved, topology_changed) =
                 move_tab_in_state(self, &mut state, surface, pane, index);
             if moved {
-                stamp_pane(&mut state, pane, active_at);
+                if let Some(pane) = state.panes.get_mut(&pane) {
+                    pane.active_at = active_at;
+                }
                 if state.workspaces.len() != workspace_count {
                     state.workspace_revision = state.workspace_revision.saturating_add(1);
                 }
@@ -4084,7 +4092,13 @@ impl Mux {
                 pane.active_tab =
                     ((pane.active_tab as isize + delta).rem_euclid(len as isize)) as usize;
             }
-            stamp_pane(&mut state, target, active_at);
+            let focused = state.active_pane() == Some(target);
+            if let Some(pane) = state.panes.get_mut(&target) {
+                pane.active_at = active_at;
+                if focused {
+                    pane.focused_at = active_at;
+                }
+            }
             state.panes.get(&target).and_then(|pane| pane.active_surface())
         };
         self.clear_viewed_notification(viewed);
@@ -4111,7 +4125,7 @@ impl Mux {
                     ((ws.active_screen as isize + delta).rem_euclid(len as isize)) as usize;
             }
             if let Some(pane) = ws.active_screen_ref().map(|screen| screen.active_pane) {
-                stamp_pane(&mut state, pane, active_at);
+                stamp_pane_focus(&mut state, pane, active_at);
             }
             Self::active_surface_in_state(&state)
         };
@@ -4141,7 +4155,7 @@ impl Mux {
                 .get(state.active_workspace)
                 .and_then(|ws| ws.active_screen_ref().map(|screen| screen.active_pane))
             {
-                stamp_pane(&mut state, pane, active_at);
+                stamp_pane_focus(&mut state, pane, active_at);
             }
             Self::active_surface_in_state(&state)
         };
@@ -4188,9 +4202,10 @@ fn screen_tabs(state: &State, screen: &Screen) -> Vec<SurfaceId> {
         .collect()
 }
 
-fn stamp_pane(state: &mut State, pane: PaneId, active_at: u64) {
+fn stamp_pane_focus(state: &mut State, pane: PaneId, active_at: u64) {
     if let Some(pane) = state.panes.get_mut(&pane) {
         pane.active_at = active_at;
+        pane.focused_at = active_at;
     }
 }
 
@@ -5167,9 +5182,39 @@ mod tests {
             workspace_revision: 1,
             active_workspace: 0,
             panes: HashMap::from([
-                (p1, Pane { id: p1, name: None, tabs: vec![1], active_tab: 0, active_at: 1 }),
-                (p2, Pane { id: p2, name: None, tabs: vec![2], active_tab: 0, active_at: 2 }),
-                (p3, Pane { id: p3, name: None, tabs: vec![3], active_tab: 0, active_at: 3 }),
+                (
+                    p1,
+                    Pane {
+                        id: p1,
+                        name: None,
+                        tabs: vec![1],
+                        active_tab: 0,
+                        active_at: 1,
+                        focused_at: 1,
+                    },
+                ),
+                (
+                    p2,
+                    Pane {
+                        id: p2,
+                        name: None,
+                        tabs: vec![2],
+                        active_tab: 0,
+                        active_at: 2,
+                        focused_at: 2,
+                    },
+                ),
+                (
+                    p3,
+                    Pane {
+                        id: p3,
+                        name: None,
+                        tabs: vec![3],
+                        active_tab: 0,
+                        active_at: 3,
+                        focused_at: 3,
+                    },
+                ),
             ]),
             surfaces: HashMap::new(),
             split_screens: HashMap::new(),
@@ -5371,7 +5416,7 @@ mod tests {
         let p2 = applied.panes[1].pane;
         let p3 = applied.panes[2].pane;
 
-        assert_eq!(mux.pane_neighbor(p1, Direction::Right).unwrap(), Some(p2));
+        assert_eq!(mux.pane_neighbor(p1, Direction::Right).unwrap(), Some(p3));
         assert_eq!(mux.pane_neighbor(p2, Direction::Down).unwrap(), Some(p3));
         assert_eq!(mux.pane_neighbor(p1, Direction::Left).unwrap(), None);
     }
@@ -5394,6 +5439,48 @@ mod tests {
         assert_eq!(mux.focus_direction(None, Direction::Right).unwrap(), p2);
         mux.with_state(|s| assert_eq!(s.workspaces[0].screens[0].active_pane, p2));
         assert!(mux.focus_direction(None, Direction::Right).is_err());
+    }
+
+    #[test]
+    fn focus_direction_returns_to_most_recently_focused_adjacent_pane() {
+        let mux = test_mux();
+        let applied = mux
+            .apply_layout(
+                None,
+                None,
+                &split_spec(
+                    SplitDir::Right,
+                    0.5,
+                    leaf_spec(),
+                    split_spec(SplitDir::Down, 0.5, leaf_spec(), leaf_spec()),
+                ),
+                None,
+            )
+            .unwrap();
+        let left = applied.panes[0].pane;
+        let top_right = applied.panes[1].pane;
+        let bottom_right = applied.panes[2].pane;
+
+        assert!(mux.focus_pane(top_right));
+        assert!(mux.focus_pane(bottom_right));
+        assert_eq!(mux.focus_direction(None, Direction::Left).unwrap(), left);
+        assert_eq!(mux.focus_direction(None, Direction::Right).unwrap(), bottom_right);
+    }
+
+    #[test]
+    fn selecting_a_tab_in_an_inactive_pane_does_not_change_focus_recency() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let left = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right_surface = mux.split(left, SplitDir::Right, None).unwrap();
+        let right = mux.with_state(|state| state.pane_of(right_surface.id).unwrap());
+        assert!(mux.focus_pane(left));
+        mux.new_tab(Some(right), None, None).unwrap();
+        let before = mux.with_state(|state| state.panes[&right].focused_at);
+
+        mux.select_tab(Some(right), Some(0), None);
+
+        assert_eq!(mux.with_state(|state| state.panes[&right].focused_at), before);
     }
 
     #[test]

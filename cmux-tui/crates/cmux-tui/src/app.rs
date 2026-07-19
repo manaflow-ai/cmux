@@ -2430,22 +2430,17 @@ struct PaneFocusHistory {
 }
 
 impl PaneFocusHistory {
-    fn reconcile(&mut self, panes: impl IntoIterator<Item = PaneId>) {
-        let panes = panes.into_iter().collect::<Vec<_>>();
-        let live = panes.iter().copied().collect::<HashSet<_>>();
-        self.recency.retain(|pane, _| live.contains(pane));
-        for pane in panes {
-            self.recency.entry(pane).or_default();
-        }
-    }
-
     fn record(&mut self, pane: PaneId) {
         self.next_sequence = self.next_sequence.saturating_add(1);
         self.recency.insert(pane, self.next_sequence);
     }
 
-    fn recency(&self, pane: PaneId) -> u64 {
-        self.recency.get(&pane).copied().unwrap_or_default()
+    fn recency(&self, pane: PaneId, authoritative: u64) -> (bool, u64) {
+        self.recency
+            .get(&pane)
+            .copied()
+            .map(|sequence| (true, sequence))
+            .unwrap_or((false, authoritative))
     }
 }
 
@@ -3205,15 +3200,6 @@ impl App {
             self.browser_input.forget_surface(surface);
         }
         self.tree = tree;
-        let panes = self
-            .tree
-            .workspaces
-            .iter()
-            .flat_map(|workspace| workspace.screens.iter())
-            .flat_map(|screen| screen.panes.iter())
-            .map(|pane| pane.id)
-            .collect::<Vec<_>>();
-        self.pane_focus_history.reconcile(panes);
         if self.active_pane() != previous_active
             && let Some(active) = self.active_pane()
         {
@@ -5427,9 +5413,15 @@ impl App {
             panes: self.pane_areas.iter().map(|area| (area.pane, area.rect)).collect(),
             ..Default::default()
         };
-        if let Some(next) =
-            layout.neighbor_by_recency(active, dx, dy, |pane| self.pane_focus_history.recency(pane))
-        {
+        if let Some(next) = layout.neighbor_by_recency(active, dx, dy, |pane| {
+            let authoritative = screen
+                .panes
+                .iter()
+                .find(|candidate| candidate.id == pane)
+                .map(|pane| pane.focused_at)
+                .unwrap_or_default();
+            self.pane_focus_history.recency(pane, authoritative)
+        }) {
             self.focus_pane_after_input(next);
         }
     }
@@ -7677,19 +7669,12 @@ mod tests {
     }
 
     #[test]
-    fn pane_focus_history_only_advances_for_new_or_focused_panes() {
+    fn pane_focus_history_overlays_authoritative_recency() {
         let mut history = PaneFocusHistory::default();
-        history.reconcile([1, 2, 3]);
-        assert_eq!(history.recency(1), 0);
-        assert_eq!(history.recency(3), 0);
+        assert_eq!(history.recency(1, 8), (false, 8));
         history.record(2);
-        let focused = history.recency(2);
-
-        history.reconcile([1, 2, 3, 4]);
-
-        assert_eq!(history.recency(2), focused);
-        assert!(history.recency(2) > history.recency(3));
-        assert_eq!(history.recency(4), 0);
+        assert_eq!(history.recency(2, 99), (true, 1));
+        assert_eq!(history.recency(3, 12), (false, 12));
     }
 
     #[test]
@@ -7713,8 +7698,6 @@ mod tests {
         }
         app.session.remote = true;
 
-        app.focus_pane_after_input(bottom_right);
-        app.focus_pane_after_input(left);
         app.move_focus(Direction::Right);
         assert_eq!(app.active_pane(), Some(bottom_right));
         app.move_focus(Direction::Left);
@@ -11194,6 +11177,7 @@ mod tests {
                         name: None,
                         tabs,
                         active_tab: usize::from(active_surface != created_surface),
+                        focused_at: 0,
                     }],
                 }],
             }],
@@ -11390,6 +11374,7 @@ mod tests {
                         short_id: "000002".to_string(),
                         name: None,
                         active_tab: 0,
+                        focused_at: 0,
                         tabs: vec![TabView {
                             surface,
                             short_id: "000001".to_string(),

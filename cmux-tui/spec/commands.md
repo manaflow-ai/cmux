@@ -88,7 +88,7 @@ Applying a stack creates one fresh pane per exported pane id, preserves membersh
 `Pane`:
 
 ```text
-object{id:Id,name:string|null,active_tab:usize,tabs:array<Tab>}
+object{id:Id,name:string|null,active_tab:usize,focused_at:u64,tabs:array<Tab>}
 | object{id:Id,dead:true}
 ```
 
@@ -467,7 +467,7 @@ Example:
 
 ```json
 {"id":2,"cmd":"list-workspaces"}
-{"id":2,"ok":true,"data":{"workspace_revision":1,"workspaces":[{"id":4,"key":"6ba7b810-9dad-41d1-80b4-00c04fd430c8","name":"1","active":true,"screens":[{"id":3,"name":null,"active":true,"active_pane":2,"layout":{"type":"leaf","pane":2},"panes":[{"id":2,"name":null,"active_tab":0,"tabs":[{"surface":1,"kind":"pty","browser_source":null,"name":null,"title":"","size":{"cols":80,"rows":24},"dead":false}]}]}]}]}}
+{"id":2,"ok":true,"data":{"workspace_revision":1,"workspaces":[{"id":4,"key":"6ba7b810-9dad-41d1-80b4-00c04fd430c8","name":"1","active":true,"screens":[{"id":3,"name":null,"active":true,"active_pane":2,"layout":{"type":"leaf","pane":2},"panes":[{"id":2,"name":null,"active_tab":0,"focused_at":1,"tabs":[{"surface":1,"kind":"pty","browser_source":null,"name":null,"title":"","size":{"cols":80,"rows":24},"dead":false}]}]}]}]}}
 ```
 
 ### export-layout

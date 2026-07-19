@@ -395,6 +395,8 @@ pub struct Pane {
     pub tabs: Vec<SurfaceId>,
     pub active_tab: usize,
     pub active_at: u64,
+    /// Monotonic sequence updated only when this pane receives focus.
+    pub focused_at: u64,
 }
 
 impl Pane {

@@ -45,12 +45,12 @@ impl LayoutResult {
 
     /// Zellij-style directional focus: among panes that share the requested
     /// edge, return the one focused most recently.
-    pub fn neighbor_by_recency(
+    pub fn neighbor_by_recency<R: Ord>(
         &self,
         from: PaneId,
         dx: i32,
         dy: i32,
-        recency: impl Fn(PaneId) -> u64,
+        recency: impl Fn(PaneId) -> R,
     ) -> Option<PaneId> {
         directional_neighbor_by_recency(&self.panes, from, dx, dy, recency)
     }
@@ -86,12 +86,12 @@ pub fn directional_neighbor(
         .map(|(_, id, _)| id)
 }
 
-pub fn directional_neighbor_by_recency(
+pub fn directional_neighbor_by_recency<R: Ord>(
     panes: &[(PaneId, Rect)],
     from: PaneId,
     dx: i32,
     dy: i32,
-    recency: impl Fn(PaneId) -> u64,
+    recency: impl Fn(PaneId) -> R,
 ) -> Option<PaneId> {
     let cur = panes.iter().find(|(id, _)| *id == from).map(|(_, rect)| *rect)?;
     let direction = Direction::from_delta(dx, dy)?;
@@ -106,7 +106,9 @@ pub fn directional_neighbor_by_recency(
                 .filter(|score| score.distance == 0)
                 .map(|_| (recency(id), order, id))
         })
-        .max_by_key(|(active_at, order, _)| (*active_at, std::cmp::Reverse(*order)))
+        .max_by(|(a_recency, a_order, _), (b_recency, b_order, _)| {
+            a_recency.cmp(b_recency).then_with(|| b_order.cmp(a_order))
+        })
         .map(|(_, _, id)| id)
 }
 
