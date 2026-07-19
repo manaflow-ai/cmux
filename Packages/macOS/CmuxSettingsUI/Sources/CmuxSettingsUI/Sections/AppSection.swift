@@ -145,12 +145,12 @@ public struct AppSection: View {
         if globalFontMagnification.current != GlobalFontMagnification.defaultPercent {
             return String(
                 localized: "settings.app.globalFontMagnification.subtitleOn",
-                defaultValue: "Terminals, tabs, and chrome all render at this magnification. Per-pane zoom (Cmd= / Cmd-) still overrides for the focused pane."
+                defaultValue: "Terminals, tabs, and chrome all render at this magnification. ⌘= / ⌘- step it from anywhere."
             )
         }
         return String(
             localized: "settings.app.globalFontMagnification.subtitleOff",
-            defaultValue: "Scale every font in cmux by the same percentage. 100% = design size."
+            defaultValue: "Scale every font in cmux by the same percentage. 100% = design size. ⌘= / ⌘- step it from anywhere."
         )
     }
 

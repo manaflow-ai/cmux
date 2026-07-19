@@ -1635,6 +1635,8 @@
               "browserZoomIn",
               "browserZoomOut",
               "browserZoomReset",
+              "globalZoomIn",
+              "globalZoomOut",
               "markdownZoomIn",
               "markdownZoomOut",
               "markdownZoomReset",

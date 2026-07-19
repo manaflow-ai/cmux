@@ -132,6 +132,8 @@ extension ShortcutAction {
         case .browserZoomIn: return ShortcutStroke(key: "=", command: true)
         case .browserZoomOut: return ShortcutStroke(key: "-", command: true)
         case .browserZoomReset: return ShortcutStroke(key: "0", command: true)
+        case .globalZoomIn: return ShortcutStroke(key: "=", command: true)
+        case .globalZoomOut: return ShortcutStroke(key: "-", command: true)
         case .markdownZoomIn: return ShortcutStroke(key: "=", command: true)
         case .markdownZoomOut: return ShortcutStroke(key: "-", command: true)
         case .markdownZoomReset: return ShortcutStroke(key: "0", command: true)

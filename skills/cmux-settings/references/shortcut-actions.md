@@ -18,6 +18,8 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.closeWindow`
 - `shortcuts.bindings.toggleFullScreen`
 - `shortcuts.bindings.quit`
+- `shortcuts.bindings.globalZoomIn`
+- `shortcuts.bindings.globalZoomOut`
 - `shortcuts.bindings.openFolder`
 - `shortcuts.bindings.sendFeedback`
 

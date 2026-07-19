@@ -14077,6 +14077,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // App-wide zoom outranks the per-pane zooms below: when globalZoomIn/Out
+        // hold the same chord (Cmd+= / Cmd+- by default), the whole app scales
+        // regardless of which pane is focused. Unbind them in Settings to get
+        // the per-pane browser/markdown/terminal zoom behavior back.
+        if matchConfiguredShortcut(event: event, action: .globalZoomIn) { return performGlobalZoomShortcut(action: .globalZoomIn) }
+
+        if matchConfiguredShortcut(event: event, action: .globalZoomOut) { return performGlobalZoomShortcut(action: .globalZoomOut) }
+
         if matchConfiguredShortcut(event: event, action: .browserZoomIn) { return performBrowserOrTextPreviewZoomShortcut(event: event, action: .browserZoomIn) }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomOut) { return performBrowserOrTextPreviewZoomShortcut(event: event, action: .browserZoomOut) }
@@ -17083,6 +17091,20 @@ private extension NSWindow {
                 cmuxDebugLog("  → ghostty direct: \(result)")
 #endif
                 return result
+            }
+
+            // App-wide zoom outranks Ghostty's per-pane font-size shortcuts:
+            // while globalZoomIn/Out are bound (Cmd+= / Cmd+- by default), the
+            // whole app scales even when a terminal owns first responder. The
+            // shortcut monitor normally consumes the chord before this path;
+            // this guard covers events that reach the window directly.
+            if let delegate = AppDelegate.shared {
+                if delegate.matchConfiguredShortcut(event: event, action: .globalZoomIn) {
+                    return delegate.performGlobalZoomShortcut(action: .globalZoomIn)
+                }
+                if delegate.matchConfiguredShortcut(event: event, action: .globalZoomOut) {
+                    return delegate.performGlobalZoomShortcut(action: .globalZoomOut)
+                }
             }
 
             // Preserve Ghostty's terminal font-size shortcuts (Cmd +/−/0) when

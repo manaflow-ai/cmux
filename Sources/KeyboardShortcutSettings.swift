@@ -168,6 +168,8 @@ enum KeyboardShortcutSettings {
         case browserZoomIn
         case browserZoomOut
         case browserZoomReset
+        case globalZoomIn
+        case globalZoomOut
         case markdownZoomIn
         case markdownZoomOut
         case markdownZoomReset
@@ -292,6 +294,8 @@ enum KeyboardShortcutSettings {
             case .browserZoomIn: return String(localized: "menu.view.zoomIn", defaultValue: "Zoom In")
             case .browserZoomOut: return String(localized: "menu.view.zoomOut", defaultValue: "Zoom Out")
             case .browserZoomReset: return String(localized: "menu.view.actualSize", defaultValue: "Actual Size")
+            case .globalZoomIn: return String(localized: "shortcut.globalZoomIn.label", defaultValue: "App Zoom In")
+            case .globalZoomOut: return String(localized: "shortcut.globalZoomOut.label", defaultValue: "App Zoom Out")
             case .markdownZoomIn: return String(localized: "shortcut.markdownZoomIn.label", defaultValue: "Markdown Viewer: Zoom In")
             case .markdownZoomOut: return String(localized: "shortcut.markdownZoomOut.label", defaultValue: "Markdown Viewer: Zoom Out")
             case .markdownZoomReset: return String(localized: "shortcut.markdownZoomReset.label", defaultValue: "Markdown Viewer: Actual Size")
@@ -539,6 +543,12 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "-", command: true, shift: false, option: false, control: false)
             case .browserZoomReset:
                 return StoredShortcut(key: "0", command: true, shift: false, option: false, control: false)
+            case .globalZoomIn:
+                // Same chord as the per-pane zooms, but routed first in the
+                // key-equivalent chain so the whole app scales regardless of focus.
+                return StoredShortcut(key: "=", command: true, shift: false, option: false, control: false)
+            case .globalZoomOut:
+                return StoredShortcut(key: "-", command: true, shift: false, option: false, control: false)
             case .markdownZoomIn:
                 // Same chord as browser zoom, but scoped to the markdown panel
                 // context so the two never collide.

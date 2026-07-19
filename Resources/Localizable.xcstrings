@@ -50682,6 +50682,256 @@
         }
       }
     },
+    "command.globalZoomIn.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تكبير التطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uvećaj aplikaciju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom ind på appen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App vergrößern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Zoom In"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ampliar la app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom avant sur l'app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingrandisci l'app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリ全体を拡大"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពង្រីកកម្មវិធីទាំងមូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱 전체 확대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom inn i appen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiększ aplikację"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aumentar zoom do app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увеличить масштаб приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซูมเข้าทั้งแอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uygulamayı yakınlaştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Збільшити масштаб застосунку"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放大整个应用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放大整個應用程式"
+          }
+        }
+      }
+    },
+    "command.globalZoomOut.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تصغير التطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umanji aplikaciju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom ud på appen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App verkleinern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Zoom Out"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reducir la app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom arrière sur l'app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riduci l'app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリ全体を縮小"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្រួមកម្មវិធីទាំងមូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱 전체 축소"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom ut i appen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pomniejsz aplikację"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diminuir zoom do app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уменьшить масштаб приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซูมออกทั้งแอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uygulamayı uzaklaştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зменшити масштаб застосунку"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缩小整个应用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "縮小整個應用程式"
+          }
+        }
+      }
+    },
     "command.installCLI.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -137868,121 +138118,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يضبط حجم كل خط في cmux بالنسبة نفسها. 100% = حجم التصميم."
+            "value": "يضبط حجم كل خط في cmux بالنسبة نفسها. 100% = حجم التصميم. ‏⌘= / ⌘- يغيّرانه من أي مكان."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skalira svaki font u cmux-u istim procentom. 100% = projektovana veličina."
+            "value": "Skalira svaki font u cmux-u istim procentom. 100% = projektovana veličina. ⌘= / ⌘- je mijenjaju bilo gdje."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skalerer alle skrifter i cmux med samme procent. 100 % = designstørrelse."
+            "value": "Skalerer alle skrifter i cmux med samme procent. 100 % = designstørrelse. ⌘= / ⌘- justerer den hvor som helst."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skaliert jede Schrift in cmux um denselben Prozentsatz. 100 % = Designgröße."
+            "value": "Skaliert jede Schrift in cmux um denselben Prozentsatz. 100 % = Designgröße. Mit ⌘= / ⌘- lässt sie sich überall anpassen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scale every font in cmux by the same percentage. 100% = design size."
+            "value": "Scale every font in cmux by the same percentage. 100% = design size. ⌘= / ⌘- step it from anywhere."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Escala todas las fuentes de cmux con el mismo porcentaje. 100% = tamaño de diseño."
+            "value": "Escala todas las fuentes de cmux con el mismo porcentaje. 100% = tamaño de diseño. ⌘= / ⌘- la ajustan desde cualquier lugar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Met à l'échelle toutes les polices de cmux avec le même pourcentage. 100 % = taille de conception."
+            "value": "Met à l'échelle toutes les polices de cmux avec le même pourcentage. 100 % = taille de conception. ⌘= / ⌘- l'ajustent depuis n'importe où."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ridimensiona ogni font in cmux della stessa percentuale. 100% = dimensione di progetto."
+            "value": "Ridimensiona ogni font in cmux della stessa percentuale. 100% = dimensione di progetto. ⌘= / ⌘- la regolano da qualsiasi punto."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux のすべてのフォントを同じ割合でスケーリングします。100% = 設計サイズ。"
+            "value": "cmux のすべてのフォントを同じ割合でスケーリングします。100% = 設計サイズ。⌘= / ⌘- でどこからでも変更できます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ពង្រីក/បង្រួមពុម្ពអក្សរទាំងអស់ក្នុង cmux តាមភាគរយដូចគ្នា។ 100% = ទំហំរចនា។"
+            "value": "ពង្រីក/បង្រួមពុម្ពអក្សរទាំងអស់ក្នុង cmux តាមភាគរយដូចគ្នា។ 100% = ទំហំរចនា។អាចកែតម្រូវពីគ្រប់ទីកន្លែងដោយ ⌘= / ⌘-។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux의 모든 글꼴을 같은 비율로 조정합니다. 100% = 디자인 크기."
+            "value": "cmux의 모든 글꼴을 같은 비율로 조정합니다. 100% = 디자인 크기. ⌘= / ⌘- 로 어디서든 조정할 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skalerer alle skrifter i cmux med samme prosent. 100 % = designstørrelse."
+            "value": "Skalerer alle skrifter i cmux med samme prosent. 100 % = designstørrelse. ⌘= / ⌘- justerer den hvor som helst."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skaluje każdą czcionkę w cmux o ten sam procent. 100% = rozmiar projektowy."
+            "value": "Skaluje każdą czcionkę w cmux o ten sam procent. 100% = rozmiar projektowy. ⌘= / ⌘- zmieniają je z dowolnego miejsca."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Escala todas as fontes no cmux pela mesma porcentagem. 100% = tamanho de design."
+            "value": "Escala todas as fontes no cmux pela mesma porcentagem. 100% = tamanho de design. ⌘= / ⌘- ajustam de qualquer lugar."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Масштабирует все шрифты в cmux на один и тот же процент. 100% = проектный размер."
+            "value": "Масштабирует все шрифты в cmux на один и тот же процент. 100% = проектный размер. ⌘= / ⌘- изменяют его из любого места."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ปรับขนาดแบบอักษรทุกตัวใน cmux ด้วยเปอร์เซ็นต์เดียวกัน 100% = ขนาดตามดีไซน์"
+            "value": "ปรับขนาดแบบอักษรทุกตัวใน cmux ด้วยเปอร์เซ็นต์เดียวกัน 100% = ขนาดตามดีไซน์ ปรับได้จากทุกที่ด้วย ⌘= / ⌘-"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux'taki her yazı tipini aynı yüzdeyle ölçekler. %100 = tasarım boyutu."
+            "value": "cmux'taki her yazı tipini aynı yüzdeyle ölçekler. %100 = tasarım boyutu. ⌘= / ⌘- her yerden ayarlar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Масштабує всі шрифти в cmux на однаковий відсоток. 100% = проєктний розмір."
+            "value": "Масштабує всі шрифти в cmux на однаковий відсоток. 100% = проєктний розмір. ⌘= / ⌘- змінюють його будь-де."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "按相同比例缩放 cmux 中的所有字体。100% = 设计尺寸。"
+            "value": "按相同比例缩放 cmux 中的所有字体。100% = 设计尺寸。任意位置均可用 ⌘= / ⌘- 调整。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "以相同比例縮放 cmux 中的所有字型。100% = 設計尺寸。"
+            "value": "以相同比例縮放 cmux 中的所有字型。100% = 設計尺寸。任何位置皆可用 ⌘= / ⌘- 調整。"
           }
         }
       }
@@ -137993,121 +138243,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تُعرض الطرفيات والتبويبات وواجهة التطبيق بهذا التكبير. يظل تكبير كل جزء (⌘= / ⌘-) متجاوزًا للجزء المركّز عليه."
+            "value": "تُعرض الطرفيات والتبويبات وواجهة التطبيق بهذا التكبير. ‏⌘= / ⌘- يغيّرانه من أي مكان."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminali, kartice i chrome prikazuju se s ovim uvećanjem. Zumiranje po oknu (⌘= / ⌘-) i dalje ima prednost za fokusirano okno."
+            "value": "Terminali, kartice i chrome prikazuju se s ovim uvećanjem. ⌘= / ⌘- je mijenjaju bilo gdje."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminaler, faner og chrome gengives alle med denne forstørrelse. Zoom pr. rude (⌘= / ⌘-) tilsidesætter stadig for den fokuserede rude."
+            "value": "Terminaler, faner og chrome gengives alle med denne forstørrelse. ⌘= / ⌘- justerer den hvor som helst."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminals, Tabs und Chrome werden alle mit dieser Vergrößerung dargestellt. Der Zoom pro Bereich (⌘= / ⌘-) hat für den fokussierten Bereich weiterhin Vorrang."
+            "value": "Terminals, Tabs und Chrome werden alle mit dieser Vergrößerung dargestellt. Mit ⌘= / ⌘- lässt sie sich überall anpassen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminals, tabs, and chrome all render at this magnification. Per-pane zoom (⌘= / ⌘-) still overrides for the focused pane."
+            "value": "Terminals, tabs, and chrome all render at this magnification. ⌘= / ⌘- step it from anywhere."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminales, pestañas y chrome se renderizan con esta ampliación. El zoom por panel (⌘= / ⌘-) sigue teniendo prioridad en el panel enfocado."
+            "value": "Terminales, pestañas y chrome se renderizan con esta ampliación. ⌘= / ⌘- la ajustan desde cualquier lugar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les terminaux, onglets et le chrome s'affichent tous avec cet agrandissement. Le zoom par volet (⌘= / ⌘-) reste prioritaire pour le volet actif."
+            "value": "Les terminaux, onglets et le chrome s'affichent tous avec cet agrandissement. ⌘= / ⌘- l'ajustent depuis n'importe où."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminali, schede e chrome vengono renderizzati con questo ingrandimento. Lo zoom per riquadro (⌘= / ⌘-) continua a prevalere per il riquadro attivo."
+            "value": "Terminali, schede e chrome vengono renderizzati con questo ingrandimento. ⌘= / ⌘- la regolano da qualsiasi punto."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナル、タブ、UI をこの倍率で描画します。ペインごとのズーム (⌘= / ⌘-) はフォーカス中のペインに対して引き続き優先されます。"
+            "value": "ターミナル、タブ、UI をこの倍率で描画します。⌘= / ⌘- でどこからでも変更できます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ស្ថានីយ ផ្ទាំង និង chrome ត្រូវបានបង្ហាញតាមការពង្រីកនេះទាំងអស់។ ការពង្រីកតាមផ្ទាំង (⌘= / ⌘-) នៅតែជំនួសសម្រាប់ផ្ទាំងដែលកំពុងផ្តោត។"
+            "value": "ស្ថានីយ ផ្ទាំង និង chrome ត្រូវបានបង្ហាញតាមការពង្រីកនេះទាំងអស់។អាចកែតម្រូវពីគ្រប់ទីកន្លែងដោយ ⌘= / ⌘-។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "터미널, 탭, chrome이 모두 이 확대율로 렌더링됩니다. 패널별 확대/축소(⌘= / ⌘-)는 포커스된 패널에서 계속 우선합니다."
+            "value": "터미널, 탭, chrome이 모두 이 확대율로 렌더링됩니다. ⌘= / ⌘- 로 어디서든 조정할 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminaler, faner og chrome gjengis alle med denne forstørrelsen. Zoom per rute (⌘= / ⌘-) overstyrer fortsatt for den fokuserte ruten."
+            "value": "Terminaler, faner og chrome gjengis alle med denne forstørrelsen. ⌘= / ⌘- justerer den hvor som helst."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminale, karty i chrome renderują się z tym powiększeniem. Powiększenie dla panelu (⌘= / ⌘-) nadal ma pierwszeństwo dla aktywnego panelu."
+            "value": "Terminale, karty i chrome renderują się z tym powiększeniem. ⌘= / ⌘- zmieniają je z dowolnego miejsca."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminais, abas e chrome são renderizados com esta ampliação. O zoom por painel (⌘= / ⌘-) ainda prevalece no painel em foco."
+            "value": "Terminais, abas e chrome são renderizados com esta ampliação. ⌘= / ⌘- ajustam de qualquer lugar."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Терминалы, вкладки и chrome отображаются с этим увеличением. Масштаб отдельной панели (⌘= / ⌘-) по-прежнему имеет приоритет для панели в фокусе."
+            "value": "Терминалы, вкладки и chrome отображаются с этим увеличением. ⌘= / ⌘- изменяют его из любого места."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เทอร์มินัล แท็บ และ chrome จะแสดงผลด้วยการขยายนี้ทั้งหมด การซูมเฉพาะพาเนล (⌘= / ⌘-) ยังคงมีผลเหนือกว่าสำหรับพาเนลที่โฟกัสอยู่"
+            "value": "เทอร์มินัล แท็บ และ chrome จะแสดงผลด้วยการขยายนี้ทั้งหมด ปรับได้จากทุกที่ด้วย ⌘= / ⌘-"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminaller, sekmeler ve chrome bu büyütmeyle işlenir. Bölme başına yakınlaştırma (⌘= / ⌘-) odaktaki bölme için hâlâ önceliklidir."
+            "value": "Terminaller, sekmeler ve chrome bu büyütmeyle işlenir. ⌘= / ⌘- her yerden ayarlar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Термінали, вкладки та chrome відображаються з цим збільшенням. Масштаб окремої панелі (⌘= / ⌘-) і далі має пріоритет для панелі у фокусі."
+            "value": "Термінали, вкладки та chrome відображаються з цим збільшенням. ⌘= / ⌘- змінюють його будь-де."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "终端、标签页和 chrome 都以此放大比例渲染。单个窗格缩放（⌘= / ⌘-）仍会覆盖当前聚焦窗格。"
+            "value": "终端、标签页和 chrome 都以此放大比例渲染。任意位置均可用 ⌘= / ⌘- 调整。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "終端機、分頁和 chrome 都會以此放大倍率算繪。單一窗格縮放（⌘= / ⌘-）仍會覆蓋目前聚焦窗格。"
+            "value": "終端機、分頁和 chrome 都會以此放大倍率算繪。任何位置皆可用 ⌘= / ⌘- 調整。"
           }
         }
       }
@@ -190359,6 +190609,256 @@
           "stringUnit": {
             "state": "translated",
             "value": "グローバル検索"
+          }
+        }
+      }
+    },
+    "shortcut.globalZoomIn.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تكبير التطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uvećaj aplikaciju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom ind på appen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App vergrößern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Zoom In"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ampliar la app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom avant sur l'app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingrandisci l'app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリ全体を拡大"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពង្រីកកម្មវិធីទាំងមូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱 전체 확대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom inn i appen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiększ aplikację"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aumentar zoom do app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увеличить масштаб приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซูมเข้าทั้งแอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uygulamayı yakınlaştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Збільшити масштаб застосунку"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放大整个应用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放大整個應用程式"
+          }
+        }
+      }
+    },
+    "shortcut.globalZoomOut.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تصغير التطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umanji aplikaciju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom ud på appen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App verkleinern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Zoom Out"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reducir la app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom arrière sur l'app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riduci l'app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリ全体を縮小"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្រួមកម្មវិធីទាំងមូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱 전체 축소"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom ut i appen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pomniejsz aplikację"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diminuir zoom do app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уменьшить масштаб приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซูมออกทั้งแอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uygulamayı uzaklaştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зменшити масштаб застосунку"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缩小整个应用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "縮小整個應用程式"
           }
         }
       }

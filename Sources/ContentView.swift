@@ -6062,6 +6062,10 @@ struct ContentView: View {
             return "⌘R"
         case "palette.browserFocusAddressBar":
             return "⌘L"
+        case "palette.globalZoomIn":
+            return "⌘="
+        case "palette.globalZoomOut":
+            return "⌘-"
         case "palette.browserZoomIn":
             return "⌘="
         case "palette.browserZoomOut":

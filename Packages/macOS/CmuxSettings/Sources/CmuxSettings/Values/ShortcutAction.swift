@@ -127,6 +127,10 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case browserZoomIn
     case browserZoomOut
     case browserZoomReset
+    /// Steps the app-wide global font magnification up (all windows, sidebar, terminals).
+    case globalZoomIn
+    /// Steps the app-wide global font magnification down (all windows, sidebar, terminals).
+    case globalZoomOut
     case markdownZoomIn
     case markdownZoomOut
     case markdownZoomReset
@@ -188,7 +192,8 @@ extension ShortcutAction {
     public var group: Group {
         switch self {
         case .openSettings, .reloadConfiguration, .showHideAllWindows, .globalSearch,
-             .newWindow, .closeWindow, .toggleFullScreen, .quit:
+             .newWindow, .closeWindow, .toggleFullScreen, .quit,
+             .globalZoomIn, .globalZoomOut:
             return .app
         case .toggleSidebar, .newTab, .newBrowserWorkspace, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .commandPaletteNext, .commandPalettePrevious, .sendFeedback,
@@ -459,6 +464,8 @@ extension ShortcutAction {
         case .browserZoomIn: return "Zoom In"
         case .browserZoomOut: return "Zoom Out"
         case .browserZoomReset: return "Actual Size"
+        case .globalZoomIn: return "App Zoom In"
+        case .globalZoomOut: return "App Zoom Out"
         case .markdownZoomIn: return "Markdown Viewer: Zoom In"
         case .markdownZoomOut: return "Markdown Viewer: Zoom Out"
         case .markdownZoomReset: return "Markdown Viewer: Actual Size"

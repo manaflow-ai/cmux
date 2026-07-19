@@ -31,6 +31,18 @@ export const shortcutCategories: ShortcutCategory[] = [
     blurbKey: "appBlurb",
     shortcuts: [
       { id: "openSettings", combos: [["⌘", ","]], description: { en: "Settings", ja: "設定" } },
+      {
+        id: "globalZoomIn",
+        combos: [["⌘", "="]],
+        description: { en: "App zoom in", ja: "アプリ全体を拡大" },
+        note: { en: "scales the whole app", ja: "アプリ全体を拡大縮小" },
+      },
+      {
+        id: "globalZoomOut",
+        combos: [["⌘", "-"]],
+        description: { en: "App zoom out", ja: "アプリ全体を縮小" },
+        note: { en: "scales the whole app", ja: "アプリ全体を拡大縮小" },
+      },
       { id: "reloadConfiguration", combos: [["⌘", "⇧", ","]], description: { en: "Reload configuration", ja: "構成を再読み込み" } },
       {
         id: "showHideAllWindows",

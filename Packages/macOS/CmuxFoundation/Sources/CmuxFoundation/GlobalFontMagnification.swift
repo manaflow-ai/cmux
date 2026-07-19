@@ -144,6 +144,26 @@ public struct GlobalFontMagnification {
         notificationCenter.post(name: Self.didChangeNotification, object: nil)
     }
 
+    /// Raises the stored percent by one step and posts the live-update
+    /// notification. Returns `false` when already at the maximum.
+    @discardableResult
+    public func increasePercent() -> Bool {
+        let next = Self.clamp(storedPercent + Self.stepPercent)
+        guard next != storedPercent else { return false }
+        setPercent(next)
+        return true
+    }
+
+    /// Lowers the stored percent by one step and posts the live-update
+    /// notification. Returns `false` when already at the minimum.
+    @discardableResult
+    public func decreasePercent() -> Bool {
+        let next = Self.clamp(storedPercent - Self.stepPercent)
+        guard next != storedPercent else { return false }
+        setPercent(next)
+        return true
+    }
+
     /// Raw percent stored in `UserDefaults.standard`.
     public static var storedPercent: Int {
         Self().storedPercent
@@ -250,5 +270,17 @@ public struct GlobalFontMagnification {
     /// Restores the standard stored magnification and posts the live-update notification.
     public static func resetToDefault() {
         Self().resetToDefault()
+    }
+
+    /// Raises the standard stored percent by one step. Returns `false` at the maximum.
+    @discardableResult
+    public static func increasePercent() -> Bool {
+        Self().increasePercent()
+    }
+
+    /// Lowers the standard stored percent by one step. Returns `false` at the minimum.
+    @discardableResult
+    public static func decreasePercent() -> Bool {
+        Self().decreasePercent()
     }
 }

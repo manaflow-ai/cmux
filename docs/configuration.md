@@ -61,6 +61,12 @@ Values: `right`, `left`, `top`, `bottom`, `newTab`, `newWorkspace`.
 
 Default: `right`.
 
+## `shortcuts.bindings.globalZoomIn` and `shortcuts.bindings.globalZoomOut`
+
+App-wide zoom. Cmd+= steps the global font magnification (`app.globalFontMagnification`) up by 10%, Cmd+- steps it down. Every surface scales together: sidebar, tab bar, terminals, browser chrome, and panels. The level persists across restarts (50-200%, default 100%).
+
+These chords are routed before the per-pane `browserZoomIn`/`markdownZoomIn` zooms and the terminal's per-pane font-size shortcuts. Unbind or rebind `globalZoomIn`/`globalZoomOut` in **Settings > Keyboard Shortcuts** or via `shortcuts.bindings` to restore the per-pane behavior on Cmd+= / Cmd+-.
+
 ## `ui.newWorkspace.menuSectionOrder`
 
 Controls the section order in the titlebar `+` button menu. The Cloud VM section is built in; the custom section comes from `ui.newWorkspace.contextMenu`.

@@ -25,6 +25,18 @@ Design and plan docs:
 - `docs/superpowers/plans/2026-07-11-sidebar-folder-drop.md`
 - `docs/superpowers/plans/2026-07-11-sidebar-folder-drop-v2.md`
 
+### 2. App-wide zoom on Cmd+= / Cmd+-
+
+Cmd+= zooms the entire app in (sidebar, tab bar, terminals, panels, chrome), Cmd+- zooms out.
+It drives the existing `GlobalFontMagnification` percent (50-200%, steps of 10, persisted in
+UserDefaults), so the zoom level survives restarts. The chords are routed before the per-pane
+browser/markdown/terminal zooms; unbind `globalZoomIn` / `globalZoomOut` in Settings >
+Keyboard Shortcuts to get upstream's per-pane behavior back. Also exposed in the command
+palette ("App Zoom In" / "App Zoom Out").
+
+New shortcut actions: `globalZoomIn`, `globalZoomOut` (in both `KeyboardShortcutSettings.Action`
+and the `CmuxSettings` `ShortcutAction` mirror; the drift test keeps them aligned).
+
 ## Files the fork owns or changes
 
 Knowing this list is what makes updates safe. When an upstream merge conflicts, it will only ever be
@@ -37,7 +49,20 @@ in the "modified upstream files" group below. The "fork-only" files never confli
 - `Sources/SidebarDropRegionRegistry.swift`
 - `cmuxTests/DirectoryDropFilterTests.swift`
 - `cmuxTests/SidebarDropRegionRegistryTests.swift`
+- `Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/GlobalFontMagnificationSteppingTests.swift`
 - the three docs listed above
+
+**Modified upstream files for app-wide zoom** (conflict surface for that feature):
+
+- `Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/GlobalFontMagnification.swift` - step helpers
+- `Sources/KeyboardShortcutSettings.swift`, `Sources/AppDelegate.swift`,
+  `Sources/AppDelegate+CanvasShortcutRouting.swift` - `globalZoomIn`/`globalZoomOut` actions + routing
+- `Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutAction.swift` (+`+Defaults.swift`) - mirror enum
+- `Sources/ContentView.swift`, `Sources/ContentView+ViewCommandPalette.swift` - command palette entries
+- `Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift` - subtitle copy
+- `Resources/Localizable.xcstrings`, `web/data/cmux-shortcuts.ts`, `web/data/cmux.schema.json`,
+  `skills/cmux-settings/references/shortcut-actions.md` - strings, docs, schema
+- `cmuxTests/KeyboardShortcutContextTests.swift` - default-chord regression test
 
 **Modified upstream files** (this is the conflict surface, check these on every merge):
 
