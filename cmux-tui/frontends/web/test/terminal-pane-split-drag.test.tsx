@@ -230,6 +230,37 @@ describe("TerminalPane split dividers", () => {
     expect(onSetSplitRatio).toHaveBeenCalledTimes(1);
   });
 
+  it("uses a later authoritative ratio after a keyboard transaction settles", async () => {
+    let resolveFirst: (succeeded: boolean) => void = (_succeeded) => {
+      throw new Error("first request was not started");
+    };
+    const onSetSplitRatio = vi.fn((_split: number, ratio: number) => {
+      if (ratio !== 0.55) return Promise.resolve(true);
+      return new Promise<boolean>((resolve) => {
+        resolveFirst = resolve;
+      });
+    });
+    const props = terminalPaneProps(onSetSplitRatio);
+    const { getByRole, rerender } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
+    const divider = getByRole("separator");
+
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(1));
+    resolveFirst(true);
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(2));
+
+    rerender(<TerminalPane {...props} screen={screenView(0.65)} />);
+    rerender(<TerminalPane {...props} screen={screenView(0.55)} />);
+    const updatedDivider = getByRole("separator");
+    expect(updatedDivider).toHaveAttribute("aria-valuenow", "55");
+
+    fireEvent.keyDown(updatedDivider, { key: "ArrowRight" });
+    await waitFor(() => expect(onSetSplitRatio).toHaveBeenCalledTimes(3));
+    expect(onSetSplitRatio.mock.calls[2]?.[1]).toBeCloseTo(0.6);
+  });
+
   it("previews pointer movement, commits once, and reconciles to server layout", async () => {
     const onSetSplitRatio = vi.fn(async () => true);
     const props = terminalPaneProps(onSetSplitRatio);

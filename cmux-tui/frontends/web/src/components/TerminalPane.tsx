@@ -304,24 +304,33 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
     initialRatio: number;
     lastRatio: number;
   } | null>(null);
-  const cancelKeyboardResize = useCallback((divider: HTMLDivElement | null) => {
-    if (divider !== null) return;
-    keyboardGeneration.current += 1;
-    keyboardResize.current = null;
-  }, []);
 
   // Derived, not effect-driven: a pending commit is only trusted while it
   // still addresses this divider and the authoritative ratio hasn't moved
   // off the snapshot it was based on. The moment the server's layout event
   // lands (confirm or foreign change), validity flips and the authoritative
   // ratio renders; the stale record is cleared lazily on the next pointerdown.
-  const pendingConfirmed = pendingRatio !== null
+  const keyboardRequestInFlight = keyboardResize.current?.split === target.split
+    && keyboardResize.current.inFlightRatio !== null;
+  const pendingConfirmed = !keyboardRequestInFlight
+    && pendingRatio !== null
     && target.split === pendingRatio.split
     && Math.abs(authoritativeRatio - pendingRatio.ratio) <= 1e-6;
   const pendingValid = !pendingConfirmed
     && pendingRatio !== null
     && target.split === pendingRatio.split
     && pendingRatio.validRatios.some((ratio) => Math.abs(authoritativeRatio - ratio) <= 1e-6);
+  const reconcileDividerRef = useCallback((divider: HTMLDivElement | null) => {
+    if (divider === null) {
+      keyboardGeneration.current += 1;
+      keyboardResize.current = null;
+      return;
+    }
+    if (!pendingConfirmed) return;
+    activeRequestId.current = null;
+    keyboardResize.current = null;
+    setPendingRatio(null);
+  }, [pendingConfirmed]);
 
   const firstRatio = previewRatio ?? (pendingValid && pendingRatio !== null ? pendingRatio.ratio : authoritativeRatio);
   const firstPercent = firstRatio * 100;
@@ -370,7 +379,11 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
         setPreviewRatio(null);
         return;
       }
-      if (Math.abs(resize.desiredRatio - ratio) > 1e-6) pumpKeyboardResize(resize);
+      if (Math.abs(resize.desiredRatio - ratio) > 1e-6) {
+        pumpKeyboardResize(resize);
+      } else {
+        setPendingRatio((current) => current === null ? current : { ...current });
+      }
     });
   };
 
@@ -383,7 +396,7 @@ function LayoutGroupNode({ node, screen, basis, ...actions }: LayoutGroupNodePro
           aria-valuenow={Math.round(firstPercent)}
           aria-orientation={node.direction === "row" ? "vertical" : "horizontal"}
           className="split-divider"
-          ref={cancelKeyboardResize}
+          ref={reconcileDividerRef}
           role="separator"
           style={dividerStyle}
           tabIndex={0}
