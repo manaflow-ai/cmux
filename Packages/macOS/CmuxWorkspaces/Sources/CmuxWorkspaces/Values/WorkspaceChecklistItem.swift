@@ -3,7 +3,7 @@ public import Foundation
 /// One task item in a workspace's persisted checklist, writable by the user
 /// (sidebar, CLI) and by agents (control socket). Raw values of the nested
 /// enums are a control-socket and session wire format; frozen.
-nonisolated public struct WorkspaceChecklistItem: Codable, Sendable, Identifiable, Hashable {
+public struct WorkspaceChecklistItem: Codable, Sendable, Identifiable, Hashable {
     /// The item's completion state.
     public enum State: String, Codable, Sendable, CaseIterable {
         case pending

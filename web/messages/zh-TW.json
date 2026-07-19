@@ -1493,6 +1493,7 @@
       "flagName": "旗幟",
       "flagDesc": "描述",
       "flagNameVal": "設定工作區標題",
+      "flagCommand": "在 shell 啟動後於初始遠端終端機中執行一次命令文字",
       "flagPort": "SSH 連接埠（預設 22）",
       "flagIdentity": "身分檔案的路徑",
       "flagSshOption": "傳遞任意 SSH 選項（例如 -o StrictHostKeyChecking=no）",
