@@ -23,6 +23,7 @@ struct RemoteInitialCommandBootstrapTests {
         let home = root.appendingPathComponent("home")
         let bin = root.appendingPathComponent("bin")
         let fakeBash = bin.appendingPathComponent("bash")
+        let fakeBase64 = bin.appendingPathComponent("base64")
         let output = home.appendingPathComponent("initial command.txt")
         try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
@@ -48,6 +49,17 @@ struct RemoteInitialCommandBootstrapTests {
             [.posixPermissions: 0o700],
             ofItemAtPath: fakeBash.path
         )
+        try """
+        #!/bin/sh
+        if [ "${CMUX_TEST_DELAY_STAGE:-0}" = 1 ]; then
+          IFS= read -r cmux_test_release < "$HOME/stage-gate"
+        fi
+        exec /usr/bin/base64 "$@"
+        """.write(to: fakeBase64, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: fakeBase64.path
+        )
 
         let command = #"printf '%s\n' "spaces 'single' \"double\" $CMUX_REMOTE_VALUE $(printf remote-substitution)" >> "$HOME/initial command.txt""#
         let script = RemoteInteractiveShellBootstrapBuilder.script(
@@ -60,9 +72,14 @@ struct RemoteInitialCommandBootstrapTests {
             shellFeatures: "ssh-env,ssh-terminfo",
             initialCommand: #"printf '%s\n' "second workspace" >> "$HOME/initial command.txt""#
         )
+        let concurrentScript = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 0,
+            shellFeatures: "ssh-env,ssh-terminfo",
+            initialCommand: #"printf '%s\n' "concurrent reattach" >> "$HOME/initial command.txt""#
+        )
         let environment = ProcessInfo.processInfo.environment.merging([
             "HOME": home.path,
-            "PATH": "/usr/bin:/bin",
+            "PATH": "\(bin.path):/usr/bin:/bin",
             "SHELL": fakeBash.path,
             "CMUX_REMOTE_VALUE": "remote-only",
         ]) { _, new in new }
@@ -82,8 +99,44 @@ struct RemoteInitialCommandBootstrapTests {
             "stdout: \(otherWorkspaceSecond.stdout)\nstderr: \(otherWorkspaceSecond.stderr)"
         )
 
+        let gate = home.appendingPathComponent("stage-gate")
+        let mkfifo = Process()
+        mkfifo.executableURL = URL(fileURLWithPath: "/usr/bin/mkfifo")
+        mkfifo.arguments = [gate.path]
+        try mkfifo.run()
+        mkfifo.waitUntilExit()
+        #expect(mkfifo.terminationStatus == 0)
+
+        let delayed = Process()
+        let delayedStdout = Pipe()
+        let delayedStderr = Pipe()
+        delayed.executableURL = URL(fileURLWithPath: "/bin/sh")
+        delayed.arguments = ["-c", "umask 022\n" + concurrentScript]
+        delayed.environment = environment.merging(["CMUX_TEST_DELAY_STAGE": "1"]) { _, new in new }
+        delayed.standardOutput = delayedStdout
+        delayed.standardError = delayedStderr
+        try delayed.run()
+
+        let gateWriter = try FileHandle(forWritingTo: gate)
+        let concurrent = try runShell("umask 022\n" + concurrentScript, environment: environment)
+        #expect(concurrent.status == 0, "stdout: \(concurrent.stdout)\nstderr: \(concurrent.stderr)")
+        gateWriter.write(Data("release\n".utf8))
+        try gateWriter.close()
+        delayed.waitUntilExit()
+        let delayedResult = ProcessResult(
+            status: delayed.terminationStatus,
+            stdout: String(decoding: delayedStdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self),
+            stderr: String(decoding: delayedStderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        )
+        #expect(
+            delayedResult.status == 0,
+            "stdout: \(delayedResult.stdout)\nstderr: \(delayedResult.stderr)"
+        )
+
         let captured = try String(contentsOf: output, encoding: .utf8)
-        #expect(captured == "spaces 'single' \"double\" remote-only remote-substitution\nsecond workspace\n")
+        #expect(
+            captured == "spaces 'single' \"double\" remote-only remote-substitution\nsecond workspace\nconcurrent reattach\n"
+        )
         let mode = try String(
             contentsOf: home.appendingPathComponent("initial command mode.txt"),
             encoding: .utf8
@@ -92,7 +145,7 @@ struct RemoteInitialCommandBootstrapTests {
 
         let shellState = home.appendingPathComponent(".cmux/relay/0.shell")
         let shellStateContents = try fileManager.contentsOfDirectory(atPath: shellState.path)
-        #expect(shellStateContents.filter { $0.hasPrefix(".initial-command.started.") }.count == 2)
+        #expect(shellStateContents.filter { $0.hasPrefix(".initial-command.started.") }.count == 3)
         #expect(!shellStateContents.contains { $0.hasPrefix("initial-command.") })
     }
 
