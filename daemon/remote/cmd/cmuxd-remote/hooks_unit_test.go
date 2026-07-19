@@ -96,6 +96,34 @@ func TestApplyRemoteHookMutationsRejectsSiblingPath(t *testing.T) {
 	}
 }
 
+func TestApplyRemoteHookMutationsValidatesPlanBeforeWriting(t *testing.T) {
+	root := t.TempDir()
+	firstPath := filepath.Join(root, "first.json")
+	secondPath := filepath.Join(root, "second.json")
+	if err := os.WriteFile(firstPath, []byte("before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := applyRemoteHookMutations([]remoteHookMutation{
+		{
+			Path: firstPath, ContentBase64: base64.StdEncoding.EncodeToString([]byte("after")), Mode: 0o600,
+		},
+		{
+			Path: secondPath, ContentBase64: "not-base64", Mode: 0o600,
+		},
+	}, []string{firstPath, secondPath}, nil)
+	if err == nil {
+		t.Fatal("invalid later mutation should reject the plan")
+	}
+	content, readErr := os.ReadFile(firstPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(content) != "before" {
+		t.Fatalf("earlier mutation was applied before plan validation: %q", content)
+	}
+}
+
 func TestSnapshotRemoteHookPathsOnlyTraversesDeclaredRecursiveDirectories(t *testing.T) {
 	root := t.TempDir()
 	exactDirectory := filepath.Join(root, "exact")
