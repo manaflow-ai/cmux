@@ -16,6 +16,17 @@ public struct CmxManualPairingEntry: Equatable, Sendable {
     /// The port the user types into the phone's port field.
     public let port: Int
 
+    /// The host value copied into the phone's manual-entry field.
+    ///
+    /// IPv6 endpoint hosts are stored bare in attach routes, but the iOS manual
+    /// host parser requires brackets so the host/port boundary stays
+    /// unambiguous.
+    public var hostFieldValue: String {
+        host.contains(":") && !(host.hasPrefix("[") && host.hasSuffix("]"))
+            ? "[\(host)]"
+            : host
+    }
+
     /// Creates a manual-entry pair.
     /// - Parameters:
     ///   - host: The address for the phone's host field.

@@ -18,6 +18,18 @@ import Testing
 /// single key). Together they must cover every curated setting entry.
 @Suite("SettingsRowAnchorResolution")
 struct SettingsRowAnchorResolutionTests {
+    @Test func mobileManualHostAdvertisableValidatorRejectsLoopback() {
+        let validator = MobilePairingManualHostAdvertisability()
+        #expect(validator.isAdvertisable(""))
+        #expect(validator.isAdvertisable(" 192.168.1.23 "))
+        #expect(validator.isAdvertisable("studio-mac.local"))
+        #expect(validator.isAdvertisable("[fd00::12]"))
+        #expect(!validator.isAdvertisable("127.0.0.1"))
+        #expect(!validator.isAdvertisable("localhost"))
+        #expect(!validator.isAdvertisable("[::1]"))
+        #expect(!validator.isAdvertisable("my:host"))
+    }
+
     /// Every singular cmux.json path declared by an *unconditionally
     /// rendered* settings row. Excludes rows that aren't standalone search
     /// results: `workspaceColors.colors` (repeated per-palette rows) and
@@ -153,6 +165,7 @@ struct SettingsRowAnchorResolutionTests {
         "setting:account:account",
         "setting:mobile:pairDevice",
         "setting:mobile:iOSPairingHost",
+        "setting:mobile:iOSPairingManualHost",
         "setting:mobile:iOSPairingPort",
         "setting:mobile:iOSPairingDisplayName",
         "setting:betaFeatures:feed",

@@ -7,7 +7,7 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
     public var connectTimeoutNanoseconds: UInt64
 
     public init(
-        supportedKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback],
+        supportedKinds: [CmxAttachTransportKind] = [.tailscale, .manualHost, .debugLoopback],
         maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength,
         connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds
     ) {
@@ -24,7 +24,7 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
         guard case let .hostPort(host, port) = route.endpoint else {
             throw CmxNetworkByteTransportError.unsupportedEndpoint(route.endpoint)
         }
-        guard route.kind != .tailscale else {
+        guard route.kind != .tailscale, route.kind != .manualHost else {
             throw CmxNetworkByteTransportError.authorizationIntentRequired
         }
         return try CmxNetworkByteTransport(
@@ -60,6 +60,13 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
             // It cannot prove that the tunnel belongs to Tailscale's authenticated
             // control plane, so plaintext TCP must never carry a Stack bearer.
             throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
+        case .manualHost:
+            return try CmxNetworkByteTransport(
+                host: host,
+                port: port,
+                maximumReceiveLength: maximumReceiveLength,
+                connectTimeoutNanoseconds: connectTimeoutNanoseconds
+            )
         case .debugLoopback:
             guard CmxLoopbackHost().matches(route) else {
                 throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable

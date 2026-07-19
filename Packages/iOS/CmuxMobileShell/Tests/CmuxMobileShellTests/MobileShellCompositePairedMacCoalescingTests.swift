@@ -163,7 +163,13 @@ import Testing
                 lastSeenAt: 1_000,
                 routes: [freshRoute]
             )),
-            scope: MobileShellScopeSnapshot(userID: "user-1", teamID: "team-a", generation: 0)
+            scope: MobileShellScopeSnapshot(
+                userID: "user-1",
+                teamID: "team-a",
+                generation: 0,
+                signInGeneration: store.currentSessionGeneration,
+                rpcAuthContext: store.currentRPCAuthContext()
+            )
         )
         await pairedStore.waitUntilUpsertCount(1)
 
@@ -267,7 +273,13 @@ import Testing
                 lastSeenAt: 1_000,
                 routes: [freshRoute]
             )),
-            scope: MobileShellScopeSnapshot(userID: "user-1", teamID: "team-a", generation: 0)
+            scope: MobileShellScopeSnapshot(
+                userID: "user-1",
+                teamID: "team-a",
+                generation: 0,
+                signInGeneration: store.currentSessionGeneration,
+                rpcAuthContext: store.currentRPCAuthContext()
+            )
         )
         await pairedStore.waitUntilUpsertStarted(macDeviceID: "mac-a")
         await store.forgetMac(macDeviceID: "mac-a")
@@ -364,7 +376,13 @@ import Testing
                     ),
                 ]
             )),
-            scope: MobileShellScopeSnapshot(userID: "user-1", teamID: "team-a", generation: 0)
+            scope: MobileShellScopeSnapshot(
+                userID: "user-1",
+                teamID: "team-a",
+                generation: 0,
+                signInGeneration: store.currentSessionGeneration,
+                rpcAuthContext: store.currentRPCAuthContext()
+            )
         )
         await store.pushedRouteSyncTask?.value
 

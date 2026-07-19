@@ -53,7 +53,9 @@ import Testing
             runtime: runtime,
             route: route,
             ticket: ticket,
-            allowsStackAuthFallback: true
+            allowsStackAuthFallback: true,
+            authScope: MobileRPCAuthScope(),
+            authScopeValidator: { true }
         )
         let shell = MobileShellComposite(
             runtime: runtime,
@@ -138,7 +140,9 @@ import Testing
             runtime: runtime,
             route: route,
             ticket: ticket,
-            allowsStackAuthFallback: true
+            allowsStackAuthFallback: true,
+            authScope: MobileRPCAuthScope(),
+            authScopeValidator: { true }
         )
         let shell = MobileShellComposite(
             runtime: runtime,
@@ -234,7 +238,9 @@ import Testing
             runtime: runtime,
             route: route,
             ticket: ticket,
-            allowsStackAuthFallback: true
+            allowsStackAuthFallback: true,
+            authScope: MobileRPCAuthScope(),
+            authScopeValidator: { true }
         )
         let shell = MobileShellComposite(
             runtime: runtime,

@@ -24,7 +24,7 @@ import Testing
             expiresAt: Date().addingTimeInterval(60),
             authToken: "ticket-secret"
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: ticket,
@@ -68,7 +68,7 @@ import Testing
             expiresAt: Date().addingTimeInterval(60),
             authToken: "ticket-secret"
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: ticket,
@@ -115,7 +115,7 @@ import Testing
             expiresAt: Date().addingTimeInterval(60),
             authToken: "ticket-secret"
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: ticket,
@@ -164,7 +164,7 @@ import Testing
             expiresAt: Date().addingTimeInterval(60),
             authToken: "ticket-secret"
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: ticket,
@@ -203,59 +203,6 @@ private actor ReleasableStatusTokenProvider {
     func release() {
         continuation?.resume(returning: nil)
         continuation = nil
-    }
-}
-
-private actor ImmediateResponseRecordingTransport: CmxByteTransport {
-    private var sentPayloads: [Data] = []
-    private var queuedResponses: [Data] = []
-    private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
-    private var isClosed = false
-
-    func connect() async throws {}
-
-    func receive() async throws -> Data? {
-        guard !isClosed else { return nil }
-        if !queuedResponses.isEmpty {
-            return queuedResponses.removeFirst()
-        }
-        return await withCheckedContinuation { continuation in
-            receiveWaiters.append(continuation)
-        }
-    }
-
-    func send(_ data: Data) async throws {
-        var buffer = data
-        let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
-        sentPayloads.append(contentsOf: payloads)
-        for payload in payloads {
-            let request = try recordedRPCRequest(from: payload)
-            let response = try JSONSerialization.data(withJSONObject: [
-                "id": request.id ?? "",
-                "ok": true,
-                "result": ["status": "ok"],
-            ])
-            let frame = try MobileSyncFrameCodec.encodeFrame(response)
-            if let waiter = receiveWaiters.first {
-                receiveWaiters.removeFirst()
-                waiter.resume(returning: frame)
-            } else {
-                queuedResponses.append(frame)
-            }
-        }
-    }
-
-    func close() async {
-        isClosed = true
-        let waiters = receiveWaiters
-        receiveWaiters = []
-        for waiter in waiters {
-            waiter.resume(returning: nil)
-        }
-    }
-
-    func sentRequests() throws -> [RecordedRPCRequest] {
-        try sentPayloads.map(recordedRPCRequest(from:))
     }
 }
 

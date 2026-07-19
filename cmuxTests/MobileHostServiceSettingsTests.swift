@@ -111,6 +111,100 @@ struct MobileHostServiceSettingsTests {
         #expect(MobileHostService.resolvedDesiredPort(defaults: defaults) == nil)
     }
 
+    @Test func manualHostRouteRefreshOnlyWhenNormalizedValueChanges() throws {
+        let suiteName = "MobileHostServiceSettingsTests.ManualHost.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(MobileHostService.configuredManualHost(defaults: defaults) == nil)
+        defaults.set(" studio-mac.corp.example ", forKey: MobileHostService.manualHostDefaultsKey)
+        #expect(MobileHostService.configuredManualHost(defaults: defaults) == "studio-mac.corp.example")
+        #expect(MobileHostService.manualHostNeedsRouteRefresh(previous: nil, current: "studio-mac.corp.example"))
+        #expect(!MobileHostService.manualHostNeedsRouteRefresh(
+            previous: "studio-mac.corp.example",
+            current: "studio-mac.corp.example"
+        ))
+        #expect(MobileHostService.manualHostNeedsRouteRefresh(
+            previous: "studio-mac.corp.example",
+            current: nil
+        ))
+
+        defaults.set("my:host", forKey: MobileHostService.manualHostDefaultsKey)
+        #expect(MobileHostService.configuredManualHost(defaults: defaults) == nil)
+    }
+
+    @Test(arguments: ["127.0.0.1", "127.1", "0.0.0.0", "localhost", "[::1]"])
+    func configuredManualHostRejectsLoopbackHosts(rawHost: String) throws {
+        let suiteName = "MobileHostServiceSettingsTests.ManualHost.Loopback.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(rawHost, forKey: MobileHostService.manualHostDefaultsKey)
+
+        #expect(MobileHostService.configuredManualHost(defaults: defaults) == nil)
+    }
+
+    @Test func routeResolverDoesNotAdvertiseLoopbackManualHost() {
+        let routes = MobileRouteResolver().routes(
+            port: 58_465,
+            tailscaleHosts: ["100.82.214.112"],
+            manualHost: "127.1"
+        ).routes
+
+        #expect(routes.contains { $0.kind == .tailscale })
+        #expect(!routes.contains { $0.kind == .manualHost })
+    }
+
+    @Test func routeResolverUsesManualHostWhenTailscaleIsUnavailable() throws {
+        let snapshot = MobileRouteResolver().routes(
+            port: 61_234,
+            tailscaleHosts: [],
+            manualHost: " studio-mac.corp.example "
+        )
+        let route = try #require(snapshot.routes.first { $0.kind == .manualHost })
+        #expect(snapshot.routes.filter { $0.kind == .tailscale }.isEmpty)
+        #expect(route.endpoint == .hostPort(host: "studio-mac.corp.example", port: 61_234))
+    }
+
+    @Test func routeResolverKeepsCanonicalPrioritiesWhenMagicDNSHostIsFiltered() throws {
+        // Production discovery prepends the MagicDNS name to the numeric
+        // Tailscale address; the resolver emits only the numeric host. The
+        // manual route's priority must continue the EMITTED sequence
+        // (10, 20, ...) or `CmxPairingQRCode.encodableRoutes` rejects the
+        // routes and the pairing QR silently degrades to the v1 payload.
+        let snapshot = MobileRouteResolver().routes(
+            port: 58_465,
+            tailscaleHosts: ["studio-mac.tail1234.ts.net", "100.82.214.112"],
+            manualHost: "studio-mac.corp.example"
+        )
+        let minimalRoutes = snapshot.routes.filter { $0.kind != .debugLoopback }
+        let tailscaleRoute = try #require(minimalRoutes.first { $0.kind == .tailscale })
+        let manualRoute = try #require(minimalRoutes.first { $0.kind == .manualHost })
+
+        #expect(minimalRoutes.count == 2)
+        #expect(tailscaleRoute.priority == 10)
+        #expect(manualRoute.priority == 20)
+    }
+
+    @Test func routeResolverAdvertisesConfiguredIPv6ManualHost() throws {
+        let suiteName = "MobileHostServiceSettingsTests.ManualHost.IPv6.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("[fd00::12]", forKey: MobileHostService.manualHostDefaultsKey)
+
+        let configuredHost = try #require(MobileHostService.configuredManualHost(defaults: defaults))
+        let routes = MobileRouteResolver().routes(
+            port: 58_465,
+            tailscaleHosts: [],
+            manualHost: configuredHost
+        ).routes
+        let manualRoute = try #require(routes.first { $0.kind == .manualHost })
+
+        #expect(configuredHost == "fd00::12")
+        #expect(manualRoute.endpoint == .hostPort(host: "fd00::12", port: 58_465))
+    }
+
     @Test func portApplyPreBindClassifiesNonBindCases() {
         // Out of range → invalid, regardless of anything else.
         #expect(MobileHostService.portApplyPreBindOutcome(enabled: true, currentBoundPort: nil, requestedPort: 0) == .invalid)

@@ -211,12 +211,7 @@ struct MobileHostAuthorizationTests {
         )
         let tailscaleRoutes = snapshot.routes.filter { $0.kind == .tailscale }
         #expect(tailscaleRoutes.count == 1)
-        if case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint {
-            #expect(host == "100.71.210.41")
-            #expect(port == 61234)
-        } else {
-            #expect(Bool(false), "Expected immediate snapshot to include a numeric Tailscale route")
-        }
+        #expect(tailscaleRoutes.first?.endpoint == .hostPort(host: "100.71.210.41", port: 61234))
         #expect(snapshot.routes.filter { $0.kind == .debugLoopback }.count == 1)
     }
     @Test func testMobileRouteResolverAwaitsMagicDNSForPublicStatusRoutes() async throws {

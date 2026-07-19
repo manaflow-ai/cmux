@@ -225,7 +225,7 @@ final class MobileHostService {
     nonisolated private static let maximumActiveConnectionCount = 10
     nonisolated private static let terminalThemeRevisionEpoch = UUID().uuidString
     /// The single shape every public `mobile.host.status` reply uses (the
-    /// public-status cache, the network status gate, and
+    /// public-status snapshot, the network status gate, and
     /// `TerminalController`'s no-private-metadata branch), so the fields
     /// cannot drift. Identity-free status carries no routes: a caller already
     /// reached the Mac to ask for status, while route discovery belongs to the
@@ -270,51 +270,14 @@ final class MobileHostService {
         return payload
     }
 
-    /// The `mobile.host.status` reply for a network caller.
-    ///
-    /// Status is the one unauthenticated verb (a phone probes reachability
-    /// before it has anything to present), so a tokenless request gets the
-    /// cached identity-free payload without touching the main actor or the
-    /// Stack verifier — the DoS posture of the public probe is unchanged, and
-    /// an arbitrary process that can reach the port receives no private route
-    /// hints or account identity. A request that does present the owner's
-    /// same-account Stack token (the iOS client attaches it to status
-    /// whenever it has one) is verified and answered with the Mac's identity,
-    /// which is what a freshly QR-paired phone needs to key its paired-Mac
-    /// record. A token that fails verification degrades to the identity-free
-    /// payload rather than an error: reachability stays observable, and the
-    /// authorized verbs that follow surface the auth failure properly.
-    /// Verification goes through the same gate as the authorized verbs
-    /// (``verifiedStackCaller(for:)``), so a DEBUG dev-token client that can
-    /// list workspaces also sees identity.
-    ///
-    /// Because status is unauthenticated, the network verifications a
-    /// token-bearing status request can trigger are bounded: an
-    /// already-verified token answers from the verifier's cache, and
-    /// cache-miss lookups are capped by
-    /// ``MobileHostStatusVerificationLimiter`` (over the cap the reply
-    /// degrades to identity-free and the phone's identity-recovery retry
-    /// picks it up later). A flood of unique garbage tokens therefore cannot
-    /// queue unbounded Stack lookups behind this verb.
-    nonisolated static func networkStatusResult(for request: MobileHostRPCRequest) async -> MobileHostRPCResult {
-        let trimmedToken = request.auth?.stackAccessToken?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmedToken?.isEmpty == false else {
-            return MobileHostPublicStatusCache.result(includeIdentity: false)
-        }
-        let verified = await MobileHostService.shared.verifiedStackCaller(for: request)
-        if !verified {
-            mobileHostLog.error("mobile host status identity withheld: stack verification failed")
-        }
-        return MobileHostPublicStatusCache.result(includeIdentity: verified)
-    }
-
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
-    private let routeResolver = MobileRouteResolver()
+    let routeAdvertisement = MobileHostRouteAdvertisement()
+    var routeResolver: MobileRouteResolver { routeAdvertisement.routeResolver }
     private let ticketStore = MobileAttachTicketStore()
     private var listener: NWListener?
     private var listenerGeneration = UUID()
     private var listenerUsesEphemeralFallback = false
-    private var listenerPort: Int?
+    var listenerPort: Int?
     /// The preferred port the active start-sequence targeted (regardless of an
     /// ephemeral fallback). Used to decide whether a settings change needs a
     /// restart. `nil` while stopped.
@@ -690,7 +653,7 @@ final class MobileHostService {
                 self?.updatePublicStatusRoutes(port: port, generation: generation, tailscaleHosts: hosts)
             }
         })
-        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        publishCurrentRoutes(port: port)
         startNetworkPathMonitorIfNeeded()
         drainReadinessWaiters()
     }
@@ -715,7 +678,7 @@ final class MobileHostService {
             return
         }
 
-        CmxIrohTCPFirstActivation.start(
+        CmxIrohTCPFirstActivation().start(
             startTCP: { startListener(usePreferredPort: true) },
             scheduleIroh: { MobileHostIrohRuntime.shared.setDesiredActive(true) }
         )
@@ -736,7 +699,7 @@ final class MobileHostService {
         listenerPort = port
         appliedPreferredPort = port
         lastErrorDescription = nil
-        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        publishCurrentRoutes(port: port)
         mobileHostLog.info("mobile host listener disabled; publishing XCTest routes without binding")
     }
     #endif
@@ -824,7 +787,11 @@ final class MobileHostService {
             Task { await connection.close(reason: reason) }
         }
         activeConnections.removeAll()
+        clientIDsByConnectionID.removeAll()
+        MobileHostEventSubscriptionTracker.reset()
         MobileHostPublicStatusCache.update(routes: [])
+        TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
+        drainReadinessWaiters()
     }
 
     func statusSnapshot() -> MobileHostServiceStatus {
@@ -929,6 +896,8 @@ final class MobileHostService {
         )
     }
 
+    func updatePublicStatusSnapshot(routes: [CmxAttachRoute]) { MobileHostPublicStatusCache.update(routes: routes) }
+
     /// Reconcile the live listener with current settings (enable/disable and
     /// preferred-port changes). Safe to call on any settings change: it no-ops
     /// unless the enabled state or the configured port actually changed, so an
@@ -956,7 +925,7 @@ final class MobileHostService {
             appliedPort: appliedPreferredPort
         ) {
         case .noop:
-            break
+            refreshAdvertisedRoutesIfRunning(defaults: defaults)
         case .start:
             start()
         case .stop:
@@ -1054,7 +1023,7 @@ final class MobileHostService {
                         for: request,
                         authorization: authorization,
                         stackStatus: { request in
-                            await MobileHostService.networkStatusResult(for: request)
+                            await MobileHostService.shared.networkStatusResult(for: request)
                         }
                     )
                 }
@@ -1432,9 +1401,9 @@ final class MobileHostService {
                         )
                     }
                 })
-                MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: listenerPort).routes)
+                publishCurrentRoutes(port: listenerPort)
             } else {
-                MobileHostPublicStatusCache.update(routes: [])
+                clearAdvertisedRoutes()
             }
             mobileHostLog.info("mobile host listener ready on port \(self.listenerPort ?? 0)")
             drainReadinessWaiters()
@@ -1445,7 +1414,7 @@ final class MobileHostService {
             listener = nil
             listenerUsesEphemeralFallback = false
             listenerPort = nil
-            MobileHostPublicStatusCache.update(routes: [])
+            clearAdvertisedRoutes()
             drainReadinessWaiters()
         case let .waiting(error):
             // A preferred-port bind blocked by another listener surfaces as
@@ -1456,11 +1425,11 @@ final class MobileHostService {
                 handleListenerBindFailure(error: error, context: "in use (waiting)")
             } else {
                 listenerPort = nil
-                MobileHostPublicStatusCache.update(routes: [])
+                clearAdvertisedRoutes()
             }
         case .setup:
             listenerPort = nil
-            MobileHostPublicStatusCache.update(routes: [])
+            clearAdvertisedRoutes()
         @unknown default:
             break
         }
@@ -1471,7 +1440,7 @@ final class MobileHostService {
     /// Shared by the `.failed` and `.waiting(addressUnavailable)` paths.
     private func handleListenerBindFailure(error: NWError, context: String) {
         lastErrorDescription = String(describing: error)
-        MobileHostPublicStatusCache.update(routes: [])
+        clearAdvertisedRoutes()
         let shouldRetryWithEphemeralPort = !listenerUsesEphemeralFallback
         listener?.stateUpdateHandler = nil
         listener?.newConnectionHandler = nil
@@ -1499,9 +1468,7 @@ final class MobileHostService {
         guard generation == listenerGeneration, listenerPort == port else {
             return
         }
-        MobileHostPublicStatusCache.update(
-            routes: routeResolver.routes(port: port, tailscaleHosts: tailscaleHosts).routes
-        )
+        publishCurrentRoutes(port: port, tailscaleHosts: tailscaleHosts)
     }
 
     // MARK: - Network path monitoring
@@ -1548,7 +1515,7 @@ final class MobileHostService {
                 self?.updatePublicStatusRoutes(port: port, generation: generation, tailscaleHosts: hosts)
             }
         })
-        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        publishCurrentRoutes(port: port)
     }
 }
 
@@ -1563,6 +1530,7 @@ extension MobileHostService {
         listenerGeneration = UUID()
         listenerUsesEphemeralFallback = false
         listenerPort = nil
+        routeAdvertisement.reset()
         activeConnections.removeAll()
         clientIDsByConnectionID.removeAll()
         MobileHostRequestActivity.resetForTesting()

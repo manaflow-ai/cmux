@@ -10,9 +10,12 @@ import SwiftUI
 public struct MobileSection: View {
     @State private var iOSPairingHost: DefaultsValueModel<Bool>
     @State private var port: DefaultsValueModel<Int>
+    @State private var manualHost: DefaultsValueModel<String>
     @State private var displayName: DefaultsValueModel<String>
     @State private var artifactFolderAccess: DefaultsValueModel<MobileArtifactFolderAccess>
     @State private var status: MobilePairingStatusModel
+
+    private let manualHostAdvertisability = MobilePairingManualHostAdvertisability()
 
     /// The user's in-progress port edit, or `nil` when the field should track
     /// the persisted value. Local so editing does not rebind the listener; only
@@ -24,6 +27,8 @@ public struct MobileSection: View {
     @State private var applyResult: MobilePairingPortApplyResult?
     /// Guards against overlapping Apply taps while a probe is in flight.
     @State private var isApplying = false
+    /// User's in-progress manual-host edit. `nil` tracks the persisted setting.
+    @State private var editedManualHost: String?
 
     /// Host bridge: opens the pairing window, applies the port (availability
     /// checked), and supplies the live pairing status and default display name.
@@ -45,6 +50,7 @@ public struct MobileSection: View {
     ) {
         _iOSPairingHost = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingHost))
         _port = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingPort))
+        _manualHost = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingManualHost))
         _displayName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingDisplayName))
         _artifactFolderAccess = State(initialValue: DefaultsValueModel(
             store: defaultsStore,
@@ -70,6 +76,26 @@ public struct MobileSection: View {
         (1...65535).contains(draftPort)
     }
 
+    private var trimmedManualHost: String {
+        draftManualHost.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var draftManualHost: String {
+        editedManualHost ?? manualHost.current
+    }
+
+    private var persistedManualHost: String {
+        manualHost.current.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isManualHostValid: Bool {
+        manualHostAdvertisability.isAdvertisable(trimmedManualHost)
+    }
+
+    private var canApplyManualHost: Bool {
+        isManualHostValid && trimmedManualHost != persistedManualHost
+    }
+
     /// The Mobile settings section content.
     public var body: some View {
         Group {
@@ -81,6 +107,9 @@ public struct MobileSection: View {
                 SettingsCardDivider()
                 portRow
                 boundPortStatusRow
+                SettingsCardDivider()
+                manualHostRow
+                manualHostStatusRow
                 SettingsCardDivider()
                 displayNameRow
                 SettingsCardDivider()
@@ -103,6 +132,7 @@ public struct MobileSection: View {
             iOSPairingHost,
             port,
             displayName,
+            manualHost,
             artifactFolderAccess,
             status,
         ]
@@ -263,6 +293,56 @@ public struct MobileSection: View {
     }
 
     @ViewBuilder
+    private var manualHostRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:mobile:iOSPairingManualHost",
+            String(localized: "settings.mobile.manualHost", defaultValue: "Manual Host"),
+            subtitle: String(
+                localized: "settings.mobile.manualHost.subtitle",
+                defaultValue: "Optional LAN IP or DNS host to advertise when this Mac cannot run Tailscale."
+            ),
+            controlWidth: Self.columnWidth + 68
+        ) {
+            HStack(spacing: 8) {
+                TextField(
+                    String(localized: "settings.mobile.manualHost.placeholder", defaultValue: "192.168.1.23 or mac.local"),
+                    text: Binding(get: { draftManualHost }, set: { editedManualHost = $0 })
+                )
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("SettingsMobilePairingManualHostField")
+                .onSubmit { applyManualHostIfNeeded() }
+
+                Button(String(localized: "settings.mobile.port.apply", defaultValue: "Apply")) {
+                    applyManualHostIfNeeded()
+                }
+                .disabled(!canApplyManualHost)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var manualHostStatusRow: some View {
+        if !isManualHostValid {
+            statusCaption {
+                Label(
+                    String(
+                        localized: "settings.mobile.manualHost.invalid",
+                        defaultValue: "Enter a host or IP address, without spaces or URL paths."
+                    ),
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .foregroundStyle(.orange)
+            }
+        } else if !trimmedManualHost.isEmpty {
+            SettingsCardNote(String(
+                localized: "settings.mobile.manualHost.warning",
+                defaultValue: "Manual hosts are explicit trust routes. The iOS app will ask before sending credentials. With a subnet router, iPhone to router may be encrypted, but router to Mac is normal LAN traffic."
+            ))
+        }
+    }
+
+    @ViewBuilder
     private var displayNameRow: some View {
         // Show this Mac's system name as the placeholder so the user sees the
         // actual default that applies when the override is empty.
@@ -284,6 +364,12 @@ public struct MobileSection: View {
             .textFieldStyle(.roundedBorder)
             .accessibilityIdentifier("SettingsMobilePairingDisplayNameField")
         }
+    }
+
+    private func applyManualHostIfNeeded() {
+        guard canApplyManualHost else { return }
+        manualHost.set(trimmedManualHost)
+        editedManualHost = nil
     }
 
     @ViewBuilder

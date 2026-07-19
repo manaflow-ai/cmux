@@ -30,8 +30,8 @@ final class MobilePairingModel {
         /// A phone has attached to the listener; show a paired/success state
         /// instead of the QR + spinner.
         case connected(Ready)
-        /// Neither an authenticated Iroh identity nor a released-client
-        /// Tailscale compatibility route is available yet.
+        /// Neither an authenticated Iroh identity nor a phone-reachable
+        /// Tailscale/manual-host compatibility route is available yet.
         case needsReachableTransport
         /// The listener could not be started or no ticket could be minted.
         case failed(String)
@@ -42,6 +42,7 @@ final class MobilePairingModel {
         enum PrimaryTransport: Equatable, Sendable {
             case iroh
             case tailscaleCompatibility
+            case manualHostCompatibility
         }
 
         /// The `cmux-ios://attach?...` URL encoded into the QR code.
@@ -53,6 +54,8 @@ final class MobilePairingModel {
         let primaryTransport: PrimaryTransport
         /// The Mac's display name, shown above the code.
         let macName: String
+        /// All phone-dialable `host:port` routes carried by the pairing code.
+        let routeLines: [String]
         /// Reachable Tailscale `host:port` compatibility routes. Empty when
         /// Iroh is the only available transport.
         let tailscaleLines: [String]
@@ -60,8 +63,13 @@ final class MobilePairingModel {
         /// "Copy Port" buttons. `nil` when no phone-dialable route exists.
         let manualEntry: CmxManualPairingEntry?
 
-        /// Whether at least one Tailscale route resolved.
+        /// Whether at least one phone-reachable Tailscale route resolved.
         var reachableViaTailscale: Bool { !tailscaleLines.isEmpty }
+        /// Whether the pairing code carries an explicit non-Tailscale manual route.
+        var hasManualHostRoute: Bool {
+            routeLines.contains { line in !tailscaleLines.contains(line) }
+        }
+
         /// Whether the default QR authenticates and connects through Iroh.
         var reachableViaIroh: Bool { primaryTransport == .iroh }
     }
@@ -80,6 +88,9 @@ final class MobilePairingModel {
             let hasLegacyTailscale = routes.contains(
                 where: MobilePairingModel.isPhoneReachableLegacyRoute
             )
+            let hasManualHost = routes.contains { route in
+                route.kind == .manualHost && MobilePairingModel.isPhoneReachableRoute(route)
+            }
             if hasIroh {
                 return PairingRoutePlan(
                     primaryDisclosureMode: .irohIdentityOnly,
@@ -91,6 +102,13 @@ final class MobilePairingModel {
                 return PairingRoutePlan(
                     primaryDisclosureMode: .legacyPrivateNetworkCompatibility,
                     primaryTransport: .tailscaleCompatibility,
+                    offersLegacyCode: false
+                )
+            }
+            if hasManualHost {
+                return PairingRoutePlan(
+                    primaryDisclosureMode: .legacyPrivateNetworkCompatibility,
+                    primaryTransport: .manualHostCompatibility,
                     offersLegacyCode: false
                 )
             }
@@ -194,6 +212,16 @@ final class MobilePairingModel {
                 )
                 return
             }
+            // Only the minimal QR grammar (Tailscale/manual-host routes only,
+            // no loopback, no token) may ever be displayed as a scannable code.
+            // If the mint raced a route loss and fell back to the v1 payload,
+            // show route guidance rather than a weak QR.
+            guard routePlan.primaryTransport == .iroh
+                    || CmxPairingQRCode().isPairingCodeURLString(attachURL) else {
+                state = .needsReachableTransport
+                observeRouteAvailability()
+                return
+            }
             let legacyAttachURL: String?
             if routePlan.offersLegacyCode,
                let legacyPayload = try? await host.createAttachTicket(
@@ -212,6 +240,7 @@ final class MobilePairingModel {
                     legacyAttachURL: legacyAttachURL,
                     primaryTransport: routePlan.primaryTransport,
                     macName: Self.macDisplayName,
+                    routeLines: Self.phoneReachableLines(status.routes),
                     tailscaleLines: Self.tailscaleLines(status.routes),
                     manualEntry: CmxManualPairingEntry.best(in: status.routes)
                 )
@@ -363,6 +392,25 @@ final class MobilePairingModel {
         Host.current().localizedName ?? ProcessInfo.processInfo.hostName
     }
 
+    /// Whether `route` is one a physical iPhone can actually dial: a
+    /// Tailscale or explicit manual-host route that does not point back at this
+    /// Mac. The dev loopback route a DEBUG build always carries must not count
+    /// as reachability, or the pairing window would happily display a QR no
+    /// phone can use.
+    private nonisolated static func isPhoneReachableRoute(_ route: CmxAttachRoute) -> Bool {
+        (route.kind == .tailscale || route.kind == .manualHost) && !CmxLoopbackHost().matches(route)
+    }
+
+    private static func phoneReachableLines(_ routes: [CmxAttachRoute]) -> [String] {
+        uniqueLines(routes.compactMap { route in
+            guard isPhoneReachableRoute(route),
+                  case let .hostPort(host, port) = route.endpoint else {
+                return nil
+            }
+            return endpointLine(host: host, port: port)
+        })
+    }
+
     /// Whether `route` can serve released iOS clients: a Tailscale route that
     /// does not point back at this Mac. Iroh-capable clients use an identity-only
     /// route and never receive this private address in their default QR.
@@ -373,12 +421,23 @@ final class MobilePairingModel {
     }
 
     private static func tailscaleLines(_ routes: [CmxAttachRoute]) -> [String] {
-        routes.compactMap { route in
+        uniqueLines(routes.compactMap { route in
             guard route.kind == .tailscale,
                   case let .hostPort(host, port) = route.endpoint else {
                 return nil
             }
-            return "\(host):\(port)"
+            return endpointLine(host: host, port: port)
+        })
+    }
+
+    static func endpointLine(host: String, port: Int) -> String {
+        host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
+    }
+
+    private static func uniqueLines(_ lines: [String]) -> [String] {
+        var seen: Set<String> = []
+        return lines.filter { line in
+            seen.insert(line).inserted
         }
     }
 }

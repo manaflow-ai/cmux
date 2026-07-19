@@ -36,7 +36,7 @@ extension MobileShellComposite {
             macDeviceID: macDeviceID,
             macDisplayName: displayName,
             routes: [route],
-            expiresAt: Date().addingTimeInterval(60 * 60)
+            expiresAt: Date.now.addingTimeInterval(60 * 60)
         )
     }
 
@@ -44,16 +44,23 @@ extension MobileShellComposite {
         name: String,
         host: String,
         port: Int,
-        attemptStartedAt: Date?
+        route: CmxAttachRoute? = nil,
+        attemptStartedAt: Date?,
+        manualHostTrusted: Bool = false,
+        authContext: MobileShellRPCAuthContext
     ) async throws -> CmxAttachTicket {
-        let directRoute = try Self.manualHostRoute(host: host, port: port)
+        let directRoute = try routeSelection.manualHostRoute(host: host, port: port, preserving: route)
         let displayName = name.isEmpty ? host : name
-        if MobileShellRouteAuthPolicy.routeAllowsStackAuth(directRoute) {
+        if MobileShellRouteAuthPolicy().routeAllowsStackAuth(
+            directRoute,
+            manualHostTrusted: manualHostTrusted
+        ) {
             do {
                 let ticket = try await requestManualAttachTicket(
                     route: directRoute,
                     displayName: displayName,
-                    attemptStartedAt: attemptStartedAt
+                    attemptStartedAt: attemptStartedAt,
+                    authContext: authContext
                 )
                 return ticket
             } catch {
@@ -94,7 +101,8 @@ extension MobileShellComposite {
     func requestManualAttachTicket(
         route: CmxAttachRoute,
         displayName: String,
-        attemptStartedAt: Date?
+        attemptStartedAt: Date?,
+        authContext: MobileShellRPCAuthContext
     ) async throws -> CmxAttachTicket {
         guard let runtime else {
             throw MobileShellConnectionError.insecureManualRoute
@@ -109,6 +117,12 @@ extension MobileShellComposite {
             route: route,
             ticket: probeTicket,
             allowsStackAuthFallback: true,
+            manualHostStackAuthTrustProvider: manualHostStackAuthTrustProvider(
+                for: route,
+                stackUserID: authContext.stackUserID
+            ),
+            authScope: rpcAuthScopeForRoute(for: route, context: authContext),
+            authScopeValidator: rpcAuthScopeValidator(for: route, context: authContext),
             connectAttemptRegistry: connectAttemptRegistry,
             stackTokenGate: stackTokenGate,
             stackTokenForceRefreshGate: stackTokenForceRefreshGate,

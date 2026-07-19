@@ -19,8 +19,10 @@ struct PairingView: View {
     /// when the headline is already the full instruction.
     let connectionErrorGuidance: String?
     let versionWarning: String?
+    let manualHostTrustWarning: MobileManualHostTrustWarning?
     let connectPairingCode: () async -> Void
     let acceptVersionWarning: () async -> Void
+    let acceptManualHostTrustWarning: () async -> Void
     let connectManualHost: (String, String, Int) async -> Void
     let cancelPairing: () -> Void
     let cancel: () -> Void
@@ -167,6 +169,44 @@ struct PairingView: View {
                     }
                 }
 
+                if let manualHostTrustWarning {
+                    Section {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label {
+                                Text(L10n.string("mobile.pairing.manualHostTrustTitle", defaultValue: "Trust manual host?"))
+                            } icon: {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                            }
+                            .font(.headline)
+                            .foregroundStyle(.orange)
+
+                            Text(manualHostTrustWarning.endpoint)
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
+                                .textSelection(.enabled)
+                                .accessibilityIdentifier("MobileManualHostTrustEndpoint")
+
+                            Text(L10n.string(
+                                "mobile.pairing.manualHostTrustBody",
+                                defaultValue: "cmux does not encrypt this direct connection end to end. Account credentials are sent through it and can be intercepted on an untrusted network. Trust this host and port only on a network you control."
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("MobileManualHostTrustWarning")
+
+                            Button(role: .destructive) {
+                                startPairingTask {
+                                    await acceptManualHostTrustWarning()
+                                }
+                            } label: {
+                                Text(L10n.string("mobile.pairing.manualHostTrustContinue", defaultValue: "Trust and Pair"))
+                            }
+                            .disabled(isPairing)
+                            .accessibilityIdentifier("MobileManualHostTrustContinueButton")
+                        }
+                    }
+                }
+
                 if let errorText {
                     Section {
                         VStack(alignment: .leading, spacing: 8) {
@@ -247,15 +287,25 @@ struct PairingView: View {
 
     private var cancelButton: some View {
         Button {
-            pairingTask?.cancel()
-            pairingTaskID = nil
-            pairingTask = nil
-            isPairing = false
-            cancelPairing()
-            cancel()
+            cancelAndDismiss()
         } label: {
             Text(L10n.string("mobile.common.cancel", defaultValue: "Cancel"))
         }
+    }
+
+    func cancelAndDismiss() {
+        let shouldCancelStoreAttempt = pairingTask != nil
+            || versionWarning != nil
+            || manualHostTrustWarning != nil
+            || connectionError != nil
+        pairingTask?.cancel()
+        pairingTaskID = nil
+        pairingTask = nil
+        isPairing = false
+        if shouldCancelStoreAttempt {
+            cancelPairing()
+        }
+        cancel()
     }
 
     private var errorText: String? {
@@ -274,7 +324,7 @@ struct PairingView: View {
         let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedHost.isEmpty,
               !CmxPairingURLScheme.hasPairingScheme(trimmedHost),
-              MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning(trimmedHost) else {
+              MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning(trimmedHost) else {
             return nil
         }
         return L10n.string(
@@ -304,8 +354,11 @@ struct PairingView: View {
         return String(format: format, email)
     }
 
-    private func pair() {
+    func pair() {
         validationError = nil
+        if versionWarning != nil || manualHostTrustWarning != nil {
+            cancelPairing()
+        }
         let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedHost.isEmpty else {
             validationError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
@@ -318,7 +371,7 @@ struct PairingView: View {
             }
             return
         }
-        guard MobileShellRouteAuthPolicy.normalizedManualHost(trimmedHost) != nil else {
+        guard MobileShellRouteAuthPolicy().normalizedManualHost(trimmedHost) != nil else {
             validationError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
             return
         }

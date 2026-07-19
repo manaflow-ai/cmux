@@ -11,7 +11,7 @@ struct MobileCoreRPCIndependentEventTests {
         let transport = CloseTrackingNeverConnectedTransport()
         let factory = BlockingTransportFactory(transport: transport)
         let runtime = TestMobileSyncRuntime(transportFactory: factory)
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: try ticket(route: route, deviceSuffix: "001")
@@ -43,7 +43,7 @@ struct MobileCoreRPCIndependentEventTests {
             transportFactory: FixedTransportFactory(transport: NeverConnectedTransport()),
             independentEventByteStreamProvider: { _ in try await source.makeStream() }
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: try ticket(route: route, deviceSuffix: "002")
@@ -68,7 +68,7 @@ struct MobileCoreRPCIndependentEventTests {
             transportFactory: FixedTransportFactory(transport: transport),
             independentEventByteStreamProvider: { _ in await source.makeStream() }
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: try ticket(route: route, deviceSuffix: "003")
@@ -101,7 +101,7 @@ struct MobileCoreRPCIndependentEventTests {
                 return await source.makeStream()
             }
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: try ticket(route: route, deviceSuffix: "004")
@@ -139,7 +139,7 @@ struct MobileCoreRPCIndependentEventTests {
             transportFactory: FixedTransportFactory(transport: NeverConnectedTransport()),
             independentEventByteStreamProvider: { _ in await source.makeStream() }
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: try ticket(route: route, deviceSuffix: "005")
@@ -168,7 +168,7 @@ struct MobileCoreRPCIndependentEventTests {
             transportFactory: FixedTransportFactory(transport: transport),
             independentEventByteStreamProvider: { _ in try await source.makeStream() }
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: try ticket(route: route, deviceSuffix: "006")

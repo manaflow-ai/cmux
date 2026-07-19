@@ -240,6 +240,8 @@ extension MobileShellComposite {
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         let target = WorkspaceMutationTarget(
             client: remoteClient,
+            route: activeRoute,
+            connectionGeneration: connectionGeneration,
             isForeground: true,
             macDeviceID: foregroundMacDeviceID
         )
@@ -364,7 +366,25 @@ extension MobileShellComposite {
             let request = try MobileCoreRPCClient.requestData(method: method, params: params)
             _ = try await client.sendRequest(request)
         } catch {
-            if disconnectForAuthorizationFailureIfNeeded(error) {
+            let failureOwner: MobileShellAuthorizationFailureOwner
+            if !target.isForeground,
+               let macDeviceID = target.macDeviceID,
+               let route = target.route {
+                failureOwner = .secondary(
+                    macDeviceID: macDeviceID,
+                    client: client,
+                    route: route
+                )
+            } else if let generation = target.connectionGeneration {
+                failureOwner = .foreground(
+                    client: client,
+                    generation: generation,
+                    route: target.route
+                )
+            } else {
+                return .failure(.notConnected(hostDisplayName: hostDisplayName))
+            }
+            if handleAuthorizationFailureIfNeeded(error, owner: failureOwner) {
                 return .failure(.authorizationFailed(hostDisplayName: hostDisplayName))
             }
             // Only the foreground connection's health drives the foreground
@@ -401,6 +421,8 @@ extension MobileShellComposite {
         guard let anchorWorkspaceID = workspaceGroups.first(where: { $0.id == id })?.anchorWorkspaceID else {
             return WorkspaceMutationTarget(
                 client: remoteClient,
+                route: activeRoute,
+                connectionGeneration: connectionGeneration,
                 isForeground: true,
                 macDeviceID: foregroundMacDeviceID
             )
@@ -474,22 +496,4 @@ extension MobileShellComposite {
         )
     }
 
-    /// Collapse or expand a workspace group on THIS device only.
-    ///
-    /// Folder collapse is a per-device UI preference, not shared state: collapsing
-    /// a group on the phone must not collapse it on the Mac. So this records the
-    /// choice in the device-local `groupCollapseStore` and updates the in-memory
-    /// `workspaceGroups` for an immediate, authoritative render. Nothing is sent to
-    /// the Mac, and a later Mac `workspace.updated` will not override it (the
-    /// workspace-list ingest re-applies this store). The `async` signature is kept
-    /// for call-site compatibility; the work is synchronous on the main actor.
-    /// - Parameters:
-    ///   - id: The group to collapse or expand.
-    ///   - collapsed: `true` to collapse (hide members), `false` to expand.
-    public func setWorkspaceGroupCollapsed(id: MobileWorkspaceGroupPreview.ID, _ collapsed: Bool) async {
-        groupCollapseStore.set(id.rawValue, collapsed: collapsed)
-        if let index = workspaceGroups.firstIndex(where: { $0.id == id }) {
-            workspaceGroups[index].isCollapsed = collapsed
-        }
-    }
 }

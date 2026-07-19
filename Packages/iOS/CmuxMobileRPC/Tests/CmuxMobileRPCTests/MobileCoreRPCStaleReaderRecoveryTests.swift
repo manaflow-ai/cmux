@@ -84,7 +84,7 @@ import Testing
             expiresAt: Date().addingTimeInterval(60),
             authToken: "ticket-secret"
         )
-        return MobileCoreRPCClient(
+        return MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: ticket,

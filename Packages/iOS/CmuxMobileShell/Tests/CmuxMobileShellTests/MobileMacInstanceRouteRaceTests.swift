@@ -25,7 +25,7 @@ import Testing
         )
         await shell.loadPairedMacs()
         let cachedA = try #require(shell.pairedMacs.first)
-        let scope = MobileShellScopeSnapshot(userID: "user-1", teamID: "team-a", generation: 0)
+        let scope = accountScope(for: shell)
 
         shell.refreshRoutesFromRegistryForTesting(for: cachedA, scope: scope)
         await registry.waitUntilStarted()
@@ -74,7 +74,7 @@ import Testing
             teamID: "team-a",
             now: Date(timeIntervalSince1970: 20)
         )
-        let scope = MobileShellScopeSnapshot(userID: "user-1", teamID: "team-a", generation: 0)
+        let scope = accountScope(for: shell)
 
         shell.applyPresenceUpdate(.online(PresenceInstance(
             deviceId: "shared-mac",
@@ -104,6 +104,16 @@ import Testing
             stackUserID: "user-1",
             teamID: "team-a",
             instanceTag: tag
+        )
+    }
+
+    private func accountScope(for shell: MobileShellComposite) -> MobileShellScopeSnapshot {
+        MobileShellScopeSnapshot(
+            userID: "user-1",
+            teamID: "team-a",
+            generation: 0,
+            signInGeneration: shell.currentSessionGeneration,
+            rpcAuthContext: shell.currentRPCAuthContext()
         )
     }
 

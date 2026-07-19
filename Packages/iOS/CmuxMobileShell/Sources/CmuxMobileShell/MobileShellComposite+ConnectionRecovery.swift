@@ -35,6 +35,11 @@ extension MobileShellComposite {
             // connection so a moving network repaints instead of going stale.
             for await _ in reachability.pathChanges() {
                 guard let self, !Task.isCancelled else { return }
+                // Every callback is also a plaintext-trust boundary. Public
+                // path attributes can look identical across different LANs.
+                if self.invalidateManualHostTrustForNetworkBoundary() {
+                    continue
+                }
                 self.recoverMobileConnection(trigger: .networkChange)
             }
         }
@@ -167,7 +172,15 @@ extension MobileShellComposite {
             sourceConnectionGeneration: connectionGeneration,
             probing: probeCurrentConnection
         )
-        guard let attempt else { return }
+        guard let attempt else {
+            // Newest-wins trailing network recovery: a path change that lands
+            // while an attempt is in flight must not be dropped, or a network
+            // that comes back mid-redial strands the user on Retry.
+            if trigger == .networkChange {
+                pendingNetworkRecoveryTrigger = true
+            }
+            return
+        }
         diagnosticLog?.record(DiagnosticEvent(
             .recoveryStarted,
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
@@ -250,8 +263,17 @@ extension MobileShellComposite {
                     "connection.recovery cancelled trigger=\(trigger.description) attempt=\(attempt.id.uuidString)"
                 )
             }
+            self.drainPendingNetworkRecoveryTriggerIfIdle()
         }
         connectionRecoveryOwner.install(task, for: attempt)
+    }
+
+    /// Runs the network recovery that was parked behind an in-flight attempt.
+    func drainPendingNetworkRecoveryTriggerIfIdle() {
+        guard pendingNetworkRecoveryTrigger,
+              !connectionRecoveryOwner.isActive else { return }
+        pendingNetworkRecoveryTrigger = false
+        recoverMobileConnection(trigger: .networkChange)
     }
 
     @discardableResult
@@ -376,131 +398,6 @@ extension MobileShellComposite {
         )
     }
 
-    /// Reconnects an already-paired Mac through its full route set.
-    ///
-    /// This path is used only when the set contains an authenticated Iroh peer
-    /// route. `connect(ticket:)` pins the pairing to Iroh, so an admission or
-    /// revocation failure cannot downgrade to raw Tailscale/custom-network RPC.
-    /// The synthetic ticket names the already-paired device; it is never used to
-    /// discover or create a new pairing.
-    func connectStoredMacRoutes(
-        name: String,
-        routes: [CmxAttachRoute],
-        pairedMacDeviceID: String,
-        ifStillCurrent: (() -> Bool)? = nil
-    ) async {
-        let ticket: CmxAttachTicket
-        do {
-            ticket = try Self.storedMacTicket(
-                name: name,
-                routes: routes,
-                pairedMacDeviceID: pairedMacDeviceID
-            )
-            _ = try await connect(
-                ticket: ticket,
-                pairedMacDeviceID: pairedMacDeviceID,
-                ifStillCurrent: ifStillCurrent
-            )
-        } catch {
-            guard ifStillCurrent?() ?? true else { return }
-            mobileShellLog.warning(
-                "stored route reconnect failed mac=\(pairedMacDeviceID, privacy: .public) error=\(String(describing: error), privacy: .private)"
-            )
-            if disconnectForAuthorizationFailureIfNeeded(error) { return }
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
-        }
-    }
-
-    /// Connects an existing pairing through its strongest supported transport.
-    /// A supported Iroh identity pins the attempt to Iroh. Raw Tailscale/custom
-    /// host routes remain available only for legacy pairings without Iroh.
-    @discardableResult
-    func connectStoredMac(
-        name: String,
-        routes: [CmxAttachRoute],
-        pairedMacDeviceID: String,
-        recordsPairingAttempt: Bool = false,
-        ifStillCurrent: (() -> Bool)? = nil
-    ) async -> Bool {
-        guard ifStillCurrent?() ?? true else { return false }
-        let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let pinnedRoutes = Self.storedReconnectRoutes(
-            routes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
-        )
-        guard let firstRoute = pinnedRoutes.first else { return false }
-
-        if firstRoute.kind == .iroh {
-            await connectStoredMacRoutes(
-                name: name,
-                routes: pinnedRoutes,
-                pairedMacDeviceID: pairedMacDeviceID,
-                ifStillCurrent: ifStillCurrent
-            )
-        } else {
-            let candidates = Self.reconnectHostPortRoutes(
-                pinnedRoutes,
-                supportedKinds: supportedKinds,
-                preferNonLoopback: Self.prefersNonLoopbackRoutes
-            ).filter { MobileShellRouteAuthPolicy.normalizedManualHost($0.host) != nil }
-            for route in candidates {
-                guard ifStillCurrent?() ?? true else { return false }
-                if recordsPairingAttempt {
-                    await connectManualHost(
-                        name: name,
-                        host: route.host,
-                        port: route.port,
-                        pairedMacDeviceID: pairedMacDeviceID,
-                        recordsPairingAttempt: true,
-                        ifStillCurrent: ifStillCurrent
-                    )
-                } else {
-                    await connectStoredMacHost(
-                        name: name,
-                        host: route.host,
-                        port: route.port,
-                        pairedMacDeviceID: pairedMacDeviceID,
-                        ifStillCurrent: ifStillCurrent
-                    )
-                }
-                if connectionState == .connected,
-                   remoteClient != nil,
-                   foregroundMacDeviceID == pairedMacDeviceID {
-                    break
-                }
-            }
-        }
-
-        return (ifStillCurrent?() ?? true)
-            && connectionState == .connected
-            && remoteClient != nil
-            && foregroundMacDeviceID == pairedMacDeviceID
-    }
-
-    func connectStoredMacHost(
-        name: String,
-        host: String,
-        port: Int,
-        pairedMacDeviceID: String,
-        instanceTag: String? = nil,
-        ifStillCurrent: (() -> Bool)? = nil
-    ) async {
-        await connectManualHost(
-            name: name,
-            host: host,
-            port: port,
-            pairedMacDeviceID: pairedMacDeviceID,
-            instanceTagExpectation: MobileMacInstanceTagAuthority.expectation(
-                storedInstanceTag: instanceTag
-            ),
-            recordsPairingAttempt: false,
-            ifStillCurrent: ifStillCurrent
-        )
-    }
-
     /// Reconnects a stored Mac through its Iroh-pinned route set while also
     /// enforcing the authenticated app-instance authority captured by storage.
     @discardableResult
@@ -511,6 +408,7 @@ extension MobileShellComposite {
         instanceTag: String?,
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
+        pendingMacSwitchAttemptID: UUID? = nil,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> Bool {
         (await connectStoredMacOutcome(
@@ -520,6 +418,7 @@ extension MobileShellComposite {
             instanceTag: instanceTag,
             automaticReconnectAccountID: automaticReconnectAccountID,
             recordsPairingAttempt: recordsPairingAttempt,
+            pendingMacSwitchAttemptID: pendingMacSwitchAttemptID,
             ifStillCurrent: ifStillCurrent
         )).didConnect
     }
@@ -531,6 +430,7 @@ extension MobileShellComposite {
         instanceTag: String?,
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
+        pendingMacSwitchAttemptID: UUID? = nil,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> StoredMacReconnectOutcome {
         await connectStoredMacOutcome(
@@ -542,6 +442,7 @@ extension MobileShellComposite {
             ),
             automaticReconnectAccountID: automaticReconnectAccountID,
             recordsPairingAttempt: recordsPairingAttempt,
+            pendingMacSwitchAttemptID: pendingMacSwitchAttemptID,
             ifStillCurrent: ifStillCurrent
         )
     }
@@ -556,6 +457,7 @@ extension MobileShellComposite {
         instanceTagExpectation: MobileMacInstanceTagExpectation,
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
+        pendingMacSwitchAttemptID: UUID? = nil,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> StoredMacReconnectOutcome {
         guard ifStillCurrent?() ?? true else { return .superseded }
@@ -563,13 +465,14 @@ extension MobileShellComposite {
         let pinnedRoutes = Self.storedReconnectRoutes(
             routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: routeSelection.prefersNonLoopbackRoutes
         )
         guard let firstRoute = pinnedRoutes.first else { return .failed(.unsupportedRoute) }
 
         var outcome: StoredMacReconnectOutcome = .failed(.unknown)
 
         if firstRoute.kind == .iroh {
+            let preservesActiveConnection = hasActiveMacConnection
             do {
                 let ticket = try Self.storedMacTicket(
                     name: name,
@@ -578,6 +481,7 @@ extension MobileShellComposite {
                 )
                 let noThrowFailure = try await connect(
                     ticket: ticket,
+                    authContext: currentRPCAuthContext(),
                     pairedMacDeviceID: pairedMacDeviceID,
                     instanceTagExpectation: instanceTagExpectation,
                     ifStillCurrent: ifStillCurrent
@@ -588,14 +492,23 @@ extension MobileShellComposite {
                 }
             } catch {
                 guard ifStillCurrent?() ?? true else { return .superseded }
-                outcome = .failed(Self.diagnosticFailureKind(for: error))
+                let routedError = error as? MobileShellRoutedConnectionError
+                let underlyingError = routedError?.underlying ?? error
+                let failureRoute = routedError?.route ?? firstRoute
+                outcome = .failed(Self.diagnosticFailureKind(for: underlyingError))
                 if let automaticReconnectAccountID {
                     recordAutomaticReconnectBackoff(
-                        error: error,
+                        error: underlyingError,
                         accountID: automaticReconnectAccountID
                     )
                 }
-                if !disconnectForAuthorizationFailureIfNeeded(error) {
+                if !handleAuthorizationFailureIfNeeded(
+                    underlyingError,
+                    owner: .connectionAttempt(
+                        route: failureRoute,
+                        preservingActiveConnection: preservesActiveConnection
+                    )
+                ) {
                     connectionState = .disconnected
                     macConnectionStatus = .unavailable
                     clearRemoteConnectionContext()
@@ -605,24 +518,26 @@ extension MobileShellComposite {
             let candidates = Self.reconnectHostPortRoutes(
                 pinnedRoutes,
                 supportedKinds: supportedKinds,
-                preferNonLoopback: Self.prefersNonLoopbackRoutes
+                preferNonLoopback: routeSelection.prefersNonLoopbackRoutes
             )
             for route in candidates {
                 guard ifStillCurrent?() ?? true else { return .superseded }
-                await connectManualHost(
+                let result = await connectManualHost(
                     name: name,
                     host: route.host,
                     port: route.port,
                     pairedMacDeviceID: pairedMacDeviceID,
                     instanceTagExpectation: instanceTagExpectation,
                     recordsPairingAttempt: recordsPairingAttempt,
+                    route: route.route,
+                    pendingMacSwitchAttemptID: pendingMacSwitchAttemptID,
                     ifStillCurrent: ifStillCurrent
                 )
-                if connectionState == .connected,
-                   remoteClient != nil,
-                   foregroundMacDeviceID == pairedMacDeviceID {
-                    break
-                }
+                // Only a plain failure moves on to the next candidate. A
+                // pending user approval owns this attempt's continuation:
+                // dialing the next candidate would rotate the pairing attempt,
+                // supersede the queued trust warning, and strand the approval.
+                guard result == .failed else { break }
             }
         }
 
@@ -759,7 +674,7 @@ extension MobileShellComposite {
         let candidateRoutes = Self.storedReconnectRoutes(
             instance.routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: routeSelection.prefersNonLoopbackRoutes
         )
         guard !candidateRoutes.isEmpty else {
             mobileShellLog.error(
@@ -802,6 +717,7 @@ extension MobileShellComposite {
         timeoutNanoseconds: UInt64? = nil
     ) async -> Bool {
         guard let client = remoteClient else { return false }
+        let generation = connectionGeneration
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "mobile.workspace.list",
@@ -812,7 +728,7 @@ extension MobileShellComposite {
                 timeoutNanoseconds: timeoutNanoseconds ?? runtime?.rpcRequestTimeoutNanoseconds
             )
             let response = try MobileSyncWorkspaceListResponse.decode(data)
-            guard remoteClient === client, connectionState == .connected else { return false }
+            guard isCurrentRemoteOperation(client: client, generation: generation) else { return false }
             applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
             syncSelectedTerminalForWorkspace()
             return true
@@ -821,7 +737,10 @@ extension MobileShellComposite {
                 "workspace list event refresh failed: \(String(describing: error), privacy: .private)"
             )
             if remoteClient === client {
-                _ = disconnectForAuthorizationFailureIfNeeded(error)
+                _ = handleAuthorizationFailureIfNeeded(
+                    error,
+                    owner: .foreground(client: client, generation: generation, route: activeRoute)
+                )
             }
             return false
         }

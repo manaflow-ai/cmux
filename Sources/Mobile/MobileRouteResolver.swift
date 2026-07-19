@@ -2,14 +2,6 @@ import CMUXMobileCore
 import Darwin
 import Foundation
 
-struct MobileHostRouteSnapshot: Sendable {
-    let routes: [CmxAttachRoute]
-
-    var payload: [[String: Any]] {
-        routes.mobileHostJSONObjects(for: .authenticated)
-    }
-}
-
 final class MobileRouteResolver: @unchecked Sendable {
     private static let tailscaleRouteCacheTTL: TimeInterval = 30
 
@@ -26,6 +18,7 @@ final class MobileRouteResolver: @unchecked Sendable {
 
     func routes(
         port: Int,
+        manualHost: String? = nil,
         now: Date = Date(),
         immediateHosts: () -> [String] = { MobileRouteResolver.tailscaleRouteHosts(resolveDNS: false) }
     ) -> MobileHostRouteSnapshot {
@@ -33,19 +26,19 @@ final class MobileRouteResolver: @unchecked Sendable {
         let cachedHosts = resolvedTailscaleRouteHostsFromCache(now: now) ?? []
         return routes(
             port: port,
-            tailscaleHosts: Self.deduplicatedHosts(cachedHosts + immediateHosts())
+            tailscaleHosts: Self.deduplicatedHosts(cachedHosts + immediateHosts()),
+            manualHost: manualHost
         )
     }
 
     func routesResolvingTailscaleDNS(
         port: Int,
-        resolveHosts: @escaping @Sendable () -> [String] = {
-            MobileRouteResolver.tailscaleRouteHosts(resolveDNS: true)
-        },
+        manualHost: String? = nil,
+        resolveHosts: @escaping @Sendable () -> [String] = { MobileRouteResolver.tailscaleRouteHosts(resolveDNS: true) },
         now: Date = Date()
     ) async -> MobileHostRouteSnapshot {
         let hosts = await resolvedTailscaleRouteHosts(resolveHosts: resolveHosts, now: now)
-        return routes(port: port, tailscaleHosts: hosts)
+        return routes(port: port, tailscaleHosts: hosts, manualHost: manualHost)
     }
 
     /// Drop the resolved-host cache and orphan any in-flight resolution.
@@ -66,7 +59,11 @@ final class MobileRouteResolver: @unchecked Sendable {
         cacheLock.unlock()
     }
 
-    func routes(port: Int, tailscaleHosts: [String]) -> MobileHostRouteSnapshot {
+    func routes(
+        port: Int,
+        tailscaleHosts: [String],
+        manualHost: String? = nil
+    ) -> MobileHostRouteSnapshot {
         var resolved: [CmxAttachRoute] = []
 
         if Self.includesDebugLoopbackRoute {
@@ -94,6 +91,23 @@ final class MobileRouteResolver: @unchecked Sendable {
                 priority: 10 + (index * 10)
             ) {
                 resolved.append(tailscaleRoute)
+            }
+        }
+
+        if let manualHost = manualHost.flatMap(CmxManualHost.init(routeHost:)),
+           manualHost.isAdvertisable {
+            // Continue the EMITTED tailscale sequence, not the discovered-host
+            // count: discovery can include hosts (like the MagicDNS name) that
+            // are filtered out above, and `CmxPairingQRCode.encodableRoutes`
+            // rejects any priority gap in the canonical 10, 20, ... sequence.
+            let manualPriority = 10 + (numericTailscaleHosts.count * 10)
+            if let manualRoute = try? CmxAttachRoute(
+                id: CmxAttachTransportKind.manualHost.rawValue,
+                kind: .manualHost,
+                endpoint: .hostPort(host: manualHost.rawValue, port: port),
+                priority: manualPriority
+            ) {
+                resolved.append(manualRoute)
             }
         }
 

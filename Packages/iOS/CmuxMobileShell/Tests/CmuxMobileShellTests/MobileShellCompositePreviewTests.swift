@@ -87,7 +87,9 @@ import Testing
             runtime: PairingDeadlineRuntime(),
             route: route,
             ticket: ticket,
-            allowsStackAuthFallback: true
+            allowsStackAuthFallback: true,
+            authScope: MobileRPCAuthScope(),
+            authScopeValidator: { true }
         )
 
         store.recoverMobileConnection(trigger: .networkChange)
@@ -551,7 +553,7 @@ import Testing
             port: CmxMobileDefaults.defaultHostPort
         )
 
-        let route = MobileShellComposite.firstReconnectHostPortRoute(
+        let route = MobileShellRouteSelection().firstReconnectHostPortRoute(
             [loopback, tailscale],
             supportedKinds: [.tailscale]
         )

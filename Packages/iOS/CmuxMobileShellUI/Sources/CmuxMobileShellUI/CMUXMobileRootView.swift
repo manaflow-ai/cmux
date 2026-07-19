@@ -14,7 +14,7 @@ import AppKit
 struct CMUXMobileRootView: View {
     @Bindable var store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(AuthCoordinator.self) private var authManager
+    @Environment(AuthCoordinator.self) var authManager
     @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
     private let signOutHook: MobileSignOutHook
     private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
@@ -32,7 +32,7 @@ struct CMUXMobileRootView: View {
     #endif
     @State private var pendingAttachURL: String?
     @State private var didAuthenticateWithAttachTicket = false
-    @State private var isShowingAddDeviceSheet = false
+    @State var isShowingAddDeviceSheet = false
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
@@ -136,6 +136,7 @@ struct CMUXMobileRootView: View {
             // workspace list's initial-connection status could never resolve
             // because nothing updates `didFinishStoredMacReconnectAttempt`.
             reconnectStoredMacIfNeeded()
+            showManualHostTrustWarningIfNeeded()
         }
         #if os(iOS)
         // A notification tap can arrive before the workspace (or terminal) it
@@ -155,8 +156,15 @@ struct CMUXMobileRootView: View {
             store.currentTeamDidChange()
         }
         .onChange(of: scenePhase) { _, phase in
-            guard phase == .active else { store.suspendForegroundRefresh(); return }
-            store.resumeForegroundRefresh()
+            switch MobileSceneRefreshAction(scenePhase: phase) {
+            case .none:
+                return
+            case .enterBackground:
+                store.suspendForegroundRefresh()
+                return
+            case .resumeForeground:
+                store.resumeForegroundRefresh()
+            }
             // The user may have toggled Tailscale while we were backgrounded.
             tailscaleStatusMonitor?.refresh()
             // Re-check the Stack session on resume so one that died while
@@ -176,7 +184,8 @@ struct CMUXMobileRootView: View {
                 return
             }
             Task {
-                await store.connectPairingURL(rawURL)
+                let result = await store.connectPairingURLResult(rawURL)
+                finishPairingPresentation(after: result)
             }
         }
         .onChange(of: isAuthenticated) { _, isAuthenticated in
@@ -185,10 +194,15 @@ struct CMUXMobileRootView: View {
                 startupConnectionCoordinator.reset()
                 return
             }
-            if consumePendingURLIfReady() {
-                return
+            if !consumePendingURLIfReady() {
+                showManualHostTrustWarningIfNeeded()
+                reconnectStoredMacIfNeeded()
             }
-            reconnectStoredMacIfNeeded()
+        }
+        .onChange(of: authManager.currentUser?.id) { _, _ in
+            // Stack Auth can replace one authenticated user with another without
+            // toggling `isAuthenticated`; resynchronize the shell on that edge.
+            syncShellAuthentication(isAuthenticated)
         }
         .onChange(of: authManager.isRestoringSession) { _, isRestoringSession in
             syncShellAuthentication(isAuthenticated, isRestoringSession: isRestoringSession)
@@ -196,6 +210,7 @@ struct CMUXMobileRootView: View {
             if consumePendingURLIfReady() {
                 return
             }
+            showManualHostTrustWarningIfNeeded()
             reconnectStoredMacIfNeeded()
         }
         .onChange(of: store.connectionState) { _, connectionState in
@@ -204,6 +219,9 @@ struct CMUXMobileRootView: View {
             } else {
                 clearAttachTicketAuthenticationIfNeeded()
             }
+        }
+        .onChange(of: store.manualHostTrustWarning) { _, warning in
+            showManualHostTrustWarningIfNeeded(warning)
         }
         .onChange(of: store.hasActiveUnexpiredAttachTicket) { _, hasActiveUnexpiredAttachTicket in
             if !hasActiveUnexpiredAttachTicket {
@@ -279,18 +297,16 @@ struct CMUXMobileRootView: View {
             connectionError: store.connectionError,
             connectionErrorGuidance: store.connectionErrorGuidance,
             versionWarning: store.pairingVersionWarning,
+            manualHostTrustWarning: store.manualHostTrustWarning,
             connectPairingCode: {
-                await store.connectPairingInput()
+                let result = await store.connectPairingInput()
+                finishPairingPresentation(after: result)
             },
-            acceptVersionWarning: {
-                let result = await store.acceptPairingVersionWarning()
-                clearAttachTicketAuthentication(after: result)
-                if result == .connected {
-                    dismissAddDeviceSheet()
-                }
-            },
+            acceptVersionWarning: acceptPairingVersionWarning,
+            acceptManualHostTrustWarning: acceptManualHostTrustWarning,
             connectManualHost: { name, host, port in
-                await store.connectManualHost(name: name, host: host, port: port)
+                let result = await store.connectManualHost(name: name, host: host, port: port)
+                finishPairingPresentation(after: result)
             },
             cancelPairing: cancelPairing,
             cancel: dismissAddDeviceSheet
@@ -319,7 +335,7 @@ struct CMUXMobileRootView: View {
 
     /// Whether the one-time first-run onboarding should be presented. Always
     /// `false` off iOS (onboarding is iOS-only).
-    private var shouldShowOnboarding: Bool {
+    var shouldShowOnboarding: Bool {
         #if os(iOS)
         return MobileOnboardingGate.shouldShowOnboarding(
             hasSeenOnboarding: hasSeenOnboarding
@@ -345,10 +361,10 @@ struct CMUXMobileRootView: View {
     private func completeOnboarding() {
         onboardingStore.markSeen()
         hasSeenOnboarding = true
+        showManualHostTrustWarningIfNeeded()
     }
     #endif
-
-    private var isAuthenticated: Bool {
+    var isAuthenticated: Bool {
         MobileRootAuthGate.isAuthenticated(
             stackAuthenticated: authManager.isAuthenticated,
             attachTicketAuthenticated: hasActiveAttachTicketAuthentication
@@ -404,7 +420,7 @@ struct CMUXMobileRootView: View {
         }
     }
 
-    private func showAddDevice() {
+    func showAddDevice() {
         #if os(iOS)
         addDeviceSheetDetent = .large
         #endif
@@ -420,10 +436,7 @@ struct CMUXMobileRootView: View {
         syncShellAuthentication(true)
         Task {
             let result = await store.connectPairingURLResult(rawURL)
-            if result == .needsUserApproval {
-                isShowingAddDeviceSheet = true
-            }
-            clearAttachTicketAuthentication(after: result)
+            finishPairingPresentation(after: result)
         }
     }
 
@@ -439,7 +452,8 @@ struct CMUXMobileRootView: View {
         guard isAuthenticated else { return false }
         pendingAttachURL = nil
         Task {
-            await store.connectPairingURL(rawURL)
+            let result = await store.connectPairingURLResult(rawURL)
+            finishPairingPresentation(after: result)
         }
         return true
     }
@@ -454,16 +468,16 @@ struct CMUXMobileRootView: View {
         clearAttachTicketAuthenticationIfNeeded()
     }
 
-    private func dismissAddDeviceSheet() {
+    func dismissAddDeviceSheet() {
         isShowingAddDeviceSheet = false
-        if store.pairingVersionWarning != nil {
+        if store.pairingVersionWarning != nil || store.manualHostTrustWarning != nil {
             cancelPairing()
         } else {
             clearAttachTicketAuthenticationIfNeeded()
         }
     }
 
-    private func clearAttachTicketAuthentication(after result: MobilePairingURLConnectionResult) {
+    func clearAttachTicketAuthentication(after result: MobilePairingURLConnectionResult) {
         guard MobileRootAuthGate.shouldClearAttachTicketAuthentication(
             pairingResult: result,
             connectionState: store.connectionState,
@@ -523,7 +537,8 @@ struct CMUXMobileRootView: View {
         }
         Task {
             await dogfoodAttachPreparation.run {
-                await store.connectPairingURL(attachURL)
+                let result = await store.connectPairingURLResult(attachURL)
+                finishPairingPresentation(after: result)
             }
             startupConnectionCoordinator.finishInjectedAttach(startupAttempt)
         }

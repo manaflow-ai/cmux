@@ -43,7 +43,7 @@ import Testing
                 ),
             ]
         )]
-        let accountScope = MobileShellScopeSnapshot(userID: "user-1", teamID: "team-a", generation: 0)
+        let accountScope = accountScope(for: store)
 
         store.applyPresenceUpdate(
             snapshot([
@@ -102,7 +102,7 @@ import Testing
             teamIDProvider: { "team-a" }
         )
         await store.loadPairedMacs()
-        let accountScope = MobileShellScopeSnapshot(userID: "user-1", teamID: "team-a", generation: 0)
+        let accountScope = accountScope(for: store)
 
         store.applyPresenceUpdate(
             snapshot([
@@ -132,6 +132,17 @@ import Testing
         let original = try route(id: "original", host: "100.64.0.1", port: 50_000)
         let defaultRoute = try route(id: "stable", host: "100.64.0.2", port: 51_001)
         let routeB = try route(id: "b", host: "100.64.0.3", port: 51_002)
+        let transportFactory = RouteRecordingTransportFactory(
+            router: LivenessHostRouter(),
+            box: TransportBox(),
+            failingPorts: [51_001]
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: transportFactory,
+            now: { Date() },
+            supportedRouteKinds: [.tailscale],
+            supportsServerPushEvents: false
+        )
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: ["team-a": [pairedMac(
                 routes: [original],
@@ -141,6 +152,7 @@ import Testing
             blockedTeams: []
         )
         let store = MobileShellComposite(
+            runtime: runtime,
             isSignedIn: true,
             pairedMacStore: pairedStore,
             buildCompatibilityPolicy: .official,
@@ -167,7 +179,7 @@ import Testing
                 ),
             ]
         )]
-        let accountScope = MobileShellScopeSnapshot(userID: "user-1", teamID: "team-a", generation: 0)
+        let accountScope = accountScope(for: store)
 
         store.applyPresenceUpdate(
             snapshot([
@@ -181,10 +193,8 @@ import Testing
         #expect(try await storedInstanceTag(in: pairedStore) == "default")
         #expect(await pairedStore.currentUpsertCount() == 1)
         #expect(try await storedRoutes(in: pairedStore) == [defaultRoute])
-        let recoveryRan = try await pollUntil(attempts: 50) {
-            store.isRecoveringConnection || store.connectionRecoveryFailed
-        }
-        #expect(recoveryRan)
+        await store.connectionRecoveryOwner.task?.value
+        #expect(store.connectionRecoveryFailed)
     }
 
     @Test func explicitEmptyRoutesClearRegistryWithoutErasingPersistedRoutes() async throws {
@@ -212,7 +222,7 @@ import Testing
                 lastSeenAt: Date(timeIntervalSince1970: 1)
             )]
         )]
-        let accountScope = MobileShellScopeSnapshot(userID: "user-1", teamID: "team-a", generation: 0)
+        let accountScope = accountScope(for: store)
 
         store.applyPresenceUpdate(
             .routes(instance(deviceId: "registry-only-mac", tag: "feature-a", routes: [])),
@@ -241,7 +251,7 @@ import Testing
             reachability: AlwaysOnlineReachability()
         )
         await store.loadPairedMacs()
-        let accountScope = MobileShellScopeSnapshot(userID: "user-1", teamID: "team-a", generation: 0)
+        let accountScope = accountScope(for: store)
 
         store.applyPresenceUpdate(
             snapshot([
@@ -278,7 +288,7 @@ import Testing
             teamIDProvider: { "team-a" }
         )
         await store.loadPairedMacs()
-        let scope = MobileShellScopeSnapshot(userID: "user-1", teamID: "team-a", generation: 0)
+        let scope = accountScope(for: store)
 
         store.applyPresenceUpdate(.snapshot(PresenceSnapshot(
             teamId: "team-a",
@@ -334,9 +344,7 @@ import Testing
         let pairedDevice = presenceDevice(id: "paired-mac", instances: [
             instance(deviceId: "paired-mac", tag: "feature-a", routes: [updated]),
         ])
-        let scope = MobileShellScopeSnapshot(
-            userID: "user-1", teamID: "team-a", generation: 0
-        )
+        let scope = accountScope(for: store)
 
         store.applyPresenceUpdate(.snapshot(PresenceSnapshot(
             teamId: "team-a",
@@ -383,9 +391,7 @@ import Testing
         )
         let upsertsBeforePresence = await pairedStore.currentUpsertCount()
         await pairedStore.resetLoadAllCount()
-        let scope = MobileShellScopeSnapshot(
-            userID: "user-1", teamID: "team-a", generation: 0
-        )
+        let scope = accountScope(for: store)
 
         store.applyPresenceUpdate(.snapshot(PresenceSnapshot(
             teamId: "team-a",
@@ -470,6 +476,16 @@ import Testing
             online: true,
             lastSeenAt: 1_000,
             instances: instances
+        )
+    }
+
+    private func accountScope(for store: MobileShellComposite) -> MobileShellScopeSnapshot {
+        MobileShellScopeSnapshot(
+            userID: "user-1",
+            teamID: "team-a",
+            generation: 0,
+            signInGeneration: store.currentSessionGeneration,
+            rpcAuthContext: store.currentRPCAuthContext()
         )
     }
 

@@ -5,9 +5,8 @@ import Foundation
 import Testing
 @testable import CmuxMobileShell
 
-// Shared fixtures for the render-grid liveness watchdog tests
-// (MobileShellRenderGridLivenessTests.swift): injected clock, scripted
-// host router, transport mocks, and the connected-store builder.
+// Shared fixtures for MobileShellRenderGridLivenessTests.swift: injected clock,
+// scripted host router, transport mocks, and the connected-store builder.
 
 // MARK: - Scripted host (router + transport)
 
@@ -47,10 +46,9 @@ actor LivenessHostRouter {
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
-    // This router models the current authenticated Mac host by default. Tests
-    // for legacy identity omission opt out explicitly via `setHostIdentity`.
-    // Supplying the matching instance identity also keeps unrelated liveness
-    // tests from exercising the one-shot legacy identity recovery request.
+    // This router models the current authenticated Mac host by default. Legacy
+    // identity tests opt out via `setHostIdentity`; matching instance identity
+    // avoids the one-shot legacy recovery request in unrelated liveness tests.
     private var macDeviceID: String? = "test-mac"
     private var macInstanceTag: String? = "default"
     private var macDisplayName: String? = "Test Mac"
@@ -647,6 +645,8 @@ func installFreshLivenessRemoteClient(
         runtime: runtime,
         route: route,
         ticket: ticket,
-        allowsStackAuthFallback: true
+        allowsStackAuthFallback: true,
+        authScope: MobileRPCAuthScope(),
+        authScopeValidator: { true }
     )
 }

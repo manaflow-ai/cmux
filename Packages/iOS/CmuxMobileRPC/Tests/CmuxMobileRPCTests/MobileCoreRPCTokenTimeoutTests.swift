@@ -26,7 +26,7 @@ import Testing
             expiresAt: Date().addingTimeInterval(60),
             authToken: "ticket-secret"
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: ticket,
@@ -74,7 +74,7 @@ import Testing
             expiresAt: Date().addingTimeInterval(60),
             authToken: "ticket-secret"
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: ticket,
@@ -128,7 +128,8 @@ import Testing
             authToken: "ticket-secret"
         )
         let sharedGate = RPCStackTokenGate(timedOutResetNanoseconds: 30_000_000_000)
-        let firstClient = MobileCoreRPCClient(
+        let sharedScope = MobileRPCAuthScope()
+        let firstClient = MobileCoreRPCClient.testClient(
             runtime: TestMobileSyncRuntime(
                 transportFactory: QueuedCancellationProbeTransportFactory(transport: firstTransport),
                 stackAccessTokenProvider: { try await tokenProvider.token() },
@@ -137,9 +138,10 @@ import Testing
             route: route,
             ticket: ticket,
             allowsStackAuthFallback: true,
+            authScope: sharedScope,
             stackTokenGate: sharedGate
         )
-        let secondClient = MobileCoreRPCClient(
+        let secondClient = MobileCoreRPCClient.testClient(
             runtime: TestMobileSyncRuntime(
                 transportFactory: QueuedCancellationProbeTransportFactory(transport: secondTransport),
                 stackAccessTokenProvider: { try await tokenProvider.token() },
@@ -148,6 +150,7 @@ import Testing
             route: route,
             ticket: ticket,
             allowsStackAuthFallback: true,
+            authScope: sharedScope,
             stackTokenGate: sharedGate
         )
         let request = try MobileCoreRPCClient.requestData(
@@ -246,7 +249,7 @@ import Testing
             expiresAt: Date().addingTimeInterval(60),
             authToken: "ticket-secret"
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: ticket,
@@ -325,7 +328,7 @@ import Testing
             expiresAt: Date().addingTimeInterval(60),
             authToken: "ticket-secret"
         )
-        let client = MobileCoreRPCClient(
+        let client = MobileCoreRPCClient.testClient(
             runtime: runtime,
             route: route,
             ticket: ticket,

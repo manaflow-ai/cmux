@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Testing
 @testable import CmuxMobileTransport
 
@@ -28,6 +29,32 @@ import Testing
     secondTask.cancel()
     _ = await firstTask.value
     _ = await secondTask.value
+}
+
+@Test func reachabilityServiceEmitsForASecondPathOnTheSameInterface() async {
+    let service = ReachabilityService()
+    let (stream, continuation) = AsyncStream<Void>.makeStream()
+    _ = await service.register(continuation)
+    defer { continuation.finish() }
+
+    await service.apply(online: true)
+    await service.apply(online: true)
+
+    let emitted = await withTaskGroup(of: Bool.self) { group in
+        group.addTask {
+            var iterator = stream.makeAsyncIterator()
+            return await iterator.next() != nil
+        }
+        group.addTask {
+            // Assertion deadline only; stream delivery is signaled by `apply`.
+            try? await Task.sleep(for: .milliseconds(100))
+            return false
+        }
+        let first = await group.next() ?? false
+        group.cancelAll()
+        return first
+    }
+    #expect(emitted)
 }
 
 @Test func transitionalNetworkReachabilityShimMirrorsAServiceOnMainActor() async {

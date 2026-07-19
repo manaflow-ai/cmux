@@ -341,8 +341,8 @@ struct MobilePairingView: View {
     private func readyContent(_ ready: MobilePairingModel.Ready) -> some View {
         // Manual entry sits above the QR so Copy IP / Copy Port are reachable
         // without scrolling (they used to sit below the steps, below the fold).
-        if ready.reachableViaTailscale {
-            manualFallback(ready)
+        if ready.manualEntry != nil {
+            trustedManualFallback(ready)
         }
 
         VStack(alignment: .center, spacing: 14) {
@@ -391,6 +391,37 @@ struct MobilePairingView: View {
     }
 
     @ViewBuilder
+    private func trustedManualFallback(_ ready: MobilePairingModel.Ready) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(String(localized: "mobile.pairing.manual.title", defaultValue: "Can't scan? Add this Mac manually:"))
+                .cmuxFont(.caption, weight: .semibold)
+                .foregroundStyle(.secondary)
+            ForEach(ready.routeLines, id: \.self) { line in
+                Text(line)
+                    .cmuxFont(.caption, design: .monospaced)
+                    .textSelection(.enabled)
+                    .foregroundStyle(.secondary)
+            }
+            if let entry = ready.manualEntry {
+                HStack(spacing: 8) {
+                    copyButton(
+                        label: String(localized: "mobile.pairing.manual.copyIP", defaultValue: "Copy IP"),
+                        value: entry.hostFieldValue
+                    )
+                    copyButton(
+                        label: String(localized: "mobile.pairing.manual.copyPort", defaultValue: "Copy Port"),
+                        value: String(entry.port)
+                    )
+                }
+                .padding(.top, 2)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    @ViewBuilder
     private func pairingCodeModeControls(_ ready: MobilePairingModel.Ready) -> some View {
         if let _ = ready.legacyAttachURL {
             Text(
@@ -427,6 +458,14 @@ struct MobilePairingView: View {
             Text(String(
                 localized: "mobile.pairing.codeMode.irohDetail",
                 defaultValue: "Iroh code: encrypted end to end, with direct and relay paths selected automatically."
+            ))
+            .cmuxFont(.caption)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+        } else if ready.primaryTransport == .manualHostCompatibility {
+            Text(String(
+                localized: "mobile.pairing.req.manualHost.reachable",
+                defaultValue: "Manual host configured. Your iPhone will ask before trusting this route."
             ))
             .cmuxFont(.caption)
             .foregroundStyle(.secondary)

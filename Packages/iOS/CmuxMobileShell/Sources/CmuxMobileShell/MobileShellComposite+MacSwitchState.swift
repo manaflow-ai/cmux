@@ -28,6 +28,18 @@ extension MobileShellComposite {
         )
     }
 
+    /// Whether the live foreground connection has the stored target's device and instance authority.
+    func foregroundConnectionMatches(_ mac: MobilePairedMac) -> Bool {
+        guard connectionState == .connected,
+              remoteClient != nil,
+              foregroundMacDeviceID == mac.macDeviceID else { return false }
+        guard mac.instanceTag != nil else { return true }
+        return MobileMacInstanceTagAuthority.sameStoredAuthority(
+            mac.instanceTag,
+            activeMacInstanceTag
+        )
+    }
+
     /// Resolves the live foreground Mac that a failed destructive switch should restore.
     func previousForegroundMacForSwitchRestore(
         previousForegroundMacDeviceID: String?,
@@ -51,7 +63,7 @@ extension MobileShellComposite {
         let aliasSetsByMacID = macDeviceIDAliasSetsByPairedMacID(
             in: candidates,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            routeSelection: routeSelection
         )
         return candidates.first { candidate in
             guard candidate.macDeviceID != macDeviceID else { return false }

@@ -10,6 +10,7 @@ public enum DiagnosticTransportKind: Int, Sendable, Codable, CaseIterable {
     case tailscale = 2
     case websocket = 3
     case debugLoopback = 4
+    case manualHost = 5
 
     /// Maps a pairing-route transport without preserving its address or other
     /// route metadata.
@@ -23,6 +24,8 @@ public enum DiagnosticTransportKind: Int, Sendable, Codable, CaseIterable {
             self = .websocket
         case .debugLoopback:
             self = .debugLoopback
+        case .manualHost:
+            self = .manualHost
         }
     }
 }

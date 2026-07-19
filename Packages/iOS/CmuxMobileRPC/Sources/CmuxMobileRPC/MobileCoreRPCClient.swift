@@ -17,6 +17,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     /// The attach ticket this client uses to authorize RPC requests.
     public var attachTicket: CmxAttachTicket { ticket }
     private let allowsStackAuthFallback: Bool
+    private let manualHostStackAuthTrustProvider: @Sendable () async -> Bool
+    private let authScope: MobileRPCAuthScope
+    private let authScopeValidator: @Sendable () async -> Bool
     // `internal` (not `private`) so `@testable import` can observe session
     // queue state from tests, instead of exposing a debug hook in production.
     let session: MobileCoreRPCSession
@@ -31,6 +34,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///   - ticket: The attach ticket authorizing requests.
     ///   - allowsStackAuthFallback: When `true`, falls back to a Stack Auth token
     ///     on routes that allow it once the attach ticket no longer covers a request.
+    ///   - manualHostStackAuthTrustProvider: Revalidates whether this client's
+    ///     exact `.manualHost` route may carry Stack auth. The provider is called
+    ///     for every token-bearing request so approval expiry or revocation takes
+    ///     effect without replacing the client.
+    ///   - authScope: Immutable signed-in authorization epoch for token-task isolation.
+    ///   - authScopeValidator: Revalidates that `authScope` still owns the live session.
     ///   - transportConnectObserver: Optional synchronous sink for privacy-safe
     ///     transport dial lifecycle events. The observer must return immediately.
     public init(
@@ -38,6 +47,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         route: CmxAttachRoute,
         ticket: CmxAttachTicket,
         allowsStackAuthFallback: Bool = false,
+        manualHostStackAuthTrustProvider: @escaping @Sendable () async -> Bool = { false },
+        authScope: MobileRPCAuthScope,
+        authScopeValidator: @escaping @Sendable () async -> Bool,
         connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
         stackTokenGate: RPCStackTokenGate? = nil,
         stackTokenForceRefreshGate: RPCStackTokenGate? = nil,
@@ -56,6 +68,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         )
         self.transportRequest = transportRequest
         self.allowsStackAuthFallback = allowsStackAuthFallback
+        self.manualHostStackAuthTrustProvider = manualHostStackAuthTrustProvider
+        self.authScope = authScope
+        self.authScopeValidator = authScopeValidator
         let lifecycleGate = MobileRPCClientLifecycleGate()
         self.lifecycleGate = lifecycleGate
         self.stackTokenGate = stackTokenGate
@@ -262,11 +277,21 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     /// not trip the re-auth prompt; a definitive failure surfaces as
     /// `.authorizationFailed` to drive re-auth.
     private func forceRefreshStackTokenForRetry(deadline: RPCRequestDeadline) async throws {
+        try await validateAuthScope()
+        guard allowsStackAuthFallback,
+              await routeAllowsStackAuth() else {
+            throw MobileShellConnectionError.insecureManualRoute
+        }
         do {
             _ = try await stackTokenForceRefreshGate.token(
+                scope: authScope,
                 timeoutNanoseconds: try deadline.remainingNanoseconds()
             ) { [runtime] in
                 try await runtime.stackAccessTokenForceRefresher()
+            }
+            try await validateAuthScope()
+            guard await routeAllowsStackAuth() else {
+                throw MobileShellConnectionError.insecureManualRoute
             }
         } catch let error as MobileShellConnectionError {
             throw error
@@ -303,10 +328,25 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             hostStatusStackToken: hostStatusStackToken
         )
         try Task.checkCancellation()
+        let preEnqueueValidator: MobileCoreRPCSession.PreEnqueueValidator?
+        let sendAuthorizer: MobileCoreRPCSession.SendAuthorizer?
+        if authenticated.stackAccessToken != nil {
+            preEnqueueValidator = { @Sendable [self] in
+                try await validateTokenBearingRequestBeforeEnqueue()
+            }
+            sendAuthorizer = { @Sendable [self] in
+                try await authorizeTokenBearingSend()
+            }
+        } else {
+            preEnqueueValidator = nil
+            sendAuthorizer = nil
+        }
         let response = try await session.send(
             payload: authenticated.data,
             requestID: id,
-            deadlineUptimeNanoseconds: deadline.uptimeNanoseconds
+            deadlineUptimeNanoseconds: deadline.uptimeNanoseconds,
+            preEnqueueValidator: preEnqueueValidator,
+            sendAuthorizer: sendAuthorizer
         )
         return AuthenticatedRequestResult(
             response: response,
@@ -362,7 +402,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // expiry), so they never reach this branch.
             if !ticket.isExpired(at: runtime.now()) {
                 auth["attach_token"] = attachToken
-            } else if !allowsStackAuthFallback || !MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
+            } else if !allowsStackAuthFallback {
+                throw MobileShellConnectionError.attachTicketExpired
+            } else if !(await routeAllowsStackAuth()) {
                 throw MobileShellConnectionError.attachTicketExpired
             }
         }
@@ -376,12 +418,19 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         // supplementary route/workspace context.
         let shouldSendStackAuth = requestNeedsAuth
         if shouldSendStackAuth {
+            try await validateAuthScope()
             guard allowsStackAuthFallback,
-                  MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
+                  await routeAllowsStackAuth() else {
                 throw MobileShellConnectionError.insecureManualRoute
             }
             do {
                 let token = try await stackAccessToken(deadline: deadline)
+                // Re-validate after the token await: the auth scope or the
+                // manual-host trust can be revoked while the fetch is in flight.
+                try await validateAuthScope()
+                guard await routeAllowsStackAuth() else {
+                    throw MobileShellConnectionError.insecureManualRoute
+                }
                 auth["stack_access_token"] = token
                 requestStackAccessToken = token
             } catch let error as MobileShellConnectionError {
@@ -407,15 +456,24 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
         if !requestNeedsAuth,
            isHostStatusRequest(request),
-           allowsStackAuthFallback,
-           MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
-            let stackAccessToken: String?
+           allowsStackAuthFallback {
+            try await validateAuthScope()
+            let hostStatusToken: String?
             if let hostStatusStackToken {
-                stackAccessToken = hostStatusStackToken
+                hostStatusToken = hostStatusStackToken
+            } else if await routeAllowsStackAuth() {
+                hostStatusToken = try await stackAccessTokenForStatus(deadline: deadline)
             } else {
-                stackAccessToken = try await stackAccessTokenForStatus(deadline: deadline)
+                hostStatusToken = nil
             }
-            if let stackAccessToken {
+            if let stackAccessToken = hostStatusToken {
+                // Re-validate after the token await: the auth scope or the
+                // manual-host trust can be revoked while the fetch is in flight.
+                try await validateAuthScope()
+                guard await routeAllowsStackAuth() else {
+                    throw MobileShellConnectionError.insecureManualRoute
+                }
+                requestStackAccessToken = stackAccessToken
                 auth["stack_access_token"] = stackAccessToken
             }
         }
@@ -425,6 +483,17 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         return AuthenticatedRequestPayload(
             data: try JSONSerialization.data(withJSONObject: request),
             stackAccessToken: requestStackAccessToken
+        )
+    }
+
+    private func routeAllowsStackAuth() async -> Bool {
+        let policy = MobileShellRouteAuthPolicy()
+        guard policy.routeRequiresManualHostTrust(route) else {
+            return policy.routeAllowsStackAuth(route)
+        }
+        return policy.routeAllowsStackAuth(
+            route,
+            manualHostTrusted: await manualHostStackAuthTrustProvider()
         )
     }
 
@@ -444,94 +513,32 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     }
 
     private func stackAccessToken(deadline: RPCRequestDeadline) async throws -> String {
-        try await stackTokenGate.token(timeoutNanoseconds: try deadline.remainingNanoseconds()) { [runtime] in
+        try await stackTokenGate.token(
+            scope: authScope,
+            timeoutNanoseconds: try deadline.remainingNanoseconds()
+        ) { [runtime] in
             try await runtime.stackAccessTokenProvider()
         }
     }
 
-    private static func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {
-        guard requestRequiresAuth(request) else {
-            return false
-        }
-        let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let params = request["params"] as? [String: Any] ?? [:]
-        let workspaceSelection = stringParamSelection(params, keys: ["workspace_id"])
-        let terminalSelection = stringParamSelection(params, keys: ["surface_id", "terminal_id", "tab_id"])
-        let ticketCoverage = MobileCoreRPCAttachTicketCoverage()
-        if workspaceSelection.hasConflict ||
-            terminalSelection.hasConflict ||
-            ticketCoverage.containsIgnoredAliasParameters(params) {
-            return true
-        }
-
-        switch method {
-        case "mobile.workspace.list", "workspace.list":
-            return false
-        case "workspace.create":
-            return false
-        case "workspace.action", "workspace.close":
-            return !ticketCoverage.ticketCoversWorkspaceRequest(
-                ticket: ticket,
-                workspaceSelection: workspaceSelection.value
-            )
-        case "workspace.move", "workspace.group.action", "workspace.group.create":
-            // These mutations are Mac-scoped. Always preserve the attach-ticket
-            // context when one exists so the host can reject workspace-scoped
-            // tickets instead of receiving a Stack-only request.
-            return false
-        case "mobile.terminal.create", "terminal.create":
-            return false
-        case "mobile.terminal.input", "terminal.input",
-             "mobile.terminal.paste", "terminal.paste",
-             "mobile.terminal.paste_image", "terminal.paste_image",
-             "mobile.terminal.replay", "terminal.replay",
-             "mobile.terminal.viewport", "terminal.viewport",
-             "mobile.terminal.artifact.scan",
-             "mobile.terminal.artifact.stat",
-             "mobile.terminal.artifact.fetch",
-             "mobile.terminal.artifact.thumbnail":
-            return !ticketCoverage.ticketCoversTerminalRequest(
-                ticket: ticket,
-                workspaceSelection: workspaceSelection.value,
-                terminalSelection: terminalSelection.value
-            )
-        case "mobile.events.subscribe", "mobile.events.unsubscribe":
-            return false
-        default:
-            return true
-        }
+    private func validateAuthScope() async throws {
+        guard await authScopeValidator() else { throw CancellationError() }
     }
 
-    private static func requestRequiresAuth(_ request: [String: Any]) -> Bool {
-        let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Only the unauthenticated host probe is exempt. attach_ticket.create has no
-        // attach token yet (it mints the ticket), so requiring auth routes it through
-        // the Stack Auth account token: a ticket can only be created by a signed-in user.
-        return method != "mobile.host.status"
-    }
-
-    private static func stringParamSelection(
-        _ params: [String: Any],
-        keys: [String]
-    ) -> StringParamSelection {
-        var selected: String?
-        for key in keys {
-            if let value = params[key] as? String {
-                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    if let selected, selected != trimmed {
-                        return StringParamSelection(value: selected, hasConflict: true)
-                    }
-                    selected = selected ?? trimmed
-                }
-            }
+    private func validateTokenBearingRequestBeforeEnqueue() async throws {
+        try await validateAuthScope()
+        guard await routeAllowsStackAuth() else {
+            throw MobileShellConnectionError.insecureManualRoute
         }
-        return StringParamSelection(value: selected, hasConflict: false)
+        try await validateAuthScope()
     }
 
-    private struct StringParamSelection {
-        let value: String?
-        let hasConflict: Bool
+    private func authorizeTokenBearingSend() async throws -> MobileRPCSendLease {
+        try await validateTokenBearingRequestBeforeEnqueue()
+        guard let lease = authScope.beginSend() else {
+            throw CancellationError()
+        }
+        return lease
     }
 
     private struct AuthenticatedRequestPayload {

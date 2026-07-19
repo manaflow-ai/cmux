@@ -17,6 +17,7 @@ struct MobilePairingConnectionTransitionTests {
             legacyAttachURL: "cmux-ios://attach?v=2&r=100.64.0.1:7777",
             primaryTransport: .iroh,
             macName: "Test Mac",
+            routeLines: ["100.64.0.1:7777"],
             tailscaleLines: ["100.64.0.1:7777"],
             manualEntry: CmxManualPairingEntry(host: "100.64.0.1", port: 7777)
         )
@@ -115,6 +116,12 @@ struct MobilePairingConnectionTransitionTests {
             baselineConnectionCount: 0
         )
         #expect(next == .signedOut)
+    }
+
+    @Test("Route display lines bracket IPv6 hosts")
+    func routeDisplayLinesBracketIPv6Hosts() {
+        #expect(MobilePairingModel.endpointLine(host: "fd00::12", port: 58465) == "[fd00::12]:58465")
+        #expect(MobilePairingModel.endpointLine(host: "100.64.0.1", port: 7777) == "100.64.0.1:7777")
     }
 
     @Test("Iroh is the default and Tailscale remains a compatibility code")

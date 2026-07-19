@@ -175,13 +175,11 @@ extension MobileShellComposite {
 
     /// The first reachable host/port route to a Mac, in priority order.
     ///
-    /// When `preferNonLoopback` is set (physical devices), a real route
-    /// (`.tailscale` etc.) is always chosen over a `.debugLoopback` route even
-    /// if the loopback route has a lower (more-preferred) priority, because a
-    /// loopback route can never reach a remote Mac from a physical phone. A
-    /// loopback route is used only when it is the sole supported route — the
-    /// on-device XCUITest mock host, which serves a real listener on `127.0.0.1`
-    /// inside the test runner.
+    /// When `preferNonLoopback` is set (physical devices), `.debugLoopback`
+    /// routes are excluded entirely — even as the sole route — because on a
+    /// phone `127.0.0.1` names the phone itself and can never reach the Mac.
+    /// Mock/simulator harnesses pass `false` to retain their in-process
+    /// loopback host.
     static func firstReconnectHostPortRoute(
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
@@ -196,6 +194,8 @@ extension MobileShellComposite {
 
     /// Resume foreground-only refresh loops after the app becomes active.
     public func resumeForegroundRefresh() {
+        let queuedManualHostReapproval = lastBackgroundedAt != nil
+            && invalidateManualHostTrustForNetworkBoundary()
         startObservingNetworkPathChanges()
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
         // restarts a subscription torn down while backgrounded.
@@ -207,7 +207,8 @@ extension MobileShellComposite {
         // transport before the probe decides to replace it, creating two owners
         // for one foreground transition. Preview/legacy clients have no stored
         // route to redial, so retain their same-client resubscribe fallback.
-        if shouldResync, pairedMacStore == nil {
+        // A queued manual-host reapproval owns the teardown instead.
+        if shouldResync, pairedMacStore == nil, !queuedManualHostReapproval {
             resyncTerminalOutput(reason: "foreground", restartEventStream: true)
         }
         recoverForegroundConnectionIfNeeded(resyncAfterHealthy: shouldResync)
@@ -220,7 +221,8 @@ extension MobileShellComposite {
         }
     }
 
-    /// Record that the app left the active scene phase.
+    /// Record that the app entered the background. Temporary `.inactive`
+    /// interruptions do not call this and therefore do not revoke trust.
     public func suspendForegroundRefresh() {
         guard lastBackgroundedAt == nil else { return }
         lastBackgroundedAt = runtime?.now() ?? Date()
@@ -311,7 +313,7 @@ extension MobileShellComposite {
         let localRoutes = Self.storedReconnectRoutes(
             currentMac.routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: routeSelection.prefersNonLoopbackRoutes
         )
         let requiresIroh = localRoutes.contains { $0.kind == .iroh }
             || mac.routes.contains { $0.kind == .iroh }
@@ -323,7 +325,7 @@ extension MobileShellComposite {
             let reconnectRoutes = Self.storedReconnectRoutes(
                 currentMac.routes,
                 supportedKinds: supportedKinds,
-                preferNonLoopback: Self.prefersNonLoopbackRoutes
+                preferNonLoopback: routeSelection.prefersNonLoopbackRoutes
             )
             if !reconnectRoutes.isEmpty,
                reconnectRoutes.contains(where: {
@@ -350,7 +352,7 @@ extension MobileShellComposite {
         let reconnectRoutes = Self.storedReconnectRoutes(
             updatedRoutes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: routeSelection.prefersNonLoopbackRoutes
         )
         // Once this pairing has used Iroh, a cloud refresh that omits Iroh is
         // stale or downgraded input. Keep the local Iroh capability pin instead
@@ -395,6 +397,14 @@ extension MobileShellComposite {
         didFinishStoredMacReconnectAttempt = true
     }
 
+    func clearSavedMacHintAfterDeletingLastVisibleMacIfNeeded() {
+        guard pairedMacs.isEmpty else { return }
+        storedMacReconnectGeneration &+= 1
+        hasKnownPairedMac = false
+        isReconnectingStoredMac = false
+        didFinishStoredMacReconnectAttempt = false
+    }
+
     /// Returns the completed result when an async stored reconnect must stop.
     /// A newer generation owns the work (`false`); an already-live foreground
     /// client satisfies the request without another dial (`true`).
@@ -419,48 +429,18 @@ extension MobileShellComposite {
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool = false
-    ) -> [(host: String, port: Int, routeID: String)] {
-        let supportedKinds = Set(supportedKinds)
-        let hasSupportedIrohRoute = routes.contains { route in
-            route.kind == .iroh
-                && (supportedKinds.isEmpty || supportedKinds.contains(.iroh))
-        }
-        guard !hasSupportedIrohRoute else {
-            return []
-        }
-        let ordered = routes.sorted(by: Self.routeSortsBefore)
-        var seenEndpoints = Set<String>()
-
-        func appendCandidates(
-            where predicate: (CmxAttachRoute) -> Bool,
-            to candidates: inout [(host: String, port: Int, routeID: String)]
-        ) {
-            for route in ordered {
-                if !supportedKinds.isEmpty, !supportedKinds.contains(route.kind) {
-                    continue
-                }
-                guard predicate(route),
-                      case let .hostPort(host, port) = route.endpoint else {
-                    continue
-                }
-                let endpointKey = "\(host)\u{1F}\(port)"
-                guard seenEndpoints.insert(endpointKey).inserted else { continue }
-                candidates.append((host: host, port: port, routeID: route.id))
-            }
-        }
-
-        var candidates: [(host: String, port: Int, routeID: String)] = []
-        if preferNonLoopback {
-            appendCandidates(where: { route in
-                guard route.kind != .debugLoopback,
-                      case let .hostPort(host, _) = route.endpoint else { return false }
-                return Self.isIPLiteralHost(host)
-            }, to: &candidates)
-            appendCandidates(where: { $0.kind != .debugLoopback }, to: &candidates)
-            return candidates
-        }
-        appendCandidates(where: { _ in true }, to: &candidates)
-        return candidates
+    ) -> [MobileShellReconnectRouteCandidate] {
+        let pinnedRoutes = storedReconnectRoutes(
+            routes,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: preferNonLoopback
+        )
+        guard !pinnedRoutes.contains(where: { $0.kind == .iroh }) else { return [] }
+        return MobileShellRouteSelection().reconnectHostPortRoutes(
+            pinnedRoutes,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: preferNonLoopback
+        )
     }
 
     /// Merges a constrained reconnect ticket with the previously persisted route set.

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CMUXMobileCore
 
-/// Coverage for the minimal v2 pairing-QR grammar: bare Tailscale
+/// Coverage for the minimal pairing-QR grammar: bare Tailscale/manual-host
 /// `host:port` routes in the URL query, nothing else.
 @Suite struct CmxPairingQRCodeTests {
     private func tailscaleRoute(
@@ -13,6 +13,19 @@ import Testing
         try CmxAttachRoute(
             id: index == 0 ? "tailscale" : "tailscale_\(index + 1)",
             kind: .tailscale,
+            endpoint: .hostPort(host: host, port: port),
+            priority: 10 + index * 10
+        )
+    }
+
+    private func manualHostRoute(
+        index: Int,
+        host: String,
+        port: Int = 58465
+    ) throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: index == 0 ? "manual_host" : "manual_host_\(index + 1)",
+            kind: .manualHost,
             endpoint: .hostPort(host: host, port: port),
             priority: 10 + index * 10
         )
@@ -89,6 +102,38 @@ import Testing
         #expect(decoded.routes.map(\.priority) == [10, 20])
     }
 
+    @Test func roundTripsManualHostRouteExplicitly() throws {
+        let route = try manualHostRoute(index: 0, host: "studio-mac.corp.example")
+        let ticket = try pairingTicket(routes: [route])
+
+        let url = try #require(CmxPairingQRCode().encode(ticket))
+        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=3&m=studio-mac.corp.example:58465")
+
+        let decoded = try CmxPairingQRCode().decode(try components(url))
+        #expect(decoded.routes == [route])
+        #expect(decoded.routes.first?.kind == .manualHost)
+    }
+
+    @Test func roundTripsTailscaleAndManualHostRoutesInOrder() throws {
+        let routes = [
+            try tailscaleRoute(index: 0, host: "100.64.0.5"),
+            try CmxAttachRoute(
+                id: "manual_host",
+                kind: .manualHost,
+                endpoint: .hostPort(host: "192.168.4.12", port: 58465),
+                priority: 20
+            ),
+        ]
+        let ticket = try pairingTicket(routes: routes)
+
+        let url = try #require(CmxPairingQRCode().encode(ticket))
+        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=3&r=100.64.0.5:58465&m=192.168.4.12:58465")
+
+        let decoded = try CmxPairingQRCode().decode(try components(url))
+        #expect(decoded.routes == routes)
+        #expect(decoded.routes.map(\.kind) == [.tailscale, .manualHost])
+    }
+
     @Test func roundTripsUserIDAndBuildMetadataWithoutExposingEmail() throws {
         let ticket = try CmxAttachTicket(
             workspaceID: "",
@@ -135,7 +180,7 @@ import Testing
 
     @Test func encodeDropsDevLoopbackRouteFromDebugMacTicket() throws {
         // A DEBUG Mac's pairing ticket always carries the dev loopback route.
-        // The QR must encode only the Tailscale routes: a scanned code
+        // The QR must encode only the Tailscale/manual-host routes: a scanned code
         // pointing at 127.0.0.1 makes the phone dial itself (and dialing it
         // first added the whole request timeout to scan-to-pair latency).
         let loopback = try CmxAttachRoute(
@@ -205,6 +250,15 @@ import Testing
         ])
         #expect(encodeLegacy(loopbackTailscale) == nil)
 
+        // Manual-host routes must use the same route-host grammar on encode
+        // that the v3 decoder enforces, otherwise the codec can emit QR URLs
+        // it later refuses to scan.
+        let invalidManualHost = try pairingTicket(routes: [
+            try manualHostRoute(index: 0, host: "my:host"),
+        ])
+        #expect(CmxPairingQRCode().encode(invalidManualHost) == nil)
+        #expect(!CmxPairingQRCode().canEncode(invalidManualHost))
+
         // A non-Tailscale fallback route the bare host:port grammar cannot
         // express (an iroh peer) must NOT be silently dropped: the ticket
         // keeps the lossless compact payload instead. Only loopback routes,
@@ -225,6 +279,34 @@ import Testing
         ])
         #expect(encodeLegacy(withIrohFallback) == nil)
         #expect(!canEncodeLegacy(withIrohFallback))
+    }
+
+    @Test func decodeRejectsManualHostLoopback() throws {
+        let url = "cmux-ios://attach?v=3&m=127.0.0.1:58465"
+        #expect(throws: MobileSyncPairingPayloadError.loopbackRouteRejected) {
+            try CmxPairingQRCode().decode(try components(url))
+        }
+    }
+
+    @Test func decodeRejectsManualHostBareColonText() throws {
+        let url = "cmux-ios://attach?v=3&m=my:host:58465"
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxPairingQRCode().decode(try components(url))
+        }
+    }
+
+    @Test func decodeRejectsManualHostMalformedBrackets() throws {
+        let url = "cmux-ios://attach?v=3&m=[abc]def]:58465"
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxPairingQRCode().decode(try components(url))
+        }
+    }
+
+    @Test func decodeRejectsManualHostInVersionTwoGrammar() throws {
+        let url = "cmux-ios://attach?v=2&m=studio-mac.local:58465"
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxPairingQRCode().decode(try components(url))
+        }
     }
 
     @Test(arguments: [
@@ -291,7 +373,9 @@ import Testing
 
     @Test func versionedURLDetectionDistinguishesGrammars() throws {
         #expect(CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=2&r=100.64.0.5:58465"))
+        #expect(CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=3&m=studio-mac.local:58465"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=1&payload=abc"))
+        #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=4&r=100.64.0.5:58465"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://pair?v=1&payload=abc"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("https://example.com?v=2"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("not a url"))

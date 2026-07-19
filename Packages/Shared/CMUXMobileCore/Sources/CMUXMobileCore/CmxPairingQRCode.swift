@@ -1,9 +1,10 @@
 import Foundation
 
 /// The minimal pairing-QR grammar: expected Mac account/build metadata plus
-/// plain `host:port` routes in the URL query.
+/// explicit `host:port` routes in the URL query.
 ///
-/// `cmux-ios://attach?v=2&ub=<stack-user-id>&pc=<compat>&av=<version>&ab=<build>&r=<host>:<port>[&r=<host>:<port>...]`
+/// `cmux-ios://attach?v=2&ub=<stack-user-id>&pc=<compat>&av=<version>&ab=<build>&r=<tailscale-host>:<port>`
+/// `cmux-ios://attach?v=3&ub=<stack-user-id>&pc=<compat>&av=<version>&ab=<build>&r=<tailscale-host>:<port>[&m=<manual-host>:<port>]`
 ///
 /// A pairing QR needs to tell the phone where to dial and which non-secret
 /// account/build context to check before dialing. The account value is the
@@ -17,16 +18,17 @@ import Foundation
 /// - **No display name, no device id.** Both arrive post-handshake from
 ///   `mobile.host.status`; the decoder leaves `macDeviceID` empty and the
 ///   shell adopts the host-reported identity once connected.
-/// - **No loopback, ever.** Routes are Tailscale `host:port` only: the
-///   encoder drops a DEBUG Mac's dev loopback route instead of encoding it,
-///   the Mac refuses to mint a QR without a Tailscale route (it shows the
-///   set-up-Tailscale guidance instead), and the decoder rejects loopback
-///   hosts outright, so a scanned code can never point a phone at itself.
+/// - **No loopback, ever.** The encoder drops a DEBUG Mac's dev loopback route
+///   instead of encoding it, and the decoder rejects loopback hosts outright,
+///   so a scanned code can never point a phone at itself.
 ///   Loopback pairing for the simulator/dev flows uses the injected attach
 ///   URL path, not a QR. Dropping loopback is also the pairing-latency fix:
 ///   a scanned loopback route sorted first and made the phone dial itself
 ///   into an `NWConnection` `.waiting` black hole for the full request
 ///   timeout before the Tailscale route was ever tried.
+/// - **Manual hosts stay explicit.** `m=` carries a user-configured LAN/DNS
+///   manual-host route, decoded as ``CmxAttachTransportKind/manualHost`` so
+///   the iOS app can require per-host trust before sending Stack credentials.
 ///
 /// The payload is deliberately *not* wrapped in base64 JSON: anyone can read
 /// the URL off the QR and see for themselves that it carries only an address.
@@ -40,8 +42,11 @@ import Foundation
 public struct CmxPairingQRCode: Sendable {
     /// The grammar version carried in the URL's `v` query item. Distinct from
     /// ``CmxAttachTicket/currentVersion`` (the ticket *structure* version):
-    /// `v=1` URLs carry a base64 JSON `payload`, `v=2` URLs carry bare routes.
-    public static let version = 2
+    /// `v=1` URLs carry a base64 JSON `payload`, `v=2` URLs carry bare Tailscale
+    /// routes, and `v=3` adds explicit manual-host routes.
+    public static let version = 3
+
+    private static let tailscaleOnlyRouteVersion = 2
 
     /// Defensive cap on routes accepted from a scanned code. The Mac's route
     /// resolver emits at most a couple (MagicDNS name + Tailscale IP); a QR
@@ -50,15 +55,17 @@ public struct CmxPairingQRCode: Sendable {
     public static let maximumRouteCount = 8
 
     /// Creates the codec. It is stateless: construct one inline at the call
-    /// site; every instance speaks the same grammar version.
+    /// site; every instance speaks the same grammar set.
     public init() {}
 
-    /// Encode `ticket` as a v2 pairing URL, or `nil` when the ticket does not
+    /// Encode `ticket` as a minimal pairing URL, or `nil` when the ticket does not
     /// qualify (see ``canEncode(_:routeDisclosureMode:)``); callers fall back
     /// to the compact v1 payload so every ticket still has an attach URL.
     ///
-    /// Only the ticket's Tailscale routes are encoded: a DEBUG Mac's dev
-    /// loopback route is dropped, never written into a scannable code.
+    /// Only the ticket's Tailscale and explicit manual-host routes are encoded:
+    /// a DEBUG Mac's dev loopback route is dropped, never written into a
+    /// scannable code. The caller must explicitly allow legacy private-network
+    /// disclosure; Iroh identity-only payloads use the compact coder instead.
     public func encode(
         _ ticket: CmxAttachTicket,
         routeDisclosureMode: CmxPairingRouteDisclosureMode
@@ -67,7 +74,7 @@ public struct CmxPairingQRCode: Sendable {
               let routes = encodableRoutes(of: ticket) else {
             return nil
         }
-        var items: [String] = ["v=\(Self.version)"]
+        var items: [String] = ["v=\(grammarVersion(for: routes))"]
         if let userID = normalizedNonEmpty(ticket.macUserID) {
             items.append("ub=\(percentEncodeQueryValue(userID))")
         }
@@ -85,7 +92,7 @@ public struct CmxPairingQRCode: Sendable {
                 // Unreachable: `encodableRoutes` admits host/port endpoints only.
                 return ""
             }
-            return "r=\(hostPortString(host: host, port: port))"
+            return "\(routeQueryName(for: route.kind))=\(hostPortString(host: host, port: port))"
         }
         items.append(contentsOf: routeItems)
         // The scheme is channel-specific (see ``CmxPairingURLScheme``): a dev
@@ -93,6 +100,14 @@ public struct CmxPairingQRCode: Sendable {
         // release build, and the system camera can no longer hand a beta/prod
         // code to a dev build that also claimed the scheme.
         return "\(CmxPairingURLScheme.current)://attach?" + items.joined(separator: "&")
+    }
+
+    /// Encodes using the legacy private-network disclosure mode.
+    ///
+    /// Kept for source compatibility with callers that predate explicit route
+    /// disclosure. New call sites should select a disclosure mode explicitly.
+    public func encode(_ ticket: CmxAttachTicket) -> String? {
+        encode(ticket, routeDisclosureMode: .legacyPrivateNetworkCompatibility)
     }
 
     /// Whether `ticket` is expressible in the minimal grammar under the
@@ -106,38 +121,47 @@ public struct CmxPairingQRCode: Sendable {
             && encodableRoutes(of: ticket) != nil
     }
 
-    /// The route subsequence a v2 pairing URL would carry for `ticket`, or
+    /// Checks expressibility using the legacy private-network disclosure mode.
+    public func canEncode(_ ticket: CmxAttachTicket) -> Bool {
+        canEncode(ticket, routeDisclosureMode: .legacyPrivateNetworkCompatibility)
+    }
+
+    /// The route subsequence a minimal pairing URL would carry for `ticket`, or
     /// `nil` when the ticket is not expressible in the minimal grammar.
     ///
-    /// Expressible means: an unscoped pairing ticket whose Tailscale routes
-    /// are exactly the canonical `host:port` sequence the decoder
-    /// resynthesizes (ids `tailscale`, `tailscale_2`, ... and priorities 10,
-    /// 20, ...), with no loopback host and no host that needs escaping.
+    /// Expressible means: an unscoped pairing ticket whose Tailscale/manual-host
+    /// routes are exactly the canonical `host:port` sequence the decoder
+    /// resynthesizes (ids `tailscale`, `manual_host`, `tailscale_2`, ... and
+    /// priorities 10, 20, ...), with no loopback host and no host that needs
+    /// escaping.
     /// The only routes this grammar may silently drop are loopback ones (a
     /// DEBUG Mac's dev loopback route), which no phone may ever dial anyway.
-    /// Anything else (workspace-scoped tickets, custom route ids, no
-    /// Tailscale route at all, or a non-Tailscale fallback route such as an
-    /// iroh peer that the bare `host:port` grammar cannot express) keeps the
-    /// compact v1 payload so the mapping stays lossless.
+    /// Anything else (workspace-scoped tickets, custom route ids, or a fallback
+    /// route such as an iroh peer that the bare `host:port` grammar cannot
+    /// express) keeps the compact v1 payload so the mapping stays lossless.
     private func encodableRoutes(of ticket: CmxAttachTicket) -> [CmxAttachRoute]? {
         guard ticket.version == CmxAttachTicket.currentVersion,
               ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else {
             return nil
         }
-        guard ticket.routes.allSatisfy({ $0.kind == .tailscale || CmxLoopbackHost().matches($0) }) else {
+        guard ticket.routes.allSatisfy({ isMinimalQRRoute($0) || CmxLoopbackHost().matches($0) }) else {
             return nil
         }
-        let routes = ticket.routes.filter { $0.kind == .tailscale }
+        let routes = ticket.routes.filter { isMinimalQRRoute($0) }
         guard !routes.isEmpty, routes.count <= Self.maximumRouteCount else {
             return nil
         }
+        var occurrences: [String: Int] = [:]
         for (index, route) in routes.enumerated() {
-            guard route.id == synthesizedRouteID(index: index),
+            let occurrence = occurrences[route.kind.rawValue] ?? 0
+            occurrences[route.kind.rawValue] = occurrence + 1
+            guard route.id == synthesizedRouteID(kind: route.kind, occurrence: occurrence),
                   route.priority == synthesizedRoutePriority(index: index),
                   case let .hostPort(host, _) = route.endpoint,
                   !CmxLoopbackHost().matches(host),
-                  isPlainHost(host) else {
+                  isPlainHost(host),
+                  route.kind != .manualHost || CmxManualHost(routeHost: host) != nil else {
                 return nil
             }
         }
@@ -147,7 +171,10 @@ public struct CmxPairingQRCode: Sendable {
     /// Whether `components` (an already-parsed `cmux-ios://attach` URL) speaks
     /// this grammar. v1 URLs carry the base64 `payload` item instead.
     public func isPairingCodeURL(_ components: URLComponents) -> Bool {
-        components.queryItems?.first(where: { $0.name == "v" })?.value == "\(Self.version)"
+        guard let version = Self.attachURLVersion(components) else {
+            return false
+        }
+        return (Self.tailscaleOnlyRouteVersion...Self.version).contains(version)
     }
 
     /// The integer grammar version declared by an attach URL's `v` query item,
@@ -161,7 +188,7 @@ public struct CmxPairingQRCode: Sendable {
         return Int(raw)
     }
 
-    /// Whether `rawValue` is a v2 pairing URL. String-level convenience for
+    /// Whether `rawValue` is a minimal pairing URL. String-level convenience for
     /// callers that hold the encoded URL (the Mac's pairing window asserting
     /// the code it is about to display speaks the minimal grammar).
     public func isPairingCodeURLString(_ rawValue: String) -> Bool {
@@ -174,7 +201,7 @@ public struct CmxPairingQRCode: Sendable {
         return isPairingCodeURL(components)
     }
 
-    /// Decode a v2 pairing URL into a validated ``CmxAttachTicket``.
+    /// Decode a minimal pairing URL into a validated ``CmxAttachTicket``.
     ///
     /// The ticket comes back unscoped with an empty `macDeviceID`; the shell
     /// recovers the Mac's identity post-handshake from `mobile.host.status`.
@@ -184,23 +211,39 @@ public struct CmxPairingQRCode: Sendable {
     ///   when any route names a loopback host (a scanned code must never
     ///   point the phone at itself).
     public func decode(_ components: URLComponents) throws -> CmxAttachTicket {
-        guard isPairingCodeURL(components) else {
+        guard isPairingCodeURL(components),
+              let version = Self.attachURLVersion(components) else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
         let rawRoutes = (components.queryItems ?? [])
-            .filter { $0.name == "r" }
-            .compactMap(\.value)
+            .compactMap { item -> (kind: CmxAttachTransportKind, value: String)? in
+                guard let kind = routeKind(forQueryName: item.name),
+                      let value = item.value else {
+                    return nil
+                }
+                return (kind, value)
+            }
         guard !rawRoutes.isEmpty, rawRoutes.count <= Self.maximumRouteCount else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
+        if version < Self.version, rawRoutes.contains(where: { $0.kind == .manualHost }) {
+            throw MobileSyncPairingPayloadError.invalidURL
+        }
+        var occurrences: [String: Int] = [:]
         let routes = try rawRoutes.enumerated().map { index, rawRoute -> CmxAttachRoute in
-            let (host, port) = try parseHostPort(rawRoute)
+            let occurrence = occurrences[rawRoute.kind.rawValue] ?? 0
+            occurrences[rawRoute.kind.rawValue] = occurrence + 1
+            let (host, port, isBracketedHost) = try parseHostPort(rawRoute.value)
+            if rawRoute.kind == .manualHost,
+               CmxManualHost(isBracketedHost ? "[\(host)]" : host) == nil {
+                throw MobileSyncPairingPayloadError.invalidURL
+            }
             guard !CmxLoopbackHost().matches(host) else {
                 throw MobileSyncPairingPayloadError.loopbackRouteRejected
             }
             return try CmxAttachRoute(
-                id: synthesizedRouteID(index: index),
-                kind: .tailscale,
+                id: synthesizedRouteID(kind: rawRoute.kind, occurrence: occurrence),
+                kind: rawRoute.kind,
                 endpoint: .hostPort(host: host, port: port),
                 priority: synthesizedRoutePriority(index: index)
             )
@@ -224,12 +267,51 @@ public struct CmxPairingQRCode: Sendable {
     }
 }
 private extension CmxPairingQRCode {
-    /// The route id the Mac's route resolver mints for the route at `index`
-    /// (`tailscale` for the first, `tailscale_N` after).
-    func synthesizedRouteID(index: Int) -> String {
-        index == 0
-            ? CmxAttachTransportKind.tailscale.rawValue
-            : "\(CmxAttachTransportKind.tailscale.rawValue)_\(index + 1)"
+    func grammarVersion(for routes: [CmxAttachRoute]) -> Int {
+        routes.contains(where: { $0.kind == .manualHost })
+            ? Self.version
+            : Self.tailscaleOnlyRouteVersion
+    }
+
+    /// Whether `route` can be represented by the minimal query grammar.
+    func isMinimalQRRoute(_ route: CmxAttachRoute) -> Bool {
+        switch route.kind {
+        case .tailscale, .manualHost:
+            return true
+        case .debugLoopback, .iroh, .websocket:
+            return false
+        }
+    }
+
+    /// The query item name for a minimal route kind.
+    func routeQueryName(for kind: CmxAttachTransportKind) -> String {
+        switch kind {
+        case .tailscale:
+            return "r"
+        case .manualHost:
+            return "m"
+        case .debugLoopback, .iroh, .websocket:
+            return ""
+        }
+    }
+
+    /// The route kind represented by a minimal route query item name.
+    func routeKind(forQueryName name: String) -> CmxAttachTransportKind? {
+        switch name {
+        case "r":
+            return .tailscale
+        case "m":
+            return .manualHost
+        default:
+            return nil
+        }
+    }
+
+    /// The route id the Mac's route resolver mints for this kind occurrence.
+    func synthesizedRouteID(kind: CmxAttachTransportKind, occurrence: Int) -> String {
+        occurrence == 0
+            ? kind.rawValue
+            : "\(kind.rawValue)_\(occurrence + 1)"
     }
 
     /// The priority the Mac's route resolver assigns the route at `index`.
@@ -243,16 +325,18 @@ private extension CmxPairingQRCode {
     }
 
     /// Parse `host:port` (with optional IPv6 brackets) from a query value.
-    func parseHostPort(_ rawValue: String) throws -> (String, Int) {
+    func parseHostPort(_ rawValue: String) throws -> (String, Int, Bool) {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let host: Substring
         let portText: Substring
+        let isBracketedHost: Bool
         if trimmed.hasPrefix("[") {
             guard let closing = trimmed.firstIndex(of: "]"),
                   closing > trimmed.startIndex else {
                 throw MobileSyncPairingPayloadError.invalidURL
             }
             host = trimmed[trimmed.index(after: trimmed.startIndex)..<closing]
+            isBracketedHost = true
             let afterBracket = trimmed.index(after: closing)
             guard afterBracket < trimmed.endIndex, trimmed[afterBracket] == ":" else {
                 throw MobileSyncPairingPayloadError.invalidURL
@@ -263,6 +347,7 @@ private extension CmxPairingQRCode {
                 throw MobileSyncPairingPayloadError.invalidURL
             }
             host = trimmed[..<separator]
+            isBracketedHost = false
             portText = trimmed[trimmed.index(after: separator)...]
         }
         guard !host.isEmpty, isPlainHost(String(host)) else {
@@ -271,7 +356,7 @@ private extension CmxPairingQRCode {
         guard let port = Int(portText), (1...65535).contains(port) else {
             throw MobileSyncPairingPayloadError.invalidPort(Int(portText) ?? 0)
         }
-        return (String(host), port)
+        return (String(host), port, isBracketedHost)
     }
 
     /// Whether `host` is a bare DNS name or IP literal that needs no escaping

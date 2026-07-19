@@ -92,7 +92,8 @@ public struct MobileDeleteComputersVerifier {
         )
 
         await shell.loadPairedMacs()
-        shell.setWorkspaceStatesForTesting(seededWorkspaceStates(), foregroundMacDeviceID: "mac-a")
+        shell.foregroundMacDeviceID = "mac-a"
+        shell.workspacesByMac = seededWorkspaceStates()
         let initial = checkpoint("initial", shell: shell)
 
         let halfDeleteIDs = ["mac-a", "mac-b"]

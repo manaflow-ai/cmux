@@ -40,16 +40,16 @@ import Testing
             priority: 0
         )
 
-        #expect(MobileShellRouteAuthPolicy.routeIsLoopback(loopbackIP))
-        #expect(MobileShellRouteAuthPolicy.routeIsLoopback(localhost))
-        #expect(MobileShellRouteAuthPolicy.routeIsLoopback(ipv6Loopback))
-        #expect(MobileShellRouteAuthPolicy.routeIsLoopback(loopbackOnNetworkKind))
-        #expect(!MobileShellRouteAuthPolicy.routeIsLoopback(pretendLoopback))
-        #expect(!MobileShellRouteAuthPolicy.routeIsLoopback(tailscaleIP))
-        #expect(!MobileShellRouteAuthPolicy.routeIsLoopback(irohPeer))
+        #expect(MobileShellRouteAuthPolicy().routeIsLoopback(loopbackIP))
+        #expect(MobileShellRouteAuthPolicy().routeIsLoopback(localhost))
+        #expect(MobileShellRouteAuthPolicy().routeIsLoopback(ipv6Loopback))
+        #expect(MobileShellRouteAuthPolicy().routeIsLoopback(loopbackOnNetworkKind))
+        #expect(!MobileShellRouteAuthPolicy().routeIsLoopback(pretendLoopback))
+        #expect(!MobileShellRouteAuthPolicy().routeIsLoopback(tailscaleIP))
+        #expect(!MobileShellRouteAuthPolicy().routeIsLoopback(irohPeer))
     }
 
-    @Test func allowsStackAuthOnlyForLoopbackRoutes() throws {
+    @Test func allowsStackAuthOnlyForLoopbackOrApprovedManualHostRoutes() throws {
         let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleIPv6 = try hostPortRoute(
@@ -85,37 +85,230 @@ import Testing
             ),
             priority: 0
         )
-        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.0.0.1") == .debugLoopback)
-        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.attacker.example") == .tailscale)
 
-        // Loopback never leaves the device and may carry the Stack bearer token.
-        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(loopback))
+        let manualHostRoute = try hostPortRoute(kind: .manualHost, host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
+        let manualLoopbackAlias = try hostPortRoute(kind: .manualHost, host: "127.1", port: CmxMobileDefaults.defaultHostPort)
+        let manualUnspecifiedIPv4 = try hostPortRoute(kind: .manualHost, host: "0.0.0.0", port: CmxMobileDefaults.defaultHostPort)
+        let manualHexLoopback = try hostPortRoute(kind: .manualHost, host: "0x7f.0.0.1", port: CmxMobileDefaults.defaultHostPort)
 
-        // A numeric Tailscale address and an anonymous utun path do not prove
-        // which VPN owns that path or which peer accepted plaintext TCP.
-        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIP))
-        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIPv6))
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "127.0.0.1") == .debugLoopback)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "127.1") == .debugLoopback)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "0.0.0.0") == .debugLoopback)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "0x7f.0.0.1") == .debugLoopback)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "[::1]") == .debugLoopback)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(
+            for: "127.1",
+            allowsDebugLoopback: false
+        ) == .manualHost)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(
+            for: "0.0.0.0",
+            allowsDebugLoopback: false
+        ) == .manualHost)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(
+            for: "0x7f.0.0.1",
+            allowsDebugLoopback: false
+        ) == .manualHost)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(
+            for: "[::1]",
+            allowsDebugLoopback: false
+        ) == .manualHost)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "100.71.210.41") == .manualHost)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "work-mac.tailnet.ts.net") == .manualHost)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "127.attacker.example") == .manualHost)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "https://bad.example") == nil)
 
-        // Iroh's session context authenticates RPC out of band. The Stack
-        // bearer token must never be sent to the peer or any path hint.
-        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(irohPeer))
+        // Encrypted / loopback channels and explicitly approved manual hosts may
+        // carry the Stack bearer token.
+        #expect(MobileShellRouteAuthPolicy().routeAllowsStackAuth(loopback))
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(tailscaleMagicDNS))
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(tailscaleIP))
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(tailscaleIPv6))
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(irohPeer))
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(manualHostRoute))
+        #expect(MobileShellRouteAuthPolicy().routeAllowsStackAuth(manualHostRoute, manualHostTrusted: true))
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(manualLoopbackAlias, manualHostTrusted: true))
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(manualUnspecifiedIPv4, manualHostTrusted: true))
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(manualHexLoopback, manualHostTrusted: true))
 
-        // Plaintext-TCP routes must NOT carry the Stack bearer token: a `.tailscale`
-        // route to a private-LAN IP or a `.local`/Bonjour host is dialed over
-        // unencrypted TCP, so it is excluded from the Stack-auth-allowed set.
-        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(lanIP))
-        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(localDNS))
-        // MagicDNS text is not a transport proof. The connection factory must
-        // receive a canonical numeric Tailscale peer so DNS substitution cannot
-        // redirect the plaintext bearer before the Mac authenticates.
-        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleMagicDNS))
-        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(pretendLoopback))
+        // Plaintext-TCP routes must NOT carry the Stack bearer token by default:
+        // a `.tailscale` route to a private-LAN IP or a `.local`/Bonjour host is
+        // dialed over unencrypted TCP, so it is excluded from the Stack-auth set.
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(lanIP))
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(localDNS))
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(pretendLoopback))
+        #expect(!MobileShellRouteAuthPolicy().routeRequiresManualHostTrust(manualLoopbackAlias))
 
-        #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("127.0.0.1"))
-        #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("100.71.210.41"))
-        #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("work-mac.tailnet.ts.net"))
-        #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("192.168.1.77"))
-        #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("devbox.local"))
+        #expect(!MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning("127.0.0.1"))
+        #expect(!MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning("127.1"))
+        #expect(!MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning("0.0.0.0"))
+        #expect(!MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning("0x7f.0.0.1"))
+        #expect(MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning(
+            "127.1",
+            allowsDebugLoopback: false
+        ))
+        #expect(MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning(
+            "0.0.0.0",
+            allowsDebugLoopback: false
+        ))
+        #expect(MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning(
+            "0x7f.0.0.1",
+            allowsDebugLoopback: false
+        ))
+        #expect(MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning("100.71.210.41"))
+        #expect(MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning("work-mac.tailnet.ts.net"))
+        #expect(MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning("192.168.1.77"))
+        #expect(MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning("devbox.local"))
+    }
+
+    @Test func manualHostTrustScopeIsHostPortAndAccountScoped() async throws {
+        let store = InMemoryMobileManualHostTrustStore()
+        let approved = try #require(MobileManualHostTrustScope(
+            host: "Studio-Mac.local",
+            port: 58465,
+            stackUserID: "user-a"
+        ))
+        let sameHostDifferentCase = try #require(MobileManualHostTrustScope(
+            host: "studio-mac.local",
+            port: 58465,
+            stackUserID: "user-a"
+        ))
+        let differentPort = try #require(MobileManualHostTrustScope(
+            host: "studio-mac.local",
+            port: 58466,
+            stackUserID: "user-a"
+        ))
+        let differentAccount = try #require(MobileManualHostTrustScope(
+            host: "studio-mac.local",
+            port: 58465,
+            stackUserID: "user-b"
+        ))
+        let normalizedIPv6 = try #require(MobileManualHostTrustScope(
+            host: "fd00::12",
+            port: 58465,
+            stackUserID: "user-a"
+        ))
+        let bracketedIPv6 = try #require(MobileManualHostTrustScope(
+            host: "[fd00::12]",
+            port: 58465,
+            stackUserID: "user-a"
+        ))
+        let ipv4MappedIPv6 = try #require(MobileManualHostTrustScope(
+            host: "::ffff:192.168.0.1",
+            port: 58465,
+            stackUserID: "user-a"
+        ))
+        let bracketedIPv4MappedIPv6 = try #require(MobileManualHostTrustScope(
+            host: "[::ffff:192.168.0.1]",
+            port: 58465,
+            stackUserID: "user-a"
+        ))
+
+        #expect(await store.isTrusted(approved) == false)
+        await store.trust(approved)
+        await store.trust(normalizedIPv6)
+        await store.trust(ipv4MappedIPv6)
+
+        #expect(await store.isTrusted(sameHostDifferentCase))
+        #expect(await store.isTrusted(bracketedIPv6))
+        #expect(await store.isTrusted(bracketedIPv4MappedIPv6))
+        #expect(await store.isTrusted(differentPort) == false)
+        #expect(await store.isTrusted(differentAccount) == false)
+    }
+
+    @Test func manualHostTrustScopeRequiresConcreteAccount() {
+        #expect(MobileManualHostTrustScope(
+            host: "studio-mac.local",
+            port: 58_465,
+            stackUserID: nil
+        ) == nil)
+        #expect(MobileManualHostTrustScope(
+            host: "studio-mac.local",
+            port: 58_465,
+            stackUserID: "  "
+        ) == nil)
+    }
+
+    @Test func userDefaultsManualHostTrustIsSessionScopedAndExpires() async throws {
+        let suiteName = "cmux-manual-host-trust-\(UUID().uuidString)"
+        defer {
+            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        }
+        let scope = try #require(MobileManualHostTrustScope(
+            host: "studio-mac.local",
+            port: 58465,
+            stackUserID: "user-a"
+        ))
+        let key = "manual-host-trust"
+        let writer = UserDefaultsMobileManualHostTrustStore(
+            suiteName: suiteName,
+            key: key,
+            sessionIdentifier: "session-a",
+            trustDuration: 60,
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+        await writer.trust(scope)
+
+        let stillValidReader = UserDefaultsMobileManualHostTrustStore(
+            suiteName: suiteName,
+            key: key,
+            sessionIdentifier: "session-a",
+            trustDuration: 60,
+            now: { Date(timeIntervalSince1970: 1_059) }
+        )
+        let differentSessionReader = UserDefaultsMobileManualHostTrustStore(
+            suiteName: suiteName,
+            key: key,
+            sessionIdentifier: "session-b",
+            trustDuration: 60,
+            now: { Date(timeIntervalSince1970: 1_059) }
+        )
+        let expiredReader = UserDefaultsMobileManualHostTrustStore(
+            suiteName: suiteName,
+            key: key,
+            sessionIdentifier: "session-a",
+            trustDuration: 60,
+            now: { Date(timeIntervalSince1970: 1_061) }
+        )
+
+        #expect(await stillValidReader.isTrusted(scope))
+        #expect(await differentSessionReader.isTrusted(scope) == false)
+        #expect(await expiredReader.isTrusted(scope) == false)
+    }
+
+    @Test func userDefaultsManualHostTrustUsesItsInitializedCacheForValidation() async throws {
+        let suiteName = "cmux-manual-host-trust-cache-\(UUID().uuidString)"
+        defer { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
+        let scope = try #require(MobileManualHostTrustScope(
+            host: "studio-mac.local",
+            port: 58_465,
+            stackUserID: "user-a"
+        ))
+        let key = "manual-host-trust"
+        let store = UserDefaultsMobileManualHostTrustStore(
+            suiteName: suiteName,
+            key: key,
+            sessionIdentifier: "session-a",
+            trustDuration: 60,
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+        await store.trust(scope)
+
+        UserDefaults(suiteName: suiteName)?.removeObject(forKey: key)
+
+        #expect(await store.isTrusted(scope))
+    }
+
+    @Test func manualHostTrustWarningFormatsBracketedIPv6Once() throws {
+        let scope = try #require(MobileManualHostTrustScope(
+            host: "[fd00::12]",
+            port: 58465,
+            stackUserID: "user-a"
+        ))
+
+        #expect(MobileManualHostTrustWarning(scope: scope).endpoint == "[fd00::12]:58465")
+        #expect(
+            MobileManualHostTrustWarning(scope: scope, displayHost: "[fd00::12]").endpoint == "[fd00::12]:58465"
+        )
     }
 
     @Test func physicalDeviceRejectsLoopbackTicketsInEveryGrammar() throws {
@@ -127,22 +320,22 @@ import Testing
         let loopbackUnderTailscaleKind = try hostPortRoute(kind: .tailscale, host: "127.0.0.1", port: 56577)
         let tailscale = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: 56577)
 
-        #expect(MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+        #expect(MobileShellRouteAuthPolicy().ticketRejectsLoopbackRoutes(
             [loopback], isPhysicalDevice: true
         ))
-        #expect(MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+        #expect(MobileShellRouteAuthPolicy().ticketRejectsLoopbackRoutes(
             [loopbackUnderTailscaleKind], isPhysicalDevice: true
         ))
         // One loopback route poisons the ticket even when a real route rides along.
-        #expect(MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+        #expect(MobileShellRouteAuthPolicy().ticketRejectsLoopbackRoutes(
             [tailscale, loopback], isPhysicalDevice: true
         ))
-        #expect(!MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+        #expect(!MobileShellRouteAuthPolicy().ticketRejectsLoopbackRoutes(
             [tailscale], isPhysicalDevice: true
         ))
         // The simulator flow legitimately pairs over loopback (127.0.0.1 IS
         // the host Mac there), so the policy never fires off-device.
-        #expect(!MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+        #expect(!MobileShellRouteAuthPolicy().ticketRejectsLoopbackRoutes(
             [loopback], isPhysicalDevice: false
         ))
     }

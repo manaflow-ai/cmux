@@ -1,6 +1,7 @@
 public import CMUXMobileCore
 internal import CmuxMobileSupport
 public import Foundation
+import CmuxMobileSupport
 
 /// Errors surfaced while connecting to or talking with a paired Mac over the
 /// mobile-sync RPC transport.
@@ -13,7 +14,7 @@ public enum MobileShellConnectionError: LocalizedError, DiagnosticFailureProvidi
     case requestTimedOut
     /// A request timed out while its frame was blocked in the transport write.
     case transportWriteTimedOut
-    /// A manual host did not advertise a secure route.
+    /// A manual-host route was not approved for Stack-authenticated mobile sync.
     case insecureManualRoute
     /// The attach ticket expired and no fallback was available.
     case attachTicketExpired
@@ -29,18 +30,30 @@ public enum MobileShellConnectionError: LocalizedError, DiagnosticFailureProvidi
     public var errorDescription: String? {
         switch self {
         case .invalidResponse:
-            return "Invalid mobile sync response"
+            return L10n.string(
+                "mobile.connection.invalidResponse",
+                defaultValue: "Invalid mobile sync response"
+            )
         case .connectionClosed:
-            return "Mobile sync connection closed"
+            return L10n.string(
+                "mobile.connection.closed",
+                defaultValue: "Mobile sync connection closed"
+            )
         case .requestTimedOut, .transportWriteTimedOut:
             return L10n.string(
                 "mobile.connection.requestTimedOut",
                 defaultValue: "Mobile sync request timed out"
             )
         case .insecureManualRoute:
-            return "Manual host did not advertise a secure mobile sync route"
+            return L10n.string(
+                "mobile.connection.insecureManualRoute",
+                defaultValue: "Manual host route needs approval before mobile sync can send account credentials"
+            )
         case .attachTicketExpired:
-            return "Mobile attach ticket expired"
+            return L10n.string(
+                "mobile.connection.attachTicketExpired",
+                defaultValue: "Mobile attach ticket expired"
+            )
         case let .authorizationFailed(message):
             return message
         case let .accountMismatch(message):

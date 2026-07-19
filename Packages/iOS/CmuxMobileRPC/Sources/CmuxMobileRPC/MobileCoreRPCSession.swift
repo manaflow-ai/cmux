@@ -1,12 +1,13 @@
 internal import CMUXMobileCore
 import Foundation
-
 actor MobileCoreRPCSession {
     typealias TransportFactory = @Sendable () throws -> any CmxByteTransport
     typealias IndependentEventByteStreamFactory = @Sendable () async throws -> CmxIndependentEventByteStream
     typealias ConnectedCandidateHook = @Sendable (_ candidate: any CmxByteTransport) async -> Void
+    typealias PreEnqueueValidator = @Sendable () async throws -> Void
+    typealias SendAuthorizer = @Sendable () async throws -> MobileRPCSendLease
     typealias TransportConnectObserver = @Sendable (MobileRPCTransportConnectEvent) -> Void
-    typealias PendingContinuation = CheckedContinuation<Result<Data, MobileShellConnectionError>, Never>
+    typealias PendingContinuation = CheckedContinuation<Result<Data, MobileCoreRPCPendingFailure>, Never>
     typealias ConnectingTask = (id: UUID, lease: MobileRPCConnectAttemptLease?, task: Task<any CmxByteTransport, any Error>, waiters: Set<UUID>, completed: Bool)
     static let defaultAbandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000
     static let defaultLateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000
@@ -14,22 +15,6 @@ actor MobileCoreRPCSession {
         MobileSyncFrameCodec.defaultMaximumFrameByteCount
         + MobileSyncFrameCodec.headerByteCount
     static let maximumDecodedFrameCountPerRead = 256
-
-    struct EventSubscription {
-        let id: UUID
-        let stream: AsyncStream<MobileEventEnvelope>
-    }
-
-    struct EventListener {
-        let topics: Set<String>
-        let continuation: AsyncStream<MobileEventEnvelope>.Continuation
-    }
-
-    private struct PendingWrite: Sendable {
-        let id: UUID
-        let requestID: String
-        let frame: Data
-    }
 
     struct IndependentEventPreparation: Sendable {
         let id: UUID
@@ -67,9 +52,9 @@ actor MobileCoreRPCSession {
     // `internal` so cancellation tests can observe the writer-queue gate via
     // `@testable import` without adding a production debug hook.
     var queuedRequestIDs: Set<String> { Set(queuedWriteIDs.keys) }
-    var listeners: [UUID: EventListener] = [:]
+    var listeners: [UUID: MobileCoreRPCEventListener] = [:]
     var isTearingDown: Bool = false
-    private var writeQueue: AsyncStream<PendingWrite>.Continuation?
+    private var writeQueue: AsyncStream<MobileCoreRPCPendingWrite>.Continuation?
     private var writerTask: Task<Void, Never>?
     private var activeWrite: (
         connectionID: UUID,
@@ -113,14 +98,24 @@ actor MobileCoreRPCSession {
         writeQueue?.finish()
     }
 
-    func send(payload: Data, requestID: String, deadlineUptimeNanoseconds: UInt64) async throws -> Data {
-        _ = try await ensureConnected(
-            timeoutNanoseconds: try taskTimeout.remainingNanoseconds(until: deadlineUptimeNanoseconds)
-        )
+    func send(
+        payload: Data,
+        requestID: String,
+        deadlineUptimeNanoseconds: UInt64,
+        preEnqueueValidator: PreEnqueueValidator? = nil,
+        sendAuthorizer: SendAuthorizer? = nil
+    ) async throws -> Data {
+        _ = try await ensureConnected(timeoutNanoseconds: try taskTimeout.remainingNanoseconds(
+            until: deadlineUptimeNanoseconds
+        ))
+        if let preEnqueueValidator {
+            try await preEnqueueValidator()
+        }
+        try Task.checkCancellation()
         let frame = try MobileSyncFrameCodec.encodeFrame(payload)
         let responseTimeoutNanoseconds = try taskTimeout.remainingNanoseconds(until: deadlineUptimeNanoseconds)
 
-        let result: Result<Data, MobileShellConnectionError> = await withTaskCancellationHandler {
+        let result: Result<Data, MobileCoreRPCPendingFailure> = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 guard pending[requestID] == nil, queuedWriteIDs[requestID] == nil else {
                     continuation.resume(returning: .failure(.invalidResponse))
@@ -130,11 +125,7 @@ actor MobileCoreRPCSession {
                 pending[requestID] = continuation
                 requestTimeoutTasks[requestID]?.cancel()
                 requestTimeoutTasks[requestID] = Task { [weak self, taskTimeout] in
-                    do {
-                        try await taskTimeout.sleep(nanoseconds: responseTimeoutNanoseconds)
-                    } catch {
-                        return
-                    }
+                    do { try await taskTimeout.sleep(nanoseconds: responseTimeoutNanoseconds) } catch { return }
                     guard let self else { return }
                     await self.timeoutPendingRequest(requestID: requestID)
                 }
@@ -145,36 +136,34 @@ actor MobileCoreRPCSession {
                     return
                 }
                 queuedWriteIDs[requestID] = queuedWriteID
-                _ = queue.yield(PendingWrite(id: queuedWriteID, requestID: requestID, frame: frame))
+                _ = queue.yield(MobileCoreRPCPendingWrite(
+                    id: queuedWriteID, requestID: requestID, frame: frame, authorizeSend: sendAuthorizer
+                ))
             }
         } onCancel: {
-            Task {
-                await self.cancelPendingRequest(requestID: requestID)
-            }
+            Task { await self.cancelPendingRequest(requestID: requestID) }
         }
         if Task.isCancelled {
             throw CancellationError()
         }
         switch result {
-        case .success(let data):
-            return data
-        case .failure(let error):
-            throw error
+        case .success(let data): return data
+        case .failure(let failure): throw failure.underlying
         }
     }
 
-    func addEventListener(topics: Set<String>) -> EventSubscription {
+    func addEventListener(topics: Set<String>) -> MobileCoreRPCEventSubscription {
         let id = UUID()
         var continuation: AsyncStream<MobileEventEnvelope>.Continuation!
         let stream = AsyncStream<MobileEventEnvelope>(bufferingPolicy: .bufferingNewest(256)) { cont in
             continuation = cont
         }
-        listeners[id] = EventListener(topics: topics, continuation: continuation)
+        listeners[id] = MobileCoreRPCEventListener(topics: topics, continuation: continuation)
         continuation.onTermination = { @Sendable [weak self] _ in
             guard let self else { return }
             Task { await self.removeListener(id: id) }
         }
-        return EventSubscription(id: id, stream: stream)
+        return MobileCoreRPCEventSubscription(id: id, stream: stream)
     }
 
     func removeListener(id: UUID) {
@@ -194,7 +183,7 @@ actor MobileCoreRPCSession {
             task.cancel()
         }
         for (_, cont) in pendingSnapshot {
-            cont.resume(returning: .failure(error))
+            cont.resume(returning: .failure(MobileCoreRPCPendingFailure(underlying: error)))
         }
         let listenerSnapshot = listeners
         listeners.removeAll()
@@ -412,7 +401,7 @@ actor MobileCoreRPCSession {
             throw CancellationError()
         }
 
-        let (stream, continuation) = AsyncStream<PendingWrite>.makeStream(
+        let (stream, continuation) = AsyncStream<MobileCoreRPCPendingWrite>.makeStream(
             bufferingPolicy: .unbounded
         )
         let nextReaderTask = Task { [weak self] in
@@ -537,13 +526,20 @@ actor MobileCoreRPCSession {
     private func writeLoop(
         transport: any CmxByteTransport,
         connectionID: UUID,
-        frames: AsyncStream<PendingWrite>
+        frames: AsyncStream<MobileCoreRPCPendingWrite>
     ) async {
         for await write in frames {
             if Task.isCancelled { return }
-            guard shouldSendQueuedWrite(write) else {
-                continue
+            guard shouldSendQueuedWrite(write, claim: false) else { continue }
+            if let authorizeSend = write.authorizeSend {
+                do {
+                    _ = try await authorizeSend()
+                } catch {
+                    failQueuedWriteAuthorization(write, error: error)
+                    continue
+                }
             }
+            guard shouldSendQueuedWrite(write, claim: true) else { continue }
             let sendTask = Task {
                 try await transport.send(write.frame)
             }
@@ -566,6 +562,13 @@ actor MobileCoreRPCSession {
                 return
             }
         }
+    }
+
+    private func failQueuedWriteAuthorization(_ write: MobileCoreRPCPendingWrite, error: any Error) {
+        if cancelledQueuedWriteIDs.remove(write.id) != nil { return }
+        guard queuedWriteIDs[write.requestID] == write.id else { return }
+        queuedWriteIDs[write.requestID] = nil
+        failPending(requestID: write.requestID, error: error)
     }
 
     private func readLoop(
@@ -625,10 +628,10 @@ actor MobileCoreRPCSession {
         }
     }
 
-    private func failPending(requestID: String, error: MobileShellConnectionError) {
+    private func failPending(requestID: String, error: any Error) {
         guard let cont = pending.removeValue(forKey: requestID) else { return }
         requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
-        cont.resume(returning: .failure(error))
+        cont.resume(returning: .failure(MobileCoreRPCPendingFailure(underlying: error)))
     }
     private func cancelPendingRequest(requestID: String) async {
         guard let cont = pending.removeValue(forKey: requestID) else { return }
@@ -646,7 +649,7 @@ actor MobileCoreRPCSession {
         if let queuedWriteID = queuedWriteIDs.removeValue(forKey: requestID) {
             cancelledQueuedWriteIDs.insert(queuedWriteID)
         }
-        let error: MobileShellConnectionError = if await recycleTransportIfActiveWrite(
+        let error: MobileCoreRPCPendingFailure = if await recycleTransportIfActiveWrite(
             requestID: requestID
         ) {
             .transportWriteTimedOut
@@ -656,15 +659,14 @@ actor MobileCoreRPCSession {
         cont.resume(returning: .failure(error))
     }
 
-    private func shouldSendQueuedWrite(_ write: PendingWrite) -> Bool {
-        if cancelledQueuedWriteIDs.remove(write.id) != nil {
+    private func shouldSendQueuedWrite(_ write: MobileCoreRPCPendingWrite, claim: Bool) -> Bool {
+        if cancelledQueuedWriteIDs.remove(write.id) != nil { return false }
+        guard queuedWriteIDs[write.requestID] == write.id,
+              pending[write.requestID] != nil else {
             return false
         }
-        guard queuedWriteIDs[write.requestID] == write.id else {
-            return false
-        }
-        queuedWriteIDs[write.requestID] = nil
-        return pending[write.requestID] != nil
+        if claim { queuedWriteIDs[write.requestID] = nil }
+        return true
     }
 
     private func clearActiveWrite(connectionID: UUID, requestID: String) {

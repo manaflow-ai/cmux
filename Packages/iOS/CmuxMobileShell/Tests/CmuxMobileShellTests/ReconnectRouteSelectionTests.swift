@@ -1,6 +1,8 @@
 import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileRPC
+import CmuxMobileShellModel
+import CmuxMobileTransport
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -30,6 +32,15 @@ import Testing
         )
     }
 
+    func legacyLANStoredAsTailscale(_ port: Int = 50906) throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: "legacy_lan",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "192.168.1.77", port: port),
+            priority: 1
+        )
+    }
+
     func iroh(priority: Int = -10_000) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: "iroh-personal",
@@ -45,7 +56,7 @@ import Testing
     }
 
     @Test func physicalDevicePrefersRealRouteOverLowerPriorityLoopback() throws {
-        let pick = MobileShellComposite.firstReconnectHostPortRoute(
+        let pick = MobileShellRouteSelection().firstReconnectHostPortRoute(
             [try loopback(), try tailscale()],
             supportedKinds: [.debugLoopback, .tailscale],
             preferNonLoopback: true
@@ -67,12 +78,55 @@ import Testing
 
     @Test func simulatorKeepsLoopbackPriorityOrder() throws {
         // On the simulator 127.0.0.1 IS the host Mac, so priority order stands.
-        let pick = MobileShellComposite.firstReconnectHostPortRoute(
+        let pick = MobileShellRouteSelection().firstReconnectHostPortRoute(
             [try loopback(), try tailscale()],
             supportedKinds: [.debugLoopback, .tailscale],
             preferNonLoopback: false
         )
         #expect(pick?.0 == "127.0.0.1")
+    }
+
+    @Test func physicalManualHostEntryDoesNotTrustLoopbackAlias() throws {
+        let route = try MobileShellRouteSelection().manualHostRoute(
+            host: "127.1",
+            port: 50906,
+            isPhysicalDevice: true
+        )
+        #expect(route.kind == .manualHost)
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(route))
+    }
+
+    @Test func legacyLANRouteStoredAsTailscaleBecomesManualHost() throws {
+        let route = try MobileShellRouteSelection().manualHostRoute(
+            host: "192.168.1.77",
+            port: 50906,
+            preserving: legacyLANStoredAsTailscale()
+        )
+
+        #expect(route.kind == .manualHost)
+        #expect(route.endpoint == .hostPort(host: "192.168.1.77", port: 50906))
+    }
+
+    @Test func verifiedTailscaleSourcePreservesRouteKind() throws {
+        let source = try tailscale()
+        let route = try MobileShellRouteSelection().manualHostRoute(
+            host: "100.82.214.112",
+            port: 50906,
+            preserving: source
+        )
+
+        #expect(route == source)
+        #expect(route.kind == .tailscale)
+    }
+
+    @Test func invalidManualHostCannotConstructRoute() {
+        do {
+            _ = try MobileShellRouteSelection().manualHostRoute(
+                host: "https://studio-mac.local/path",
+                port: 50_906
+            )
+            Issue.record("Expected invalid manual host route construction to fail closed")
+        } catch {}
     }
 
     @Test func reconnectCandidatesKeepFallbackRoutesAfterPreferredRoute() throws {
@@ -139,56 +193,6 @@ import Testing
         )
 
         #expect(candidates.isEmpty)
-    }
-
-    private func magicDNS(_ port: Int = 50906) throws -> CmxAttachRoute {
-        // A MagicDNS hostname route, advertised BEFORE the IP route by priority.
-        try CmxAttachRoute(
-            id: "tailscale",
-            kind: .tailscale,
-            endpoint: .hostPort(host: "lawrences-macbook-pro-2.tail137216.ts.net", port: port),
-            priority: 5
-        )
-    }
-
-    @Test func physicalDevicePrefersIPLiteralOverMagicDNSHostname() throws {
-        // The exact dogfood failure: a Mac advertises loopback, a MagicDNS
-        // hostname (higher priority), and the raw tailscale IP. MagicDNS doesn't
-        // resolve on the phone, so dialing the hostname times out; selection must
-        // pick the IP literal so the secondary fetch / reconnect actually connects.
-        let ip = try CmxAttachRoute(
-            id: "tailscale_2",
-            kind: .tailscale,
-            endpoint: .hostPort(host: "100.82.214.112", port: 50922),
-            priority: 10
-        )
-        let pick = MobileShellComposite.firstReconnectHostPortRoute(
-            [try loopback(50922), try magicDNS(50922), ip],
-            supportedKinds: [.debugLoopback, .tailscale],
-            preferNonLoopback: true
-        )
-        #expect(pick?.0 == "100.82.214.112")
-    }
-
-    @Test func magicDNSHostnameStillUsedWhenNoIPRouteExists() throws {
-        // If the only non-loopback route is a hostname, still prefer it over
-        // loopback on device (better than dialing the phone's own 127.0.0.1).
-        let pick = MobileShellComposite.firstReconnectHostPortRoute(
-            [try loopback(50922), try magicDNS(50922)],
-            supportedKinds: [.debugLoopback, .tailscale],
-            preferNonLoopback: true
-        )
-        #expect(pick?.0 == "lawrences-macbook-pro-2.tail137216.ts.net")
-    }
-
-    @Test func ipLiteralHostClassification() {
-        #expect(MobileShellComposite.isIPLiteralHost("100.82.214.112"))
-        #expect(MobileShellComposite.isIPLiteralHost("127.0.0.1"))
-        #expect(MobileShellComposite.isIPLiteralHost("fd7a:115c:a1e0::4b36:d670"))
-        #expect(!MobileShellComposite.isIPLiteralHost("lawrences-macbook-pro-2.tail137216.ts.net"))
-        #expect(!MobileShellComposite.isIPLiteralHost("example.com"))
-        #expect(!MobileShellComposite.isIPLiteralHost("100.82.214")) // too few octets
-        #expect(!MobileShellComposite.isIPLiteralHost("256.1.1.1")) // out of range
     }
 
     @Test func constrainedReconnectTicketMergesWithStoredRoutes() throws {
@@ -345,14 +349,15 @@ import Testing
             routes: [route],
             expiresAt: clock.now.addingTimeInterval(3_600)
         )
+        let authContext = store.currentRPCAuthContext()
 
         let first = Task { @MainActor in
-            try? await store.connect(ticket: ticket)
+            try? await store.connect(ticket: ticket, authContext: authContext)
         }
         #expect(await router.waitForCount(of: "workspace.list", atLeast: 1))
 
         let second = Task { @MainActor in
-            try? await store.connect(ticket: ticket)
+            try? await store.connect(ticket: ticket, authContext: authContext)
         }
         #expect(await router.waitForCount(of: "workspace.list", atLeast: 2))
         _ = await second.value
@@ -408,7 +413,9 @@ import Testing
             runtime: runtime,
             route: routeA,
             ticket: ticketA,
-            allowsStackAuthFallback: true
+            allowsStackAuthFallback: true,
+            authScope: MobileRPCAuthScope(),
+            authScopeValidator: { true }
         )
         let store = MobileShellComposite(
             runtime: runtime,
@@ -442,7 +449,7 @@ import Testing
         #expect(!restored.routes.contains(where: { $0.endpoint == staleRouteB.endpoint }))
     }
 
-    private func loopbackRoute(id: String, port: Int) throws -> CmxAttachRoute {
+    func loopbackRoute(id: String, port: Int) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: id,
             kind: .debugLoopback,
@@ -453,7 +460,8 @@ import Testing
 
     func makeReconnectStore(
         routes: [CmxAttachRoute],
-        runtime: any MobileSyncRuntime
+        runtime: any MobileSyncRuntime,
+        reachability: any ReachabilityProviding = AlwaysOnlineReachability()
     ) async throws -> MobileShellComposite {
         let (pairedStore, _) = try makePairedMacStore()
         try await pairedStore.upsert(
@@ -470,7 +478,7 @@ import Testing
             isSignedIn: true,
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
-            reachability: AlwaysOnlineReachability(),
+            reachability: reachability,
             pairingHintDefaults: UserDefaults(suiteName: "reconnect-routes-\(UUID().uuidString)")!
         )
         await store.loadPairedMacs()

@@ -13,7 +13,6 @@ import SwiftUI
 #elseif os(macOS)
 import AppKit
 #endif
-
 struct WorkspaceDetailView: View {
     let host: String
     let connectionStatus: MobileMacConnectionStatus

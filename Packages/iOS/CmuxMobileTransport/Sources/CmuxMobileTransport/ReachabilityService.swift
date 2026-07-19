@@ -4,9 +4,8 @@ import Foundation
 /// A de-singletonized network-reachability monitor backed by `NWPathMonitor`.
 ///
 /// Owns the path monitor and its callback queue, tracks the current online
-/// state and primary interface type as actor-isolated state, and fans
-/// meaningful path changes out to any number of subscribers through
-/// ``pathChanges()``.
+/// state as actor-isolated state, and fans post-initial path updates out to any
+/// number of subscribers through ``pathChanges()``.
 ///
 /// Construct it once at the app composition root and inject it as
 /// `any ReachabilityProviding`:
@@ -22,7 +21,6 @@ public actor ReachabilityService: ReachabilityProviding {
     private let queue: DispatchQueue
     private var started = false
     private var online = true
-    private var lastInterfaceType: NWInterface.InterfaceType?
     private var nextSubscriptionID = 0
     private var subscribers: [Int: AsyncStream<Void>.Continuation] = [:]
     /// Whether `NWPathMonitor` has delivered its first path since `start`.
@@ -90,11 +88,13 @@ public actor ReachabilityService: ReachabilityProviding {
         }
     }
 
-    /// A stream that yields once per meaningful path change.
+    /// A stream that yields once per path update after the initial snapshot.
     /// - Returns: An `AsyncStream` removed from the registry when its consumer
     ///   stops iterating or the task is cancelled.
     public nonisolated func pathChanges() -> AsyncStream<Void> {
-        AsyncStream { continuation in
+        // Recovery only needs the newest pending security boundary; bounding
+        // the stream prevents callback bursts from queuing unbounded work.
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let registration = Task { await self.register(continuation) }
             continuation.onTermination = { _ in
                 registration.cancel()
@@ -103,7 +103,7 @@ public actor ReachabilityService: ReachabilityProviding {
         }
     }
 
-    private func register(_ continuation: AsyncStream<Void>.Continuation) -> Int {
+    func register(_ continuation: AsyncStream<Void>.Continuation) -> Int {
         startIfNeeded()
         let id = nextSubscriptionID
         nextSubscriptionID += 1
@@ -120,20 +120,17 @@ public actor ReachabilityService: ReachabilityProviding {
         guard !started else { return }
         started = true
         monitor.pathUpdateHandler = { [weak self] path in
-            // Compute Sendable values on the monitor queue; never capture NWPath.
+            // Compute Sendable state on the monitor queue; never capture NWPath.
             let isSatisfied = path.status == .satisfied
-            let primaryType = ReachabilityService.primaryInterfaceType(of: path)
-            Task { await self?.apply(online: isSatisfied, primaryType: primaryType) }
+            Task { await self?.apply(online: isSatisfied) }
         }
         monitor.start(queue: queue)
     }
 
-    private func apply(online: Bool, primaryType: NWInterface.InterfaceType?) {
-        let wasOnline = self.online
-        let previousType = lastInterfaceType
+    func apply(online: Bool) {
+        let isInitialPath = !receivedFirstPath
         self.online = online
-        if online { lastInterfaceType = primaryType }
-        if !receivedFirstPath {
+        if isInitialPath {
             receivedFirstPath = true
             for waiter in firstPathWaiters.values {
                 waiter.resume()
@@ -141,22 +138,10 @@ public actor ReachabilityService: ReachabilityProviding {
             firstPathWaiters.removeAll()
             cancelledFirstPathWaiterIDs.removeAll()
         }
-        let regainedOnline = online && !wasOnline
-        let interfaceChanged = online && previousType != nil && primaryType != previousType
-        guard regainedOnline || interfaceChanged else { return }
+        guard !isInitialPath else { return }
         for continuation in subscribers.values {
             continuation.yield(())
         }
-    }
-
-    private nonisolated static func primaryInterfaceType(
-        of path: NWPath
-    ) -> NWInterface.InterfaceType? {
-        for type in [NWInterface.InterfaceType.wifi, .wiredEthernet, .cellular]
-        where path.usesInterfaceType(type) {
-            return type
-        }
-        return path.availableInterfaces.first?.type
     }
 
     deinit {

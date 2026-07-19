@@ -79,7 +79,14 @@ extension MobileShellComposite {
             return .success(())
         } catch {
             guard generation == connectionGeneration, !Task.isCancelled else { return .success(()) }
-            if disconnectForAuthorizationFailureIfNeeded(error) {
+            if handleAuthorizationFailureIfNeeded(
+                error,
+                owner: .foreground(
+                    client: client,
+                    generation: generation,
+                    route: activeRoute
+                )
+            ) {
                 return .failure(.authorizationFailed(hostDisplayName: connectedHostName))
             }
             handleMacAvailabilityFailureIfCurrent(
