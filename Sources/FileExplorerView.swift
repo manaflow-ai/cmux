@@ -93,6 +93,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         weak var containerView: FileExplorerContainerView?
         weak var outlineView: NSOutlineView?
         private var lastRootNodeCount: Int = -1
+        private var lastRenderedOutlineRevision: UInt64 = .max
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
@@ -179,6 +180,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
             )
 
             let newCount = store.rootNodes.count
+            let outlineRevision = store.outlineRevision
+            guard newCount != lastRootNodeCount || outlineRevision != lastRenderedOutlineRevision else {
+                return
+            }
             withProgrammaticOutlineUpdate {
                 if newCount != lastRootNodeCount {
                     lastRootNodeCount = newCount
@@ -190,6 +195,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 }
                 applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
             }
+            lastRenderedOutlineRevision = outlineRevision
         }
 
         private func restoreExpansionState(_ expandedPaths: Set<String>, in outlineView: NSOutlineView) {
