@@ -15,6 +15,10 @@ private let mobileIrohReleaseGateLog = Logger(
 
 @MainActor
 final class MobileIrohReleaseGateRunner {
+    private static let relayRolloverSoakDurationSeconds = 330
+    private static let standardTimeout: Duration = .seconds(90)
+    private static let extendedTimeout: Duration = .seconds(420)
+
     struct Configuration: Equatable, Sendable {
         static let modeEnvironmentKey = "CMUX_IROH_RELEASE_GATE_MODE"
         static let scenarioEnvironmentKey = "CMUX_IROH_RELEASE_GATE_SCENARIO"
@@ -145,7 +149,9 @@ final class MobileIrohReleaseGateRunner {
                 try await store.runIrohReleaseGateProbe(
                     marker: marker,
                     scenario: configuration.scenario,
-                    soakDurationSeconds: configuration.scenario == .relayRollover ? 330 : 0,
+                    soakDurationSeconds: configuration.scenario == .relayRollover
+                        ? Self.relayRolloverSoakDurationSeconds
+                        : 0,
                     endpointIdentity: endpointIdentity,
                     relayCredentialExpiry: relayCredentialExpiry
                 )
@@ -159,7 +165,9 @@ final class MobileIrohReleaseGateRunner {
             postReportReady: {
                 Self.postReportReadyNotification()
             },
-            timeout: configuration.scenario == .standard ? .seconds(90) : .seconds(420)
+            timeout: configuration.scenario == .standard
+                ? Self.standardTimeout
+                : Self.extendedTimeout
         )
     }
 
@@ -312,6 +320,13 @@ final class MobileIrohReleaseGateRunner {
         var pathBeforeExpectedDisconnect: String?
         if configuration.scenario == .relayExpiry {
             for await snapshot in dependencies.settingsUpdates() {
+                guard !Task.isCancelled else {
+                    return Self.failureReport(
+                        mode: configuration.mode,
+                        scenario: configuration.scenario,
+                        failure: .timeout
+                    )
+                }
                 if let accepted = Self.acceptedPath(
                     snapshot.selectedTransportPath,
                     mode: configuration.mode
@@ -319,6 +334,13 @@ final class MobileIrohReleaseGateRunner {
                     pathBeforeExpectedDisconnect = accepted
                     break
                 }
+            }
+            guard !Task.isCancelled else {
+                return Self.failureReport(
+                    mode: configuration.mode,
+                    scenario: configuration.scenario,
+                    failure: .timeout
+                )
             }
             guard pathBeforeExpectedDisconnect != nil else {
                 return Self.failureReport(
@@ -462,7 +484,7 @@ final class MobileIrohReleaseGateRunner {
                 && probe.controlStreamContinuityVerified
                 && probe.independentEventsContinuityVerified
                 && probe.artifactLaneVerified
-                && probe.soakDurationSeconds >= 330
+                && probe.soakDurationSeconds >= relayRolloverSoakDurationSeconds
         case .relayExpiry:
             return probe.unrefreshedExpiryDisconnectVerified
         }
