@@ -923,6 +923,17 @@ impl Surface {
         }
     }
 
+    pub(crate) fn pending_resize_reservation(
+        &self,
+        cols: u16,
+        rows: u16,
+    ) -> anyhow::Result<Option<u64>> {
+        match self {
+            Surface::Pty(_) => Ok(None),
+            Surface::Browser(browser) => browser.pending_resize_reservation(cols, rows),
+        }
+    }
+
     pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> anyhow::Result<bool> {
         self.set_cell_pixel_size_reporting(width_px, height_px, Box::new(|_| {}))
             .map(|reservation_id| reservation_id.is_some())

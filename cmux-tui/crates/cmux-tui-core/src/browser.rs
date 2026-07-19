@@ -1218,6 +1218,27 @@ impl BrowserSurface {
         Some(queued)
     }
 
+    pub(crate) fn pending_resize_reservation(
+        &self,
+        cols: u16,
+        rows: u16,
+    ) -> anyhow::Result<Option<u64>> {
+        let geometry = self.resize_geometry(cols, rows);
+        let state = self.state.lock().unwrap();
+        if let Some(pending) =
+            state.pending_reconfigures.iter().rev().find(|pending| pending.geometry == geometry)
+        {
+            return Ok(Some(pending.id));
+        }
+        if browser_geometry_locked(&state) == geometry {
+            return Ok(None);
+        }
+        if state.reconfigure_failure.is_some_and(|failure| failure.geometry == geometry) {
+            anyhow::bail!("browser resize is waiting to retry after a previous failure");
+        }
+        anyhow::bail!("browser resize was not accepted");
+    }
+
     fn confirm_reconfigure(&self, queued: QueuedBrowserGeometry) {
         let mut state = self.state.lock().unwrap();
         let Some(index) =
