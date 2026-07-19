@@ -271,6 +271,8 @@ struct ComputerUseUXTests {
             "--socket",
             paths.daemonSocketURL.path,
             "--no-permissions-gate",
+            "--cursor-shape",
+            "cmux",
         ])
         #expect(configuration.environment["CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW"] == "1")
         #expect(configuration.environment["CUA_DRIVER_RS_PERMISSIONS_GATE"] == "0")
