@@ -915,7 +915,14 @@ func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID stri
 	}
 	cmd.Env = defaultWebSocketPTYEnv(shellPath)
 	if sessionKey.kind == wsPTYPersistentSession {
-		cmd = persistentPTYCommand(cmd)
+		var err error
+		cmd, err = persistentPTYCommand(cmd)
+		if err != nil {
+			if tmpScript != "" {
+				_ = os.Remove(tmpScript)
+			}
+			return nil, err
+		}
 	}
 	ptyFile, ttyFile, err := h.startPTYCommand(cmd, cols, rows)
 	if err != nil {
@@ -948,17 +955,22 @@ func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID stri
 	return session, nil
 }
 
-func persistentPTYCommand(command *exec.Cmd) *exec.Cmd {
-	// A persistent PTY outlives every relay attachment. Make that ownership
-	// boundary apply to the whole process tree. POSIX preserves an ignored
-	// signal across exec, and its interactive shells pass that disposition to
-	// foreground children unless a program explicitly installs its own policy.
-	arguments := []string{"-c", `trap '' HUP; exec "$0" "$@"`, command.Path}
-	arguments = append(arguments, command.Args[1:]...)
-	wrapped := exec.Command("/bin/sh", arguments...)
+func persistentPTYCommand(command *exec.Cmd) (*exec.Cmd, error) {
+	helperPath, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("resolve persistent PTY exec helper: %w", err)
+	}
+	// A persistent PTY outlives every relay attachment. Enter the command
+	// through cmuxd-remote's exec helper so SIGHUP is blocked before exec and
+	// inherited by every shell, foreground job, and background job in the PTY
+	// session. Unlike SIG_IGN, the mask survives programs resetting their own
+	// signal dispositions.
+	arguments := []string{persistentPTYExecHelperArgument, command.Path}
+	arguments = append(arguments, command.Args...)
+	wrapped := exec.Command(helperPath, arguments...)
 	wrapped.Env = command.Env
 	wrapped.Dir = command.Dir
-	return wrapped
+	return wrapped, nil
 }
 
 func (h *wsPTYHub) startPTYCommand(cmd *exec.Cmd, cols int, rows int) (*os.File, *os.File, error) {

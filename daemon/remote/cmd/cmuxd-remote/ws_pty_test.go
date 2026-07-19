@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -534,6 +535,41 @@ func TestWebSocketPTYPersistentInteractiveBashChildSurvivesHangup(t *testing.T) 
 		t.Fatalf("exit reattached shell: %v", err)
 	}
 	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
+func TestPersistentPTYExecHelperKeepsHangupBlockedAcrossExec(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("persistent PTY exec helper is supported on Darwin and Linux")
+	}
+	if os.Getenv("CMUX_PERSISTENT_PTY_EXEC_TEST_CHILD") == "1" {
+		signal.Reset(syscall.SIGHUP)
+		if err := syscall.Kill(os.Getpid(), syscall.SIGHUP); err != nil {
+			t.Fatalf("send SIGHUP to helper child: %v", err)
+		}
+		_, _ = os.Stdout.WriteString("CMUX_PERSISTENT_PTY_EXEC_SURVIVED\n")
+		return
+	}
+
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve test executable: %v", err)
+	}
+	cmd := exec.Command(
+		executable,
+		persistentPTYExecHelperArgument,
+		executable,
+		executable,
+		"-test.run",
+		"^TestPersistentPTYExecHelperKeepsHangupBlockedAcrossExec$",
+	)
+	cmd.Env = append(os.Environ(), "CMUX_PERSISTENT_PTY_EXEC_TEST_CHILD=1")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("persistent PTY exec helper child failed: %v output=%q", err, output)
+	}
+	if !bytes.Contains(output, []byte("CMUX_PERSISTENT_PTY_EXEC_SURVIVED")) {
+		t.Fatalf("persistent PTY exec helper child did not survive SIGHUP: %q", output)
+	}
 }
 
 func TestWebSocketPTYAnonymousSessionExitsOnHangup(t *testing.T) {
