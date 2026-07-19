@@ -471,6 +471,41 @@ final class TerminalControllerSocketSecurityTests {
         )
     }
 
+    @Test func testRemoteConfigureDisablesPersistentPTYForMoshTerminal() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        let response = try handleV2Request(
+            method: "workspace.remote.configure",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "transport": "ssh",
+                "terminal_transport": "mosh",
+                "destination": "example.com",
+                "preserve_after_terminal_exit": true,
+                "auto_connect": false,
+            ]
+        )
+
+        #expect(response["ok"] as? Bool == true)
+        let configuration = try #require(workspace.remoteConfiguration)
+        #expect(configuration.terminalTransport == .mosh)
+        #expect(!configuration.preserveAfterTerminalExit)
+        #expect(configuration.persistentDaemonSlot == nil)
+    }
+
     @Test func testRemoteConfigureDerivesAgentSocketPathFromForwardAgentOption() throws {
         let previousAgentSocketPath = getenv("SSH_AUTH_SOCK").map { String(cString: $0) }
         let agentSocketPath = try makeExistingAgentSocketPath()

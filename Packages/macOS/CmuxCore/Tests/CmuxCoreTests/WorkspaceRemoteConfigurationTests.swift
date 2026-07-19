@@ -156,6 +156,18 @@ struct WorkspaceRemoteConfigurationValueTests {
         #expect(snapshot.terminalTransport == .mosh)
     }
 
+    @Test("Mosh terminals disable SSH persistent-PTY state")
+    func moshDisablesPersistentPTYState() {
+        let configuration = makeConfiguration(
+            terminalTransport: .mosh,
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ssh-mosh"
+        )
+
+        #expect(!configuration.preserveAfterTerminalExit)
+        #expect(configuration.persistentDaemonSlot == nil)
+    }
+
     @Test("persistent daemon slot is gated on preserveAfterTerminalExit")
     func slotGatedOnPreserve() {
         #expect(makeConfiguration(persistentDaemonSlot: "slot").persistentDaemonSlot == nil)
