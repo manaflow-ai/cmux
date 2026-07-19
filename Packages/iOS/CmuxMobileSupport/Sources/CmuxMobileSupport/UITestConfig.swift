@@ -79,6 +79,19 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the standalone connect-onboarding preview is enabled.
+    ///
+    /// When `CMUX_UITEST_CONNECT_ONBOARDING_PREVIEW=1`, the root view renders
+    /// the connect-your-Mac screen without sign-in or existing pairing state.
+    /// DEBUG-only.
+    public static var connectOnboardingPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_CONNECT_ONBOARDING_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the standalone workspace-list layout preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1`, the root view renders a

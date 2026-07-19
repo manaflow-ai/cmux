@@ -20,15 +20,16 @@ struct CMUXMobileRootView: View {
     private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
     #if os(iOS)
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
-    /// The persisted first-run onboarding "seen" flag store. The one-time
-    /// onboarding screen gates ahead of the never-paired add-device state.
+    @Environment(\.analytics) private var analytics
+    /// Persists the welcome, first-connect, and notification-primer milestones.
     private let onboardingStore: MobileOnboardingStore
-    /// Mirrors ``MobileOnboardingStore/hasSeenOnboarding`` so completing
-    /// onboarding (which calls `markSeen()` in the button action) re-renders the
-    /// root and falls through to the pairing flow. Seeded synchronously from the
-    /// store so the very first frame already reflects a prior install's state and
-    /// never flashes onboarding for a returning user.
-    @State private var hasSeenOnboarding: Bool
+    /// Synchronous mirrors make persisted milestone changes re-render the root.
+    /// They are seeded before the first frame so returning installs never flash
+    /// an onboarding stage they already completed.
+    @State private var hasSeenWelcome: Bool
+    @State private var hasCompletedConnect: Bool
+    @State private var hasPrimedNotifications: Bool
+    @State private var isShowingNotificationPrimer = false
     #endif
     @State private var pendingAttachURL: String?
     @State private var didAuthenticateWithAttachTicket = false
@@ -55,7 +56,9 @@ struct CMUXMobileRootView: View {
         self.onboardingStore = onboardingStore
         self.signOutHook = signOutHook
         self.startupConnectionCoordinator = startupConnectionCoordinator
-        _hasSeenOnboarding = State(initialValue: onboardingStore.hasSeenOnboarding)
+        _hasSeenWelcome = State(initialValue: onboardingStore.hasSeenWelcome)
+        _hasCompletedConnect = State(initialValue: onboardingStore.hasCompletedConnect)
+        _hasPrimedNotifications = State(initialValue: onboardingStore.hasPrimedNotifications)
     }
     #else
     init(
@@ -72,6 +75,14 @@ struct CMUXMobileRootView: View {
     private var shouldShowTerminalLayoutPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.terminalLayoutPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
+    private var shouldShowConnectOnboardingPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.connectOnboardingPreviewEnabled
         #else
         return false
         #endif
@@ -109,6 +120,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    @ViewBuilder private var connectOnboardingPreview: some View {
+        #if os(iOS) && DEBUG
+        OnboardingConnectMacView(showAddDevice: {}, signOut: {}, store: nil)
+        #else
+        EmptyView()
+        #endif
+    }
+
     @ViewBuilder private var workspaceListLayoutPreview: some View {
         #if os(iOS) && DEBUG
         WorkspaceListLayoutPreviewView()
@@ -122,6 +141,26 @@ struct CMUXMobileRootView: View {
         .sheet(isPresented: addDeviceSheetBinding) {
             pairingSheet
         }
+        #if os(iOS)
+        .sheet(isPresented: $isShowingNotificationPrimer) {
+            OnboardingNotificationPrimerView(
+                enable: {
+                    _ = await pushCoordinator.enable(trigger: "onboarding_primer")
+                },
+                dismiss: { isShowingNotificationPrimer = false }
+            )
+            .presentationDetents([.height(430)])
+            .presentationDragIndicator(.visible)
+        }
+        .task(id: store.connectionState == .connected) {
+            await presentNotificationPrimerIfNeeded()
+        }
+        .onChange(of: isShowingNotificationPrimer) { wasPresented, isPresented in
+            guard wasPresented, !isPresented, !hasPrimedNotifications else { return }
+            onboardingStore.markNotificationsPrimed()
+            hasPrimedNotifications = true
+        }
+        #endif
         .animation(.snappy(duration: 0.18), value: isAuthenticated)
         .animation(.snappy(duration: 0.18), value: store.phase)
         .onAppear {
@@ -201,6 +240,10 @@ struct CMUXMobileRootView: View {
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
                 isShowingAddDeviceSheet = false
+                #if os(iOS)
+                onboardingStore.markConnectCompleted()
+                hasCompletedConnect = true
+                #endif
             } else {
                 clearAttachTicketAuthenticationIfNeeded()
             }
@@ -224,6 +267,10 @@ struct CMUXMobileRootView: View {
             workspaceListLayoutPreview
         } else if shouldShowStreamingChatPreview {
             streamingChatPreview
+        } else if shouldShowConnectOnboardingPreview {
+            connectOnboardingPreview
+        } else if shouldShowWelcome {
+            welcomeFlow
         } else if !isAuthenticated {
             SignInView()
         } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
@@ -233,11 +280,8 @@ struct CMUXMobileRootView: View {
                 showAddDevice: showAddDevice,
                 reconnectStoredMac: reconnectStoredMacIfNeeded
             )
-        } else if shouldShowOnboarding {
-            // Show the one-time explainer before the add-device flow. This is
-            // keyed only by onboarding completion so auto-pairing cannot defer
-            // onboarding until the user later removes every computer.
-            onboardingFlow
+        } else if shouldShowConnect {
+            connectMacFlow
         } else if store.connectionState != .connected && !store.hasKnownPairedMac {
             // ONLY when there are no saved Macs at all: the add-device flow (it
             // auto-presents the pairing sheet since there is nothing to list).
@@ -317,12 +361,12 @@ struct CMUXMobileRootView: View {
         )
     }
 
-    /// Whether the one-time first-run onboarding should be presented. Always
-    /// `false` off iOS (onboarding is iOS-only).
-    private var shouldShowOnboarding: Bool {
+    /// Whether the signed-out root should show the welcome pages.
+    private var shouldShowWelcome: Bool {
         #if os(iOS)
-        return MobileOnboardingGate.shouldShowOnboarding(
-            hasSeenOnboarding: hasSeenOnboarding
+        return MobileOnboardingGate.shouldShowWelcome(
+            isAuthenticated: isAuthenticated,
+            hasSeenWelcome: hasSeenWelcome
         )
         #else
         return false
@@ -330,21 +374,72 @@ struct CMUXMobileRootView: View {
     }
 
     @ViewBuilder
-    private var onboardingFlow: some View {
+    private var welcomeFlow: some View {
         #if os(iOS)
-        OnboardingFlowView(onComplete: completeOnboarding)
+        OnboardingWelcomeFlowView(onFinished: completeWelcome)
         #else
         EmptyView()
         #endif
     }
 
     #if os(iOS)
-    /// Persists the onboarding "seen" flag and re-renders so the root falls
-    /// through to the pairing flow. Called from the onboarding button actions
-    /// (Skip / Get started), not a view-lifecycle callback.
-    private func completeOnboarding() {
-        onboardingStore.markSeen()
-        hasSeenOnboarding = true
+    /// Persists welcome completion and transitions continuously into sign-in.
+    private func completeWelcome() {
+        onboardingStore.markWelcomeSeen()
+        withAnimation(.snappy(duration: 0.18)) {
+            hasSeenWelcome = true
+        }
+    }
+    #endif
+
+    /// Whether the signed-in root should require its first Mac connection.
+    private var shouldShowConnect: Bool {
+        #if os(iOS)
+        return MobileOnboardingGate.shouldShowConnect(
+            isAuthenticated: isAuthenticated,
+            isConnected: store.connectionState == .connected,
+            hasKnownPairedMac: store.hasKnownPairedMac,
+            hasCompletedConnect: hasCompletedConnect
+        )
+        #else
+        return false
+        #endif
+    }
+
+    @ViewBuilder
+    private var connectMacFlow: some View {
+        #if os(iOS)
+        OnboardingConnectMacView(
+            showAddDevice: showAddDevice,
+            signOut: signOut,
+            store: store
+        )
+        #else
+        EmptyView()
+        #endif
+    }
+
+    #if os(iOS)
+    /// Presents push education after pairing chrome has had time to dismiss.
+    private func presentNotificationPrimerIfNeeded() async {
+        guard MobileOnboardingGate.shouldPrimeNotifications(
+            isConnected: store.connectionState == .connected,
+            hasPrimedNotifications: hasPrimedNotifications,
+            isPushEnabled: pushCoordinator.isEnabled
+        ), !isShowingAddDeviceSheet else { return }
+
+        // Intended one-shot presentation delay; `.task(id:)` cancels it on disconnect.
+        try? await ContinuousClock().sleep(for: .milliseconds(700))
+        guard !Task.isCancelled,
+              !isShowingAddDeviceSheet,
+              MobileOnboardingGate.shouldPrimeNotifications(
+                isConnected: store.connectionState == .connected,
+                hasPrimedNotifications: hasPrimedNotifications,
+                isPushEnabled: pushCoordinator.isEnabled
+              ) else { return }
+
+        isShowingNotificationPrimer = true
+        analytics.capture("ios_onboarding_push_prime_shown", [:])
     }
     #endif
 

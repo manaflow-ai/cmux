@@ -3,8 +3,7 @@ import Testing
 
 @testable import CmuxMobileShellModel
 
-/// Behavior tests for ``MobileOnboardingStore`` using a suite-scoped
-/// `UserDefaults` so they never touch `UserDefaults.standard`.
+/// Behavior tests for ``MobileOnboardingStore`` using isolated defaults suites.
 @Suite struct MobileOnboardingStoreTests {
     private func makeDefaults() -> UserDefaults {
         let suite = "MobileOnboardingStoreTests.\(UUID().uuidString)"
@@ -13,32 +12,89 @@ import Testing
         return defaults
     }
 
-    @Test func startsUnseenAndPersistsSeen() {
-        let defaults = makeDefaults()
-        let store = MobileOnboardingStore(defaults: defaults)
-        #expect(!store.hasSeenOnboarding)
+    @Test func freshStoreHasNoCompletedMilestones() {
+        let store = MobileOnboardingStore(defaults: makeDefaults())
 
-        store.markSeen()
-        #expect(store.hasSeenOnboarding)
-        #expect(defaults.bool(forKey: MobileOnboardingStore.defaultsKey))
+        #expect(!store.hasSeenWelcome)
+        #expect(!store.hasCompletedConnect)
+        #expect(!store.hasPrimedNotifications)
     }
 
-    @Test func readsAPreviouslyPersistedSeenFlag() {
+    @Test func markingWelcomePersistsOnlyWelcome() {
         let defaults = makeDefaults()
-        defaults.set(true, forKey: MobileOnboardingStore.defaultsKey)
         let store = MobileOnboardingStore(defaults: defaults)
-        #expect(store.hasSeenOnboarding)
+
+        store.markWelcomeSeen()
+
+        #expect(store.hasSeenWelcome)
+        #expect(!store.hasCompletedConnect)
+        #expect(!store.hasPrimedNotifications)
+        #expect(defaults.bool(forKey: MobileOnboardingStore.welcomeSeenKey))
+        #expect(!defaults.bool(forKey: MobileOnboardingStore.connectCompletedKey))
+        #expect(!defaults.bool(forKey: MobileOnboardingStore.notificationsPrimedKey))
     }
 
-    /// `forceSeen` reports seen without reading or writing the backing defaults,
-    /// so the UI-test / dogfood bypass never wedges behind onboarding and never
-    /// pollutes the real install's persisted flag.
-    @Test func forceSeenReportsSeenWithoutPersisting() {
+    @Test func markingConnectPersistsOnlyConnect() {
+        let defaults = makeDefaults()
+        let store = MobileOnboardingStore(defaults: defaults)
+
+        store.markConnectCompleted()
+
+        #expect(!store.hasSeenWelcome)
+        #expect(store.hasCompletedConnect)
+        #expect(!store.hasPrimedNotifications)
+        #expect(!defaults.bool(forKey: MobileOnboardingStore.welcomeSeenKey))
+        #expect(defaults.bool(forKey: MobileOnboardingStore.connectCompletedKey))
+        #expect(!defaults.bool(forKey: MobileOnboardingStore.notificationsPrimedKey))
+    }
+
+    @Test func markingNotificationsPersistsOnlyPrimer() {
+        let defaults = makeDefaults()
+        let store = MobileOnboardingStore(defaults: defaults)
+
+        store.markNotificationsPrimed()
+
+        #expect(!store.hasSeenWelcome)
+        #expect(!store.hasCompletedConnect)
+        #expect(store.hasPrimedNotifications)
+        #expect(!defaults.bool(forKey: MobileOnboardingStore.welcomeSeenKey))
+        #expect(!defaults.bool(forKey: MobileOnboardingStore.connectCompletedKey))
+        #expect(defaults.bool(forKey: MobileOnboardingStore.notificationsPrimedKey))
+    }
+
+    @Test func legacySeenPromotesEveryMilestone() {
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: MobileOnboardingStore.legacySeenKey)
+        let store = MobileOnboardingStore(defaults: defaults)
+
+        #expect(store.hasSeenWelcome)
+        #expect(store.hasCompletedConnect)
+        #expect(store.hasPrimedNotifications)
+
+        store.markWelcomeSeen()
+        store.markConnectCompleted()
+        store.markNotificationsPrimed()
+
+        #expect(store.hasSeenWelcome)
+        #expect(store.hasCompletedConnect)
+        #expect(store.hasPrimedNotifications)
+    }
+
+    @Test func forceSeenReportsCompleteWithoutWriting() {
         let defaults = makeDefaults()
         let store = MobileOnboardingStore(defaults: defaults, forceSeen: true)
-        #expect(store.hasSeenOnboarding)
 
-        store.markSeen()
-        #expect(!defaults.bool(forKey: MobileOnboardingStore.defaultsKey))
+        #expect(store.hasSeenWelcome)
+        #expect(store.hasCompletedConnect)
+        #expect(store.hasPrimedNotifications)
+
+        store.markWelcomeSeen()
+        store.markConnectCompleted()
+        store.markNotificationsPrimed()
+
+        #expect(!defaults.bool(forKey: MobileOnboardingStore.welcomeSeenKey))
+        #expect(!defaults.bool(forKey: MobileOnboardingStore.connectCompletedKey))
+        #expect(!defaults.bool(forKey: MobileOnboardingStore.notificationsPrimedKey))
+        #expect(!defaults.bool(forKey: MobileOnboardingStore.legacySeenKey))
     }
 }
