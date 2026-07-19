@@ -22,7 +22,6 @@ enum RemoteInteractiveShellBootstrapBuilder {
         zshShellLines.append(
             #"if [ "${CMUX_SHELL_INTEGRATION:-1}" != "0" ] && [ -r "${CMUX_SHELL_INTEGRATION_DIR}/cmux-zsh-integration.zsh" ]; then . "${CMUX_SHELL_INTEGRATION_DIR}/cmux-zsh-integration.zsh"; fi"#
         )
-        zshShellLines.append(contentsOf: initialCommandBootstrap.posixInteractiveShellLines)
         var bashShellLines = commonShellExportLines
         bashShellLines.append(
             #"if [ "${CMUX_SHELL_INTEGRATION:-1}" != "0" ] && [ -r "${CMUX_SHELL_INTEGRATION_DIR}/cmux-bash-integration.bash" ]; then . "${CMUX_SHELL_INTEGRATION_DIR}/cmux-bash-integration.bash"; fi"#
@@ -81,7 +80,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "CMUXZSHRC",
             "    cat > \"$cmux_shell_dir/.zlogin\" <<'CMUXZSHLOGIN'",
         ]
-        outerLines.append(contentsOf: zshBootstrap.zshLoginLines)
+        outerLines.append(contentsOf: zshBootstrap.zshLoginLines + initialCommandBootstrap.posixInteractiveShellLines)
         outerLines += [
             "CMUXZSHLOGIN",
             "    chmod 600 \"$cmux_shell_dir/.zshenv\" \"$cmux_shell_dir/.zprofile\" \"$cmux_shell_dir/.zshrc\" \"$cmux_shell_dir/.zlogin\" >/dev/null 2>&1 || true",
