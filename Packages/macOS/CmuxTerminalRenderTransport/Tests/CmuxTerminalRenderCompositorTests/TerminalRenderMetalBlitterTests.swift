@@ -147,6 +147,33 @@ struct TerminalRenderMetalBlitterTests {
     }
 
     @Test
+    func staleEpochFrameIsRejectedAndReleasedExactlyOnce() async throws {
+        let fence = try makeFence(generation: 7)
+        let frame = try makeFrame(fence: fence, frameSequence: 1)
+        let executor = TerminalRenderMetalExecutor(label: "test.cmux.metal.stale")
+        let backend = RecordingMetalSubmissionBackend(executor: executor, results: [])
+        let releases = ReleaseRecorder()
+        let layer = TerminalRenderMetalLayerHandle(CAMetalLayer())
+        let blitter = makeBlitter(
+            executor: executor,
+            backend: backend,
+            releases: releases,
+            layer: layer
+        )
+
+        #expect(
+            await blitter.enqueue(frame, epoch: 0, layer: layer)
+                == .rejected(.presentationGenerationMismatch)
+        )
+        blitter.stop()
+        await backend.waitForInvalidationCount(1)
+
+        #expect(releases.snapshot() == [TerminalRenderFrameRelease(frame: frame)])
+        #expect(backend.snapshot().submissionSequences.isEmpty)
+        #expect(blitter.metrics().releasedSurfaces == 1)
+    }
+
+    @Test
     func fenceAndLayerTransitionsInvalidateCacheAndReleaseOnlyPendingFrames() async throws {
         let fence = try makeFence(generation: 7)
         let frame1 = try makeFrame(fence: fence, frameSequence: 1)

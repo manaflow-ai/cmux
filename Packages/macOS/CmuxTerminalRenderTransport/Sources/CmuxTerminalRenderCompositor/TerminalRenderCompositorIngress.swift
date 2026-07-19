@@ -16,6 +16,7 @@ public final class TerminalRenderCompositorIngress: @unchecked Sendable {
         var receivedFrames: UInt64 = 0
         var admittedFrames: UInt64 = 0
         var metadataRejectedFrames: UInt64 = 0
+        var metadataRejectedReleasedSurfaces: UInt64 = 0
         var retired = false
     }
 
@@ -82,10 +83,7 @@ public final class TerminalRenderCompositorIngress: @unchecked Sendable {
         state.admission.reset(fence: fence)
         lock.unlock()
 
-        let blitter = blitter
-        Task {
-            await blitter.register(epoch: epoch, layer: layer)
-        }
+        blitter.register(epoch: epoch, layer: layer)
     }
 
     /// Admits and submits one frame without touching AppKit's main actor.
@@ -101,6 +99,10 @@ public final class TerminalRenderCompositorIngress: @unchecked Sendable {
             metricEventHandler?(.rejectedFrame)
             let result = TerminalRenderCompositorEnqueueResult.rejected(rejection)
             frameDispositionHandler?(frame, result)
+            withStateMutation {
+                $0.metadataRejectedReleasedSurfaces &+= 1
+            }
+            metricEventHandler?(.releasedSurface)
             frameReleaseHandler(TerminalRenderFrameRelease(frame: frame))
             return result
         case .submit(let epoch, let layer):
@@ -128,24 +130,30 @@ public final class TerminalRenderCompositorIngress: @unchecked Sendable {
     }
 
     /// Retries the newest deferred frame on the current layer generation.
-    public func retry() async {
+    public func retry() {
         let current: (UInt64, TerminalRenderMetalLayerHandle)? = withState { state in
             guard !state.retired else { return nil }
             return (state.epoch, state.layer)
         }
         guard let current else { return }
-        await blitter.retry(epoch: current.0, layer: current.1)
+        blitter.retry(epoch: current.0, layer: current.1)
     }
 
     /// Snapshot of bounded admission and off-main blit counters.
     public func metricsSnapshot() async -> TerminalRenderCompositorMetrics {
-        let ingressMetrics: (UInt64, UInt64, UInt64) = withState {
-            ($0.receivedFrames, $0.admittedFrames, $0.metadataRejectedFrames)
+        let ingressMetrics: (UInt64, UInt64, UInt64, UInt64) = withState {
+            (
+                $0.receivedFrames,
+                $0.admittedFrames,
+                $0.metadataRejectedFrames,
+                $0.metadataRejectedReleasedSurfaces
+            )
         }
-        var result = await blitter.metrics()
+        var result = blitter.metrics()
         result.receivedFrames = ingressMetrics.0
         result.admittedFrames = ingressMetrics.1
         result.rejectedFrames &+= ingressMetrics.2
+        result.releasedSurfaces &+= ingressMetrics.3
         return result
     }
 
@@ -164,25 +172,25 @@ public final class TerminalRenderCompositorIngress: @unchecked Sendable {
         state.layer = layer
         lock.unlock()
 
-        let blitter = blitter
-        Task {
-            await blitter.stop()
-        }
+        blitter.stop()
     }
 
     func stop() {
         lock.lock()
         state.retired = true
         lock.unlock()
-        let blitter = blitter
-        Task {
-            await blitter.stop()
-        }
+        blitter.stop()
     }
 
     private func withState<T>(_ body: (State) -> T) -> T {
         lock.lock()
         defer { lock.unlock() }
         return body(state)
+    }
+
+    private func withStateMutation(_ body: (inout State) -> Void) {
+        lock.lock()
+        body(&state)
+        lock.unlock()
     }
 }

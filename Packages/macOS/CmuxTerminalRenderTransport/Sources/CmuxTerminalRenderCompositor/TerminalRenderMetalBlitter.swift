@@ -1,21 +1,74 @@
 internal import CmuxTerminalRenderProtocol
 internal import CmuxTerminalRenderTransport
+internal import Dispatch
+internal import Foundation
 internal import Metal
 
-/// Serializes the host's bounded GPU copy work away from AppKit's main actor.
-actor TerminalRenderMetalBlitter {
-    private let device: any MTLDevice
-    private let commandQueue: any MTLCommandQueue
+/// Owns the compositor's one-active, one-pending Metal submission mailbox.
+///
+/// The lock performs only fixed-size admission and completion bookkeeping.
+/// Drawable acquisition, IOSurface texture import, and Metal calls execute on
+/// `TerminalRenderMetalExecutor`. A single scheduled drain services all state
+/// changes, so frame bursts cannot enqueue a task or queue block per frame.
+final class TerminalRenderMetalBlitter: @unchecked Sendable {
+    private struct Work: @unchecked Sendable {
+        let id: UInt64
+        let frame: TerminalRenderFrame
+        let epoch: UInt64
+        let layer: TerminalRenderMetalLayerHandle
+        let continuation: CheckedContinuation<
+            TerminalRenderCompositorEnqueueResult,
+            Never
+        >?
+
+        var withoutContinuation: Work {
+            Work(
+                id: id,
+                frame: frame,
+                epoch: epoch,
+                layer: layer,
+                continuation: nil
+            )
+        }
+    }
+
+    private enum ActivePhase: Equatable {
+        case queued
+        case submitting
+        case gpuInFlight
+    }
+
+    private struct Active {
+        var work: Work
+        var phase: ActivePhase
+        var completionArrivedWhileSubmitting = false
+    }
+
+    private struct State {
+        var currentEpoch: UInt64
+        var currentLayer: TerminalRenderMetalLayerHandle
+        var nextWorkID: UInt64 = 1
+        var active: Active?
+        var pending: Work?
+        var cacheInvalidationPending = false
+        var drainScheduled = false
+        var stopped = false
+        var metrics = TerminalRenderCompositorMetrics()
+    }
+
+    private enum ExecutorAction {
+        case invalidateCache
+        case submit(Work)
+    }
+
+    private let lock = NSLock()
+    private var state: State
+    private let executor: TerminalRenderMetalExecutor
+    private let submissionBackend: any TerminalRenderMetalSubmitting
     private let releaseHandler: @Sendable (TerminalRenderFrameRelease) -> Void
     private let dispositionHandler: TerminalRenderFrameDispositionHandler?
     private let metricEventHandler: TerminalRenderCompositorMetricEventHandler?
     private let presentedHandler: TerminalRenderFramePresentedHandler?
-    private var currentEpoch: UInt64
-    private var currentLayer: TerminalRenderMetalLayerHandle
-    private var inFlight = false
-    private var pendingFrame: TerminalRenderFrame?
-    private var stopped = false
-    private var metricsStorage = TerminalRenderCompositorMetrics()
 
     init(
         device: any MTLDevice,
@@ -27,10 +80,37 @@ actor TerminalRenderMetalBlitter {
         metricEventHandler: TerminalRenderCompositorMetricEventHandler?,
         presentedHandler: TerminalRenderFramePresentedHandler?
     ) {
-        self.device = device
-        self.commandQueue = commandQueue
-        self.currentEpoch = initialEpoch
-        self.currentLayer = initialLayer
+        self.executor = TerminalRenderMetalExecutor()
+        self.submissionBackend = TerminalRenderMetalSubmissionBackend(
+            device: device,
+            commandQueue: commandQueue
+        )
+        self.state = State(
+            currentEpoch: initialEpoch,
+            currentLayer: initialLayer
+        )
+        self.releaseHandler = releaseHandler
+        self.dispositionHandler = dispositionHandler
+        self.metricEventHandler = metricEventHandler
+        self.presentedHandler = presentedHandler
+    }
+
+    init(
+        executor: TerminalRenderMetalExecutor,
+        submissionBackend: any TerminalRenderMetalSubmitting,
+        initialEpoch: UInt64,
+        initialLayer: TerminalRenderMetalLayerHandle,
+        releaseHandler: @escaping @Sendable (TerminalRenderFrameRelease) -> Void,
+        dispositionHandler: TerminalRenderFrameDispositionHandler?,
+        metricEventHandler: TerminalRenderCompositorMetricEventHandler?,
+        presentedHandler: TerminalRenderFramePresentedHandler?
+    ) {
+        self.executor = executor
+        self.submissionBackend = submissionBackend
+        self.state = State(
+            currentEpoch: initialEpoch,
+            currentLayer: initialLayer
+        )
         self.releaseHandler = releaseHandler
         self.dispositionHandler = dispositionHandler
         self.metricEventHandler = metricEventHandler
@@ -41,207 +121,436 @@ actor TerminalRenderMetalBlitter {
         epoch: UInt64,
         layer: TerminalRenderMetalLayerHandle
     ) {
-        guard !stopped, epoch >= currentEpoch else { return }
-        transitionIfNeeded(epoch: epoch, layer: layer)
+        var pendingToRelease: TerminalRenderFrame?
+        var queuedToReject: Work?
+
+        lock.lock()
+        guard !state.stopped,
+              epoch >= state.currentEpoch,
+              epoch > state.currentEpoch || layer !== state.currentLayer else {
+            lock.unlock()
+            return
+        }
+
+        state.currentEpoch = epoch
+        state.currentLayer = layer
+        state.cacheInvalidationPending = true
+        pendingToRelease = state.pending?.frame
+        state.pending = nil
+        if let active = state.active, active.phase == .queued {
+            queuedToReject = active.work
+            state.active = nil
+            state.metrics.rejectedFrames &+= 1
+        }
+        scheduleDrainLocked()
+        lock.unlock()
+
+        if let pendingToRelease {
+            release(pendingToRelease)
+        }
+        if let queuedToReject {
+            let result = TerminalRenderCompositorEnqueueResult.rejected(
+                .presentationGenerationMismatch
+            )
+            metricEventHandler?(.rejectedFrame)
+            record(queuedToReject.frame, result: result)
+            release(queuedToReject.frame)
+            queuedToReject.continuation?.resume(returning: result)
+        }
     }
 
     func enqueue(
         _ frame: TerminalRenderFrame,
         epoch: UInt64,
         layer: TerminalRenderMetalLayerHandle
-    ) -> TerminalRenderCompositorEnqueueResult {
-        guard !stopped else {
-            metricsStorage.rejectedFrames &+= 1
-            metricsStorage.metalUnavailableFrames &+= 1
-            metricEventHandler?(.rejectedFrame)
-            metricEventHandler?(.metalUnavailable)
-            record(frame, result: .metalUnavailable)
-            release(frame)
-            return .metalUnavailable
-        }
-        guard epoch >= currentEpoch else {
-            let result = TerminalRenderCompositorEnqueueResult.rejected(
-                .presentationGenerationMismatch
+    ) async -> TerminalRenderCompositorEnqueueResult {
+        // Close the publication race between the ingress fence and this
+        // mailbox. A newer frame can install its monotonic layer epoch here;
+        // an older frame can never move the executor backwards.
+        register(epoch: epoch, layer: layer)
+        await withCheckedContinuation { continuation in
+            admit(
+                frame,
+                epoch: epoch,
+                layer: layer,
+                continuation: continuation
             )
-            record(frame, result: result)
-            release(frame)
-            metricsStorage.rejectedFrames &+= 1
-            metricEventHandler?(.rejectedFrame)
-            return result
         }
-        transitionIfNeeded(epoch: epoch, layer: layer)
-        if inFlight {
-            if let pendingFrame {
-                release(pendingFrame)
-                metricsStorage.coalescedFrames &+= 1
-                metricEventHandler?(.coalescedFrame)
-            }
-            pendingFrame = frame
-            record(frame, result: .coalesced)
-            return .coalesced
-        }
-        // A prior drawable miss may have left one pending frame while no blit
-        // is in flight. Prefer this newer admitted frame and release the exact
-        // lease for the superseded IOSurface before attempting submission.
-        if let pendingFrame {
-            release(pendingFrame)
-            self.pendingFrame = nil
-            metricsStorage.coalescedFrames &+= 1
-            metricEventHandler?(.coalescedFrame)
-        }
-        return submit(frame)
     }
 
     func retry(
         epoch: UInt64,
         layer: TerminalRenderMetalLayerHandle
     ) {
-        guard !stopped, epoch >= currentEpoch else { return }
-        transitionIfNeeded(epoch: epoch, layer: layer)
-        drainPendingFrame()
+        lock.lock()
+        guard !state.stopped,
+              epoch == state.currentEpoch,
+              layer === state.currentLayer,
+              state.active == nil,
+              let pending = state.pending else {
+            lock.unlock()
+            return
+        }
+        state.pending = nil
+        state.active = Active(work: pending, phase: .queued)
+        scheduleDrainLocked()
+        lock.unlock()
     }
 
     func metrics() -> TerminalRenderCompositorMetrics {
-        metricsStorage
+        lock.lock()
+        defer { lock.unlock() }
+        return state.metrics
     }
 
     func stop() {
-        guard !stopped else { return }
-        stopped = true
-        if let pendingFrame {
-            release(pendingFrame)
-        }
-        pendingFrame = nil
-    }
+        var pendingToRelease: TerminalRenderFrame?
+        var queuedToReject: Work?
 
-    private func transitionIfNeeded(
-        epoch: UInt64,
-        layer: TerminalRenderMetalLayerHandle
-    ) {
-        guard epoch > currentEpoch else { return }
-        if let pendingFrame {
-            release(pendingFrame)
+        lock.lock()
+        guard !state.stopped else {
+            lock.unlock()
+            return
         }
-        pendingFrame = nil
-        currentEpoch = epoch
-        currentLayer = layer
-    }
+        state.stopped = true
+        state.cacheInvalidationPending = true
+        pendingToRelease = state.pending?.frame
+        state.pending = nil
+        if let active = state.active, active.phase == .queued {
+            queuedToReject = active.work
+            state.active = nil
+            state.metrics.rejectedFrames &+= 1
+            state.metrics.metalUnavailableFrames &+= 1
+        }
+        scheduleDrainLocked()
+        lock.unlock()
 
-    private func submit(_ frame: TerminalRenderFrame) -> TerminalRenderCompositorEnqueueResult {
-        guard let sourceTexture = makeTexture(frame: frame) else {
-            metricsStorage.rejectedFrames &+= 1
-            metricEventHandler?(.rejectedFrame)
-            record(frame, result: .invalidSurface)
-            release(frame)
-            return .invalidSurface
+        if let pendingToRelease {
+            release(pendingToRelease)
         }
-        guard let drawable = currentLayer.layer.nextDrawable() else {
-            metricsStorage.drawableUnavailableEvents &+= 1
-            metricEventHandler?(.drawableUnavailable)
-            pendingFrame = frame
-            record(frame, result: .drawableUnavailable)
-            return .drawableUnavailable
-        }
-        guard let commandBuffer = commandQueue.makeCommandBuffer(),
-              let blit = commandBuffer.makeBlitCommandEncoder() else {
-            metricsStorage.rejectedFrames &+= 1
-            metricsStorage.metalUnavailableFrames &+= 1
+        if let queuedToReject {
             metricEventHandler?(.rejectedFrame)
             metricEventHandler?(.metalUnavailable)
-            record(frame, result: .metalUnavailable)
-            release(frame)
-            return .metalUnavailable
+            record(queuedToReject.frame, result: .metalUnavailable)
+            release(queuedToReject.frame)
+            queuedToReject.continuation?.resume(returning: .metalUnavailable)
         }
+    }
 
-        commandBuffer.label = TerminalRenderMetalTraceLabels.hostCommandBuffer
-        blit.label = TerminalRenderMetalTraceLabels.hostBlitEncoder
-        blit.copy(
-            from: sourceTexture,
-            sourceSlice: 0,
-            sourceLevel: 0,
-            sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
-            sourceSize: MTLSize(
-                width: Int(frame.metadata.width),
-                height: Int(frame.metadata.height),
-                depth: 1
-            ),
-            to: drawable.texture,
-            destinationSlice: 0,
-            destinationLevel: 0,
-            destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
+    private func admit(
+        _ frame: TerminalRenderFrame,
+        epoch: UInt64,
+        layer: TerminalRenderMetalLayerHandle,
+        continuation: CheckedContinuation<
+            TerminalRenderCompositorEnqueueResult,
+            Never
+        >
+    ) {
+        var immediateResult: TerminalRenderCompositorEnqueueResult?
+        var supersededFrame: TerminalRenderFrame?
+        var incrementCoalescedMetric = false
+
+        lock.lock()
+        if state.stopped {
+            state.metrics.rejectedFrames &+= 1
+            state.metrics.metalUnavailableFrames &+= 1
+            immediateResult = .metalUnavailable
+        } else if epoch != state.currentEpoch || layer !== state.currentLayer {
+            state.metrics.rejectedFrames &+= 1
+            immediateResult = .rejected(.presentationGenerationMismatch)
+        } else if state.active != nil {
+            let work = makeWorkLocked(
+                frame: frame,
+                epoch: epoch,
+                layer: layer,
+                continuation: nil
+            )
+            if let prior = state.pending {
+                supersededFrame = prior.frame
+                state.metrics.coalescedFrames &+= 1
+                incrementCoalescedMetric = true
+            }
+            state.pending = work
+            immediateResult = .coalesced
+        } else {
+            if let prior = state.pending {
+                supersededFrame = prior.frame
+                state.pending = nil
+                state.metrics.coalescedFrames &+= 1
+                incrementCoalescedMetric = true
+            }
+            let work = makeWorkLocked(
+                frame: frame,
+                epoch: epoch,
+                layer: layer,
+                continuation: continuation
+            )
+            state.active = Active(work: work, phase: .queued)
+            scheduleDrainLocked()
+        }
+        lock.unlock()
+
+        if incrementCoalescedMetric {
+            metricEventHandler?(.coalescedFrame)
+        }
+        if let supersededFrame {
+            release(supersededFrame)
+        }
+        if let immediateResult {
+            if immediateResult == .metalUnavailable {
+                metricEventHandler?(.rejectedFrame)
+                metricEventHandler?(.metalUnavailable)
+            } else if case .rejected = immediateResult {
+                metricEventHandler?(.rejectedFrame)
+            }
+            record(frame, result: immediateResult)
+            if immediateResult == .metalUnavailable {
+                release(frame)
+            } else if case .rejected = immediateResult {
+                release(frame)
+            }
+            continuation.resume(returning: immediateResult)
+        }
+    }
+
+    private func makeWorkLocked(
+        frame: TerminalRenderFrame,
+        epoch: UInt64,
+        layer: TerminalRenderMetalLayerHandle,
+        continuation: CheckedContinuation<
+            TerminalRenderCompositorEnqueueResult,
+            Never
+        >?
+    ) -> Work {
+        let id = state.nextWorkID
+        state.nextWorkID &+= 1
+        if state.nextWorkID == 0 {
+            state.nextWorkID = 1
+        }
+        return Work(
+            id: id,
+            frame: frame,
+            epoch: epoch,
+            layer: layer,
+            continuation: continuation
         )
-        blit.endEncoding()
+    }
 
-        inFlight = true
-        metricsStorage.submittedBlits &+= 1
-        metricEventHandler?(.submittedBlit)
-        record(frame, result: .submitted)
-        let release = releaseHandler
-        let releaseRecord = TerminalRenderFrameRelease(frame: frame)
-        let presentedMetadata = frame.metadata
-        let presentedEpoch = currentEpoch
-        drawable.addPresentedHandler { [weak self] _ in
-            Task {
-                await self?.frameBecameVisible(
-                    presentedMetadata,
-                    submissionEpoch: presentedEpoch
+    private func scheduleDrainLocked() {
+        guard !state.drainScheduled else { return }
+        state.drainScheduled = true
+        executor.enqueue { [self] in
+            drainExecutor()
+        }
+    }
+
+    private func drainExecutor() {
+        dispatchPrecondition(condition: .notOnQueue(.main))
+        precondition(executor.isCurrentExecutor)
+
+        while let action = nextExecutorAction() {
+            switch action {
+            case .invalidateCache:
+                submissionBackend.invalidateSourceTextureCache()
+            case .submit(let work):
+                submit(work)
+            }
+        }
+    }
+
+    private func nextExecutorAction() -> ExecutorAction? {
+        lock.lock()
+        defer { lock.unlock() }
+        if state.cacheInvalidationPending {
+            state.cacheInvalidationPending = false
+            return .invalidateCache
+        }
+        if var active = state.active, active.phase == .queued {
+            active.phase = .submitting
+            state.active = active
+            return .submit(active.work)
+        }
+        state.drainScheduled = false
+        return nil
+    }
+
+    private func submit(_ work: Work) {
+        let fallbackRelease = releaseHandler
+        let fallbackReleaseRecord = TerminalRenderFrameRelease(frame: work.frame)
+        let callbacks = TerminalRenderMetalSubmissionCallbacks(
+            completed: { [weak self] in
+                guard let self else {
+                    fallbackRelease(fallbackReleaseRecord)
+                    return
+                }
+                self.submissionCompleted(workID: work.id)
+            },
+            presented: { [weak self] in
+                self?.submissionPresented(
+                    workID: work.id,
+                    metadata: work.frame.metadata,
+                    epoch: work.epoch
                 )
             }
-        }
-        commandBuffer.addCompletedHandler { [weak self, frame] _ in
-            // Retain the imported IOSurface until Metal has stopped reading it,
-            // then permit the remote worker to reuse exactly this pool slot.
-            _ = frame
-            release(releaseRecord)
-            Task { [weak self] in
-                await self?.completedBlit()
-            }
-        }
-        commandBuffer.present(drawable)
-        commandBuffer.commit()
-        return .submitted
-    }
-
-    private func completedBlit() {
-        inFlight = false
-        drainPendingFrame()
-    }
-
-    private func frameBecameVisible(
-        _ metadata: TerminalRenderFrameMetadata,
-        submissionEpoch: UInt64
-    ) {
-        guard !stopped, submissionEpoch == currentEpoch else { return }
-        presentedHandler?(metadata)
-    }
-
-    private func drainPendingFrame() {
-        guard !inFlight, let frame = pendingFrame else { return }
-        pendingFrame = nil
-        _ = submit(frame)
-    }
-
-    private func makeTexture(frame: TerminalRenderFrame) -> (any MTLTexture)? {
-        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: Self.metalPixelFormat(frame.metadata.pixelFormat),
-            width: Int(frame.metadata.width),
-            height: Int(frame.metadata.height),
-            mipmapped: false
         )
-        descriptor.storageMode = .shared
-        // Metal has no explicit blit usage bit. Empty usage avoids claiming
-        // shader or render-target work that the host never performs.
-        descriptor.usage = []
-        return frame.surface.withIOSurface { surface in
-            device.makeTexture(
-                descriptor: descriptor,
-                iosurface: surface,
-                plane: 0
-            )
+        let result = submissionBackend.submitOneFullSurfaceBlit(
+            frame: work.frame,
+            layer: work.layer,
+            callbacks: callbacks
+        )
+        finishSubmissionAttempt(workID: work.id, backendResult: result)
+    }
+
+    private func finishSubmissionAttempt(
+        workID: UInt64,
+        backendResult: TerminalRenderMetalBackendSubmissionResult
+    ) {
+        var work: Work?
+        var result: TerminalRenderCompositorEnqueueResult?
+        var shouldRelease = false
+        var completedImmediately = false
+        var coalescedByNewerFrame = false
+
+        lock.lock()
+        guard var active = state.active,
+              active.work.id == workID,
+              active.phase == .submitting else {
+            lock.unlock()
+            return
         }
+        work = active.work
+        switch backendResult {
+        case .submitted:
+            result = .submitted
+            state.metrics.submittedBlits &+= 1
+            if active.completionArrivedWhileSubmitting {
+                state.metrics.gpuCompletedBlits &+= 1
+                completedImmediately = true
+                shouldRelease = true
+                state.active = nil
+                promotePendingLocked()
+            } else {
+                active.phase = .gpuInFlight
+                state.active = active
+            }
+        case .drawableUnavailable:
+            result = .drawableUnavailable
+            state.metrics.drawableUnavailableEvents &+= 1
+            state.active = nil
+            if state.stopped {
+                shouldRelease = true
+            } else if let pending = state.pending {
+                state.pending = nil
+                state.active = Active(work: pending, phase: .queued)
+                state.metrics.coalescedFrames &+= 1
+                coalescedByNewerFrame = true
+                shouldRelease = true
+            } else {
+                state.pending = active.work.withoutContinuation
+            }
+        case .invalidSurface:
+            result = .invalidSurface
+            state.metrics.rejectedFrames &+= 1
+            shouldRelease = true
+            state.active = nil
+            promotePendingLocked()
+        case .metalUnavailable:
+            result = .metalUnavailable
+            state.metrics.rejectedFrames &+= 1
+            state.metrics.metalUnavailableFrames &+= 1
+            shouldRelease = true
+            state.active = nil
+            promotePendingLocked()
+        }
+        lock.unlock()
+
+        guard let work, let result else { return }
+        switch backendResult {
+        case .submitted:
+            metricEventHandler?(.submittedBlit)
+        case .drawableUnavailable:
+            metricEventHandler?(.drawableUnavailable)
+        case .invalidSurface:
+            metricEventHandler?(.rejectedFrame)
+        case .metalUnavailable:
+            metricEventHandler?(.rejectedFrame)
+            metricEventHandler?(.metalUnavailable)
+        }
+        if coalescedByNewerFrame {
+            metricEventHandler?(.coalescedFrame)
+        }
+        record(work.frame, result: result)
+        work.continuation?.resume(returning: result)
+        if completedImmediately {
+            metricEventHandler?(.gpuCompletedBlit)
+        }
+        if shouldRelease {
+            release(work.frame)
+        }
+    }
+
+    private func submissionCompleted(workID: UInt64) {
+        var frameToRelease: TerminalRenderFrame?
+        var emitCompletionMetric = false
+
+        lock.lock()
+        guard var active = state.active, active.work.id == workID else {
+            lock.unlock()
+            return
+        }
+        switch active.phase {
+        case .queued:
+            lock.unlock()
+            return
+        case .submitting:
+            active.completionArrivedWhileSubmitting = true
+            state.active = active
+        case .gpuInFlight:
+            frameToRelease = active.work.frame
+            state.active = nil
+            state.metrics.gpuCompletedBlits &+= 1
+            emitCompletionMetric = true
+            promotePendingLocked()
+        }
+        lock.unlock()
+
+        if emitCompletionMetric {
+            metricEventHandler?(.gpuCompletedBlit)
+        }
+        if let frameToRelease {
+            release(frameToRelease)
+        }
+    }
+
+    private func submissionPresented(
+        workID _: UInt64,
+        metadata: TerminalRenderFrameMetadata,
+        epoch: UInt64
+    ) {
+        lock.lock()
+        let shouldPresent = !state.stopped && epoch == state.currentEpoch
+        lock.unlock()
+        if shouldPresent {
+            presentedHandler?(metadata)
+        }
+    }
+
+    private func promotePendingLocked() {
+        guard !state.stopped,
+              state.active == nil,
+              let pending = state.pending else {
+            return
+        }
+        state.pending = nil
+        state.active = Active(work: pending, phase: .queued)
+        scheduleDrainLocked()
     }
 
     private func release(_ frame: TerminalRenderFrame) {
+        lock.lock()
+        state.metrics.releasedSurfaces &+= 1
+        lock.unlock()
+        metricEventHandler?(.releasedSurface)
         releaseHandler(TerminalRenderFrameRelease(frame: frame))
     }
 
@@ -250,16 +559,5 @@ actor TerminalRenderMetalBlitter {
         result: TerminalRenderCompositorEnqueueResult
     ) {
         dispositionHandler?(frame, result)
-    }
-
-    private static func metalPixelFormat(
-        _ format: TerminalRenderPixelFormat
-    ) -> MTLPixelFormat {
-        switch format {
-        case .bgra8Unorm:
-            .bgra8Unorm
-        case .rgba16Float:
-            .rgba16Float
-        }
     }
 }
