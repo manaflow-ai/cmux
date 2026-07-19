@@ -462,12 +462,13 @@ func TestWebSocketPTYPersistentInteractiveBashChildSurvivesHangup(t *testing.T) 
 	if err := func() error {
 		hub.mu.Lock()
 		defer hub.mu.Unlock()
+		startupCommand := `/bin/true; if [ -n "${CMUX_PERSISTENT_PTY_EXEC_HELPER:-}" ]; then exec "$CMUX_PERSISTENT_PTY_EXEC_HELPER" --internal-persistent-pty-exec /bin/bash /bin/bash --noprofile --norc -i; fi; exec /bin/bash --noprofile --norc -i`
 		session, err := hub.startSessionLocked(
 			persistentPTYSessionKey(sessionID),
 			sessionID,
 			80,
 			24,
-			"exec /bin/bash --noprofile --norc -i",
+			startupCommand,
 		)
 		if err != nil {
 			return err
@@ -488,49 +489,77 @@ func TestWebSocketPTYPersistentInteractiveBashChildSurvivesHangup(t *testing.T) 
 	readReady(t, ctx, conn)
 	waitForBinaryContains(t, ctx, conn, "bash", 5*time.Second)
 
-	// Agent runtimes may restore SIGHUP's default disposition. Persistence must
-	// therefore survive a disposition reset instead of depending on SIG_IGN.
-	helperCode := `import os,signal,time;signal.signal(signal.SIGHUP,signal.SIG_DFL);status=open("/proc/self/status").read();mask=int(next(line for line in status.splitlines() if line.startswith("SigBlk:")).split()[1],16);blocked=bool(mask&1);ignored=signal.getsignal(signal.SIGHUP)==signal.SIG_IGN;print("CMUX_"+"INTERACTIVE_HUP_HELPER pid=%d blocked=%s ignored=%s protected=%s"%(os.getpid(),str(blocked).lower(),str(ignored).lower(),str(blocked or ignored).lower()),flush=True);signal.signal(signal.SIGUSR1,lambda *_:print("CMUX_"+"INTERACTIVE_HUP_HELPER alive",flush=True));time.sleep(1000000)`
-	command := "set -m; /usr/bin/python3 -u -c '" + helperCode + "'\r"
+	// The production bootstrap runs external programs before its final login
+	// shell. Agent runtimes may then restore SIGHUP's default disposition, so
+	// both foreground and background jobs must inherit protection from that
+	// final exec boundary instead of depending on the outer /bin/sh process.
+	backgroundCode := `import os,signal,time;signal.signal(signal.SIGHUP,signal.SIG_DFL);status=open("/proc/self/status").read();mask=int(next(line for line in status.splitlines() if line.startswith("SigBlk:")).split()[1],16);blocked=bool(mask&1);ignored=signal.getsignal(signal.SIGHUP)==signal.SIG_IGN;print("CMUX_"+"BACKGROUND_HUP_HELPER pid=%d blocked=%s ignored=%s protected=%s"%(os.getpid(),str(blocked).lower(),str(ignored).lower(),str(blocked or ignored).lower()),flush=True);signal.signal(signal.SIGUSR1,lambda *_:print("CMUX_"+"BACKGROUND_HUP_HELPER alive",flush=True));time.sleep(1000000)`
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte("set -m; /usr/bin/python3 -u -c '"+backgroundCode+"' &\r")); err != nil {
+		t.Fatalf("launch background helper from interactive Bash: %v", err)
+	}
+	const backgroundPIDMarker = "CMUX_BACKGROUND_HUP_HELPER pid="
+	backgroundOutput := waitForBinaryContains(t, ctx, conn, backgroundPIDMarker, 5*time.Second)
+
+	foregroundCode := `import os,signal,time;signal.signal(signal.SIGHUP,signal.SIG_DFL);status=open("/proc/self/status").read();mask=int(next(line for line in status.splitlines() if line.startswith("SigBlk:")).split()[1],16);blocked=bool(mask&1);ignored=signal.getsignal(signal.SIGHUP)==signal.SIG_IGN;print("CMUX_"+"FOREGROUND_HUP_HELPER pid=%d blocked=%s ignored=%s protected=%s"%(os.getpid(),str(blocked).lower(),str(ignored).lower(),str(blocked or ignored).lower()),flush=True);signal.signal(signal.SIGUSR1,lambda *_:print("CMUX_"+"FOREGROUND_HUP_HELPER alive",flush=True));time.sleep(1000000)`
+	command := "/usr/bin/python3 -u -c '" + foregroundCode + "'\r"
 	if err := conn.Write(ctx, websocket.MessageBinary, []byte(command)); err != nil {
 		t.Fatalf("launch foreground helper from interactive Bash: %v", err)
 	}
-	const pidMarker = "CMUX_INTERACTIVE_HUP_HELPER pid="
-	output := waitForBinaryContains(t, ctx, conn, pidMarker, 5*time.Second)
-	markerIndex := strings.LastIndex(output, pidMarker)
-	pidStart := markerIndex + len(pidMarker)
-	pidEnd := pidStart
-	for pidEnd < len(output) && output[pidEnd] >= '0' && output[pidEnd] <= '9' {
-		pidEnd++
+	const foregroundPIDMarker = "CMUX_FOREGROUND_HUP_HELPER pid="
+	foregroundOutput := waitForBinaryContains(t, ctx, conn, foregroundPIDMarker, 5*time.Second)
+	parsePID := func(output string, marker string) (int, string) {
+		markerIndex := strings.LastIndex(output, marker)
+		pidStart := markerIndex + len(marker)
+		pidEnd := pidStart
+		for pidEnd < len(output) && output[pidEnd] >= '0' && output[pidEnd] <= '9' {
+			pidEnd++
+		}
+		pid, parseErr := strconv.Atoi(output[pidStart:pidEnd])
+		if parseErr != nil || pid <= 0 {
+			t.Fatalf("parse interactive helper pid from output %q marker=%q: pid=%d err=%v", output, marker, pid, parseErr)
+		}
+		return pid, output[markerIndex:]
 	}
-	childPID, err := strconv.Atoi(output[pidStart:pidEnd])
-	if err != nil || childPID <= 0 {
-		t.Fatalf("parse interactive foreground helper pid from output %q: pid=%d err=%v", output, childPID, err)
-	}
-	t.Logf("interactive foreground helper state: %q", output[markerIndex:])
-	t.Cleanup(func() { _ = syscall.Kill(-childPID, syscall.SIGKILL) })
-	hangupProtection := output[markerIndex:]
+	backgroundPID, backgroundProtection := parsePID(backgroundOutput, backgroundPIDMarker)
+	foregroundPID, foregroundProtection := parsePID(foregroundOutput, foregroundPIDMarker)
+	t.Logf("interactive background helper state: %q", backgroundProtection)
+	t.Logf("interactive foreground helper state: %q", foregroundProtection)
+	t.Cleanup(func() {
+		_ = syscall.Kill(-foregroundPID, syscall.SIGKILL)
+		_ = syscall.Kill(-backgroundPID, syscall.SIGKILL)
+	})
 
 	_ = conn.Close(websocket.StatusNormalClosure, "relay drop")
 	waitForHubSessionSize(t, hub, sessionID, 0, 80, 24, 5*time.Second)
-	if err := syscall.Kill(-childPID, syscall.SIGHUP); err != nil {
+	if err := syscall.Kill(-foregroundPID, syscall.SIGHUP); err != nil {
 		t.Fatalf("deliver hangup to interactive foreground process group: %v", err)
 	}
+	if err := syscall.Kill(-backgroundPID, syscall.SIGHUP); err != nil {
+		t.Fatalf("deliver hangup to interactive background process group: %v", err)
+	}
 	time.Sleep(50 * time.Millisecond)
-	if err := syscall.Kill(-childPID, syscall.SIGUSR1); err != nil {
+	if err := syscall.Kill(-foregroundPID, syscall.SIGUSR1); err != nil {
 		t.Fatalf("interactive foreground helper did not survive hangup: %v", err)
+	}
+	if err := syscall.Kill(-backgroundPID, syscall.SIGUSR1); err != nil {
+		t.Fatalf("interactive background helper did not survive hangup: %v", err)
 	}
 
 	writeTestLease(t, leasePath, "reattach-token", sessionID, true, time.Now().Add(time.Minute))
 	conn = dialPTY(t, ctx, server.URL)
 	sendAuthWithAttachment(t, ctx, conn, "reattach-token", sessionID, "same", 80, 24)
 	readReady(t, ctx, conn)
-	waitForBinaryContains(t, ctx, conn, "CMUX_INTERACTIVE_HUP_HELPER alive", 5*time.Second)
-	if !strings.Contains(hangupProtection, "protected=true") {
-		t.Fatalf("interactive Bash foreground child did not inherit SIGHUP protection: %q", hangupProtection)
+	waitForBinaryContains(t, ctx, conn, "CMUX_FOREGROUND_HUP_HELPER alive", 5*time.Second)
+	waitForBinaryContains(t, ctx, conn, "CMUX_BACKGROUND_HUP_HELPER alive", 5*time.Second)
+	if !strings.Contains(foregroundProtection, "blocked=true ignored=false protected=true") {
+		t.Fatalf("interactive Bash foreground child did not inherit blocked SIGHUP: %q", foregroundProtection)
+	}
+	if !strings.Contains(backgroundProtection, "blocked=true ignored=false protected=true") {
+		t.Fatalf("interactive Bash background child did not inherit blocked SIGHUP: %q", backgroundProtection)
 	}
 
-	_ = syscall.Kill(-childPID, syscall.SIGKILL)
+	_ = syscall.Kill(-foregroundPID, syscall.SIGKILL)
+	_ = syscall.Kill(-backgroundPID, syscall.SIGKILL)
 	if err := conn.Write(ctx, websocket.MessageBinary, []byte("exit\r")); err != nil {
 		t.Fatalf("exit reattached shell: %v", err)
 	}
