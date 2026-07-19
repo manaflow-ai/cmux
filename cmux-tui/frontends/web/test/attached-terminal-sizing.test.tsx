@@ -238,6 +238,52 @@ describe("attached terminal sizing", () => {
     view.unmount();
   });
 
+  it("reapplies authoritative palette after RIS resets the browser mirror", async () => {
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+    const client = {
+      attachSurface: vi.fn(async () => new TestStream([
+        {
+          event: "vt-state",
+          surface: 7,
+          cols: 80,
+          rows: 24,
+          data: new Uint8Array(),
+          colors: { palette: { "4": "#112233" } },
+        },
+        { event: "output", surface: 7, data: new Uint8Array([0x1b, 0x63]) },
+        {
+          event: "colors-changed",
+          surface: 7,
+          fg: null,
+          bg: null,
+          cursor: null,
+          selection_bg: null,
+          selection_fg: null,
+          palette: { "4": "#112233" },
+        },
+      ])),
+      resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
+      releaseSurfaceSize: vi.fn(async () => ({})),
+      send: vi.fn(async () => ({})),
+    } as unknown as CmuxClient;
+
+    const view = render(<Harness client={client} />);
+
+    await waitFor(() => {
+      expect(terminalMocks.instances[0]?.writes).toEqual([
+        new Uint8Array(),
+        "\x1b]104\x1b\\\x1b]4;4;#112233\x1b\\",
+        new Uint8Array([0x1b, 0x63]),
+        "\x1b]104\x1b\\\x1b]4;4;#112233\x1b\\",
+      ]);
+    });
+    view.unmount();
+  });
+
   it("preserves replay palette when a protocol-v6 server omits sparse metadata", async () => {
     globalThis.ResizeObserver = class {
       observe() {}
