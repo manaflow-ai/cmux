@@ -54,6 +54,8 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     private let glassEffect = WindowGlassEffect()
     private weak var compatibilityBlurView: NSVisualEffectView?
     private var isApplyingModelFrame = false
+    private var hasAppliedInitialScreenPlacement = false
+    private var isScreenConfigurationChanging = false
 
     init(
         dock: WorkspaceFloatingDock,
@@ -117,7 +119,12 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         panel.title = dock.title
         Self.configureStandardWindowButtons(in: panel)
         applyGlassTexture()
-        applyModelFrameIfNeeded()
+        if hasAppliedInitialScreenPlacement {
+            applyModelFrameIfNeeded()
+        } else {
+            applyInitialScreenPlacement()
+            hasAppliedInitialScreenPlacement = true
+        }
         if !panel.isVisible {
             if panel.parent !== parentWindow {
                 parentWindow.addChildWindow(panel, ordered: .above)
@@ -134,6 +141,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             raiseAboveSiblingFloatingDocks(panel)
             _ = dock.store.focusFirstControl()
         }
+        captureModelFrame()
     }
 
     func hide() {
@@ -164,6 +172,42 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         compatibilityBlurView?.removeFromSuperview()
         window?.orderOut(nil)
         window?.delegate = nil
+    }
+
+    func beginScreenConfigurationChange() {
+        isScreenConfigurationChanging = true
+    }
+
+    @discardableResult
+    func reconcileScreenConfiguration() -> Bool {
+        guard let panel = window,
+              let appDelegate = AppDelegate.shared,
+              let signature = appDelegate.currentDisplayConfigurationSignature() else {
+            return false
+        }
+        let displays = appDelegate.currentDisplayGeometries()
+        guard let resolvedFrame = WorkspaceFloatingDockScreenPlacement.resolvedFrame(
+            currentSignature: signature,
+            configFrames: dock.configFrames,
+            fallbackFrame: dock.screenFrame ?? panel.frame,
+            fallbackDisplay: dock.displaySnapshot ?? appDelegate.displaySnapshot(for: panel),
+            availableDisplays: displays.available,
+            fallbackDisplayGeometry: displays.fallback
+        ) else {
+            return false
+        }
+
+        applyScreenFrame(resolvedFrame)
+        captureModelFrame(allowDuringScreenConfigurationChange: true)
+        isScreenConfigurationChanging = false
+#if DEBUG
+        cmuxDebugLog(
+            "floatingDock.screen.reconcile dock=\(dock.id.uuidString.prefix(8)) " +
+                "signature=\(AppDelegate.signatureLogToken(signature)) " +
+                "frame={\(appDelegate.nsRectLogDescription(resolvedFrame))}"
+        )
+#endif
+        return true
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
@@ -225,6 +269,39 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         isApplyingModelFrame = false
     }
 
+    private func applyInitialScreenPlacement() {
+        guard let panel = window,
+              let appDelegate = AppDelegate.shared else {
+            applyModelFrameIfNeeded()
+            return
+        }
+        let displays = appDelegate.currentDisplayGeometries()
+        guard let target = WorkspaceFloatingDockScreenPlacement.resolvedFrame(
+            currentSignature: appDelegate.currentDisplayConfigurationSignature(),
+            configFrames: dock.configFrames,
+            fallbackFrame: dock.screenFrame,
+            fallbackDisplay: dock.displaySnapshot,
+            availableDisplays: displays.available,
+            fallbackDisplayGeometry: displays.fallback
+        ) else {
+            applyModelFrameIfNeeded()
+            return
+        }
+        applyScreenFrame(target)
+        captureModelFrame()
+    }
+
+    private func applyScreenFrame(_ frame: CGRect) {
+        guard let panel = window else { return }
+        isApplyingModelFrame = true
+        if let panel = panel as? WorkspaceFloatingDockPanel {
+            panel.setExplicitFrame(frame, display: panel.isVisible)
+        } else {
+            panel.setFrame(frame, display: panel.isVisible)
+        }
+        isApplyingModelFrame = false
+    }
+
     private func applyModelFrameIfNeeded() {
         guard let panel = window, let parentWindow else { return }
         let target = Self.screenFrame(relativeFrame: dock.frame, parentWindow: parentWindow)
@@ -232,14 +309,28 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         applyModelFrame()
     }
 
-    private func captureModelFrame() {
-        guard !isApplyingModelFrame, let panel = window, let parentWindow else { return }
+    private func captureModelFrame(allowDuringScreenConfigurationChange: Bool = false) {
+        guard !isApplyingModelFrame,
+              allowDuringScreenConfigurationChange || !isScreenConfigurationChanging,
+              let panel = window,
+              let parentWindow else { return }
         dock.frame = CGRect(
             x: panel.frame.minX - parentWindow.frame.minX,
             y: panel.frame.minY - parentWindow.frame.minY,
             width: panel.frame.width,
             height: panel.frame.height
         )
+        dock.screenFrame = panel.frame
+        guard let appDelegate = AppDelegate.shared else { return }
+        dock.displaySnapshot = appDelegate.displaySnapshot(for: panel)
+        guard let signature = appDelegate.currentDisplayConfigurationSignature() else { return }
+        let entry = SessionConfigFrameEntry(
+            signature: signature,
+            frame: SessionRectSnapshot(panel.frame),
+            display: dock.displaySnapshot,
+            lastUsedAt: Date().timeIntervalSince1970
+        )
+        dock.configFrames = dock.configFrames.upserting(entry)
     }
 
     private func raiseAboveSiblingFloatingDocks(_ panel: NSWindow) {

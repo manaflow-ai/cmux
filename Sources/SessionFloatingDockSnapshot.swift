@@ -14,6 +14,12 @@ struct SessionFloatingDockSnapshot: Codable, Sendable {
     var backgroundTintHex: String? = nil
     /// Absent in snapshots written before floating Dock contents were restorable.
     var content: SessionFloatingDockContentSnapshot? = nil
+    /// Last global screen frame, used to remap the window across display sizes.
+    var screenFrame: SessionRectSnapshot? = nil
+    /// Display geometry associated with ``screenFrame``.
+    var display: SessionDisplaySnapshot? = nil
+    /// Exact remembered frames for recently-used display configurations.
+    var configFrames: [SessionConfigFrameEntry]? = nil
 }
 
 struct SessionFloatingDockContentSnapshot: Codable, Sendable {

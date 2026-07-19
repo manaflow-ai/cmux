@@ -75,6 +75,17 @@ final class WorkspaceFloatingDockPresenter {
         controllers.removeAll()
     }
 
+    func beginScreenConfigurationChange() {
+        controllers.values.forEach { $0.beginScreenConfigurationChange() }
+    }
+
+    @discardableResult
+    func reconcileScreenConfiguration() -> Bool {
+        controllers.values.reduce(true) { reconciled, controller in
+            controller.reconcileScreenConfiguration() && reconciled
+        }
+    }
+
     func isAttached(to window: NSWindow) -> Bool {
         parentWindow === window
     }

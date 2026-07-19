@@ -708,6 +708,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C4041001000000000000001B /* CommandClickFileOpenRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4041001000000000000001A /* CommandClickFileOpenRouter.swift */; };
 		C0DEC0DE000000000000F302 /* CommandPaletteEmojiTitleSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE000000000000F301 /* CommandPaletteEmojiTitleSearchTests.swift */; };
 		C0DE32470000000000000005 /* CommandPaletteIdentifierClipboardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */; };
+		F10C00000000000000000005 /* CommandPaletteNativeTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10C00000000000000000006 /* CommandPaletteNativeTextField.swift */; };
 		F10C00000000000000000001 /* CommandPaletteNativeTextFieldTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10C00000000000000000002 /* CommandPaletteNativeTextFieldTests.swift */; };
 		C0DEC0DE000000000000F202 /* CommandPaletteNucleoFFILibrarySupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE000000000000F201 /* CommandPaletteNucleoFFILibrarySupport.swift */; };
 		C0DEC0DE000000000000F102 /* CommandPaletteNucleoFFITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE000000000000F101 /* CommandPaletteNucleoFFITests.swift */; };
@@ -2013,6 +2014,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F10A00000000000000000005 /* WorkspaceFloatingDock.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10B00000000000000000005 /* WorkspaceFloatingDock.swift */; };
 		F10A00000000000000000006 /* WorkspaceFloatingDockContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10B00000000000000000006 /* WorkspaceFloatingDockContentView.swift */; };
 		F10A00000000000000000007 /* WorkspaceFloatingDockPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10B00000000000000000007 /* WorkspaceFloatingDockPresenter.swift */; };
+		F10C00000000000000000007 /* WorkspaceFloatingDockScreenPlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10C00000000000000000008 /* WorkspaceFloatingDockScreenPlacement.swift */; };
 		F10C00000000000000000003 /* WorkspaceFloatingDockScreenPlacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10C00000000000000000004 /* WorkspaceFloatingDockScreenPlacementTests.swift */; };
 		F10A00000000000000000008 /* WorkspaceFloatingDockWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10B00000000000000000008 /* WorkspaceFloatingDockWindowController.swift */; };
 		F0ACC0DE000000000000000B /* WorkspaceForkAgentConversationAvailability.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE000000000000000C /* WorkspaceForkAgentConversationAvailability.swift */; };
@@ -2785,6 +2787,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C4041001000000000000001A /* CommandClickFileOpenRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandClickFileOpenRouter.swift; sourceTree = "<group>"; };
 		C0DEC0DE000000000000F301 /* CommandPaletteEmojiTitleSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteEmojiTitleSearchTests.swift; sourceTree = "<group>"; };
 		C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteIdentifierClipboardUITests.swift; sourceTree = "<group>"; };
+		F10C00000000000000000006 /* CommandPaletteNativeTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPalette/CommandPaletteNativeTextField.swift; sourceTree = "<group>"; };
 		F10C00000000000000000002 /* CommandPaletteNativeTextFieldTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteNativeTextFieldTests.swift; sourceTree = "<group>"; };
 		C0DEC0DE000000000000F201 /* CommandPaletteNucleoFFILibrarySupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteNucleoFFILibrarySupport.swift; sourceTree = "<group>"; };
 		C0DEC0DE000000000000F101 /* CommandPaletteNucleoFFITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteNucleoFFITests.swift; sourceTree = "<group>"; };
@@ -4070,6 +4073,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F10B00000000000000000005 /* WorkspaceFloatingDock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFloatingDock.swift; sourceTree = "<group>"; };
 		F10B00000000000000000006 /* WorkspaceFloatingDockContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFloatingDockContentView.swift; sourceTree = "<group>"; };
 		F10B00000000000000000007 /* WorkspaceFloatingDockPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFloatingDockPresenter.swift; sourceTree = "<group>"; };
+		F10C00000000000000000008 /* WorkspaceFloatingDockScreenPlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFloatingDockScreenPlacement.swift; sourceTree = "<group>"; };
 		F10C00000000000000000004 /* WorkspaceFloatingDockScreenPlacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFloatingDockScreenPlacementTests.swift; sourceTree = "<group>"; };
 		F10B00000000000000000008 /* WorkspaceFloatingDockWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFloatingDockWindowController.swift; sourceTree = "<group>"; };
 		F0ACC0DE000000000000000C /* WorkspaceForkAgentConversationAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceForkAgentConversationAvailability.swift; sourceTree = "<group>"; };
@@ -4703,6 +4707,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				5B0C00010000000000000002 /* SidebarResizerOcclusionResolver.swift */,
 				C0DEFF200000000000000002 /* CommandPaletteOverlay.swift */,
 				C0DEFF210000000000000002 /* CommandPaletteWindowController.swift */,
+				F10C00000000000000000006 /* CommandPaletteNativeTextField.swift */,
 				C0DEF4110000000000000002 /* CommandPaletteSettingsToggle.swift */,
 				9DAB808A8EC74C40B95F7672 /* GhosttySurfaceConfigurationRefresh.swift */,
 				6B8E2E03F4A64C61B729CF19 /* TerminalDirectoryOpenSupport.swift */,
@@ -5643,6 +5648,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F10B00000000000000000005 /* WorkspaceFloatingDock.swift */,
 				F10B00000000000000000006 /* WorkspaceFloatingDockContentView.swift */,
 				F10B00000000000000000007 /* WorkspaceFloatingDockPresenter.swift */,
+				F10C00000000000000000008 /* WorkspaceFloatingDockScreenPlacement.swift */,
 				F10B00000000000000000008 /* WorkspaceFloatingDockWindowController.swift */,
 				F10B00000000000000000009 /* TerminalController+ControlWorkspaceFloatingDockContext.swift */,
 				D6212D0C00000000000000D4 /* TerminalController+WindowDockBrowserRouting.swift */,
@@ -7162,6 +7168,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9F200000000000000000016 /* CodexAppServerQueuedInput.swift in Sources */,
 				A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */,
 				C4041001000000000000001B /* CommandClickFileOpenRouter.swift in Sources */,
+				F10C00000000000000000005 /* CommandPaletteNativeTextField.swift in Sources */,
 				C0DEFF200000000000000001 /* CommandPaletteOverlay.swift in Sources */,
 				C0DEF4110000000000000001 /* CommandPaletteSettingsToggle.swift in Sources */,
 				C1713002C1713002C1713002 /* CommandPaletteShortcutRouting.swift in Sources */,
@@ -8062,6 +8069,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F10A00000000000000000005 /* WorkspaceFloatingDock.swift in Sources */,
 				F10A00000000000000000006 /* WorkspaceFloatingDockContentView.swift in Sources */,
 				F10A00000000000000000007 /* WorkspaceFloatingDockPresenter.swift in Sources */,
+				F10C00000000000000000007 /* WorkspaceFloatingDockScreenPlacement.swift in Sources */,
 				F10A00000000000000000008 /* WorkspaceFloatingDockWindowController.swift in Sources */,
 				F0ACC0DE000000000000000B /* WorkspaceForkAgentConversationAvailability.swift in Sources */,
 				C9A57203C9A57203C9A57203 /* WorkspaceGroupMenuSnapshot.swift in Sources */,

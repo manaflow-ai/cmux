@@ -13,7 +13,10 @@ extension Workspace {
         initialContent: DockSurfaceKind = .terminal,
         initialURL: URL? = nil,
         backgroundTintHex: String? = nil,
-        sessionContent: SessionFloatingDockContentSnapshot? = nil
+        sessionContent: SessionFloatingDockContentSnapshot? = nil,
+        screenFrame: CGRect? = nil,
+        displaySnapshot: SessionDisplaySnapshot? = nil,
+        configFrames: [SessionConfigFrameEntry]? = nil
     ) -> WorkspaceFloatingDock? {
         let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayTitle = resolvedTitle?.isEmpty == false
@@ -30,6 +33,9 @@ extension Workspace {
             backgroundTintHex: WorkspaceFloatingDockBackgroundColor.normalized(backgroundTintHex),
             initialContent: sessionContent == nil ? initialContent : nil,
             initialURL: initialURL,
+            screenFrame: screenFrame,
+            displaySnapshot: displaySnapshot,
+            configFrames: SessionConfigFrameRing(entries: configFrames ?? []),
             baseDirectoryProvider: { [weak self] in self?.currentDirectory },
             remoteBrowserSettingsProvider: { [weak self] in
                 self?.dockRemoteBrowserSettingsSnapshot() ?? .local
@@ -89,7 +95,10 @@ extension Workspace {
                 height: dock.frame.height,
                 isPresented: dock.isPresented,
                 backgroundTintHex: dock.backgroundTintHex,
-                content: dock.sessionContentSnapshot()
+                content: dock.sessionContentSnapshot(),
+                screenFrame: dock.screenFrame.map(SessionRectSnapshot.init),
+                display: dock.displaySnapshot,
+                configFrames: dock.configFrames.entries.isEmpty ? nil : dock.configFrames.entries
             )
         }
         return snapshots.isEmpty ? nil : snapshots
@@ -110,7 +119,10 @@ extension Workspace {
                 ),
                 isPresented: snapshot.isPresented,
                 backgroundTintHex: snapshot.backgroundTintHex,
-                sessionContent: snapshot.content
+                sessionContent: snapshot.content,
+                screenFrame: snapshot.screenFrame?.cgRect,
+                displaySnapshot: snapshot.display,
+                configFrames: snapshot.configFrames
             )
         }
     }

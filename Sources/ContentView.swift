@@ -3311,44 +3311,6 @@ struct ContentView: View {
         }
     }
 
-    private final class CommandPaletteNativeTextField: NSTextField {
-        var onHandleKeyEvent: ((NSEvent, NSTextView?) -> Bool)?
-
-        override init(frame frameRect: NSRect) {
-            super.init(frame: frameRect)
-            isBordered = false
-            isBezeled = false
-            drawsBackground = false
-            focusRingType = .none
-            usesSingleLineMode = true
-        }
-
-        required init?(coder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
-        }
-
-        override func keyDown(with event: NSEvent) {
-            if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
-                super.keyDown(with: event)
-                return
-            }
-            if onHandleKeyEvent?(event, currentEditor() as? NSTextView) == true {
-                return
-            }
-            super.keyDown(with: event)
-        }
-
-        override func performKeyEquivalent(with event: NSEvent) -> Bool {
-            if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
-                return super.performKeyEquivalent(with: event)
-            }
-            if onHandleKeyEvent?(event, currentEditor() as? NSTextView) == true {
-                return true
-            }
-            return super.performKeyEquivalent(with: event)
-        }
-    }
-
     // Keep navigation on the AppKit field editor so scope switches preserve arrow-key handlers.
     private struct CommandPaletteSearchFieldRepresentable: NSViewRepresentable {
         let placeholder: String
@@ -3364,7 +3326,6 @@ struct ContentView: View {
             var parent: CommandPaletteSearchFieldRepresentable
             var isProgrammaticMutation = false
             weak var parentField: CommandPaletteNativeTextField?
-            var pendingFocusRequest: Bool?
             nonisolated(unsafe) var editorTextDidChangeObserver: NSObjectProtocol?
             weak var observedEditor: NSTextView?
 
@@ -3386,9 +3347,7 @@ struct ContentView: View {
                     attachEditorTextDidChangeObserverIfNeeded(editor)
                 }
                 if !parent.isFocused {
-                    DispatchQueue.main.async {
-                        self.parent.isFocused = true
-                    }
+                    parent.isFocused = true
                 }
             }
 
@@ -3498,6 +3457,7 @@ struct ContentView: View {
             context.coordinator.parentField = nsView
             nsView.placeholderString = placeholder
             nsView.font = GlobalFontMagnification.systemFont(ofSize: 13)
+            nsView.requestsFirstResponder = isFocused
 
             if let editor = nsView.currentEditor() as? NSTextView {
                 context.coordinator.attachEditorTextDidChangeObserverIfNeeded(editor)
@@ -3514,33 +3474,12 @@ struct ContentView: View {
                 context.coordinator.detachEditorTextDidChangeObserver()
             }
 
-            guard let window = nsView.window else { return }
-            let firstResponder = window.firstResponder
-            let isFirstResponder =
-                firstResponder === nsView ||
-                nsView.currentEditor() != nil ||
-                ((firstResponder as? NSTextView)?.delegate as? NSTextField) === nsView
-
-            if isFocused, !isFirstResponder, context.coordinator.pendingFocusRequest != true {
-                context.coordinator.pendingFocusRequest = true
-                DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
-                    coordinator?.pendingFocusRequest = nil
-                    guard let coordinator, coordinator.parent.isFocused else { return }
-                    guard let nsView, let window = nsView.window else { return }
-                    let firstResponder = window.firstResponder
-                    let alreadyFocused =
-                        firstResponder === nsView ||
-                        nsView.currentEditor() != nil ||
-                        ((firstResponder as? NSTextView)?.delegate as? NSTextField) === nsView
-                    guard !alreadyFocused else { return }
-                    window.makeFirstResponder(nsView)
-                }
-            }
         }
 
         static func dismantleNSView(_ nsView: CommandPaletteNativeTextField, coordinator: Coordinator) {
             nsView.delegate = nil
             nsView.onHandleKeyEvent = nil
+            nsView.requestsFirstResponder = false
             coordinator.detachEditorTextDidChangeObserver()
             coordinator.parentField = nil
         }
@@ -9102,15 +9041,13 @@ struct ContentView: View {
         commandPaletteShouldFocusWorkspaceDescriptionEditor = false
         isCommandPaletteSearchFocused = false
         isCommandPaletteRenameFocused = false
-        DispatchQueue.main.async {
-            switch policy.focusTarget {
-            case .search:
-                isCommandPaletteSearchFocused = true
-            case .rename:
-                isCommandPaletteRenameFocused = true
-            }
-            applyCommandPaletteTextSelection(policy.selectionBehavior)
+        switch policy.focusTarget {
+        case .search:
+            isCommandPaletteSearchFocused = true
+        case .rename:
+            isCommandPaletteRenameFocused = true
         }
+        applyCommandPaletteTextSelection(policy.selectionBehavior)
     }
 
     private func reassertCommandPaletteInputFocusAfterWindowBecameKey() {

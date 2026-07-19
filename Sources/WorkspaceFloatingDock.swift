@@ -14,6 +14,9 @@ final class WorkspaceFloatingDock: Identifiable {
     var backgroundTintHex: String?
     var ownsInputFocus = false
 
+    @ObservationIgnored var screenFrame: CGRect?
+    @ObservationIgnored var displaySnapshot: SessionDisplaySnapshot?
+    @ObservationIgnored var configFrames: SessionConfigFrameRing
     @ObservationIgnored let store: DockSplitStore
     @ObservationIgnored let noteFilePath: String
     @ObservationIgnored private(set) var notePanelId: UUID?
@@ -28,6 +31,9 @@ final class WorkspaceFloatingDock: Identifiable {
         backgroundTintHex: String? = nil,
         initialContent: DockSurfaceKind? = .note,
         initialURL: URL? = nil,
+        screenFrame: CGRect? = nil,
+        displaySnapshot: SessionDisplaySnapshot? = nil,
+        configFrames: SessionConfigFrameRing = SessionConfigFrameRing(),
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings
     ) {
@@ -37,6 +43,9 @@ final class WorkspaceFloatingDock: Identifiable {
         self.frame = frame
         self.isPresented = isPresented
         self.backgroundTintHex = backgroundTintHex
+        self.screenFrame = screenFrame
+        self.displaySnapshot = displaySnapshot
+        self.configFrames = configFrames
         self.noteFilePath = noteFilePath
         self.store = DockSplitStore(
             workspaceId: workspaceId,

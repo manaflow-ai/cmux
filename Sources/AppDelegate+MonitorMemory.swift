@@ -108,11 +108,17 @@ extension AppDelegate {
     }
 
     func handleDisplayReconfiguration(isBeginning _: Bool) {
+        for context in mainWindowContexts.values {
+            context.workspaceFloatingDockPresenter?.beginScreenConfigurationChange()
+        }
         displayReconfigurationGeneration += 1
         beginScreenChangeCaptureSuppression()
     }
 
     func handleScreenParametersDidChange() {
+        for context in mainWindowContexts.values {
+            context.workspaceFloatingDockPresenter?.beginScreenConfigurationChange()
+        }
         displayReconfigurationGeneration += 1
         beginScreenChangeCaptureSuppression()
         scheduleScreenChangeReconcileWhenIdle()
@@ -200,6 +206,13 @@ extension AppDelegate {
                 displays: displays.available,
                 windows: mainWindows
             )
+        }
+        let floatingDocksReconciled = mainWindowContexts.values.reduce(true) { reconciled, context in
+            guard let presenter = context.workspaceFloatingDockPresenter else { return reconciled }
+            return presenter.reconcileScreenConfiguration() && reconciled
+        }
+        if !floatingDocksReconciled {
+            requeueScreenChangeReconcileIfPossible()
         }
     }
 
