@@ -3245,6 +3245,16 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(dock.store.dockPortalReconcileState.reconcilePassCount, 0)
     }
 
+    func testWorkspaceFloatingDockDefaultsToTerminalSurface() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
+        let dock = try XCTUnwrap(workspace.createFloatingDock())
+        XCTAssertNil(dock.notePanel)
+        XCTAssertEqual(dock.store.panels.count, 1)
+        XCTAssertTrue(dock.store.panels.values.first is TerminalPanel)
+    }
+
     func testFloatingDockNoteControlWriteIsSynchronousAndUpdatesEditor() async throws {
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
