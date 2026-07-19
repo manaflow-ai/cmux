@@ -2435,9 +2435,7 @@ impl PaneFocusHistory {
         let live = panes.iter().copied().collect::<HashSet<_>>();
         self.recency.retain(|pane, _| live.contains(pane));
         for pane in panes {
-            if !self.recency.contains_key(&pane) {
-                self.record(pane);
-            }
+            self.recency.entry(pane).or_default();
         }
     }
 
@@ -5426,12 +5424,7 @@ impl App {
             Direction::Down => (0, 1),
         };
         let layout = cmux_tui_core::LayoutResult {
-            panes: self
-                .pane_areas
-                .iter()
-                .filter(|area| area.content.width > 0 && area.content.height > 0)
-                .map(|area| (area.pane, area.rect))
-                .collect(),
+            panes: self.pane_areas.iter().map(|area| (area.pane, area.rect)).collect(),
             ..Default::default()
         };
         if let Some(next) =
@@ -7675,13 +7668,16 @@ mod tests {
     fn pane_focus_history_only_advances_for_new_or_focused_panes() {
         let mut history = PaneFocusHistory::default();
         history.reconcile([1, 2, 3]);
+        assert_eq!(history.recency(1), 0);
+        assert_eq!(history.recency(3), 0);
         history.record(2);
         let focused = history.recency(2);
 
-        history.reconcile([1, 2, 3]);
+        history.reconcile([1, 2, 3, 4]);
 
         assert_eq!(history.recency(2), focused);
         assert!(history.recency(2) > history.recency(3));
+        assert_eq!(history.recency(4), 0);
     }
 
     #[test]
@@ -7705,6 +7701,8 @@ mod tests {
         }
         app.session.remote = true;
 
+        app.focus_pane_after_input(bottom_right);
+        app.focus_pane_after_input(left);
         app.move_focus(Direction::Right);
         assert_eq!(app.active_pane(), Some(bottom_right));
         app.move_focus(Direction::Left);
@@ -7721,6 +7719,11 @@ mod tests {
         app.tree.active_workspace_mut_screen().unwrap().zoomed_pane = None;
         app.focus_pane_after_input(left);
         app.pane_areas.iter_mut().find(|area| area.pane == top_right).unwrap().content.height = 0;
+        app.move_focus(Direction::Right);
+        assert_eq!(app.active_pane(), Some(top_right));
+
+        app.focus_pane_after_input(left);
+        app.pane_areas.iter_mut().find(|area| area.pane == top_right).unwrap().rect.height = 0;
         app.move_focus(Direction::Right);
         assert_eq!(app.active_pane(), Some(bottom_right));
         assert_eq!(Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane, left);
