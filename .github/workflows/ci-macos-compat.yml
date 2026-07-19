@@ -166,6 +166,7 @@ jobs:
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
+              COMPILER_INDEX_STORE_ENABLE=NO \
               test 2>&1
           }
 
