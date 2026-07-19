@@ -32,6 +32,34 @@ struct RemoteResumeBindingTests {
     }
 
     @Test
+    func escapedResumeMethodRetainsAuthenticatedRemoteProvenance() throws {
+        let workspaceID = UUID()
+        let relayToken = String(repeating: "b", count: 64)
+        let commandLine = Data(
+            #"{"id":"escaped-resume","method":"surface.resume\u002eset","params":{"command":"codex resume escaped-session"}}"#.utf8
+        )
+
+        let rewritten = WorkspaceRemoteRelayCommandRewriter(
+            remoteWorkspaceID: workspaceID,
+            remoteRelayTokenHex: relayToken
+        ).rewriteRemoteRelayCommandLine(
+            commandLine,
+            workspaceAliases: [:],
+            surfaceAliases: [:]
+        )
+        let request = try #require(
+            JSONSerialization.jsonObject(with: rewritten) as? [String: Any]
+        )
+        let params = try #require(request["params"] as? [String: Any])
+
+        #expect(params["_cmux_remote_workspace_id"] as? String == workspaceID.uuidString)
+        #expect(WorkspaceRemoteRelayCommandRewriter.authenticatesRemoteResumeParameters(
+            params,
+            remoteRelayTokenHex: relayToken
+        ))
+    }
+
+    @Test
     func relayedRegistrationUsesExplicitRemoteFlavorAfterAliasRewrite() throws {
         let fixture = try makeRelayedFixture()
 
