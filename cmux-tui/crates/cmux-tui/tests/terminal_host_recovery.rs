@@ -1273,6 +1273,52 @@ fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
 }
 
 #[test]
+fn direct_renderer_becomes_sole_viewer_after_control_client_disconnect() {
+    let harness = RecoveryHarness::start("renderer-sole-viewer");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
+            "cols":80,"rows":24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let grant = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":2,"cmd":"mint-terminal-renderer","surface":surface,"ttl_ms":10_000,
+        }),
+    );
+    let mut renderer = connect_host_detailed(
+        grant["endpoint"].as_str().unwrap(),
+        grant["terminal_id"].as_str().unwrap(),
+        grant["token"].as_str().unwrap(),
+        ClientRole::Renderer,
+        CapabilityRights::RENDERER,
+    )
+    .unwrap();
+
+    let mut larger = Vec::new();
+    larger.extend_from_slice(&120u16.to_le_bytes());
+    larger.extend_from_slice(&40u16.to_le_bytes());
+    write_frame(&mut renderer.stream, &Frame::new(MessageKind::ViewerSize, larger)).unwrap();
+    renderer.stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let resized = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(resized.kind, MessageKind::Resized);
+    assert_eq!(resized.flags, FLAG_COLORS_FOLLOW);
+    assert_eq!(&resized.payload[..4], &[120, 0, 40, 0]);
+    let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(colors.kind, MessageKind::Colors);
+
+    let state =
+        request(&harness.socket, serde_json::json!({"id":3,"cmd":"vt-state","surface":surface}));
+    assert_eq!(state["cols"], 120);
+    assert_eq!(state["rows"], 40);
+    request(&harness.socket, serde_json::json!({"id":4,"cmd":"close-surface","surface":surface}));
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
 fn negotiated_viewer_size_ack_skips_unchanged_replay_and_follows_changed_pair() {
     let harness = RecoveryHarness::start("viewer-size-ack");
     let created = request(
