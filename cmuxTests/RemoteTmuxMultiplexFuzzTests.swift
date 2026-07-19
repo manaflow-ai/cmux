@@ -289,10 +289,13 @@ private final class MultiplexFuzzHarness {
     private let initialLocalCount: Int
     private var rng: SplitMix64
     private var hosts: [FuzzHostModel] = []
-    /// Weak probes for every distinct mirror seen, keyed by object identity so each
-    /// is tracked once. Drives ``assertNoLeaks``.
+    /// Weak probes for every distinct mirror seen. Drives ``assertNoLeaks``.
     private var leakProbes: [LeakProbe] = []
-    private var seenMirrorIDs: Set<ObjectIdentifier> = []
+    /// Probes keyed by the mirror's object identity, used ONLY to dedup a mirror that
+    /// is still alive at the same address. A recycled address whose prior mirror has
+    /// deallocated gets a fresh probe, so a new mirror born at a reused address is
+    /// never silently skipped by ``assertNoLeaks``.
+    private var leakProbeByMirrorID: [ObjectIdentifier: LeakProbe] = [:]
 
     private let seedLabel: String
     private var step = 0
@@ -587,11 +590,15 @@ private final class MultiplexFuzzHarness {
     /// deallocates once its host is torn down.
     private func trackMirrorsForLeakCheck() {
         for mirror in controller.sessionMirrors.values {
-            guard seenMirrorIDs.insert(ObjectIdentifier(mirror)).inserted else { continue }
+            let mirrorID = ObjectIdentifier(mirror)
+            // Skip only if the SAME live object is already probed; a reused address
+            // whose prior mirror deallocated falls through and gets a fresh probe.
+            if leakProbeByMirrorID[mirrorID]?.mirror === mirror { continue }
             let probe = LeakProbe(sessionName: mirror.sessionName)
             probe.mirror = mirror
             probe.channel = mirror.connection as? RemoteTmuxSessionChannel
             leakProbes.append(probe)
+            leakProbeByMirrorID[mirrorID] = probe
         }
     }
 

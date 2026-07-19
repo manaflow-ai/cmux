@@ -56,14 +56,14 @@ extension TerminalController {
                     "pending": true,
                 ]
             case .notLinked:
-                throw RemoteTmuxError.unreachable("workspace is not a live remote tmux mirror")
+                throw RemoteTmuxError.unreachable("this workspace is not connected to a remote session")
             case .createFailed:
-                throw RemoteTmuxError.unreachable("failed to create a new tmux session on the host")
+                throw RemoteTmuxError.unreachable("could not create a new session on the remote host")
             case .createIndeterminate:
                 // The create reply was lost after the stream was connected: a session
                 // may or may not have been created. Surface it as its own condition so
                 // the CLI does not report a clean failure that invites a duplicate retry.
-                throw RemoteTmuxError.unreachable("remote tmux session create result unknown (stream timeout); check list-workspaces before retrying")
+                throw RemoteTmuxError.unreachable("could not confirm whether the new remote session was created; list this host's sessions before retrying so you don't create a duplicate")
             }
         }
     }
