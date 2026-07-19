@@ -902,7 +902,7 @@ fn attach_stream_replays_then_streams_without_duplication() {
                     break;
                 }
             }
-            Ok(AttachFrame::Resized { cols, rows, replay }) => {
+            Ok(AttachFrame::Resized { cols, rows, replay, .. }) => {
                 assert!(!replay.is_empty());
                 mirror =
                     ghostty_vt::Terminal::new(cols, rows, 1000, ghostty_vt::Callbacks::default())
@@ -921,11 +921,15 @@ fn attach_stream_replays_then_streams_without_duplication() {
 
 #[test]
 fn attach_stream_orders_resize_between_output_frames() {
-    let mux = Mux::new(unique_session("test-attach-resize"), shell_opts("cat"));
+    let mux = Mux::new(
+        unique_session("test-attach-resize"),
+        shell_opts(
+            "printf '\\033]4;4;#112233\\007before-resize\\n'; read line; printf 'after-resize\\n'; sleep 30",
+        ),
+    );
     let surface = mux.new_workspace(None, None).unwrap();
     let attach = surface.attach_stream().unwrap();
 
-    surface.write_bytes(b"before-resize\n").unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         match attach.stream.recv_timeout(Duration::from_millis(200)) {
@@ -942,8 +946,9 @@ fn attach_stream_orders_resize_between_output_frames() {
     mux.resize_surface(surface.id, 100, 40).unwrap();
     let resized = wait_for(
         || match attach.stream.recv_timeout(Duration::from_millis(200)) {
-            Ok(AttachFrame::Resized { cols, rows, replay }) => {
+            Ok(AttachFrame::Resized { cols, rows, replay, colors }) => {
                 assert!(!replay.is_empty());
+                assert_eq!(colors.palette[4], Some(Rgb { r: 0x11, g: 0x22, b: 0x33 }));
                 Some((cols, rows))
             }
             Ok(_) | Err(_) => None,
@@ -953,7 +958,7 @@ fn attach_stream_orders_resize_between_output_frames() {
     .expect("resize marker");
     assert_eq!(resized, (100, 40));
 
-    surface.write_bytes(b"after-resize\n").unwrap();
+    surface.write_bytes(b"continue\n").unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         match attach.stream.recv_timeout(Duration::from_millis(200)) {

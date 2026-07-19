@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { CmuxClient, CmuxStream } from "../src/client.js";
 import { CmuxCommandError, CmuxProtocolError } from "../src/errors.js";
-import type { TreeDeltaEvent } from "../src/protocol/index.js";
+import type { DecodedResizedEvent, TreeDeltaEvent } from "../src/protocol/index.js";
 import type { Transport, Unsubscribe } from "../src/transport.js";
 
 class ScriptedTransport implements Transport {
@@ -183,7 +183,21 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
     });
     transport.emit({ id: request.id, ok: true, data: {} });
     transport.emit({ event: "output", surface: 7, data: "aGk=" });
-    transport.emit({ event: "resized", surface: 7, cols: 100, rows: 30, data: "AQID" });
+    transport.emit({
+      event: "resized",
+      surface: 7,
+      cols: 100,
+      rows: 30,
+      data: "AQID",
+      colors: {
+        fg: null,
+        bg: null,
+        cursor: null,
+        selection_bg: null,
+        selection_fg: null,
+        palette: { "5": "#112233" },
+      },
+    });
   });
   const client = new CmuxClient({
     transport: main,
@@ -213,8 +227,10 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
   if (output.event === "output") assert.deepEqual(output.data, Uint8Array.from([104, 105]));
   assert.equal(resized.event, "resized");
   if (resized.event === "resized") {
-    assert.deepEqual(resized.data, Uint8Array.from([1, 2, 3]));
-    assert.deepEqual(resized.replay, resized.data);
+    const decoded = resized as DecodedResizedEvent;
+    assert.deepEqual(decoded.data, Uint8Array.from([1, 2, 3]));
+    assert.deepEqual(decoded.replay, decoded.data);
+    assert.deepEqual(decoded.colors?.palette, { "5": "#112233" });
   }
   stream.close();
   await client.close();

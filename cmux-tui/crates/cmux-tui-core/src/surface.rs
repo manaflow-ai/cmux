@@ -196,7 +196,7 @@ pub struct AttachStream {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttachFrame {
     Output(Vec<u8>),
-    Resized { cols: u16, rows: u16, replay: Vec<u8> },
+    Resized { cols: u16, rows: u16, replay: Vec<u8>, colors: Box<TerminalColors> },
     ColorsChanged(Box<TerminalColors>),
 }
 
@@ -238,7 +238,7 @@ impl AttachFrame {
         size_of::<Self>()
             + match self {
                 Self::Output(bytes) => bytes.capacity(),
-                Self::Resized { replay, .. } => replay.capacity(),
+                Self::Resized { replay, .. } => replay.capacity() + size_of::<TerminalColors>(),
                 Self::ColorsChanged(_) => size_of::<TerminalColors>(),
             }
     }
@@ -1324,7 +1324,9 @@ impl PtySurface {
         // Nominal cell metrics; only pixel size reports observe these.
         let _ = term.resize(cols, rows, 8, 16);
         let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES).unwrap_or_default();
-        self.broadcast_attach_frame(AttachFrame::Resized { cols, rows, replay });
+        let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+        let colors = Box::new(TerminalColors::from_terminal(&mut term, defaults));
+        self.broadcast_attach_frame(AttachFrame::Resized { cols, rows, replay, colors });
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let _ = self.build_frame_locked(&mut term, generation, false);
         true

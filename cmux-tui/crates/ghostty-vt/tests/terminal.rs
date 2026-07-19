@@ -385,6 +385,9 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     term.vt_write(b"\x1b]4;2;rgb:01/");
     term.vt_write(b"02/03\x1b\\");
     assert!(term.palette_overridden(2));
+    term.vt_write(b"\x1b]4;5;#050505;;6;#060606\x1b\\");
+    assert!(term.palette_overridden(5));
+    assert!(term.palette_overridden(6));
     term.vt_write(b"\x1b]4;3;?\x07");
     assert!(!term.palette_overridden(3));
 

@@ -15,7 +15,11 @@ import { ATTACH_RECOVERY_STABLE_MS, attachRecoveryDelay } from "../lib/attachRec
 import { debounce } from "../lib/debounce";
 import { t } from "../i18n";
 import { nextFitSize, type TerminalSize } from "../lib/fit";
-import { colorsToCursorOptionsPatch, colorsToThemePatch } from "../lib/terminalColors";
+import {
+  colorsToCursorOptionsPatch,
+  colorsToPaletteSequence,
+  colorsToThemePatch,
+} from "../lib/terminalColors";
 import { terminalTheme } from "../lib/terminalTheme";
 import { tryLoadWebglRenderer } from "../lib/webglRenderer";
 
@@ -82,9 +86,11 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     const input = terminal.onData((text) => {
       void client.send(surface, { text }).catch(onError);
     });
-    let currentColors: DecodedVtStateEvent["colors"] | DecodedColorsChangedEvent;
-    const applyColors = (colors: DecodedVtStateEvent["colors"] | DecodedColorsChangedEvent) => {
-      currentColors = colors;
+    const writeTerminal = (data: string | Uint8Array) =>
+      new Promise<void>((resolve) => terminal.write(data, resolve));
+    const applyColors = async (
+      colors: DecodedVtStateEvent["colors"] | DecodedColorsChangedEvent,
+    ) => {
       const themePatch = colorsToThemePatch(colors);
       if (themePatch !== null) {
         terminal.options.theme = { ...baseTheme, ...themePatch };
@@ -96,10 +102,8 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       }
       const cursorPatch = colorsToCursorOptionsPatch(colors);
       if (cursorPatch !== null) Object.assign(terminal.options, cursorPatch);
-    };
-    const writeReplay = async (data: Uint8Array) => {
-      await new Promise<void>((resolve) => terminal.write(data, resolve));
-      if (!cancelled) applyColors(currentColors);
+      const paletteSequence = colorsToPaletteSequence(colors);
+      if (paletteSequence !== null) await writeTerminal(paletteSequence);
     };
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let stableTimer: ReturnType<typeof setTimeout> | undefined;
@@ -144,9 +148,10 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
             } else if (event.event === "vt-state") {
               const replay = event as DecodedVtStateEvent;
               terminal.reset();
-              currentColors = replay.colors;
               terminal.resize(replay.cols, replay.rows);
-              await writeReplay(replay.data);
+              await writeTerminal(replay.data);
+              if (cancelled) return;
+              await applyColors(replay.colors);
               if (cancelled) return;
               // Publish this viewport once attached. The server combines it
               // with every other viewer and returns the shared minimum size.
@@ -163,10 +168,12 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
               const resized = event as DecodedResizedEvent;
               terminal.reset();
               terminal.resize(resized.cols, resized.rows);
-              await writeReplay(resized.data);
+              await writeTerminal(resized.data);
+              if (cancelled) return;
+              await applyColors(resized.colors);
               if (cancelled) return;
             } else if (event.event === "colors-changed") {
-              applyColors(event as DecodedColorsChangedEvent);
+              await applyColors(event as DecodedColorsChangedEvent);
             } else if (event.event === "overflow") {
               const overflow = event as OverflowEvent;
               if (overflow.scope === "surface" && overflow.surface === surface) {

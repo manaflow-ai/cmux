@@ -3128,13 +3128,16 @@ fn handle_command(
                             "surface": surface_id,
                             "data": base64::engine::general_purpose::STANDARD.encode(chunk),
                         }),
-                        AttachFrame::Resized { cols, rows, replay } => json!({
-                            "event": "resized",
-                            "surface": surface_id,
-                            "cols": cols,
-                            "rows": rows,
-                            "replay": base64::engine::general_purpose::STANDARD.encode(replay),
-                        }),
+                        AttachFrame::Resized { cols, rows, replay, colors } => {
+                            let mut value = terminal_colors_json(*colors);
+                            value["event"] = json!("resized");
+                            value["surface"] = json!(surface_id);
+                            value["cols"] = json!(cols);
+                            value["rows"] = json!(rows);
+                            value["replay"] =
+                                json!(base64::engine::general_purpose::STANDARD.encode(replay));
+                            value
+                        }
                         AttachFrame::ColorsChanged(colors) => {
                             let mut value = terminal_colors_json(*colors);
                             value["event"] = json!("colors-changed");

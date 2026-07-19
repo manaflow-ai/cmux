@@ -8,25 +8,6 @@ type CursorColors = {
 
 export type CursorOptionsPatch = Partial<Pick<ITerminalOptions, "cursorStyle" | "cursorBlink">>;
 
-const ansiThemeKeys = [
-  "black",
-  "red",
-  "green",
-  "yellow",
-  "blue",
-  "magenta",
-  "cyan",
-  "white",
-  "brightBlack",
-  "brightRed",
-  "brightGreen",
-  "brightYellow",
-  "brightBlue",
-  "brightMagenta",
-  "brightCyan",
-  "brightWhite",
-] as const satisfies readonly (keyof ITheme)[];
-
 /** Map protocol special colors without synthesizing indexed ANSI colors. */
 export function colorsToThemePatch(
   colors: Partial<TerminalColors> | null | undefined,
@@ -39,19 +20,25 @@ export function colorsToThemePatch(
   if (colors.cursor != null) patch.cursor = colors.cursor;
   if (colors.selection_bg != null) patch.selectionBackground = colors.selection_bg;
   if (colors.selection_fg != null) patch.selectionForeground = colors.selection_fg;
-  let extendedAnsi: string[] | undefined;
-  for (const [rawIndex, color] of Object.entries(colors.palette ?? {})) {
+  return patch;
+}
+
+/** Reset xterm's live palette to its host theme, then apply PTY-authored OSC 4 entries. */
+export function colorsToPaletteSequence(
+  colors: Partial<TerminalColors> | null | undefined,
+): string | null {
+  if (colors?.palette === undefined) return null;
+
+  const overrides: Array<[number, string]> = [];
+  for (const [rawIndex, color] of Object.entries(colors.palette)) {
     const index = Number(rawIndex);
     if (!Number.isInteger(index) || index < 0 || index > 255) continue;
-    if (index < ansiThemeKeys.length) {
-      patch[ansiThemeKeys[index]] = color;
-    } else {
-      extendedAnsi ??= [];
-      extendedAnsi[index - ansiThemeKeys.length] = color;
-    }
+    overrides.push([index, color]);
   }
-  if (extendedAnsi !== undefined) patch.extendedAnsi = extendedAnsi;
-  return patch;
+  overrides.sort(([left], [right]) => left - right);
+  return `\x1b]104\x1b\\${overrides
+    .map(([index, color]) => `\x1b]4;${index};${color}\x1b\\`)
+    .join("")}`;
 }
 
 /** Map protocol cursor metadata while ignoring null and unknown wire values. */

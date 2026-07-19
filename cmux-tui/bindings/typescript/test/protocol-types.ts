@@ -133,6 +133,7 @@ const protocolV7Resize: KnownCmuxEvent = {
   cols: 80,
   rows: 24,
   replay: "cmVwbGF5",
+  colors: colorsChanged,
 };
 const clientEvents: KnownCmuxEvent[] = [
   { event: "client-attached", client: 2, transport: "ws", name: "browser", kind: "web" },

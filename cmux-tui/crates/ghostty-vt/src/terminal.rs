@@ -516,6 +516,11 @@ impl PaletteOsc {
             return;
         }
         let token = std::mem::take(&mut self.token);
+        // Ghostty tokenizes OSC color arguments with `tokenizeScalar`, which
+        // skips empty parameters without advancing the index/color pairing.
+        if token.is_empty() && !matches!(self.mode, PaletteOscMode::Operation) {
+            return;
+        }
         self.mode = match std::mem::take(&mut self.mode) {
             PaletteOscMode::Operation => match token.as_slice() {
                 b"4" => PaletteOscMode::SetIndex,

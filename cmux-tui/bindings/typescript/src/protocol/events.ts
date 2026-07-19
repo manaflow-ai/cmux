@@ -191,6 +191,8 @@ interface ResizedEventBase {
   surface: Id;
   cols: number;
   rows: number;
+  /** Protocol v7 fresh color snapshot for the replacement replay. Older servers omit it. */
+  colors?: TerminalColors;
 }
 
 /** A replacement replay using the protocol-v7 field or protocol-v6 compatibility field. */

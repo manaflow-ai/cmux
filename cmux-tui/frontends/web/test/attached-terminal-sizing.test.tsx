@@ -6,7 +6,10 @@ import { useAttachedTerminal } from "../src/hooks/useAttachedTerminal";
 
 const fitDimensions = { cols: 80, rows: 24 };
 const terminalMocks = vi.hoisted(() => ({
-  instances: [] as Array<{ options: Record<string, unknown> }>,
+  instances: [] as Array<{
+    options: Record<string, unknown>;
+    writes: Array<string | Uint8Array>;
+  }>,
 }));
 
 vi.mock("@xterm/addon-fit", () => ({
@@ -20,6 +23,7 @@ vi.mock("@xterm/addon-fit", () => ({
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
     options: Record<string, unknown>;
+    writes: Array<string | Uint8Array> = [];
 
     constructor(options: Record<string, unknown>) {
       this.options = options;
@@ -30,8 +34,9 @@ vi.mock("@xterm/xterm", () => ({
     open() {}
     reset() {}
     resize() {}
-    write(data: Uint8Array, callback?: () => void) {
-      if (data.length > 0) {
+    write(data: string | Uint8Array, callback?: () => void) {
+      this.writes.push(data);
+      if (data instanceof Uint8Array && data.length > 0) {
         this.options.theme = {
           ...(this.options.theme as Record<string, unknown>),
           red: "#replay-red",
@@ -177,6 +182,22 @@ describe("attached terminal sizing", () => {
         selection_fg: null,
         palette: { "2": "#778899", "21": "#aabbcc" },
       },
+      {
+        event: "resized",
+        surface: 7,
+        cols: 100,
+        rows: 30,
+        data: new Uint8Array([2]),
+        replay: new Uint8Array([2]),
+        colors: {
+          fg: null,
+          bg: null,
+          cursor: null,
+          selection_bg: null,
+          selection_fg: null,
+          palette: { "3": "#abcdef", "22": "#fedcba" },
+        },
+      },
     ]);
     const client = {
       attachSurface: vi.fn(async () => stream),
@@ -188,17 +209,21 @@ describe("attached terminal sizing", () => {
     const view = render(<Harness client={client} />);
 
     await waitFor(() => {
-      const theme = terminalMocks.instances[0]?.options.theme as Record<string, unknown>;
-      expect(theme.red).toBe("#112233");
-      expect((theme.extendedAnsi as string[])[4]).toBe("#445566");
+      expect(terminalMocks.instances[0]?.writes[1]).toBe(
+        "\x1b]104\x1b\\\x1b]4;1;#112233\x1b\\\x1b]4;20;#445566\x1b\\",
+      );
     });
     stream.release();
     await waitFor(() => {
+      expect(terminalMocks.instances[0]?.writes[2]).toBe(
+        "\x1b]104\x1b\\\x1b]4;2;#778899\x1b\\\x1b]4;21;#aabbcc\x1b\\",
+      );
+      expect(terminalMocks.instances[0]?.writes[3]).toEqual(new Uint8Array([2]));
+      expect(terminalMocks.instances[0]?.writes[4]).toBe(
+        "\x1b]104\x1b\\\x1b]4;3;#abcdef\x1b\\\x1b]4;22;#fedcba\x1b\\",
+      );
       const theme = terminalMocks.instances[0]?.options.theme as Record<string, unknown>;
-      expect(theme.green).toBe("#778899");
-      expect((theme.extendedAnsi as string[])[5]).toBe("#aabbcc");
       expect(theme.red).not.toBe("#replay-red");
-      expect((theme.extendedAnsi as string[])[4]).toBeUndefined();
     });
     view.unmount();
   });

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { colorsToCursorOptionsPatch, colorsToThemePatch } from "../src/lib/terminalColors";
+import {
+  colorsToCursorOptionsPatch,
+  colorsToPaletteSequence,
+  colorsToThemePatch,
+} from "../src/lib/terminalColors";
 
 describe("effective terminal colors", () => {
   it("returns no patch when an older server omits colors", () => {
@@ -32,8 +36,8 @@ describe("effective terminal colors", () => {
     expect(colorsToThemePatch(colors)).toEqual(expected);
   });
 
-  it("maps sparse standard and extended palette overrides", () => {
-    const patch = colorsToThemePatch({
+  it("builds a deterministic reset and sparse OSC 4 sequence", () => {
+    const sequence = colorsToPaletteSequence({
       palette: {
         "1": "#112233",
         "15": "#445566",
@@ -45,11 +49,14 @@ describe("effective terminal colors", () => {
       },
     });
 
-    expect(patch?.red).toBe("#112233");
-    expect(patch?.brightWhite).toBe("#445566");
-    expect(patch?.extendedAnsi?.[0]).toBe("#778899");
-    expect(patch?.extendedAnsi?.[239]).toBe("#aabbcc");
-    expect(Object.keys(patch ?? {})).toEqual(["red", "brightWhite", "extendedAnsi"]);
+    expect(sequence).toBe(
+      "\x1b]104\x1b\\"
+      + "\x1b]4;1;#112233\x1b\\"
+      + "\x1b]4;15;#445566\x1b\\"
+      + "\x1b]4;16;#778899\x1b\\"
+      + "\x1b]4;255;#aabbcc\x1b\\",
+    );
+    expect(colorsToPaletteSequence({})).toBeNull();
   });
 
   it("returns the same harmless patch when colors-changed repeats current colors", () => {
