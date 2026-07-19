@@ -183,6 +183,7 @@ import Testing
         #expect(DiagnosticEventCode.admissionFailed.rawValue == 48)
         #expect(DiagnosticEventCode.hostAuthenticationFailed.rawValue == 49)
         #expect(DiagnosticEventCode.rpcFailed.rawValue == 50)
+        #expect(DiagnosticEventCode.transportSessionLifecycle.rawValue == 51)
         #expect(Set(DiagnosticEventCode.allCases.map(\.rawValue)).count == DiagnosticEventCode.allCases.count)
     }
 
@@ -194,6 +195,16 @@ import Testing
         #expect(CmxAttachTransportKind.iroh.diagnosticTransportKind.rawValue == 1)
         #expect(DiagnosticFailureKind.cancelled.rawValue == 20)
         #expect(DiagnosticFailureKind.unknown.rawValue == 255)
+        #expect(DiagnosticSessionLifecycleKind.established.rawValue == 1)
+        #expect(DiagnosticSessionLifecycleKind.controlOwnerReleased.rawValue == 2)
+        #expect(DiagnosticSessionLifecycleKind.controlReadFailed.rawValue == 3)
+        #expect(DiagnosticSessionLifecycleKind.controlWriteFailed.rawValue == 4)
+        #expect(DiagnosticSessionLifecycleKind.remoteClosed.rawValue == 5)
+        #expect(DiagnosticSessionLifecycleKind.closedSessionEvicted.rawValue == 6)
+        #expect(DiagnosticSessionLifecycleKind.applicationLaneFailed.rawValue == 7)
+        #expect(DiagnosticSessionLifecycleKind.runtimeDeactivated.rawValue == 8)
+        #expect(DiagnosticSessionLifecycleKind.runtimeReconfigured.rawValue == 9)
+        #expect(DiagnosticSessionLifecycleKind.explicitlyInvalidated.rawValue == 10)
 
         #expect(DiagnosticPathKind(.unavailable) == .unknown)
         #expect(DiagnosticPathKind(.direct) == .direct)

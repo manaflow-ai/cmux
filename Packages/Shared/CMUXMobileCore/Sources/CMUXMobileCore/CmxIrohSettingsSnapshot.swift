@@ -99,8 +99,13 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
     public let policyExpiresAt: Date?
     public let staleRelayIDs: Set<String>
     public let failureDescription: String?
-    /// Debug-only relay-path override, or `nil` when the current app cannot control it.
-    public let debugRelayOnlyEnabled: Bool?
+    /// Debug-only path constraint, or `nil` when the current app cannot control it.
+    public let debugTransportVerificationMode: CmxIrohTransportVerificationMode?
+
+    /// Compatibility projection for the existing macOS relay-only toggle.
+    public var debugRelayOnlyEnabled: Bool? {
+        debugTransportVerificationMode.map { $0 == .relayOnly }
+    }
 
     public init(
         runtimeStatus: RuntimeStatus,
@@ -113,7 +118,7 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
         policyExpiresAt: Date? = nil,
         staleRelayIDs: Set<String> = [],
         failureDescription: String? = nil,
-        debugRelayOnlyEnabled: Bool? = nil
+        debugTransportVerificationMode: CmxIrohTransportVerificationMode? = nil
     ) {
         self.runtimeStatus = runtimeStatus
         self.selectedTransportPath = selectedTransportPath
@@ -125,7 +130,7 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
         self.policyExpiresAt = policyExpiresAt
         self.staleRelayIDs = staleRelayIDs
         self.failureDescription = failureDescription
-        self.debugRelayOnlyEnabled = debugRelayOnlyEnabled
+        self.debugTransportVerificationMode = debugTransportVerificationMode
     }
 
     public static let unavailable = CmxIrohSettingsSnapshot(
