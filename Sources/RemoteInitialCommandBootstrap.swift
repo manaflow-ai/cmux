@@ -60,7 +60,7 @@ struct RemoteInitialCommandBootstrap {
         ].joined(separator: "; ")
     }
 
-    /// Atomically claims and runs the command as a script in an otherwise unsupported shell.
+    /// Atomically claims the command and carries its state into an otherwise unsupported shell.
     var fallbackShellLines: [String] {
         guard encodedCommand != nil else { return [] }
         return [
@@ -68,7 +68,12 @@ struct RemoteInitialCommandBootstrap {
             "cmux_initial_command_started=\"$CMUX_SHELL_INTEGRATION_DIR/.initial-command.started.\(stateKey)\"",
             "unset CMUX_INITIAL_COMMAND_FILE",
             "if [ -r \"$cmux_initial_command_file\" ]; then",
-            "  if mkdir \"$cmux_initial_command_started\" 2>/dev/null; then \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command_file\"; fi",
+            "  if mkdir \"$cmux_initial_command_started\" 2>/dev/null; then",
+            "    case \"${CMUX_LOGIN_SHELL##*/}\" in",
+            "      csh|tcsh) exec \"$CMUX_LOGIN_SHELL\" -i -c 'source \"$argv[2]\"; /bin/rm -f -- \"$argv[2]\"; exec \"$argv[1]\" -i' \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command_file\" ;;",
+            "      *) exec \"$CMUX_LOGIN_SHELL\" -i -c '. \"$1\"; /bin/rm -f -- \"$1\"; exec \"$0\" -i' \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command_file\" ;;",
+            "    esac",
+            "  fi",
             "  rm -f -- \"$cmux_initial_command_file\" 2>/dev/null || true",
             "fi",
             "unset cmux_initial_command_file cmux_initial_command_started",
