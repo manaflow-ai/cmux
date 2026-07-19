@@ -60,7 +60,7 @@ struct RemoteInitialCommandBootstrap {
         ].joined(separator: "; ")
     }
 
-    /// Atomically claims the command and carries its state into an otherwise unsupported shell.
+    /// Atomically claims the command, preserving state for csh and POSIX-family fallbacks.
     var fallbackShellLines: [String] {
         guard encodedCommand != nil else { return [] }
         return [
@@ -71,7 +71,8 @@ struct RemoteInitialCommandBootstrap {
             "  if mkdir \"$cmux_initial_command_started\" 2>/dev/null; then",
             "    case \"${CMUX_LOGIN_SHELL##*/}\" in",
             "      csh|tcsh) exec \"$CMUX_LOGIN_SHELL\" -i -c 'source \"$argv[2]\"; /bin/rm -f -- \"$argv[2]\"; exec \"$argv[1]\" -i' \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command_file\" ;;",
-            "      *) exec \"$CMUX_LOGIN_SHELL\" -i -c '. \"$1\"; /bin/rm -f -- \"$1\"; exec \"$0\" -i' \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command_file\" ;;",
+            "      sh|dash|ksh|mksh|ash|yash|posh) exec \"$CMUX_LOGIN_SHELL\" -i -c '. \"$1\"; /bin/rm -f -- \"$1\"; exec \"$0\" -i' \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command_file\" ;;",
+            "      *) \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command_file\" ;;",
             "    esac",
             "  fi",
             "  rm -f -- \"$cmux_initial_command_file\" 2>/dev/null || true",
