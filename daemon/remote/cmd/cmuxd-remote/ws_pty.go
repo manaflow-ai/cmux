@@ -1377,6 +1377,7 @@ func terminatePTYSessionMembers(sessionID int) {
 				_ = syscall.Kill(pid, syscall.SIGKILL)
 			}
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
