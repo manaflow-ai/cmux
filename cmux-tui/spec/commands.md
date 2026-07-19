@@ -951,7 +951,7 @@ Params:
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `name` | `string` | default null | Defaults to the next 1-based workspace count |
-| `key` | `string` | default generated UUID | Must be non-empty and never previously used |
+| `key` | `string` | default generated UUID | Must be a lowercase canonical UUID and never previously used |
 | mutation fields | see [common envelope](#durable-workspace-mutation-envelope) | optional | Exactly-once retry and CAS |
 
 Result:
@@ -960,13 +960,13 @@ Result:
 object{workspace:Id,key:string,index:usize,workspace_revision:uint64,replayed:bool,registry_id:string,generation:string}
 ```
 
-Errors include `workspace key cannot be empty`, `workspace key already exists: <key>`, `workspace revision conflict: expected <n>, current <n>`, and malformed request errors.
+Errors include `workspace key must be a lowercase UUID`, `workspace key already exists: <key>`, `workspace revision conflict: expected <n>, current <n>`, and malformed request errors.
 
 Example:
 
 ```json
-{"id":9,"cmd":"create-workspace","name":"ops","key":"ops-stable","expected_revision":1}
-{"id":9,"ok":true,"data":{"workspace":12,"key":"ops-stable","index":1,"workspace_revision":2}}
+{"id":9,"cmd":"create-workspace","name":"ops","key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","expected_revision":1}
+{"id":9,"ok":true,"data":{"workspace":12,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","index":1,"workspace_revision":2}}
 ```
 
 The server retains tombstones indefinitely; a closed `key` cannot be reused.
@@ -993,7 +993,7 @@ Params:
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `workspace` | `Id` | required unless `key` is supplied | Mutually identifies the target with `key` |
-| `key` | `string` | required unless `workspace` is supplied | Must match `workspace` when both are supplied |
+| `key` | `string` | required unless `workspace` is supplied | Lowercase canonical workspace UUID; must match `workspace` when both are supplied |
 | `argv` | `string[]` | default shell | Mutually exclusive with `command`; must be non-empty when supplied |
 | `command` | `string` | default null | Mutually exclusive with `argv`; must be non-empty when supplied |
 | `cwd` | `string` | default inherited | PTY child working directory |
@@ -1012,8 +1012,8 @@ Errors include missing, unknown, or mismatched workspace selectors; mutually exc
 Example:
 
 ```json
-{"id":10,"cmd":"create-terminal","key":"ops-stable","command":"htop","cwd":"/tmp"}
-{"id":10,"ok":true,"data":{"surface":15,"pane":14,"screen":13,"workspace":12,"key":"ops-stable"}}
+{"id":10,"cmd":"create-terminal","key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","command":"htop","cwd":"/tmp"}
+{"id":10,"ok":true,"data":{"surface":15,"pane":14,"screen":13,"workspace":12,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f"}}
 ```
 
 ### new-screen
@@ -1570,7 +1570,7 @@ Params:
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `workspace` | `Id` | one of id/key | Must identify a live workspace |
-| `key` | `string` | one of id/key | Stable workspace identity |
+| `key` | `string` | one of id/key | Lowercase canonical workspace UUID |
 | mutation fields | see common envelope | optional | Exactly-once retry and CAS |
 
 Result:
@@ -1603,7 +1603,7 @@ Example:
 
 ```json
 {"id":16,"cmd":"close-workspace","workspace":4}
-{"id":16,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":3}}
+{"id":16,"ok":true,"data":{"workspace":4,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","workspace_revision":3}}
 ```
 
 ### rename-pane
@@ -1762,7 +1762,7 @@ Params:
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `workspace` | `Id` | one of id/key | Must identify a live workspace |
-| `key` | `string` | one of id/key | Stable workspace identity |
+| `key` | `string` | one of id/key | Lowercase canonical workspace UUID |
 | `name` | `string` | required | Empty string is stored |
 | mutation fields | see common envelope | optional | Exactly-once retry and CAS |
 
@@ -1796,7 +1796,7 @@ Example:
 
 ```json
 {"id":20,"cmd":"rename-workspace","workspace":4,"name":"prod"}
-{"id":20,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":2}}
+{"id":20,"ok":true,"data":{"workspace":4,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","workspace_revision":2}}
 ```
 
 ### resize-surface
@@ -2136,7 +2136,7 @@ Params:
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `workspace` | `Id` | one of id/key | Workspace to move |
-| `key` | `string` | one of id/key | Stable workspace identity |
+| `key` | `string` | one of id/key | Lowercase canonical workspace UUID |
 | `index` | `usize` | required | Zero-based destination index |
 | mutation fields | see common envelope | optional | Exactly-once retry and CAS |
 
@@ -2170,7 +2170,7 @@ Example:
 
 ```json
 {"id":27,"cmd":"move-workspace","workspace":4,"index":0}
-{"id":27,"ok":true,"data":{"workspace":4,"key":"ops-stable","workspace_revision":4}}
+{"id":27,"ok":true,"data":{"workspace":4,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","workspace_revision":4}}
 ```
 
 ### scroll-surface

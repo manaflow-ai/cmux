@@ -33,14 +33,21 @@ Require `protocol == 9` for the complete flow in this guide, including stack lay
 
 Open [`subscribe`](commands.md#subscribe) with `tree_events:"deltas"`, buffer events as soon as the request is sent, then fetch [`list-workspaces`](commands.md#list-workspaces). Apply the snapshot before draining the buffer. The subscribe receiver is registered before its success response, so responses and events may race. Omitting `tree_events` selects the protocol-v6-compatible coarse stream instead.
 
-Treat cmux-tui as the only authority for workspace UUID, existence, name, and
-order. A browser window model is a disposable projection. Use a stable
+Treat cmux-tui as the only authority for workspace UUID, existence, name,
+order, and canonical terminal-to-workspace placement. Workspace keys are
+lowercase canonical UUIDs; reject any snapshot, event, or caller-supplied key
+that does not satisfy that contract instead of deriving identity from a name.
+A browser window model is a disposable projection. Use a stable
 profile/window-group identity as the cmux session and as the
 `put-frontend-projection` subject; do not generate a new session on every app
 launch. Every canonical workspace, including an empty one, must appear in the
-frontend immediately. Browser-only columns, splits, web tabs, focus, and
-terminal placement belong in the opaque frontend projection and refer to
-workspaces by stable `key`.
+frontend immediately.
+
+Browser-only columns, splits, web tabs, local focus, and the presentation of a
+terminal inside a browser pane or tab belong in the opaque frontend
+projection. The server stores and compare-and-swaps that schema-versioned
+document but does not interpret it as workspace or terminal lifecycle
+authority. Projection references use canonical workspace and terminal UUIDs.
 
 Generate `origin` and `mutation_id` before sending a workspace mutation and
 reuse both for retries. Apply a successful local response immediately, then
