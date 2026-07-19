@@ -523,6 +523,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertEqual(manager.tabs.count, initialWorkspaceCount)
         XCTAssertEqual(workspace.floatingDocks.count, initialDockCount + 1)
+        let createdDock = try XCTUnwrap(workspace.floatingDocks.last)
+        XCTAssertNil(createdDock.notePanel)
+        XCTAssertTrue(createdDock.store.panels.values.first is TerminalPanel)
 #else
         throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
 #endif
@@ -572,6 +575,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertEqual(manager.tabs.count, initialWorkspaceCount)
         XCTAssertEqual(workspace.floatingDocks.count, initialDockCount + 1)
+        let createdDock = try XCTUnwrap(workspace.floatingDocks.last)
+        XCTAssertNil(createdDock.notePanel)
+        XCTAssertTrue(createdDock.store.panels.values.first is TerminalPanel)
+        guard let createdWindow = NSApp.windows.first(where: {
+            $0.identifier?.rawValue == "cmux.workspace.float.\(createdDock.id.uuidString)"
+        }) else {
+            XCTFail("Expected cascaded floating Dock window")
+            return
+        }
+        XCTAssertNotEqual(createdWindow.frame.origin, dockWindow.frame.origin)
 #else
         throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
 #endif
@@ -5518,6 +5531,43 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         wait(for: [dismissExpectation], timeout: 1.0)
         XCTAssertEqual(observedDismissWindow?.windowNumber, window.windowNumber)
+    }
+
+    func testCommandPaletteRequestMakesTargetMainWindowKeyFromAuxiliaryWindow() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+        guard let mainWindow = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let auxiliaryWindow = NSPanel(
+            contentRect: NSRect(x: 80, y: 80, width: 320, height: 220),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            mainWindow.removeChildWindow(auxiliaryWindow)
+            auxiliaryWindow.orderOut(nil)
+            auxiliaryWindow.close()
+        }
+        mainWindow.addChildWindow(auxiliaryWindow, ordered: .above)
+        auxiliaryWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertTrue(auxiliaryWindow.isKeyWindow)
+
+        appDelegate.requestCommandPaletteCommands(
+            preferredWindow: mainWindow,
+            source: "test.auxiliaryWindow"
+        )
+
+        XCTAssertTrue(mainWindow.isKeyWindow)
     }
 
     func testEscapeRepeatIsConsumedImmediatelyAfterPaletteDismiss() {
