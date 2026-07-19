@@ -48,7 +48,7 @@ function assertSecureDirectory(directory) {
   const absolute = path.resolve(directory);
   if (absolute !== directory) throw new Error("state directory must use an absolute normalized path");
   const metadata = lstatSync(directory);
-  if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+  if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
     throw new Error("state directory must be a non-symlink directory");
   }
   if (metadata.uid !== process.getuid()) throw new Error("state directory must be owned by the current user");
@@ -86,7 +86,6 @@ function replaceSecureFile(file, contents) {
   const temporary = `${file}.tmp-${process.pid}-${randomUUID()}`;
   writeExclusiveSecureFile(temporary, contents);
   renameSync(temporary, file);
-  chmodSync(file, 0o600);
 }
 
 function requiredValue(values, key) {

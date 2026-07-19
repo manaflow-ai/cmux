@@ -134,9 +134,14 @@ cleanup() {
   fi
   defaults delete "$MAC_BUNDLE_ID" cmux.iroh.debug.transport-mode >/dev/null 2>&1 || true
   pkill -f "cmux DEV ${SLUG}.app/Contents/MacOS/cmux DEV" 2>/dev/null || true
-  rm -rf "$HOME/Library/Application Support/cmux/$MAC_BUNDLE_ID"
-  security delete-generic-password -s "$MAC_BUNDLE_ID.auth" -a cmux-auth-access-token >/dev/null 2>&1 || true
-  security delete-generic-password -s "$MAC_BUNDLE_ID.auth" -a cmux-auth-refresh-token >/dev/null 2>&1 || true
+  if [[ "$PRODUCTION" -eq 1 ]]; then
+    # Production uses a disposable account and must remove its local tokens.
+    # Staging keeps its tagged state so a failed gate remains inspectable and a
+    # later --skip-build run can reuse the same authenticated build.
+    rm -rf "$HOME/Library/Application Support/cmux/$MAC_BUNDLE_ID"
+    security delete-generic-password -s "$MAC_BUNDLE_ID.auth" -a cmux-auth-access-token >/dev/null 2>&1 || true
+    security delete-generic-password -s "$MAC_BUNDLE_ID.auth" -a cmux-auth-refresh-token >/dev/null 2>&1 || true
+  fi
   if [[ "$KEEP_SIMULATOR" -ne 1 && -n "$SIMULATOR_ID" ]]; then
     xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
     xcrun simctl delete "$SIMULATOR_ID" >/dev/null 2>&1 || true
