@@ -21,6 +21,7 @@ mod mux;
 mod pairing;
 mod presentation;
 mod private_runtime;
+mod projection_navigation_v2;
 mod projection_state;
 mod remote_tmux_producer;
 pub mod renderer_control;
