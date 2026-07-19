@@ -23,8 +23,8 @@ pub mod server;
 pub use browser::{TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 pub use layout::{
-    LayoutResult, Rect, SplitEdge, SplitResize, directional_neighbor, layout_screen,
-    split_for_pane_edge, split_sides,
+    ExactSplitResize, LayoutResult, Rect, SplitEdge, SplitResize, directional_neighbor,
+    exact_split_for_pane_edge, layout_screen, split_for_pane_edge, split_sides,
 };
 pub use model::{Node, Pane, Screen, State, Workspace};
 pub use mux::{
@@ -46,6 +46,7 @@ pub use ghostty_vt::{CursorShape, Rgb};
 
 pub type SurfaceId = u64;
 pub type PaneId = u64;
+pub type SplitId = u64;
 pub type ScreenId = u64;
 pub type WorkspaceId = u64;
 

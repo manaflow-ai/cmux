@@ -229,6 +229,12 @@ const VERBS: &[VerbSpec] = &[
         kind: socket(build_set_ratio, print_empty, false),
     },
     VerbSpec {
+        name: "set-split-ratio",
+        help: "Set a split ratio by stable split id.",
+        allowed: &["split", "ratio"],
+        kind: socket(build_set_split_ratio, print_empty, false),
+    },
+    VerbSpec {
         name: "pane-neighbor",
         help: "Find a pane neighbor.",
         allowed: &["pane", "dir"],
@@ -995,6 +1001,13 @@ fn build_set_ratio(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(json!({
         "pane": flags.required_u64("pane")?,
         "dir": flags.required_dir()?,
+        "ratio": flags.required_f32("ratio")?,
+    }))
+}
+
+fn build_set_split_ratio(flags: &FlagMap) -> Result<Value, UsageError> {
+    Ok(json!({
+        "split": flags.required_u64("split")?,
         "ratio": flags.required_f32("ratio")?,
     }))
 }

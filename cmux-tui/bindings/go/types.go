@@ -137,6 +137,12 @@ type TreeChangedEvent struct{}
 
 func (TreeChangedEvent) EventName() string { return "tree-changed" }
 
+type LayoutChangedEvent struct {
+	Screen uint64 `json:"screen"`
+}
+
+func (LayoutChangedEvent) EventName() string { return "layout-changed" }
+
 type EmptyEvent struct{}
 
 func (EmptyEvent) EventName() string { return "empty" }
