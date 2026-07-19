@@ -1,12 +1,6 @@
 struct CmuxFeatureFlagResolution: Equatable, Sendable {
-    enum Source: Equatable, Sendable {
-        case remote
-        case override
-        case `default`
-    }
-
     let effectiveValue: Bool
-    let source: Source
+    let source: CmuxFeatureFlagSource
 
     init(remoteValue: Bool?, overrideValue: Bool?, defaultValue: Bool) {
         if let remoteValue {
