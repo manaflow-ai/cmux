@@ -40,13 +40,18 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      - name: Install build dependencies
+      - name: Ensure iOS Simulator runtime
+        run: |
+          xcrun simctl list runtimes available | grep -Eq '\biOS\b' || xcodebuild -downloadPlatform iOS
+
+      - name: Install app build dependencies
+        if: ${{ matrix.mode != 'direct-only' }}
         run: |
           ./scripts/install-zig-ci.sh
-          xcrun simctl list runtimes available | grep -Eq '\biOS\b' || xcodebuild -downloadPlatform iOS
           ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
 
       - name: Materialize isolated staging account
+        if: ${{ matrix.mode != 'direct-only' }}
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
