@@ -3,7 +3,9 @@ import Foundation
 import Testing
 @testable import CmuxIrohTransport
 
-@Suite
+/// These tests coordinate server tasks with manual clocks and continuation gates.
+/// Serial execution keeps each test's causal scheduling assertions isolated.
+@Suite(.serialized)
 struct CmxIrohEndpointServerTests {
     @Test
     func activeGenerationAcceptsThroughTheBoundedServerLoop() async throws {
