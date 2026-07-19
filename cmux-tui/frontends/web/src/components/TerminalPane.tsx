@@ -313,7 +313,7 @@ function LayoutStackNode({ node, screen, basis, ...actions }: LayoutStackNodePro
       <div className="stack-pane-headers before">
         {panes.slice(0, expandedIndex).map(renderHeader)}
       </div>
-      <div className="pane-leaf expanded">
+      <div className="pane-leaf expanded" key={node.expanded}>
         <PaneLeaf
           {...actions}
           pane={expandedPane}

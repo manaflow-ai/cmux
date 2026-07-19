@@ -478,7 +478,11 @@ describe("TerminalPane stacks", () => {
     rerender(
       <TerminalPane
         {...props}
-        screen={{ ...screen, activePane: 3, layout: { ...screen.layout, expanded: 3 } }}
+        screen={{
+          ...screen,
+          activePane: 3,
+          layout: { type: "stack", panes: [1, 2, 3], expanded: 3 },
+        }}
       />,
     );
     expect(queryByRole("menu")).toBeNull();

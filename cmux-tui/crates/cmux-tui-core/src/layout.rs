@@ -285,8 +285,21 @@ fn walk(node: &Node, area: Rect, active_pane: Option<PaneId>, out: &mut LayoutRe
 fn walk_stack(panes: &[PaneId], expanded: PaneId, area: Rect, out: &mut LayoutResult) {
     let expanded_index = panes.iter().position(|pane| *pane == expanded).unwrap_or(panes.len() - 1);
     let visible_headers = usize::from(area.height.saturating_sub(1)).min(panes.len() - 1);
-    let headers_before = expanded_index.min(visible_headers);
-    let headers_after = (visible_headers - headers_before).min(panes.len() - expanded_index - 1);
+    let available_before = expanded_index;
+    let available_after = panes.len() - expanded_index - 1;
+    let mut headers_before = 0;
+    let mut headers_after = 0;
+    while headers_before + headers_after < visible_headers {
+        let can_take_before = headers_before < available_before;
+        let can_take_after = headers_after < available_after;
+        if can_take_before && (!can_take_after || headers_before <= headers_after) {
+            headers_before += 1;
+        } else if can_take_after {
+            headers_after += 1;
+        } else {
+            break;
+        }
+    }
     let expanded_height = area.height.saturating_sub((headers_before + headers_after) as u16);
 
     let mut y = area.y;
