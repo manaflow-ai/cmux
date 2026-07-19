@@ -165,7 +165,15 @@ struct RemoteInitialCommandBootstrapTests {
         try """
         #!/bin/sh
         case "${1:-}" in
-          -i) exit 0 ;;
+          -i)
+            if [ "${2:-}" = -c ]; then
+              cmux_test_command="$3"
+              shift 3
+              exec /bin/csh -f -c "$cmux_test_command" "$@"
+            fi
+            printf '%s|%s\n' "$(/bin/pwd)" "${CMUX_FALLBACK_STATE:-}" > "$HOME/fallback state.txt"
+            exit 0
+            ;;
           -*) printf 'unexpected shell option: %s\\n' "$1" >&2; exit 64 ;;
           '') exit 65 ;;
           *) [ "$#" -eq 1 ] || exit 66; exec /bin/csh "$1" ;;
@@ -176,7 +184,7 @@ struct RemoteInitialCommandBootstrapTests {
             ofItemAtPath: fakeShell.path
         )
 
-        let command = #"echo "fallback spaces $CMUX_REMOTE_VALUE" >> "$HOME/fallback command.txt""#
+        let command = #"cd "$HOME"; setenv CMUX_FALLBACK_STATE preserved; echo "fallback spaces $CMUX_REMOTE_VALUE" >> "$HOME/fallback command.txt""#
         let script = RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: 0,
             shellFeatures: "ssh-env,ssh-terminfo",
@@ -196,6 +204,11 @@ struct RemoteInitialCommandBootstrapTests {
 
         let captured = try String(contentsOf: output, encoding: .utf8)
         #expect(captured == "fallback spaces remote-only\n")
+        let state = try String(
+            contentsOf: home.appendingPathComponent("fallback state.txt"),
+            encoding: .utf8
+        )
+        #expect(state == "\(home.path)|preserved\n")
     }
 
     @Test
