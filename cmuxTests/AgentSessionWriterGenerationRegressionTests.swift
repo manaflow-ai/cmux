@@ -1,4 +1,5 @@
 import CmuxFoundation
+import Darwin
 import Foundation
 import Testing
 
@@ -9,6 +10,44 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func committedHookMutationSurvivesLegacyProjectionLockContention() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-projection-contention-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let descriptor = open(
+            stateURL.path + ".lock",
+            O_CREAT | O_RDWR,
+            mode_t(S_IRUSR | S_IWUSR)
+        )
+        #expect(descriptor >= 0)
+        guard descriptor >= 0 else { return }
+        defer { Darwin.close(descriptor) }
+        #expect(flock(descriptor, LOCK_EX | LOCK_NB) == 0)
+        defer { _ = flock(descriptor, LOCK_UN) }
+
+        let store = ClaudeHookSessionStore(
+            processEnv: [
+                "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
+                "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            ],
+            agentName: "codex"
+        )
+
+        #expect(try store.upsert(
+            sessionId: "committed-session",
+            workspaceId: "workspace",
+            surfaceId: "surface",
+            cwd: root.path
+        ))
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        #expect(
+            try registry.hookRecord(provider: "codex", sessionID: "committed-session") != nil
+        )
+    }
+
     @Test func corruptLegacyReadFallsBackToLastCompleteRegistrySnapshot() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-corrupt-legacy-read-\(UUID().uuidString)", isDirectory: true)

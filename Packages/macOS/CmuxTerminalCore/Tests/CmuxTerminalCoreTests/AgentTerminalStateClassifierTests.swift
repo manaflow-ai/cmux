@@ -60,6 +60,42 @@ struct AgentTerminalStateClassifierTests {
     }
 
     @Test
+    func recognizesAgentsAfterKnownWrapperOptions() throws {
+        let npx = process(
+            executable: "npx",
+            arguments: ["npx", "-y", "@anthropic-ai/claude-code"]
+        )
+        #expect(try #require(classifier.recognize(npx)).id == "claude-code")
+
+        let uvx = process(
+            executable: "uvx",
+            arguments: ["uvx", "--from", "kimi-cli", "kimi-code"]
+        )
+        #expect(try #require(classifier.recognize(uvx)).id == "kimi")
+
+        let nested = process(
+            executable: "npx",
+            arguments: ["npx", "-y", "uvx", "--from", "kimi-cli", "kimi-code"]
+        )
+        #expect(try #require(classifier.recognize(nested)).id == "kimi")
+    }
+
+    @Test
+    func recognizesOnlyTheRovoDevAcliSubcommand() throws {
+        let rovo = process(
+            executable: "acli",
+            arguments: ["acli", "rovodev", "run"]
+        )
+        #expect(try #require(classifier.recognize(rovo)).id == "rovodev")
+
+        let jira = process(
+            executable: "acli",
+            arguments: ["acli", "jira", "issue", "list"]
+        )
+        #expect(classifier.recognize(jira) == nil)
+    }
+
+    @Test
     func exactWrappedAgentExecutableOutranksInheritedHint() throws {
         let wrapped = AgentTerminalProcessSnapshot(
             identity: identity,

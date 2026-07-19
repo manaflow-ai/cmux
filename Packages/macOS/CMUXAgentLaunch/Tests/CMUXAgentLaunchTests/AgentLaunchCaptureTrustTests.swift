@@ -272,6 +272,18 @@ struct AgentLaunchCaptureTrustTests {
         )
         #expect(
             AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
+                processName: "kimi-cli",
+                arguments: ["/Users/alice/.local/bin/kimi-cli"]
+            )
+        )
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
+                processName: "kimi-code",
+                arguments: ["/Users/alice/.local/bin/kimi-code"]
+            )
+        )
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
                 processName: "amp",
                 arguments: ["/Users/alice/.local/bin/amp"]
             )
