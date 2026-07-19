@@ -57,6 +57,10 @@ final class MobileIrohReleaseGateRunner {
         let hostStatusVerified: Bool
         let terminalRoundTripVerified: Bool
         let workspaceMutationVerified: Bool
+        let independentEventsVerified: Bool
+        let notificationReconcileVerified: Bool
+        let chatSessionsVerified: Bool
+        let artifactScanCountVerified: Bool
         let routeKind: String?
         let selectedPath: String?
         let failure: String?
@@ -211,14 +215,22 @@ final class MobileIrohReleaseGateRunner {
             ) {
                 observationID = nil
                 return Report(
-                    schemaVersion: 1,
+                    schemaVersion: 2,
                     mode: configuration.mode.rawValue,
                     passed: probe.hostStatusVerified
                         && probe.terminalRoundTripVerified
-                        && probe.workspaceMutationVerified,
+                        && probe.workspaceMutationVerified
+                        && probe.independentEventsVerified
+                        && probe.notificationReconcileVerified
+                        && probe.chatSessionsVerified
+                        && probe.artifactScanCountVerified,
                     hostStatusVerified: probe.hostStatusVerified,
                     terminalRoundTripVerified: probe.terminalRoundTripVerified,
                     workspaceMutationVerified: probe.workspaceMutationVerified,
+                    independentEventsVerified: probe.independentEventsVerified,
+                    notificationReconcileVerified: probe.notificationReconcileVerified,
+                    chatSessionsVerified: probe.chatSessionsVerified,
+                    artifactScanCountVerified: probe.artifactScanCountVerified,
                     routeKind: CmxAttachTransportKind.iroh.rawValue,
                     selectedPath: selectedPath,
                     failure: nil
@@ -311,12 +323,16 @@ final class MobileIrohReleaseGateRunner {
         failure: MobileIrohReleaseGateProbeFailure
     ) -> Report {
         Report(
-            schemaVersion: 1,
+            schemaVersion: 2,
             mode: mode.rawValue,
             passed: false,
             hostStatusVerified: false,
             terminalRoundTripVerified: false,
             workspaceMutationVerified: false,
+            independentEventsVerified: false,
+            notificationReconcileVerified: false,
+            chatSessionsVerified: false,
+            artifactScanCountVerified: false,
             routeKind: nil,
             selectedPath: nil,
             failure: failure.rawValue
@@ -328,12 +344,16 @@ final class MobileIrohReleaseGateRunner {
         failure: Failure
     ) -> Report {
         Report(
-            schemaVersion: 1,
+            schemaVersion: 2,
             mode: mode.rawValue,
             passed: false,
             hostStatusVerified: false,
             terminalRoundTripVerified: false,
             workspaceMutationVerified: false,
+            independentEventsVerified: false,
+            notificationReconcileVerified: false,
+            chatSessionsVerified: false,
+            artifactScanCountVerified: false,
             routeKind: nil,
             selectedPath: nil,
             failure: failure.rawValue
