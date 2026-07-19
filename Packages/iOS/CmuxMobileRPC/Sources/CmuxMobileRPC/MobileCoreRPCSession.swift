@@ -51,7 +51,10 @@ actor MobileCoreRPCSession {
     private let didReceiveConnectedCandidate: ConnectedCandidateHook?
     private let diagnosticTransport: DiagnosticTransportKind?
     private let transportConnectObserver: TransportConnectObserver?
-    private var transport: (any CmxByteTransport)?
+    // The getter is internal so the debug-only release-gate extension can
+    // inspect the installed transport. Only this actor's production code can
+    // replace it.
+    private(set) var transport: (any CmxByteTransport)?
     private var connectionTask: ConnectingTask?
     private var installedConnectionID: UUID?
     private var readerTask: Task<Void, Never>?
@@ -179,24 +182,6 @@ actor MobileCoreRPCSession {
 
     func removeListener(id: UUID) {
         listeners.removeValue(forKey: id)
-    }
-
-    /// Returns the process-local identity of the exact installed native
-    /// transport. This does not create or reconnect a transport.
-    func transportContinuityID() async -> UInt64? {
-        guard let transport = transport as? any CmxByteTransportContinuityIdentifying else {
-            return nil
-        }
-        return await transport.transportContinuityID()
-    }
-
-    /// Captures close notification for the exact currently installed native
-    /// transport. A later reconnect cannot substitute a different connection.
-    func transportClosureObservation() async -> CmxTransportClosureObservation? {
-        guard let transport = transport as? any CmxByteTransportClosureObserving else {
-            return nil
-        }
-        return await transport.transportClosureObservation()
     }
 
     func tearDown(error: MobileShellConnectionError) async {
