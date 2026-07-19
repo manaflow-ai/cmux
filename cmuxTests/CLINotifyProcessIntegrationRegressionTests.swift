@@ -8719,44 +8719,36 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         context: ClaudeHookContext,
         connectionLimit: Int
     ) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            var accepted = 0
-            while accepted < connectionLimit {
-                var clientAddr = sockaddr_un()
-                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                        Darwin.accept(context.listenerFD, sockaddrPtr, &clientAddrLen)
-                    }
-                }
-                if clientFD < 0 {
+        // `connectionLimit` is retained for source compatibility; a single
+        // raw-thread accept loop now services every connection (see
+        // `runMockAcceptLoop`), which keeps blocking accept()s off the GCD pool
+        // that runProcess needs for its stdout/stderr readers and exit waiter.
+        _ = connectionLimit
+        let listenerFD = context.listenerFD
+        let state = context.state
+        let mockResponse: @Sendable (String) -> String = { line in
+            self.agentHookMockResponse(line: line, context: context)
+        }
+        Self.runMockAcceptLoop(listenerFD: listenerFD) { clientFD in
+            defer { Darwin.close(clientFD) }
+            var pending = Data()
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let count = Darwin.read(clientFD, &buffer, buffer.count)
+                if count < 0 {
                     if errno == EINTR { continue }
                     return
                 }
-                accepted += 1
-
-                DispatchQueue.global(qos: .userInitiated).async {
-                    defer { Darwin.close(clientFD) }
-                    var pending = Data()
-                    var buffer = [UInt8](repeating: 0, count: 4096)
-                    while true {
-                        let count = Darwin.read(clientFD, &buffer, buffer.count)
-                        if count < 0 {
-                            if errno == EINTR { continue }
-                            return
-                        }
-                        if count == 0 { return }
-                        pending.append(buffer, count: count)
-                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                            pending.removeSubrange(0...newlineRange.lowerBound)
-                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                            context.state.append(line)
-                            let response = self.agentHookMockResponse(line: line, context: context) + "\n"
-                            _ = response.withCString { ptr in
-                                Darwin.write(clientFD, ptr, strlen(ptr))
-                            }
-                        }
+                if count == 0 { return }
+                pending.append(buffer, count: count)
+                while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                    let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                    pending.removeSubrange(0...newlineRange.lowerBound)
+                    guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                    state.append(line)
+                    let response = mockResponse(line) + "\n"
+                    _ = response.withCString { ptr in
+                        Darwin.write(clientFD, ptr, strlen(ptr))
                     }
                 }
             }
@@ -9432,7 +9424,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .appendingPathComponent("cmux-spawn-id-e2e-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmpDir) }
-        let socketPath = tmpDir.appendingPathComponent("sock").path
+        // Bind the control socket under a short /tmp path. The AF_UNIX sun_path
+        // limit is 104 bytes, and this machine's temporary directory alone is long
+        // enough that a socket nested under `tmpDir` overflows it; keep HOME pointed
+        // at tmpDir but give the socket a short, dedicated path.
+        let socketPath = makeSocketPath("tmuxenv")
         let listenerFD = try bindUnixSocket(at: socketPath)
         defer { Darwin.close(listenerFD); unlink(socketPath) }
         let state = MockSocketServerState()
