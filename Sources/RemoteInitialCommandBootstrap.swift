@@ -59,7 +59,7 @@ struct RemoteInitialCommandBootstrap {
         ].joined(separator: "; ")
     }
 
-    /// Atomically claims the command, preserving state for csh and POSIX-family fallbacks.
+    /// Atomically claims the command and runs it through the login shell's interactive mode.
     var fallbackShellLines: [String] {
         guard encodedCommand != nil else { return [] }
         return [
@@ -73,7 +73,8 @@ struct RemoteInitialCommandBootstrap {
             "    case \"${CMUX_LOGIN_SHELL##*/}\" in",
             "      csh|tcsh) exec \"$CMUX_LOGIN_SHELL\" -i -c 'eval \"$argv[2]\"; exec \"$argv[1]\" -i' \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command\" ;;",
             "      sh|dash|ksh|mksh|ash|yash|posh) exec \"$CMUX_LOGIN_SHELL\" -i -c 'eval \"$1\"; exec \"$0\" -i' \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command\" ;;",
-            "      *) \"$CMUX_LOGIN_SHELL\" -c \"$cmux_initial_command\" ;;",
+            "      pwsh|powershell) exec \"$CMUX_LOGIN_SHELL\" -NoExit -Command \"$cmux_initial_command\" ;;",
+            "      *) exec \"$CMUX_LOGIN_SHELL\" -i -c \"$cmux_initial_command\" ;;",
             "    esac",
             "  fi",
             "else",
