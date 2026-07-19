@@ -115,6 +115,44 @@ struct RemoteResumeBindingTests {
         )
     }
 
+    @Test
+    func legacyRemoteSnapshotMigratesBindingIntoPersistentSSHContext() throws {
+        let fixture = try makeRelayedFixture()
+        let legacySnapshot = try snapshotWithoutLaunchFlavor(fixture.snapshot)
+        let suiteName = "cmux-legacy-remote-resume-binding-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let socketPath = reserveRemoteRestoreSocket()
+        defer { cleanupRemoteRestoreSocket(socketPath) }
+
+        let restoredWorkspace = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let restoredIDs = restoredWorkspace.restoreSessionSnapshot(legacySnapshot)
+        let restoredSurfaceID = try #require(restoredIDs[fixture.surfaceID])
+        let startupCommand = try #require(
+            restoredWorkspace.terminalPanel(for: restoredSurfaceID)?.surface.debugInitialCommand()
+        )
+        let remoteCommand = try decodedRemoteCommand(from: startupCommand)
+        try expectRemoteResumeBootstrap(
+            remoteCommand,
+            workspaceID: restoredWorkspace.id,
+            surfaceID: restoredSurfaceID
+        )
+
+        let roundTripBinding = try #require(
+            restoredWorkspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == restoredSurfaceID }?.terminal?.resumeBinding
+        )
+        guard case .persistentSSH(let context) = roundTripBinding.launchFlavor else {
+            Issue.record("Legacy remote binding was not migrated to persistent SSH")
+            return
+        }
+        #expect(context.workspaceID == restoredWorkspace.id)
+        #expect(context.surfaceID == restoredSurfaceID)
+        #expect(context.persistentPTYSessionID == fixture.remotePTYSessionID)
+    }
+
     private func makeRelayedFixture() throws -> (
         snapshot: SessionWorkspaceSnapshot,
         workspaceID: UUID,
@@ -299,6 +337,25 @@ struct RemoteResumeBindingTests {
         let encoded = String(script[range]).split(separator: " ", maxSplits: 1).last.map(String.init)
         let data = try #require(encoded.flatMap(Data.init(base64Encoded:)))
         return try #require(String(data: data, encoding: .utf8))
+    }
+
+    private func snapshotWithoutLaunchFlavor(
+        _ snapshot: SessionWorkspaceSnapshot
+    ) throws -> SessionWorkspaceSnapshot {
+        let encoded = try JSONEncoder().encode(snapshot)
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        var panels = try #require(object["panels"] as? [[String: Any]])
+        let panelIndex = try #require(panels.firstIndex { $0["terminal"] != nil })
+        var panel = panels[panelIndex]
+        var terminal = try #require(panel["terminal"] as? [String: Any])
+        var binding = try #require(terminal["resumeBinding"] as? [String: Any])
+        binding.removeValue(forKey: "launchFlavor")
+        terminal["resumeBinding"] = binding
+        panel["terminal"] = terminal
+        panels[panelIndex] = panel
+        object["panels"] = panels
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+        return try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: legacyData)
     }
 
     private func expectRemoteResumeBootstrap(
