@@ -121,6 +121,7 @@ struct CmuxAgentSessionRunAuthorityProjectionTests {
             ["restoreAuthority": true, "relationship": "spawned"],
             ["restoreAuthority": true, "authorityEvidence": "managed_child"],
             ["restoreAuthority": true, "authorityEvidence": "provisional_ambiguous_child"],
+            ["restoreAuthority": true, "completedAt": 200],
         ] {
             let data = try JSONSerialization.data(withJSONObject: fields)
             #expect(
