@@ -49,6 +49,7 @@ nonisolated enum BackendOnlyProjectionDriverError: Error, Equatable, Sendable {
     case intentSequenceExhausted
     case ambiguousTransport
     case nonadvancingConnectionGeneration(current: UInt64, proposed: UInt64)
+    case workspaceOwnershipRetryLimitExceeded(maximum: Int)
 }
 
 nonisolated struct BackendOnlyProjectionDriverMetrics: Equatable, Sendable {
@@ -111,6 +112,7 @@ private nonisolated struct BackendOnlyPendingProjectionIntent: Equatable, Sendab
 actor BackendOnlyProjectionDriver {
     static let maximumPendingIntentCount = 4_096
     static let maximumOperationsPerMutation = 4_096
+    static let maximumWorkspaceOwnershipRetries = 3
 
     let logicalPresentationID: UUID
     let stableClientID: UUID
@@ -306,7 +308,7 @@ actor BackendOnlyProjectionDriver {
         phase = .hydrating
         do {
             let result = try await refreshInstalledTopology()
-            removeSatisfiedPendingIntents()
+            try requeueAmbiguousIntentsAfterHydration()
             phase = .ready
             startDrainIfNeeded()
             return result
@@ -343,26 +345,13 @@ actor BackendOnlyProjectionDriver {
         topologySnapshot = topology
         publication = nil
         let ambiguous = ambiguousIntents
-        ambiguousIntents.removeAll(keepingCapacity: true)
         phase = .hydrating
 
         do {
             let result = try await hydrateInstalledTopology(
                 legacySelectedWorkspaceID: legacySelectedWorkspaceID
             )
-            guard let navigation else {
-                throw BackendOnlyProjectionDriverError.protocolFenceMismatch
-            }
-            for value in ambiguous where !Self.isSatisfied(value.intent, by: navigation) {
-                let key = Self.key(for: value.intent)
-                if let newer = pendingIntents[key],
-                   Self.intentOrder(value, newer)
-                {
-                    continue
-                }
-                pendingIntents[key] = value
-            }
-            removeSatisfiedPendingIntents()
+            try requeueAmbiguousIntentsAfterHydration()
             phase = .ready
             startDrainIfNeeded()
             return result
@@ -370,6 +359,8 @@ actor BackendOnlyProjectionDriver {
             if phase == .hydrating { phase = .failed }
             throw error
         } catch {
+            // Keep the exact ambiguous set until one successful hydration can
+            // compare it with authoritative state.
             ambiguousIntents = ambiguous
             phase = .reconciliationRequired
             throw BackendOnlyProjectionDriverError.ambiguousTransport
@@ -391,7 +382,7 @@ actor BackendOnlyProjectionDriver {
         phase = .hydrating
         do {
             _ = try await refreshInstalledTopology()
-            removeSatisfiedPendingIntents()
+            try requeueAmbiguousIntentsAfterHydration()
             phase = .ready
             startDrainIfNeeded()
         } catch let error as BackendOnlyProjectionDriverError {
@@ -410,25 +401,8 @@ actor BackendOnlyProjectionDriver {
             throw BackendOnlyProjectionDriverError.invalidTopology
         }
 
-        let listedResponse = try await callList(snapshot)
-        let listedStates = try appliedStates(
-            listedResponse,
-            snapshot: snapshot,
-            expectedLogicalPresentationID: nil
-        )
-        var owners: [WorkspaceID: UUID] = [:]
-        var ownershipBindingVisits = 0
-        for state in listedStates {
-            for workspace in state.workspaces {
-                ownershipBindingVisits += 1
-                if let owner = owners[workspace.workspaceID],
-                   owner != state.logicalPresentationID
-                {
-                    throw BackendOnlyProjectionDriverError.protocolFenceMismatch
-                }
-                owners[workspace.workspaceID] = state.logicalPresentationID
-            }
-        }
+        let listed = try await listOwnership(snapshot: snapshot)
+        var ownershipBindingVisits = listed.bindingVisits
 
         let claimResponse = try await callClaim(snapshot)
         var state = try singleAppliedState(
@@ -445,41 +419,21 @@ actor BackendOnlyProjectionDriver {
         let recordWasEmpty = state.workspaces.isEmpty
             && state.selectedWorkspaceID == nil
 
-        var canonicalWorkspaceVisits = 0
-        var assignable: [CanonicalWorkspace] = []
-        assignable.reserveCapacity(snapshot.topology.workspaces.count)
-        for workspace in snapshot.topology.workspaces {
-            canonicalWorkspaceVisits += 1
-            let owner = owners[workspace.uuid]
-            if owner == nil || owner == logicalPresentationID {
-                assignable.append(workspace)
-            }
-        }
-        let alreadyAssigned = Set(state.workspaces.map(\.workspaceID))
-        let missing = assignable.filter {
-            !alreadyAssigned.contains($0.uuid)
-        }
-        var offset = 0
-        while offset < missing.count {
-            let end = min(
-                offset + Self.maximumOperationsPerMutation,
-                missing.count
-            )
-            let operations = missing[offset ..< end].map {
-                BackendProjectionNavigationOperation.assignWorkspace(
-                    workspaceID: $0.uuid
-                )
-            }
-            state = try await mutateHydrationState(
-                state,
-                operations: operations,
-                snapshot: snapshot
-            )
-            offset = end
-        }
+        let assignment = try await assignHydrationWorkspaces(
+            state: state,
+            owners: listed.owners,
+            snapshot: snapshot
+        )
+        state = assignment.state
+        let canonicalWorkspaceVisits = assignment.canonicalWorkspaceVisits
+        ownershipBindingVisits += assignment.ownershipBindingVisits
 
         let assignedIDs = Set(state.workspaces.map(\.workspaceID))
-        let assignableIDs = Set(assignable.map(\.uuid))
+        let assignableIDs = Set(snapshot.topology.workspaces.compactMap {
+            let owner = assignment.owners[$0.uuid]
+            return owner == nil || owner == logicalPresentationID
+                ? $0.uuid : nil
+        })
         let selectableIDs = assignedIDs.intersection(assignableIDs)
         let validCurrentSelection = state.selectedWorkspaceID.flatMap {
             selectableIDs.contains($0) ? $0 : nil
@@ -491,7 +445,8 @@ actor BackendOnlyProjectionDriver {
             : nil
         let selectedWorkspaceID = validCurrentSelection
             ?? legacySeed
-            ?? assignable.lazy.map(\.uuid).first(where: selectableIDs.contains)
+            ?? snapshot.topology.workspaces.lazy.map(\.uuid)
+                .first(where: selectableIDs.contains)
         if state.selectedWorkspaceID != selectedWorkspaceID {
             state = try await mutateHydrationState(
                 state,
@@ -518,31 +473,8 @@ actor BackendOnlyProjectionDriver {
         guard let snapshot = topologySnapshot else {
             throw BackendOnlyProjectionDriverError.invalidTopology
         }
-        let response = try await callList(snapshot)
-        let listedStates = try appliedStates(
-            response,
-            snapshot: snapshot,
-            expectedLogicalPresentationID: nil
-        )
-        var owners: [WorkspaceID: UUID] = [:]
-        var current: BackendProjectionNavigationState?
-        for state in listedStates {
-            if state.logicalPresentationID == logicalPresentationID {
-                guard current == nil else {
-                    throw BackendOnlyProjectionDriverError.protocolFenceMismatch
-                }
-                current = state
-            }
-            for workspace in state.workspaces {
-                if let owner = owners[workspace.workspaceID],
-                   owner != state.logicalPresentationID
-                {
-                    throw BackendOnlyProjectionDriverError.protocolFenceMismatch
-                }
-                owners[workspace.workspaceID] = state.logicalPresentationID
-            }
-        }
-        guard var state = current else {
+        let listed = try await listOwnership(snapshot: snapshot)
+        guard var state = listed.currentState else {
             throw BackendOnlyProjectionDriverError.protocolFenceMismatch
         }
         guard state.claimID != nil,
@@ -552,27 +484,12 @@ actor BackendOnlyProjectionDriver {
             throw BackendOnlyProjectionDriverError.superseded
         }
 
-        let alreadyAssigned = Set(state.workspaces.map(\.workspaceID))
-        let missing = snapshot.topology.workspaces.filter { workspace in
-            let owner = owners[workspace.uuid]
-            return (owner == nil || owner == logicalPresentationID)
-                && !alreadyAssigned.contains(workspace.uuid)
-        }
-        var offset = 0
-        while offset < missing.count {
-            let end = min(
-                offset + Self.maximumOperationsPerMutation,
-                missing.count
-            )
-            state = try await mutateHydrationState(
-                state,
-                operations: missing[offset ..< end].map {
-                    .assignWorkspace(workspaceID: $0.uuid)
-                },
-                snapshot: snapshot
-            )
-            offset = end
-        }
+        let assignment = try await assignHydrationWorkspaces(
+            state: state,
+            owners: listed.owners,
+            snapshot: snapshot
+        )
+        state = assignment.state
 
         let assigned = Set(state.workspaces.map(\.workspaceID))
         let canonical = Set(snapshot.topology.workspaces.map(\.uuid))
@@ -594,6 +511,147 @@ actor BackendOnlyProjectionDriver {
             throw BackendOnlyProjectionDriverError.protocolFenceMismatch
         }
         return publication
+    }
+
+    private func listOwnership(
+        snapshot: TopologySnapshot
+    ) async throws -> (
+        owners: [WorkspaceID: UUID],
+        currentState: BackendProjectionNavigationState?,
+        bindingVisits: Int
+    ) {
+        let response = try await callList(snapshot)
+        let states = try appliedStates(
+            response,
+            snapshot: snapshot,
+            expectedLogicalPresentationID: nil
+        )
+        var owners: [WorkspaceID: UUID] = [:]
+        var currentState: BackendProjectionNavigationState?
+        var bindingVisits = 0
+        for state in states {
+            if state.logicalPresentationID == logicalPresentationID {
+                guard currentState == nil else {
+                    throw BackendOnlyProjectionDriverError.protocolFenceMismatch
+                }
+                currentState = state
+            }
+            for workspace in state.workspaces {
+                bindingVisits += 1
+                if let owner = owners[workspace.workspaceID],
+                   owner != state.logicalPresentationID
+                {
+                    throw BackendOnlyProjectionDriverError.protocolFenceMismatch
+                }
+                owners[workspace.workspaceID] = state.logicalPresentationID
+            }
+        }
+        return (owners, currentState, bindingVisits)
+    }
+
+    /// Assigns all still-unowned workspaces without changing the socket claim.
+    /// A workspace can be claimed by another logical window after our list.
+    /// Relist and recompute from the exact claimed record at most three times.
+    private func assignHydrationWorkspaces(
+        state initialState: BackendProjectionNavigationState,
+        owners initialOwners: [WorkspaceID: UUID],
+        snapshot: TopologySnapshot
+    ) async throws -> (
+        state: BackendProjectionNavigationState,
+        owners: [WorkspaceID: UUID],
+        canonicalWorkspaceVisits: Int,
+        ownershipBindingVisits: Int
+    ) {
+        guard let exactClaimID = initialState.claimID,
+              initialState.claimedProcessInstanceID == processInstanceID
+        else {
+            throw BackendOnlyProjectionDriverError.protocolFenceMismatch
+        }
+        var state = initialState
+        var owners = initialOwners
+        var retryCount = 0
+        var canonicalWorkspaceVisits = 0
+        var ownershipBindingVisits = 0
+
+        while true {
+            var assignable: [CanonicalWorkspace] = []
+            assignable.reserveCapacity(snapshot.topology.workspaces.count)
+            for workspace in snapshot.topology.workspaces {
+                canonicalWorkspaceVisits += 1
+                let owner = owners[workspace.uuid]
+                if owner == nil || owner == logicalPresentationID {
+                    assignable.append(workspace)
+                }
+            }
+            let alreadyAssigned = Set(state.workspaces.map(\.workspaceID))
+            let missing = assignable.filter {
+                !alreadyAssigned.contains($0.uuid)
+            }
+
+            do {
+                var offset = 0
+                while offset < missing.count {
+                    let end = min(
+                        offset + Self.maximumOperationsPerMutation,
+                        missing.count
+                    )
+                    state = try await mutateHydrationState(
+                        state,
+                        operations: missing[offset ..< end].map {
+                            .assignWorkspace(workspaceID: $0.uuid)
+                        },
+                        snapshot: snapshot
+                    )
+                    offset = end
+                }
+                return (
+                    state,
+                    owners,
+                    canonicalWorkspaceVisits,
+                    ownershipBindingVisits
+                )
+            } catch let error as BackendOnlyProjectionDriverError {
+                guard case .unexpectedConflict(.workspaceOwned(
+                    let workspaceID,
+                    let ownerLogicalPresentationID
+                )) = error else {
+                    throw error
+                }
+                guard ownerLogicalPresentationID != logicalPresentationID,
+                      !Self.isNilUUID(ownerLogicalPresentationID),
+                      snapshot.topology.workspaces.contains(where: {
+                          $0.uuid == workspaceID
+                      })
+                else {
+                    throw BackendOnlyProjectionDriverError.protocolFenceMismatch
+                }
+                guard retryCount < Self.maximumWorkspaceOwnershipRetries else {
+                    throw BackendOnlyProjectionDriverError
+                        .workspaceOwnershipRetryLimitExceeded(
+                            maximum: Self.maximumWorkspaceOwnershipRetries
+                        )
+                }
+                retryCount += 1
+
+                let relisted = try await listOwnership(snapshot: snapshot)
+                ownershipBindingVisits += relisted.bindingVisits
+                guard let current = relisted.currentState else {
+                    throw BackendOnlyProjectionDriverError.protocolFenceMismatch
+                }
+                guard current.claimID == exactClaimID,
+                      current.claimedProcessInstanceID == processInstanceID
+                else {
+                    publication = nil
+                    phase = .superseded
+                    throw BackendOnlyProjectionDriverError.superseded
+                }
+                guard current.generation >= state.generation else {
+                    throw BackendOnlyProjectionDriverError.protocolFenceMismatch
+                }
+                state = current
+                owners = relisted.owners
+            }
+        }
     }
 
     private func mutateHydrationState(
@@ -939,6 +997,31 @@ actor BackendOnlyProjectionDriver {
             }
             pendingIntents[key] = value
         }
+    }
+
+    private func requeueAmbiguousIntentsAfterHydration() throws {
+        guard let navigation else {
+            throw BackendOnlyProjectionDriverError.protocolFenceMismatch
+        }
+        var candidate = pendingIntents
+        for value in ambiguousIntents where !Self.isSatisfied(
+            value.intent,
+            by: navigation
+        ) {
+            let key = Self.key(for: value.intent)
+            if let newer = candidate[key], Self.intentOrder(value, newer) {
+                continue
+            }
+            candidate[key] = value
+        }
+        guard candidate.count <= Self.maximumPendingIntentCount else {
+            throw BackendOnlyProjectionDriverError.pendingIntentLimitExceeded(
+                maximum: Self.maximumPendingIntentCount
+            )
+        }
+        pendingIntents = candidate
+        ambiguousIntents.removeAll(keepingCapacity: true)
+        removeSatisfiedPendingIntents()
     }
 
     private func removeSatisfiedPendingIntents() {
