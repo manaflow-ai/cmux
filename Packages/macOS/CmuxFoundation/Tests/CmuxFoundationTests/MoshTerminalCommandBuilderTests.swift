@@ -129,6 +129,30 @@ struct MoshTerminalCommandBuilderTests {
         }
     }
 
+    @Test("keeps a large SSH fallback within the local launcher argument budget")
+    func largeFallbackIsEmbeddedOnce() throws {
+        try withFakeCommands(sshStatus: 0, installMosh: false) { _, environment in
+            let fallbackPadding = String(repeating: "x", count: 210_000)
+            let fallbackCommand = "printf 'ssh fallback\\n'; : # \(fallbackPadding)"
+            let command = builder(
+                sshFallbackCommand: fallbackCommand,
+                localMoshExecutableName: "cmux-missing-mosh"
+            ).command()
+
+            #expect(command.utf8.count < fallbackCommand.utf8.count * 2)
+            let result = try run(
+                builder(
+                    sshFallbackCommand: fallbackCommand,
+                    localMoshExecutableName: "cmux-missing-mosh"
+                ),
+                environment: environment
+            )
+            #expect(result.status == 0)
+            #expect(result.stdout == "ssh fallback\n")
+            #expect(result.stderr == "local mosh missing\n")
+        }
+    }
+
     @Test("falls back to SSH when remote preparation fails")
     func preparationFailureFallsBack() throws {
         try withFakeCommands(sshStatus: 0) { _, environment in
