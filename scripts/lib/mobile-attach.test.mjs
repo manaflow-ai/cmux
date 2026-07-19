@@ -476,6 +476,30 @@ test("physical-device mint retries transient empty responses", async () => {
   assert.equal(result.callCount, 2);
 });
 
+test("release gate grants asynchronous Iroh publication a bounded startup window", () => {
+  const launcher = fs.readFileSync(
+    path.join(repoRoot, "scripts/mobile-dev-launch.sh"),
+    "utf8",
+  );
+  const gate = fs.readFileSync(
+    path.join(repoRoot, "scripts/run-iroh-release-gate.sh"),
+    "utf8",
+  );
+
+  assert.match(
+    launcher,
+    /ATTACH_MINT_MAX_ATTEMPTS="\$\{CMUX_ATTACH_MINT_MAX_ATTEMPTS:-20\}"/,
+  );
+  assert.match(
+    launcher,
+    /cmux_attach_mint_url[^\n]+"\$ATTACH_TARGET" "\$ATTACH_MINT_MAX_ATTEMPTS"/,
+  );
+  assert.match(
+    gate,
+    /CMUX_ATTACH_MINT_MAX_ATTEMPTS=120 \\\n+\.\/scripts\/mobile-dev-launch\.sh/,
+  );
+});
+
 test("mobile launch accepts an explicit no-attach override", () => {
   const result = run("bash", [
     "scripts/mobile-dev-launch.sh",
