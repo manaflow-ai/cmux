@@ -220,7 +220,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                     } else if !shouldBeExpanded && isCurrentlyExpanded {
                         outlineView.collapseItem(node)
                     } else if node.children != nil {
-                        outlineView.reloadItem(node, reloadChildren: true)
+                        outlineView.reloadItem(node, reloadChildren: shouldBeExpanded)
                         if shouldBeExpanded {
                             outlineView.expandItem(node)
                         }
