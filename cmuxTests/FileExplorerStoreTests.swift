@@ -662,6 +662,38 @@ struct FileExplorerStoreTests {
             "An update with no intervening file-explorer store change must not reload visible outline nodes."
         )
     }
+
+    @Test
+    func testProgrammaticOutlineReloadDoesNotExpandCollapsedDirectory() {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let directory = FileExplorerNode(name: "Sources", path: "/project/Sources", isDirectory: true)
+        directory.children = []
+        store.rootPath = "/project"
+        store.rootNodes = [directory]
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView()
+        outlineView.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files")))
+        outlineView.outlineTableColumn = outlineView.tableColumns[0]
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+        #expect(!store.isExpanded(directory))
+
+        store.rootNodes = [directory]
+        coordinator.reloadIfNeeded()
+
+        #expect(
+            !store.isExpanded(directory),
+            "Refreshing a collapsed directory row must not write a synthetic expansion back into the store."
+        )
+    }
 }
 
 @MainActor
