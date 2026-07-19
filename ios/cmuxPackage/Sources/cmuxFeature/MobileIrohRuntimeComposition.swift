@@ -1253,6 +1253,7 @@ public final class MobileIrohRuntimeComposition:
             protocolConfiguration: Self.protocolConfiguration(
                 for: transportVerificationMode
             ),
+            diagnosticLog: diagnosticLog,
             offlinePolicyCache: offlinePolicies,
             networkPathSnapshot: networkPathSnapshot,
             lanFallback: { target, bindings, rendezvous in
