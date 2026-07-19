@@ -212,33 +212,34 @@ extension MobileShellComposite {
         let artifactSuffix = Data("CMUX_IROH_ARTIFACT_\(marker.suffix(24))".utf8)
         let artifactTotalByteCount = artifactPrefixByteCount + artifactSuffix.count
         let artifactSuffixText = String(decoding: artifactSuffix, as: UTF8.self)
+        let artifactPreparation = MobileIrohReleaseGateArtifactPreparation.make(
+            path: artifactPath,
+            suffixText: artifactSuffixText,
+            marker: marker
+        )
         var terminalIterator = terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
-        let artifactCreationCommand =
-            "dd if=/dev/zero of='\(artifactPath)' bs=1048576 count=32 2>/dev/null; "
-            + "printf '%s' '\(artifactSuffixText)' >> '\(artifactPath)'; "
-            + "printf '\\n%s\\n' '\(artifactPath)'\n"
         await submitTerminalRawInput(
-            Data(artifactCreationCommand.utf8),
+            Data(artifactPreparation.command.utf8),
             surfaceID: surfaceID
         )
-        let artifactPathMarker = Data(artifactPath.utf8)
+        let artifactCompletionMarker = Data(artifactPreparation.completionMarker.utf8)
         var terminalBytes = Data()
-        var sawArtifactPath = false
+        var sawArtifactCompletion = false
         while let chunk = await terminalIterator.next() {
             terminalOutputDidProcess(
                 surfaceID: surfaceID,
                 streamToken: chunk.streamToken
             )
             terminalBytes.append(chunk.data)
-            if terminalBytes.range(of: artifactPathMarker) != nil {
-                sawArtifactPath = true
+            if terminalBytes.range(of: artifactCompletionMarker) != nil {
+                sawArtifactCompletion = true
                 break
             }
             if terminalBytes.count > 65_536 {
                 terminalBytes.removeFirst(terminalBytes.count - 65_536)
             }
         }
-        guard sawArtifactPath else {
+        guard sawArtifactCompletion else {
             await bestEffortEventUnsubscribe(client: client, streamID: streamID)
             throw MobileIrohReleaseGateProbeFailure.controlStreamContinuityFailed
         }
@@ -495,6 +496,7 @@ extension MobileShellComposite {
                 "path": path,
             ]
         )
+        var consecutiveStableObservations = 0
         for _ in 0 ..< 100 {
             let scanResponse = try await client.sendRequest(scanRequest)
             if MobileIrohReleaseGateResponseValidator.artifactPath(
@@ -506,8 +508,16 @@ extension MobileShellComposite {
                     statResponse,
                     expectedSize: expectedSize
                 ) {
-                    return true
+                    consecutiveStableObservations += 1
+                    if consecutiveStableObservations
+                        >= MobileIrohReleaseGateArtifactPreparation.requiredStableStatObservations {
+                        return true
+                    }
+                } else {
+                    consecutiveStableObservations = 0
                 }
+            } else {
+                consecutiveStableObservations = 0
             }
             try await Task.sleep(for: .milliseconds(100))
         }
