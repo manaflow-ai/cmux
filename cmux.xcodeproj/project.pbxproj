@@ -1232,6 +1232,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		E30790000000000000000004 /* RemotePTYBridgeStrings+App.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30790000000000000000003 /* RemotePTYBridgeStrings+App.swift */; };
 		A5001640 /* RemoteRelayZshBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001641 /* RemoteRelayZshBootstrap.swift */; };
 		B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001641 /* RemoteRelayZshBootstrap.swift */; };
+		7989A0017989A0017989A001 /* RemoteResumeBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7989A0027989A0027989A002 /* RemoteResumeBindingTests.swift */; };
 		REE0CA0000000000000000D2 /* RemoteRouteSpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000D1 /* RemoteRouteSpec.swift */; };
 		REE0CA0000000000000000A2 /* RemotesClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000A1 /* RemotesClient.swift */; };
 		C1A070000000000000000007 /* RemotesClientError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000017 /* RemotesClientError.swift */; };
@@ -3282,6 +3283,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D0C0D0C0D0C0D0C0D0C00004 /* RemoteLoopbackRuntimeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteLoopbackRuntimeBridge.swift; sourceTree = "<group>"; };
 		E30790000000000000000003 /* RemotePTYBridgeStrings+App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemotePTYBridgeStrings+App.swift"; sourceTree = "<group>"; };
 		A5001641 /* RemoteRelayZshBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteRelayZshBootstrap.swift; sourceTree = "<group>"; };
+		7989A0027989A0027989A002 /* RemoteResumeBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteResumeBindingTests.swift; sourceTree = "<group>"; };
 		REE0CA0000000000000000D1 /* RemoteRouteSpec.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RemoteRouteSpec.swift; sourceTree = "<group>"; };
 		REE0CA0000000000000000A1 /* RemotesClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RemotesClient.swift; sourceTree = "<group>"; };
 		C1A070000000000000000017 /* RemotesClientError.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RemotesClientError.swift; sourceTree = "<group>"; };
@@ -5771,6 +5773,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					B79500300000000000000002 /* PortScannerPublicationTests.swift */,
 					B79500320000000000000002 /* PortScannerIdentityContinuityTests.swift */,
 					F6572003A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift */,
+					7989A0027989A0027989A002 /* RemoteResumeBindingTests.swift */,
 					F6572013A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift */,
 					F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */,
 					806600000000000000000001 /* SessionRestorableAgentSnapshotPermissionModeTests.swift */,
@@ -8508,6 +8511,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A64610020000000000000001 /* QuitConfirmationAlertPresenterTests.swift in Sources */,
 				A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */,
 				791100030000000000000001 /* RemoteDisconnectLifecycleTests.swift in Sources */,
+				7989A0017989A0017989A001 /* RemoteResumeBindingTests.swift in Sources */,
 				REE0CA0000000000000000B2 /* RemotesClientTests.swift in Sources */,
 				806100020000000000000001 /* RemoteSessionCleanupLifecycleTests.swift in Sources */,
 				C0F674600000000000000001 /* RemoteShellCWDRelayTests.swift in Sources */,
