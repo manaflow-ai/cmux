@@ -171,6 +171,67 @@ async function mintAttachURL(target, payload, maxAttempts = 1) {
   }
 }
 
+async function ensureMacAfterRelaunch() {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-ready-test-"));
+  const socketPath = path.join(tempRoot, "mobile.sock");
+  const appPath = path.join(tempRoot, "cmux DEV ready.app");
+  const callCounterPath = path.join(tempRoot, "call-count");
+  fs.mkdirSync(appPath);
+
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+
+  try {
+    const result = spawnSync(
+      "bash",
+      [
+        "-c",
+        [
+          'source "$1"',
+          'cmux_attach_enable_pairing_host() { :; }',
+          'cmux_attach_socket_path() { printf "%s" "$CMUX_TEST_SOCKET"; }',
+          'cmux_attach_mac_app_path() { printf "%s" "$CMUX_TEST_APP"; }',
+          'cmux_attach__slug() { printf "ready"; }',
+          'cmux_attach_mint_url() {',
+          '  count="$(cat "$CMUX_TEST_CALL_COUNTER" 2>/dev/null || printf 0)"',
+          '  count="$((count + 1))"',
+          '  printf "%s" "$count" > "$CMUX_TEST_CALL_COUNTER"',
+          '  if [[ "$count" -ge 2 ]]; then printf "cmux-ios-dev://attach?v=2&kind=iroh"; return 0; fi',
+          '  return 1',
+          '}',
+          'pkill() { return 0; }',
+          'open() { return 0; }',
+          'sleep() { return 0; }',
+          'CMUX_ATTACH_ALLOW_RELAUNCH=1 cmux_attach_ensure_mac "ready" "$2" physical_device',
+        ].join("\n"),
+        "mobile-attach-test",
+        validator,
+        tempRoot,
+      ],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          CMUX_TEST_APP: appPath,
+          CMUX_TEST_CALL_COUNTER: callCounterPath,
+          CMUX_TEST_SOCKET: socketPath,
+        },
+      },
+    );
+    result.callCount = fs.existsSync(callCounterPath)
+      ? Number.parseInt(fs.readFileSync(callCounterPath, "utf8"), 10)
+      : 0;
+    return result;
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
 function attachPayload(kind) {
   return {
     attach_url: `cmux-ios-dev://attach?v=2&kind=${kind}`,
@@ -473,6 +534,12 @@ test("physical-device mint retries transient empty responses", async () => {
   );
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, payload.attach_url);
+  assert.equal(result.callCount, 2);
+});
+
+test("Mac readiness is revalidated after a tagged relaunch", async () => {
+  const result = await ensureMacAfterRelaunch();
+  assert.equal(result.status, 0, result.stderr);
   assert.equal(result.callCount, 2);
 });
 

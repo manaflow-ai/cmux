@@ -158,7 +158,7 @@ cmux_attach_mac_socket_ready() {
 # 0 if the Mac is ready to mint a usable target-specific ticket, 1 otherwise.
 # Never force-kills a running app by default.
 cmux_attach_ensure_mac() {
-  local tag="$1" repo_root="${2:-}" target="${3:?attach target is required}" sock app slug _i
+  local tag="$1" repo_root="${2:-}" target="${3:?attach target is required}" sock app slug mint_attempts _i
   sock="$(cmux_attach_socket_path "$tag")"
   app="$(cmux_attach_mac_app_path "$tag")"
   slug="$(cmux_attach__slug "$tag")"
@@ -199,7 +199,21 @@ cmux_attach_ensure_mac() {
   # binds /tmp/cmux-debug-<slug>.sock without extra env.
   open -g "$app" >/dev/null 2>&1 || open "$app" >/dev/null 2>&1 || true
   for _i in $(seq 1 60); do
-    [[ -S "$sock" ]] && return 0
+    if [[ -S "$sock" ]]; then
+      if [[ -z "$repo_root" ]]; then
+        return 0
+      fi
+      mint_attempts="${CMUX_ATTACH_MINT_MAX_ATTEMPTS:-20}"
+      if [[ -n "$(cmux_attach_mint_url "$tag" 60 "$repo_root" "$target" "$mint_attempts")" ]]; then
+        return 0
+      fi
+      if [[ "$target" == "physical_device" ]]; then
+        echo "warning: tagged Mac app for '$tag' launched, but no trusted Iroh ticket became ready." >&2
+      else
+        echo "warning: tagged Mac app for '$tag' launched, but its iOS pairing ticket did not become ready." >&2
+      fi
+      return 1
+    fi
     sleep 0.2
   done
   echo "warning: tagged Mac socket $sock did not appear after launch; auto-pair unavailable (signing in only)." >&2
