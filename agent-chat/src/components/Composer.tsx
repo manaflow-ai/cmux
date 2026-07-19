@@ -101,13 +101,6 @@ export function Composer() {
     localStorage.setItem("agentui.provider", provider);
     localStorage.setItem("agentui.cwd", runCwd);
   };
-  const changeCwd = (v: string) => { setCwd(v); };
-  const commitCwd = (v: string) => {
-    const next = v.trim();
-    if (!next) return;
-    setCommittedCwd(next);
-    localStorage.setItem("agentui.cwd", next);
-  };
   const changeProvider = (v: string) => {
     setProvider(v);
     setStartOptionsByProvider((all) => all[v] ? all : { ...all, [v]: readProviderOptions(v) });
@@ -153,9 +146,6 @@ export function Composer() {
           providers={providers}
           allProviderOptions={allProviderOptions}
           onProviderModelChange={changeProviderModel}
-          cwd={cwd}
-          onCwdChange={changeCwd}
-          onCwdCommit={commitCwd}
           options={options}
           onChange={setLocalOption}
           openOptionId={openOptionId}
