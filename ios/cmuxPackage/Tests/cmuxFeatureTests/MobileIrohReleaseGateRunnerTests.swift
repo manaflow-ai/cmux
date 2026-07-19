@@ -67,12 +67,16 @@ struct MobileIrohReleaseGateRunnerTests {
     @Test
     func encodedReportContainsNoTopologyOrIdentityFields() throws {
         let report = MobileIrohReleaseGateRunner.Report(
-            schemaVersion: 1,
+            schemaVersion: 2,
             mode: "relayOnly",
             passed: true,
             hostStatusVerified: true,
             terminalRoundTripVerified: true,
             workspaceMutationVerified: true,
+            independentEventsVerified: true,
+            notificationReconcileVerified: true,
+            chatSessionsVerified: true,
+            artifactScanCountVerified: true,
             routeKind: "iroh",
             selectedPath: "managed_relay",
             failure: nil
@@ -87,9 +91,18 @@ struct MobileIrohReleaseGateRunnerTests {
             "hostStatusVerified",
             "terminalRoundTripVerified",
             "workspaceMutationVerified",
+            "independentEventsVerified",
+            "notificationReconcileVerified",
+            "chatSessionsVerified",
+            "artifactScanCountVerified",
             "routeKind",
             "selectedPath",
         ])
+        let encodedString = try #require(String(data: encoded, encoding: .utf8))
+        #expect(!encodedString.contains("stream_id"))
+        #expect(!encodedString.contains("workspace_id"))
+        #expect(!encodedString.contains("session_id"))
+        #expect(!encodedString.contains("\"artifacts\""))
     }
 }
 #endif

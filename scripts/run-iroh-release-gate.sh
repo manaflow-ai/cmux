@@ -9,7 +9,8 @@ Usage: scripts/run-iroh-release-gate.sh --mode <automatic|relay-only|direct-only
 
 Builds a tagged Mac app and an isolated iOS Simulator app, signs both into the
 same staging account, pairs only over Iroh, and verifies host status, terminal
-input/output, one restored workspace rename, and the redacted selected path.
+input/output, one restored workspace rename, independent events, notification
+reconcile, chat sessions, artifact count, and the redacted selected path.
 
 Credentials resolve through scripts/lib/dev-secrets.sh and are never printed.
 EOF
@@ -262,6 +263,10 @@ allowed_keys = {
     "hostStatusVerified",
     "terminalRoundTripVerified",
     "workspaceMutationVerified",
+    "independentEventsVerified",
+    "notificationReconcileVerified",
+    "chatSessionsVerified",
+    "artifactScanCountVerified",
     "routeKind",
     "selectedPath",
     "failure",
@@ -276,12 +281,16 @@ required_true = (
     "hostStatusVerified",
     "terminalRoundTripVerified",
     "workspaceMutationVerified",
+    "independentEventsVerified",
+    "notificationReconcileVerified",
+    "chatSessionsVerified",
+    "artifactScanCountVerified",
 )
 problems = []
 unexpected_keys = set(report) - allowed_keys
 if unexpected_keys:
     problems.append("report contained unexpected fields")
-if report.get("schemaVersion") != 1:
+if report.get("schemaVersion") != 2:
     problems.append("unexpected schemaVersion")
 if report.get("mode") != expected_mode:
     problems.append("mode mismatch")

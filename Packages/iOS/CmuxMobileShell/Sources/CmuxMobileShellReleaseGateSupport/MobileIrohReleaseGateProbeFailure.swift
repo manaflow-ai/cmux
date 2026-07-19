@@ -19,5 +19,13 @@ public enum MobileIrohReleaseGateProbeFailure: String, Error, Equatable, Sendabl
     case workspaceMutationFailed
     /// The probe could not restore the workspace's original name.
     case workspaceRestorationFailed
+    /// The independent server-event lane could not be subscribed and removed.
+    case independentEventsFailed
+    /// The content-free notification reconciliation RPC failed validation.
+    case notificationReconcileFailed
+    /// The workspace-scoped chat-session snapshot failed validation.
+    case chatSessionsFailed
+    /// The terminal artifact count-only scan failed validation.
+    case artifactScanCountFailed
 }
 #endif

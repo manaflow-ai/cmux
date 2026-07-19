@@ -52,6 +52,7 @@ let package = Package(
             dependencies: [
                 "CmuxMobileShell",
                 "CMUXMobileCore",
+                "CmuxAgentChat",
                 "CmuxMobileRPC",
                 "CmuxMobileShellModel",
             ],
@@ -65,6 +66,7 @@ let package = Package(
             name: "CmuxMobileShellTests",
             dependencies: [
                 "CmuxMobileShell",
+                "CmuxMobileShellReleaseGateSupport",
                 "CMUXMobileCore",
                 "CmuxAgentChat",
                 "CmuxMobilePairedMac",
