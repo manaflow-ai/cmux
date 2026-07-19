@@ -184,9 +184,9 @@ public struct CMUXMobileRootScene: View {
                     stackUserID: userID,
                     teamID: teamID
                 )
-                let target = macDeviceID.lowercased()
+                let target = cmxCanonicalDeviceID(macDeviceID)
                 return pairedMacs?.first(where: {
-                    $0.macDeviceID.lowercased() == target
+                    cmxCanonicalDeviceID($0.macDeviceID) == target
                         && $0.instanceTag == instanceTag
                 })?.routes
             }

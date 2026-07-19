@@ -1101,7 +1101,7 @@ public final class MobileIrohRuntimeComposition:
             appInstanceID: appInstanceID
         )
         let endpointID = try Self.peerIdentity(for: identity)
-        let deviceID = deviceID().lowercased()
+        let deviceID = cmxCanonicalDeviceID(deviceID())
         let cachedBinding = try await brokerCredentials.loadBinding(
             accountID: accountID,
             appInstanceID: appInstanceID

@@ -80,7 +80,7 @@ public struct CmxIrohRegistrationPayload: Encodable, Equatable, Sendable {
             }
         }
         routeContractVersion = 1
-        self.deviceID = deviceID.lowercased()
+        self.deviceID = cmxCanonicalDeviceID(deviceID)
         self.appInstanceID = appInstanceID.lowercased()
         self.tag = tag
         self.platform = platform

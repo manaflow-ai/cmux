@@ -17,7 +17,7 @@ extension MobileHostIrohRuntime {
             accountID: accountID,
             appInstanceID: appInstanceID
         )
-        let deviceID = MobileHostIdentity.deviceID().lowercased()
+        let deviceID = cmxCanonicalDeviceID(MobileHostIdentity.deviceID())
         let cachedBinding = try await brokerCredentials.loadBinding(
             accountID: accountID,
             appInstanceID: appInstanceID
