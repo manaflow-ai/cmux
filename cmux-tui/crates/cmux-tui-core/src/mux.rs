@@ -4471,6 +4471,16 @@ mod tests {
         let events = mux.subscribe();
 
         assert!(mux.focus_pane(outside_pane));
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            let layout = layout_screen(
+                &screen.root,
+                Rect { x: 0, y: 0, width: 80, height: 40 },
+                Some(screen.active_pane),
+            );
+            assert!(!layout.stacked_headers.contains(&stack_pane));
+            assert!(layout.rect_of(stack_pane).unwrap().height > 1);
+        });
         assert!(events.try_iter().any(|event| matches!(event, MuxEvent::LayoutChanged(_))));
     }
 
