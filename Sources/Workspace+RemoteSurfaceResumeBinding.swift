@@ -4,14 +4,13 @@ extension Workspace {
     /// Migrates a legacy binding only when its saved terminal has authoritative persistent-SSH ownership.
     func migratingLegacyPersistentSSHResumeBinding(
         _ binding: SurfaceResumeBindingSnapshot?,
-        snapshotWorkspaceID: UUID?,
+        snapshotWorkspaceID: UUID,
         snapshotSurfaceID: UUID,
         persistentPTYSessionID: String?,
         restoresRemoteTerminal: Bool
     ) -> SurfaceResumeBindingSnapshot? {
         guard let binding,
               restoresRemoteTerminal,
-              let snapshotWorkspaceID,
               let persistentPTYSessionID = normalizedRemotePTYSessionID(persistentPTYSessionID),
               let configuration = remoteConfiguration,
               configuration.transport == .ssh,

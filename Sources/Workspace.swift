@@ -1289,9 +1289,12 @@ extension Workspace {
                 }
                 return Self.defaultSSHPTYSessionID(workspaceId: snapshotWorkspaceId ?? id, panelId: snapshot.id)
             }()
+            let restoredResumeSnapshotWorkspaceID = snapshotWorkspaceId
+                ?? restoredRemotePTYSessionID.flatMap { Self.parsedDefaultSSHPTYSessionID($0)?.workspaceId }
+                ?? id
             let locatedResumeBinding = migratingLegacyPersistentSSHResumeBinding(
                 persistedResumeBinding,
-                snapshotWorkspaceID: snapshotWorkspaceId,
+                snapshotWorkspaceID: restoredResumeSnapshotWorkspaceID,
                 snapshotSurfaceID: snapshot.id,
                 persistentPTYSessionID: restoredRemotePTYSessionID,
                 restoresRemoteTerminal: restoresRemoteWorkspaceTerminalSnapshot
@@ -1311,11 +1314,10 @@ extension Workspace {
                 promptForApproval: true,
                 approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
             )
-            let restoredPersistentSSHResumeCommand: String? = if let restoredRemotePTYSessionID,
-                                                                 let snapshotWorkspaceId {
+            let restoredPersistentSSHResumeCommand: String? = if let restoredRemotePTYSessionID {
                 persistentSSHResumeCommand(
                     for: effectiveResumeBindingForStartup,
-                    expectedWorkspaceID: snapshotWorkspaceId,
+                    expectedWorkspaceID: restoredResumeSnapshotWorkspaceID,
                     expectedSurfaceID: snapshot.id,
                     persistentPTYSessionID: restoredRemotePTYSessionID
                 )
@@ -1542,7 +1544,7 @@ extension Workspace {
             }
             if let storedResumeBinding = effectiveResumeBindingForStartup ?? resumeBinding {
                 surfaceResumeBindingsByPanelId[terminalPanel.id] = storedResumeBinding.retargetingRemoteOwner(
-                    expectedWorkspaceID: snapshotWorkspaceId ?? id,
+                    expectedWorkspaceID: restoredResumeSnapshotWorkspaceID,
                     expectedSurfaceID: snapshot.id,
                     workspaceID: id,
                     surfaceID: terminalPanel.id,
