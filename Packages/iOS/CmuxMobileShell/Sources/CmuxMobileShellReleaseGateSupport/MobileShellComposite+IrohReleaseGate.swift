@@ -3,6 +3,7 @@ import CMUXMobileCore
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
+public import CmuxMobileShell
 
 extension MobileShellComposite {
     /// Exercises the current authenticated Iroh session without retaining user data.

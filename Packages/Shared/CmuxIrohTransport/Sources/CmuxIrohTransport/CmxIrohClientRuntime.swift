@@ -289,6 +289,13 @@ public actor CmxIrohClientRuntime {
                 runtimeGeneration: endpointSnapshot.runtimeGeneration
             )
             try await install(policy: policy, revision: revision, startRelays: true)
+            if !protocolConfiguration.allowsNATTraversalAfterAdmission {
+                guard await supervisor.hasConfiguredRelay() else {
+                    throw CmxIrohEndpointSupervisorError.relayReadinessTimedOut
+                }
+                try await supervisor.waitForUsableHomeRelay()
+                try requireCurrent(revision)
+            }
             lifecyclePhase = .active
             currentSnapshot = CmxIrohClientRuntimeSnapshot(
                 state: .active,

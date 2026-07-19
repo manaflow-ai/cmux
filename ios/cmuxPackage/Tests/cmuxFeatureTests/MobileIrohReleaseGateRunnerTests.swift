@@ -3,7 +3,7 @@ import CMUXMobileCore
 import CmuxIrohTransport
 import Foundation
 import Testing
-@testable import cmuxFeature
+@testable import CmuxIrohReleaseGateSupport
 
 @MainActor
 struct MobileIrohReleaseGateRunnerTests {

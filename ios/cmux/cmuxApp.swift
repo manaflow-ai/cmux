@@ -4,6 +4,9 @@ import CmuxMobileTransport
 import Foundation
 import SwiftUI
 import cmuxFeature
+#if DEBUG
+import CmuxIrohReleaseGateSupport
+#endif
 
 @main
 struct cmuxApp: App {
@@ -108,6 +111,24 @@ struct cmuxApp: App {
 
     @ViewBuilder
     private var rootScene: some View {
+        #if DEBUG
+        MobileIrohReleaseGateScene(
+            root: mobileRootScene,
+            settingsController: Self.root.iroh
+        )
+        #else
+        mobileRootScene
+        #endif
+        .environment(\.irohSettingsController, Self.root.iroh)
+        .environment(
+            \.dogfoodAttachPreparation,
+            DogfoodAttachPreparation {
+                await Self.root.iroh.prepareForConnection()
+            }
+        )
+    }
+
+    private var mobileRootScene: CMUXMobileRootScene {
         CMUXMobileRootScene(
             runtime: Self.root.runtime,
             auth: Self.root.auth,
@@ -119,16 +140,8 @@ struct cmuxApp: App {
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
             personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
             personalIrohDiscovery: Self.root.iroh,
-            irohSettingsController: Self.root.iroh,
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog
-        )
-        .environment(\.irohSettingsController, Self.root.iroh)
-        .environment(
-            \.dogfoodAttachPreparation,
-            DogfoodAttachPreparation {
-                await Self.root.iroh.prepareForConnection()
-            }
         )
     }
 }
