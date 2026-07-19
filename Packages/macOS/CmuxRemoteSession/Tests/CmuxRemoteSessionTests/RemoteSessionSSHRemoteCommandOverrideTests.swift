@@ -74,6 +74,36 @@ struct RemoteSessionSSHRemoteCommandOverrideTests {
         }
     }
 
+    @Test("File-backed SSH exec overrides a configured StdinNull")
+    func fileBackedSSHExecOverridesConfiguredStdinNull() throws {
+        let runner = RecordingProcessRunner()
+        let coordinator = Self.makeCoordinator(
+            runner: runner,
+            sshOptions: ["StdinNull=yes"]
+        )
+        defer { coordinator.stop() }
+
+        let localFile = URL(fileURLWithPath: "/tmp/cmux-test-helper")
+        _ = try coordinator.sshExec(
+            arguments: coordinator.sshCommonArguments(batchMode: true) + [
+                "user@example.test",
+                "sh -c 'cat > remote-helper'",
+            ],
+            stdinFile: localFile,
+            timeout: 1
+        )
+
+        let request = try #require(runner.requests.first)
+        #expect(request.stdinFile == localFile)
+        let overrideIndex = Self.pairIndex(request.arguments, "-o", "StdinNull=no")
+        let configuredIndex = Self.pairIndex(request.arguments, "-o", "StdinNull=yes")
+        #expect(overrideIndex != nil)
+        #expect(configuredIndex != nil)
+        if let overrideIndex, let configuredIndex {
+            #expect(overrideIndex < configuredIndex)
+        }
+    }
+
     // MARK: - Helpers
 
     private static func consecutive(_ args: [String], _ a: String, _ b: String) -> Bool {
