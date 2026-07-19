@@ -366,6 +366,12 @@ func configureRemoteHook(socketPath string, descriptor remoteHookDescriptor, act
 }
 
 func encodeRemoteHookSnapshot(snapshot remoteHookSnapshot) ([]byte, error) {
+	if snapshot.Arguments == nil {
+		snapshot.Arguments = make([]string, 0)
+	}
+	if snapshot.Entries == nil {
+		snapshot.Entries = make([]remoteHookSnapshotEntry, 0)
+	}
 	payload, err := json.Marshal(snapshot)
 	if err != nil {
 		return nil, err
