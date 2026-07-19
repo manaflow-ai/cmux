@@ -106,8 +106,7 @@ final class SidebarRowIconTextLine: NSView {
                 }
             }
         }
-        let text = entry.key.isEmpty ? entry.value : "\(entry.key): \(entry.value)"
-        textView.stringValue = text
+        textView.stringValue = entry.sidebarDisplayText
         textView.font = .systemFont(ofSize: model.scaled(10))
         textView.textColor = color
         needsLayout = true
