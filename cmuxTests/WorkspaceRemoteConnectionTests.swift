@@ -6192,9 +6192,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         connectionLimit: Int,
         handler: @escaping @Sendable (String) -> String
     ) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            var accepted = 0
-            while accepted < connectionLimit {
+        // `connectionLimit` is retained for source compatibility; a single
+        // raw-thread accept loop services every connection so blocking accept()s
+        // stay off the GCD pool that runProcess relies on (see runMockServer).
+        _ = connectionLimit
+        let writeAll = self.writeAll
+        let acceptThread = Thread {
+            while true {
                 var clientAddr = sockaddr_un()
                 var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
                 let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
@@ -6206,9 +6210,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                     if errno == EINTR { continue }
                     return
                 }
-                accepted += 1
-
-                DispatchQueue.global(qos: .userInitiated).async {
+                let handlerThread = Thread {
                     defer { Darwin.close(clientFD) }
                     var pending = Data()
                     var buffer = [UInt8](repeating: 0, count: 4096)
@@ -6227,11 +6229,27 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                             pending.removeSubrange(0...newlineRange.lowerBound)
                             guard let line = String(data: lineData, encoding: .utf8) else { continue }
                             state.append(line)
-                            guard self.writeAll(handler(line) + "\n", to: clientFD) else { return }
+                            guard writeAll(handler(line) + "\n", clientFD) else { return }
                         }
                     }
                 }
+                handlerThread.stackSize = 1 << 20
+                handlerThread.start()
             }
+        }
+        acceptThread.stackSize = 1 << 20
+        acceptThread.start()
+    }
+
+    private final class MockOnceFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var claimed = false
+        func claim() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            if claimed { return false }
+            claimed = true
+            return true
         }
     }
 
@@ -6241,26 +6259,27 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         onHandled: @escaping @Sendable () -> Void,
         handler: @escaping @Sendable (String) -> String
     ) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            var clientAddr = sockaddr_un()
-            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
-                }
-            }
-            guard clientFD >= 0 else {
-                onHandled()
-                return
-            }
+        // The bundled CLI opens a dedicated short-lived control connection for its
+        // `system.top` agent-process lookup on top of the main hook connection.
+        // Headless (piped stdio, no controlling TTY) that lookup always fires, so a
+        // single-accept mock starves the extra connection and the CLI stalls or
+        // falls back to unresolved routing.
+        //
+        // A single raw-thread accept loop dispatches every connection to its own
+        // raw-thread handler. Raw threads (not GCD) are deliberate: a blocking
+        // accept() parked on a GCD worker ties it up for the whole test, and tests
+        // that open a server per hook exhaust the shared GCD pool that runProcess
+        // uses for its stdout/stderr readers and exit waiter — which then looks
+        // like the CLI hung. `onHandled` fires once, after the first connection.
+        let handledOnce = MockOnceFlag()
+        let writeAll = self.writeAll
+        CLIMockAcceptLoopRegistry.shared.start(listenerFD: listenerFD, onConnection: { clientFD in
             defer {
                 Darwin.close(clientFD)
-                onHandled()
+                if handledOnce.claim() { onHandled() }
             }
-
             var pending = Data()
             var buffer = [UInt8](repeating: 0, count: 4096)
-
             while true {
                 let count = Darwin.read(clientFD, &buffer, buffer.count)
                 if count < 0 {
@@ -6275,10 +6294,12 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                     pending.removeSubrange(0...newlineRange.lowerBound)
                     guard let line = String(data: lineData, encoding: .utf8) else { continue }
                     state.append(line)
-                    guard self.writeAll(handler(line) + "\n", to: clientFD) else { return }
+                    guard writeAll(handler(line) + "\n", clientFD) else { return }
                 }
             }
-        }
+        }, onListenerClosed: {
+            if handledOnce.claim() { onHandled() }
+        })
     }
 
     private func writeAll(_ string: String, to fd: Int32) -> Bool {
