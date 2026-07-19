@@ -224,7 +224,7 @@ struct RemoteInitialCommandBootstrapTests {
         try """
         #!/bin/sh
         case "${1:-}" in
-          -e)
+          --execute)
             [ "$#" -eq 2 ] || exit 66
             [ "$2" = "$CMUX_EXPECTED_COMMAND" ] || exit 68
             printf '%s' "$2" > "$HOME/nushell command.txt"

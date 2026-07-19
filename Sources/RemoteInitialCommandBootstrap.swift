@@ -73,7 +73,8 @@ struct RemoteInitialCommandBootstrap {
             "    case \"${CMUX_LOGIN_SHELL##*/}\" in",
             "      csh|tcsh) exec \"$CMUX_LOGIN_SHELL\" -i -c 'eval \"$argv[2]\"; exec \"$argv[1]\" -i' \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command\" ;;",
             "      sh|dash|ksh|mksh|ash|yash|posh) exec \"$CMUX_LOGIN_SHELL\" -i -c 'eval \"$1\"; exec \"$0\" -i' \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command\" ;;",
-            "      nu|nushell) exec \"$CMUX_LOGIN_SHELL\" -e \"$cmux_initial_command\" ;;",
+            // Nushell src/command.rs: --execute runs then stays interactive; --commands exits.
+            "      nu|nushell) exec \"$CMUX_LOGIN_SHELL\" --execute \"$cmux_initial_command\" ;;",
             "      pwsh|powershell) exec \"$CMUX_LOGIN_SHELL\" -NoExit -Command \"$cmux_initial_command\" ;;",
             "      *) exec \"$CMUX_LOGIN_SHELL\" -i -c \"$cmux_initial_command\" ;;",
             "    esac",
