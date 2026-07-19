@@ -58,11 +58,20 @@ extension RemoteSessionCoordinator {
         mv \(remoteTempPath.shellSingleQuoted) \(remotePath.shellSingleQuoted)
         """
         let finalizeCommand = "sh -c \(finalizeScript.shellSingleQuoted)"
-        let finalizeResult = try sshExec(
-            arguments: sshCommonArguments(batchMode: true) + [configuration.destination, finalizeCommand],
-            timeout: 12
-        )
+        let finalizeResult: RemoteCommandResult
+        do {
+            finalizeResult = try sshExec(
+                arguments: sshCommonArguments(batchMode: true) + [configuration.destination, finalizeCommand],
+                timeout: 12
+            )
+        } catch {
+            cleanupUploadedRemotePaths([remoteTempPath])
+            throw NSError(domain: "cmux.remote.daemon", code: 32, userInfo: [
+                NSLocalizedDescriptionKey: "failed to install remote daemon binary: \(error.localizedDescription)",
+            ])
+        }
         guard finalizeResult.status == 0 else {
+            cleanupUploadedRemotePaths([remoteTempPath])
             let detail = Self.bestErrorLine(stderr: finalizeResult.stderr, stdout: finalizeResult.stdout) ??
                 "ssh exited \(finalizeResult.status)"
             throw NSError(domain: "cmux.remote.daemon", code: 32, userInfo: [
