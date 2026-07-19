@@ -28,7 +28,12 @@ struct RemoteDaemonUploadTests {
                     stderr: "subsystem request failed on channel 0"
                 )
             }
-            return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+            switch Self.uploadStep(for: request) {
+            case .createDirectory, .upload, .finalize:
+                return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+            case .cleanup, .unknown:
+                return Self.unexpectedRequestResult(request)
+            }
         }
         let coordinator = makeCoordinator(runner: runner)
         defer { coordinator.stop() }
@@ -45,14 +50,26 @@ struct RemoteDaemonUploadTests {
         }
 
         let requests = runner.requests
-        #expect(requests.contains { $0.executable == "/usr/bin/scp" } == false)
+        #expect(requests.map(Self.uploadStep) == [.createDirectory, .upload, .finalize])
+        #expect(requests.allSatisfy { $0.executable == "/usr/bin/ssh" })
+        let createDirectoryRequest = try #require(
+            requests.first { request in
+                Self.uploadStep(for: request) == .createDirectory
+            }
+        )
+        #expect(createDirectoryRequest.arguments.last?.contains(location.directory) == true)
         let uploadRequest = try #require(
             requests.first { request in
-                request.executable == "/usr/bin/ssh" &&
-                    request.arguments.last?.contains("cat >") == true
+                Self.uploadStep(for: request) == .upload
             }
         )
         #expect(uploadRequest.stdinFile == localBinary)
+        let finalizeRequest = try #require(
+            requests.first { request in
+                Self.uploadStep(for: request) == .finalize
+            }
+        )
+        #expect(finalizeRequest.arguments.last?.contains(location.absolutePath) == true)
     }
 
     @Test("Upload reports SSH exec failures with their remote detail")
@@ -66,15 +83,18 @@ struct RemoteDaemonUploadTests {
         defer { try? fileManager.removeItem(at: localBinary) }
 
         let runner = RecordingProcessRunner { request in
-            if request.executable == "/usr/bin/ssh",
-               request.arguments.last?.contains("cat >") == true {
+            switch Self.uploadStep(for: request) {
+            case .createDirectory, .cleanup:
+                return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+            case .upload:
                 return RemoteCommandResult(
                     status: 1,
                     stdout: "",
                     stderr: "cat: remote path: Permission denied"
                 )
+            case .finalize, .unknown:
+                return Self.unexpectedRequestResult(request)
             }
-            return RemoteCommandResult(status: 0, stdout: "", stderr: "")
         }
         let coordinator = makeCoordinator(runner: runner)
         defer { coordinator.stop() }
@@ -100,6 +120,70 @@ struct RemoteDaemonUploadTests {
                     "failed to upload cmuxd-remote: cat: remote path: Permission denied"
             )
         }
+
+        let requests = runner.requests
+        #expect(requests.map(Self.uploadStep) == [.createDirectory, .upload, .cleanup])
+        let uploadRequest = try #require(
+            requests.first { request in
+                Self.uploadStep(for: request) == .upload
+            }
+        )
+        let cleanupRequest = try #require(
+            requests.first { request in
+                Self.uploadStep(for: request) == .cleanup
+            }
+        )
+        let temporaryPathMarker = try #require(
+            Self.temporaryPathMarker(in: uploadRequest.arguments.last)
+        )
+        #expect(cleanupRequest.arguments.last?.contains(temporaryPathMarker) == true)
+        #expect(cleanupRequest.arguments.last?.contains(location.absolutePath) == true)
+    }
+
+    private enum UploadStep: Equatable {
+        case createDirectory
+        case upload
+        case finalize
+        case cleanup
+        case unknown
+    }
+
+    private static func uploadStep(for request: RemoteProcessRequest) -> UploadStep {
+        guard request.executable == "/usr/bin/ssh",
+              let command = request.arguments.last else {
+            return .unknown
+        }
+        if command.contains("mkdir -p ") {
+            return .createDirectory
+        }
+        if command.contains("cat > ") {
+            return .upload
+        }
+        if command.contains("chmod 755 "), command.contains("mv ") {
+            return .finalize
+        }
+        if command.contains("rm -f -- ") {
+            return .cleanup
+        }
+        return .unknown
+    }
+
+    private static func temporaryPathMarker(in command: String?) -> String? {
+        guard let command,
+              let markerRange = command.range(of: ".tmp-") else {
+            return nil
+        }
+        let marker = command[markerRange.lowerBound...].prefix(13)
+        guard marker.count == 13 else { return nil }
+        return String(marker)
+    }
+
+    private static func unexpectedRequestResult(_ request: RemoteProcessRequest) -> RemoteCommandResult {
+        RemoteCommandResult(
+            status: 97,
+            stdout: "",
+            stderr: "unexpected request: \(request.executable) \(request.arguments.last ?? "<missing>")"
+        )
     }
 
     private func makeCoordinator(runner: RecordingProcessRunner) -> RemoteSessionCoordinator {
