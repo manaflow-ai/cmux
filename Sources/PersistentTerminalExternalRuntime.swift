@@ -56,6 +56,274 @@ private struct TerminalBackendReceiverRetirement: Sendable {
     let receiver: TerminalRenderFrameReceiver
     let receiveTask: Task<Void, Never>?
     let receiveLoopControl: TerminalBackendFrameReceiveLoopControl?
+    let compositorIngress: TerminalRenderCompositorIngress?
+    let releaseMetricsBeforeRetirement: TerminalBackendFrameReleaseLaneMetrics
+}
+
+enum TerminalBackendFrameReleasePriority: Sendable {
+    case normal
+    case recovery
+}
+
+enum TerminalBackendFrameReleaseEnqueueResult: Equatable, Sendable {
+    case accepted
+    case capacityExceeded
+    case stopped
+}
+
+enum TerminalBackendFrameReleaseFailure: Equatable, Sendable {
+    case capacityExceeded
+    case sendFailed
+    case stopped
+}
+
+struct TerminalBackendFrameReleaseLaneMetrics: Equatable, Sendable {
+    var workerStarts: UInt64 = 0
+    var sent: UInt64 = 0
+    var outstanding = 0
+    var maximumOutstanding = 0
+    var capacityFailures: UInt64 = 0
+    var sendFailures: UInt64 = 0
+    var rejectedAfterStop: UInt64 = 0
+}
+
+/// One bounded FIFO for full-app IOSurface release acknowledgements.
+/// GPU callbacks enqueue synchronously; one lifetime task performs every RPC.
+final class TerminalBackendFrameReleaseLane: @unchecked Sendable {
+    typealias Sender = @Sendable (TerminalRenderFrameRelease) async -> Bool
+    typealias FailureHandler = @Sendable (TerminalBackendFrameReleaseFailure) -> Void
+
+    private struct Entry: Sendable {
+        let release: TerminalRenderFrameRelease
+        let priority: TerminalBackendFrameReleasePriority
+    }
+
+    private struct State {
+        var queue: TerminalBackendFrameReleaseRing<Entry>
+        var accepting = true
+        var normalOutstanding = 0
+        var recoveryOutstanding = 0
+        var idleWaiters: [CheckedContinuation<Void, Never>] = []
+        var metrics = TerminalBackendFrameReleaseLaneMetrics(workerStarts: 1)
+    }
+
+    private final class Core: @unchecked Sendable {
+        let lock = NSLock()
+        let normalCapacity: Int
+        let recoveryCapacity: Int
+        let signal: AsyncStream<Void>.Continuation
+        let sender: Sender
+        let onFailure: FailureHandler
+        var state: State
+
+        init(
+            normalCapacity: Int,
+            recoveryCapacity: Int,
+            signal: AsyncStream<Void>.Continuation,
+            sender: @escaping Sender,
+            onFailure: @escaping FailureHandler
+        ) {
+            self.normalCapacity = normalCapacity
+            self.recoveryCapacity = recoveryCapacity
+            self.signal = signal
+            self.sender = sender
+            self.onFailure = onFailure
+            state = State(queue: TerminalBackendFrameReleaseRing(
+                capacity: normalCapacity + recoveryCapacity
+            ))
+        }
+
+        func enqueue(
+            _ release: TerminalRenderFrameRelease,
+            priority: TerminalBackendFrameReleasePriority
+        ) -> TerminalBackendFrameReleaseEnqueueResult {
+            let result: TerminalBackendFrameReleaseEnqueueResult
+            var shouldSignal = false
+            var failure: TerminalBackendFrameReleaseFailure?
+            lock.lock()
+            if !state.accepting {
+                state.metrics.rejectedAfterStop += 1
+                result = .stopped
+            } else if !hasCapacity(priority) {
+                state.metrics.capacityFailures += 1
+                result = .capacityExceeded
+                failure = .capacityExceeded
+            } else if !state.queue.append(Entry(
+                release: release,
+                priority: priority
+            )) {
+                state.metrics.capacityFailures += 1
+                result = .capacityExceeded
+                failure = .capacityExceeded
+            } else {
+                switch priority {
+                case .normal: state.normalOutstanding += 1
+                case .recovery: state.recoveryOutstanding += 1
+                }
+                state.metrics.outstanding += 1
+                state.metrics.maximumOutstanding = max(
+                    state.metrics.maximumOutstanding,
+                    state.metrics.outstanding
+                )
+                result = .accepted
+                shouldSignal = true
+            }
+            lock.unlock()
+            if let failure { onFailure(failure) }
+            if shouldSignal { signal.yield() }
+            return result
+        }
+
+        func requestStop() {
+            lock.lock()
+            let shouldFinish = state.accepting
+            state.accepting = false
+            lock.unlock()
+            if shouldFinish { signal.finish() }
+        }
+
+        func run(_ signals: AsyncStream<Void>) async {
+            for await _ in signals { await drain() }
+            await drain()
+        }
+
+        func waitUntilIdle() async {
+            await withCheckedContinuation { continuation in
+                lock.lock()
+                if state.metrics.outstanding == 0 {
+                    lock.unlock()
+                    continuation.resume()
+                } else {
+                    state.idleWaiters.append(continuation)
+                    lock.unlock()
+                }
+            }
+        }
+
+        func metrics() -> TerminalBackendFrameReleaseLaneMetrics {
+            lock.lock()
+            defer { lock.unlock() }
+            return state.metrics
+        }
+
+        private func drain() async {
+            while let entry = popFirst() {
+                let sent = await sender(entry.release)
+                complete(entry, sent: sent)
+            }
+        }
+
+        private func popFirst() -> Entry? {
+            lock.lock()
+            defer { lock.unlock() }
+            return state.queue.popFirst()
+        }
+
+        private func complete(_ entry: Entry, sent: Bool) {
+            var waiters: [CheckedContinuation<Void, Never>] = []
+            lock.lock()
+            switch entry.priority {
+            case .normal: state.normalOutstanding -= 1
+            case .recovery: state.recoveryOutstanding -= 1
+            }
+            state.metrics.outstanding -= 1
+            if sent {
+                state.metrics.sent += 1
+            } else {
+                state.metrics.sendFailures += 1
+            }
+            if state.metrics.outstanding == 0 {
+                waiters = state.idleWaiters
+                state.idleWaiters.removeAll(keepingCapacity: true)
+            }
+            lock.unlock()
+            if !sent { onFailure(.sendFailed) }
+            for waiter in waiters { waiter.resume() }
+        }
+
+        private func hasCapacity(
+            _ priority: TerminalBackendFrameReleasePriority
+        ) -> Bool {
+            switch priority {
+            case .normal: state.normalOutstanding < normalCapacity
+            case .recovery: state.recoveryOutstanding < recoveryCapacity
+            }
+        }
+    }
+
+    private let core: Core
+    private let worker: Task<Void, Never>
+
+    init(
+        normalCapacity: Int,
+        recoveryCapacity: Int,
+        send: @escaping Sender,
+        onFailure: @escaping FailureHandler = { _ in }
+    ) {
+        precondition(normalCapacity > 0)
+        precondition(recoveryCapacity > 0)
+        let signals = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let core = Core(
+            normalCapacity: normalCapacity,
+            recoveryCapacity: recoveryCapacity,
+            signal: signals.continuation,
+            sender: send,
+            onFailure: onFailure
+        )
+        self.core = core
+        worker = Task.detached(priority: .utility) {
+            await core.run(signals.stream)
+        }
+    }
+
+    deinit { core.requestStop() }
+
+    func enqueue(
+        _ release: TerminalRenderFrameRelease,
+        priority: TerminalBackendFrameReleasePriority
+    ) -> TerminalBackendFrameReleaseEnqueueResult {
+        core.enqueue(release, priority: priority)
+    }
+
+    func metrics() -> TerminalBackendFrameReleaseLaneMetrics { core.metrics() }
+
+    func waitUntilIdle() async { await core.waitUntilIdle() }
+
+    func stop() async {
+        core.requestStop()
+        await worker.value
+    }
+}
+
+private struct TerminalBackendFrameReleaseRing<Element> {
+    private var storage: [Element?]
+    private var head = 0
+    private var tail = 0
+    private(set) var count = 0
+
+    init(capacity: Int) {
+        precondition(capacity > 0)
+        storage = Array(repeating: nil, count: capacity)
+    }
+
+    mutating func append(_ value: Element) -> Bool {
+        guard count < storage.count else { return false }
+        storage[tail] = value
+        tail = (tail + 1) % storage.count
+        count += 1
+        return true
+    }
+
+    mutating func popFirst() -> Element? {
+        guard count > 0 else { return nil }
+        let value = storage[head]
+        storage[head] = nil
+        head = (head + 1) % storage.count
+        count -= 1
+        return value
+    }
 }
 
 /// Retries one renderer operation only when the ordered renderer lifecycle
@@ -161,6 +429,34 @@ func returnRendererFrameLease(
     }
 }
 
+func returnRendererFrameLease(
+    client: any TerminalBackendClient,
+    release: TerminalRenderFrameRelease,
+    eventRouter: TerminalBackendFrontendEventRouter,
+    deadline: Duration
+) async -> Bool {
+    await withTaskGroup(of: Bool.self) { group in
+        group.addTask {
+            await returnRendererFrameLease(
+                client: client,
+                release: release,
+                eventRouter: eventRouter
+            )
+        }
+        group.addTask {
+            do {
+                try await Task.sleep(for: deadline)
+            } catch {
+                return false
+            }
+            return false
+        }
+        let result = await group.next() ?? false
+        group.cancelAll()
+        return result
+    }
+}
+
 /// Thread-safe record of the newest frame Core Animation actually presented.
 ///
 /// The Metal callback records this off the main actor. Hyperlink hit testing and
@@ -228,6 +524,10 @@ final class TerminalBackendPresentedFrameState: @unchecked Sendable {
 /// Main-actor façade over one daemon-owned terminal and its disposable presentation.
 @MainActor
 final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
+    private static let normalFrameReleaseCapacity = 128
+    private static let recoveryFrameReleaseCapacity = 16
+    nonisolated private static let frameReleaseDeadline: Duration = .seconds(2)
+
     private enum State {
         case binding
         case live
@@ -260,6 +560,9 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
     private let colorSpace = TerminalRenderColorSpace.sRGB
     private let renderConfigSource: TerminalBackendRenderConfigSource?
     private let frontendEventRouter: TerminalBackendFrontendEventRouter
+    private let frameReleaseLane: TerminalBackendFrameReleaseLane
+    private let frameReleaseFailureContinuation:
+        AsyncStream<TerminalBackendFrameReleaseFailure>.Continuation
     private let presentationConfigOverrides: Data
     private let clipboardWriter: (String) -> Void
     private let topologyAuthorizationGate: TerminalBackendTopologyAuthorizationGate?
@@ -286,6 +589,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
     private var frontendEventRoute: TerminalBackendFrontendEventRoute?
     private var frontendEventRegistrationTask: Task<Void, Never>?
     private var frontendEventRegistrationGeneration = UUID()
+    private var frameReleaseFailureTask: Task<Void, Never>?
     private var receiver: TerminalRenderFrameReceiver?
     private var receiveTask: Task<Void, Never>?
     private var receiveLoopControl: TerminalBackendFrameReceiveLoopControl?
@@ -357,9 +661,29 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         self.initialRows = initialRows
         self.presentationRegistry = presentationRegistry
         self.renderConfigSource = renderConfigSource
-        self.frontendEventRouter = TerminalBackendFrontendEventRouterRegistry.shared.router(
+        let frontendEventRouter = TerminalBackendFrontendEventRouterRegistry.shared.router(
             for: client,
             configSource: renderConfigSource
+        )
+        self.frontendEventRouter = frontendEventRouter
+        let frameReleaseFailures = AsyncStream<
+            TerminalBackendFrameReleaseFailure
+        >.makeStream(bufferingPolicy: .bufferingNewest(1))
+        frameReleaseFailureContinuation = frameReleaseFailures.continuation
+        frameReleaseLane = TerminalBackendFrameReleaseLane(
+            normalCapacity: Self.normalFrameReleaseCapacity,
+            recoveryCapacity: Self.recoveryFrameReleaseCapacity,
+            send: { release in
+                await returnRendererFrameLease(
+                    client: client,
+                    release: release,
+                    eventRouter: frontendEventRouter,
+                    deadline: Self.frameReleaseDeadline
+                )
+            },
+            onFailure: { failure in
+                frameReleaseFailures.continuation.yield(failure)
+            }
         )
         self.presentationConfigOverrides = presentationConfigOverrides
         self.topologyAuthorizationGate = topologyAuthorizationGate
@@ -387,6 +711,18 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             launchRequest.workspaceID
         )
         self.queue = TerminalBackendMutationQueue(capacity: queueCapacity)
+        frameReleaseFailureTask = Task {
+            [weak self, failures = frameReleaseFailures.stream] in
+            for await failure in failures {
+                guard let self else { return }
+                await self.handleFrameReleaseFailure(failure)
+            }
+        }
+    }
+
+    deinit {
+        frameReleaseFailureContinuation.finish()
+        frameReleaseFailureTask?.cancel()
     }
 
     func attachPresentation(
@@ -1304,8 +1640,8 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             existing.updateFence(attachment.fence)
             compositor = existing
         } else {
-            let client = client
-            let frontendEventRouter = frontendEventRouter
+            let frameReleaseLane = frameReleaseLane
+            let frameReleaseFailures = frameReleaseFailureContinuation
             let diagnostics = TerminalBackendRenderDiagnostics.shared
             let diagnosticsWorkspaceContext = diagnosticsWorkspaceContext
             let accessibilityFrameDemand = accessibilityFrameDemand
@@ -1314,12 +1650,11 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             compositor = try TerminalRenderCompositorView(
                 fence: attachment.fence,
                 frameReleaseHandler: { release in
-                    Task {
-                        await returnRendererFrameLease(
-                            client: client,
-                            release: release,
-                            eventRouter: frontendEventRouter
-                        )
+                    if frameReleaseLane.enqueue(
+                        release,
+                        priority: .normal
+                    ) == .stopped {
+                        frameReleaseFailures.yield(.stopped)
                     }
                 },
                 frameDispositionHandler: { frame, result in
@@ -1403,8 +1738,8 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         guard receiveTask == nil else { return }
         let control = TerminalBackendFrameReceiveLoopControl()
         receiveLoopControl = control
-        let client = client
-        let frontendEventRouter = frontendEventRouter
+        let frameReleaseLane = frameReleaseLane
+        let frameReleaseFailures = frameReleaseFailureContinuation
         let failureHandler: @Sendable () -> Void = { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, !self.detached, self.visible else { return }
@@ -1413,7 +1748,14 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             }
         }
         receiveTask = Task.detached {
-            [receiver, ingress, control, client, frontendEventRouter, failureHandler] in
+            [
+                receiver,
+                ingress,
+                control,
+                frameReleaseLane,
+                frameReleaseFailures,
+                failureHandler,
+            ] in
             do {
                 while !Task.isCancelled, !control.shouldStop {
                     switch try await receiver.receive(
@@ -1422,21 +1764,23 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                     ) {
                     case .frame(let frame):
                         if control.shouldStop {
-                            await returnRendererFrameLease(
-                                client: client,
-                                release: TerminalRenderFrameRelease(frame: frame),
-                                eventRouter: frontendEventRouter
-                            )
+                            if frameReleaseLane.enqueue(
+                                TerminalRenderFrameRelease(frame: frame),
+                                priority: .normal
+                            ) == .stopped {
+                                frameReleaseFailures.yield(.stopped)
+                            }
                         } else {
                             _ = await ingress.enqueue(frame)
                         }
                     case .dropped(_, let release):
                         if let release {
-                            await returnRendererFrameLease(
-                                client: client,
-                                release: release,
-                                eventRouter: frontendEventRouter
-                            )
+                            if frameReleaseLane.enqueue(
+                                release,
+                                priority: .normal
+                            ) == .stopped {
+                                frameReleaseFailures.yield(.stopped)
+                            }
                         }
                     case .timedOut:
                         continue
@@ -1582,6 +1926,13 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         } catch {
             return
         }
+    }
+
+    private func handleFrameReleaseFailure(
+        _: TerminalBackendFrameReleaseFailure
+    ) async {
+        guard !detached else { return }
+        await handleRendererEventStreamEnded()
     }
 
     private func handleRendererEventStreamEndedSerialized() async throws {
@@ -1979,11 +2330,15 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
 
     @discardableResult
     private func beginReceiverRotation() -> TerminalBackendReceiverRetirement? {
+        let releaseMetricsBeforeRetirement = frameReleaseLane.metrics()
+        let compositorIngress = compositor?.frameIngress
         let retirement = receiver.map {
             TerminalBackendReceiverRetirement(
                 receiver: $0,
                 receiveTask: receiveTask,
-                receiveLoopControl: receiveLoopControl
+                receiveLoopControl: receiveLoopControl,
+                compositorIngress: compositorIngress,
+                releaseMetricsBeforeRetirement: releaseMetricsBeforeRetirement
             )
         }
         receiveTask = nil
@@ -2007,14 +2362,24 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         guard let retirement else { return true }
         retirement.receiveLoopControl?.requestStop()
         await retirement.receiveTask?.value
+        await retirement.compositorIngress?.stopAndWait()
+        await frameReleaseLane.waitUntilIdle()
+        let releaseMetrics = frameReleaseLane.metrics()
+        guard releaseMetrics.capacityFailures
+                == retirement.releaseMetricsBeforeRetirement.capacityFailures,
+              releaseMetrics.sendFailures
+                == retirement.releaseMetricsBeforeRetirement.sendFailures
+        else {
+            retainUnresolvedReceiverRetirement(retirement)
+            return false
+        }
         do {
             let releases = try await retirement.receiver.drainQuiescedFrames()
             for release in releases {
-                guard await returnRendererFrameLease(
-                    client: client,
-                    release: release,
-                    eventRouter: frontendEventRouter
-                ) else {
+                guard frameReleaseLane.enqueue(
+                    release,
+                    priority: .recovery
+                ) == .accepted else {
                     retainUnresolvedReceiverRetirement(retirement)
                     return false
                 }
@@ -2022,6 +2387,15 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         } catch TerminalRenderFrameTransportError.stopped {
             // A concurrent terminal session teardown already destroyed it.
         } catch {
+            retainUnresolvedReceiverRetirement(retirement)
+            return false
+        }
+        await frameReleaseLane.waitUntilIdle()
+        let finalReleaseMetrics = frameReleaseLane.metrics()
+        guard finalReleaseMetrics.capacityFailures
+                == releaseMetrics.capacityFailures,
+              finalReleaseMetrics.sendFailures == releaseMetrics.sendFailures
+        else {
             retainUnresolvedReceiverRetirement(retirement)
             return false
         }
