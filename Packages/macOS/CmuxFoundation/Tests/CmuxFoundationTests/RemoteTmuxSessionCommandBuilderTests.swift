@@ -100,6 +100,38 @@ struct RemoteTmuxSessionCommandBuilderTests {
         }
     }
 
+    @Test("new session passes the one-shot command payload only to its first shell")
+    func newSessionPassesInitialCommandPayloadToFirstShell() throws {
+        try withFakeTmux(sessionExists: false) { directory, environment in
+            let initialCommandFile = "/home/dev/.cmux/relay/55272.shell/initial-command.payload"
+            let builder = RemoteTmuxSessionCommandBuilder(
+                sessionName: "fresh-command",
+                shellCommand: "exec integrated-shell"
+            )
+            let result = try run(
+                builder.remoteShellCommand,
+                environment: environment.merging([
+                    "CMUX_INITIAL_COMMAND_FILE": initialCommandFile,
+                ]) { _, current in current }
+            )
+
+            #expect(result.status == 0)
+            #expect(result.stderr.isEmpty)
+            let calls = try invocations(in: directory)
+            let newSessionCall = try #require(calls.first { $0.first == "new-session" })
+            #expect(newSessionCall.contains("CMUX_INITIAL_COMMAND_FILE=\(initialCommandFile)"))
+
+            let newSessionIndex = try #require(calls.firstIndex(of: newSessionCall))
+            let clearCall = [
+                "set-environment", "-t", "=fresh-command", "-u", "CMUX_INITIAL_COMMAND_FILE",
+            ]
+            let clearIndex = try #require(calls.firstIndex(of: clearCall))
+            let setOptionIndex = try #require(calls.firstIndex { $0.first == "set-option" })
+            #expect(newSessionIndex < clearIndex)
+            #expect(clearIndex < setOptionIndex)
+        }
+    }
+
     @Test("existing session rebinds workspace metadata before attach without mutating user options")
     func existingSessionRebindsWorkspaceMetadata() throws {
         try withFakeTmux(sessionExists: true) { directory, environment in
