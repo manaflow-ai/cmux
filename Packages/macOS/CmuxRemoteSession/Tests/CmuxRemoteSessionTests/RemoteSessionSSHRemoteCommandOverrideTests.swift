@@ -133,11 +133,23 @@ struct RemoteSessionSSHRemoteCommandOverrideTests {
 
 // MARK: - Stubs
 
-/// Records every subprocess request the coordinator issues and returns a
-/// canned successful result, so the argv can be asserted without touching ssh.
-private final class RecordingProcessRunner: RemoteSessionProcessRunning, @unchecked Sendable {
+/// Records every subprocess request and returns an injected response.
+/// Synchronization: the lock guards request storage; `response` is immutable
+/// and `@Sendable`, which makes the unchecked conformance safe.
+final class RecordingProcessRunner: RemoteSessionProcessRunning, @unchecked Sendable {
+    typealias Response = @Sendable (RemoteProcessRequest) throws -> RemoteCommandResult
+
     private let lock = NSLock()
     private var _requests: [RemoteProcessRequest] = []
+    private let response: Response
+
+    init(
+        response: @escaping Response = { _ in
+            RemoteCommandResult(status: 0, stdout: "", stderr: "")
+        }
+    ) {
+        self.response = response
+    }
 
     var requests: [RemoteProcessRequest] { lock.withLock { _requests } }
 
@@ -146,11 +158,11 @@ private final class RecordingProcessRunner: RemoteSessionProcessRunning, @unchec
         operation: (any RemoteTransferCancelling)?
     ) throws -> RemoteCommandResult {
         lock.withLock { _requests.append(request) }
-        return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+        return try response(request)
     }
 }
 
-private struct NoopRemoteSessionHost: RemoteSessionHosting {
+struct NoopRemoteSessionHost: RemoteSessionHosting {
     func publishConnectionState(_ state: WorkspaceRemoteConnectionState, detail: String?) {}
     func publishDaemonStatus(_ status: WorkspaceRemoteDaemonStatus) {}
     func publishProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {}
@@ -159,7 +171,7 @@ private struct NoopRemoteSessionHost: RemoteSessionHosting {
     func publishBootstrapRemoteTTY(_ ttyName: String) {}
 }
 
-private final class UnusedRemoteProxyBroker: RemoteProxyBrokering, @unchecked Sendable {
+final class UnusedRemoteProxyBroker: RemoteProxyBrokering, @unchecked Sendable {
     func acquire(
         configuration: WorkspaceRemoteConfiguration,
         remotePath: String,
@@ -211,7 +223,7 @@ private final class UnusedRemoteProxyBroker: RemoteProxyBrokering, @unchecked Se
     }
 }
 
-private struct NoopReachabilityProbe: RemoteHostReachabilityProbing {
+struct NoopReachabilityProbe: RemoteHostReachabilityProbing {
     func probe(
         destination: String,
         port: Int?,
@@ -221,7 +233,7 @@ private struct NoopReachabilityProbe: RemoteHostReachabilityProbing {
     ) {}
 }
 
-private struct PassthroughRelayCommandRewriter: RemoteRelayCommandRewriting {
+struct PassthroughRelayCommandRewriter: RemoteRelayCommandRewriting {
     func rewriteRemoteRelayCommandLine(
         _ commandLine: Data,
         workspaceAliases: [UUID: UUID],
@@ -231,7 +243,7 @@ private struct PassthroughRelayCommandRewriter: RemoteRelayCommandRewriting {
     }
 }
 
-private struct StubBuildInfo: RemoteSessionBuildInfoProviding {
+struct StubBuildInfo: RemoteSessionBuildInfoProviding {
     func appVersion() -> String? { nil }
     func embeddedDaemonManifest() -> WorkspaceRemoteDaemonManifest? { nil }
     func executableDirectoryURL() -> URL? { nil }
