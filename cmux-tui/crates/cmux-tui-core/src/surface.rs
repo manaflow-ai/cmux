@@ -4828,6 +4828,59 @@ mod tests {
     }
 
     #[test]
+    fn terminal_accessibility_demand_replay_requires_exact_request_identity() {
+        let mux = Mux::new_for_test(
+            "accessibility-demand-request-identity",
+            SurfaceOptions::default(),
+        );
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let presentation_id = crate::PresentationId::new();
+        let request_id = uuid::Uuid::new_v4();
+        let first = surface
+            .acquire_terminal_accessibility_demand(request_id, presentation_id, 7, None)
+            .unwrap();
+
+        assert!(
+            surface
+                .acquire_terminal_accessibility_demand(
+                    request_id,
+                    presentation_id,
+                    7,
+                    Some(first.demand_generation),
+                )
+                .unwrap_err()
+                .to_string()
+                .contains("request identity reused")
+        );
+        assert!(
+            surface
+                .acquire_terminal_accessibility_demand(request_id, presentation_id, 8, None)
+                .unwrap_err()
+                .to_string()
+                .contains("request identity reused")
+        );
+        assert!(
+            surface
+                .acquire_terminal_accessibility_demand(
+                    request_id,
+                    crate::PresentationId::new(),
+                    7,
+                    None,
+                )
+                .unwrap_err()
+                .to_string()
+                .contains("request identity reused")
+        );
+
+        let replay = surface
+            .acquire_terminal_accessibility_demand(request_id, presentation_id, 7, None)
+            .unwrap();
+        assert_eq!(replay, first);
+        assert_eq!(surface.accessibility_demand_count_for_test(), 1);
+    }
+
+    #[test]
     fn terminal_accessibility_demand_is_reference_counted_across_presentations() {
         let mux = Mux::new_for_test("accessibility-demand-count", SurfaceOptions::default());
         let surface =
