@@ -525,6 +525,8 @@ pub struct Mux {
     #[cfg(test)]
     workspace_close_before_empty_check: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
+    workspace_close_after_selector_resolution: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
     terminal_create_after_empty_check: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     terminal_create_after_materialization_lock: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
@@ -583,6 +585,8 @@ impl Mux {
             client_rollback_before_wait: Mutex::new(None),
             #[cfg(test)]
             workspace_close_before_empty_check: Mutex::new(None),
+            #[cfg(test)]
+            workspace_close_after_selector_resolution: Mutex::new(None),
             #[cfg(test)]
             terminal_create_after_empty_check: Mutex::new(None),
             #[cfg(test)]
@@ -3248,6 +3252,10 @@ impl Mux {
             };
             target
         };
+        #[cfg(test)]
+        if let Some(hook) = self.workspace_close_after_selector_resolution.lock().unwrap().clone() {
+            hook();
+        }
         let lifecycle = self.workspace_lifecycle(target);
         let workspace_lifecycle = lifecycle.lock().unwrap();
         let notifications = self.surface_notifications();
@@ -6613,6 +6621,97 @@ mod tests {
         assert_eq!(close_done_rx.recv().unwrap().unwrap(), Some(3));
         close.join().unwrap();
         *mux.terminal_create_after_workspace_reservation.lock().unwrap() = None;
+        surface.kill();
+        mux.shutdown();
+    }
+
+    #[test]
+    fn key_close_reacquires_replacement_workspace_lifecycle() {
+        let mux = test_mux();
+        let key = "stable-key".to_string();
+        let original =
+            mux.create_empty_workspace(Some("original".into()), Some(key.clone()), None).unwrap();
+        let original_lifecycle = mux.workspace_lifecycle(original.workspace);
+        let original_guard = original_lifecycle.lock().unwrap();
+
+        let selector_resolved = Arc::new(AtomicBool::new(false));
+        let (resolved_tx, resolved_rx) = std::sync::mpsc::sync_channel(1);
+        *mux.workspace_close_after_selector_resolution.lock().unwrap() = Some(Arc::new({
+            let selector_resolved = selector_resolved.clone();
+            move || {
+                if !selector_resolved.swap(true, Ordering::SeqCst) {
+                    resolved_tx.send(()).unwrap();
+                }
+            }
+        }));
+        let (close_done_tx, close_done_rx) = std::sync::mpsc::sync_channel(1);
+        let close = std::thread::spawn({
+            let mux = mux.clone();
+            let key = key.clone();
+            move || {
+                close_done_tx
+                    .send(mux.close_workspace_selector_at_revision(None, Some(&key), None))
+                    .unwrap();
+            }
+        });
+        resolved_rx.recv().unwrap();
+
+        {
+            let mut state = mux.state.lock().unwrap();
+            let index = state.workspace_index(original.workspace).unwrap();
+            state.remove_workspace(index);
+            state.workspace_revision = state.workspace_revision.saturating_add(1);
+        }
+        let replacement = mux
+            .create_empty_workspace(Some("replacement".into()), Some(key.clone()), None)
+            .unwrap();
+
+        let (reserved_tx, reserved_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let release_rx = Arc::new(Mutex::new(release_rx));
+        *mux.terminal_create_after_workspace_reservation.lock().unwrap() = Some(Arc::new({
+            move || {
+                reserved_tx.send(()).unwrap();
+                release_rx.lock().unwrap().recv().unwrap();
+            }
+        }));
+        let create = std::thread::spawn({
+            let mux = mux.clone();
+            move || {
+                mux.create_terminal_surface_in_workspace(
+                    replacement.workspace,
+                    None,
+                    None,
+                    None,
+                    Some((80, 24)),
+                )
+            }
+        });
+        reserved_rx.recv().unwrap();
+        drop(original_guard);
+
+        let premature_close = close_done_rx.recv_timeout(Duration::from_millis(250));
+        let closed_early = premature_close.is_ok();
+        release_tx.send(()).unwrap();
+        let created = create.join().unwrap();
+        let close_result = match premature_close {
+            Ok(result) => result,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => close_done_rx.recv().unwrap(),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                panic!("workspace close result channel disconnected")
+            }
+        };
+        close.join().unwrap();
+        *mux.workspace_close_after_selector_resolution.lock().unwrap() = None;
+        *mux.terminal_create_after_workspace_reservation.lock().unwrap() = None;
+
+        assert!(!closed_early, "replacement closed without its lifecycle lock");
+        let (surface, placement) = created.expect("replacement terminal commits before close");
+        assert_eq!(placement.workspace, replacement.workspace);
+        assert_eq!(
+            close_result.unwrap(),
+            Some((replacement.workspace, key, replacement.revision + 1))
+        );
         surface.kill();
         mux.shutdown();
     }
