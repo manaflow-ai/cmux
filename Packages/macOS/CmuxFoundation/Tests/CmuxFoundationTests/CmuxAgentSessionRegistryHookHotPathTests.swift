@@ -334,6 +334,51 @@ struct CmuxAgentSessionRegistryHookHotPathTests {
         #expect(snapshots["claude"]?.snapshot.records.map(\.sessionID) == ["claude-2", "claude-1"])
     }
 
+    @Test("global bounded list materializes one shared top K across providers")
+    func globallyBoundedListSnapshotsShareOneCandidateBudget() throws {
+        let fixture = try makeFixture()
+        let providers = ["alpha", "beta", "gamma", "delta"]
+        for (providerIndex, provider) in providers.enumerated() {
+            try fixture.registry.apply(
+                provider: provider,
+                records: try (0..<5).map { recordIndex in
+                    try record(
+                        provider: provider,
+                        sessionID: "\(provider)-\(recordIndex)",
+                        workspaceID: "\(provider)-workspace-\(recordIndex)",
+                        surfaceID: "\(provider)-surface-\(recordIndex)",
+                        updatedAt: TimeInterval(recordIndex * providers.count + providerIndex)
+                    )
+                }
+            )
+        }
+
+        let snapshots = try fixture.registry
+            .globallyBoundedRecentSnapshotsImportingAdmittedLegacy(
+                sources: providers.map {
+                    .init(
+                        provider: $0,
+                        url: fixture.directory.appendingPathComponent("\($0).json")
+                    )
+                },
+                admissions: [],
+                maximumRecords: 3
+            )
+
+        #expect(snapshots.values.reduce(0) { $0 + $1.snapshot.records.count } == 3)
+        #expect(snapshots.values.reduce(0) { $0 + $1.totalRecordCount } == 20)
+        #expect(snapshots.mapValues(\.totalRecordCount) == Dictionary(
+            uniqueKeysWithValues: providers.map { ($0, 5) }
+        ))
+        #expect(Set(snapshots.flatMap { provider, snapshot in
+            snapshot.snapshot.records.map { "\(provider):\($0.sessionID)" }
+        }) == Set([
+            "beta:beta-4",
+            "gamma:gamma-4",
+            "delta:delta-4",
+        ]))
+    }
+
     @Test("bounded validation selection and count share one WAL snapshot")
     func boundedListValidationAndSelectionAreAtomic() throws {
         let fixture = try makeFixture()
