@@ -1940,7 +1940,9 @@ impl Mux {
         };
         let Some(target) = target else {
             if let Some(workspace) = empty_workspace {
-                return self.new_screen_with_cwd(Some(workspace), cwd, size);
+                return self
+                    .create_terminal_surface_in_workspace(workspace, None, cwd, None, size)
+                    .map(|(surface, _)| surface);
             }
             return self.new_workspace(None, size);
         };
@@ -2007,6 +2009,18 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<RunPlacement> {
+        self.create_terminal_surface_in_workspace(workspace, argv, cwd, name, size)
+            .map(|(_, placement)| placement)
+    }
+
+    fn create_terminal_surface_in_workspace(
+        self: &Arc<Self>,
+        workspace: WorkspaceId,
+        argv: Option<Vec<String>>,
+        cwd: Option<String>,
+        name: Option<String>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
         let inherited_cwd = {
             let state = self.state.lock().unwrap();
             let Some(workspace) = state.workspace_by_id(workspace) else {
@@ -2106,7 +2120,7 @@ impl Mux {
         };
         self.emit(MuxEvent::TreeDelta(attached.1));
         self.reap_if_dead(&surface);
-        Ok(attached.0)
+        Ok((surface, attached.0))
     }
 
     /// Create a browser tab in a pane (default: the active pane). When
