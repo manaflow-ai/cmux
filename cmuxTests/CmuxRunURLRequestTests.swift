@@ -649,7 +649,7 @@ struct CmuxRunURLRequestTests {
 
     private func decodedGuardedScript(from command: String) -> String? {
         guard let encodedScript = command.split(separator: " ").last,
-              let data = Data(base64Encoded: encodedScript) else {
+              let data = Data(base64Encoded: String(encodedScript)) else {
             return nil
         }
         return String(data: data, encoding: .utf8)
