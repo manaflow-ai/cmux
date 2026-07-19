@@ -388,6 +388,62 @@ func TestWebSocketPTYReconnectKeepsSessionProcess(t *testing.T) {
 	waitForHubSessionCount(t, hub, 0, 5*time.Second)
 }
 
+func TestWebSocketPTYReconnectKeepsForegroundProcessAfterHangup(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("foreground PTY hangup delivery is a Linux terminal-session regression")
+	}
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	server, hub := newTestWebSocketPTYServer(t, leasePath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "first-token", "sess-hangup", true, time.Now().Add(time.Minute))
+	conn := dialPTY(t, ctx, server.URL)
+	sendAuthWithAttachment(t, ctx, conn, "first-token", "sess-hangup", "same", 80, 24)
+	readReady(t, ctx, conn)
+	command := `sh -c 'printf "%b=%s\n" "\103\115\125\130\137\110\125\120\137\103\110\111\114\104\137\120\111\104" "$$"; trap "printf \"%b\\n\" \"\\103\\115\\125\\130\\137\\110\\125\\120\\137\\103\\110\\111\\114\\104\\137\\101\\114\\111\\126\\105\"" USR1; while :; do sleep 1; done'` + "\r"
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte(command)); err != nil {
+		t.Fatalf("launch foreground process: %v", err)
+	}
+	const pidMarker = "CMUX_HUP_CHILD_PID="
+	output := waitForBinaryContains(t, ctx, conn, pidMarker, 5*time.Second)
+	markerIndex := strings.LastIndex(output, pidMarker)
+	pidStart := markerIndex + len(pidMarker)
+	pidEnd := pidStart
+	for pidEnd < len(output) && output[pidEnd] >= '0' && output[pidEnd] <= '9' {
+		pidEnd++
+	}
+	childPID, err := strconv.Atoi(output[pidStart:pidEnd])
+	if err != nil || childPID <= 0 {
+		t.Fatalf("parse foreground process pid from output %q: pid=%d err=%v", output, childPID, err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(-childPID, syscall.SIGKILL) })
+
+	_ = conn.Close(websocket.StatusNormalClosure, "relay drop")
+	waitForHubSessionSize(t, hub, "sess-hangup", 0, 80, 24, 5*time.Second)
+	if err := syscall.Kill(-childPID, syscall.SIGHUP); err != nil {
+		t.Fatalf("deliver hangup to foreground process group: %v", err)
+	}
+
+	writeTestLease(t, leasePath, "second-token", "sess-hangup", true, time.Now().Add(time.Minute))
+	conn = dialPTY(t, ctx, server.URL)
+	defer conn.Close(websocket.StatusNormalClosure, "done")
+	sendAuthWithAttachment(t, ctx, conn, "second-token", "sess-hangup", "same", 80, 24)
+	readReady(t, ctx, conn)
+	waitForBinaryContains(t, ctx, conn, pidMarker, 5*time.Second)
+	if err := syscall.Kill(-childPID, syscall.SIGUSR1); err != nil {
+		t.Fatalf("foreground process did not survive hangup: %v", err)
+	}
+	waitForBinaryContains(t, ctx, conn, "CMUX_HUP_CHILD_ALIVE", 5*time.Second)
+
+	_ = syscall.Kill(-childPID, syscall.SIGKILL)
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte("exit\r")); err != nil {
+		t.Fatalf("exit reattached shell: %v", err)
+	}
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
 func TestWebSocketPTYReplacedAttachmentCannotWriteInput(t *testing.T) {
 	leasePath := filepath.Join(t.TempDir(), "lease.json")
 	server, hub := newTestWebSocketPTYServer(t, leasePath)
