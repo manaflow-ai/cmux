@@ -924,6 +924,19 @@ mod tests {
     }
 
     #[test]
+    fn set_split_ratio_accepts_newer_additive_protocols() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(9),
+        };
+        client.require_protocol(8, "set-split-ratio").unwrap();
+    }
+
+    #[test]
     fn overflow_decodes_recovery_fields() {
         let event = parse_event(serde_json::json!({
             "event": "overflow",

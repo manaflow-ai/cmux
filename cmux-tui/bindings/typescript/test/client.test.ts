@@ -172,6 +172,25 @@ test("setSplitRatio rejects servers older than protocol 8", async () => {
   await client.close();
 });
 
+test("setSplitRatio accepts newer additive protocols", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 9, session: "main", pid: 1 },
+      });
+      return;
+    }
+    assert.deepEqual(request, { id: 2, cmd: "set-split-ratio", split: 1, ratio: 0.5 });
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  await client.setSplitRatio(1, 0.5);
+  await client.close();
+});
+
 test("attachSurface decodes VT colors, output, and resized payloads", async () => {
   const main = new ScriptedTransport((request, transport) => {
     assert.equal(request.cmd, "identify");

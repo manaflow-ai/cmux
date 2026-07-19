@@ -40,6 +40,14 @@ func TestSetSplitRatioRejectsServersOlderThanProtocolEight(t *testing.T) {
 	}
 }
 
+func TestSetSplitRatioAcceptsNewerAdditiveProtocols(t *testing.T) {
+	protocol := uint32(9)
+	client := &Client{protocol: &protocol}
+	if err := client.requireProtocol(context.Background(), 8, "set-split-ratio"); err != nil {
+		t.Fatalf("requireProtocol() error = %v, want protocol 9 accepted", err)
+	}
+}
+
 func TestStreamYieldsBufferedOverflowOnceThenStops(t *testing.T) {
 	client, server := net.Pipe()
 	defer server.Close()

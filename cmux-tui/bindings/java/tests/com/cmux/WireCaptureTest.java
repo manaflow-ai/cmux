@@ -21,6 +21,7 @@ public final class WireCaptureTest {
         assertLine("identify", "{\"id\":1,\"cmd\":\"identify\"}\n", identify);
         assertLine("attach", "{\"cmd\":\"attach-surface\",\"surface\":9,\"id\":2}\n", attach);
         assertProtocolV7RejectsSetSplitRatio();
+        assertProtocolV9AllowsSetSplitRatio();
     }
 
     private static byte[] captureIdentify() throws Exception {
@@ -73,6 +74,25 @@ public final class WireCaptureTest {
             server.close();
         }
         assertLine("set-split-ratio identify", "{\"id\":1,\"cmd\":\"identify\"}\n", server.firstLine(0));
+    }
+
+    private static void assertProtocolV9AllowsSetSplitRatio() throws Exception {
+        Path socket = freshSocketPath();
+        CaptureServer server = new CaptureServer(socket, new String[] {
+            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":9,\"session\":\"wire\",\"pid\":1}}",
+            "{\"id\":2,\"ok\":true,\"data\":{}}"
+        });
+        server.start();
+        try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+            client.setSplitRatio(4, 0.625);
+        } finally {
+            server.close();
+        }
+        assertLine(
+            "protocol 9 set-split-ratio",
+            "{\"cmd\":\"set-split-ratio\",\"split\":4,\"ratio\":0.625,\"id\":2}\n",
+            server.firstLine(1)
+        );
     }
 
     private static Path freshSocketPath() throws IOException {

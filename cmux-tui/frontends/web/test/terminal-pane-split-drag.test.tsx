@@ -186,6 +186,42 @@ describe("TerminalPane split dividers", () => {
       expect(container.querySelector<HTMLElement>(".pane-leaf")?.style.flex).toContain("50%");
     });
   });
+
+  it("cancels an active drag when the authoritative split is replaced", () => {
+    const onSetSplitRatio = vi.fn(async () => true);
+    const props = terminalPaneProps(onSetSplitRatio);
+    const { getByRole, rerender } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
+    const divider = getByRole("separator");
+    const group = divider.parentElement as HTMLDivElement;
+    group.getBoundingClientRect = () => ({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 400,
+      bottom: 200,
+      width: 400,
+      height: 200,
+      toJSON: () => ({}),
+    });
+    Object.defineProperties(divider, {
+      setPointerCapture: { value: vi.fn() },
+      hasPointerCapture: { value: vi.fn(() => false) },
+    });
+
+    fireEvent.pointerDown(divider, { pointerId: 9, pointerType: "touch", clientX: 200 });
+    const replacement = screenView(0.5);
+    if (replacement.layout?.type !== "split") throw new Error("expected split layout");
+    replacement.layout.split = 43;
+    rerender(<TerminalPane {...props} screen={replacement} />);
+    fireEvent.pointerUp(getByRole("separator"), {
+      pointerId: 9,
+      pointerType: "touch",
+      clientX: 300,
+    });
+
+    expect(onSetSplitRatio).not.toHaveBeenCalled();
+  });
 });
 
 describe("TerminalPane shared minimum size", () => {
