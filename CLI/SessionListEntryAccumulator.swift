@@ -46,13 +46,11 @@ struct SessionListEntryAccumulator {
     ) rethrows {
         for entry in retained.sorted(by: Self.isOrderedBefore) {
             try autoreleasepool {
-                var payload: [String: Any]? = entry.payloadFactory()
-                try visit(payload ?? [:])
-                // Release Swift and Foundation enrichment objects before
-                // constructing the next row. Unbounded `--all` output must
-                // retain compact sources, not materialized dictionaries or
-                // autoreleased JSON bridges from every prior row.
-                payload = nil
+                let payload = entry.payloadFactory()
+                try visit(payload)
+                // Swift and Foundation enrichment objects are released when
+                // the pool exits. Unbounded `--all` output retains compact
+                // sources instead of materialized rows across iterations.
             }
         }
     }
