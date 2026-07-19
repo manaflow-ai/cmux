@@ -20,6 +20,8 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(unix)]
+use std::mem::{offset_of, size_of};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -60,7 +62,28 @@ pub const PROTOCOL_VERSION: u32 = STACK_LAYOUT_PROTOCOL_VERSION;
 
 /// Default socket path for a session.
 pub fn default_socket_path(session: &str) -> PathBuf {
-    platform::runtime_dir().join(format!("{session}.sock"))
+    default_socket_path_in_runtime_dir(session, platform::runtime_dir())
+}
+
+fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> PathBuf {
+    let file_name = format!("{session}.sock");
+    let preferred = runtime_dir.join(&file_name);
+    #[cfg(unix)]
+    if !unix_socket_path_fits(&preferred) {
+        return platform::fallback_runtime_dir().join(file_name);
+    }
+    preferred
+}
+
+#[cfg(unix)]
+fn unix_socket_path_fits(path: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+
+    // Filesystem Unix sockets require a trailing NUL in sun_path, so the
+    // encoded pathname itself must be strictly shorter than the field.
+    const SUN_PATH_CAPACITY: usize =
+        size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
+    path.as_os_str().as_bytes().len() < SUN_PATH_CAPACITY
 }
 
 #[derive(Deserialize)]
@@ -4393,6 +4416,42 @@ mod tests {
     use crate::SurfaceOptions;
     use std::sync::mpsc::TryRecvError;
     use std::time::Duration;
+
+    #[test]
+    fn default_socket_path_preserves_compatible_runtime_dir() {
+        let runtime_dir = PathBuf::from("/tmp/cmux-tui-compat");
+        assert_eq!(
+            default_socket_path_in_runtime_dir("main", runtime_dir.clone()),
+            runtime_dir.join("main.sock")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn default_socket_path_falls_back_for_long_tmpdir() {
+        let long_tmpdir = PathBuf::from("/tmp").join("x".repeat(200));
+        let preferred_runtime_dir = long_tmpdir.join("cmux-tui-test-user");
+        let path = default_socket_path_in_runtime_dir(
+            "cmux-browser-0123456789abcdef",
+            preferred_runtime_dir,
+        );
+
+        assert_eq!(
+            path,
+            platform::fallback_runtime_dir().join("cmux-browser-0123456789abcdef.sock")
+        );
+        assert!(unix_socket_path_fits(&path));
+        assert_ne!(path.parent(), Some(Path::new("/tmp")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_socket_path_reserves_trailing_nul() {
+        const SUN_PATH_CAPACITY: usize =
+            size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
+        assert!(unix_socket_path_fits(Path::new(&"x".repeat(SUN_PATH_CAPACITY - 1))));
+        assert!(!unix_socket_path_fits(Path::new(&"x".repeat(SUN_PATH_CAPACITY))));
+    }
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())

@@ -133,6 +133,16 @@ pub fn runtime_dir() -> PathBuf {
     runtime_base_dir().join(format!("cmux-tui-{}", user_id_component()))
 }
 
+/// Short, user-private runtime directory used when the preferred runtime
+/// directory would make a Unix-domain socket path too long for `sockaddr_un`.
+///
+/// Keep this path stable across frontends: clients must derive the same
+/// fallback without first connecting to the server.
+#[cfg(unix)]
+pub fn fallback_runtime_dir() -> PathBuf {
+    PathBuf::from("/tmp").join(format!("cmux-tui-{}", user_id_component()))
+}
+
 /// Default root for durable workspace/session state. Runtime sockets stay in
 /// the short-lived runtime directory; canonical identities and mutation
 /// ledgers live here across daemon and machine reboots.
