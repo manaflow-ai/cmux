@@ -173,7 +173,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "GROK_HOME": grokHome.path,
         ]
 
-        startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 128)
+        startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId)
         return GrokNoiseContext(
             cliPath: cliPath,
             socketPath: socketPath,

@@ -314,7 +314,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
-        startDetachedMockServer(listenerFD: listenerFD, state: state, connectionCount: 128) { line in
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
             }
@@ -582,7 +582,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ]
 
         func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
-            let serverHandled = startAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 4)
+            let serverHandled = startAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId)
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "hermes-agent", subcommand],
@@ -1373,7 +1373,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "GROK_HOME": grokHome.path,
         ]
 
-        startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 80)
+        startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId)
 
         func runGrokHook(_ subcommand: String, input: String) -> ProcessRunResult {
             let result = runProcess(

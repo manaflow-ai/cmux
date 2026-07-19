@@ -327,8 +327,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let socketHandled = startMockServer(
             listenerFD: listenerFD,
-            state: state,
-            connectionCount: 2
+            state: state
         ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
