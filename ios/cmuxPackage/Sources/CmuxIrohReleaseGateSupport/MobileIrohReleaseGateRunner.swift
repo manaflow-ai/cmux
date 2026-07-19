@@ -1,9 +1,9 @@
 #if os(iOS) && DEBUG
 import CMUXMobileCore
+import CoreFoundation
 import CmuxIrohTransport
 import CmuxMobileShell
 import CmuxMobileShellReleaseGateSupport
-import Darwin
 import Foundation
 import Observation
 import OSLog
@@ -109,13 +109,31 @@ final class MobileIrohReleaseGateRunner {
                 to: configuration.reportURL,
                 options: .atomic
             )
-            _ = notify_post(Configuration.reportReadyNotification)
+            Self.postReportReadyNotification()
             mobileIrohReleaseGateLog.info(
                 "release gate completed passed=\(report.passed, privacy: .public)"
             )
         } catch {
             mobileIrohReleaseGateLog.error("release gate report write failed")
         }
+    }
+
+    private nonisolated static func postReportReadyNotification() {
+        let rawName = Configuration.reportReadyNotification.withCString {
+            CFStringCreateWithCString(
+                nil,
+                $0,
+                CFStringBuiltInEncodings.UTF8.rawValue
+            )
+        }
+        guard let rawName else { return }
+        CFNotificationCenterPostNotification(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            CFNotificationName(rawValue: rawName),
+            nil,
+            nil,
+            true
+        )
     }
 
     private func boundedReport(store: CMUXMobileShellStore) async -> Report {
