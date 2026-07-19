@@ -24,6 +24,12 @@ public protocol CmxIrohSettingsControlling: AnyObject {
     /// Probes one custom relay without changing the active preference.
     func testIrohCustomRelay(id: String) async -> CmxIrohRelayTestResult
 
+    /// Persists one device-local custom private-path configuration.
+    func upsertIrohCustomPrivatePath(_ path: CmxIrohCustomPrivatePathDraft) async throws
+
+    /// Removes this device's custom private paths for one Mac.
+    func removeIrohCustomPrivatePath(macDeviceID: String) async throws
+
     /// Fetches the latest signed fleet and account preference.
     func refreshIrohSettings() async
 
@@ -38,6 +44,14 @@ public protocol CmxIrohSettingsControlling: AnyObject {
 }
 
 public extension CmxIrohSettingsControlling {
+    func upsertIrohCustomPrivatePath(_ path: CmxIrohCustomPrivatePathDraft) async throws {
+        throw CmxIrohSettingsControlError.unsupported
+    }
+
+    func removeIrohCustomPrivatePath(macDeviceID: String) async throws {
+        throw CmxIrohSettingsControlError.unsupported
+    }
+
     func irohDiagnosticReport() async -> DiagnosticReport {
         .empty
     }
@@ -47,4 +61,8 @@ public extension CmxIrohSettingsControlling {
     }
 
     func clearIrohDiagnosticReport() async {}
+}
+
+public enum CmxIrohSettingsControlError: Error, Equatable, Sendable {
+    case unsupported
 }

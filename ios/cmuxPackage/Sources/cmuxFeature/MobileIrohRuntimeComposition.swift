@@ -58,6 +58,7 @@ public final class MobileIrohRuntimeComposition:
         case unavailable
         case incompleteCustomRelay
         case missingCustomRelay
+        case unavailableCustomPrivatePath
     }
     typealias BrokerFactory = @Sendable (
         _ tokenSource: CmxIrohBrokerTokenSource
@@ -107,6 +108,8 @@ public final class MobileIrohRuntimeComposition:
     private let relayPolicyCache: CmxIrohRelayPolicyCache
     private let relayPreferenceStore: CmxIrohRelayPreferenceStore
     private let customRelayCredentials: CmxIrohCustomRelayCredentialStore
+    private let customPrivatePaths: CmxIrohCustomPrivatePathStore
+    private let networkPathSnapshotComposer: CmxIrohNetworkPathSnapshotComposer
     private let relayPolicyTrustRoot: CmxIrohRelayPolicyTrustRoot?
     private let endpointFactoryProvider:
         @MainActor (CmxIrohTransportVerificationMode) -> any CmxIrohEndpointFactory
@@ -257,6 +260,8 @@ public final class MobileIrohRuntimeComposition:
                     bundleIdentifier: bundleIdentifier
                 )
             ),
+            customPrivatePaths: CmxIrohCustomPrivatePathStore(store: installState),
+            networkPathSnapshotComposer: CmxIrohNetworkPathSnapshotComposer(),
             relayPolicyTrustRoot: Self.relayPolicyTrustRoot(
                 infoDictionary: infoDictionary
             ),
@@ -308,6 +313,9 @@ public final class MobileIrohRuntimeComposition:
         relayPolicyCache: CmxIrohRelayPolicyCache = CmxIrohRelayPolicyCache(),
         relayPreferenceStore: CmxIrohRelayPreferenceStore = CmxIrohRelayPreferenceStore(),
         customRelayCredentials: CmxIrohCustomRelayCredentialStore = CmxIrohCustomRelayCredentialStore(),
+        customPrivatePaths: CmxIrohCustomPrivatePathStore = CmxIrohCustomPrivatePathStore(),
+        networkPathSnapshotComposer: CmxIrohNetworkPathSnapshotComposer =
+            CmxIrohNetworkPathSnapshotComposer(),
         relayPolicyTrustRoot: CmxIrohRelayPolicyTrustRoot? = nil,
         endpointFactory: any CmxIrohEndpointFactory,
         endpointFactoryProvider: (
@@ -337,6 +345,8 @@ public final class MobileIrohRuntimeComposition:
         self.relayPolicyCache = relayPolicyCache
         self.relayPreferenceStore = relayPreferenceStore
         self.customRelayCredentials = customRelayCredentials
+        self.customPrivatePaths = customPrivatePaths
+        self.networkPathSnapshotComposer = networkPathSnapshotComposer
         self.relayPolicyTrustRoot = relayPolicyTrustRoot
         self.endpointFactoryProvider = endpointFactoryProvider ?? { _ in endpointFactory }
         self.transportVerificationMode = transportVerificationMode
@@ -1263,6 +1273,9 @@ public final class MobileIrohRuntimeComposition:
         let clock = now
         let activeRelayPolicyService = resolvedPolicyService
         let transportVerificationMode = transportVerificationMode
+        let customPrivatePaths = customPrivatePaths
+        let networkPathSnapshotComposer = networkPathSnapshotComposer
+        let platformNetworkPathSnapshot = networkPathSnapshot
         let runtime = try CmxIrohClientRuntime(
             factory: endpointFactoryProvider(transportVerificationMode),
             broker: broker,
@@ -1273,7 +1286,16 @@ public final class MobileIrohRuntimeComposition:
             ),
             diagnosticLog: diagnosticLog,
             offlinePolicyCache: offlinePolicies,
-            networkPathSnapshot: networkPathSnapshot,
+            networkPathSnapshot: {
+                let platform = try await platformNetworkPathSnapshot()
+                let custom = await customPrivatePaths.availableSnapshot(
+                    accountID: accountID
+                )
+                return await networkPathSnapshotComposer.compose(
+                    platform: platform,
+                    custom: custom
+                )
+            },
             lanFallback: { target, bindings, rendezvous in
                 guard let lanPeerDiscovery else { return [] }
                 switch await lanPeerDiscovery.discover(
@@ -1296,6 +1318,12 @@ public final class MobileIrohRuntimeComposition:
                 case .notFound, .policyDenied:
                     return []
                 }
+            },
+            customPrivateFallback: { expectedMacDeviceID in
+                await customPrivatePaths.enabledPaths(
+                    forMacDeviceID: expectedMacDeviceID,
+                    accountID: accountID
+                )
             },
             handleBinding: { [weak self] registration, discovery in
                 guard await self?.allowsPersistence(
@@ -1675,6 +1703,33 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         } else {
             Optional<Set<String>>.none
         }
+        let privatePathSnapshot: CmxIrohCustomPrivatePathSnapshot
+        if let activeAccountID {
+            privatePathSnapshot = await customPrivatePaths.availableSnapshot(
+                accountID: activeAccountID
+            )
+        } else {
+            privatePathSnapshot = .unavailable
+        }
+        let liveMacs = await routeCatalog.liveMacCandidates(preferredTag: tag)
+        var privateNetworkMacsByID: [String: CmxIrohSettingsSnapshot.PrivateNetworkMac] = [:]
+        for mac in liveMacs {
+            let id = cmxCanonicalDeviceID(mac.deviceID)
+            if privateNetworkMacsByID[id] == nil {
+                privateNetworkMacsByID[id] = .init(
+                    id: id,
+                    displayName: mac.displayName ?? ""
+                )
+            }
+        }
+        for configuration in privatePathSnapshot.configurations {
+            if privateNetworkMacsByID[configuration.macDeviceID] == nil {
+                privateNetworkMacsByID[configuration.macDeviceID] = .init(
+                    id: configuration.macDeviceID,
+                    displayName: configuration.macDisplayName
+                )
+            }
+        }
         #if DEBUG
         let debugTransportVerificationMode: CmxIrohTransportVerificationMode? =
             debugDefaults == nil ? nil : transportVerificationMode
@@ -1702,6 +1757,22 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                 configuration: configuration,
                 configuredCredentialIDs: configuredCredentialIDs
             ),
+            privateNetworkMacs: privateNetworkMacsByID.values.sorted {
+                if $0.displayName != $1.displayName {
+                    return $0.displayName.localizedCaseInsensitiveCompare(
+                        $1.displayName
+                    ) == .orderedAscending
+                }
+                return $0.id < $1.id
+            },
+            customPrivateNetworks: privatePathSnapshot.configurations.map {
+                CmxIrohSettingsSnapshot.CustomPrivateNetwork(
+                    macDeviceID: $0.macDeviceID,
+                    macDisplayName: $0.macDisplayName,
+                    addresses: $0.addresses.map(\.value),
+                    isEnabled: $0.isEnabled
+                )
+            },
             policySource: Self.settingsPolicySource(effective),
             policySequence: diagnostics?.policySequence,
             policyExpiresAt: diagnostics?.policyExpiresAt,
@@ -1847,6 +1918,32 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         case .invalidProfile, .bindFailed, .endpointClosed, .timedOut:
             return .failed
         }
+    }
+
+    public func upsertIrohCustomPrivatePath(
+        _ path: CmxIrohCustomPrivatePathDraft
+    ) async throws {
+        guard let activeAccountID else {
+            throw SettingsError.unavailableCustomPrivatePath
+        }
+        _ = try await customPrivatePaths.upsert(
+            path,
+            accountID: activeAccountID
+        )
+        publishIrohSettingsUpdate()
+    }
+
+    public func removeIrohCustomPrivatePath(
+        macDeviceID: String
+    ) async throws {
+        guard let activeAccountID else {
+            throw SettingsError.unavailableCustomPrivatePath
+        }
+        _ = try await customPrivatePaths.remove(
+            macDeviceID: macDeviceID,
+            accountID: activeAccountID
+        )
+        publishIrohSettingsUpdate()
     }
 
     public func refreshIrohSettings() async {

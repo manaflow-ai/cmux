@@ -17,6 +17,8 @@ public actor CmxIrohClientRuntime {
 
     /// Supplies local-link reachability only for one authenticated Mac tuple.
     public typealias LANFallbackProvider = CmxIrohRegistryContextProvider.LANFallbackProvider
+    public typealias CustomPrivateFallbackProvider =
+        CmxIrohRegistryContextProvider.CustomPrivateFallbackProvider
 
     /// Runs after a relay credential is installed on the exact active binding.
     public typealias RelayCredentialHandler = @Sendable (
@@ -73,6 +75,7 @@ public actor CmxIrohClientRuntime {
     let offlinePolicyCache: CmxIrohClientOfflinePolicyCache?
     let networkPathSnapshot: @Sendable () async throws -> CmxIrohNetworkPathSnapshot
     let lanFallback: LANFallbackProvider?
+    let customPrivateFallback: CustomPrivateFallbackProvider?
     let now: @Sendable () -> Date
     let handleBinding: BindingHandler
     let handleCachedBindings: CachedBindingsHandler
@@ -131,6 +134,7 @@ public actor CmxIrohClientRuntime {
             CmxIrohNetworkPathSnapshot(generation: 1, activeNetworkProfiles: [])
         },
         lanFallback: LANFallbackProvider? = nil,
+        customPrivateFallback: CustomPrivateFallbackProvider? = nil,
         now: @escaping @Sendable () -> Date = { Date() },
         handleBinding: @escaping BindingHandler = { _, _ in true },
         handleCachedBindings: @escaping CachedBindingsHandler = { _, _ in },
@@ -169,6 +173,7 @@ public actor CmxIrohClientRuntime {
         self.offlinePolicyCache = offlinePolicyCache
         self.networkPathSnapshot = networkPathSnapshot
         self.lanFallback = lanFallback
+        self.customPrivateFallback = customPrivateFallback
         self.now = now
         self.handleBinding = handleBinding
         self.handleCachedBindings = handleCachedBindings

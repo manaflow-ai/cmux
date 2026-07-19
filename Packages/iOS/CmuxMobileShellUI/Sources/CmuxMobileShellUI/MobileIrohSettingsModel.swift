@@ -76,6 +76,22 @@ final class MobileIrohSettingsModel {
         Task { testResults[id] = await controller.testIrohCustomRelay(id: id) }
     }
 
+    func upsertCustomPrivatePath(
+        _ path: CmxIrohCustomPrivatePathDraft
+    ) async -> Bool {
+        await mutateAndWait {
+            try await self.controller.upsertIrohCustomPrivatePath(path)
+        }
+    }
+
+    func removeCustomPrivatePath(macDeviceID: String) {
+        mutate {
+            try await self.controller.removeIrohCustomPrivatePath(
+                macDeviceID: macDeviceID
+            )
+        }
+    }
+
     func clearSaveError() {
         showsSaveError = false
     }
