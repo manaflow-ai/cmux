@@ -106,6 +106,40 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
     }
 
+    @Test func restoreLoaderRejectsStaleLegacyWhenRegistryFileIsCorrupt() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-restore-corrupt-registry-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let legacyURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let sessionID = "stale-legacy-session"
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": [sessionID: [
+                "sessionId": sessionID,
+                "workspaceId": "11111111-1111-1111-1111-111111111111",
+                "surfaceId": "22222222-2222-2222-2222-222222222222",
+                "startedAt": 100.0,
+                "updatedAt": 200.0,
+            ]],
+        ]).write(to: legacyURL, options: .atomic)
+        try Data("not-a-sqlite-database".utf8).write(to: registryURL, options: .atomic)
+
+        let loaded = RestorableAgentHookSessionStoreFile.load(
+            provider: "codex",
+            legacyURL: legacyURL,
+            environment: ["CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path],
+            fileManager: .default,
+            decoder: JSONDecoder()
+        )
+
+        #expect(
+            loaded == nil,
+            "An existing unreadable registry is authoritative and must not revive stale legacy state."
+        )
+    }
+
     @Test func appRestoreLoaderHonorsExplicitAgentRegistryPath() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-explicit-registry-\(UUID().uuidString)", isDirectory: true)
