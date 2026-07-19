@@ -161,6 +161,30 @@ describe("TerminalPane split dividers", () => {
     expect(onSetSplitRatio.mock.calls[1]?.[1]).toBeCloseTo(0.65);
   });
 
+  it("coalesces locally completed key repeats at a fixed cadence", async () => {
+    vi.useFakeTimers();
+    try {
+      const onSetSplitRatio = vi.fn(async () => true);
+      const props = terminalPaneProps(onSetSplitRatio);
+      const { getByRole } = render(<TerminalPane {...props} screen={screenView(0.5)} />);
+      const divider = getByRole("separator");
+
+      fireEvent.keyDown(divider, { key: "ArrowRight" });
+      await act(async () => Promise.resolve());
+      fireEvent.keyDown(divider, { key: "ArrowRight" });
+      await act(async () => Promise.resolve());
+      fireEvent.keyDown(divider, { key: "ArrowRight" });
+      await act(async () => Promise.resolve());
+
+      expect(onSetSplitRatio).toHaveBeenCalledTimes(1);
+      await act(async () => vi.advanceTimersByTimeAsync(50));
+      expect(onSetSplitRatio).toHaveBeenCalledTimes(2);
+      expect(onSetSplitRatio.mock.calls[1]?.[1]).toBeCloseTo(0.65);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("preserves a reversal queued behind an in-flight keyboard adjustment", async () => {
     let resolveFirst: (succeeded: boolean) => void = (_succeeded) => {
       throw new Error("first request was not started");

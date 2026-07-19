@@ -4117,6 +4117,26 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_tab_moves_do_not_rebuild_the_split_index() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.split(first_pane, SplitDir::Right, None).unwrap();
+        let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
+        let extra = mux.new_tab(Some(first_pane), None, None).unwrap();
+        let sentinel = SplitId::MAX;
+        {
+            let mut state = mux.state.lock().unwrap();
+            state.split_screens.insert(sentinel, (usize::MAX, usize::MAX, ScreenId::MAX));
+        }
+
+        assert!(mux.move_tab(extra.id, first_pane, 0));
+        mux.with_state(|state| assert!(state.split_screens.contains_key(&sentinel)));
+        assert!(mux.move_tab(extra.id, second_pane, 0));
+        mux.with_state(|state| assert!(state.split_screens.contains_key(&sentinel)));
+    }
+
+    #[test]
     fn move_tab_same_position_preserves_active_tab_and_emits_no_event() {
         let mux = test_mux();
         let s1 = mux.new_workspace(None, None).unwrap();
