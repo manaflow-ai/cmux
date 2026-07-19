@@ -135,7 +135,10 @@ public final class MobileIrohRuntimeComposition:
     private var transitionTask: Task<Void, Never>?
     private let connectionReadiness = MobileIrohConnectionReadinessSignal()
     private var sceneTransitionTask: Task<Void, Never>?
-    private var runtime: CmxIrohClientRuntime?
+    // Internal read access lets the dedicated DEBUG-only release-gate
+    // extension inspect the exact runtime without shipping test entrypoints on
+    // this production composition type. Runtime ownership remains private.
+    private(set) var runtime: CmxIrohClientRuntime?
     private var relayPolicyService: CmxIrohRelayPolicyService?
     private var relayPolicyEffective: CmxIrohEffectiveRelayPolicy?
     private var relayPolicyDiagnostics: CmxIrohRelayDiagnosticsSnapshot?
@@ -401,18 +404,6 @@ public final class MobileIrohRuntimeComposition:
         await connectionReadiness.wait()
         await sceneTransitionTask?.value
     }
-
-    #if DEBUG
-    /// Supplies local-only continuity evidence to the Iroh release gate.
-    public func releaseGateEndpointIdentity() async -> CmxIrohPeerIdentity? {
-        await runtime?.snapshot().endpointID
-    }
-
-    /// Supplies the non-secret installed relay expiry to the release gate.
-    public func releaseGateRelayCredentialExpiry() async -> Date? {
-        await runtime?.relayCredentialExpiresAt()
-    }
-    #endif
 
     /// Refreshes the current account runtime and returns its live pairable Macs.
     ///

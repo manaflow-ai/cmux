@@ -422,6 +422,29 @@ public protocol CmxByteTransportContinuityIdentifying: CmxByteTransport {
     func transportContinuityID() async -> UInt64?
 }
 
+/// A privacy-safe handle that waits for one exact native transport to close.
+///
+/// The handle captures the transport generation at creation time, so callers
+/// can retain it across owner teardown without accidentally observing a later
+/// replacement connection.
+public struct CmxTransportClosureObservation: Sendable {
+    private let waitUntilClosedOperation: @Sendable () async -> Void
+
+    public init(waitUntilClosed: @escaping @Sendable () async -> Void) {
+        self.waitUntilClosedOperation = waitUntilClosed
+    }
+
+    public func waitUntilClosed() async {
+        await waitUntilClosedOperation()
+    }
+}
+
+/// Optional close notification for the exact native transport currently
+/// installed underneath a byte transport.
+public protocol CmxByteTransportClosureObserving: CmxByteTransport {
+    func transportClosureObservation() async -> CmxTransportClosureObservation?
+}
+
 /// Independently framed server-event bytes delivered outside the RPC control stream.
 public typealias CmxIndependentEventByteStream = AsyncThrowingStream<Data, any Error>
 

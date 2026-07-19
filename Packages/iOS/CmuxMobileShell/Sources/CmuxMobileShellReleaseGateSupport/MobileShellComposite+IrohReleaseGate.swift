@@ -398,7 +398,8 @@ extension MobileShellComposite {
     ) async throws -> Bool {
         guard let endpointBefore = await endpointIdentity(),
               let credentialExpiryBefore = await relayCredentialExpiry(),
-              let connectionBefore = await client.transportContinuityID() else {
+              await client.transportContinuityID() != nil,
+              let closureObservation = await client.transportClosureObservation() else {
             throw MobileIrohReleaseGateProbeFailure.continuityEvidenceUnavailable
         }
         let deadline = credentialExpiryBefore.addingTimeInterval(20)
@@ -415,9 +416,9 @@ extension MobileShellComposite {
                       case .connectionClosed = error,
                       await endpointIdentity() == endpointBefore,
                       await relayCredentialExpiry() == credentialExpiryBefore,
-                      await waitForTransportClosure(
-                          client: client,
-                          previousConnectionID: connectionBefore
+                      await transportDidClose(
+                          observation: closureObservation,
+                          client: client
                       ) else {
                     throw MobileIrohReleaseGateProbeFailure.unrefreshedCredentialDidNotDisconnect
                 }
@@ -464,16 +465,11 @@ extension MobileShellComposite {
         }
     }
 
-    private func waitForTransportClosure(
-        client: MobileCoreRPCClient,
-        previousConnectionID: UInt64
+    private func transportDidClose(
+        observation: CmxTransportClosureObservation,
+        client: MobileCoreRPCClient
     ) async -> Bool {
-        for _ in 0 ..< 20 {
-            let currentConnectionID = await client.transportContinuityID()
-            if currentConnectionID == nil { return true }
-            if currentConnectionID != previousConnectionID { return false }
-            try? await Task.sleep(for: .milliseconds(100))
-        }
+        await observation.waitUntilClosed()
         return await client.transportContinuityID() == nil
     }
 

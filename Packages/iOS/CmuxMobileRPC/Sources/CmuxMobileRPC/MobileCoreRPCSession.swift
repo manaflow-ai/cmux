@@ -190,6 +190,15 @@ actor MobileCoreRPCSession {
         return await transport.transportContinuityID()
     }
 
+    /// Captures close notification for the exact currently installed native
+    /// transport. A later reconnect cannot substitute a different connection.
+    func transportClosureObservation() async -> CmxTransportClosureObservation? {
+        guard let transport = transport as? any CmxByteTransportClosureObserving else {
+            return nil
+        }
+        return await transport.transportClosureObservation()
+    }
+
     func tearDown(error: MobileShellConnectionError) async {
         guard !isTearingDown else { return }
         isTearingDown = true

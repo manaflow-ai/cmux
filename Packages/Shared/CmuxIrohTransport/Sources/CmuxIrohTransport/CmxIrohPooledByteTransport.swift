@@ -2,7 +2,11 @@ import CMUXMobileCore
 import Foundation
 
 /// Projects a pooled admitted session's control lane through the legacy byte seam.
-actor CmxIrohPooledByteTransport: CmxByteTransport, CmxByteTransportContinuityIdentifying {
+actor CmxIrohPooledByteTransport:
+    CmxByteTransport,
+    CmxByteTransportClosureObserving,
+    CmxByteTransportContinuityIdentifying
+{
     private let request: CmxByteTransportRequest
     private let pool: CmxIrohClientSessionPool
     private let ownerID = UUID()
@@ -75,6 +79,13 @@ actor CmxIrohPooledByteTransport: CmxByteTransport, CmxByteTransportContinuityId
 
     func transportContinuityID() async -> UInt64? {
         await session?.connectionContinuityID()
+    }
+
+    func transportClosureObservation() -> CmxTransportClosureObservation? {
+        guard let session else { return nil }
+        return CmxTransportClosureObservation {
+            await session.waitUntilClosed()
+        }
     }
 
     private func releaseOwnedControlSession(
