@@ -2804,6 +2804,7 @@ impl Mux {
         let notifications = self.surface_notifications();
         let (removed, changed_screens, empty_revision, delta, selection_resync) = {
             let mut state = self.state.lock().unwrap();
+            let selection_before = active_tree_selection(&state);
             let changed_screen = surface_screen_id(&state, target);
             let mut delta = close_surface_delta(&state, &notifications, target);
             let (removed, split_index_dirty) = remove_surface(self, &mut state, target);
@@ -2821,7 +2822,7 @@ impl Mux {
             }
             let empty_revision = state.workspaces.is_empty().then_some(state.workspace_revision);
             let selection_resync =
-                empty_revision.is_none() && delta.as_ref().is_some_and(workspace_close_was_active);
+                empty_revision.is_none() && selection_before != active_tree_selection(&state);
             (
                 removed,
                 changed_screen.into_iter().collect::<Vec<_>>(),
@@ -2854,6 +2855,7 @@ impl Mux {
         let Some((removed, changed_screens, empty_revision, delta, tree_removed, selection_resync)) =
             (|| {
                 let mut state = self.state.lock().unwrap();
+                let selection_before = active_tree_selection(&state);
                 let (tabs, mut delta) = match target {
                     TreeCloseTarget::Pane(target) => {
                         let pane = state.panes.get(&target)?;
@@ -2906,7 +2908,7 @@ impl Mux {
                 let empty_revision =
                     state.workspaces.is_empty().then_some(state.workspace_revision);
                 let selection_resync =
-                    empty_revision.is_none() && workspace_close_was_active(&delta);
+                    empty_revision.is_none() && selection_before != active_tree_selection(&state);
                 Some((
                     removed,
                     changed_screens,
@@ -3869,9 +3871,24 @@ fn unique_screen_ids(ids: impl IntoIterator<Item = ScreenId>) -> Vec<ScreenId> {
     unique
 }
 
-fn workspace_close_was_active(delta: &TreeDelta) -> bool {
-    delta.kind == TreeDeltaKind::WorkspaceClosed
-        && delta.entity.get("active").and_then(Value::as_bool) == Some(true)
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct ActiveTreeSelection {
+    workspace: Option<WorkspaceId>,
+    screen: Option<ScreenId>,
+    pane: Option<PaneId>,
+    surface: Option<SurfaceId>,
+}
+
+fn active_tree_selection(state: &State) -> ActiveTreeSelection {
+    let workspace = state.workspaces.get(state.active_workspace);
+    let screen = workspace.and_then(|workspace| workspace.screens.get(workspace.active_screen));
+    let pane = screen.and_then(|screen| state.panes.get(&screen.active_pane));
+    ActiveTreeSelection {
+        workspace: workspace.map(|workspace| workspace.id),
+        screen: screen.map(|screen| screen.id),
+        pane: screen.map(|screen| screen.active_pane),
+        surface: pane.and_then(|pane| pane.tabs.get(pane.active_tab)).copied(),
+    }
 }
 
 fn surface_screen_id(state: &State, surface: SurfaceId) -> Option<ScreenId> {
@@ -5500,8 +5517,18 @@ mod tests {
 
         assert!(mux.focus_pane(p1));
         assert!(mux.focus_pane(p3));
+        let events = mux.subscribe();
         mux.close_pane(p3);
 
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::TreeDelta(TreeDelta { kind: TreeDeltaKind::PaneClosed, pane, .. }))
+                if pane == Some(p3)
+        ));
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::TreeSelectionChanged)
+        ));
         mux.with_state(|s| {
             assert_eq!(s.workspaces[0].screens[0].active_pane, p1);
             assert!(s.panes.contains_key(&p2));
@@ -5522,7 +5549,17 @@ mod tests {
         });
 
         // Closing the active tab activates the previous one; the pane stays.
+        let events = mux.subscribe();
         mux.close_surface(s2.id);
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::TreeDelta(TreeDelta { kind: TreeDeltaKind::TabClosed, surface, .. }))
+                if surface == Some(s2.id)
+        ));
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::TreeSelectionChanged)
+        ));
         mux.with_state(|s| {
             let p = &s.panes[&pane];
             assert_eq!(p.tabs, vec![s1.id]);

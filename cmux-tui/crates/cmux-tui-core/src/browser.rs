@@ -1347,11 +1347,17 @@ impl BrowserSurface {
     }
 
     fn release_reconfigure(&self, queued: QueuedBrowserGeometry) {
-        let mut state = self.state.lock().unwrap();
-        if let Some(index) =
-            state.pending_reconfigures.iter().position(|pending| pending.id == queued.id)
-        {
-            state.pending_reconfigures.remove(index);
+        let waiters = {
+            let mut state = self.state.lock().unwrap();
+            if let Some(index) =
+                state.pending_reconfigures.iter().position(|pending| pending.id == queued.id)
+            {
+                state.pending_reconfigures.remove(index);
+            }
+            state.reconfigure_waiters.remove(&queued.id).unwrap_or_default()
+        };
+        for waiter in waiters {
+            let _ = waiter.send(Err(Arc::from("browser resize was rejected before execution")));
         }
     }
 
@@ -3361,6 +3367,25 @@ mod tests {
         browser.reconfigure_reserved_blocking(queued).unwrap();
         assert!(!browser.resize_needed(10, 5));
         assert!(browser.reserve_reconfigure(10, 5).is_none());
+    }
+
+    #[test]
+    fn rejected_resize_releases_joined_completion_waiters() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let queued = browser.reserve_reconfigure(11, 5).expect("changed geometry");
+        let pending =
+            browser.pending_resize_completion(11, 5).unwrap().expect("pending completion");
+
+        browser.release_reconfigure(queued);
+
+        let error = pending
+            .completion
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .expect_err("rejected resize completion");
+        assert!(error.contains("rejected before execution"));
+        assert!(browser.state.lock().unwrap().reconfigure_waiters.is_empty());
     }
 
     #[test]
