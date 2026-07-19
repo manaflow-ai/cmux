@@ -712,13 +712,22 @@ extension TerminalController {
                     }
                 }
                 let windowGrid = session.connection.windowsByID[windowId]
-                // `hasPendingSizingSettlementWork` is a GA-connection test-support
-                // probe, not a production source requirement; a multiplexer channel
-                // supplies its own settlement signal (Phase 3). Treat a non-GA source
-                // as ready here so the GA harness stays exact without widening the
-                // production protocol with a debug-only member.
-                let publicationReady = (session.connection as? RemoteTmuxControlConnection)
-                    .map { !$0.hasPendingSizingSettlementWork(windowId: windowId) } ?? true
+                // `hasPendingSizingSettlementWork` is a GA-connection test-support probe,
+                // not a production source requirement. A multiplexer channel decorates the
+                // shared view stream, so consult THAT stream's pending work for this window
+                // rather than defaulting to ready — otherwise a channel could report settled
+                // while its shared connection still has queued list-windows/pane-rects/sizing
+                // work. A source this GA harness does not recognize fails closed.
+                let publicationReady: Bool
+                switch session.connection {
+                case let connection as RemoteTmuxControlConnection:
+                    publicationReady = !connection.hasPendingSizingSettlementWork(windowId: windowId)
+                case let channel as RemoteTmuxSessionChannel:
+                    publicationReady = (channel.underlying as? RemoteTmuxControlConnection)
+                        .map { !$0.hasPendingSizingSettlementWork(windowId: windowId) } ?? true
+                default:
+                    publicationReady = false
+                }
                 let sizingReady = !mirror.sizingPassScheduled
                     && mirror.lastCompletedSizingInputs != nil
                     && nativeGeometryReady
