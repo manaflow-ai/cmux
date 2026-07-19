@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
@@ -366,6 +366,17 @@ type AppliedClientSize = (SurfaceResizeAcceptance, Option<(u16, u16)>, ClientSiz
 type SurfaceResizeOutcome = Result<(), Arc<str>>;
 type SurfaceResizeCompletion = SyncSender<SurfaceResizeOutcome>;
 
+struct PendingWorkspaceSurface<'a> {
+    pending: &'a Mutex<HashMap<SurfaceId, WorkspaceId>>,
+    surface: SurfaceId,
+}
+
+impl Drop for PendingWorkspaceSurface<'_> {
+    fn drop(&mut self) {
+        self.pending.lock().unwrap().remove(&self.surface);
+    }
+}
+
 enum SurfaceResizeRestore {
     Complete(bool),
     Pending(Receiver<SurfaceResizeOutcome>),
@@ -497,8 +508,8 @@ pub struct Mux {
     next_active_at: AtomicU64,
     surface_options: Mutex<SurfaceOptions>,
     latest_client_size: Mutex<LatestClientSize>,
-    empty_workspace_materialization: Mutex<()>,
-    workspace_lifecycle: Mutex<()>,
+    workspace_lifecycles: Mutex<HashMap<WorkspaceId, Weak<Mutex<()>>>>,
+    pending_workspace_surfaces: Mutex<HashMap<SurfaceId, WorkspaceId>>,
     client_sizing_lifecycle: Mutex<()>,
     client_sizing: Mutex<ClientSizingState>,
     #[cfg(test)]
@@ -556,8 +567,8 @@ impl Mux {
             next_active_at: AtomicU64::new(1),
             surface_options: Mutex::new(surface_options),
             latest_client_size: Mutex::new(LatestClientSize::default()),
-            empty_workspace_materialization: Mutex::new(()),
-            workspace_lifecycle: Mutex::new(()),
+            workspace_lifecycles: Mutex::new(HashMap::new()),
+            pending_workspace_surfaces: Mutex::new(HashMap::new()),
             client_sizing_lifecycle: Mutex::new(()),
             client_sizing: Mutex::new(ClientSizingState::default()),
             #[cfg(test)]
@@ -654,6 +665,51 @@ impl Mux {
             anyhow::bail!("workspace name exceeds {WORKSPACE_NAME_MAX_BYTES} bytes");
         }
         Ok(())
+    }
+
+    fn workspace_lifecycle(&self, workspace: WorkspaceId) -> Arc<Mutex<()>> {
+        let mut lifecycles = self.workspace_lifecycles.lock().unwrap();
+        lifecycles.retain(|_, lifecycle| lifecycle.strong_count() > 0);
+        if let Some(lifecycle) = lifecycles.get(&workspace).and_then(Weak::upgrade) {
+            return lifecycle;
+        }
+        let lifecycle = Arc::new(Mutex::new(()));
+        lifecycles.insert(workspace, Arc::downgrade(&lifecycle));
+        lifecycle
+    }
+
+    fn pending_workspace_surface(&self, surface: SurfaceId) -> PendingWorkspaceSurface<'_> {
+        PendingWorkspaceSurface { pending: &self.pending_workspace_surfaces, surface }
+    }
+
+    fn workspace_for_surface_in_state(state: &State, surface: SurfaceId) -> Option<WorkspaceId> {
+        let pane = state.pane_of(surface)?;
+        let (workspace, _) = state.screen_of(pane)?;
+        Some(state.workspaces[workspace].id)
+    }
+
+    fn workspace_for_tree_target_in_state(
+        state: &State,
+        target: TreeCloseTarget,
+    ) -> Option<WorkspaceId> {
+        match target {
+            TreeCloseTarget::Pane(pane) => {
+                let (workspace, _) = state.screen_of(pane)?;
+                Some(state.workspaces[workspace].id)
+            }
+            TreeCloseTarget::Screen(screen) => state
+                .workspaces
+                .iter()
+                .find(|workspace| workspace.screens.iter().any(|candidate| candidate.id == screen))
+                .map(|workspace| workspace.id),
+        }
+    }
+
+    fn surface_workspace(&self, surface: SurfaceId) -> Option<WorkspaceId> {
+        self.pending_workspace_surfaces.lock().unwrap().get(&surface).copied().or_else(|| {
+            let state = self.state.lock().unwrap();
+            Self::workspace_for_surface_in_state(&state, surface)
+        })
     }
 
     fn require_workspace_revision(state: &State, expected: Option<u64>) -> anyhow::Result<()> {
@@ -788,7 +844,7 @@ impl Mux {
         size: Option<(u16, u16)>,
         command: Option<Vec<String>>,
     ) -> anyhow::Result<Arc<Surface>> {
-        self.spawn_surface_with(cwd, command, size)
+        self.spawn_surface_with(cwd, command, size, None)
     }
 
     fn spawn_surface_with(
@@ -796,8 +852,12 @@ impl Mux {
         cwd: Option<String>,
         command: Option<Vec<String>>,
         size: Option<(u16, u16)>,
+        pending_workspace: Option<WorkspaceId>,
     ) -> anyhow::Result<Arc<Surface>> {
         let id = self.next_id();
+        if let Some(workspace) = pending_workspace {
+            self.pending_workspace_surfaces.lock().unwrap().insert(id, workspace);
+        }
         let mut opts = self.surface_options.lock().unwrap().clone();
         if cwd.is_some() {
             opts.cwd = cwd;
@@ -813,12 +873,19 @@ impl Mux {
         opts.rows = rows;
         #[cfg(test)]
         let surface = if self.test_surface_runtime {
-            Surface::spawn_for_test(id, opts, Arc::downgrade(self))?
+            Surface::spawn_for_test(id, opts, Arc::downgrade(self))
         } else {
-            Surface::spawn(id, opts, Arc::downgrade(self))?
+            Surface::spawn(id, opts, Arc::downgrade(self))
         };
         #[cfg(not(test))]
-        let surface = Surface::spawn(id, opts, Arc::downgrade(self))?;
+        let surface = Surface::spawn(id, opts, Arc::downgrade(self));
+        let surface = match surface {
+            Ok(surface) => surface,
+            Err(error) => {
+                self.pending_workspace_surfaces.lock().unwrap().remove(&id);
+                return Err(error);
+            }
+        };
         self.state.lock().unwrap().surfaces.insert(id, surface.clone());
         Ok(surface)
     }
@@ -862,8 +929,12 @@ impl Mux {
         self: &Arc<Self>,
         url: String,
         size: Option<(u16, u16)>,
+        pending_workspace: Option<WorkspaceId>,
     ) -> Arc<Surface> {
         let id = self.next_id();
+        if let Some(workspace) = pending_workspace {
+            self.pending_workspace_surfaces.lock().unwrap().insert(id, workspace);
+        }
         let opts = self.surface_options.lock().unwrap().clone();
         let size = self.resolve_client_size(size, (opts.cols, opts.rows));
         let cell_pixels = *self.cell_pixels.lock().unwrap();
@@ -2322,25 +2393,23 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
-        let materializes_empty_workspace = {
+        {
             let state = self.state.lock().unwrap();
-            let Some(workspace) = state.workspace_by_id(workspace) else {
+            if state.workspace_by_id(workspace).is_none() {
                 anyhow::bail!("unknown workspace {workspace}");
-            };
-            workspace.screens.is_empty()
-        };
+            }
+        }
         #[cfg(test)]
         if let Some(hook) = self.terminal_create_after_empty_check.lock().unwrap().clone() {
             hook();
         }
-        let _materialization = materializes_empty_workspace
-            .then(|| self.empty_workspace_materialization.lock().unwrap());
+        let lifecycle = self.workspace_lifecycle(workspace);
+        let workspace_lifecycle = lifecycle.lock().unwrap();
         #[cfg(test)]
         if let Some(hook) = self.terminal_create_after_materialization_lock.lock().unwrap().clone()
         {
             hook();
         }
-        let workspace_lifecycle = self.workspace_lifecycle.lock().unwrap();
         #[cfg(test)]
         if let Some(hook) = self.terminal_create_after_workspace_reservation.lock().unwrap().clone()
         {
@@ -2354,7 +2423,9 @@ impl Mux {
             workspace.active_screen_ref().map(|screen| screen.active_pane)
         }
         .and_then(|pane| self.pane_cwd(pane));
-        let surface = self.spawn_surface_with_command(cwd.or(inherited_cwd), size, argv)?;
+        let surface =
+            self.spawn_surface_with(cwd.or(inherited_cwd), argv, size, Some(workspace))?;
+        let pending_surface = self.pending_workspace_surface(surface.id);
         if let Some(name) = name {
             surface.set_name(Some(name));
         }
@@ -2446,6 +2517,7 @@ impl Mux {
                 )
             }
         };
+        drop(pending_surface);
         self.emit_tree_delta(attached.1, attached.2);
         drop(workspace_lifecycle);
         self.reap_if_dead(&surface);
@@ -2485,7 +2557,7 @@ impl Mux {
                 return self.create_browser_surface_in_workspace(workspace, url, size);
             }
             let workspace_key = Self::new_workspace_key()?;
-            let surface = self.spawn_browser_surface(url, size);
+            let surface = self.spawn_browser_surface(url, size, None);
             let (pane_id, pane) = self.make_pane(surface.id);
             let screen_id = self.next_id();
             let ws_id = self.next_id();
@@ -2536,7 +2608,7 @@ impl Mux {
             return Ok(surface);
         };
 
-        let surface = self.spawn_browser_surface(url, size);
+        let surface = self.spawn_browser_surface(url, size, None);
         let active_at = self.next_active_at();
         let notifications = self.surface_notifications();
         let attached = {
@@ -2589,11 +2661,13 @@ impl Mux {
         url: String,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let workspace_lifecycle = self.workspace_lifecycle.lock().unwrap();
+        let lifecycle = self.workspace_lifecycle(workspace);
+        let workspace_lifecycle = lifecycle.lock().unwrap();
         if self.state.lock().unwrap().workspace_by_id(workspace).is_none() {
             anyhow::bail!("unknown workspace {workspace}");
         }
-        let surface = self.spawn_browser_surface(url, size);
+        let surface = self.spawn_browser_surface(url, size, Some(workspace));
+        let pending_surface = self.pending_workspace_surface(surface.id);
         let notifications = self.surface_notifications();
         let active_at = self.next_active_at();
         let (delta, selection_resync) = {
@@ -2675,6 +2749,7 @@ impl Mux {
                 )
             }
         };
+        drop(pending_surface);
         self.emit_tree_delta(delta, selection_resync);
         drop(workspace_lifecycle);
         self.reap_if_dead(&surface);
@@ -2957,9 +3032,8 @@ impl Mux {
     /// Close one tab. When it was the pane's last tab, the pane collapses
     /// out of its split tree (and emptied screens/workspaces are removed).
     pub fn close_surface(&self, target: SurfaceId) {
-        let workspace_lifecycle = self.workspace_lifecycle.lock().unwrap();
         let notifications = self.surface_notifications();
-        let (removed, changed_screens, empty_revision, delta, selection_resync) = {
+        let remove = || {
             let mut state = self.state.lock().unwrap();
             let selection_before = active_tree_selection(&state);
             let changed_screen = surface_screen_id(&state, target);
@@ -2988,7 +3062,20 @@ impl Mux {
                 selection_resync,
             )
         };
-        drop(workspace_lifecycle);
+        let (removed, changed_screens, empty_revision, delta, selection_resync) = loop {
+            let Some(workspace) = self.surface_workspace(target) else {
+                break remove();
+            };
+            let lifecycle = self.workspace_lifecycle(workspace);
+            let workspace_lifecycle = lifecycle.lock().unwrap();
+            if self.surface_workspace(target) != Some(workspace) {
+                drop(workspace_lifecycle);
+                continue;
+            }
+            let result = remove();
+            drop(workspace_lifecycle);
+            break result;
+        };
         if let Some(surface) = &removed {
             self.purge_surface_side_tables(surface.id);
             surface.kill();
@@ -3009,10 +3096,22 @@ impl Mux {
     /// Close a pane or screen and build its delta in the same critical section
     /// as removal so a concurrent registry mutation cannot stale its index.
     fn close_tree_target(&self, target: TreeCloseTarget) -> bool {
-        let workspace_lifecycle = self.workspace_lifecycle.lock().unwrap();
         let notifications = self.surface_notifications();
-        let Some((removed, changed_screens, empty_revision, delta, tree_removed, selection_resync)) =
-            (|| {
+        let result = loop {
+            let Some(workspace) =
+                self.with_state(|state| Self::workspace_for_tree_target_in_state(state, target))
+            else {
+                return false;
+            };
+            let lifecycle = self.workspace_lifecycle(workspace);
+            let workspace_lifecycle = lifecycle.lock().unwrap();
+            if self.with_state(|state| Self::workspace_for_tree_target_in_state(state, target))
+                != Some(workspace)
+            {
+                drop(workspace_lifecycle);
+                continue;
+            }
+            let result = (|| {
                 let mut state = self.state.lock().unwrap();
                 let selection_before = active_tree_selection(&state);
                 let (tabs, mut delta) = match target {
@@ -3076,11 +3175,15 @@ impl Mux {
                     tree_removed,
                     selection_resync,
                 ))
-            })()
+            })();
+            drop(workspace_lifecycle);
+            break result;
+        };
+        let Some((removed, changed_screens, empty_revision, delta, tree_removed, selection_resync)) =
+            result
         else {
             return false;
         };
-        drop(workspace_lifecycle);
         for surface in removed {
             self.purge_surface_side_tables(surface.id);
             surface.kill();
@@ -3131,7 +3234,16 @@ impl Mux {
         key: Option<&str>,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<Option<(WorkspaceId, String, u64)>> {
-        let workspace_lifecycle = self.workspace_lifecycle.lock().unwrap();
+        let target = {
+            let state = self.state.lock().unwrap();
+            Self::require_workspace_revision(&state, expected_revision)?;
+            let Some((target, _)) = Self::resolve_workspace_selector(&state, id, key)? else {
+                return Ok(None);
+            };
+            target
+        };
+        let lifecycle = self.workspace_lifecycle(target);
+        let workspace_lifecycle = lifecycle.lock().unwrap();
         let notifications = self.surface_notifications();
         let (target, key, removed, delta, empty_revision, revision, selection_resync) = {
             let mut state = self.state.lock().unwrap();
@@ -3706,7 +3818,7 @@ impl Mux {
                     anyhow::bail!("leaf command must not be empty");
                 }
                 let surface =
-                    self.spawn_surface_with(spec.cwd.clone(), spec.command.clone(), size)?;
+                    self.spawn_surface_with(spec.cwd.clone(), spec.command.clone(), size, None)?;
                 let (pane_id, pane) = self.make_pane(surface.id);
                 created.push(AppliedPane { pane: pane_id, surface: surface.id });
                 panes.push((pane_id, pane));
@@ -3765,9 +3877,8 @@ impl Mux {
     /// alive; if moving it empties the source pane, that pane collapses
     /// out of its split tree.
     pub fn move_tab(&self, surface: SurfaceId, pane: PaneId, index: usize) -> bool {
-        let workspace_lifecycle = self.workspace_lifecycle.lock().unwrap();
         let active_at = self.next_active_at();
-        let (moved, changed_screen) = {
+        let move_tab = || {
             let mut state = self.state.lock().unwrap();
             let workspace_count = state.workspaces.len();
             let source_pane = state.pane_of(surface);
@@ -3796,7 +3907,24 @@ impl Mux {
                 });
             (moved, changed_screen)
         };
-        drop(workspace_lifecycle);
+        let (moved, changed_screen) = loop {
+            let Some(workspace) =
+                self.with_state(|state| Self::workspace_for_surface_in_state(state, surface))
+            else {
+                return false;
+            };
+            let lifecycle = self.workspace_lifecycle(workspace);
+            let workspace_lifecycle = lifecycle.lock().unwrap();
+            if self.with_state(|state| Self::workspace_for_surface_in_state(state, surface))
+                != Some(workspace)
+            {
+                drop(workspace_lifecycle);
+                continue;
+            }
+            let result = move_tab();
+            drop(workspace_lifecycle);
+            break result;
+        };
         if moved {
             self.emit(MuxEvent::TreeChanged);
             if let Some(screen) = changed_screen {
@@ -6429,6 +6557,7 @@ mod tests {
     fn workspace_close_waits_for_targeted_terminal_commit() {
         let mux = test_mux();
         let workspace = mux.create_empty_workspace(Some("target".into()), None, None).unwrap();
+        let unrelated = mux.create_empty_workspace(Some("unrelated".into()), None, None).unwrap();
         let (reserved_tx, reserved_rx) = std::sync::mpsc::sync_channel(1);
         let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
         let release_rx = Arc::new(Mutex::new(release_rx));
@@ -6452,7 +6581,9 @@ mod tests {
             }
         });
         reserved_rx.recv().unwrap();
-        assert!(mux.workspace_lifecycle.try_lock().is_err());
+        assert!(mux.workspace_lifecycle(workspace.workspace).try_lock().is_err());
+        let unrelated_lifecycle = mux.workspace_lifecycle(unrelated.workspace);
+        assert!(unrelated_lifecycle.try_lock().is_ok());
 
         let (close_started_tx, close_started_rx) = std::sync::mpsc::sync_channel(1);
         let (close_done_tx, close_done_rx) = std::sync::mpsc::sync_channel(1);
@@ -6460,7 +6591,7 @@ mod tests {
             let mux = mux.clone();
             move || {
                 close_started_tx.send(()).unwrap();
-                let result = mux.close_workspace_at_revision(workspace.workspace, Some(1));
+                let result = mux.close_workspace_at_revision(workspace.workspace, Some(2));
                 close_done_tx.send(result).unwrap();
             }
         });
@@ -6473,7 +6604,7 @@ mod tests {
         release_tx.send(()).unwrap();
         let (surface, placement) = create.join().unwrap().unwrap();
         assert_eq!(placement.workspace, workspace.workspace);
-        assert_eq!(close_done_rx.recv().unwrap().unwrap(), Some(2));
+        assert_eq!(close_done_rx.recv().unwrap().unwrap(), Some(3));
         close.join().unwrap();
         *mux.terminal_create_after_workspace_reservation.lock().unwrap() = None;
         surface.kill();
