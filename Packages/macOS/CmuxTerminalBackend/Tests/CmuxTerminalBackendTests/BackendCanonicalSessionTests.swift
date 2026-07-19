@@ -1293,7 +1293,7 @@ struct BackendCanonicalSessionTests {
             ),
         ]
     )
-    func rendererConfigureReceiptRejectsInvalidIdentity(
+    private func rendererConfigureReceiptRejectsInvalidIdentity(
         scenario: InvalidRendererReceiptScenario
     ) async throws {
         let transport = ScriptedBackendTransport()
