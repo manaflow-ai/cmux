@@ -129,7 +129,7 @@ extension TerminalController {
                         code: "unsupported_transport",
                         message: String(
                             localized: "mobile.chat.artifact.error.irohTransportUnavailable",
-                            defaultValue: "Iroh artifact transfer requires an authenticated Iroh session."
+                            defaultValue: "Artifact transfer requires an authenticated session."
                         ),
                         data: nil
                     )

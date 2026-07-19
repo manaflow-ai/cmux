@@ -416,9 +416,11 @@ public actor MobileChatEventSource: ChatEventSource {
                 // authorized RPC can safely restart from offset zero.
             } catch is CancellationError {
                 throw CancellationError()
-            } catch {
+            } catch MobileArtifactLaneFetchError.failedAfterFirstByte {
                 // Once the lane exposed bytes, mixing in an RPC restart could
                 // splice two file versions into one preview.
+                throw ChatArtifactError.macUnreachable
+            } catch MobileArtifactLaneFetchError.invalidDescriptor {
                 throw ChatArtifactError.macUnreachable
             }
         }
