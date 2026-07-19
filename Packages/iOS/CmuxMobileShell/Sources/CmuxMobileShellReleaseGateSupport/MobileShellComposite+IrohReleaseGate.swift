@@ -3,7 +3,13 @@ import CMUXMobileCore
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
+import OSLog
 public import CmuxMobileShell
+
+private let mobileIrohReleaseGateProbeLog = Logger(
+    subsystem: "dev.cmux.ios",
+    category: "iroh-release-gate-probe"
+)
 
 extension MobileShellComposite {
     /// Exercises the current authenticated Iroh session without retaining user data.
@@ -26,6 +32,7 @@ extension MobileShellComposite {
             throw MobileIrohReleaseGateProbeFailure.unauthenticatedIrohSession
         }
 
+        mobileIrohReleaseGateProbeLog.info("probe stage=host_status state=begin")
         let statusData: Data
         do {
             let authenticated = try await remoteClient.sendRequestAndAuthenticatedHostStatus(
@@ -40,6 +47,7 @@ extension MobileShellComposite {
               status.macInstanceTag?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
             throw MobileIrohReleaseGateProbeFailure.hostStatusRejected
         }
+        mobileIrohReleaseGateProbeLog.info("probe stage=host_status state=completed")
 
         guard let workspace = selectedWorkspace,
               workspace.actionCapabilities.supportsWorkspaceActions,
@@ -50,6 +58,7 @@ extension MobileShellComposite {
             workspace: workspace,
             marker: marker
         )
+        mobileIrohReleaseGateProbeLog.info("probe stage=workspace_mutation state=completed")
 
         guard let terminalID = selectedTerminalID?.rawValue else {
             throw MobileIrohReleaseGateProbeFailure.terminalUnavailable
@@ -58,20 +67,29 @@ extension MobileShellComposite {
             surfaceID: terminalID,
             marker: marker
         )
+        mobileIrohReleaseGateProbeLog.info("probe stage=terminal_round_trip state=completed")
+        mobileIrohReleaseGateProbeLog.info("probe stage=independent_events state=begin")
         try await verifyIndependentEvents(
             client: remoteClient,
             marker: marker
         )
+        mobileIrohReleaseGateProbeLog.info("probe stage=independent_events state=completed")
+        mobileIrohReleaseGateProbeLog.info("probe stage=notification_reconcile state=begin")
         try await verifyNotificationReconcile(client: remoteClient)
+        mobileIrohReleaseGateProbeLog.info("probe stage=notification_reconcile state=completed")
+        mobileIrohReleaseGateProbeLog.info("probe stage=chat_sessions state=begin")
         try await verifyChatSessions(
             client: remoteClient,
             workspaceID: workspace.rpcWorkspaceID.rawValue
         )
+        mobileIrohReleaseGateProbeLog.info("probe stage=chat_sessions state=completed")
+        mobileIrohReleaseGateProbeLog.info("probe stage=artifact_scan_count state=begin")
         try await verifyArtifactScanCount(
             client: remoteClient,
             workspaceID: workspace.rpcWorkspaceID.rawValue,
             surfaceID: terminalID
         )
+        mobileIrohReleaseGateProbeLog.info("probe stage=artifact_scan_count state=completed")
 
         return MobileIrohReleaseGateProbeResult(
             hostStatusVerified: true,
