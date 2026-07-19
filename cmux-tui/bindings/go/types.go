@@ -76,6 +76,7 @@ type Pane struct {
 	ID        uint64  `json:"id"`
 	Name      *string `json:"name"`
 	ActiveTab uint    `json:"active_tab"`
+	FocusedAt uint64  `json:"focused_at,omitempty"`
 	Tabs      []Tab   `json:"tabs"`
 	Dead      bool    `json:"dead"`
 }

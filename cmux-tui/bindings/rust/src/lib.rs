@@ -242,6 +242,8 @@ pub struct Pane {
     #[serde(default)]
     pub active_tab: usize,
     #[serde(default)]
+    pub focused_at: u64,
+    #[serde(default)]
     pub tabs: Vec<Tab>,
     #[serde(default)]
     pub dead: bool,

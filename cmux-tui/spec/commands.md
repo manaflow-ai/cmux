@@ -88,9 +88,11 @@ Applying a stack creates one fresh pane per exported pane id, preserves membersh
 `Pane`:
 
 ```text
-object{id:Id,name:string|null,active_tab:usize,focused_at:u64,tabs:array<Tab>}
+object{id:Id,name:string|null,active_tab:usize,focused_at?:u64,tabs:array<Tab>}
 | object{id:Id,dead:true}
 ```
+
+`focused_at` is an additive focus-only monotonic sequence. Clients must default it to `0` when connected to servers that omit it.
 
 `Tab`:
 

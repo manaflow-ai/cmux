@@ -160,6 +160,7 @@ class Pane:
     active_tab: int
     tabs: List[Tab]
     dead: bool = False
+    focused_at: int = 0
 
 
 @dataclass(frozen=True)
@@ -810,6 +811,7 @@ def _parse_pane(value: Dict[str, Any]) -> Pane:
         active_tab=int(value.get("active_tab", 0)),
         tabs=[_parse_tab(item) for item in value.get("tabs", [])],
         dead=bool(value.get("dead", False)),
+        focused_at=int(value.get("focused_at", 0)),
     )
 
 

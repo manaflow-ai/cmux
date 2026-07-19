@@ -42,6 +42,7 @@ export interface LivePane {
   id: Id;
   name: string | null;
   active_tab: number;
+  focused_at?: number;
   tabs: Tab[];
 }
 
