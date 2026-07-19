@@ -55,13 +55,18 @@ import Testing
     /// batch's result and silently skipping its recovery/reconnect.
     private func drainPendingSetupCommands(_ connection: RemoteTmuxControlConnection) {
         var guardCount = 0
-        while guardCount < 16, let kind = connection.pendingCommandKindsForTesting.first {
+        // Consume only the incidental follow-ups. A blind reply to whatever sits at the
+        // head would swallow a `listWindows`/`windowReorder` and mis-correlate its
+        // positional reply, so stop at the first correlated command.
+        loop: while guardCount < 16, let kind = connection.pendingCommandKindsForTesting.first {
             guardCount += 1
             switch kind {
             case .paneRects:
                 reply(connection, lines: ["%0 0 0 80 24 1 off :0 \"ejc3-mac\""])
-            default:
+            case .other:
                 reply(connection, lines: [])
+            default:
+                break loop
             }
         }
     }
@@ -80,7 +85,9 @@ import Testing
     /// command (`listWindows`/`listWindowOrder`/`windowReorder`). Left at the FIFO
     /// head, either would swallow the next positional reply meant for that command.
     private func drainLeadingOther(_ connection: RemoteTmuxControlConnection) {
-        loop: while let kind = connection.pendingCommandKindsForTesting.first {
+        var guardCount = 0
+        loop: while guardCount < 16, let kind = connection.pendingCommandKindsForTesting.first {
+            guardCount += 1
             switch kind {
             case .other:
                 reply(connection, lines: [])
@@ -122,12 +129,16 @@ import Testing
         // leftover would mis-correlate later positional replies. See
         // ``drainPendingSetupCommands``.
         var guardCount = 0
-        while guardCount < 16, let kind = connection.pendingCommandKindsForTesting.first {
+        loop: while guardCount < 16, let kind = connection.pendingCommandKindsForTesting.first {
             guardCount += 1
-            if case let .paneRects(windowId, _) = kind {
+            switch kind {
+            case let .paneRects(windowId, _):
                 reply(connection, lines: ["%\(windowId * 10) 0 0 80 24 1 off :zsh"])
-            } else {
+            case .other:
                 reply(connection, lines: [])
+            default:
+                // Never blind-reply to a correlated command (see drainPendingSetupCommands).
+                break loop
             }
         }
     }
