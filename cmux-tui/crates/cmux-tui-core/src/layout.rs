@@ -37,6 +37,18 @@ impl LayoutResult {
     pub fn neighbor(&self, from: PaneId, dx: i32, dy: i32) -> Option<PaneId> {
         directional_neighbor(&self.panes, from, dx, dy)
     }
+
+    /// Zellij-style directional focus: among panes that share the requested
+    /// edge, return the one focused most recently.
+    pub fn neighbor_by_recency(
+        &self,
+        from: PaneId,
+        dx: i32,
+        dy: i32,
+        recency: impl Fn(PaneId) -> u64,
+    ) -> Option<PaneId> {
+        directional_neighbor_by_recency(&self.panes, from, dx, dy, recency)
+    }
 }
 
 pub fn directional_neighbor(
@@ -69,6 +81,30 @@ pub fn directional_neighbor(
         .map(|(_, id, _)| id)
 }
 
+pub fn directional_neighbor_by_recency(
+    panes: &[(PaneId, Rect)],
+    from: PaneId,
+    dx: i32,
+    dy: i32,
+    recency: impl Fn(PaneId) -> u64,
+) -> Option<PaneId> {
+    let cur = panes.iter().find(|(id, _)| *id == from).map(|(_, rect)| *rect)?;
+    let direction = Direction::from_delta(dx, dy)?;
+    panes
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(_, (id, rect))| *id != from && rect.width > 0 && rect.height > 0)
+        .filter_map(|(order, (id, rect))| {
+            direction
+                .score(cur, rect)
+                .filter(|score| score.distance == 0)
+                .map(|_| (recency(id), order, id))
+        })
+        .max_by_key(|(active_at, order, _)| (*active_at, *order))
+        .map(|(_, _, id)| id)
+}
+
 #[derive(Clone, Copy)]
 enum Direction {
     Left,
@@ -84,6 +120,20 @@ struct NeighborScore {
 }
 
 impl Direction {
+    fn from_delta(dx: i32, dy: i32) -> Option<Self> {
+        if dx < 0 {
+            Some(Direction::Left)
+        } else if dx > 0 {
+            Some(Direction::Right)
+        } else if dy < 0 {
+            Some(Direction::Up)
+        } else if dy > 0 {
+            Some(Direction::Down)
+        } else {
+            None
+        }
+    }
+
     fn score(self, cur: Rect, cand: Rect) -> Option<NeighborScore> {
         let (overlap, distance) = match self {
             Direction::Left => {
@@ -432,6 +482,25 @@ mod tests {
             (4, r(60, 18, 20, 12)),
         ];
         assert_eq!(dir(&panes, 1, 1, 0), Some(2));
+    }
+
+    #[test]
+    fn directional_focus_by_recency_returns_last_used_adjacent_pane() {
+        let panes = vec![(1, r(0, 0, 40, 30)), (2, r(40, 0, 40, 18)), (3, r(40, 18, 40, 12))];
+        let active_at = |pane| match pane {
+            2 => 4,
+            3 => 9,
+            _ => 0,
+        };
+
+        assert_eq!(directional_neighbor_by_recency(&panes, 1, 1, 0, active_at), Some(3));
+    }
+
+    #[test]
+    fn directional_focus_by_recency_requires_a_shared_edge() {
+        let panes = vec![(1, r(10, 0, 10, 10)), (2, r(0, 0, 5, 10))];
+
+        assert_eq!(directional_neighbor_by_recency(&panes, 1, -1, 0, |_| 1), None);
     }
 
     #[test]

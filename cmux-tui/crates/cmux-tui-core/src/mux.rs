@@ -2362,7 +2362,9 @@ impl Mux {
             let (dx, dy) = dir.delta();
             let layout =
                 layout_screen(&screen.root, Rect { x: 0, y: 0, width: 10_000, height: 10_000 });
-            Ok(layout.neighbor(pane, dx, dy))
+            Ok(layout.neighbor_by_recency(pane, dx, dy, |candidate| {
+                state.panes.get(&candidate).map(|pane| pane.active_at).unwrap_or_default()
+            }))
         })
     }
 
@@ -3801,7 +3803,7 @@ mod tests {
         let p2 = applied.panes[1].pane;
         let p3 = applied.panes[2].pane;
 
-        assert_eq!(mux.pane_neighbor(p1, Direction::Right).unwrap(), Some(p2));
+        assert_eq!(mux.pane_neighbor(p1, Direction::Right).unwrap(), Some(p3));
         assert_eq!(mux.pane_neighbor(p2, Direction::Down).unwrap(), Some(p3));
         assert_eq!(mux.pane_neighbor(p1, Direction::Left).unwrap(), None);
     }
@@ -3824,6 +3826,32 @@ mod tests {
         assert_eq!(mux.focus_direction(None, Direction::Right).unwrap(), p2);
         mux.with_state(|s| assert_eq!(s.workspaces[0].screens[0].active_pane, p2));
         assert!(mux.focus_direction(None, Direction::Right).is_err());
+    }
+
+    #[test]
+    fn focus_direction_returns_to_most_recently_used_adjacent_pane() {
+        let mux = test_mux();
+        let applied = mux
+            .apply_layout(
+                None,
+                None,
+                &split_spec(
+                    SplitDir::Right,
+                    0.5,
+                    leaf_spec(),
+                    split_spec(SplitDir::Down, 0.5, leaf_spec(), leaf_spec()),
+                ),
+                None,
+            )
+            .unwrap();
+        let left = applied.panes[0].pane;
+        let top_right = applied.panes[1].pane;
+        let bottom_right = applied.panes[2].pane;
+
+        assert!(mux.focus_pane(top_right));
+        assert!(mux.focus_pane(bottom_right));
+        assert_eq!(mux.focus_direction(None, Direction::Left).unwrap(), left);
+        assert_eq!(mux.focus_direction(None, Direction::Right).unwrap(), bottom_right);
     }
 
     #[test]

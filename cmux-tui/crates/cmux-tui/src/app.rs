@@ -2429,6 +2429,11 @@ pub struct App {
     pub graphics_supported: bool,
     stdout_lock: Arc<Mutex<()>>,
     pub pane_areas: Vec<PaneArea>,
+    /// Client-side focus timestamps follow the mux's pane `active_at` semantics
+    /// so local and attached TUIs make the same Zellij-style directional choice.
+    pane_focus_recency: HashMap<PaneId, u64>,
+    pane_focus_epoch: u64,
+    observed_active_pane: Option<PaneId>,
     /// Surfaces whose active tabs were visible in the previous layout pass.
     /// Attach streams may outlive this set, but only members hold size leases.
     visible_size_surfaces: HashSet<SurfaceId>,
@@ -2804,6 +2809,9 @@ pub fn run(
         graphics_supported,
         stdout_lock: stdout_lock.clone(),
         pane_areas: Vec::new(),
+        pane_focus_recency: HashMap::new(),
+        pane_focus_epoch: 0,
+        observed_active_pane: None,
         visible_size_surfaces: HashSet::new(),
         pending_size_releases: HashSet::new(),
         prefix_armed: false,
@@ -3206,8 +3214,40 @@ impl App {
             self.browser_input.forget_surface(surface);
         }
         self.tree = tree;
+        self.sync_pane_focus_history();
         self.rebuild_tab_locations();
         self.reapply_mux_titles();
+    }
+
+    fn record_pane_focus(&mut self, pane: PaneId) {
+        self.pane_focus_epoch = self.pane_focus_epoch.saturating_add(1);
+        self.pane_focus_recency.insert(pane, self.pane_focus_epoch);
+    }
+
+    fn sync_pane_focus_history(&mut self) {
+        let live_panes = self
+            .tree
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .map(|pane| pane.id)
+            .collect::<Vec<_>>();
+        for pane in &live_panes {
+            if !self.pane_focus_recency.contains_key(pane) {
+                self.record_pane_focus(*pane);
+            }
+        }
+        let live_panes = live_panes.into_iter().collect::<HashSet<_>>();
+        self.pane_focus_recency.retain(|pane, _| live_panes.contains(pane));
+
+        let active = self.active_pane();
+        if active != self.observed_active_pane {
+            if let Some(pane) = active {
+                self.record_pane_focus(pane);
+            }
+            self.observed_active_pane = active;
+        }
     }
 
     fn replace_authoritative_tree(&mut self, tree: TreeView, routing_generation: u64) {
@@ -5386,7 +5426,9 @@ impl App {
         let layout = cmux_tui_core::LayoutResult {
             panes: self.pane_areas.iter().map(|a| (a.pane, a.rect)).collect(),
         };
-        if let Some(next) = layout.neighbor(active, dx, dy) {
+        if let Some(next) = layout.neighbor_by_recency(active, dx, dy, |pane| {
+            self.pane_focus_recency.get(&pane).copied().unwrap_or_default()
+        }) {
             self.focus_pane_after_input(next);
         }
     }
@@ -6388,6 +6430,7 @@ impl App {
 
     fn focus_pane_after_input(&mut self, pane: PaneId) {
         if self.prepare_pty_input_before_mutation() {
+            self.record_pane_focus(pane);
             if self.session.remote
                 && let Some(screen) = self.tree.active_workspace_mut_screen()
                 && screen.panes.iter().any(|candidate| candidate.id == pane)
@@ -10815,6 +10858,9 @@ mod tests {
             graphics_supported: false,
             stdout_lock: Arc::new(Mutex::new(())),
             pane_areas: Vec::new(),
+            pane_focus_recency: HashMap::new(),
+            pane_focus_epoch: 0,
+            observed_active_pane: None,
             visible_size_surfaces: HashSet::new(),
             pending_size_releases: HashSet::new(),
             prefix_armed: false,
