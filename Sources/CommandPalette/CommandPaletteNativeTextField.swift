@@ -34,6 +34,13 @@ final class CommandPaletteNativeTextField: NSTextField {
         }
     }
 
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if let window, window !== newWindow, window.initialFirstResponder === self {
+            window.initialFirstResponder = nil
+        }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if let didBecomeKeyObserver {
@@ -41,6 +48,7 @@ final class CommandPaletteNativeTextField: NSTextField {
             self.didBecomeKeyObserver = nil
         }
         guard let window else { return }
+        window.initialFirstResponder = self
         didBecomeKeyObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: window,
@@ -76,6 +84,7 @@ final class CommandPaletteNativeTextField: NSTextField {
 
     private func requestFirstResponderIfPossible(assumingWindowIsKey: Bool = false) {
         guard requestsFirstResponder, let window else { return }
+        window.initialFirstResponder = self
         guard assumingWindowIsKey || window.isKeyWindow else { return }
         let firstResponder = window.firstResponder
         let isAlreadyFocused = firstResponder === self
