@@ -25,21 +25,43 @@ struct RemoteTmuxSessionCommandBuilderTests {
         }
     }
 
-    @Test("existing session attaches without mutating user options")
-    func existingSessionIsNotMutated() throws {
+    @Test("existing session rebinds workspace metadata before attach without mutating user options")
+    func existingSessionRebindsWorkspaceMetadata() throws {
         try withFakeTmux(sessionExists: true) { directory, environment in
             let builder = RemoteTmuxSessionCommandBuilder(
                 sessionName: "existing",
                 shellCommand: "exec integrated-shell"
             )
-            let result = try run(builder.remoteShellCommand, environment: environment)
+            let currentWorkspace = "11111111-1111-1111-1111-111111111111"
+            let currentSocket = "127.0.0.1:55272"
+            let result = try run(builder.remoteShellCommand, environment: environment.merging([
+                "CMUX_BUNDLED_CLI_PATH": "/home/dev/.cmux/bin/cmux",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_SHELL_INTEGRATION_DIR": "/home/dev/.cmux/relay/55272.shell",
+                "CMUX_SOCKET_PATH": currentSocket,
+                "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_TAB_ID": currentWorkspace,
+                "CMUX_WORKSPACE_ID": currentWorkspace,
+            ]) { _, current in current })
 
             #expect(result.status == 0)
             #expect(result.stderr.isEmpty)
-            #expect(try invocations(in: directory) == [
-                ["has-session", "-t", "=existing"],
-                ["attach-session", "-t", "=existing"],
-            ])
+            let calls = try invocations(in: directory)
+            let attachIndex = try #require(calls.firstIndex(of: ["attach-session", "-t", "=existing"]))
+            let expectedBeforeAttach = [
+                ["set-environment", "-t", "=existing", "CMUX_BUNDLED_CLI_PATH", "/home/dev/.cmux/bin/cmux"],
+                ["set-environment", "-t", "=existing", "CMUX_SHELL_INTEGRATION_DIR", "/home/dev/.cmux/relay/55272.shell"],
+                ["set-environment", "-t", "=existing", "CMUX_SOCKET_PATH", currentSocket],
+                ["set-environment", "-t", "=existing", "CMUX_TAB_ID", currentWorkspace],
+                ["set-environment", "-t", "=existing", "CMUX_WORKSPACE_ID", currentWorkspace],
+                ["set-environment", "-t", "=existing", "-u", "CMUX_PANEL_ID"],
+                ["set-environment", "-t", "=existing", "-u", "CMUX_SURFACE_ID"],
+            ]
+            for expectedCall in expectedBeforeAttach {
+                let index = try #require(calls.firstIndex(of: expectedCall), "missing tmux call: \(expectedCall)")
+                #expect(index < attachIndex)
+            }
+            #expect(!calls.contains { $0.first == "set-option" })
         }
     }
 

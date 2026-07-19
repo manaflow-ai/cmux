@@ -8,6 +8,69 @@ import Testing
 #endif
 
 struct ShellIntegrationSendTransportTests {
+    @Test("reattached tmux zsh adopts the named session workspace binding")
+    func tmuxZshAdoptsSessionWorkspaceBinding() throws {
+        try assertTmuxShellAdoptsSessionWorkspaceBinding(
+            shell: "/bin/zsh",
+            integrationName: "cmux-zsh-integration.zsh"
+        )
+    }
+
+    @Test("reattached tmux bash adopts the named session workspace binding")
+    func tmuxBashAdoptsSessionWorkspaceBinding() throws {
+        try assertTmuxShellAdoptsSessionWorkspaceBinding(
+            shell: "/bin/bash",
+            integrationName: "cmux-bash-integration.bash"
+        )
+    }
+
+    private func assertTmuxShellAdoptsSessionWorkspaceBinding(
+        shell: String,
+        integrationName: String
+    ) throws {
+        let script = try #require(
+            RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(named: integrationName)
+        )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-tmux-env-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let scriptFile = directory.appendingPathComponent(integrationName)
+        try script.write(to: scriptFile, atomically: true, encoding: .utf8)
+
+        let process = Process()
+        let standardOutput = Pipe()
+        let standardError = Pipe()
+        process.executableURL = URL(fileURLWithPath: shell)
+        process.arguments = ["--no-rcs", "-c", Self.tmuxEnvironmentRefreshScript(scriptFile: scriptFile)]
+        if shell.hasSuffix("bash") {
+            process.arguments = ["--noprofile", "--norc", "-c", Self.tmuxEnvironmentRefreshScript(scriptFile: scriptFile)]
+        }
+        process.environment = [
+            "CMUX_PANEL_ID": "stale-surface",
+            "CMUX_SOCKET_PATH": "127.0.0.1:63135",
+            "CMUX_SURFACE_ID": "stale-surface",
+            "CMUX_TAB_ID": "stale-workspace",
+            "CMUX_WORKSPACE_ID": "stale-workspace",
+            "HOME": directory.path,
+            "PATH": "/usr/bin:/bin",
+            "TERM": "xterm-256color",
+            "TMUX": "/tmp/tmux-test,1,0",
+        ]
+        process.standardOutput = standardOutput
+        process.standardError = standardError
+        try process.run()
+        process.waitUntilExit()
+        let output = String(decoding: standardOutput.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let error = String(decoding: standardError.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+
+        #expect(process.terminationStatus == 0, "\(error)\n\(output)")
+        #expect(output.contains("workspace=current-workspace"), output)
+        #expect(output.contains("socket=127.0.0.1:55272"), output)
+        #expect(output.contains("surface=<unset>"), output)
+        #expect(output.contains("panel=<unset>"), output)
+    }
+
     /// End-to-end contract for `_cmux_send`: sourcing the bundled integration
     /// in a fresh zsh and sending one payload must deliver that payload to a
     /// unix-socket listener even when a PATH-first `nc` without unix-socket
@@ -110,6 +173,25 @@ struct ShellIntegrationSendTransportTests {
             diagnostics: (try? String(contentsOf: logURL, encoding: .utf8)) ?? "<no log>",
             exitStatus: process.terminationStatus
         )
+    }
+
+    private static func tmuxEnvironmentRefreshScript(scriptFile: URL) -> String {
+        """
+        source '\(scriptFile.path)'
+        tmux() {
+          if [ "$1" = show-environment ]; then
+            if [ "${2:-}" = -g ]; then
+              printf '%s\\n' 'CMUX_SOCKET_PATH=127.0.0.1:63135' 'CMUX_TAB_ID=stale-workspace' 'CMUX_WORKSPACE_ID=stale-workspace'
+            else
+              printf '%s\\n' 'CMUX_SOCKET_PATH=127.0.0.1:55272' 'CMUX_TAB_ID=current-workspace' 'CMUX_WORKSPACE_ID=current-workspace'
+            fi
+          fi
+        }
+        _cmux_tmux_sync_cmux_environment
+        printf 'workspace=%s\\nsocket=%s\\nsurface=%s\\npanel=%s\\n' \
+          "${CMUX_WORKSPACE_ID:-<unset>}" "${CMUX_SOCKET_PATH:-<unset>}" \
+          "${CMUX_SURFACE_ID:-<unset>}" "${CMUX_PANEL_ID:-<unset>}"
+        """
     }
 }
 
