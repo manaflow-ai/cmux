@@ -4899,6 +4899,34 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_new_tabs_materialize_one_empty_workspace_screen() {
+        let mux = test_mux();
+        let placement = mux.create_empty_workspace(Some("gui".into()), None, None).unwrap();
+        let barrier = Arc::new(std::sync::Barrier::new(9));
+        let mut threads = Vec::new();
+        for _ in 0..8 {
+            let mux = mux.clone();
+            let barrier = barrier.clone();
+            threads.push(std::thread::spawn(move || {
+                barrier.wait();
+                mux.new_tab(None, None, Some((80, 24))).unwrap()
+            }));
+        }
+        barrier.wait();
+        let surfaces = threads.into_iter().map(|thread| thread.join().unwrap()).collect::<Vec<_>>();
+
+        mux.with_state(|state| {
+            let workspace = state.workspace_by_id(placement.workspace).unwrap();
+            assert_eq!(workspace.screens.len(), 1);
+            let pane = workspace.screens[0].active_pane;
+            assert_eq!(state.panes[&pane].tabs.len(), surfaces.len());
+        });
+        for surface in surfaces {
+            surface.kill();
+        }
+    }
+
+    #[test]
     fn create_terminal_targets_inactive_empty_workspace() {
         let mux = test_mux();
         let target = mux.create_empty_workspace(Some("target".into()), None, None).unwrap();
