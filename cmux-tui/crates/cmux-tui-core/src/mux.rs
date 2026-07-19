@@ -2845,39 +2845,34 @@ impl Mux {
     /// out of its split tree.
     pub fn move_tab(&self, surface: SurfaceId, pane: PaneId, index: usize) -> bool {
         let active_at = self.next_active_at();
-        let (moved, changed_screens) = {
+        let (moved, changed_screen) = {
             let mut state = self.state.lock().unwrap();
             let source_pane = state.pane_of(surface);
-            let mut changed_screens = if source_pane.is_some_and(|source| source != pane) {
-                unique_screen_ids(
-                    source_pane
-                        .and_then(|source| state.screen_of(source))
-                        .map(|(wi, si)| state.workspaces[wi].screens[si].id)
-                        .into_iter()
-                        .chain(
-                            state
-                                .screen_of(pane)
-                                .map(|(wi, si)| state.workspaces[wi].screens[si].id),
-                        ),
-                )
-            } else {
-                Vec::new()
-            };
-            let (moved, split_index_dirty) =
+            let source_screen = source_pane
+                .filter(|source| *source != pane)
+                .and_then(|source| state.screen_of(source))
+                .map(|(wi, si)| state.workspaces[wi].screens[si].id);
+            let (moved, topology_changed) =
                 move_tab_in_state(self, &mut state, surface, pane, index);
             if moved {
                 stamp_pane(&mut state, pane, active_at);
-            } else {
-                changed_screens.clear();
             }
-            if split_index_dirty {
+            if topology_changed {
                 Self::rebuild_split_screen_index(&mut state);
             }
-            (moved, changed_screens)
+            let changed_screen = (moved && topology_changed)
+                .then_some(source_screen)
+                .flatten()
+                .filter(|source_screen| {
+                    state.workspaces.iter().any(|workspace| {
+                        workspace.screens.iter().any(|screen| screen.id == *source_screen)
+                    })
+                });
+            (moved, changed_screen)
         };
         if moved {
             self.emit(MuxEvent::TreeChanged);
-            for screen in changed_screens {
+            if let Some(screen) = changed_screen {
                 self.emit(MuxEvent::LayoutChanged(screen));
             }
         }
@@ -4772,8 +4767,11 @@ mod tests {
 
         assert!(mux.move_tab(extra.id, first_pane, 0));
         mux.with_state(|state| assert!(state.split_screens.contains_key(&sentinel)));
+        let events = mux.subscribe();
         assert!(mux.move_tab(extra.id, second_pane, 0));
         mux.with_state(|state| assert!(state.split_screens.contains_key(&sentinel)));
+        assert!(matches!(events.recv().unwrap(), MuxEvent::TreeChanged));
+        assert!(events.try_recv().is_err());
     }
 
     #[test]
