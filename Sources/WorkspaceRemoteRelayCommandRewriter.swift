@@ -95,10 +95,10 @@ struct WorkspaceRemoteRelayCommandRewriter: RemoteRelayCommandRewriting {
         }
     }
 
-    private static func hexString<C: Collection>(_ bytes: C) -> String where C.Element == UInt8 {
+    private static func hexString<S: Sequence>(_ bytes: S) -> String where S.Element == UInt8 {
         let alphabet = Array("0123456789abcdef".utf8)
         var encoded: [UInt8] = []
-        encoded.reserveCapacity(bytes.count * 2)
+        encoded.reserveCapacity(bytes.underestimatedCount * 2)
         for byte in bytes {
             encoded.append(alphabet[Int(byte >> 4)])
             encoded.append(alphabet[Int(byte & 0x0f)])

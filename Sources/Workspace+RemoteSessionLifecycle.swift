@@ -117,7 +117,7 @@ extension Workspace {
             reachabilityProbe: RemoteHostReachabilityProbe(),
             relayCommandRewriter: WorkspaceRemoteRelayCommandRewriter(
                 remoteWorkspaceID: id,
-                remoteRelayTokenHex: configuration.relayToken
+                remoteRelayTokenHex: configuration.relayToken ?? ""
             ),
             buildInfo: WorkspaceRemoteSessionBuildInfo(),
             daemonStrings: RemoteDaemonStrings.appLocalized,
