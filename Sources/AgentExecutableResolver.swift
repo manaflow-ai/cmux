@@ -322,6 +322,49 @@ struct AgentCommandExecutableLookup: Sendable, Equatable {
 /// Resolves generated agent commands without invoking a shell. One resolver is
 /// shared across a restore batch so equal command/PATH/cwd triples are statted once.
 final class AgentCommandExecutableResolver {
+    /// XNU scans bytes 0..<IMG_SHSIZE for the shebang terminator. A newline at
+    /// byte 511 is accepted; one at byte 512 is rejected with ENOEXEC.
+    private static let shebangBufferSize = 512
+
+    /// Each `env` target starts a fresh exec and may therefore contain another
+    /// shebang. Bound that otherwise-unbounded process chain so corrupt wrapper
+    /// graphs cannot turn restore/fork availability checks into unbounded I/O.
+    private static let maximumEnvExecDepth = 16
+
+    private struct ExecutableFileIdentity {
+        let realPath: String
+        let cachePart: String
+    }
+
+    private struct ExecutableResolutionAttempt {
+        let resolution: AgentCommandExecutableResolution?
+        let watchDirectories: [String]
+        let matchedExecutable: Bool
+    }
+
+    private struct ExecutableDependencyLookup {
+        let isRunnable: Bool
+        let cacheParts: [String]
+        let watchDirectories: [String]
+    }
+
+    private enum ShebangReadResult {
+        case none(isLoadableDarwinBinary: Bool)
+        case command(interpreter: String, argument: String?)
+        case invalid
+    }
+
+    private struct EnvShebangCommand {
+        let executable: String
+        let searchPath: String?
+    }
+
+    private struct DependencyCandidate {
+        let lookupPath: String?
+        let identity: ExecutableFileIdentity?
+        let watchDirectories: [String]
+    }
+
     private enum CachedLookup {
         case value(AgentCommandExecutableLookup)
     }
@@ -411,14 +454,15 @@ final class AgentCommandExecutableResolver {
                 )
             }
             let watchDirectories = [URL(fileURLWithPath: candidate).deletingLastPathComponent().path]
-            return AgentCommandExecutableLookup(
-                resolution: executableResolution(
-                    descriptor: descriptor,
-                    lookupPath: candidate,
-                    watchDirectories: watchDirectories
-                ),
-                candidateLookupPath: candidate,
+            let attempt = executableResolution(
+                descriptor: descriptor,
+                lookupPath: candidate,
                 watchDirectories: watchDirectories
+            )
+            return AgentCommandExecutableLookup(
+                resolution: attempt.resolution,
+                candidateLookupPath: candidate,
+                watchDirectories: attempt.watchDirectories
             )
         }
 
@@ -447,13 +491,33 @@ final class AgentCommandExecutableResolver {
             if seenWatchDirectories.insert(watchDirectory).inserted {
                 watchDirectories.append(watchDirectory)
             }
-            if let resolution = executableResolution(
+            let attempt = executableResolution(
                 descriptor: descriptor,
                 lookupPath: candidate,
                 watchDirectories: watchDirectories
-            ) {
+            )
+            for directory in attempt.watchDirectories
+            where seenWatchDirectories.insert(directory).inserted {
+                watchDirectories.append(directory)
+            }
+            if let resolution = attempt.resolution {
                 return AgentCommandExecutableLookup(
-                    resolution: resolution,
+                    resolution: AgentCommandExecutableResolution(
+                        descriptor: resolution.descriptor,
+                        lookupPath: resolution.lookupPath,
+                        realPath: resolution.realPath,
+                        cachePart: resolution.cachePart,
+                        watchDirectories: watchDirectories
+                    ),
+                    candidateLookupPath: candidate,
+                    watchDirectories: watchDirectories
+                )
+            }
+            if attempt.matchedExecutable {
+                // PATH lookup stops at the first executable file. A broken
+                // shebang there cannot fall through to a later namesake.
+                return AgentCommandExecutableLookup(
+                    resolution: nil,
                     candidateLookupPath: candidate,
                     watchDirectories: watchDirectories
                 )
@@ -470,17 +534,56 @@ final class AgentCommandExecutableResolver {
         descriptor: AgentCommandExecutionDescriptor,
         lookupPath: String,
         watchDirectories: [String]
-    ) -> AgentCommandExecutableResolution? {
+    ) -> ExecutableResolutionAttempt {
+        guard let identity = executableFileIdentity(at: lookupPath) else {
+            return ExecutableResolutionAttempt(
+                resolution: nil,
+                watchDirectories: watchDirectories,
+                matchedExecutable: false
+            )
+        }
+        let dependencies = shebangDependencies(
+            at: lookupPath,
+            descriptor: descriptor,
+            visitedRealPaths: [identity.realPath],
+            remainingEnvExecs: maximumEnvExecDepth
+        )
+        let allWatchDirectories = uniqueDirectories(
+            watchDirectories + dependencies.watchDirectories
+        )
+        guard dependencies.isRunnable else {
+            return ExecutableResolutionAttempt(
+                resolution: nil,
+                watchDirectories: allWatchDirectories,
+                matchedExecutable: true
+            )
+        }
+        let cachePart = ([identity.cachePart] + dependencies.cacheParts.map { "dependency=\($0)" })
+            .joined(separator: "\u{1e}")
+        return ExecutableResolutionAttempt(
+            resolution: AgentCommandExecutableResolution(
+                descriptor: descriptor,
+                lookupPath: lookupPath,
+                realPath: identity.realPath,
+                cachePart: cachePart,
+                watchDirectories: allWatchDirectories
+            ),
+            watchDirectories: allWatchDirectories,
+            matchedExecutable: true
+        )
+    }
+
+    private static func executableFileIdentity(at lookupPath: String) -> ExecutableFileIdentity? {
         var status = stat()
         guard stat(lookupPath, &status) == 0,
               (status.st_mode & S_IFMT) == S_IFREG,
               Darwin.access(lookupPath, X_OK) == 0 else {
             return nil
         }
-        let realPath = Darwin.realpath(lookupPath, nil).map { pointer in
+        guard let realPath = Darwin.realpath(lookupPath, nil).map({ pointer in
             defer { free(pointer) }
             return String(cString: pointer)
-        } ?? lookupPath
+        }) else { return nil }
         let cachePart = [
             realPath,
             "dev=\(status.st_dev)",
@@ -490,12 +593,323 @@ final class AgentCommandExecutableResolver {
             "mtime=\(status.st_mtimespec.tv_sec).\(status.st_mtimespec.tv_nsec)",
             "ctime=\(status.st_ctimespec.tv_sec).\(status.st_ctimespec.tv_nsec)",
         ].joined(separator: ":")
-        return AgentCommandExecutableResolution(
-            descriptor: descriptor,
-            lookupPath: lookupPath,
+        return ExecutableFileIdentity(
             realPath: realPath,
-            cachePart: cachePart,
+            cachePart: cachePart
+        )
+    }
+
+    private static func shebangDependencies(
+        at executablePath: String,
+        descriptor: AgentCommandExecutionDescriptor,
+        visitedRealPaths: Set<String>,
+        remainingEnvExecs: Int
+    ) -> ExecutableDependencyLookup {
+        switch readShebang(at: executablePath) {
+        case .none:
+            return dependencyResult(true)
+        case .invalid:
+            return dependencyResult(false)
+        case .command(let interpreter, let argument):
+            guard interpreter.hasPrefix("/") else { return dependencyResult(false) }
+            let interpreterLookup = dependencyCandidate(
+                executable: interpreter,
+                searchPath: descriptor.searchPath,
+                workingDirectory: descriptor.workingDirectory,
+                searchesPath: false
+            )
+            guard let interpreterPath = interpreterLookup.lookupPath,
+                  let interpreterIdentity = interpreterLookup.identity,
+                  !visitedRealPaths.contains(interpreterIdentity.realPath) else {
+                return dependencyResult(
+                    false,
+                    watchDirectories: interpreterLookup.watchDirectories
+                )
+            }
+            let interpreterParts = ["lookup=\(interpreterPath):\(interpreterIdentity.cachePart)"]
+
+            // XNU allows only one script activation per exec. The direct
+            // interpreter must therefore be a binary, not another script.
+            guard case .none(let isLoadableDarwinBinary) = readShebang(at: interpreterPath),
+                  isLoadableDarwinBinary else {
+                return dependencyResult(
+                    false,
+                    cacheParts: interpreterParts,
+                    watchDirectories: interpreterLookup.watchDirectories
+                )
+            }
+            guard (interpreterIdentity.realPath as NSString).lastPathComponent == "env" else {
+                return dependencyResult(
+                    true,
+                    cacheParts: interpreterParts,
+                    watchDirectories: interpreterLookup.watchDirectories
+                )
+            }
+            guard remainingEnvExecs > 0 else {
+                return dependencyResult(
+                    false,
+                    cacheParts: interpreterParts,
+                    watchDirectories: interpreterLookup.watchDirectories
+                )
+            }
+            guard let envCommand = envShebangCommand(
+                argument: argument,
+                inheritedSearchPath: descriptor.searchPath
+            ) else {
+                return dependencyResult(
+                    false,
+                    cacheParts: interpreterParts,
+                    watchDirectories: interpreterLookup.watchDirectories
+                )
+            }
+            let commandLookup = dependencyCandidate(
+                executable: envCommand.executable,
+                searchPath: envCommand.searchPath,
+                workingDirectory: descriptor.workingDirectory,
+                searchesPath: !envCommand.executable.contains("/")
+            )
+            let combinedWatchDirectories = uniqueDirectories(
+                interpreterLookup.watchDirectories + commandLookup.watchDirectories
+            )
+            guard let commandPath = commandLookup.lookupPath,
+                  let commandIdentity = commandLookup.identity,
+                  !visitedRealPaths.contains(commandIdentity.realPath),
+                  commandIdentity.realPath != interpreterIdentity.realPath else {
+                return dependencyResult(
+                    false,
+                    cacheParts: interpreterParts,
+                    watchDirectories: combinedWatchDirectories
+                )
+            }
+            let commandParts = interpreterParts + [
+                "lookup=\(commandPath):\(commandIdentity.cachePart)"
+            ]
+            let nested = shebangDependencies(
+                at: commandPath,
+                descriptor: AgentCommandExecutionDescriptor(
+                    executable: descriptor.executable,
+                    searchPath: envCommand.searchPath,
+                    workingDirectory: descriptor.workingDirectory,
+                    fallbackExecutables: descriptor.fallbackExecutables
+                ),
+                // `env` starts a fresh exec, so the same env binary may be the
+                // next script's interpreter. Track target executables instead.
+                visitedRealPaths: visitedRealPaths.union([commandIdentity.realPath]),
+                remainingEnvExecs: remainingEnvExecs - 1
+            )
+            return dependencyResult(
+                nested.isRunnable,
+                cacheParts: commandParts + nested.cacheParts,
+                watchDirectories: uniqueDirectories(
+                    combinedWatchDirectories + nested.watchDirectories
+                )
+            )
+        }
+    }
+
+    private static func dependencyCandidate(
+        executable: String,
+        searchPath: String?,
+        workingDirectory: String?,
+        searchesPath: Bool
+    ) -> DependencyCandidate {
+        let normalizedWorkingDirectory = workingDirectory?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let baseURL = normalizedWorkingDirectory.flatMap { directory in
+            directory.hasPrefix("/") ? URL(fileURLWithPath: directory, isDirectory: true) : nil
+        }
+
+        func absolutePath(_ path: String) -> String? {
+            if path.hasPrefix("/") {
+                return URL(fileURLWithPath: path, isDirectory: false).standardizedFileURL.path
+            }
+            guard let baseURL else { return nil }
+            return URL(fileURLWithPath: path, relativeTo: baseURL).standardizedFileURL.path
+        }
+
+        let candidatePaths: [String]
+        if searchesPath {
+            let rawSearchPath = searchPath ?? "/usr/bin:/bin"
+            let searchDirectories = rawSearchPath.isEmpty
+                ? [""]
+                : rawSearchPath.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+            var candidates: [String] = []
+            for directory in searchDirectories {
+                let relativeCandidate = (directory.isEmpty ? "." : directory) + "/" + executable
+                guard let candidate = absolutePath(relativeCandidate) else {
+                    return DependencyCandidate(
+                        lookupPath: nil,
+                        identity: nil,
+                        watchDirectories: uniqueDirectories(
+                            candidates.map { URL(fileURLWithPath: $0).deletingLastPathComponent().path }
+                        )
+                    )
+                }
+                candidates.append(candidate)
+            }
+            candidatePaths = candidates
+        } else {
+            guard let candidate = absolutePath(executable) else {
+                return DependencyCandidate(
+                    lookupPath: nil,
+                    identity: nil,
+                    watchDirectories: []
+                )
+            }
+            candidatePaths = [candidate]
+        }
+
+        var watchDirectories: [String] = []
+        for candidate in candidatePaths {
+            watchDirectories = uniqueDirectories(
+                watchDirectories + [URL(fileURLWithPath: candidate).deletingLastPathComponent().path]
+            )
+            guard let identity = executableFileIdentity(at: candidate) else { continue }
+            return DependencyCandidate(
+                lookupPath: candidate,
+                identity: identity,
+                watchDirectories: watchDirectories
+            )
+        }
+        return DependencyCandidate(
+            lookupPath: nil,
+            identity: nil,
             watchDirectories: watchDirectories
         )
+    }
+
+    private static func readShebang(at path: String) -> ShebangReadResult {
+        let fileDescriptor = Darwin.open(path, O_RDONLY | O_CLOEXEC)
+        guard fileDescriptor >= 0 else { return .invalid }
+        defer { Darwin.close(fileDescriptor) }
+        var bytes = [UInt8](repeating: 0, count: shebangBufferSize)
+        var count = 0
+        while count < bytes.count {
+            let bytesRead = bytes.withUnsafeMutableBytes { buffer in
+                Darwin.read(
+                    fileDescriptor,
+                    buffer.baseAddress?.advanced(by: count),
+                    buffer.count - count
+                )
+            }
+            if bytesRead > 0 {
+                count += bytesRead
+            } else if bytesRead == 0 {
+                break
+            } else if errno != EINTR {
+                return .invalid
+            }
+        }
+        guard count >= 2, bytes[0] == 0x23, bytes[1] == 0x21 else {
+            return .none(isLoadableDarwinBinary: hasLoadableDarwinMagic(bytes, count: count))
+        }
+        // Darwin treats `#` as a shebang comment terminator. This is unlike
+        // Linux, but `#!/bin/sh#comment` succeeds through execve on macOS.
+        guard let lineEnd = bytes[2..<count].firstIndex(where: {
+            $0 == 0x0a || $0 == 0x23
+        }) else { return .invalid }
+        var lineBytes = Array(bytes[2..<lineEnd])
+        // Current Darwin accepts CRLF shebangs even though older public XNU
+        // sources document only space and tab as whitespace.
+        if lineBytes.last == 0x0d { lineBytes.removeLast() }
+        guard !lineBytes.contains(0),
+              let line = String(bytes: lineBytes, encoding: .utf8) else {
+            return .invalid
+        }
+        let trimmed = line.trimmingCharacters(in: CharacterSet(charactersIn: " \t"))
+        guard !trimmed.isEmpty else { return .invalid }
+        let separator = trimmed.firstIndex { $0 == " " || $0 == "\t" }
+        let interpreter: String
+        let argument: String?
+        if let separator {
+            interpreter = String(trimmed[..<separator])
+            let remainder = String(trimmed[separator...])
+                .trimmingCharacters(in: CharacterSet(charactersIn: " \t"))
+            argument = remainder.isEmpty ? nil : remainder
+        } else {
+            interpreter = trimmed
+            argument = nil
+        }
+        guard interpreter.hasPrefix("/") else { return .invalid }
+        return .command(interpreter: interpreter, argument: argument)
+    }
+
+    private static func hasLoadableDarwinMagic(_ bytes: [UInt8], count: Int) -> Bool {
+        guard count >= 4 else { return false }
+        let magic = bytes.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+        switch magic {
+        case 0xFEED_FACE, 0xCEFA_EDFE, 0xFEED_FACF, 0xCFFA_EDFE,
+             0xCAFE_BABE, 0xBEBA_FECA, 0xCAFE_BABF, 0xBFBA_FECA:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func envShebangCommand(
+        argument: String?,
+        inheritedSearchPath: String?
+    ) -> EnvShebangCommand? {
+        guard let argument = argument?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !argument.isEmpty else {
+            return nil
+        }
+        // XNU tokenizes every shebang tail on space/tab before invoking the
+        // interpreter. Plain `env node --flag` is split on Darwin; `-S` is not
+        // required as it is on Linux.
+        var words = argument.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+        var searchPath = inheritedSearchPath
+        var index = 0
+        if words.first == "-S" || words.first == "--split-string" {
+            index = 1
+        } else if let first = words.first, first.hasPrefix("--split-string=") {
+            words[0] = String(first.dropFirst("--split-string=".count))
+        }
+        while index < words.count {
+            let word = words[index]
+            if word == "--" {
+                index += 1
+                break
+            }
+            if let assignment = environmentAssignment(word) {
+                if assignment.key == "PATH" { searchPath = assignment.value }
+                index += 1
+                continue
+            }
+            if word.hasPrefix("-") { return nil }
+            break
+        }
+        guard index < words.count else { return nil }
+        return EnvShebangCommand(executable: words[index], searchPath: searchPath)
+    }
+
+    private static func environmentAssignment(_ word: String) -> (key: String, value: String)? {
+        guard let equals = word.firstIndex(of: "="), equals != word.startIndex else { return nil }
+        let key = String(word[..<equals])
+        let allowedFirst = CharacterSet.letters.union(CharacterSet(charactersIn: "_"))
+        let allowed = allowedFirst.union(.decimalDigits)
+        guard let first = key.unicodeScalars.first,
+              allowedFirst.contains(first),
+              key.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
+            return nil
+        }
+        return (key, String(word[word.index(after: equals)...]))
+    }
+
+    private static func dependencyResult(
+        _ isRunnable: Bool,
+        cacheParts: [String] = [],
+        watchDirectories: [String] = []
+    ) -> ExecutableDependencyLookup {
+        ExecutableDependencyLookup(
+            isRunnable: isRunnable,
+            cacheParts: cacheParts,
+            watchDirectories: watchDirectories
+        )
+    }
+
+    private static func uniqueDirectories(_ directories: [String]) -> [String] {
+        var seen = Set<String>()
+        return directories.filter { seen.insert($0).inserted }
     }
 }
