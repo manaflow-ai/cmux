@@ -19,8 +19,11 @@ import Testing
 ///
 /// These assert the produced control-mode command: a known directory adds a
 /// single-quoted `-c` after the placement target, and absent/blank/unsafe
-/// directories leave the placement-only command so a missing cwd can never break
-/// the control stream.
+/// directories fall back to `-c '#{pane_current_path}'` — the target window's own
+/// active-pane directory, expanded server-side — so a new tab inherits the
+/// current directory instead of the session start dir (cmux's `/` process cwd for
+/// a session it created). The literal `#{pane_current_path}` carries no cwd bytes,
+/// so it can never break the control stream.
 @Suite struct RemoteTmuxNewWindowCwdTests {
     @Test func seedsStartingDirectoryAfterSelectedWindow() {
         #expect(
@@ -57,10 +60,10 @@ import Testing
         "   ",
         "\t",
     ])
-    func omitsDirectoryWhenUnusable(_ directory: String?) {
+    func fallsBackToCurrentPanePathWhenUnusable(_ directory: String?) {
         #expect(
             RemoteTmuxController.newWindowCommand(afterWindowId: 7, workingDirectory: directory)
-                == "new-window -d -a -t @7"
+                == "new-window -d -a -t @7 -c '#{pane_current_path}'"
         )
     }
 
@@ -71,10 +74,11 @@ import Testing
     ])
     func dropsDirectoriesThatCouldBreakTheControlStream(_ directory: String) {
         // CR/LF/control bytes could terminate the command line before tmux parses
-        // the quoted argument, so an unsafe path leaves the placement-only command.
+        // the quoted argument, so an unsafe path is treated as unknown and falls
+        // back to the current-pane-path format (which carries no cwd bytes).
         #expect(
             RemoteTmuxController.newWindowCommand(afterWindowId: 7, workingDirectory: directory)
-                == "new-window -d -a -t @7"
+                == "new-window -d -a -t @7 -c '#{pane_current_path}'"
         )
     }
 

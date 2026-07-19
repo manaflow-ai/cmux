@@ -170,6 +170,13 @@ final class RemoteTmuxControlConnection {
     var windowSizeDebounceTasks: [Int: Task<Void, Never>] = [:]
     /// Whether the server accepts per-window `refresh-client -C` sizing.
     var supportsPerWindowSize = true
+    /// When true, cmux has released its window-size authority for this connection
+    /// (tmux `refresh-client -f ignore-size`), so co-attached real terminals drive
+    /// each window's size and cmux imposes no ceiling. Set while the cmux app is
+    /// not frontmost; cleared — and the pins re-asserted — when it returns. Kept
+    /// across a reconnect so the fresh control client re-applies it (see
+    /// ``reseedAfterReconnect()``).
+    var sizeAuthorityReleased = false
     /// Instant of the most recent sizing write on this connection — kept for
     /// diagnostics (how stale is the last size request).
     var lastSizingSendAt: ContinuousClock.Instant?
@@ -296,7 +303,8 @@ final class RemoteTmuxControlConnection {
         self.createIfMissing = createIfMissing
     }
 
-    /// Spawns the SSH `tmux -CC` process and begins streaming.
+    /// Spawns the `tmux -CC` control process (over SSH, or directly under a
+    /// local PTY for ``RemoteTmuxHost/local``) and begins streaming.
     func start() throws {
         guard !started else { return }
         try host.ensureControlSocketDirectory()
@@ -381,17 +389,45 @@ final class RemoteTmuxControlConnection {
         enterReceived = false
 
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: RemoteTmuxHost.defaultSSHExecutablePath())
-        proc.arguments = host.controlModeArguments(
-            sessionName: sessionName,
-            createIfMissing: createIfMissing
-        )
-        let inPipe = Pipe(), outPipe = Pipe(), errPipe = Pipe()
-        proc.standardInput = inPipe
-        proc.standardOutput = outPipe
+        let errPipe = Pipe()
         proc.standardError = errPipe
+        let stdinHandle: FileHandle
+        let stdoutHandle: FileHandle
+        // The child's side of a local pty, closed right after launch so the
+        // master sees the pty's EOF (EIO) when the child exits.
+        var slaveHandleToClose: FileHandle?
+        if host.isLocal {
+            // Local endpoint: run `tmux -CC` directly under a locally-allocated
+            // PTY (control mode needs a controlling tty; `ssh -tt` supplies it
+            // remotely, RemoteTmuxLocalPTY supplies it here). Everything from the
+            // writer/reader down is byte-stream plumbing shared with the ssh path.
+            let pty = try RemoteTmuxLocalPTY.open()
+            let argv = host.localControlModeInvocation(
+                sessionName: sessionName,
+                createIfMissing: createIfMissing
+            )
+            proc.executableURL = URL(fileURLWithPath: argv[0])
+            proc.arguments = Array(argv.dropFirst())
+            proc.environment = Self.localControlModeEnvironment()
+            proc.standardInput = pty.slaveHandle
+            proc.standardOutput = pty.slaveHandle
+            stdinHandle = pty.masterWriteHandle
+            stdoutHandle = pty.masterReadHandle
+            slaveHandleToClose = pty.slaveHandle
+        } else {
+            proc.executableURL = URL(fileURLWithPath: RemoteTmuxHost.defaultSSHExecutablePath())
+            proc.arguments = host.controlModeArguments(
+                sessionName: sessionName,
+                createIfMissing: createIfMissing
+            )
+            let inPipe = Pipe(), outPipe = Pipe()
+            proc.standardInput = inPipe
+            proc.standardOutput = outPipe
+            stdinHandle = inPipe.fileHandleForWriting
+            stdoutHandle = outPipe.fileHandleForReading
+        }
         let stdinWriter = RemoteTmuxControlPipeWriter(
-            handle: inPipe.fileHandleForWriting,
+            handle: stdinHandle,
             label: "com.cmux.remote-tmux.stdin.\(UUID().uuidString)",
             maxPendingBytes: Self.maxPendingStdinBytes,
             onFailure: { [weak self] in
@@ -407,8 +443,7 @@ final class RemoteTmuxControlConnection {
                 self?.handleStdoutBackpressureOverflow()
             }
         )
-        let reader = outPipe.fileHandleForReading
-        stdoutPipeReader.attach(to: reader)
+        stdoutPipeReader.attach(to: stdoutHandle)
         let stderrPipeReader = RemoteTmuxProcessOutputReader(
             label: "com.cmux.remote-tmux.stderr.\(UUID().uuidString)",
             maxPendingChunks: Self.maxPendingStderrChunks,
@@ -436,11 +471,15 @@ final class RemoteTmuxControlConnection {
             stdoutPipeReader.close()
             stderrPipeReader.close()
             stdinWriter.close()
+            try? slaveHandleToClose?.close()
             throw error
         }
+        // The child holds its own copy of the pty slave; release the parent's so
+        // the master reads EIO (stream end) once the local tmux client exits.
+        try? slaveHandleToClose?.close()
         process = proc
         self.stdinWriter = stdinWriter
-        stdoutReader = reader
+        stdoutReader = stdoutHandle
         self.stdoutPipeReader = stdoutPipeReader
         self.stderrPipeReader = stderrPipeReader
         processGeneration &+= 1
@@ -461,6 +500,23 @@ final class RemoteTmuxControlConnection {
             guard !Task.isCancelled else { return }
             await self?.handleStreamEnd(processGeneration: generation)
         }
+    }
+
+    /// The environment for the local `tmux -CC` control client.
+    ///
+    /// Strips `TMUX`/`TMUX_PANE` so an app process that somehow inherited a tmux
+    /// context can't make the client refuse to attach as a "nested" session, and
+    /// guarantees a `TERM` (GUI apps have none) so the tmux client's tty setup
+    /// never falls over. Everything else — notably `TMUX_TMPDIR`, which selects
+    /// the server the whole feature talks to — is inherited unchanged.
+    private static func localControlModeEnvironment() -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        environment.removeValue(forKey: "TMUX")
+        environment.removeValue(forKey: "TMUX_PANE")
+        if (environment["TERM"] ?? "").isEmpty {
+            environment["TERM"] = "xterm-256color"
+        }
+        return environment
     }
 
     /// Appends captured stderr, bounded (by UTF-8 bytes) so a noisy/hostile remote
@@ -796,6 +852,10 @@ final class RemoteTmuxControlConnection {
             applySessionNameChange(sessionId: id, name: renameName, event: "session-renamed", refetchWindows: false)
         case .sessionsChanged:
             record("sessions-changed")
+            // The server-wide session set changed (created/destroyed session,
+            // possibly out-of-band). Consumers (the controller) reconcile the
+            // mirrored-session set against fresh discovery.
+            observers.notifySessionsChanged()
         case let .windowAdd(id):
             record("window-add @\(id)")
             requestWindows()

@@ -2005,12 +2005,21 @@ class TabManager: ObservableObject {
         guard tabs.count > 1 else { return }
         panelTitleUpdateCoalescer.flushNow()
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
-        // Closing a mirrored remote tmux workspace DETACHES from the remote session,
-        // leaving it alive on the server for resume. Killing the session is never a
-        // side effect of closing a tab (PR #7264 review); it is only ever an explicit
-        // disconnect action.
+        // Closing a mirrored tmux workspace: for a LOCAL mirror, kill its tmux
+        // session — cmux is the tmux UI here, so closing the workspace is closing
+        // the session (two-way sync with tmux, symmetric with auto-mirroring a new
+        // session on open). `handleWorkspaceClosed` only kills a still-live session,
+        // so the tmux→cmux session-ended cleanup that also routes here detaches
+        // without a redundant kill (#7364). An SSH mirror keeps the detach-for-
+        // resume behavior (PR #7264 review): killing a remote session is never a
+        // side effect of a close, only an explicit disconnect.
         if workspace.isRemoteTmuxMirror {
-            AppDelegate.shared?.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: workspace.id)
+            let controller = AppDelegate.shared?.remoteTmuxController
+            if controller?.mirrorHostIsLocal(workspaceId: workspace.id) == true {
+                controller?.handleWorkspaceClosed(workspaceId: workspace.id)
+            } else {
+                controller?.detachMirrorWorkspaceKeptOpenLocally(workspaceId: workspace.id)
+            }
         }
         if recordHistory,
            workspace.isRestorableInSessionSnapshot,

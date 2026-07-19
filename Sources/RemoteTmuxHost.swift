@@ -1,18 +1,44 @@
 import CmuxFoundation
 import Foundation
 
-/// Identifies a remote host whose tmux server cmux mirrors over SSH.
+/// Identifies a host whose tmux server cmux mirrors — over SSH, or the local
+/// machine itself (``local``).
 ///
-/// A host is addressed by its SSH `destination` — either a `~/.ssh/config`
+/// An SSH host is addressed by its `destination` — either a `~/.ssh/config`
 /// alias (e.g. `claude-box`) or an explicit `user@host`. cmux multiplexes
 /// every operation against the host (discovery commands, the `tmux -CC`
 /// control client, and one-shot mutations) over a single SSH ControlMaster
 /// socket derived from the destination, so authentication happens once.
+/// The ``local`` endpoint runs the same operations directly against the local
+/// tmux server: one-shots via the tmux resolver argv, and the control client
+/// under a locally-allocated PTY — no ssh, no ControlMaster, no auth.
 /// The ssh binary every remote-tmux spawn uses. DEBUG builds honor
 /// `CMUX_REMOTE_TMUX_SSH_FOR_TESTING` so end-to-end tests can substitute a
 /// shim that strips the ssh framing and execs the remote command locally —
 /// the full mirror stack then runs hermetically (no sshd, no network).
 struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
+    /// How cmux reaches the host's tmux server.
+    enum Kind: String, Sendable {
+        /// Over SSH (a `~/.ssh/config` alias or `user@host`) — the original
+        /// remote-tmux transport. All ControlMaster/argv machinery applies.
+        case ssh
+        /// The tmux server on this machine. tmux runs directly (no ssh, no
+        /// ControlMaster); the control client gets a locally-allocated PTY.
+        case local
+    }
+
+    /// The tmux server on the local machine. One canonical value (not a
+    /// factory) so every attach/mirror/teardown path keys the same endpoint.
+    static let local = RemoteTmuxHost(
+        destination: "local",
+        port: nil,
+        identityFile: nil,
+        kind: .local
+    )
+
+    /// Whether this host is the local machine's tmux server (no SSH involved).
+    var isLocal: Bool { kind == .local }
+
     /// The ssh executable used when the caller doesn't inject one (the
     /// connection and transport inits both take `sshExecutablePath`).
     ///
@@ -39,6 +65,9 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// Optional explicit identity file (`-i`). `nil` defers to `~/.ssh/config`.
     let identityFile: String?
 
+    /// The transport kind (SSH vs. the local machine). See ``Kind``.
+    let kind: Kind
+
     /// Stable identity matching the connection-uniqueness key. Two hosts with the
     /// same destination but a different port/identity are distinct endpoints (see
     /// ``connectionHash``), so `id` uses ``connectionHash`` rather than the
@@ -47,9 +76,14 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     var id: String { connectionHash }
 
     init(destination: String, port: Int? = nil, identityFile: String? = nil) {
+        self.init(destination: destination, port: port, identityFile: identityFile, kind: .ssh)
+    }
+
+    private init(destination: String, port: Int?, identityFile: String?, kind: Kind) {
         self.destination = destination
         self.port = port
         self.identityFile = identityFile
+        self.kind = kind
     }
 
     /// A human-readable (but lossy) slug for the destination, used only for
@@ -82,6 +116,11 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// distinct endpoints must never collapse onto one socket and risk routing a
     /// command to the wrong server.
     var connectionHash: String {
+        // The local endpoint is its own namespace: the literal "local" can never
+        // collide with an SSH host's 16-hex digest, so an ssh alias actually
+        // named `local` still keys a distinct endpoint (and never shares
+        // controller/mirror state with the local machine's tmux server).
+        if isLocal { return "local" }
         let fingerprint = "\(destination)\u{1f}\(port.map(String.init) ?? "")\u{1f}\(identityFile ?? "")"
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325 // FNV offset basis
         for byte in fingerprint.utf8 {
@@ -164,6 +203,8 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// open, then die with the opaque `unix_listener: … too long` — surfacing it
     /// here gives a clear, actionable error instead.
     func ensureControlSocketDirectory() throws {
+        // No ControlMaster socket exists for the local endpoint.
+        guard !isLocal else { return }
         let path = controlSocketPath
         guard Self.controlSocketPathFitsUnixLimit(path) else {
             let boundPathBytes = path.utf8.count + Self.opensshTransientSuffixLength
@@ -203,6 +244,7 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     ///   `tmux -CC` control client; interactive prompts are handled only by
     ///   ``interactiveAuthInvocation()`` running in the user's terminal.
     func sshControlArguments(controlPersistSeconds: Int, batchMode: Bool) -> [String] {
+        assert(!isLocal, "sshControlArguments is meaningless for the local tmux endpoint")
         // Every ssh-tmux invocation supplies its own remote command (`true`,
         // `tmux -CC …`, one-shot discovery), which OpenSSH refuses while a
         // host-configured RemoteCommand is in effect (issue #7246).
@@ -279,7 +321,8 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         sshExecutablePath: String = RemoteTmuxHost.defaultSSHExecutablePath(),
         controlPersistSeconds: Int = 180
     ) -> [String] {
-        [sshExecutablePath]
+        assert(!isLocal, "the local tmux endpoint never needs interactive SSH auth")
+        return [sshExecutablePath]
             + sshControlArguments(controlPersistSeconds: controlPersistSeconds, batchMode: false)
             + ["-o", "BatchMode=no", "-n", "-T", "--", destination, "true"]
     }
@@ -298,9 +341,24 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// tiny `/bin/sh` wrapper, then `exec` it with the original arguments so both
     /// one-shot probes and `tmux -CC` use the same path behavior.
     static func tmuxRemoteCommand(arguments: [String]) -> String {
-        (["/bin/sh", "-c", tmuxResolverShellScript, "cmux-remote-tmux"] + arguments)
+        tmuxResolverInvocation(arguments: arguments)
             .map(shellSingleQuoted)
             .joined(separator: " ")
+    }
+
+    /// The direct (no shell re-splitting) argv that resolves and execs the local
+    /// `tmux` binary with `arguments`. Element 0 is the executable (`/bin/sh`).
+    ///
+    /// The local-endpoint counterpart of ``tmuxRemoteCommand(arguments:)``: the
+    /// same resolver script runs, but as a `Process` argv instead of a
+    /// single-quoted string for a remote login shell — so arguments (session
+    /// names included) pass through verbatim with no quoting layer at all.
+    static func tmuxLocalInvocation(arguments: [String]) -> [String] {
+        tmuxResolverInvocation(arguments: arguments)
+    }
+
+    private static func tmuxResolverInvocation(arguments: [String]) -> [String] {
+        ["/bin/sh", "-c", tmuxResolverShellScript, "cmux-remote-tmux"] + arguments
     }
 
     /// Stable stderr marker the resolver emits with exit 127 when no tmux binary is usable.
@@ -336,6 +394,21 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         return value
     }
 
+    /// Builds the direct `Process` argv (element 0 is the executable) that runs
+    /// `tmux -CC` control mode for `sessionName` on the local machine.
+    ///
+    /// The caller must give the spawned process a PTY (`tmux -CC` needs a
+    /// controlling tty; a bare pipe fails with "tcgetattr failed") — see
+    /// ``RemoteTmuxLocalPTY``. This is the local counterpart of
+    /// ``controlModeArguments(sessionName:createIfMissing:controlPersistSeconds:)``,
+    /// whose `ssh -tt` supplies the tty remotely.
+    func localControlModeInvocation(sessionName: String, createIfMissing: Bool) -> [String] {
+        assert(isLocal, "localControlModeInvocation is only for the local tmux endpoint")
+        return Self.tmuxLocalInvocation(arguments: createIfMissing
+            ? ["-CC", "new-session", "-A", "-s", sessionName]
+            : ["-CC", "attach-session", "-t", sessionName])
+    }
+
     /// Builds the `ssh` argv (for direct `Process` execution, no shell) that
     /// runs `tmux -CC` control mode for `sessionName` on this host.
     ///
@@ -354,6 +427,7 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         createIfMissing: Bool,
         controlPersistSeconds: Int = 180
     ) -> [String] {
+        assert(!isLocal, "controlModeArguments builds ssh argv; use localControlModeInvocation for the local endpoint")
         var args = ["-tt"]
         args.append(contentsOf: sshControlArguments(
             controlPersistSeconds: controlPersistSeconds,

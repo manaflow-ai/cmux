@@ -4441,6 +4441,13 @@ struct CMUXCLI {
                 client: client,
                 jsonOutput: jsonOutput
             )
+        case "tmux":
+            try runRemoteTmux(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                local: true
+            )
         case "ssh-pty-attach":
             let (requestedLifecycleID, attachArgsWithoutLifecycle) = parseOption(commandArgs, name: "--lifecycle-id")
             let stableLifecycleID = Self.normalizedEnvValue(requestedLifecycleID) ?? UUID().uuidString.lowercased()
@@ -8723,13 +8730,17 @@ struct CMUXCLI {
         )
     }
 
-    /// Mirrors a remote host's tmux sessions; interactive SSH authentication runs
-    /// inline in the caller's terminal before retrying over the shared master.
+    /// Mirrors a host's tmux sessions — a remote host over SSH (`ssh-tmux`), or
+    /// this machine's tmux server (`tmux`, `local: true`). Interactive SSH
+    /// authentication runs inline in the caller's terminal before retrying over
+    /// the shared master; the local server never needs it.
     private func runRemoteTmux(
         commandArgs: [String],
         client: SocketClient,
-        jsonOutput: Bool
+        jsonOutput: Bool,
+        local: Bool = false
     ) throws {
+        let commandName = local ? "tmux" : "ssh-tmux"
         var destination: String?
         var port: Int?
         var identityFile: String?
@@ -8742,7 +8753,7 @@ struct CMUXCLI {
         while index < commandArgs.count {
             let arg = commandArgs[index]
             switch arg {
-            case "--port":
+            case "--port" where !local:
                 guard index + 1 < commandArgs.count else {
                     throw CLIError(message: "ssh-tmux: --port requires a value")
                 }
@@ -8751,7 +8762,7 @@ struct CMUXCLI {
                 }
                 port = parsed
                 index += 2
-            case "--identity":
+            case "--identity" where !local:
                 guard index + 1 < commandArgs.count else {
                     throw CLIError(message: "ssh-tmux: --identity requires a path")
                 }
@@ -8764,6 +8775,9 @@ struct CMUXCLI {
                 newWindow = true
                 index += 1
             default:
+                if local {
+                    throw CLIError(message: "tmux: unexpected argument '\(arg)' (the local tmux server takes no destination; options: --no-focus, --new-window)")
+                }
                 if arg.hasPrefix("-") {
                     throw CLIError(
                         message: "ssh-tmux: destination must be <user@host> or an ssh alias. Use --port/--identity for SSH flags."
@@ -8778,11 +8792,17 @@ struct CMUXCLI {
             }
         }
 
-        guard let destination else {
+        if !local, destination == nil {
             throw CLIError(message: "ssh-tmux requires a destination (example: cmux ssh-tmux user@host)")
         }
+        let displayTarget = local ? "local tmux" : (destination ?? "")
 
-        var params: [String: Any] = ["host": destination]
+        var params: [String: Any] = [:]
+        if local {
+            params["local"] = true
+        } else if let destination {
+            params["host"] = destination
+        }
         if let port { params["port"] = port }
         if let identityFile, !identityFile.isEmpty { params["identity_file"] = identityFile }
         params["activate"] = !noFocus
@@ -8791,7 +8811,7 @@ struct CMUXCLI {
         }
         // BatchMode discovery can take a couple of seconds; show progress.
         if !jsonOutput {
-            print("Connecting to \(destination)…")
+            print("Connecting to \(displayTarget)…")
         }
 
         // Retry interactive authentication once; never spin on auth-required.
@@ -8809,11 +8829,16 @@ struct CMUXCLI {
                 } else {
                     let windowId = (result["window_id"] as? String) ?? ""
                     let count = (result["workspace_ids"] as? [Any])?.count ?? 0
-                    print("OK host=\(destination) workspaces=\(count) window=\(windowId)")
+                    print("OK host=\(local ? "local" : (destination ?? "")) workspaces=\(count) window=\(windowId)")
                 }
                 return
             }
             if (result["auth_required"] as? Bool) == true {
+                // The local server can never require SSH auth; treat it as the
+                // protocol violation it would be instead of execing anything.
+                guard !local, let destination else {
+                    throw CLIError(message: "tmux: unexpected auth-required response for the local tmux server")
+                }
                 guard !didAuthenticate else {
                     throw CLIError(
                         message: "ssh-tmux: authentication did not open the connection to \(destination)"
@@ -8832,7 +8857,7 @@ struct CMUXCLI {
                 }
                 continue
             }
-            throw CLIError(message: "ssh-tmux: unexpected response from cmux")
+            throw CLIError(message: "\(commandName): unexpected response from cmux")
         }
     }
 
@@ -15715,6 +15740,26 @@ struct CMUXCLI {
                 """
             )
             return "\(help)\n\n\(newWindowHelp)"
+        case "tmux":
+            return String(localized: "cli.help.tmux", defaultValue: """
+            Usage: cmux tmux [--no-focus] [--new-window]
+
+            Mirror this machine's tmux sessions into the current window's sidebar via
+            tmux control mode (tmux -CC) — no SSH involved. Each session becomes a
+            workspace, each window a tab, and each multi-pane window a native split.
+            Changes sync both ways: splits, closes, renames, and new windows made in
+            cmux propagate to tmux, and tmux-side changes (including from another
+            attached tmux client) appear in cmux. Requires the "Remote tmux" beta
+            setting.
+
+            Flags:
+              --no-focus          Do not select the mirror workspace or focus its window
+              --new-window        Open the mirror in a dedicated new window
+
+            Example:
+              cmux tmux
+              cmux tmux --new-window
+            """)
         case "ssh-session-list":
             return """
             Usage: cmux ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
@@ -35091,6 +35136,7 @@ export default CMUXSessionRestore;
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
           ssh <destination> [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
           ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus] [--new-window]
+          tmux [--no-focus] [--new-window]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
           ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)

@@ -44,6 +44,9 @@ extension RemoteTmuxController {
         guard !sessions.isEmpty else {
             throw RemoteTmuxError.unreachable("no tmux sessions on \(host.destination)")
         }
+        // Baseline for the `%sessions-changed` reconcile: sessions in this set
+        // are "seen" — only sessions created after this point auto-mirror.
+        discoveredSessionIdsByHost[host.connectionHash] = Set(sessions.map(\.id))
         try Task.checkCancellation()
         try await ensureControlMasterReadyForBurst(host: host)
 
@@ -190,6 +193,111 @@ extension RemoteTmuxController {
                 guard let detached = sourceManager.detachWorkspace(tabId: workspace.id) else { continue }
                 targetManager.attachWorkspace(detached, select: false)
             }
+        }
+    }
+
+    /// Debounced entry for `%sessions-changed`: a session was created or
+    /// destroyed somewhere on `host`'s server. Re-discovers the session set and
+    /// mirrors any session that doesn't have a workspace yet, so a
+    /// `tmux new-session` from a terminal appears in the sidebar without the
+    /// user re-running the attach command. Destroyed sessions need no handling
+    /// here — their own control client's `%exit` already tears the mirror down.
+    func scheduleSessionSetReconcile(host: RemoteTmuxHost) {
+        let hash = host.connectionHash
+        sessionSetReconcileTasks[hash]?.cancel()
+        sessionSetReconcileTasks[hash] = Task { [weak self] in
+            // Collapse the per-client broadcast burst and let tmux finish
+            // creating the session before discovery lists it.
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self else { return }
+            self.sessionSetReconcileTasks[hash] = nil
+            await self.reconcileSessionSet(host: host)
+        }
+    }
+
+    /// One `%sessions-changed` reconcile pass: discover the live session set and
+    /// mirror the sessions NEW since the last discovery into the window already
+    /// hosting this host's mirrors. Skips (rather than queues) when an explicit
+    /// attach is in flight — that attach's own discovery will see the new set.
+    private func reconcileSessionSet(host: RemoteTmuxHost) async {
+        guard existingMirrorManager(for: host) != nil else { return }
+        guard windowRegistry.beginAttach(hostHash: host.connectionHash) else { return }
+        defer { windowRegistry.endAttach(hostHash: host.connectionHash) }
+        // Never create a session here: an empty server means everything was
+        // deliberately closed, and resurrecting a session would fight the
+        // kill-on-close teardown.
+        guard let sessions = try? await transport(for: host).discoverMirrorSessions(createIfEmpty: false),
+              !sessions.isEmpty else { return }
+        let hash = host.connectionHash
+        let previouslySeen = discoveredSessionIdsByHost[hash] ?? []
+        discoveredSessionIdsByHost[hash] = Set(sessions.map(\.id))
+        // Only sessions the user hasn't seen before: re-mirroring a known
+        // session would resurrect a workspace they deliberately detached.
+        let fresh = sessions.filter { !previouslySeen.contains($0.id) }
+        guard !fresh.isEmpty else { return }
+        // Re-resolve after the await: the mirror window can close mid-discovery.
+        guard let manager = existingMirrorManager(for: host) else { return }
+        mirrorDiscoveredSessions(host: host, sessions: fresh, into: manager)
+    }
+
+    /// Routes a user's plain "New Workspace" to the LOCAL tmux server when the
+    /// window's selected workspace mirrors it: the new workspace is then a real
+    /// `tmux new-session` (mirrored and two-way synced) instead of an unsynced
+    /// local orphan — the workspace-level counterpart of the in-mirror new-tab
+    /// routing that already lands on `new-window`.
+    ///
+    /// Returns `true` when the request was taken over (creation continues
+    /// asynchronously); `false` means the caller creates a plain workspace.
+    /// Gated on the SELECTED workspace, matching the sidebar's mirror routing:
+    /// dedicated mirror windows can contain dragged-in local workspaces, and a
+    /// user working in one of those keeps plain semantics.
+    @discardableResult
+    func routeNewWorkspaceToLocalTmux(in manager: TabManager) -> Bool {
+        guard Self.isEnabled else { return false }
+        guard let selected = manager.selectedTab,
+              selected.isRemoteTmuxMirror,
+              let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == selected.id }),
+              mirror.host.isLocal else { return false }
+        Task { [weak self] in
+            await self?.createAndMirrorLocalSession(in: manager)
+        }
+        return true
+    }
+
+    /// Creates a detached session on the local tmux server, mirrors it into
+    /// `manager` as a new workspace, and selects it. Falls back to a plain
+    /// workspace on any failure so the user's "New Workspace" never silently
+    /// does nothing.
+    private func createAndMirrorLocalSession(in manager: TabManager) async {
+        let host = RemoteTmuxHost.local
+        func fallbackToPlainWorkspace() {
+            guard AppDelegate.shared?.windowId(for: manager) != nil else { return }
+            manager.addWorkspace()
+        }
+        guard let created = try? await transport(for: host).runTmux(
+            ["new-session", "-d", "-P", "-F", "#{session_id}"]
+                + RemoteTmuxSSHTransport.localStartDirectoryArgs(host: host)
+        ), created.succeeded else {
+            fallbackToPlainWorkspace()
+            return
+        }
+        let newSessionId = created.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newSessionId.isEmpty,
+              let sessions = try? await transport(for: host).discoverMirrorSessions(createIfEmpty: false),
+              let session = sessions.first(where: { $0.id == newSessionId }) else {
+            fallbackToPlainWorkspace()
+            return
+        }
+        // Mark seen so the `%sessions-changed` reconcile this creation also
+        // triggers treats the session as handled (mirroring is idempotent
+        // regardless — this just avoids a redundant pass).
+        discoveredSessionIdsByHost[host.connectionHash, default: []].insert(session.id)
+        // The window can close across the awaits.
+        guard AppDelegate.shared?.windowId(for: manager) != nil else { return }
+        mirrorDiscoveredSessions(host: host, sessions: [session], into: manager)
+        let key = Self.connectionKey(host: host, sessionName: session.name)
+        if let workspace = sessionMirrors[key]?.mirroredWorkspace {
+            manager.selectWorkspace(workspace)
         }
     }
 

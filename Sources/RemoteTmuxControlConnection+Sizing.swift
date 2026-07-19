@@ -52,6 +52,55 @@ extension RemoteTmuxControlConnection {
         synchronizeClientSizeToWindowClaims()
     }
 
+    /// Focus-gated size authority. When the cmux app is not frontmost, cmux
+    /// releases its hold on the window size so a co-attached real terminal can
+    /// resize it freely (that terminal no longer shows the filler border cmux's
+    /// smaller pin caused); when cmux returns to the foreground it reclaims
+    /// authority and re-imposes its own grid. Uses tmux's `ignore-size` client
+    /// flag: while set, this control client is excluded from window-size
+    /// calculation, so windows follow the other clients — and when cmux is the
+    /// sole client tmux just holds each window's current size (no balloon,
+    /// measured on 3.5a). The state is stored even while disconnected so the
+    /// reconnect reseed re-applies it.
+    func setSizeAuthorityReleased(_ released: Bool) {
+        guard released != sizeAuthorityReleased else { return }
+        sizeAuthorityReleased = released
+        applySizeAuthority()
+    }
+
+    /// (Re)applies the current size-authority state to the live client — on a
+    /// state change and from the reconnect reseed (a fresh control client starts
+    /// with no flags). No-op while not connected; the stored flag drives the
+    /// next reseed.
+    func applySizeAuthority() {
+        guard connectionState == .connected else { return }
+        if sizeAuthorityReleased {
+            // Stop constraining: co-attached real clients own the window size.
+            send("refresh-client -f ignore-size")
+            return
+        }
+        // Reclaim authority: count toward sizing again, then force-resend our
+        // pins. A co-client may have resized windows while cmux was ignored, and
+        // the sent-ledger dedup still records the old pins as delivered, so it
+        // would suppress the reclaim; clearing it makes the pins go back out and
+        // tmux clamp the windows back to cmux's grid.
+        send("refresh-client -f '!ignore-size'")
+        sentWindowSizes.removeAll()
+        if let size = lastClientSize {
+            send("refresh-client -C \(size.columns)x\(size.rows)")
+        }
+        if supportsPerWindowSize {
+            for (windowId, size) in lastWindowSizes.sorted(by: { $0.key < $1.key }) {
+                sendPerWindowSize(windowId: windowId, columns: size.0, rows: size.1)
+            }
+        }
+        // The reclaim resize usually differs from the co-client's size and
+        // SIGWINCHes the TUIs; when it happens to match, arm the one-shot kick so
+        // a running TUI is not left painted at the co-client's (now stale) size.
+        pendingAttachRedrawKick = true
+        scheduleAttachRedrawKickIfNeeded()
+    }
+
     /// Keeps the control client's envelope equal to the largest live per-window claims.
     private func synchronizeClientSizeToWindowClaims() {
         guard supportsPerWindowSize,

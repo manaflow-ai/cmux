@@ -75,6 +75,13 @@ export default async function RemoteTmuxPage({
       <CodeBlock lang="bash">{`cmux ssh-tmux dev@example.com\ncmux ssh-tmux my-ssh-alias --port 2222 --identity ~/.ssh/id_ed25519\ncmux ssh-tmux dev@example.com --new-window`}</CodeBlock>
       <p>{t("attachSockets")}</p>
 
+      <DocsHeading level={2} id="local-tmux">{t("localTitle")}</DocsHeading>
+      <p>{t("localIntro")}</p>
+      <CodeBlock lang="bash">{`cmux tmux\ncmux tmux --new-window`}</CodeBlock>
+      <p>{t("localSync")}</p>
+      <p>{t("localSocket")}</p>
+      <CodeBlock lang="json">{`{ "method": "remote.tmux.mirror", "params": { "local": true } }`}</CodeBlock>
+
       <DocsHeading level={3} id="permission-denied">{t("troubleshootTitle")}</DocsHeading>
       <p>{t("troubleshootDesc")}</p>
       <CodeBlock lang="text">{`Host my-ssh-alias\n    HostName 203.0.113.10\n    User dev\n    IdentityFile ~/.ssh/id_ed25519`}</CodeBlock>
