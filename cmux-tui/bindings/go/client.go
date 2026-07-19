@@ -271,6 +271,16 @@ func (c *Client) NewScreen(ctx context.Context, opts NewScreenOptions) (SurfaceR
 	return result, c.request(ctx, "new-screen", commandMap(opts), &result)
 }
 
+func (c *Client) NewPane(ctx context.Context, pane uint64, opts NewPaneOptions) (SurfaceResult, error) {
+	if err := c.requireProtocol(ctx, 9, "new-pane"); err != nil {
+		return SurfaceResult{}, err
+	}
+	params := commandMap(opts)
+	params["pane"] = pane
+	var result SurfaceResult
+	return result, c.request(ctx, "new-pane", params, &result)
+}
+
 func (c *Client) Split(ctx context.Context, pane uint64, dir string, opts SplitOptions) (SurfaceResult, error) {
 	params := commandMap(opts)
 	params["pane"] = pane

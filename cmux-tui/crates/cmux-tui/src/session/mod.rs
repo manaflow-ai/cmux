@@ -705,6 +705,17 @@ impl Session {
         }
     }
 
+    pub fn new_pane(&self, pane: PaneId, size: Option<(u16, u16)>) -> anyhow::Result<SurfaceId> {
+        match self {
+            Session::Local(mux) => mux.new_pane(pane, size).map(|surface| surface.id),
+            Session::Remote(remote) => {
+                let result =
+                    remote.request(with_size(json!({"cmd": "new-pane", "pane": pane}), size))?;
+                response_surface(&result, "pane")
+            }
+        }
+    }
+
     pub fn set_split_ratio(&self, split: SplitId, ratio: f32) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => mux
