@@ -3309,6 +3309,22 @@ mod tests {
     }
 
     #[test]
+    fn swapping_across_a_stack_boundary_keeps_exported_expansion_valid() {
+        let mut root = Node::Split {
+            id: 10,
+            dir: SplitDir::Right,
+            ratio: 0.5,
+            a: Box::new(Node::Leaf(1)),
+            b: Box::new(Node::stack_with_expanded(vec![2, 3], 2).unwrap()),
+        };
+
+        assert!(root.swap_leaves(1, 2));
+        let exported = node_json(&root, 2);
+        assert_eq!(exported["b"]["panes"], json!([1, 3]));
+        assert_eq!(exported["b"]["expanded"], 1);
+    }
+
+    #[test]
     fn bounded_writer_reserves_a_control_lane_for_responses_and_overflow() {
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });

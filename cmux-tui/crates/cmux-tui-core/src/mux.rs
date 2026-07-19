@@ -4520,7 +4520,12 @@ mod tests {
             assert!(!layout.stacked_headers.contains(&stack_pane));
             assert!(layout.rect_of(stack_pane).unwrap().height > 1);
         });
-        assert!(events.try_iter().any(|event| matches!(event, MuxEvent::LayoutChanged(_))));
+        let invalidations = events
+            .try_iter()
+            .filter(|event| matches!(event, MuxEvent::TreeChanged | MuxEvent::LayoutChanged(_)))
+            .collect::<Vec<_>>();
+        assert_eq!(invalidations.len(), 1);
+        assert!(matches!(invalidations[0], MuxEvent::LayoutChanged(_)));
     }
 
     #[test]
