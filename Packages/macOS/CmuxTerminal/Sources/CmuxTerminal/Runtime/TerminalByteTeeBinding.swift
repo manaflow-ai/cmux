@@ -9,6 +9,52 @@ public import GhosttyKit
 public protocol TerminalByteTeeLease: AnyObject, Sendable {
     /// Balances the retain taken when the tee was installed.
     func release()
+
+    /// Mirrors the latest backing-pixel geometry to an external renderer.
+    @MainActor
+    func updateRendererSize(
+        pixelWidth: UInt32,
+        pixelHeight: UInt32,
+        scaleX: Double,
+        scaleY: Double
+    )
+
+    /// Mirrors focus and occlusion state used by cursor rendering.
+    func updateRendererFocus(_ focused: Bool)
+    func updateRendererOcclusion(_ visible: Bool)
+    func sendRendererMousePosition(x: Double, y: Double, modifiers: UInt32)
+    func sendRendererMouseButton(state: UInt32, button: UInt32, modifiers: UInt32)
+    func sendRendererMouseScroll(x: Double, y: Double, packedModifiers: Int32)
+    func sendRendererMousePressure(stage: UInt32, pressure: Double)
+    func sendRendererKey(_ event: ghostty_input_key_s)
+    func sendRendererText(_ text: String, marked: Bool)
+    func sendRendererUnmarkText()
+    func sendRendererBindingAction(_ action: String)
+    func updateRendererColorScheme(_ rawValue: UInt32)
+    func reloadRendererConfiguration()
+}
+
+public extension TerminalByteTeeLease {
+    @MainActor
+    func updateRendererSize(
+        pixelWidth: UInt32,
+        pixelHeight: UInt32,
+        scaleX: Double,
+        scaleY: Double
+    ) {}
+
+    func updateRendererFocus(_ focused: Bool) {}
+    func updateRendererOcclusion(_ visible: Bool) {}
+    func sendRendererMousePosition(x: Double, y: Double, modifiers: UInt32) {}
+    func sendRendererMouseButton(state: UInt32, button: UInt32, modifiers: UInt32) {}
+    func sendRendererMouseScroll(x: Double, y: Double, packedModifiers: Int32) {}
+    func sendRendererMousePressure(stage: UInt32, pressure: Double) {}
+    func sendRendererKey(_ event: ghostty_input_key_s) {}
+    func sendRendererText(_ text: String, marked: Bool) {}
+    func sendRendererUnmarkText() {}
+    func sendRendererBindingAction(_ action: String) {}
+    func updateRendererColorScheme(_ rawValue: UInt32) {}
+    func reloadRendererConfiguration() {}
 }
 
 /// Installs and tears down the shared PTY output tee for runtime surfaces.
@@ -26,8 +72,16 @@ public protocol TerminalByteTeeBinding: AnyObject, Sendable {
     @MainActor
     func installTee(
         on surface: ghostty_surface_t,
+        owner: TerminalSurface,
+        view: any TerminalSurfaceNativeViewing,
         workspaceID: UUID,
-        surfaceID: UUID
+        surfaceID: UUID,
+        pixelWidth: UInt32,
+        pixelHeight: UInt32,
+        scaleX: Double,
+        scaleY: Double,
+        fontSize: Float,
+        context: UInt32
     ) -> any TerminalByteTeeLease
 
     /// Drops all tee/replay state keyed by a surface id.

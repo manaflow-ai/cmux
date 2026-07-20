@@ -5010,6 +5010,7 @@ class TerminalController {
                     "terminal_object_ptr": objectPointerString(terminalSurface),
                     "ghostty_surface_ptr": ghosttyPointerString(terminalSurface.surface),
                     "runtime_surface_ready": terminalSurface.surface != nil,
+                    "external_renderer_active": terminalSurface.externalRendererIsActive,
                     "hosted_view_ptr": objectPointerString(hostedView),
                     "hosted_view_class": className(hostedView) ?? "nil",
                     "hosted_view_in_window": terminalSurface.isViewInWindow,

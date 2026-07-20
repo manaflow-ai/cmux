@@ -12,7 +12,38 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `bb30526cd`. It advances the previous cmux pin
+Current cmux pinned fork head: `827c20f79`. It adds a GPU-completion renderer
+instrumentation event for embedded cross-process compositors. The commit is
+published in https://github.com/manaflow-ai/ghostty/pull/121.
+
+### Completed-frame instrumentation for embedded compositors
+
+- Commit: `827c20f79` (renderer: signal completed embedded frames)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/renderer/Options.zig`
+  - `src/renderer/generic.zig`
+  - `src/renderer/instrumentation.zig`
+- Summary:
+  - Appends `GHOSTTY_RENDERER_EVENT_FRAME_COMPLETED` after a healthy graphics
+    command buffer completes and its render target is presented.
+  - Copies the existing content-free instrumentation handle into the generic
+    renderer so Metal completion callbacks can notify an embedded compositor
+    without blocking the render thread or exposing terminal content.
+  - Keeps `DRAW_FRAME_END` as CPU submission completion, preserving its
+    existing timing contract.
+  - Conflict note: future renderer refactors must emit `FRAME_COMPLETED` only
+    after successful GPU completion and presentation, and must retain the
+    append-only public enum value `4`.
+- Verification:
+  - Focused renderer instrumentation test with Zig 0.15.2.
+  - Universal ReleaseFast GhosttyKit build for macOS, iOS device, and iOS
+    Simulator with `-Demit-macos-app=false`.
+  - Published the pinned archive at
+    https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-827c20f7979b19b2138f24f03c926a7e0bf2e9f5-crashsubdir-cmux-crash-v1.
+
+The previous cmux pinned fork head was `bb30526cd`. It advances the earlier pin
 `b4b6d69c8` through the already-merged theme, render-grid, and wrap-aware URL
 updates, then preserves authoritative sprite-font shaping runs. The commit is
 reachable from fork `main` through the merged

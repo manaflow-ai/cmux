@@ -1,4 +1,5 @@
 import Foundation
+import CmuxTerminal
 
 extension GhosttyApp {
     func appearanceBackedColorSchemePreference() -> GhosttyConfig.ColorSchemePreference {
@@ -16,6 +17,7 @@ extension GhosttyApp {
     ) {
         if soft, let config {
             ghostty_surface_update_config(surface, config)
+            reloadExternalRendererConfiguration(for: surface)
             finishSurfaceConfigurationReload(source: source, soft: soft, mode: "soft")
             return
         }
@@ -31,8 +33,17 @@ extension GhosttyApp {
         // Ghostty Surface.updateConfig derives its own surface state from the
         // passed config. The C API does not retain this temporary pointer.
         ghostty_surface_update_config(surface, newConfig)
+        reloadExternalRendererConfiguration(for: surface)
         finishSurfaceConfigurationReload(source: source, soft: soft, mode: "full")
         ghostty_config_free(newConfig)
+    }
+
+    private func reloadExternalRendererConfiguration(for surface: ghostty_surface_t) {
+        guard let ownerID = Self.terminalSurfaceRegistry.runtimeSurfaceOwnerId(surface),
+              let owner = Self.terminalSurfaceRegistry.terminalSurface(id: ownerID) else {
+            return
+        }
+        owner.reloadExternalRendererConfiguration()
     }
 
     private func finishSurfaceConfigurationReload(source: String, soft: Bool, mode: String) {

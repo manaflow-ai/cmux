@@ -101,6 +101,12 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// strictly alternate (Ghostty's `displayRealized` asserts `defunct`).
     var rendererRealized = true
 
+    /// True after an out-of-process renderer has produced a frame and taken
+    /// ownership of this view's pixel presentation. The local Ghostty surface
+    /// still owns PTY I/O and terminal semantics but keeps its GPU renderer
+    /// defunct until the worker disconnects.
+    var externalRendererActive = false
+
     /// Wall-clock time (epoch seconds) this surface was last made visible in the
     /// UI. Used by `RendererRealizationController` as the LRU key so recently
     /// used tabs stay warm. Seeded at creation.

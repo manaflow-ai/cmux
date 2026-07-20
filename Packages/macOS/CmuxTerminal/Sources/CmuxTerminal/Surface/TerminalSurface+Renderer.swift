@@ -15,7 +15,9 @@ extension TerminalSurface {
     /// calls `ghostty_surface_set_focus` directly (bypassing `setFocus`).
     /// Without this, `createSurface` would replay a stale state on recreation.
     public func recordExternalFocusState(_ focused: Bool) {
+        guard desiredFocusState != focused else { return }
         desiredFocusState = focused
+        mobileByteTeeLease?.updateRendererFocus(focused)
     }
 
     /// Applies a focus state to the runtime surface (deduplicated).
@@ -25,6 +27,7 @@ extension TerminalSurface {
         // prompt redraws with zsh themes like Powerlevel10k.
         guard force || focused != desiredFocusState else { return }
         desiredFocusState = focused
+        mobileByteTeeLease?.updateRendererFocus(focused)
         // Track desired state even before the C surface exists (e.g. during
         // layout restoration). createSurface syncs the state once created.
         guard let surface = surface else { return }
@@ -45,8 +48,73 @@ extension TerminalSurface {
 
     /// Applies the occlusion state to the runtime surface.
     public func setOcclusion(_ visible: Bool) {
+        mobileByteTeeLease?.updateRendererOcclusion(visible)
         guard let surface = surface else { return }
         ghostty_surface_set_occlusion(surface, visible)
+    }
+
+    public func mirrorRendererMousePosition(
+        x: Double,
+        y: Double,
+        modifiers: ghostty_input_mods_e
+    ) {
+        mobileByteTeeLease?.sendRendererMousePosition(
+            x: x,
+            y: y,
+            modifiers: modifiers.rawValue
+        )
+    }
+
+    public func mirrorRendererMouseButton(
+        state: ghostty_input_mouse_state_e,
+        button: ghostty_input_mouse_button_e,
+        modifiers: ghostty_input_mods_e
+    ) {
+        mobileByteTeeLease?.sendRendererMouseButton(
+            state: state.rawValue,
+            button: button.rawValue,
+            modifiers: modifiers.rawValue
+        )
+    }
+
+    public func mirrorRendererMouseScroll(
+        x: Double,
+        y: Double,
+        packedModifiers: Int32
+    ) {
+        mobileByteTeeLease?.sendRendererMouseScroll(
+            x: x,
+            y: y,
+            packedModifiers: packedModifiers
+        )
+    }
+
+    public func mirrorRendererMousePressure(stage: UInt32, pressure: Double) {
+        mobileByteTeeLease?.sendRendererMousePressure(stage: stage, pressure: pressure)
+    }
+
+    public func mirrorRendererKey(_ event: ghostty_input_key_s) {
+        mobileByteTeeLease?.sendRendererKey(event)
+    }
+
+    public func mirrorRendererText(_ text: String, marked: Bool) {
+        mobileByteTeeLease?.sendRendererText(text, marked: marked)
+    }
+
+    public func mirrorRendererUnmarkText() {
+        mobileByteTeeLease?.sendRendererUnmarkText()
+    }
+
+    public func mirrorRendererBindingAction(_ action: String) {
+        mobileByteTeeLease?.sendRendererBindingAction(action)
+    }
+
+    public func mirrorRendererColorScheme(_ scheme: ghostty_color_scheme_e) {
+        mobileByteTeeLease?.updateRendererColorScheme(scheme.rawValue)
+    }
+
+    public func reloadExternalRendererConfiguration() {
+        mobileByteTeeLease?.reloadRendererConfiguration()
     }
 
     /// Whether this surface currently holds realized GPU renderer resources.
@@ -54,6 +122,9 @@ extension TerminalSurface {
     /// release. Requires a live runtime surface — the `rendererRealized` flag
     /// defaults to `true` even before `createSurface`, so gate on `surface`.
     public var isRendererRealized: Bool { surface != nil && rendererRealized }
+
+    /// Whether a workspace renderer process currently owns pixel presentation.
+    public var externalRendererIsActive: Bool { externalRendererActive }
 
     /// Whether this surface's portal is currently visible in the UI. This is the
     /// authoritative on-screen signal (the same one that drives occlusion via
@@ -97,7 +168,7 @@ extension TerminalSurface {
     @MainActor
     public func releaseRenderer() -> Bool {
 #if os(macOS)
-        guard rendererRealized, !rendererPortalVisible else { return false }
+        guard rendererRealized, !rendererPortalVisible, !externalRendererActive else { return false }
         // The reclamation controller is default-on and scans every registered
         // wrapper, so validate the native pointer (registry ownership +
         // liveness) before the C call instead of trusting `surface != nil`.
@@ -127,7 +198,7 @@ extension TerminalSurface {
     @MainActor
     public func realizeRenderer() {
 #if os(macOS)
-        guard !rendererRealized else { return }
+        guard !rendererRealized, !externalRendererActive else { return }
         // Validate the native pointer before the C call (see releaseRenderer).
         // If the wrapper is stale this returns nil and tears it down; the next
         // createSurface re-creates a fresh realized surface, so we never
@@ -149,6 +220,41 @@ extension TerminalSurface {
             // instead of waiting for the periodic tick, minimizing how long a
             // re-shown terminal could draw against a defunct swap chain.
             rendererRealization.scheduleImmediatePass()
+        }
+#endif
+    }
+
+    /// Hands pixel presentation to a renderer worker after its first complete
+    /// frame. PTY ownership, parsing, search, selection, and accessibility stay
+    /// in this process; only the local GPU renderer is made defunct.
+    @discardableResult
+    @MainActor
+    public func activateExternalRenderer() -> Bool {
+#if os(macOS)
+        guard !externalRendererActive else { return true }
+        guard rendererRealized,
+              let surface = liveSurfaceForGhosttyAccess(reason: "renderer.external.activate") else {
+            return false
+        }
+        guard ghostty_surface_set_renderer_realized(surface, false) else { return false }
+        rendererRealized = false
+        externalRendererActive = true
+        return true
+#else
+        return false
+#endif
+    }
+
+    /// Restores the local Ghostty renderer when the worker exits or the mirror
+    /// is removed, preserving an interactive terminal across worker failures.
+    @MainActor
+    public func deactivateExternalRenderer() {
+#if os(macOS)
+        guard externalRendererActive else { return }
+        externalRendererActive = false
+        realizeRenderer()
+        if let surface {
+            ghostty_surface_refresh(surface)
         }
 #endif
     }

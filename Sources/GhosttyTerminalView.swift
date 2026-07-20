@@ -4210,6 +4210,126 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         terminalSurface?.surface
     }
 
+    /// Mirrors pointer state into the workspace renderer while preserving the
+    /// local surface as the authority for PTY mouse reporting and selection
+    /// semantics. Keeping these wrappers named like the C entrypoints makes
+    /// every existing pointer path, including drag and context-menu paths, use
+    /// the same dual delivery without duplicating event policy.
+    private func ghostty_surface_mouse_pos(
+        _ surface: ghostty_surface_t,
+        _ x: Double,
+        _ y: Double,
+        _ modifiers: ghostty_input_mods_e
+    ) {
+        GhosttyKit.ghostty_surface_mouse_pos(surface, x, y, modifiers)
+        terminalSurface?.mirrorRendererMousePosition(x: x, y: y, modifiers: modifiers)
+    }
+
+    @discardableResult
+    private func ghostty_surface_mouse_button(
+        _ surface: ghostty_surface_t,
+        _ state: ghostty_input_mouse_state_e,
+        _ button: ghostty_input_mouse_button_e,
+        _ modifiers: ghostty_input_mods_e
+    ) -> Bool {
+        let consumed = GhosttyKit.ghostty_surface_mouse_button(
+            surface,
+            state,
+            button,
+            modifiers
+        )
+        terminalSurface?.mirrorRendererMouseButton(
+            state: state,
+            button: button,
+            modifiers: modifiers
+        )
+        return consumed
+    }
+
+    private func ghostty_surface_mouse_scroll(
+        _ surface: ghostty_surface_t,
+        _ x: Double,
+        _ y: Double,
+        _ packedModifiers: ghostty_input_scroll_mods_t
+    ) {
+        GhosttyKit.ghostty_surface_mouse_scroll(surface, x, y, packedModifiers)
+        terminalSurface?.mirrorRendererMouseScroll(
+            x: x,
+            y: y,
+            packedModifiers: Int32(packedModifiers)
+        )
+    }
+
+    private func ghostty_surface_mouse_pressure(
+        _ surface: ghostty_surface_t,
+        _ stage: UInt32,
+        _ pressure: Double
+    ) {
+        GhosttyKit.ghostty_surface_mouse_pressure(surface, stage, pressure)
+        terminalSurface?.mirrorRendererMousePressure(stage: stage, pressure: pressure)
+    }
+
+    @discardableResult
+    private func ghostty_surface_key(
+        _ surface: ghostty_surface_t,
+        _ event: ghostty_input_key_s
+    ) -> Bool {
+        let handled = GhosttyKit.ghostty_surface_key(surface, event)
+        terminalSurface?.mirrorRendererKey(event)
+        return handled
+    }
+
+    private func ghostty_surface_preedit(
+        _ surface: ghostty_surface_t,
+        _ text: UnsafePointer<CChar>?,
+        _ length: UInt
+    ) {
+        GhosttyKit.ghostty_surface_preedit(surface, text, length)
+        if let text, length > 0 {
+            terminalSurface?.mirrorRendererText(
+                String(decoding: UnsafeBufferPointer(
+                    start: UnsafeRawPointer(text).assumingMemoryBound(to: UInt8.self),
+                    count: Int(length)
+                ), as: UTF8.self),
+                marked: true
+            )
+        } else {
+            terminalSurface?.mirrorRendererUnmarkText()
+        }
+    }
+
+    private func ghostty_surface_set_focus(
+        _ surface: ghostty_surface_t,
+        _ focused: Bool
+    ) {
+        GhosttyKit.ghostty_surface_set_focus(surface, focused)
+        terminalSurface?.recordExternalFocusState(focused)
+    }
+
+    private func ghostty_surface_set_color_scheme(
+        _ surface: ghostty_surface_t,
+        _ scheme: ghostty_color_scheme_e
+    ) {
+        GhosttyKit.ghostty_surface_set_color_scheme(surface, scheme)
+        terminalSurface?.mirrorRendererColorScheme(scheme)
+    }
+
+    @discardableResult
+    private func ghostty_surface_binding_action(
+        _ surface: ghostty_surface_t,
+        _ action: UnsafePointer<CChar>,
+        _ length: UInt
+    ) -> Bool {
+        let handled = GhosttyKit.ghostty_surface_binding_action(surface, action, length)
+        terminalSurface?.mirrorRendererBindingAction(
+            String(decoding: UnsafeBufferPointer(
+                start: UnsafeRawPointer(action).assumingMemoryBound(to: UInt8.self),
+                count: Int(length)
+            ), as: UTF8.self)
+        )
+        return handled
+    }
+
     fileprivate func applySurfaceColorScheme(
         force: Bool = false,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil
