@@ -9909,11 +9909,8 @@ final class GhosttySurfaceScrollView: NSView {
     var isVisibleInUI: Bool { surfaceView.isVisibleInUI }
     func setVisibleInUI(_ visible: Bool) {
         let wasVisible = surfaceView.isVisibleInUI
-        // Re-realize before marking visible so we never draw into a released swap chain.
+        // The renderer lifecycle owns the full hidden-birth/reclaim presentation transition.
         surfaceView.terminalSurface?.setRendererPortalVisible(visible)
-        if visible {
-            surfaceView.terminalSurface?.realizeRenderer()
-        }
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
         if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {

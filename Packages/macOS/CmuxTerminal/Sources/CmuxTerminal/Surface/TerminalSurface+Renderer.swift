@@ -51,9 +51,16 @@ extension TerminalSurface {
 
     /// Whether this surface currently holds realized GPU renderer resources.
     /// Read by `RendererRealizationController` to skip surfaces with nothing to
-    /// release. Requires a live runtime surface — the `rendererRealized` flag
-    /// defaults to `true` even before `createSurface`, so gate on `surface`.
-    public var isRendererRealized: Bool { surface != nil && rendererRealized }
+    /// release. Requires a live runtime surface because the presentation phase
+    /// is also initialized before the native surface is created.
+    public var isRendererRealized: Bool {
+        surface != nil && rendererPresentationPhase.isNativeRendererRealized
+    }
+
+    /// Whether the current runtime renderer has completed cmux's presentation transition.
+    public var isRendererPresented: Bool {
+        surface != nil && rendererPresentationPhase == .presented
+    }
 
     /// Whether this surface's portal is currently visible in the UI. This is the
     /// authoritative on-screen signal (the same one that drives occlusion via
@@ -67,8 +74,15 @@ extension TerminalSurface {
     /// `now - rendererLastVisibleAt` measures the true offscreen-idle duration
     /// from the hide rather than from the last sampling tick (which could reclaim
     /// the renderer well before `idleSeconds` of being offscreen has elapsed).
+    @MainActor
     public func setRendererPortalVisible(_ visible: Bool) {
         let wasVisible = rendererPortalVisible
+        // This is the single presentation transition for both a renderer that
+        // was reclaimed and one that was born hidden and never got a drawable.
+        // Ensure native realization is enqueued before the portal can draw.
+        if visible {
+            ensureRendererPresented()
+        }
         rendererPortalVisible = visible
         // Stamp the last-visible time while visible, and exactly once at the hide
         // transition (the hide moment is the last-visible time). Do NOT re-stamp
@@ -87,6 +101,21 @@ extension TerminalSurface {
         rendererLastVisibleAt = Date().timeIntervalSince1970
     }
 
+    /// Records a newly created native renderer and normalizes a hidden-at-birth
+    /// surface into the same released state used by memory-pressure reclaim.
+    /// A visible birth is already attached to its presentation window and can be
+    /// marked presented without a redundant native realization cycle.
+    @MainActor
+    func rendererRuntimeSurfaceDidCreate() {
+        rendererPresentationPhase = .awaitingFirstPresentation
+        guard surface != nil else { return }
+        if rendererPortalVisible {
+            rendererPresentationPhase = .presented
+        } else {
+            _ = releaseRenderer()
+        }
+    }
+
     /// Release the runtime surface's GPU renderer (Metal swap chain / IOSurface)
     /// while keeping its PTY/io thread and terminal state alive. Driven by
     /// `RendererRealizationController` for offscreen, idle surfaces. Idempotent:
@@ -97,7 +126,7 @@ extension TerminalSurface {
     @MainActor
     public func releaseRenderer() -> Bool {
 #if os(macOS)
-        guard rendererRealized, !rendererPortalVisible else { return false }
+        guard rendererPresentationPhase != .released, !rendererPortalVisible else { return false }
         // The reclamation controller is default-on and scans every registered
         // wrapper, so validate the native pointer (registry ownership +
         // liveness) before the C call instead of trusting `surface != nil`.
@@ -105,12 +134,11 @@ extension TerminalSurface {
         // out-of-band rather than passing a dangling pointer to Ghostty.
         guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.release") else { return false }
         // Only advance our mirror state when the message was actually enqueued
-        // (a `.forever` push can still drop on a spurious wakeup while the
-        // mailbox is full). If it dropped, keep `rendererRealized = true` so the
-        // controller retries on its next pass rather than desyncing from
-        // Ghostty's still-realized swap chain.
+        // (the non-blocking push drops when the mailbox is full). If it dropped,
+        // keep the current phase so the
+        // controller retries rather than desyncing from Ghostty's live renderer.
         if ghostty_surface_set_renderer_realized(surface, false) {
-            rendererRealized = false
+            rendererPresentationPhase = .released
             return true
         }
         return false
@@ -119,29 +147,39 @@ extension TerminalSurface {
 #endif
     }
 
-    /// Recreate the runtime surface's GPU renderer after a prior `releaseRenderer`.
-    /// Must run before the surface is drawn again (it is called from
-    /// `setVisibleInUI(true)` before occlusion/refresh). Idempotent: no-ops if
-    /// there is no runtime surface or it is already realized, so it never trips
-    /// Ghostty's `displayRealized` `assert(swap_chain.defunct)`.
+    /// Ensures the runtime renderer is ready for presentation in a visible portal.
+    ///
+    /// Reclaimed renderers are realized directly. A renderer born hidden first
+    /// transitions through the released state, then uses that same realization
+    /// path; this forces Ghostty to build the drawable it could not create while
+    /// the view had no real presentation window. Native messages strictly
+    /// alternate, so Ghostty's `displayRealized` defunct assertion remains valid.
     @MainActor
-    public func realizeRenderer() {
+    public func ensureRendererPresented() {
 #if os(macOS)
-        guard !rendererRealized else { return }
-        // Validate the native pointer before the C call (see releaseRenderer).
-        // If the wrapper is stale this returns nil and tears it down; the next
-        // createSurface re-creates a fresh realized surface, so we never
-        // double-realize a defunct swap chain.
-        guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.realize") else { return }
+        guard rendererPresentationPhase != .presented else { return }
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.ensurePresented") else { return }
+
+        if rendererPresentationPhase == .awaitingFirstPresentation {
+            // Ghostty starts with a live renderer even if its view was born
+            // hidden. Release it once so first presentation can take the exact
+            // same proven restore path as a renderer reclaimed later.
+            guard ghostty_surface_set_renderer_realized(surface, false) else {
+                rendererRealization.scheduleImmediatePass()
+                return
+            }
+            rendererPresentationPhase = .released
+        }
+
         // Non-blocking enqueue (the C API pushes `.instant`): advance our mirror
         // state only on success. On re-show the renderer mailbox is normally
         // empty, so the realize enqueues immediately and the surface is never
         // presented against a defunct swap chain. In the rare full-mailbox case
-        // the push drops, `rendererRealized` stays false, and the controller's
+        // the push drops, the phase stays released, and the controller's
         // pass re-realizes any visible-but-unrealized surface as the backstop. We
         // never block the main actor waiting on the renderer thread.
         if ghostty_surface_set_renderer_realized(surface, true) {
-            rendererRealized = true
+            rendererPresentationPhase = .presented
         } else {
             // Enqueue dropped (full mailbox, i.e. the renderer thread is not
             // draining). Kick an immediate reclamation pass so the controller
