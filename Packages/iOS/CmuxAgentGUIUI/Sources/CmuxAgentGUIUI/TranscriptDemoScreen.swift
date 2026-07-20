@@ -18,7 +18,7 @@ public struct TranscriptDemoScreen: View {
     }
 
     public var body: some View {
-        let theme = AgentGUITheme(terminalTheme: TerminalThemeStore.current)
+        let theme = AgentGUITheme(terminalTheme: .monokai)
         TranscriptDemoControllerRepresentable(
             input: model.input,
             theme: theme,

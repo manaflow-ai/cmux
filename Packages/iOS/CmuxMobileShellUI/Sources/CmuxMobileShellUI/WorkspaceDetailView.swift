@@ -157,7 +157,10 @@ struct WorkspaceDetailView: View {
     private var toolbarTrailingCluster: some View {
         HStack(spacing: 8) {
             if agentGUIAvailability != nil {
-                AgentGUIToggleButton(isSelected: $guiModeSelected)
+                AgentGUIToggleButton(
+                    isSelected: $guiModeSelected,
+                    terminalTheme: store.activeTerminalTheme
+                )
                     .frame(width: 44, height: 44)
                     .transition(.scale.combined(with: .opacity))
             }
@@ -231,7 +234,7 @@ struct WorkspaceDetailView: View {
                     store.consumeTerminalAutoFocusSuppression(for: terminalID)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(TerminalPalette.background)
+                .background(store.activeTerminalTheme.terminalBackgroundColor)
                 // The surface positions its grid + docked toolbar from
                 // `keyboardHeight` directly, so opt out of SwiftUI keyboard
                 // avoidance; otherwise the view ALSO shrinks for the keyboard

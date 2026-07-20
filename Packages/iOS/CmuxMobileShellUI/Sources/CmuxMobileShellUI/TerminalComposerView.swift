@@ -283,7 +283,7 @@ struct TerminalComposerView: View {
                     defaultValue: "Attachments stay staged for Terminal mode. Remove them or switch to Terminal before sending."
                 ))
                 .font(.footnote)
-                .foregroundStyle(TerminalPalette.foreground.opacity(0.7))
+                .foregroundStyle(store.activeTerminalTheme.terminalForegroundColor.opacity(0.7))
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("AgentComposerAttachmentGuidance")
             } else if !pendingAttachments.isEmpty {

@@ -1,9 +1,11 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileSupport
 import SwiftUI
 
 struct AgentGUIToggleButton: View {
     @Binding var isSelected: Bool
+    let terminalTheme: TerminalTheme
 
     private var title: String {
         isSelected
@@ -23,7 +25,7 @@ struct AgentGUIToggleButton: View {
             )
             .labelStyle(.iconOnly)
         }
-        .foregroundStyle(TerminalPalette.foreground)
+        .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
         .accessibilityLabel(title)
         .accessibilityIdentifier("MobileAgentGUIToggle")
     }
