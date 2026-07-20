@@ -97,6 +97,28 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the standalone task-composer accessibility preview is enabled.
+    ///
+    /// The preview presents the production sheet with deterministic templates
+    /// and a paired Mac, so UI tests can inspect its native accessibility tree
+    /// without depending on authentication or network pairing. DEBUG-only.
+    public static var taskComposerPreviewEnabled: Bool {
+        taskComposerPreviewEnabled(from: ProcessInfo.processInfo.environment)
+    }
+
+    /// Returns whether an explicit environment enables the standalone task
+    /// composer accessibility preview.
+    ///
+    /// - Parameter env: The environment dictionary to inspect.
+    /// - Returns: `true` only for a DEBUG build whose preview value is `"1"`.
+    public static func taskComposerPreviewEnabled(from env: [String: String]) -> Bool {
+        #if DEBUG
+        return env["CMUX_UITEST_TASK_COMPOSER_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the workspace detail delayed-terminal lifecycle preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL=1`, the root view renders
