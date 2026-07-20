@@ -168,6 +168,14 @@ struct MobileSettingsView: View {
                 }
 
                 Section(L10n.string("mobile.settings.betaFeatures", defaultValue: "Beta Features")) {
+                    Toggle(isOn: $displaySettings.taskComposerEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.taskComposer",
+                            defaultValue: "New Task Composer"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsTaskComposer")
+
                     Toggle(isOn: $displaySettings.terminalFilesChipEnabled) {
                         Text(L10n.string(
                             "mobile.settings.terminalFilesChip",
@@ -225,6 +233,24 @@ struct MobileSettingsView: View {
                         range: MobileDisplaySettings.profilePictureSizeRange,
                         identifier: "MobileSettingsProfilePictureSize"
                     )
+                }
+
+                Section(L10n.string(
+                    "mobile.settings.cmuxLabs",
+                    defaultValue: "CMUX Labs"
+                )) {
+                    NavigationLink {
+                        TaskComposerShellIconLabView()
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.settings.shellIconLab",
+                                defaultValue: "Shell Icon Lab"
+                            ),
+                            systemImage: "terminal"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsShellIconLab")
                 }
                 #endif
 

@@ -539,7 +539,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
 
         switch method {
-        case "mobile.workspace.list", "workspace.list":
+        case "mobile.workspace.list", "workspace.list",
+             "mobile.directory.list", "mobile.directory.search":
             return false
         case "workspace.create":
             return false
