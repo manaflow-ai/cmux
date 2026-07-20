@@ -186,6 +186,7 @@ class Workspace:
 class Tree:
     workspaces: List[Workspace]
     workspace_revision: int = 0
+    pane_revision: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -751,6 +752,9 @@ def _parse_tree(data: Dict[str, Any]) -> Tree:
     return Tree(
         workspaces=[_parse_workspace(item) for item in data.get("workspaces", [])],
         workspace_revision=int(data.get("workspace_revision", 0)),
+        pane_revision=(
+            int(data["pane_revision"]) if data.get("pane_revision") is not None else None
+        ),
     )
 
 
