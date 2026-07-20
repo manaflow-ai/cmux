@@ -33,6 +33,8 @@ struct OnboardingSceneFooter: View {
         .padding(.top, 10)
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileOnboardingFooter")
     }
 }
 #endif

@@ -49,6 +49,8 @@ struct OnboardingSceneHeader: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileOnboardingHeader")
     }
 }
 #endif

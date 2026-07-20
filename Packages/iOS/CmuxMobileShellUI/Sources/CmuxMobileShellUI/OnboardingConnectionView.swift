@@ -4,26 +4,21 @@ import SwiftUI
 
 struct OnboardingConnectionView: View {
     let phase: OnboardingConnectionPhase
-    let onBack: () -> Void
-    let onPrimary: () -> Void
-    let onFallback: () -> Void
 
     var body: some View {
-        OnboardingSceneContainer(
-            stage: .connect,
-            title: title,
-            message: message,
-            primaryTitle: primaryTitle,
-            secondaryTitle: secondaryTitle,
-            showsBack: true,
-            showsSkip: false,
-            onBack: onBack,
-            onSkip: {},
-            onPrimary: onPrimary,
-            onSecondary: onFallback,
-            showsContent: true,
-            visual: OnboardingConnectionPreview(phase: phase)
-        )
+        ZStack {
+            Color.clear
+                .frame(width: 1, height: 1)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(title)
+                .accessibilityIdentifier("MobileOnboardingConnectScene")
+
+            OnboardingSceneContent(
+                title: title,
+                message: message,
+                visual: OnboardingConnectionPreview(phase: phase)
+            )
+        }
     }
 
     private var title: String {
@@ -49,31 +44,6 @@ struct OnboardingConnectionView: View {
         return L10n.string(
             "mobile.onboarding.connect.body",
             defaultValue: "Keep cmux open on your Mac and sign in with the same account. cmux finds it and connects securely."
-        )
-    }
-
-    private var primaryTitle: String? {
-        switch phase {
-        case .searching:
-            nil
-        case .fallback:
-            L10n.string(
-                "mobile.onboarding.connect.primary",
-                defaultValue: "Check Again"
-            )
-        case .ready:
-            L10n.string(
-                "mobile.onboarding.ready.primary",
-                defaultValue: "Open Workspaces"
-            )
-        }
-    }
-
-    private var secondaryTitle: String? {
-        guard phase == .fallback else { return nil }
-        return L10n.string(
-            "mobile.onboarding.connect.fallback",
-            defaultValue: "Use QR Code Instead"
         )
     }
 }

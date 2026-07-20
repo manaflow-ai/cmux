@@ -43,12 +43,19 @@ struct OnboardingFlowView: View {
     }
 
     var body: some View {
-        ZStack {
-            scene
-                .id(stage)
-                .transition(sceneTransition)
-        }
-        .clipped()
+        OnboardingSceneContainer(
+            stage: stage,
+            chrome: chrome,
+            onBack: handleBack,
+            onSkip: skip,
+            onPrimary: handlePrimary,
+            onSecondary: startFallbackPairing,
+            pageContent: OnboardingPageViewport(
+                stage: stage,
+                transitionDirection: transitionDirection,
+                pageContent: page
+            )
+        )
         .interactiveDismissDisabled()
         .onAppear { captureSceneViewed() }
         .onChange(of: stage) { _, _ in captureSceneViewed() }
@@ -56,35 +63,49 @@ struct OnboardingFlowView: View {
         .onChange(of: connectionPhase) { _, _ in captureSceneViewed() }
     }
 
-    private var sceneTransition: AnyTransition {
-        reduceMotion ? .identity : .push(from: transitionDirection.pushEdge)
+    private var chrome: OnboardingSceneChrome {
+        OnboardingSceneChrome(
+            stage: stage,
+            isAuthenticated: isAuthenticated,
+            connectionPhase: connectionPhase
+        )
     }
 
     @ViewBuilder
-    private var scene: some View {
+    private var page: some View {
         if stage == .connect && !isAuthenticated {
-            OnboardingSignInBridgeView(onBack: showReserved)
+            OnboardingSignInBridgeView()
         } else {
             switch stage {
             case .agents:
-                OnboardingAgentsView(
-                    onSkip: skip,
-                    onContinue: showReserved
-                )
+                OnboardingAgentsView()
             case .reserved:
-                OnboardingReservedView(
-                    onBack: showAgents,
-                    onSkip: skip,
-                    onContinue: showConnection
-                )
+                OnboardingReservedView()
             case .connect:
-                OnboardingConnectionView(
-                    phase: connectionPhase,
-                    onBack: showReserved,
-                    onPrimary: finishOrRetry,
-                    onFallback: startFallbackPairing
-                )
+                OnboardingConnectionView(phase: connectionPhase)
             }
+        }
+    }
+
+    private func handleBack() {
+        switch stage {
+        case .agents:
+            break
+        case .reserved:
+            showAgents()
+        case .connect:
+            showReserved()
+        }
+    }
+
+    private func handlePrimary() {
+        switch stage {
+        case .agents:
+            showReserved()
+        case .reserved:
+            showConnection()
+        case .connect:
+            finishOrRetry()
         }
     }
 

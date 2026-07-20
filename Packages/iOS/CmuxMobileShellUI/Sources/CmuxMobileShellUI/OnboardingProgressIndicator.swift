@@ -22,6 +22,7 @@ struct OnboardingProgressIndicator: View {
             defaultValue: "Welcome progress"
         ))
         .accessibilityValue(progressValue)
+        .accessibilityIdentifier("MobileOnboardingProgressIndicator")
     }
 
     private var progressValue: String {
