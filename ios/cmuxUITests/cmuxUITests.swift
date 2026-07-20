@@ -34,7 +34,7 @@ final class cmuxUITests: XCTestCase {
     /// path. Relaunching after the simulated search finishes must resume at
     /// Connect and expose QR as an explicit fallback.
     @MainActor
-    func testOnboardingScenesReplyResumeAndScannerHandoff() throws {
+    func testOnboardingScenesReservedSlotResumeAndScannerFallback() throws {
         let app = XCUIApplication()
         let baseArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         let progressOverride = [
@@ -70,32 +70,22 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
         primaryButton.tap()
 
-        let handoffScene = element("MobileOnboardingHandoffScene")
-        XCTAssertTrue(handoffScene.waitForExistence(timeout: 4))
+        let reservedScene = element("MobileOnboardingReservedScene")
+        XCTAssertTrue(reservedScene.waitForExistence(timeout: 4))
         XCTAssertTrue(agentsScene.waitForNonExistence(timeout: 2))
-        XCTAssertTrue(app.staticTexts["Answer agents from your phone"].exists)
-        XCTAssertTrue(app.staticTexts[
+        XCTAssertFalse(element("MobileOnboardingHandoffPreview").exists)
+        XCTAssertFalse(app.staticTexts["Answer agents from your phone"].exists)
+        XCTAssertFalse(app.staticTexts[
             "Choose an answer when an agent needs a decision. It keeps working on your Mac."
         ].exists)
-        capture("onboarding-02-handoff")
-
-        let replyButton = app.buttons["MobileOnboardingDemoReplyButton"]
-        XCTAssertTrue(replyButton.waitForExistence(timeout: 4))
-        XCTAssertEqual(replyButton.label, "Open a follow-up PR")
-        XCTAssertTrue(app.buttons["MobileOnboardingDemoReplyAlternativeButton"].exists)
-        replyButton.tap()
-
-        let sentReply = element("MobileOnboardingDemoReplySent")
-        XCTAssertTrue(sentReply.waitForExistence(timeout: 4))
-        XCTAssertTrue(replyButton.waitForNonExistence(timeout: 2))
-        XCTAssertTrue(app.staticTexts["Answer sent from iPhone"].exists)
-        capture("onboarding-03-reply-sent")
+        XCTAssertTrue(primaryButton.exists)
+        capture("onboarding-02-reserved")
 
         primaryButton.tap()
 
         let connectScene = element("MobileOnboardingConnectScene")
         XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
-        XCTAssertTrue(handoffScene.waitForNonExistence(timeout: 2))
+        XCTAssertTrue(reservedScene.waitForNonExistence(timeout: 2))
         XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].exists)
         XCTAssertTrue(app.staticTexts[
             "Keep cmux open on your Mac and sign in with the same account. cmux finds it and connects securely."
@@ -103,7 +93,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Looking for your Mac…"].exists)
         XCTAssertFalse(app.buttons["Scan Mac QR"].exists)
         XCTAssertFalse(app.buttons["Use QR Code Instead"].exists)
-        capture("onboarding-04-connect")
+        capture("onboarding-03-connect")
 
         // Drop only the launch-domain override. The application-domain value
         // written while entering Connect must now be the source of truth. The
@@ -116,10 +106,10 @@ final class cmuxUITests: XCTestCase {
 
         XCTAssertTrue(connectScene.waitForExistence(timeout: 8))
         XCTAssertFalse(element("MobileOnboardingAgentsScene").exists)
-        XCTAssertFalse(element("MobileOnboardingHandoffScene").exists)
+        XCTAssertFalse(element("MobileOnboardingReservedScene").exists)
         XCTAssertTrue(app.buttons["Check Again"].exists)
         XCTAssertTrue(app.buttons["Use QR Code Instead"].exists)
-        capture("onboarding-05-resumed-connect")
+        capture("onboarding-04-resumed-connect")
 
         let qrFallbackButton = app.buttons["MobileOnboardingSecondaryButton"]
         XCTAssertTrue(qrFallbackButton.waitForExistence(timeout: 4))
@@ -129,12 +119,12 @@ final class cmuxUITests: XCTestCase {
         let scannerCancel = app.buttons["MobileScannerCancelButton"]
         XCTAssertTrue(scannerPreview.waitForExistence(timeout: 4))
         XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
-        capture("onboarding-06-scanner-handoff")
+        capture("onboarding-05-scanner-fallback")
 
         scannerCancel.tap()
         XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
         XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 2))
-        capture("onboarding-07-scanner-cancelled")
+        capture("onboarding-06-scanner-cancelled")
     }
 
     @MainActor
