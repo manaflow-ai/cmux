@@ -4,6 +4,17 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
+@MainActor
+@Observable
+private final class WorkspaceListRefreshPreviewState {
+    private(set) var generation: UInt64 = 0
+
+    func refresh(after delay: Duration) async {
+        try? await Task.sleep(for: delay)
+        generation &+= 1
+    }
+}
+
 /// DEBUG-only workspace list fixture for simulator layout screenshots.
 ///
 /// Mounted by the root view when `CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1`.
@@ -14,6 +25,8 @@ public struct WorkspaceListLayoutPreviewView: View {
     @State private var selectedWorkspaceID: MobileWorkspacePreview.ID?
     @State private var macSelection: WorkspaceMacSelection = .all
     @State private var workspaces: [MobileWorkspacePreview]
+    @State private var refreshPreviewState = WorkspaceListRefreshPreviewState()
+    private let refreshDelay: Duration?
     // Safety: DEBUG screenshot-only presenter is owned by this preview view and
     // only mutates its fired flag from the SwiftUI task that requests the banner.
     private let notificationPresenter = ScreenshotNotificationPresenter()
@@ -23,11 +36,15 @@ public struct WorkspaceListLayoutPreviewView: View {
     /// With `CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT=<n>` the fixture seeds
     /// `n` deterministic rows (plus `CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS`
     /// leading groups) instead of the static screenshot trio, for scroll
-    /// measurement.
+    /// measurement. `CMUX_UITEST_WORKSPACE_LIST_REFRESH_DELAY_MS=<n>` installs
+    /// a delayed refresh action that toggles the first row's unread state.
     public init() {
         let environment = ProcessInfo.processInfo.environment
         let seedCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT"].flatMap(Int.init) ?? 0
         let reorderEnabled = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER"] == "1"
+        refreshDelay = environment["CMUX_UITEST_WORKSPACE_LIST_REFRESH_DELAY_MS"]
+            .flatMap(Int.init)
+            .map { .milliseconds($0) }
         let initialWorkspaces: [MobileWorkspacePreview]
         if seedCount > 0 {
             let groupCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS"].flatMap(Int.init) ?? 0
@@ -73,6 +90,15 @@ public struct WorkspaceListLayoutPreviewView: View {
 
     private let groups: [MobileWorkspaceGroupPreview]
     private let reorderEnabled: Bool
+
+    private var displayedWorkspaces: [MobileWorkspacePreview] {
+        guard refreshPreviewState.generation % 2 == 1, !workspaces.isEmpty else {
+            return workspaces
+        }
+        var displayed = workspaces
+        displayed[0].hasUnread.toggle()
+        return displayed
+    }
 
     private static let defaultWorkspaces: [MobileWorkspacePreview] = [
         MobileWorkspacePreview(
@@ -180,7 +206,7 @@ public struct WorkspaceListLayoutPreviewView: View {
             } else {
                 NavigationStack {
                     WorkspaceListView(
-                        workspaces: workspaces,
+                        workspaces: displayedWorkspaces,
                         groups: groups,
                         selectedWorkspaceID: selectedWorkspaceID,
                         host: "Visual Mock Mac",
@@ -199,6 +225,9 @@ public struct WorkspaceListLayoutPreviewView: View {
                         },
                         createWorkspace: {},
                         macSelection: $macSelection,
+                        refresh: refreshDelay.map { delay -> @Sendable () async -> Void in
+                            { await refreshPreviewState.refresh(after: delay) }
+                        },
                         renameWorkspace: reorderEnabled ? { id, newName in
                             if let index = workspaces.firstIndex(where: { $0.id == id }) {
                                 workspaces[index].name = newName
