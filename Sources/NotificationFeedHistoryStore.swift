@@ -33,7 +33,7 @@ final class NotificationFeedHistoryStore {
     private var pendingMutations: [Mutation] = []
     private var readRecordCount = 0
 
-    private var loadingTask: Task<Void, Never>?
+    private(set) var loadingTask: Task<Void, Never>?
     private var persistenceTask: Task<Void, Never>?
 
     init(

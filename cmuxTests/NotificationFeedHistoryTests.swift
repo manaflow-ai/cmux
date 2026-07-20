@@ -268,10 +268,7 @@ struct NotificationFeedHistoryTests {
         let outcome = await verifier.load()
         #expect(outcome == .unsupportedVersion(futureSnapshot.version))
 
-        // Let the store's earlier load task and its queued mutation replay run.
-        // A future-version snapshot deliberately offers no writable readiness
-        // signal, so this is the one bounded settling wait in this suite.
-        try await Task.sleep(for: .milliseconds(100))
+        await history.loadingTask?.value
         let finalData = try Data(contentsOf: fileURL)
         #expect(finalData == originalData)
     }
