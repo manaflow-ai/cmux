@@ -71,10 +71,16 @@ final class ToastWindowCoordinator {
     private let chrome = ToastHostChrome()
     private var window: ToastPassthroughWindow?
     private var keyboardObserver: (any NSObjectProtocol)?
+    #if DEBUG
+    private var debugTrigger: ToastDebugTrigger?
+    #endif
 
     init(center: ToastCenter) {
         self.center = center
         observeKeyboard()
+        #if DEBUG
+        debugTrigger = ToastDebugTrigger(center: center)
+        #endif
     }
 
     func windowSceneChanged(_ scene: UIWindowScene?) {
@@ -106,6 +112,10 @@ final class ToastWindowCoordinator {
             NotificationCenter.default.removeObserver(keyboardObserver)
         }
         keyboardObserver = nil
+        #if DEBUG
+        debugTrigger?.invalidate()
+        debugTrigger = nil
+        #endif
         window?.isHidden = true
         window = nil
     }
