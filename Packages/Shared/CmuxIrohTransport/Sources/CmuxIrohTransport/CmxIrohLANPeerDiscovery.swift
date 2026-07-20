@@ -112,10 +112,12 @@ public actor CmxIrohLANPeerDiscovery {
         expectedEndpointID: CmxIrohPeerIdentity,
         timeout: TimeInterval = 0.75
     ) async -> CmxIrohLANPeerDiscoveryOutcome {
-        guard authenticatedBindings.count <= 32 else { return .notFound }
+        guard authenticatedBindings.count <= CmxIrohDiscoveryResponse.maximumBindingCount else {
+            return .notFound
+        }
         let path = await networkPath()
         let key = RequestKey(
-            deviceID: expectedMacDeviceID.lowercased(),
+            deviceID: cmxCanonicalDeviceID(expectedMacDeviceID),
             endpointID: expectedEndpointID
         )
         guard requests[key] != nil || requests.count < 32 else { return .notFound }

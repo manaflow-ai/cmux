@@ -1,3 +1,4 @@
+internal import CMUXMobileCore
 public import CmuxMobilePairedMac
 public import Foundation
 import os
@@ -60,11 +61,23 @@ public struct PairedMacRestore: Sendable {
         if !isCurrent() {
             return RestoreOutcome(completed: false, restored: 0)
         }
-        let tombstoneIDs = Set(snapshot.deletedMacDeviceIDs
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty })
-            .union(locallyDeletedMacDeviceIDs)
-        let liveRecords = snapshot.records.filter { !tombstoneIDs.contains($0.macDeviceID) }
+        func canonicalPairingID(_ value: String) -> String? {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            let identity = MobilePairedMac.pairingIdentity(from: trimmed)
+            return MobilePairedMac.pairingID(
+                macDeviceID: identity.macDeviceID,
+                instanceTag: identity.instanceTag
+            )
+        }
+        let tombstoneIDs = Set(snapshot.deletedMacDeviceIDs.compactMap(canonicalPairingID))
+            .union(locallyDeletedMacDeviceIDs.compactMap(canonicalPairingID))
+        let liveRecords = snapshot.records.filter { record in
+            !tombstoneIDs.contains(MobilePairedMac.pairingID(
+                macDeviceID: record.macDeviceID,
+                instanceTag: record.instanceTag
+            ))
+        }
         guard !liveRecords.isEmpty || !tombstoneIDs.isEmpty else {
             return RestoreOutcome(completed: true, restored: 0)
         }
@@ -76,15 +89,29 @@ public struct PairedMacRestore: Sendable {
         if !isCurrent() {
             return RestoreOutcome(completed: false, restored: 0)
         }
-        for macDeviceID in tombstoneIDs {
+        for pairingID in tombstoneIDs {
             if !isCurrent() {
                 return RestoreOutcome(completed: false, restored: 0)
             }
             do {
-                try await store.remove(macDeviceID: macDeviceID, stackUserID: accountID, teamID: teamID)
+                let identity = MobilePairedMac.pairingIdentity(from: pairingID)
+                if let instanceTag = identity.instanceTag {
+                    try await store.remove(
+                        macDeviceID: identity.macDeviceID,
+                        instanceTag: instanceTag,
+                        stackUserID: accountID,
+                        teamID: teamID
+                    )
+                } else {
+                    try await store.remove(
+                        macDeviceID: identity.macDeviceID,
+                        stackUserID: accountID,
+                        teamID: teamID
+                    )
+                }
             } catch {
                 pairedMacRestoreLog.warning(
-                    "failed to apply paired mac tombstone \(macDeviceID, privacy: .public): \(String(describing: error), privacy: .public)"
+                    "failed to apply paired mac tombstone \(pairingID, privacy: .public): \(String(describing: error), privacy: .public)"
                 )
             }
         }
@@ -95,7 +122,7 @@ public struct PairedMacRestore: Sendable {
             return RestoreOutcome(completed: false, restored: 0)
         }
         var localByID: [String: MobilePairedMac] = [:]
-        for mac in local { localByID[mac.macDeviceID] = mac }
+        for mac in local { localByID[mac.id] = mac }
         // On a fresh install (no local active host) honor the backup's active
         // flag so auto-reconnect targets the last host; otherwise never disturb
         // the device's current active selection.
@@ -109,8 +136,13 @@ public struct PairedMacRestore: Sendable {
             if !isCurrent() {
                 return RestoreOutcome(completed: false, restored: restored)
             }
+            let canonicalDeviceID = cmxCanonicalDeviceID(record.macDeviceID)
+            let pairingID = MobilePairedMac.pairingID(
+                macDeviceID: canonicalDeviceID,
+                instanceTag: record.instanceTag
+            )
             let backupSeconds = record.lastSeenAt / 1000.0
-            if let existing = localByID[record.macDeviceID],
+            if let existing = localByID[pairingID],
                existing.lastSeenAt.timeIntervalSince1970 >= backupSeconds {
                 continue // local is at least as fresh: keep it (local authoritative)
             }
@@ -123,7 +155,7 @@ public struct PairedMacRestore: Sendable {
             // only on a fresh install (no local active host); never hijack an
             // existing active selection.
             let markActive: Bool
-            if let existing = localByID[record.macDeviceID] {
+            if let existing = localByID[pairingID] {
                 markActive = existing.isActive
             } else {
                 markActive = hasLocalActive ? false : record.isActive
@@ -131,7 +163,7 @@ public struct PairedMacRestore: Sendable {
             do {
                 let backupDate = Date(timeIntervalSince1970: backupSeconds)
                 let restoredThisRecord = try await store.upsertIfNewer(
-                    macDeviceID: record.macDeviceID,
+                    macDeviceID: canonicalDeviceID,
                     displayName: record.displayName,
                     routes: record.routes,
                     instanceTag: record.instanceTag,
@@ -145,9 +177,10 @@ public struct PairedMacRestore: Sendable {
                 )
                 guard restoredThisRecord else { continue }
                 if !isCurrent() {
-                    if localByID[record.macDeviceID] == nil {
+                    if localByID[pairingID] == nil {
                         try? await store.remove(
-                            macDeviceID: record.macDeviceID,
+                            macDeviceID: canonicalDeviceID,
+                            instanceTag: record.instanceTag,
                             stackUserID: accountID,
                             teamID: teamID
                         )
@@ -160,7 +193,7 @@ public struct PairedMacRestore: Sendable {
                 restored += 1
             } catch {
                 pairedMacRestoreLog.warning(
-                    "failed to restore paired mac \(record.macDeviceID, privacy: .public): \(String(describing: error), privacy: .public)"
+                    "failed to restore paired mac \(canonicalDeviceID, privacy: .public): \(String(describing: error), privacy: .public)"
                 )
             }
         }

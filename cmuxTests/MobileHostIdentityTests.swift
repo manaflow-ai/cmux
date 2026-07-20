@@ -11,6 +11,45 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MobileHostIdentityTests {
+    @Test func appInstanceTagDistinguishesReleaseChannelsAndTaggedDevBuilds() {
+        #expect(MobileHostIdentity.instanceTag(
+            environment: [:],
+            bundleIdentifier: "com.cmuxterm.app"
+        ) == "default")
+        #expect(MobileHostIdentity.instanceTag(
+            environment: [:],
+            bundleIdentifier: "com.cmuxterm.app.nightly"
+        ) == "nightly")
+        #expect(MobileHostIdentity.instanceTag(
+            environment: [:],
+            bundleIdentifier: "com.cmuxterm.app.staging"
+        ) == "staging")
+        #expect(MobileHostIdentity.instanceTag(
+            environment: ["CMUX_TAG": "future-one"],
+            bundleIdentifier: "com.cmuxterm.app.debug.future-one"
+        ) == "future-one")
+    }
+
+    @Test func irohRegistrationUsesAuthoritativeAppInstanceTag() {
+        let cases: [([String: String], String)] = [
+            ([:], "com.cmuxterm.app"),
+            ([:], "com.cmuxterm.app.nightly"),
+            ([:], "com.cmuxterm.app.staging"),
+            ([:], "com.cmuxterm.app.debug.future-one"),
+            (["CMUX_TAG": "future-two"], "com.cmuxterm.app.debug.future-two"),
+        ]
+
+        for (environment, bundleIdentifier) in cases {
+            #expect(MobileHostIrohRuntime.currentTag(
+                environment: environment,
+                bundleIdentifier: bundleIdentifier
+            ) == MobileHostIdentity.instanceTag(
+                environment: environment,
+                bundleIdentifier: bundleIdentifier
+            ))
+        }
+    }
+
     @Test func authenticatedStatusIncludesAuthoritativeInstanceTag() {
         let previousTag = ProcessInfo.processInfo.environment["CMUX_TAG"]
         setenv("CMUX_TAG", "future-one", 1)
@@ -133,8 +172,8 @@ struct MobileHostIdentityTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set("175dff61-cabe-4076-b5ac-f5c1c04b62fa", forKey: "mobileHost.deviceID")
 
-        #expect(MobileHostIdentity.deviceID(defaults: defaults, sharedIDURL: sharedIDURL) == sharedID)
-        #expect(defaults.string(forKey: "mobileHost.deviceID") == sharedID)
+        #expect(MobileHostIdentity.deviceID(defaults: defaults, sharedIDURL: sharedIDURL) == sharedID.lowercased())
+        #expect(defaults.string(forKey: "mobileHost.deviceID") == sharedID.lowercased())
     }
 
     @Test func migratesExistingBundleIDToSharedFile() throws {
@@ -150,9 +189,9 @@ struct MobileHostIdentityTests {
         let defaultID = "C2FD4C2D-E0AF-447D-A8A4-D37BF67751EF"
         defaults.set(defaultID.lowercased(), forKey: "mobileHost.deviceID")
 
-        #expect(MobileHostIdentity.deviceID(defaults: defaults, sharedIDURL: sharedIDURL) == defaultID)
+        #expect(MobileHostIdentity.deviceID(defaults: defaults, sharedIDURL: sharedIDURL) == defaultID.lowercased())
         let persisted = try String(contentsOf: sharedIDURL, encoding: .utf8)
-        #expect(persisted == defaultID)
+        #expect(persisted == defaultID.lowercased())
     }
 
     @Test func taggedBuildMigratesStableBundleIDBeforeOwnBundleID() throws {
@@ -179,9 +218,9 @@ struct MobileHostIdentityTests {
             sharedIDURL: sharedIDURL,
             stableDefaults: stableDefaults,
             bundleIdentifier: "com.cmuxterm.app.debug.mpick"
-        ) == stableID)
-        #expect(taggedDefaults.string(forKey: "mobileHost.deviceID") == stableID)
-        #expect(try String(contentsOf: sharedIDURL, encoding: .utf8) == stableID)
+        ) == stableID.lowercased())
+        #expect(taggedDefaults.string(forKey: "mobileHost.deviceID") == stableID.lowercased())
+        #expect(try String(contentsOf: sharedIDURL, encoding: .utf8) == stableID.lowercased())
     }
 
     @Test func readsExistingSharedIDWithoutDefaults() throws {
@@ -197,8 +236,8 @@ struct MobileHostIdentityTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        #expect(MobileHostIdentity.deviceID(defaults: defaults, sharedIDURL: sharedIDURL) == sharedID)
-        #expect(defaults.string(forKey: "mobileHost.deviceID") == sharedID)
+        #expect(MobileHostIdentity.deviceID(defaults: defaults, sharedIDURL: sharedIDURL) == sharedID.lowercased())
+        #expect(defaults.string(forKey: "mobileHost.deviceID") == sharedID.lowercased())
     }
 
     @Test func repairsInvalidSharedIDFile() throws {
@@ -215,9 +254,9 @@ struct MobileHostIdentityTests {
         let fallbackID = "08E3578B-195D-486F-B874-023CDA2B647D"
         defaults.set(fallbackID, forKey: "mobileHost.deviceID")
 
-        #expect(MobileHostIdentity.deviceID(defaults: defaults, sharedIDURL: sharedIDURL) == fallbackID)
-        #expect(defaults.string(forKey: "mobileHost.deviceID") == fallbackID)
-        #expect(try String(contentsOf: sharedIDURL, encoding: .utf8) == fallbackID)
+        #expect(MobileHostIdentity.deviceID(defaults: defaults, sharedIDURL: sharedIDURL) == fallbackID.lowercased())
+        #expect(defaults.string(forKey: "mobileHost.deviceID") == fallbackID.lowercased())
+        #expect(try String(contentsOf: sharedIDURL, encoding: .utf8) == fallbackID.lowercased())
     }
 
     @Test func testMobileHostRouteDisclosureSeparatesAuthenticatedAndPublicHints() throws {

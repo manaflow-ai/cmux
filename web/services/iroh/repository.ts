@@ -22,6 +22,7 @@ import {
   IrohQuotaExceededError,
 } from "./errors";
 import type { PairGrantPeer } from "./crypto";
+import type { IrohBindingQuota, IrohChallengeQuota } from "./config";
 import {
   nextPathHintExpiry,
   parseIrohPathHint,
@@ -80,6 +81,7 @@ export type IrohRepositoryShape = {
     readonly nonceHash: string;
     readonly now: Date;
     readonly expiresAt: Date;
+    readonly challengeQuota?: IrohChallengeQuota;
   }) => Effect.Effect<IrohChallengeRecord, RepositoryError>;
   readonly findChallenge: (
     userId: string,
@@ -91,7 +93,7 @@ export type IrohRepositoryShape = {
     readonly nonceHash: string;
     readonly payload: IrohRegistrationPayload;
     readonly now: Date;
-    readonly deviceLimitOverrideAllowed: boolean;
+    readonly bindingQuota: IrohBindingQuota;
   }) => Effect.Effect<IrohRegistrationCommit, RepositoryError>;
   readonly discoverySnapshot: (input: {
     readonly userId: string;
@@ -104,6 +106,10 @@ export type IrohRepositoryShape = {
     userId: string,
     bindingIds: readonly string[],
   ) => Effect.Effect<IrohBindingRecord[], RepositoryError>;
+  readonly findActiveBindingByEndpoint: (
+    userId: string,
+    endpointId: string,
+  ) => Effect.Effect<IrohBindingRecord | null, RepositoryError>;
   /** Returns true when the exact binding is owned and revoked, including retries. */
   readonly revokeBinding: (input: {
     readonly userId: string;
@@ -176,6 +182,11 @@ function makeLiveRepository(): IrohRepositoryShape {
     issueChallenge: (input) => repositoryEffect("issue_challenge", async () => {
       const db = cloudDb();
       return await db.transaction(async (tx) => {
+        const challengeQuota = input.challengeQuota ?? {
+          account: IROH_ACCOUNT_CHALLENGE_LIMIT,
+          deviceInstance: 6,
+          outstanding: 32,
+        };
         await assertIrohUserMutationAllowed(tx, input.userId);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:challenge:${input.userId}`}, 0))`);
         const tenMinutesAgo = new Date(input.now.getTime() - 10 * 60 * 1_000);
@@ -186,21 +197,22 @@ function makeLiveRepository(): IrohRepositoryShape {
             eq(irohRegistrationChallenges.userId, input.userId),
             gt(irohRegistrationChallenges.createdAt, tenMinutesAgo),
           ));
-        if ((recentForAccount?.total ?? 0) >= IROH_ACCOUNT_CHALLENGE_LIMIT) {
+        if ((recentForAccount?.total ?? 0) >= challengeQuota.account) {
           throw new IrohQuotaExceededError({
             code: "challenge_account_rate_limited",
             retryAfterSeconds: 600,
           });
         }
-        const [recentForDevice] = await tx
+        const [recentForDeviceInstance] = await tx
           .select({ total: count() })
           .from(irohRegistrationChallenges)
           .where(and(
             eq(irohRegistrationChallenges.userId, input.userId),
             eq(irohRegistrationChallenges.deviceUuid, input.deviceUuid),
+            eq(irohRegistrationChallenges.appInstanceId, input.appInstanceId),
             gt(irohRegistrationChallenges.createdAt, tenMinutesAgo),
           ));
-        if ((recentForDevice?.total ?? 0) >= 6) {
+        if ((recentForDeviceInstance?.total ?? 0) >= challengeQuota.deviceInstance) {
           throw new IrohQuotaExceededError({ code: "challenge_rate_limited", retryAfterSeconds: 600 });
         }
         const [outstanding] = await tx
@@ -211,7 +223,7 @@ function makeLiveRepository(): IrohRepositoryShape {
             isNull(irohRegistrationChallenges.consumedAt),
             gt(irohRegistrationChallenges.expiresAt, input.now),
           ));
-        if ((outstanding?.total ?? 0) >= 32) {
+        if ((outstanding?.total ?? 0) >= challengeQuota.outstanding) {
           throw new IrohQuotaExceededError({ code: "too_many_outstanding_challenges", retryAfterSeconds: 300 });
         }
         const [challenge] = await tx
@@ -295,6 +307,8 @@ function makeLiveRepository(): IrohRepositoryShape {
               displayName: input.payload.displayName ?? null,
               pairingEnabled: input.payload.pairingEnabled,
               capabilities: [...input.payload.capabilities],
+              directPortV4: input.payload.directPorts?.ipv4 ?? null,
+              directPortV6: input.payload.directPorts?.ipv6 ?? null,
               pathHints: accountPrivatePathHints,
               pathHintsNextExpiry: nextPathHintExpiry(accountPrivatePathHints),
               lastSeenAt: input.now,
@@ -321,17 +335,7 @@ function makeLiveRepository(): IrohRepositoryShape {
           .limit(1);
         if (endpointOwner) throw new IrohConflictError({ code: "endpoint_already_bound" });
 
-        const [userTotal] = await tx
-          .select({ total: count() })
-          .from(irohEndpointBindings)
-          .where(and(
-            eq(irohEndpointBindings.userId, input.userId),
-            isNull(irohEndpointBindings.revokedAt),
-          ));
-        if ((userTotal?.total ?? 0) >= 32) {
-          throw new IrohQuotaExceededError({ code: "too_many_bindings", retryAfterSeconds: 86_400 });
-        }
-        const [deviceTotal] = await tx
+        let [deviceTotal] = await tx
           .select({ total: count() })
           .from(irohEndpointBindings)
           .where(and(
@@ -339,10 +343,52 @@ function makeLiveRepository(): IrohRepositoryShape {
             eq(irohEndpointBindings.deviceUuid, input.payload.deviceId),
             isNull(irohEndpointBindings.revokedAt),
           ));
-        const usesDeviceOverride = (deviceTotal?.total ?? 0) >= 8;
-        if (usesDeviceOverride && !input.deviceLimitOverrideAllowed) {
-          throw new IrohQuotaExceededError({ code: "too_many_device_bindings", retryAfterSeconds: 86_400 });
+        let deviceBindingCount = deviceTotal?.total ?? 0;
+        if (deviceBindingCount >= input.bindingQuota.device) {
+          const recycled = await recycleStaleBindings(tx, {
+            userId: input.userId,
+            deviceUuid: input.payload.deviceId,
+            now: input.now,
+            staleAfterMs: input.bindingQuota.staleAfterMs,
+            count: deviceBindingCount - input.bindingQuota.device + 1,
+          });
+          deviceBindingCount -= recycled;
+          if (deviceBindingCount >= input.bindingQuota.device) {
+            throw new IrohQuotaExceededError({ code: "too_many_device_bindings", retryAfterSeconds: 86_400 });
+          }
         }
+
+        const [userTotal] = await tx
+          .select({ total: count() })
+          .from(irohEndpointBindings)
+          .where(and(
+            eq(irohEndpointBindings.userId, input.userId),
+            isNull(irohEndpointBindings.revokedAt),
+          ));
+        let userBindingCount = userTotal?.total ?? 0;
+        if (userBindingCount >= input.bindingQuota.account) {
+          const recycled = await recycleStaleBindings(tx, {
+            userId: input.userId,
+            now: input.now,
+            staleAfterMs: input.bindingQuota.staleAfterMs,
+            count: userBindingCount - input.bindingQuota.account + 1,
+          });
+          userBindingCount -= recycled;
+          if (userBindingCount >= input.bindingQuota.account) {
+            throw new IrohQuotaExceededError({ code: "too_many_bindings", retryAfterSeconds: 86_400 });
+          }
+        }
+
+        [deviceTotal] = await tx
+          .select({ total: count() })
+          .from(irohEndpointBindings)
+          .where(and(
+            eq(irohEndpointBindings.userId, input.userId),
+            eq(irohEndpointBindings.deviceUuid, input.payload.deviceId),
+            isNull(irohEndpointBindings.revokedAt),
+          ));
+        deviceBindingCount = deviceTotal?.total ?? 0;
+        const usesDeviceOverride = deviceBindingCount >= input.bindingQuota.baselineDevice;
 
         const [binding] = await tx
           .insert(irohEndpointBindings)
@@ -357,6 +403,8 @@ function makeLiveRepository(): IrohRepositoryShape {
             identityGeneration: input.payload.identityGeneration,
             pairingEnabled: input.payload.pairingEnabled,
             capabilities: [...input.payload.capabilities],
+            directPortV4: input.payload.directPorts?.ipv4 ?? null,
+            directPortV6: input.payload.directPorts?.ipv6 ?? null,
             pathHints: accountPrivatePathHints,
             pathHintsNextExpiry: nextPathHintExpiry(accountPrivatePathHints),
             deviceLimitOverrideUsed: usesDeviceOverride,
@@ -424,6 +472,22 @@ function makeLiveRepository(): IrohRepositoryShape {
       });
     }),
 
+    findActiveBindingByEndpoint: (userId, endpointId) => repositoryEffect(
+      "find_binding_by_endpoint",
+      async () => {
+        const [binding] = await cloudDb()
+          .select()
+          .from(irohEndpointBindings)
+          .where(and(
+            eq(irohEndpointBindings.userId, userId),
+            eq(irohEndpointBindings.endpointId, endpointId),
+            isNull(irohEndpointBindings.revokedAt),
+          ))
+          .limit(1);
+        return binding ?? null;
+      },
+    ),
+
     revokeBinding: (input) => repositoryEffect("revoke_binding", async () => {
       return await cloudDb().transaction(async (tx) => {
         await assertIrohUserMutationAllowed(tx, input.userId);
@@ -440,42 +504,13 @@ function makeLiveRepository(): IrohRepositoryShape {
         if (!binding) return false;
         if (binding.revokedAt) return true;
 
-        const revoked = await tx
-          .update(irohEndpointBindings)
-          .set({
-            revokedAt: input.now,
-            revokedReason: "user_requested",
-            pathHints: [],
-            pathHintsNextExpiry: null,
-            updatedAt: input.now,
-          })
-          .where(and(
-            eq(irohEndpointBindings.id, input.bindingId),
-            eq(irohEndpointBindings.userId, input.userId),
-            isNull(irohEndpointBindings.revokedAt),
-          ))
-          .returning({ id: irohEndpointBindings.id });
+        const revoked = await revokeActiveBindings(tx, {
+          userId: input.userId,
+          bindingIds: [input.bindingId],
+          now: input.now,
+          reason: "user_requested",
+        });
         if (revoked.length === 0) return false;
-        await tx
-          .update(irohPairGrantIssuances)
-          .set({ revokedAt: input.now })
-          .where(and(
-            isNull(irohPairGrantIssuances.revokedAt),
-            or(
-              eq(irohPairGrantIssuances.initiatorBindingId, input.bindingId),
-              eq(irohPairGrantIssuances.acceptorBindingId, input.bindingId),
-            ),
-          ));
-        await tx
-          .insert(irohAccountSecurityStates)
-          .values({ userId: input.userId, lanDiscoveryGeneration: 2, createdAt: input.now, updatedAt: input.now })
-          .onConflictDoUpdate({
-            target: irohAccountSecurityStates.userId,
-            set: {
-              lanDiscoveryGeneration: sql`${irohAccountSecurityStates.lanDiscoveryGeneration} + 1`,
-              updatedAt: input.now,
-            },
-          });
         return true;
       });
     }),
@@ -613,6 +648,7 @@ function makeLiveRepository(): IrohRepositoryShape {
           .for("update")
           .limit(1);
         if (!binding) throw new IrohNotFoundError({ resource: "binding" });
+
         if (
           binding.deviceUuid !== input.deviceId ||
           binding.endpointId !== input.endpointId ||
@@ -702,6 +738,11 @@ function makeLiveRepository(): IrohRepositoryShape {
           .for("update")
           .limit(1);
         if (!binding) throw new IrohNotFoundError({ resource: "binding" });
+
+        await tx
+          .update(irohEndpointBindings)
+          .set({ lastSeenAt: input.now, updatedAt: input.now })
+          .where(eq(irohEndpointBindings.id, binding.id));
 
         const reservationCutoff = new Date(
           input.now.getTime() - IROH_RELAY_RESERVATION_LEASE_MS,
@@ -840,6 +881,104 @@ function makeLiveRepository(): IrohRepositoryShape {
   };
 }
 
+async function recycleStaleBindings(
+  tx: CloudDbTransaction,
+  input: {
+    readonly userId: string;
+    readonly deviceUuid?: string;
+    readonly now: Date;
+    readonly staleAfterMs: number | null;
+    readonly count: number;
+  },
+): Promise<number> {
+  if (input.staleAfterMs === null || input.count <= 0) return 0;
+  const staleBefore = new Date(input.now.getTime() - input.staleAfterMs);
+  const candidates = await tx
+    .select({ id: irohEndpointBindings.id })
+    .from(irohEndpointBindings)
+    .where(and(
+      eq(irohEndpointBindings.userId, input.userId),
+      input.deviceUuid === undefined
+        ? undefined
+        : eq(irohEndpointBindings.deviceUuid, input.deviceUuid),
+      isNull(irohEndpointBindings.revokedAt),
+      lte(irohEndpointBindings.lastSeenAt, staleBefore),
+    ))
+    .orderBy(
+      asc(irohEndpointBindings.lastSeenAt),
+      asc(irohEndpointBindings.registeredAt),
+      asc(irohEndpointBindings.id),
+    )
+    .limit(input.count)
+    .for("update");
+  if (candidates.length < input.count) return 0;
+  const bindingIds = candidates.map((candidate) => candidate.id);
+  const revoked = await revokeActiveBindings(tx, {
+    userId: input.userId,
+    bindingIds,
+    now: input.now,
+    reason: "stale_development_binding",
+  });
+  return revoked.length;
+}
+
+async function revokeActiveBindings(
+  tx: CloudDbTransaction,
+  input: {
+    readonly userId: string;
+    readonly bindingIds: readonly string[];
+    readonly now: Date;
+    readonly reason: "user_requested" | "stale_development_binding";
+  },
+): Promise<readonly string[]> {
+  if (input.bindingIds.length === 0) return [];
+  const revoked = await tx
+    .update(irohEndpointBindings)
+    .set({
+      revokedAt: input.now,
+      revokedReason: input.reason,
+      directPortV4: null,
+      directPortV6: null,
+      pathHints: [],
+      pathHintsNextExpiry: null,
+      updatedAt: input.now,
+    })
+    .where(and(
+      eq(irohEndpointBindings.userId, input.userId),
+      inArray(irohEndpointBindings.id, [...input.bindingIds]),
+      isNull(irohEndpointBindings.revokedAt),
+    ))
+    .returning({ id: irohEndpointBindings.id });
+  if (revoked.length === 0) return [];
+  const revokedIds = revoked.map((binding) => binding.id);
+  await tx
+    .update(irohPairGrantIssuances)
+    .set({ revokedAt: input.now })
+    .where(and(
+      isNull(irohPairGrantIssuances.revokedAt),
+      or(
+        inArray(irohPairGrantIssuances.initiatorBindingId, revokedIds),
+        inArray(irohPairGrantIssuances.acceptorBindingId, revokedIds),
+      ),
+    ));
+  await tx
+    .insert(irohAccountSecurityStates)
+    .values({
+      userId: input.userId,
+      lanDiscoveryGeneration: 2,
+      createdAt: input.now,
+      updatedAt: input.now,
+    })
+    .onConflictDoUpdate({
+      target: irohAccountSecurityStates.userId,
+      set: {
+        lanDiscoveryGeneration: sql`${irohAccountSecurityStates.lanDiscoveryGeneration} + 1`,
+        updatedAt: input.now,
+      },
+    });
+  return revokedIds;
+}
+
 type RetentionBatchOperation = {
   readonly category: IrohRetentionCategory;
   readonly run: (limit: number) => Promise<number>;
@@ -875,7 +1014,11 @@ async function drainIrohRetention(input: {
           select id
           from iroh_endpoint_bindings
           where revoked_at is not null
-            and path_hints_next_expiry is not null
+            and (
+              path_hints_next_expiry is not null
+              or direct_port_v4 is not null
+              or direct_port_v6 is not null
+            )
           order by revoked_at, id
           limit ${limit}
           for update skip locked
@@ -883,6 +1026,8 @@ async function drainIrohRetention(input: {
           update iroh_endpoint_bindings as binding
           set path_hints = '[]'::jsonb,
               path_hints_next_expiry = null,
+              direct_port_v4 = null,
+              direct_port_v6 = null,
               updated_at = ${nowIso}::timestamptz
           from candidates
           where binding.id = candidates.id

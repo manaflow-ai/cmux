@@ -16,6 +16,19 @@ void CmuxAtomicBooleanStoreRelease(CmuxAtomicBooleanStorage *storage, bool value
     atomic_store_explicit(&storage->value, value, memory_order_release);
 }
 
+bool CmuxAtomicBooleanCompareExchange(
+    CmuxAtomicBooleanStorage *storage,
+    bool expected,
+    bool desired
+) {
+    return atomic_compare_exchange_strong_explicit(
+        &storage->value,
+        &expected,
+        desired,
+        memory_order_acq_rel,
+        memory_order_acquire);
+}
+
 void CmuxAtomicUInt64Initialize(CmuxAtomicUInt64Storage *storage, uint64_t initialValue) {
     atomic_init(&storage->value, initialValue);
 }

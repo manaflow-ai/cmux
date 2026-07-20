@@ -95,8 +95,14 @@ jobs:
       - name: Validate release SDK build lane
         run: ./tests/test_ci_release_sdk_lane.sh
 
+      - name: Validate docs deployment authentication guard
+        run: python3 tests/test_docs_deploy_auth_guard.py
+
       - name: Validate Python test harness syntax
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
+
+      - name: Validate TUI npm package artifact transfer
+        run: python3 tests/test_tui_npm_package_artifact.py
 
       - name: Validate Claude launch environment policy generation
         run: python3 scripts/generate-claude-launch-environment-policy.py --check
@@ -129,6 +135,9 @@ jobs:
 
       - name: Validate unit-test SwiftPM retry guard
         run: ./tests/test_ci_unit_test_spm_retry.sh
+
+      - name: Validate Swift Testing suite timeout guard
+        run: python3 tests/test_swift_testing_suite_timeout.py
 
       - name: Validate xcodebuild noninteractive crash prompt guard
         run: python3 tests/test_ci_xcodebuild_noninteractive_helper.py
@@ -182,6 +191,9 @@ jobs:
 
       - name: Validate universal nightly workflow
         run: bash ./tests/test_nightly_universal_build.sh
+
+      - name: Validate nightly notarization behavior
+        run: ./tests/test_notarize_nightly_dmg.sh
 
       - name: Validate release asset guard
         run: node scripts/release_asset_guard.test.js
@@ -1160,6 +1172,7 @@ jobs:
           # symbol instead of the GhosttyKit archive.
           PACKAGES=(
             CMUXAuthCore
+            CmuxBrowser
             CmuxCanvasUI
             CmuxCore
             CmuxRemoteDaemon
@@ -1218,7 +1231,25 @@ jobs:
               fi
               ;;
             *)
-              swift test --package-path "$pkgdir"
+              # Blacksmith macOS runners intermittently abort a package's
+              # test runner at startup (signal 5/6 immediately after "Build
+              # complete!", zero test output). That is a runner flake, not a
+              # test failure: retry exactly once, and only when no test
+              # failures were reported.
+              test_status=0
+              output="$(swift test --package-path "$pkgdir" 2>&1)" || test_status=$?
+              printf '%s\n' "$output"
+              if [ "$test_status" -ne 0 ] \
+                && printf '%s\n' "$output" | grep -q 'Exited with unexpected signal code' \
+                && ! printf '%s\n' "$output" | grep -Eq 'with [1-9][0-9]* failures?'; then
+                echo "Test runner crashed at startup (runner flake); retrying $pkg once."
+                test_status=0
+                output="$(swift test --package-path "$pkgdir" 2>&1)" || test_status=$?
+                printf '%s\n' "$output"
+              fi
+              if [ "$test_status" -ne 0 ]; then
+                exit "$test_status"
+              fi
               ;;
             esac
             echo "::endgroup::"
@@ -1785,7 +1816,7 @@ jobs:
         run: |
           set -euo pipefail
           cache_path="build-universal/CompilationCache.noindex"
-          max_cache_kib=$((3 * 1024 * 1024))
+          max_cache_kib=$((5 * 1024 * 1024))
           if [ -d "$cache_path" ]; then
             cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
           else
@@ -1793,7 +1824,7 @@ jobs:
           fi
           echo "Xcode compilation cache size: ${cache_kib} KiB (limit: ${max_cache_kib} KiB)"
           if [ "$cache_kib" -gt "$max_cache_kib" ]; then
-            echo "Xcode compilation cache exceeds 3 GiB; skipping cache save"
+            echo "Xcode compilation cache exceeds 5 GiB; skipping cache save"
             rm -rf "$cache_path"
           fi
 

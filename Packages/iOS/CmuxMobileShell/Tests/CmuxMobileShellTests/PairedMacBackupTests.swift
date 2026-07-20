@@ -37,7 +37,7 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
         case .upsert(let record, _), .upsertPreservingCustomizations(let record, _),
              .revive(let record, _), .revivePreservingCustomizations(let record, _):
             return record
-        case .delete:
+        case .delete, .deleteInstance:
             return nil
         }
     }
@@ -119,6 +119,58 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
         } else {
             Issue.record("expected a record upload op")
         }
+    }
+
+    @Test func backupUploadCanonicalizesUUIDMutationsAndPreservesOpaqueIDs() async throws {
+        let uppercaseUUID = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"
+        let lowercaseUUID = uppercaseUUID.lowercased()
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let backup = FakeBackup()
+        let store = BackingUpPairedMacStore(inner: inner, backup: backup)
+
+        try await store.upsert(
+            macDeviceID: uppercaseUUID,
+            displayName: "Studio",
+            routes: [try route("10.0.0.1", 22)],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 100)
+        )
+        try await store.remove(
+            macDeviceID: uppercaseUUID,
+            stackUserID: "user-1",
+            teamID: nil
+        )
+
+        let ops = await backup.uploadedOps()
+        #expect(ops.contains { op in
+            uploadedRecord(from: op)?.macDeviceID == lowercaseUUID
+        })
+        #expect(ops.contains { op in
+            if case .delete(let macDeviceID) = op {
+                return macDeviceID == lowercaseUUID
+            }
+            return false
+        })
+
+        let opaqueRecord = try backupRecord(
+            "Legacy-Mac-ID",
+            host: "10.0.0.2",
+            lastSeenMs: 200_000,
+            active: false
+        )
+        let body = PairedMacBackupRequestBody(ops: [
+            PairedMacBackupOpWire(op: .upsert(opaqueRecord)),
+            PairedMacBackupOpWire(op: .delete(macDeviceID: "Legacy-Mac-ID")),
+        ])
+        let object = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(body)) as? [String: Any]
+        )
+        let wireOps = try #require(object["ops"] as? [[String: Any]])
+        #expect(wireOps.map { $0["macDeviceID"] as? String } == [
+            "Legacy-Mac-ID", "Legacy-Mac-ID",
+        ])
     }
 
     @Test func anonymousUpsertIsNotBackedUp() async throws {
@@ -841,6 +893,79 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
         #expect(outcome.completed)
         #expect(outcome.restored == 0)
         #expect(try await inner.loadAll(stackUserID: "user-1").map(\.macDeviceID) == ["mac-x"])
+    }
+
+    @Test func backupRestoreCollapsesUUIDAliasesUnderFreshRouteAuthority() async throws {
+        let uppercaseUUID = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"
+        let lowercaseUUID = uppercaseUUID.lowercased()
+        var fresh = PairedMacBackupRecord(
+            macDeviceID: lowercaseUUID,
+            displayName: "Fresh Studio",
+            routes: [try CmxAttachRoute(
+                id: "fresh",
+                kind: .tailscale,
+                endpoint: .hostPort(host: "10.0.0.1", port: 50_902)
+            )],
+            createdAt: 1_000,
+            lastSeenAt: 20_000,
+            isActive: false,
+            customName: "Fresh Name"
+        )
+        var stale = PairedMacBackupRecord(
+            macDeviceID: uppercaseUUID,
+            displayName: "Stale Studio",
+            routes: [try CmxAttachRoute(
+                id: "stale",
+                kind: .tailscale,
+                endpoint: .hostPort(host: "10.0.0.1", port: 50_901)
+            )],
+            createdAt: 500,
+            lastSeenAt: 10_000,
+            isActive: true,
+            customName: "Stale Name"
+        )
+        // Model legacy server rows decoded before this boundary existed.
+        fresh.macDeviceID = lowercaseUUID
+        stale.macDeviceID = uppercaseUUID
+
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let outcome = await PairedMacRestore(
+            store: inner,
+            backup: FakeBackup(records: [fresh, stale])
+        ).run(accountID: "user-1")
+
+        let rows = try await inner.loadAll(stackUserID: "user-1")
+        let restored = try #require(rows.first)
+        #expect(outcome.restored == 1)
+        #expect(rows.count == 1)
+        #expect(restored.macDeviceID == lowercaseUUID)
+        #expect(restored.displayName == "Fresh Studio")
+        #expect(restored.customName == "Fresh Name")
+        #expect(restored.routes.map(\.id) == ["fresh"])
+        #expect(!restored.isActive)
+    }
+
+    @Test func legacyUppercaseBackupTombstoneDeletesCanonicalUUIDRow() async throws {
+        let uppercaseUUID = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"
+        let lowercaseUUID = uppercaseUUID.lowercased()
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try await inner.upsert(
+            macDeviceID: lowercaseUUID,
+            displayName: "Studio",
+            routes: [try route("10.0.0.1", 22)],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 100)
+        )
+
+        _ = await PairedMacRestore(
+            store: inner,
+            backup: FakeBackup(deletedMacDeviceIDs: [uppercaseUUID])
+        ).run(accountID: "user-1")
+
+        #expect(try await inner.loadAll(stackUserID: "user-1").isEmpty)
     }
 
     @Test func failedFetchRetriesOnNextRead() async throws {

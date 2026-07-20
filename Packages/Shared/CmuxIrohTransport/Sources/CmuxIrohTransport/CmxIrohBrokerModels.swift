@@ -15,6 +15,7 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
         case pairingEnabled = "pairing_enabled"
         case capabilities
         case pathHints = "path_hints"
+        case directPorts = "direct_ports"
         case lastSeenAt = "last_seen_at"
     }
 
@@ -29,6 +30,7 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
     public let pairingEnabled: Bool
     public let capabilities: [String]
     public let pathHints: [CmxIrohPathHint]
+    public let directPorts: CmxIrohDirectPorts?
     public let lastSeenAt: String
 
     public init(from decoder: any Decoder) throws {
@@ -42,6 +44,10 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
         let capabilities = try container.decode([String].self, forKey: .capabilities)
         let displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
         let pathHints = try container.decode([CmxIrohPathHint].self, forKey: .pathHints)
+        let directPorts = try container.decodeIfPresent(
+            CmxIrohDirectPorts.self,
+            forKey: .directPorts
+        )
         let lastSeenAt = try container.decode(String.self, forKey: .lastSeenAt)
         guard Self.isCanonicalUUID(bindingID),
               Self.isCanonicalUUID(deviceID),
@@ -74,6 +80,7 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
         pairingEnabled = try container.decode(Bool.self, forKey: .pairingEnabled)
         self.capabilities = capabilities
         self.pathHints = pathHints
+        self.directPorts = directPorts
         self.lastSeenAt = lastSeenAt
     }
 
@@ -90,6 +97,7 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
         try container.encode(pairingEnabled, forKey: .pairingEnabled)
         try container.encode(capabilities, forKey: .capabilities)
         try container.encode(pathHints, forKey: .pathHints)
+        try container.encodeIfPresent(directPorts, forKey: .directPorts)
         try container.encode(lastSeenAt, forKey: .lastSeenAt)
     }
 
@@ -207,6 +215,11 @@ public struct CmxIrohLANRendezvous: Codable, Equatable, Sendable {
 
 /// Authenticated registry snapshot used for endpoint discovery and grant verification.
 public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
+    /// Upper bound for one authenticated account snapshot. Production accounts
+    /// remain server-limited to 32; development accounts may use this larger,
+    /// still-bounded snapshot for concurrent tagged builds.
+    public static let maximumBindingCount = 256
+
     public let routeContractVersion: Int
     public let bindings: [CmxIrohBrokerBinding]
     public let relayFleet: [String]
@@ -226,7 +239,7 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
         let routeContractVersion = try container.decode(Int.self, forKey: .routeContractVersion)
         let bindings = try container.decode([CmxIrohBrokerBinding].self, forKey: .bindings)
         let relayFleet = try container.decode([String].self, forKey: .relayFleet)
-        guard bindings.count <= 32,
+        guard bindings.count <= Self.maximumBindingCount,
               Set(bindings.map(\.bindingID)).count == bindings.count,
               (1 ... CmxIrohRelayPolicyVerifier.maximumRelayCount).contains(
                   relayFleet.count

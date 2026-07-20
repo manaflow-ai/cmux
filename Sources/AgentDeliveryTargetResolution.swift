@@ -24,7 +24,7 @@ import Foundation
 /// method; in-app notification delivery reaches it through
 /// `agentNotificationDeliveryTarget` so stale-addressed notifications are
 /// retargeted rather than dropped or misfiled.
-nonisolated struct AgentDeliveryTargetCandidate: Equatable {
+struct AgentDeliveryTargetCandidate: Equatable {
     let workspaceId: UUID
     let surfaceId: UUID
 }

@@ -9,6 +9,9 @@ struct MobileIrohSettingsView: View {
     @State private var showsCustomEditor = false
     @State private var editedCustomRelayID: String?
     @State private var pendingCustomRemovalID: String?
+    @State private var showsPrivatePathEditor = false
+    @State private var editedPrivatePathMacDeviceID: String?
+    @State private var pendingPrivatePathRemovalMacDeviceID: String?
 
     init(controller: any CmxIrohSettingsControlling) {
         _model = State(initialValue: MobileIrohSettingsModel(controller: controller))
@@ -91,49 +94,54 @@ struct MobileIrohSettingsView: View {
                 ))
             }
 
-            Section {
-                LabeledContent(
-                    L10n.string("mobile.iroh.private.iroh", defaultValue: "Iroh Private Paths"),
-                    value: L10n.string("mobile.iroh.private.automatic", defaultValue: "Automatic")
-                )
-                LabeledContent(
-                    L10n.string("mobile.iroh.private.tailscale", defaultValue: "Tailscale Compatibility"),
-                    value: L10n.string("mobile.iroh.private.automatic", defaultValue: "Automatic")
-                )
-            } header: {
-                Text(L10n.string("mobile.iroh.private", defaultValue: "Private Networks"))
-            } footer: {
-                Text(L10n.string(
-                    "mobile.iroh.private.footer",
-                    defaultValue: "Iroh discovers LAN and VPN paths after authenticating the Mac. Custom raw TCP routes are not accepted because they cannot prove the remote Mac."
-                ))
-            }
-
-            Section {
-                LabeledContent(
-                    L10n.string("mobile.iroh.status", defaultValue: "Connection"),
-                    value: runtimeStatusText
-                )
-                LabeledContent(
-                    L10n.string("mobile.iroh.policy", defaultValue: "Relay Policy"),
-                    value: policyStatusText
-                )
-                if !model.snapshot.staleRelayIDs.isEmpty || model.snapshot.failureDescription != nil {
-                    Label(
-                        L10n.string(
-                            "mobile.iroh.attention",
-                            defaultValue: "Your relay preference needs attention. cmux is keeping an unselected provider disabled."
-                        ),
-                        systemImage: "exclamationmark.triangle.fill"
+            MobileIrohPrivateNetworksSection(
+                configurations: model.snapshot.customPrivateNetworks,
+                availableMacs: model.snapshot.privateNetworkMacs,
+                edit: { macDeviceID in
+                    editedPrivatePathMacDeviceID = macDeviceID
+                    showsPrivatePathEditor = true
+                },
+                add: {
+                    editedPrivatePathMacDeviceID = nil
+                    showsPrivatePathEditor = true
+                },
+                setEnabled: { configuration, isEnabled in
+                    let draft = CmxIrohCustomPrivatePathDraft(
+                        macDeviceID: configuration.macDeviceID,
+                        macDisplayName: configuration.macDisplayName,
+                        addresses: configuration.addresses,
+                        isEnabled: isEnabled
                     )
-                    .foregroundStyle(.orange)
+                    Task { _ = await model.upsertCustomPrivatePath(draft) }
+                },
+                requestRemoval: { macDeviceID in
+                    pendingPrivatePathRemovalMacDeviceID = macDeviceID
                 }
-                Button(L10n.string("mobile.iroh.refresh", defaultValue: "Refresh Relay Policy")) {
-                    model.refresh()
-                }
-            } header: {
-                Text(L10n.string("mobile.iroh.diagnostics", defaultValue: "Diagnostics"))
+            )
+
+            #if DEBUG
+            if let mode = model.snapshot.debugTransportVerificationMode {
+                MobileIrohDebugTransportSection(
+                    mode: mode,
+                    setMode: model.setDebugTransportVerificationMode
+                )
             }
+            #endif
+
+            MobileIrohDiagnosticsSection(
+                connectionStatus: runtimeStatusText,
+                policyStatus: policyStatusText,
+                lastSuccessfulConnection: model.diagnosticReport.lastConnectionSuccessDate,
+                lastFailureDate: model.diagnosticReport.lastFailureDate,
+                lastFailureCategory: diagnosticFailureKindText,
+                eventCount: model.diagnosticReport.events.count,
+                exportText: model.diagnosticExportText,
+                needsAttention: !model.snapshot.staleRelayIDs.isEmpty || model.snapshot.failureDescription != nil,
+                refresh: model.refresh,
+                clear: {
+                    Task { await model.clearDiagnosticReport() }
+                }
+            )
         }
         .disabled(model.isMutating)
         .navigationTitle(L10n.string("mobile.iroh.title", defaultValue: "Iroh and Relays"))
@@ -142,6 +150,14 @@ struct MobileIrohSettingsView: View {
         .sheet(isPresented: $showsCustomEditor) {
             MobileIrohCustomRelayEditor(relay: editedCustomRelay) { relay, secret in
                 await model.upsertCustomRelay(relay, deviceSecret: secret)
+            }
+        }
+        .sheet(isPresented: $showsPrivatePathEditor) {
+            MobileIrohCustomPrivatePathEditor(
+                path: editedPrivatePath,
+                availableMacs: privatePathEditorMacs
+            ) { path in
+                await model.upsertCustomPrivatePath(path)
             }
         }
         .alert(
@@ -155,7 +171,7 @@ struct MobileIrohSettingsView: View {
         } message: {
             Text(L10n.string(
                 "mobile.iroh.saveFailed.message",
-                defaultValue: "Your previous networking configuration is still active. Check your account connection and values, then try again."
+                defaultValue: "Your previous networking configuration is still active. Check the values, then try again."
             ))
         }
         .confirmationDialog(
@@ -168,6 +184,26 @@ struct MobileIrohSettingsView: View {
             Button(L10n.string("mobile.common.remove", defaultValue: "Remove"), role: .destructive) {
                 if let id = pendingCustomRemovalID { model.removeCustomRelay(id: id) }
                 pendingCustomRemovalID = nil
+            }
+        }
+        .confirmationDialog(
+            L10n.string(
+                "mobile.iroh.private.custom.remove.confirm",
+                defaultValue: "Remove these private addresses?"
+            ),
+            isPresented: Binding(
+                get: { pendingPrivatePathRemovalMacDeviceID != nil },
+                set: { if !$0 { pendingPrivatePathRemovalMacDeviceID = nil } }
+            )
+        ) {
+            Button(
+                L10n.string("mobile.common.remove", defaultValue: "Remove"),
+                role: .destructive
+            ) {
+                if let macDeviceID = pendingPrivatePathRemovalMacDeviceID {
+                    model.removeCustomPrivatePath(macDeviceID: macDeviceID)
+                }
+                pendingPrivatePathRemovalMacDeviceID = nil
             }
         }
     }
@@ -221,6 +257,26 @@ struct MobileIrohSettingsView: View {
         return model.snapshot.customRelays.first { $0.id == editedCustomRelayID }
     }
 
+    private var editedPrivatePath: CmxIrohSettingsSnapshot.CustomPrivateNetwork? {
+        guard let editedPrivatePathMacDeviceID else { return nil }
+        return model.snapshot.customPrivateNetworks.first {
+            $0.macDeviceID == editedPrivatePathMacDeviceID
+        }
+    }
+
+    private var privatePathEditorMacs: [CmxIrohSettingsSnapshot.PrivateNetworkMac] {
+        if let editedPrivatePath {
+            return [.init(
+                id: editedPrivatePath.macDeviceID,
+                displayName: editedPrivatePath.macDisplayName
+            )]
+        }
+        let configuredIDs = Set(model.snapshot.customPrivateNetworks.map(\.macDeviceID))
+        return model.snapshot.privateNetworkMacs.filter {
+            !configuredIDs.contains($0.id)
+        }
+    }
+
     private func customRelaySubtitle(_ relay: CmxIrohSettingsSnapshot.CustomRelay) -> String {
         switch model.testResults[relay.id] {
         case .reachable:
@@ -255,6 +311,254 @@ struct MobileIrohSettingsView: View {
         case .server: L10n.string("mobile.iroh.policy.server", defaultValue: "Verified from cmux")
         case .cached: L10n.string("mobile.iroh.policy.cached", defaultValue: "Last Verified Catalog")
         case .unavailable: L10n.string("mobile.iroh.policy.unavailable", defaultValue: "Unavailable")
+        }
+    }
+}
+
+private extension MobileIrohSettingsView {
+    private var diagnosticFailureKindText: String {
+        switch model.diagnosticReport.lastFailureKind {
+        case nil, .some(.none):
+            L10n.string("mobile.iroh.diagnostics.failure.none", defaultValue: "None")
+        case .some(.offline):
+            L10n.string("mobile.iroh.diagnostics.failure.offline", defaultValue: "Offline")
+        case .some(.timedOut):
+            L10n.string("mobile.iroh.diagnostics.failure.timedOut", defaultValue: "Timed Out")
+        case .some(.connectionRefused):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.connectionRefused",
+                defaultValue: "Connection Refused"
+            )
+        case .some(.hostUnreachable):
+            L10n.string("mobile.iroh.diagnostics.failure.hostUnreachable", defaultValue: "Host Unreachable")
+        case .some(.permissionDenied):
+            L10n.string("mobile.iroh.diagnostics.failure.permissionDenied", defaultValue: "Permission Denied")
+        case .some(.dnsFailed):
+            L10n.string("mobile.iroh.diagnostics.failure.dnsFailed", defaultValue: "Name Resolution Failed")
+        case .some(.secureChannelFailed):
+            L10n.string("mobile.iroh.diagnostics.failure.secureChannelFailed", defaultValue: "Secure Channel Failed")
+        case .some(.unsupportedRoute):
+            L10n.string("mobile.iroh.diagnostics.failure.unsupportedRoute", defaultValue: "Unsupported Route")
+        case .some(.noRoute):
+            L10n.string("mobile.iroh.diagnostics.failure.noRoute", defaultValue: "No Route Available")
+        case .some(.credentialUnavailable):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.credentialUnavailable",
+                defaultValue: "Credentials Unavailable"
+            )
+        case .some(.policyUnavailable):
+            L10n.string("mobile.iroh.diagnostics.failure.policyUnavailable", defaultValue: "Relay Policy Unavailable")
+        case .some(.endpointUnavailable):
+            L10n.string("mobile.iroh.diagnostics.failure.endpointUnavailable", defaultValue: "Endpoint Unavailable")
+        case .some(.identityMismatch):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.identityMismatch",
+                defaultValue: "Endpoint Identity Mismatch"
+            )
+        case .some(.admissionDenied):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.admissionDenied",
+                defaultValue: "Connection Admission Denied"
+            )
+        case .some(.authorizationFailed):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.authorizationFailed",
+                defaultValue: "Authorization Failed"
+            )
+        case .some(.accountMismatch):
+            L10n.string("mobile.iroh.diagnostics.failure.accountMismatch", defaultValue: "Account Mismatch")
+        case .some(.protocolViolation):
+            L10n.string("mobile.iroh.diagnostics.failure.protocolViolation", defaultValue: "Protocol Error")
+        case .some(.connectionClosed):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.connectionClosed",
+                defaultValue: "Connection Closed"
+            )
+        case .some(.superseded):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.superseded",
+                defaultValue: "Replaced by a Newer Attempt"
+            )
+        case .some(.cancelled):
+            L10n.string("mobile.iroh.diagnostics.failure.cancelled", defaultValue: "Cancelled")
+        case .some(.unknown):
+            L10n.string("mobile.iroh.diagnostics.failure.unknown", defaultValue: "Unknown")
+        }
+    }
+}
+
+#if DEBUG
+@MainActor
+private struct MobileIrohDebugTransportSection: View {
+    let mode: CmxIrohTransportVerificationMode
+    let setMode: (CmxIrohTransportVerificationMode) -> Void
+
+    var body: some View {
+        Section {
+            Picker(
+                L10n.string(
+                    "mobile.iroh.debug.transportMode",
+                    defaultValue: "Transport Mode"
+                ),
+                selection: Binding(
+                    get: { mode },
+                    set: setMode
+                )
+            ) {
+                Text(L10n.string(
+                    "mobile.iroh.debug.transportMode.automatic",
+                    defaultValue: "Automatic"
+                ))
+                .tag(CmxIrohTransportVerificationMode.automatic)
+                Text(L10n.string(
+                    "mobile.iroh.debug.transportMode.relayOnly",
+                    defaultValue: "Relay Only"
+                ))
+                .tag(CmxIrohTransportVerificationMode.relayOnly)
+                Text(L10n.string(
+                    "mobile.iroh.debug.transportMode.directOnly",
+                    defaultValue: "No Relay (Direct Only)"
+                ))
+                .tag(CmxIrohTransportVerificationMode.directOnly)
+            }
+            .accessibilityIdentifier("MobileIrohDebugTransportMode")
+        } header: {
+            Text(L10n.string(
+                "mobile.iroh.debug",
+                defaultValue: "Debug Verification"
+            ))
+        } footer: {
+            Text(L10n.string(
+                "mobile.iroh.debug.footer",
+                defaultValue: "Changing this restarts Iroh without signing out or changing this app's device identity."
+            ))
+        }
+    }
+}
+#endif
+
+@MainActor
+private struct MobileIrohDiagnosticsSection: View {
+    let connectionStatus: String
+    let policyStatus: String
+    let lastSuccessfulConnection: Date?
+    let lastFailureDate: Date?
+    let lastFailureCategory: String
+    let eventCount: Int
+    let exportText: String
+    let needsAttention: Bool
+    let refresh: () -> Void
+    let clear: () -> Void
+
+    @State private var showsClearConfirmation = false
+
+    var body: some View {
+        Section {
+            LabeledContent(
+                L10n.string("mobile.iroh.status", defaultValue: "Connection"),
+                value: connectionStatus
+            )
+            LabeledContent(
+                L10n.string("mobile.iroh.policy", defaultValue: "Relay Policy"),
+                value: policyStatus
+            )
+            LabeledContent {
+                diagnosticDate(lastSuccessfulConnection)
+            } label: {
+                Text(L10n.string(
+                    "mobile.iroh.diagnostics.lastSuccess",
+                    defaultValue: "Last Successful Connection"
+                ))
+            }
+            LabeledContent(
+                L10n.string("mobile.iroh.diagnostics.lastFailure", defaultValue: "Last Failure"),
+                value: lastFailureCategory
+            )
+            LabeledContent {
+                diagnosticDate(lastFailureDate)
+            } label: {
+            Text(L10n.string(
+                "mobile.iroh.diagnostics.lastFailureTime",
+                defaultValue: "Failure Time"
+            ))
+            }
+            LabeledContent {
+                Text(eventCount, format: .number)
+            } label: {
+                Text(L10n.string("mobile.iroh.diagnostics.eventCount", defaultValue: "Recorded Events"))
+            }
+
+            if needsAttention {
+                Label(
+                    L10n.string(
+                        "mobile.iroh.attention",
+                        defaultValue: """
+                        Your relay preference needs attention. cmux is keeping an unselected provider \
+                        disabled.
+                        """
+                    ),
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .foregroundStyle(.orange)
+            }
+
+            Button(L10n.string("mobile.iroh.refresh", defaultValue: "Refresh Relay Policy"), action: refresh)
+
+            ShareLink(item: exportText) {
+                Label(
+                    L10n.string("mobile.iroh.diagnostics.share", defaultValue: "Share Safe Report"),
+                    systemImage: "square.and.arrow.up"
+                )
+            }
+            .disabled(exportText.isEmpty)
+            .accessibilityIdentifier("MobileIrohShareDiagnosticReport")
+
+            Button(role: .destructive) {
+                showsClearConfirmation = true
+            } label: {
+                Label(
+                    L10n.string("mobile.iroh.diagnostics.clear", defaultValue: "Clear Report"),
+                    systemImage: "trash"
+                )
+            }
+            .disabled(eventCount == 0)
+            .accessibilityIdentifier("MobileIrohClearDiagnosticReport")
+        } header: {
+            Text(L10n.string("mobile.iroh.diagnostics", defaultValue: "Diagnostics"))
+        } footer: {
+            Text(L10n.string(
+                "mobile.iroh.diagnostics.privacy",
+                defaultValue: """
+                This report remains available while disconnected. It excludes terminal content, account and \
+                endpoint identities, network addresses, relay URLs, credentials, and raw errors. Nothing leaves \
+                this device until you share it.
+                """
+            ))
+        }
+        .confirmationDialog(
+            L10n.string("mobile.iroh.diagnostics.clear.confirm", defaultValue: "Clear this diagnostic report?"),
+            isPresented: $showsClearConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(L10n.string("mobile.iroh.diagnostics.clear", defaultValue: "Clear Report"), role: .destructive) {
+                clear()
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+        } message: {
+            Text(L10n.string(
+                "mobile.iroh.diagnostics.clear.message",
+                defaultValue: "This permanently removes the connection timeline stored on this device."
+            ))
+        }
+    }
+
+    @ViewBuilder
+    private func diagnosticDate(_ date: Date?) -> some View {
+        if let date {
+            Text(date, format: .dateTime.year().month(.abbreviated).day().hour().minute().second())
+        } else {
+            Text(L10n.string("mobile.iroh.diagnostics.notRecorded", defaultValue: "Not Recorded"))
+                .foregroundStyle(.secondary)
         }
     }
 }

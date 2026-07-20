@@ -1493,6 +1493,7 @@
       "flagName": "Bayrak",
       "flagDesc": "Açıklama",
       "flagNameVal": "Çalışma alanı başlığını ayarlayın",
+      "flagCommand": "Komut metnini kabuk başladıktan sonra ilk uzak terminalde bir kez çalıştırın",
       "flagPort": "SSH bağlantı noktası (varsayılan 22)",
       "flagIdentity": "Kimlik dosyasının yolu",
       "flagSshOption": "İsteğe bağlı SSH seçeneklerini iletin (ör. -o StrictHostKeyChecking=no)",

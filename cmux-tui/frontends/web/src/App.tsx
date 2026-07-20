@@ -22,6 +22,7 @@ export default function App() {
       <ConnectScreen
         connecting={connection.status === "connecting"}
         error={connection.error}
+        pairing={connection.pairing}
         onConnect={connection.connect}
       />
     );
@@ -76,10 +77,15 @@ export default function App() {
         client={connection.client}
         clients={connection.clients}
         screen={connection.active}
+        onRefreshClients={connection.refreshClients}
+        onSetClientSizing={connection.mutations.setClientSizing}
+        onUseOnlyClientSizing={connection.mutations.useOnlyClientSizing}
+        onUseAllClientSizing={connection.mutations.useAllClientSizing}
+        onDetachClient={connection.mutations.detachClient}
         onSelectTab={connection.selectTab}
         onNewTab={connection.mutations.newTab}
         onSplit={connection.mutations.split}
-        onSetRatio={connection.mutations.setRatio}
+        onSetSplitRatio={connection.mutations.setSplitRatio}
         onSelectPane={connection.selectPane}
         onZoomPane={connection.mutations.zoomPane}
         onClosePane={connection.mutations.closePane}
@@ -90,13 +96,10 @@ export default function App() {
       <StatusBar
         workspace={activeWorkspace}
         session={connection.info?.session ?? null}
-        clients={connection.clients}
         onSelectScreen={connection.selectScreen}
         onNewScreen={connection.mutations.newScreen}
         onCloseScreen={connection.mutations.closeScreen}
         onRenameScreen={connection.mutations.renameScreen}
-        onRefreshClients={connection.refreshClients}
-        onDetachClient={connection.mutations.detachClient}
       />
       <Toasts toasts={connection.toasts} onDismiss={connection.dismissToast} />
     </main>

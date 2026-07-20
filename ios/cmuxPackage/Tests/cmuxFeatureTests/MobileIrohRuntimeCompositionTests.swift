@@ -16,6 +16,377 @@ import Testing
 @Suite
 struct MobileIrohRuntimeCompositionTests {
     @Test
+    @MainActor
+    func foregroundRevalidatesAuthBeforeConnectionReadinessCompletes() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make()
+        let baseline = await fixture.authClient.observedCurrentUserCallCount()
+
+        fixture.composition.didBecomeActive()
+        await fixture.composition.prepareForConnection()
+
+        #expect(await fixture.authClient.observedCurrentUserCallCount() > baseline)
+    }
+
+    @Test
+    func bakedIrohBrokerOriginDoesNotReplaceTheGeneralAPIOrigin() {
+        #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
+            apiBaseURL: "http://localhost:9450",
+            infoDictionary: [
+                "CMUXIrohBrokerBaseURL": "https://cmux-staging.vercel.app",
+            ]
+        )?.absoluteString == "https://cmux-staging.vercel.app")
+        #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
+            apiBaseURL: "https://cmux.com",
+            infoDictionary: ["CMUXIrohBrokerBaseURL": "  "]
+        )?.absoluteString == "https://cmux.com")
+
+        #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
+            apiBaseURL: "http://localhost:9450",
+            infoDictionary: ["CMUXDevTag": "lane-a"]
+        )?.absoluteString == "https://cmux-staging.vercel.app")
+        #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
+            apiBaseURL: "http://localhost:9450",
+            infoDictionary: [
+                "CMUXDevTag": "lane-a",
+                "CMUXAuthEnvironment": "production",
+            ]
+        )?.absoluteString == "https://cmux.com")
+        #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
+            apiBaseURL: "https://cmux.com",
+            infoDictionary: ["CMUXIrohBrokerBaseURL": ":// malformed"]
+        ) == nil)
+        #expect(MobileIrohRuntimeComposition.resolvedBrokerBaseURL(
+            apiBaseURL: "https://cmux.com",
+            infoDictionary: ["CMUXIrohBrokerBaseURL": "http://localhost:3000"],
+            allowsLoopback: false
+        ) == nil)
+    }
+
+    @Test
+    func initialAuthenticationAndFirstConnectionDoNotReplayTheSameAuthState() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make()
+
+        #expect(await fixture.endpointFactory.bindCount() == 1)
+    }
+
+    #if DEBUG
+    @Test
+    func debugTransportModePersistsAndRebindsWithoutRotatingIdentity() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make()
+        let initialBindCount = await fixture.endpointFactory.bindCount()
+        #expect(fixture.endpointFactoryModes.modes == [.automatic])
+
+        try await fixture.composition.setIrohDebugTransportVerificationMode(.directOnly)
+
+        #expect(
+            fixture.debugDefaults.string(
+                forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
+            ) == CmxIrohTransportVerificationMode.directOnly.rawValue
+        )
+        #expect(await fixture.endpointFactory.bindCount() == initialBindCount + 1)
+        #expect(fixture.endpointFactoryModes.modes == [.automatic, .directOnly])
+        #expect(
+            await fixture.composition.irohSettingsSnapshot()
+                .debugTransportVerificationMode == .directOnly
+        )
+        try await fixture.expectOriginalRepositoriesRemain()
+
+        try await fixture.composition.setIrohDebugTransportVerificationMode(.directOnly)
+
+        #expect(await fixture.endpointFactory.bindCount() == initialBindCount + 1)
+        #expect(fixture.endpointFactoryModes.modes == [.automatic, .directOnly])
+
+        try await fixture.composition.setIrohDebugTransportVerificationMode(.relayOnly)
+
+        #expect(await fixture.endpointFactory.bindCount() == initialBindCount + 2)
+        #expect(fixture.endpointFactoryModes.modes == [.automatic, .directOnly, .relayOnly])
+        #expect(
+            await fixture.composition.irohSettingsSnapshot()
+                .debugTransportVerificationMode == .relayOnly
+        )
+        try await fixture.expectOriginalRepositoriesRemain()
+    }
+    #endif
+
+    @Test
+    func connectionReadinessIgnoresSupersededLifecycleCompletion() async {
+        let readiness = MobileIrohConnectionReadinessSignal()
+        readiness.begin(revision: 1)
+        readiness.begin(revision: 2)
+
+        #expect(readiness.complete(revision: 1) == false)
+        #expect(readiness.isPending)
+        #expect(readiness.complete(revision: 2))
+        #expect(readiness.isPending == false)
+
+        await readiness.wait()
+    }
+
+    @Test
+    func discoveryRefreshDiagnosticPreservesTypedFailureCategory() throws {
+        let offline = try #require(
+            MobileIrohRuntimeComposition.discoveryRefreshFailureEvent(
+                for: .failed(.offline)
+            )
+        )
+        #expect(offline.code == .discoveryFailed)
+        #expect(offline.a == DiagnosticTransportKind.iroh.rawValue)
+        #expect(offline.b == DiagnosticFailureKind.offline.rawValue)
+        #expect(offline.surface == nil)
+        #expect(offline.c == nil)
+
+        let unavailable = try #require(
+            MobileIrohRuntimeComposition.discoveryRefreshFailureEvent(
+                for: .failed(.policyUnavailable)
+            )
+        )
+        #expect(unavailable.b == DiagnosticFailureKind.policyUnavailable.rawValue)
+        #expect(
+            MobileIrohRuntimeComposition.discoveryRefreshFailureEvent(
+                for: .refreshed
+            ) == nil
+        )
+    }
+
+    @Test
+    func discoveryCatalogRetainsFortyConcurrentDevelopmentBindings() async throws {
+        let bindings = (0..<40).map { index in
+            mobileIrohBinding(
+                bindingID: String(format: "00000000-0000-4000-8000-%012d", index),
+                deviceID: String(format: "10000000-0000-4000-8000-%012d", index),
+                appInstanceID: String(format: "20000000-0000-4000-8000-%012d", index),
+                endpointID: String(format: "%064x", index + 1),
+                platform: "mac",
+                pairingEnabled: true
+            )
+        }
+        let discovery = try mobileIrohDiscovery(bindings: bindings)
+        let catalog = MobileIrohRouteCatalog()
+        await catalog.activate(scope: 1)
+        await catalog.replace(with: discovery, scope: 1)
+
+        for index in 0..<40 {
+            let deviceID = String(format: "10000000-0000-4000-8000-%012d", index)
+            #expect(await catalog.routes(
+                forKnownMacDeviceID: deviceID,
+                instanceTag: "test"
+            ).count == 1)
+        }
+    }
+
+    @Test
+    func discoveryCatalogOrdersFractionalAndWholeSecondTimestamps() async throws {
+        let deviceID = "30000000-0000-4000-8000-000000000101"
+        let olderBindingID = "30000000-0000-4000-8000-000000000102"
+        let newerBindingID = "30000000-0000-4000-8000-000000000103"
+        let discovery = try mobileIrohDiscovery(bindings: [
+            mobileIrohBinding(
+                bindingID: olderBindingID,
+                deviceID: deviceID,
+                appInstanceID: "30000000-0000-4000-8000-000000000104",
+                endpointID: String(repeating: "a", count: 64),
+                platform: "mac",
+                pairingEnabled: true,
+                lastSeenAt: "2027-07-10T12:00:00.500Z"
+            ),
+            mobileIrohBinding(
+                bindingID: newerBindingID,
+                deviceID: deviceID,
+                appInstanceID: "30000000-0000-4000-8000-000000000105",
+                endpointID: String(repeating: "b", count: 64),
+                platform: "mac",
+                pairingEnabled: true,
+                lastSeenAt: "2027-07-10T12:00:01Z"
+            ),
+        ])
+        let catalog = MobileIrohRouteCatalog()
+        await catalog.activate(scope: 2)
+        await catalog.replace(with: discovery, scope: 2)
+
+        #expect(await catalog.routes(
+            forKnownMacDeviceID: deviceID,
+            instanceTag: "test"
+        ).map(\.id) == [
+            "iroh-personal-\(newerBindingID)",
+            "iroh-personal-\(olderBindingID)",
+        ])
+    }
+
+    @Test
+    func zeroTouchDiscoveryRejectsAmbiguousEndpointAndDeviceTagBindings() async throws {
+        let duplicateDeviceID = "30000000-0000-4000-8000-000000000001"
+        let discovery = try mobileIrohDiscovery(bindings: [
+            mobileIrohBinding(
+                bindingID: "30000000-0000-4000-8000-000000000002",
+                deviceID: "30000000-0000-4000-8000-000000000003",
+                appInstanceID: "30000000-0000-4000-8000-000000000004",
+                endpointID: String(repeating: "a", count: 64),
+                platform: "mac",
+                pairingEnabled: true
+            ),
+            mobileIrohBinding(
+                bindingID: "30000000-0000-4000-8000-000000000005",
+                deviceID: "30000000-0000-4000-8000-000000000006",
+                appInstanceID: "30000000-0000-4000-8000-000000000007",
+                endpointID: String(repeating: "a", count: 64),
+                platform: "mac",
+                pairingEnabled: true
+            ),
+            mobileIrohBinding(
+                bindingID: "30000000-0000-4000-8000-000000000008",
+                deviceID: duplicateDeviceID,
+                appInstanceID: "30000000-0000-4000-8000-000000000009",
+                endpointID: String(repeating: "b", count: 64),
+                platform: "mac",
+                pairingEnabled: true
+            ),
+            mobileIrohBinding(
+                bindingID: "30000000-0000-4000-8000-000000000010",
+                deviceID: duplicateDeviceID,
+                appInstanceID: "30000000-0000-4000-8000-000000000011",
+                endpointID: String(repeating: "c", count: 64),
+                platform: "mac",
+                pairingEnabled: true
+            ),
+            mobileIrohBinding(
+                bindingID: "30000000-0000-4000-8000-000000000012",
+                deviceID: "30000000-0000-4000-8000-000000000013",
+                appInstanceID: "30000000-0000-4000-8000-000000000014",
+                endpointID: String(repeating: "d", count: 64),
+                platform: "mac",
+                pairingEnabled: true
+            ),
+        ])
+        let catalog = MobileIrohRouteCatalog()
+        await catalog.activate(scope: 3)
+        await catalog.replace(with: discovery, scope: 3)
+
+        let candidates = await catalog.liveMacCandidates(preferredTag: "test")
+        #expect(candidates.count == 1)
+        #expect(candidates.first?.deviceID == "30000000-0000-4000-8000-000000000013")
+    }
+
+    @Test
+    func zeroTouchDiscoveryIgnoresUnreachableStaleBindingForSameDeviceTag() async throws {
+        let now = Date()
+        let observedAt = now.addingTimeInterval(-30).timeIntervalSinceReferenceDate
+        let expiresAt = now.addingTimeInterval(30 * 60).timeIntervalSinceReferenceDate
+        let currentRelayPath: [String: Any] = [
+            "kind": "relay_url",
+            "value": "https://use1-1.relay.lawrence.cmux.iroh.link/",
+            "source": "native",
+            "privacy_scope": "public_internet",
+            "observed_at": observedAt,
+            "expires_at": expiresAt,
+        ]
+        let deviceID = "30000000-0000-4000-8000-000000000021"
+        let reachableBindingID = "30000000-0000-4000-8000-000000000022"
+        let discovery = try mobileIrohDiscovery(bindings: [
+            mobileIrohBinding(
+                bindingID: "30000000-0000-4000-8000-000000000023",
+                deviceID: deviceID,
+                appInstanceID: "30000000-0000-4000-8000-000000000024",
+                endpointID: String(repeating: "e", count: 64),
+                platform: "mac",
+                pairingEnabled: true,
+                lastSeenAt: "2027-07-10T11:00:00.000Z"
+            ),
+            mobileIrohBinding(
+                bindingID: reachableBindingID,
+                deviceID: deviceID,
+                appInstanceID: "30000000-0000-4000-8000-000000000025",
+                endpointID: String(repeating: "f", count: 64),
+                platform: "mac",
+                pairingEnabled: true,
+                lastSeenAt: "2027-07-10T12:00:00.000Z",
+                pathHints: [currentRelayPath]
+            ),
+        ])
+        let catalog = MobileIrohRouteCatalog()
+        await catalog.activate(scope: 31)
+        await catalog.replace(with: discovery, scope: 31)
+
+        let candidates = await catalog.liveMacCandidates(preferredTag: "test")
+        #expect(candidates.count == 1)
+        #expect(candidates.first?.routes.map(\.id) == [
+            "iroh-personal-\(reachableBindingID)",
+        ])
+
+        let ambiguousDiscovery = try mobileIrohDiscovery(bindings: [
+            mobileIrohBinding(
+                bindingID: "30000000-0000-4000-8000-000000000023",
+                deviceID: deviceID,
+                appInstanceID: "30000000-0000-4000-8000-000000000024",
+                endpointID: String(repeating: "e", count: 64),
+                platform: "mac",
+                pairingEnabled: true,
+                lastSeenAt: "2027-07-10T11:00:00.000Z",
+                pathHints: [currentRelayPath]
+            ),
+            mobileIrohBinding(
+                bindingID: reachableBindingID,
+                deviceID: deviceID,
+                appInstanceID: "30000000-0000-4000-8000-000000000025",
+                endpointID: String(repeating: "f", count: 64),
+                platform: "mac",
+                pairingEnabled: true,
+                lastSeenAt: "2027-07-10T12:00:00.000Z",
+                pathHints: [currentRelayPath]
+            ),
+        ])
+        await catalog.replace(with: ambiguousDiscovery, scope: 31)
+        #expect(await catalog.liveMacCandidates(preferredTag: "test").isEmpty)
+    }
+
+    @Test
+    func taggedDevelopmentDiscoveryCannotCrossIntoAnotherAgentLane() async throws {
+        let discovery = try mobileIrohDiscovery(bindings: [
+            mobileIrohBinding(
+                bindingID: "31000000-0000-4000-8000-000000000001",
+                deviceID: "31000000-0000-4000-8000-000000000002",
+                appInstanceID: "31000000-0000-4000-8000-000000000003",
+                endpointID: String(repeating: "a", count: 64),
+                platform: "mac",
+                pairingEnabled: true,
+                tag: "lane-a"
+            ),
+            mobileIrohBinding(
+                bindingID: "31000000-0000-4000-8000-000000000004",
+                deviceID: "31000000-0000-4000-8000-000000000005",
+                appInstanceID: "31000000-0000-4000-8000-000000000006",
+                endpointID: String(repeating: "b", count: 64),
+                platform: "mac",
+                pairingEnabled: true,
+                tag: "lane-b"
+            ),
+            mobileIrohBinding(
+                bindingID: "31000000-0000-4000-8000-000000000007",
+                deviceID: "31000000-0000-4000-8000-000000000008",
+                appInstanceID: "31000000-0000-4000-8000-000000000009",
+                endpointID: String(repeating: "c", count: 64),
+                platform: "mac",
+                pairingEnabled: true,
+                tag: "default"
+            ),
+        ])
+        let catalog = MobileIrohRouteCatalog()
+        await catalog.activate(scope: 4)
+        await catalog.replace(with: discovery, scope: 4)
+
+        let isolated = await catalog.liveMacCandidates(
+            preferredTag: "lane-a",
+            compatibleWith: .development(expectedInstanceTag: "lane-a")
+        )
+        #expect(isolated.map(\.instanceTag) == ["lane-a"])
+
+        let official = await catalog.liveMacCandidates(
+            preferredTag: "lane-a",
+            compatibleWith: .official
+        )
+        #expect(official.map(\.instanceTag) == ["default"])
+    }
+
+    @Test
     func relayPolicyRefreshesBeforeExpiryAndDeactivatesOnlyAtExpiry() {
         let now = Date(timeIntervalSince1970: 1_000)
         let expiresAt = now.addingTimeInterval(300)
@@ -245,7 +616,7 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
-    func verifiedPersonalMacDiscoveryMergesIntoPairedRefreshOnly() async throws {
+    func verifiedPersonalMacDiscoverySurfacesAZeroTouchCandidate() async throws {
         let macDeviceID = "123e4567-e89b-42d3-a456-426614174041"
         let discovery = try mobileIrohDiscovery(
             bindings: [
@@ -325,8 +696,16 @@ struct MobileIrohRuntimeCompositionTests {
             instanceTag: "other-build"
         )?.map(\.kind) == [.tailscale])
         switch await registry.listDevices() {
-        case let .ok(devices): #expect(devices.isEmpty)
-        case .authRejected, .transientFailure: Issue.record("Decorator changed the base device-list outcome")
+        case let .ok(devices):
+            let device = try #require(devices.first)
+            #expect(devices.count == 1)
+            #expect(device.deviceId == macDeviceID)
+            #expect(device.platform == "mac")
+            #expect(device.instances.count == 1)
+            #expect(device.instances[0].tag == "test")
+            #expect(device.instances[0].routes.map(\.kind) == [.iroh])
+        case .authRejected, .transientFailure:
+            Issue.record("Verified live Iroh discovery did not create a device-list candidate")
         }
     }
 
@@ -382,7 +761,10 @@ struct MobileIrohRuntimeCompositionTests {
         ])
         let catalog = MobileIrohRouteCatalog()
         await catalog.activate(scope: 9)
+        await catalog.replace(with: discovery, scope: 9)
+        #expect(await catalog.liveMacCandidates(preferredTag: "test").count == 1)
         await catalog.replaceCachedBindings(discovery.bindings, scope: 9)
+        #expect(await catalog.liveMacCandidates(preferredTag: "test").isEmpty)
         let registry = PersonalIrohDeviceRegistryDecorator(
             base: nil,
             catalog: catalog,
@@ -678,6 +1060,8 @@ private struct MobileIrohSignOutFixture {
     let outbox: CmxIrohPendingRevocationOutbox
     let outboxStore: MobileIrohControlledCredentialStore
     let endpointFactory: MobileIrohCountingEndpointFactory
+    let endpointFactoryModes: MobileIrohEndpointFactoryModeRecorder
+    let debugDefaults: UserDefaults
     let broker: MobileIrohRevocationBroker
     let request: CmxByteTransportRequest
     let initialBindCount: Int
@@ -797,6 +1181,7 @@ private struct MobileIrohSignOutFixture {
 
         let outbox = CmxIrohPendingRevocationOutbox(secureStore: outboxStore)
         let endpointFactory = MobileIrohCountingEndpointFactory()
+        let endpointFactoryModes = MobileIrohEndpointFactoryModeRecorder()
         let broker = MobileIrohRevocationBroker()
         let stableDeviceID = deviceID
         let composition = MobileIrohRuntimeComposition(
@@ -808,10 +1193,15 @@ private struct MobileIrohSignOutFixture {
                 secureStore: offlineStore
             ),
             endpointFactory: endpointFactory,
+            endpointFactoryProvider: { mode in
+                endpointFactoryModes.record(mode)
+                return endpointFactory
+            },
             brokerFactory: { _ in broker },
             deviceID: { stableDeviceID },
             tag: tag,
-            now: { Date(timeIntervalSince1970: 1_000) }
+            now: { Date(timeIntervalSince1970: 1_000) },
+            debugDefaults: defaults
         )
         composition.configure(auth: auth)
         let remoteIdentity = try CmxIrohPeerIdentity(
@@ -845,6 +1235,8 @@ private struct MobileIrohSignOutFixture {
             outbox: outbox,
             outboxStore: outboxStore,
             endpointFactory: endpointFactory,
+            endpointFactoryModes: endpointFactoryModes,
+            debugDefaults: defaults,
             broker: broker,
             request: request,
             initialBindCount: initialBindCount,
@@ -1026,6 +1418,15 @@ private actor MobileIrohCountingEndpointFactory: CmxIrohEndpointFactory {
     func bindCount() -> Int { count }
 }
 
+@MainActor
+private final class MobileIrohEndpointFactoryModeRecorder {
+    private(set) var modes: [CmxIrohTransportVerificationMode] = []
+
+    func record(_ mode: CmxIrohTransportVerificationMode) {
+        modes.append(mode)
+    }
+}
+
 private actor MobileIrohRevocationBroker: CmxIrohClientBrokerServing {
     private var bindingIDs: [String] = []
 
@@ -1111,6 +1512,7 @@ private actor MobileIrohTestAuthClient: AuthClient {
     private var access: String? = "access"
     private var refresh: String? = "refresh"
     private var user: CMUXAuthUser
+    private var currentUserCallCount = 0
 
     init(user: CMUXAuthUser) { self.user = user }
 
@@ -1118,7 +1520,11 @@ private actor MobileIrohTestAuthClient: AuthClient {
     func accessToken() -> String? { access }
     func refreshToken() -> String? { refresh }
     func forceRefreshAccessToken() -> String? { access }
-    func currentUser(throwOnMissing _: Bool) -> CMUXAuthUser? { user }
+    func currentUser(throwOnMissing _: Bool) -> CMUXAuthUser? {
+        currentUserCallCount += 1
+        return user
+    }
+    func observedCurrentUserCallCount() -> Int { currentUserCallCount }
     func listTeams() -> [CMUXAuthTeam] { [] }
     func sendMagicLinkEmail(email _: String, callbackURL _: String) -> String { "nonce" }
     func signInWithMagicLink(code _: String) {
@@ -1161,20 +1567,23 @@ private func mobileIrohBinding(
     appInstanceID: String,
     endpointID: String,
     platform: String,
-    pairingEnabled: Bool
+    pairingEnabled: Bool,
+    tag: String = "test",
+    lastSeenAt: String = "2027-07-10T12:00:00.000Z",
+    pathHints: [[String: Any]] = []
 ) -> [String: Any] {
     [
         "binding_id": bindingID,
         "device_id": deviceID,
         "app_instance_id": appInstanceID,
-        "tag": "test",
+        "tag": tag,
         "platform": platform,
         "endpoint_id": endpointID,
         "identity_generation": 1,
         "pairing_enabled": pairingEnabled,
         "capabilities": ["mobile-rpc-v1"],
-        "path_hints": [],
-        "last_seen_at": "2027-07-10T12:00:00.000Z",
+        "path_hints": pathHints,
+        "last_seen_at": lastSeenAt,
     ]
 }
 

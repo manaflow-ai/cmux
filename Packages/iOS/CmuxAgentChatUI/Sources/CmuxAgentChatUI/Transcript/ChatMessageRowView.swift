@@ -69,7 +69,8 @@ public struct ChatMessageRowView: View {
                     attachment: attachment,
                     groupPosition: snapshot.groupPosition,
                     showsTimestamp: snapshot.showsTimestamp,
-                    timestamp: snapshot.message.timestamp
+                    timestamp: snapshot.message.timestamp,
+                    onOpenArtifact: actions.openArtifact
                 )
             case .unsupported(let payload):
                 ChatUnsupportedRowView(payload: payload)

@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use ghostty_vt_sys as sys;
 
-use crate::render::CursorShape;
+use crate::render::{Cell, CursorShape, read_grid_ref_cell, terminal_palette};
 use crate::{Result, check};
 
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
@@ -22,6 +22,32 @@ impl From<sys::GhosttyColorRgb> for Rgb {
     fn from(c: sys::GhosttyColorRgb) -> Self {
         Rgb { r: c.r, g: c.g, b: c.b }
     }
+}
+
+/// Parse a color with Ghostty's config semantics.
+///
+/// This accepts Ghostty's hex, X11 name, `rgb:`, and `rgbi:` forms.
+pub fn parse_color(value: &str) -> Option<Rgb> {
+    let mut color = sys::GhosttyColorRgb::default();
+    check(unsafe { sys::ghostty_color_parse(value.as_ptr().cast(), value.len(), &mut color) })
+        .ok()?;
+    Some(color.into())
+}
+
+/// Parse one Ghostty `palette = N=COLOR` value.
+pub fn parse_palette_entry(value: &str) -> Option<(u8, Rgb)> {
+    let mut index = 0;
+    let mut color = sys::GhosttyColorRgb::default();
+    check(unsafe {
+        sys::ghostty_color_parse_palette_entry(
+            value.as_ptr().cast(),
+            value.len(),
+            &mut index,
+            &mut color,
+        )
+    })
+    .ok()?;
+    Some((index, color.into()))
 }
 
 /// Which screen buffer is active.
@@ -209,6 +235,7 @@ pub struct Terminal {
     // lifetime.
     callbacks: Box<Callbacks>,
     cursor_override: CursorOverrideTracker,
+    palette_override: Box<PaletteOverrideTracker>,
 }
 
 #[derive(Default)]
@@ -225,9 +252,6 @@ enum CursorTrackState {
     EscapeIntermediate,
     Csi(CursorCsi),
     String {
-        bell_terminated: bool,
-    },
-    StringEscape {
         bell_terminated: bool,
     },
 }
@@ -256,13 +280,8 @@ impl CursorOverrideTracker {
                 CursorTrackState::String { bell_terminated } => match byte {
                     0x07 if bell_terminated => CursorTrackState::Ground,
                     0x9c => CursorTrackState::Ground,
-                    0x1b => CursorTrackState::StringEscape { bell_terminated },
-                    _ => CursorTrackState::String { bell_terminated },
-                },
-                CursorTrackState::StringEscape { bell_terminated } => match byte {
-                    b'\\' | 0x9c => CursorTrackState::Ground,
-                    0x1b => CursorTrackState::StringEscape { bell_terminated },
-                    0x07 if bell_terminated => CursorTrackState::Ground,
+                    0x18 | 0x1a => CursorTrackState::Ground,
+                    0x1b => CursorTrackState::Escape,
                     _ => CursorTrackState::String { bell_terminated },
                 },
             };
@@ -318,7 +337,9 @@ impl CursorOverrideTracker {
             b'q' => {
                 if csi.space && !csi.invalid {
                     match (csi.digits, csi.value) {
-                        (false, _) | (true, 0) => self.active = false,
+                        (false, _) | (true, 0) => {
+                            self.active = false;
+                        }
                         (true, 1..=6) => self.active = true,
                         _ => {}
                     }
@@ -331,6 +352,449 @@ impl CursorOverrideTracker {
             _ => CursorTrackState::Csi(std::mem::take(csi)),
         }
     }
+}
+
+struct PaletteOverrideTracker {
+    state: PaletteTrackState,
+    active: [bool; 256],
+    revision: u64,
+    reapply_revision: u64,
+}
+
+impl Default for PaletteOverrideTracker {
+    fn default() -> Self {
+        Self {
+            state: PaletteTrackState::Ground,
+            active: [false; 256],
+            revision: 0,
+            reapply_revision: 0,
+        }
+    }
+}
+
+#[derive(Default)]
+enum PaletteTrackState {
+    #[default]
+    Ground,
+    Escape,
+    EscapeIntermediate,
+    Osc(PaletteOsc),
+    String {
+        bell_terminated: bool,
+    },
+    Csi,
+}
+
+enum PaletteOsc {
+    Operation { bytes: [u8; 3], len: u8, invalid: bool },
+    Palette(Box<PaletteCommand>),
+    Ignore,
+}
+
+impl Default for PaletteOsc {
+    fn default() -> Self {
+        Self::Operation { bytes: [0; 3], len: 0, invalid: false }
+    }
+}
+
+struct PaletteCommand {
+    mode: PaletteOscMode,
+    token: [u8; Self::MAX_CAPTURE_BYTES],
+    token_len: usize,
+    captured: usize,
+    pending: [u8; 256],
+    request_count: usize,
+    kitty_request_count: usize,
+    stopped: bool,
+    overflowed: bool,
+    color_changed: bool,
+}
+
+impl PaletteCommand {
+    const MAX_CAPTURE_BYTES: usize = 2048;
+
+    fn new(mode: PaletteOscMode) -> Self {
+        Self {
+            mode,
+            token: [0; Self::MAX_CAPTURE_BYTES],
+            token_len: 0,
+            captured: 0,
+            pending: [0; 256],
+            request_count: 0,
+            kitty_request_count: 0,
+            stopped: false,
+            overflowed: false,
+            color_changed: false,
+        }
+    }
+}
+
+#[derive(Default)]
+enum PaletteOscMode {
+    #[default]
+    Ignore,
+    SetIndex,
+    SetColor(PaletteTarget),
+    Reset,
+    Kitty,
+}
+
+#[derive(Clone, Copy)]
+enum PaletteTarget {
+    Palette(u8),
+    Special,
+    Invalid,
+}
+
+impl PaletteOverrideTracker {
+    fn write(&mut self, data: &[u8]) {
+        for &byte in data {
+            let state = std::mem::take(&mut self.state);
+            self.state = match state {
+                PaletteTrackState::Ground => match byte {
+                    0x1b => PaletteTrackState::Escape,
+                    _ => PaletteTrackState::Ground,
+                },
+                PaletteTrackState::Escape => match palette_c1_transition(byte) {
+                    Some(state) => state,
+                    None => match byte {
+                        b']' => PaletteTrackState::Osc(PaletteOsc::default()),
+                        b'P' | b'X' | b'^' | b'_' => {
+                            PaletteTrackState::String { bell_terminated: false }
+                        }
+                        b'c' => {
+                            // Ghostty preserves palette overrides across RIS, but
+                            // attached byte frontends reset their mirror palette.
+                            // Re-emit the authoritative sparse snapshot afterward.
+                            self.revision = self.revision.wrapping_add(1);
+                            self.reapply_revision = self.reapply_revision.wrapping_add(1);
+                            PaletteTrackState::Ground
+                        }
+                        0x18 | 0x1a => PaletteTrackState::Ground,
+                        0x1b => PaletteTrackState::Escape,
+                        0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => PaletteTrackState::Escape,
+                        0x20..=0x2f => PaletteTrackState::EscapeIntermediate,
+                        _ => PaletteTrackState::Ground,
+                    },
+                },
+                PaletteTrackState::EscapeIntermediate => match palette_c1_transition(byte) {
+                    Some(state) => state,
+                    None => match byte {
+                        0x18 | 0x1a => PaletteTrackState::Ground,
+                        0x1b => PaletteTrackState::Escape,
+                        0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => {
+                            PaletteTrackState::EscapeIntermediate
+                        }
+                        0x20..=0x2f => PaletteTrackState::EscapeIntermediate,
+                        _ => PaletteTrackState::Ground,
+                    },
+                },
+                PaletteTrackState::Osc(mut osc) => match byte {
+                    0x07 | 0x18 | 0x1a => {
+                        self.commit_osc(osc);
+                        PaletteTrackState::Ground
+                    }
+                    0..=0x06 | 0x08..=0x17 | 0x19 | 0x1c..=0x1f => PaletteTrackState::Osc(osc),
+                    0x1b => {
+                        // Ghostty dispatches OSC on the ESC byte that begins
+                        // ST, before the trailing `\\` arrives.
+                        self.commit_osc(osc);
+                        PaletteTrackState::Escape
+                    }
+                    _ => {
+                        // Ghostty's OSC-specific 0x20...0xff parse-table row
+                        // overrides the generic C1 transitions. Raw C1 bytes
+                        // are OSC payload here, unlike in DCS/APC/CSI states.
+                        osc.feed(byte);
+                        PaletteTrackState::Osc(osc)
+                    }
+                },
+                PaletteTrackState::String { bell_terminated } => {
+                    match palette_c1_transition(byte) {
+                        Some(state) => state,
+                        None => match byte {
+                            0x07 if bell_terminated => PaletteTrackState::Ground,
+                            0x18 | 0x1a => PaletteTrackState::Ground,
+                            0x1b => PaletteTrackState::Escape,
+                            _ => PaletteTrackState::String { bell_terminated },
+                        },
+                    }
+                }
+                PaletteTrackState::Csi => match palette_c1_transition(byte) {
+                    Some(state) => state,
+                    None => match byte {
+                        0x18 | 0x1a => PaletteTrackState::Ground,
+                        0x1b => PaletteTrackState::Escape,
+                        0x40..=0x7e => PaletteTrackState::Ground,
+                        _ => PaletteTrackState::Csi,
+                    },
+                },
+            };
+        }
+    }
+
+    fn commit_osc(&mut self, osc: PaletteOsc) {
+        if osc.commit(&mut self.active) {
+            self.revision = self.revision.wrapping_add(1);
+        }
+    }
+}
+
+/// Ghostty's generic C1 transitions for parser states whose state-specific
+/// table does not override them. Raw C1 bytes only reach this tracker after an
+/// escape-initiated state; ground-state bytes pass through the UTF-8 decoder.
+fn palette_c1_transition(byte: u8) -> Option<PaletteTrackState> {
+    match byte {
+        0x80..=0x8f | 0x91..=0x97 | 0x99 | 0x9a | 0x9c => Some(PaletteTrackState::Ground),
+        0x90 | 0x98 | 0x9e | 0x9f => Some(PaletteTrackState::String { bell_terminated: false }),
+        0x9b => Some(PaletteTrackState::Csi),
+        0x9d => Some(PaletteTrackState::Osc(PaletteOsc::default())),
+        _ => None,
+    }
+}
+
+impl PaletteOsc {
+    fn feed(&mut self, byte: u8) {
+        match self {
+            Self::Operation { bytes, len, invalid } => {
+                if byte == b';' {
+                    let mode = if *invalid {
+                        None
+                    } else {
+                        match &bytes[..usize::from(*len)] {
+                            b"4" => Some(PaletteOscMode::SetIndex),
+                            b"104" => Some(PaletteOscMode::Reset),
+                            b"21" => Some(PaletteOscMode::Kitty),
+                            _ => None,
+                        }
+                    };
+                    *self = mode
+                        .map(|mode| Self::Palette(Box::new(PaletteCommand::new(mode))))
+                        .unwrap_or(Self::Ignore);
+                } else if usize::from(*len) < bytes.len() {
+                    bytes[usize::from(*len)] = byte;
+                    *len += 1;
+                } else {
+                    *invalid = true;
+                }
+            }
+            Self::Palette(command) => command.feed(byte),
+            Self::Ignore => {}
+        }
+    }
+
+    fn commit(self, active: &mut [bool; 256]) -> bool {
+        match self {
+            Self::Operation { bytes, len, invalid: false }
+                if &bytes[..usize::from(len)] == b"104" =>
+            {
+                active.fill(false);
+                true
+            }
+            Self::Palette(command) => command.commit(active),
+            Self::Operation { .. } | Self::Ignore => false,
+        }
+    }
+}
+
+impl PaletteCommand {
+    fn feed(&mut self, byte: u8) {
+        if self.stopped {
+            return;
+        }
+        if self.captured == Self::MAX_CAPTURE_BYTES {
+            self.stopped = true;
+            self.overflowed = true;
+            self.token_len = 0;
+            return;
+        }
+        self.captured += 1;
+        if byte == b';' {
+            self.finish_token();
+        } else {
+            self.token[self.token_len] = byte;
+            self.token_len += 1;
+        }
+    }
+
+    fn finish_token(&mut self) {
+        if self.stopped {
+            self.token_len = 0;
+            return;
+        }
+        let token = &self.token[..self.token_len];
+        if matches!(self.mode, PaletteOscMode::Kitty) && self.kitty_request_count >= 526 {
+            self.stopped = true;
+            self.overflowed = true;
+            self.token_len = 0;
+            return;
+        }
+        // Ghostty tokenizes OSC color arguments with `tokenizeScalar`, which
+        // skips empty parameters without advancing the index/color pairing.
+        if token.is_empty() {
+            return;
+        }
+        self.mode = match std::mem::take(&mut self.mode) {
+            PaletteOscMode::SetIndex => {
+                let target = Self::parse_target(token);
+                if matches!(target, PaletteTarget::Invalid) {
+                    self.stopped = true;
+                }
+                PaletteOscMode::SetColor(target)
+            }
+            PaletteOscMode::SetColor(target) => {
+                if token != b"?" {
+                    let valid = std::str::from_utf8(token).ok().and_then(parse_color).is_some();
+                    if valid {
+                        self.color_changed = true;
+                        if let PaletteTarget::Palette(index) = target {
+                            self.pending[index as usize] = 1;
+                        }
+                    } else {
+                        self.stopped = true;
+                    }
+                }
+                PaletteOscMode::SetIndex
+            }
+            PaletteOscMode::Reset => {
+                if !token.is_empty() {
+                    match Self::parse_target(token) {
+                        PaletteTarget::Palette(index) => {
+                            self.color_changed = true;
+                            self.pending[index as usize] = 2;
+                            self.request_count += 1;
+                        }
+                        PaletteTarget::Special => {
+                            self.color_changed = true;
+                            self.request_count += 1;
+                        }
+                        PaletteTarget::Invalid => {}
+                    }
+                }
+                PaletteOscMode::Reset
+            }
+            PaletteOscMode::Kitty => {
+                let separator = token.iter().position(|byte| *byte == b'=').unwrap_or(token.len());
+                let key = &token[..separator];
+                let value = token.get(separator + 1..).unwrap_or_default();
+                let key = std::str::from_utf8(key).unwrap_or_default();
+                let index = parse_zig_decimal(key.as_bytes(), u8::MAX.into(), false)
+                    .map(|value| value as u8);
+                let recognized = index.is_some()
+                    || matches!(
+                        key,
+                        "foreground"
+                            | "background"
+                            | "selection_foreground"
+                            | "selection_background"
+                            | "cursor"
+                            | "cursor_text"
+                            | "visual_bell"
+                            | "second_transparent_background"
+                    );
+                let value = std::str::from_utf8(trim_ascii_spaces(value)).ok();
+                let accepted = recognized
+                    && value.is_some_and(|value| {
+                        value.is_empty() || value == "?" || parse_color(value).is_some()
+                    });
+                if accepted {
+                    let value = value.expect("accepted Kitty color value must be valid UTF-8");
+                    self.kitty_request_count += 1;
+                    self.color_changed |= value != "?";
+                    if value.is_empty()
+                        && let Some(index) = index
+                    {
+                        self.pending[index as usize] = 2;
+                    } else if value != "?"
+                        && let Some(index) = index
+                    {
+                        self.pending[index as usize] = 1;
+                    }
+                }
+                PaletteOscMode::Kitty
+            }
+            PaletteOscMode::Ignore => PaletteOscMode::Ignore,
+        };
+        self.token_len = 0;
+    }
+
+    fn parse_target(token: &[u8]) -> PaletteTarget {
+        // Ghostty parses OSC 4/104 indices with Zig's `parseInt(u9, ..., 10)`,
+        // including its sign and underscore grammar.
+        let Some(value) = parse_zig_decimal(token, 0x1ff, true) else {
+            return PaletteTarget::Invalid;
+        };
+        match value {
+            0..=255 => PaletteTarget::Palette(value as u8),
+            256..=260 => PaletteTarget::Special,
+            _ => PaletteTarget::Invalid,
+        }
+    }
+
+    fn commit(mut self: Box<Self>, active: &mut [bool; 256]) -> bool {
+        if self.overflowed {
+            return false;
+        }
+        self.finish_token();
+        if self.overflowed {
+            return false;
+        }
+        if matches!(self.mode, PaletteOscMode::Reset) && self.request_count == 0 {
+            active.fill(false);
+            return true;
+        }
+        for (active, pending) in active.iter_mut().zip(self.pending) {
+            match pending {
+                1 => *active = true,
+                2 => *active = false,
+                _ => {}
+            }
+        }
+        self.color_changed
+    }
+}
+
+/// Match Zig's decimal `parseInt`/`parseUnsigned` grammar used by Ghostty's
+/// OSC color parsers without allocating a normalized copy of the token.
+fn parse_zig_decimal(bytes: &[u8], max: u16, allow_sign: bool) -> Option<u16> {
+    let (negative, digits) = match bytes.first().copied() {
+        Some(b'+') if allow_sign => (false, &bytes[1..]),
+        Some(b'-') if allow_sign => (true, &bytes[1..]),
+        Some(_) => (false, bytes),
+        None => return None,
+    };
+    if digits.is_empty() || digits.first() == Some(&b'_') || digits.last() == Some(&b'_') {
+        return None;
+    }
+
+    let mut value = 0_u16;
+    for byte in digits {
+        if *byte == b'_' {
+            continue;
+        }
+        let digit = u16::from(byte.checked_sub(b'0')?);
+        if digit > 9 {
+            return None;
+        }
+        value = value.checked_mul(10)?.checked_add(digit)?;
+        if value > max {
+            return None;
+        }
+    }
+    if negative && value != 0 {
+        return None;
+    }
+    Some(value)
+}
+
+fn trim_ascii_spaces(mut bytes: &[u8]) -> &[u8] {
+    while bytes.first() == Some(&b' ') {
+        bytes = &bytes[1..];
+    }
+    while bytes.last() == Some(&b' ') {
+        bytes = &bytes[..bytes.len() - 1];
+    }
+    bytes
 }
 
 // The handle is not thread-safe, but it is movable and we only expose
@@ -381,6 +845,7 @@ impl Terminal {
             mouse_mode_scan: MouseModeScan::default(),
             callbacks: Box::new(callbacks),
             cursor_override: CursorOverrideTracker::default(),
+            palette_override: Box::default(),
         };
         let userdata = &mut *term.callbacks as *mut Callbacks as *mut c_void;
         unsafe {
@@ -425,6 +890,7 @@ impl Terminal {
             self.mouse_mode_revision = self.mouse_mode_revision.wrapping_add(1);
         }
         self.cursor_override.write(data);
+        self.palette_override.write(data);
         unsafe { sys::ghostty_terminal_vt_write(self.raw, data.as_ptr(), data.len()) }
     }
 
@@ -434,10 +900,31 @@ impl Terminal {
         self.cursor_override.active
     }
 
-    /// Set host-provided default foreground/background colors.
+    /// Whether a PTY has an active OSC 4 override for this palette index.
+    pub fn palette_overridden(&self, index: u8) -> bool {
+        self.palette_override.active[index as usize]
+    }
+
+    /// Monotonic revision for PTY-authored palette or special-color changes.
+    pub fn color_revision(&self) -> u64 {
+        self.palette_override.revision
+    }
+
+    /// Monotonic revision for terminal resets that require byte frontends to
+    /// reapply the authoritative palette even when its values are unchanged.
+    pub fn color_reapply_revision(&self) -> u64 {
+        self.palette_override.reapply_revision
+    }
+
+    /// Current effective terminal palette without consuming render damage.
+    pub fn effective_palette(&self) -> Result<[Rgb; 256]> {
+        terminal_palette(self.raw, sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)
+    }
+
+    /// Set host-provided default foreground, background, and cursor colors.
     ///
     /// `None` leaves that channel unchanged.
-    pub fn set_default_colors(&mut self, fg: Option<Rgb>, bg: Option<Rgb>) {
+    pub fn set_default_colors(&mut self, fg: Option<Rgb>, bg: Option<Rgb>, cursor: Option<Rgb>) {
         unsafe {
             if let Some(fg) = fg {
                 let color = sys::GhosttyColorRgb { r: fg.r, g: fg.g, b: fg.b };
@@ -455,6 +942,35 @@ impl Terminal {
                     &color as *const sys::GhosttyColorRgb as *const c_void,
                 );
             }
+            if let Some(cursor) = cursor {
+                let color = sys::GhosttyColorRgb { r: cursor.r, g: cursor.g, b: cursor.b };
+                sys::ghostty_terminal_set(
+                    self.raw,
+                    sys::GHOSTTY_TERMINAL_OPT_COLOR_CURSOR,
+                    &color as *const sys::GhosttyColorRgb as *const c_void,
+                );
+            }
+        }
+    }
+
+    /// Set selected entries in the host-provided default palette.
+    ///
+    /// Unspecified entries use Ghostty's built-in palette. Active OSC 4
+    /// overrides remain effective; this only replaces their defaults.
+    pub fn set_default_palette(&mut self, overrides: &[Option<Rgb>; 256]) {
+        let mut palette = [sys::GhosttyColorRgb::default(); 256];
+        unsafe { sys::ghostty_color_palette_default(palette.as_mut_ptr()) };
+        for (slot, color) in palette.iter_mut().zip(overrides) {
+            if let Some(color) = color {
+                *slot = sys::GhosttyColorRgb { r: color.r, g: color.g, b: color.b };
+            }
+        }
+        unsafe {
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_COLOR_PALETTE,
+                palette.as_ptr().cast(),
+            );
         }
     }
 
@@ -497,6 +1013,13 @@ impl Terminal {
             color(sys::GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND),
             color(sys::GHOSTTY_TERMINAL_DATA_COLOR_CURSOR),
         )
+    }
+
+    /// Cursor position (column, row), zero-indexed within the active area.
+    pub fn cursor_position(&self) -> Option<(u16, u16)> {
+        let x = self.get::<u16>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_X).ok()?;
+        let y = self.get::<u16>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_Y).ok()?;
+        Some((x, y))
     }
 
     pub fn resize(
@@ -548,6 +1071,51 @@ impl Terminal {
     /// Number of scrollback rows above the viewport.
     pub fn scrollback_rows(&self) -> usize {
         self.get::<usize>(sys::GHOSTTY_TERMINAL_DATA_SCROLLBACK_ROWS).unwrap_or(0)
+    }
+
+    /// Number of retained history rows, saturated to the protocol's `u32`.
+    pub fn history_rows(&self) -> u32 {
+        u32::try_from(self.scrollback_rows()).unwrap_or(u32::MAX)
+    }
+
+    /// Read styled retained rows without moving the viewport or consuming
+    /// terminal/render damage.
+    ///
+    /// `start` is zero-based from the oldest retained row. Reads clamp at the
+    /// current history length, so an evicted or past-the-end start returns an
+    /// empty page. This uses Ghostty's read-only history-coordinate grid refs;
+    /// it never scrolls the shared viewport or updates a render state.
+    pub fn styled_history_rows(&self, start: u32, count: u16) -> Result<Vec<Vec<Cell>>> {
+        let total = self.history_rows();
+        if count == 0 || start >= total {
+            return Ok(Vec::new());
+        }
+
+        let palette = terminal_palette(self.raw, sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)?;
+        let end = start.saturating_add(u32::from(count)).min(total);
+        let cols = self.cols();
+        let mut rows = Vec::with_capacity((end - start) as usize);
+        let mut grapheme_buf = Vec::new();
+
+        for y in start..end {
+            let mut row = Vec::with_capacity(cols as usize);
+            for x in 0..cols {
+                let point = sys::GhosttyPoint {
+                    tag: sys::GHOSTTY_POINT_TAG_HISTORY,
+                    value: sys::GhosttyPointValue {
+                        coordinate: sys::GhosttyPointCoordinate { x, y },
+                    },
+                };
+                let mut grid_ref = sys::GhosttyGridRef {
+                    size: size_of::<sys::GhosttyGridRef>(),
+                    ..Default::default()
+                };
+                check(unsafe { sys::ghostty_terminal_grid_ref(self.raw, point, &mut grid_ref) })?;
+                row.push(read_grid_ref_cell(&grid_ref, &palette, &mut grapheme_buf)?);
+            }
+            rows.push(row);
+        }
+        Ok(rows)
     }
 
     /// Terminal title as set by OSC 0/2, if any.
@@ -807,7 +1375,12 @@ impl Terminal {
         &mut self,
         selection: Option<&sys::GhosttySelection>,
     ) -> Result<Vec<u8>> {
-        self.format(Self::vt_replay_options(selection))
+        let suffix = self.cursor_position_escape();
+        let mut replay = self.format(Self::vt_replay_options(selection))?;
+        if let Some(suffix) = suffix {
+            replay.extend_from_slice(&suffix);
+        }
+        Ok(replay)
     }
 
     fn vt_replay_with_selection_bounded(
@@ -815,7 +1388,22 @@ impl Terminal {
         selection: Option<&sys::GhosttySelection>,
         max_bytes: usize,
     ) -> Result<Option<Vec<u8>>> {
-        self.format_bounded(Self::vt_replay_options(selection), max_bytes)
+        let suffix = self.cursor_position_escape().unwrap_or_default();
+        let Some(format_max_bytes) = max_bytes.checked_sub(suffix.len()) else {
+            return Ok(None);
+        };
+        let Some(mut replay) =
+            self.format_bounded(Self::vt_replay_options(selection), format_max_bytes)?
+        else {
+            return Ok(None);
+        };
+        replay.extend_from_slice(&suffix);
+        Ok(Some(replay))
+    }
+
+    fn cursor_position_escape(&self) -> Option<Vec<u8>> {
+        let (x, y) = self.cursor_position()?;
+        Some(format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(x) + 1).into_bytes())
     }
 
     fn vt_replay_options(
@@ -958,7 +1546,12 @@ impl Drop for Terminal {
 
 #[cfg(test)]
 mod tests {
-    use super::{Callbacks, MouseModeScan, Terminal, vt_replay_row_window};
+    use super::{Callbacks, MouseModeScan, PaletteOsc, Terminal, vt_replay_row_window};
+
+    #[test]
+    fn unrelated_osc_tracking_keeps_palette_state_out_of_line() {
+        assert!(size_of::<PaletteOsc>() <= 16);
+    }
 
     #[test]
     fn mouse_mode_scan_tracks_split_private_mode_sequences() {

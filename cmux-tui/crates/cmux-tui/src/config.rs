@@ -97,9 +97,10 @@
 //! keys.
 
 use std::collections::HashMap;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::BrowserMode;
 use cmux_tui_core::SidebarPluginOptions;
@@ -232,6 +233,9 @@ pub struct ChromeTheme {
     pub browser_message_fg: Color,
     pub scrollbar_thumb_fg: Color,
     pub scrollbar_thumb_active_fg: Color,
+    pub foreign_viewport_bg: Color,
+    pub foreign_viewport_boundary_fg: Color,
+    pub foreign_viewport_hint_fg: Color,
 }
 
 impl ChromeTheme {
@@ -284,6 +288,9 @@ impl ChromeTheme {
             browser_message_fg: Color::Indexed(244),
             scrollbar_thumb_fg: Color::Indexed(246),
             scrollbar_thumb_active_fg: Color::Indexed(252),
+            foreign_viewport_bg: Color::Indexed(235),
+            foreign_viewport_boundary_fg: Color::Indexed(240),
+            foreign_viewport_hint_fg: Color::Indexed(244),
         }
     }
 
@@ -336,6 +343,9 @@ impl ChromeTheme {
             browser_message_fg: Color::Indexed(242),
             scrollbar_thumb_fg: Color::Indexed(246),
             scrollbar_thumb_active_fg: Color::Indexed(240),
+            foreign_viewport_bg: Color::Indexed(250),
+            foreign_viewport_boundary_fg: Color::Indexed(246),
+            foreign_viewport_hint_fg: Color::Indexed(242),
         }
     }
 
@@ -988,6 +998,7 @@ fn parse_chord(s: &str) -> Option<Chord> {
 pub struct Config {
     pub theme: Theme,
     pub theme_overrides: ThemeOverrides,
+    pub terminal_defaults: DefaultColors,
     pub cursor_style: Option<CursorShape>,
     pub cursor_blink: Option<bool>,
     pub chrome: ChromeMode,
@@ -1034,18 +1045,19 @@ pub struct SidebarPluginConfig {
 pub fn load() -> Config {
     let mut config = Config::default();
 
-    if let Some(defaults) = ghostty_defaults() {
-        if let Some(bg) = defaults.selection_bg {
-            config.theme.selection_bg = bg;
-            config.theme_overrides.selection = true;
-        }
-        if defaults.selection_fg.is_some() {
-            config.theme_overrides.selection = true;
-        }
-        config.theme.selection_fg = defaults.selection_fg;
-        config.cursor_style = defaults.cursor_style;
-        config.cursor_blink = defaults.cursor_blink;
+    let defaults = ghostty_defaults();
+    config.terminal_defaults = defaults;
+    if let Some(bg) = defaults.selection_bg {
+        config.theme.selection_bg = Color::Rgb(bg.r, bg.g, bg.b);
+        config.theme_overrides.selection = true;
     }
+    if defaults.selection_fg.is_some() {
+        config.theme_overrides.selection = true;
+    }
+    config.theme.selection_fg =
+        defaults.selection_fg.map(|color| Color::Rgb(color.r, color.g, color.b));
+    config.cursor_style = defaults.cursor_style;
+    config.cursor_blink = defaults.cursor_blink;
 
     let raw = load_raw_config();
     let t = &raw.theme;
@@ -1338,44 +1350,202 @@ fn parse_color(s: &str) -> Option<Color> {
     s.parse::<u8>().ok().map(Color::Indexed)
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct GhosttyDefaults {
-    selection_bg: Option<Color>,
-    selection_fg: Option<Color>,
-    cursor_style: Option<CursorShape>,
-    cursor_blink: Option<bool>,
+/// The user's relevant Ghostty settings with Ghostty's application defaults
+/// resolved for values that the low-level terminal otherwise leaves unset.
+fn ghostty_defaults() -> DefaultColors {
+    let parsed = resolved_ghostty_defaults()
+        .or_else(|| {
+            let text = platform::ghostty_config_paths()
+                .iter()
+                .find_map(|path| std::fs::read_to_string(path).ok())?;
+            Some(parse_ghostty_defaults(&text))
+        })
+        .unwrap_or_default();
+    resolve_ghostty_application_defaults(parsed)
 }
 
-/// The user's relevant Ghostty defaults, if a Ghostty config exists.
-fn ghostty_defaults() -> Option<GhosttyDefaults> {
-    let text =
-        platform::ghostty_config_paths().iter().find_map(|p| std::fs::read_to_string(p).ok())?;
-    Some(parse_ghostty_defaults(&text))
+fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultColors {
+    defaults.cursor_style.get_or_insert(CursorShape::Block);
+    defaults.cursor_blink.get_or_insert(true);
+    defaults
+}
+
+/// Ask Ghostty to resolve its configuration so cmux-tui inherits precisely the
+/// same theme-loading behavior as the graphical terminal. A failed or slow
+/// invocation is deliberately ignored; startup then uses the file fallback.
+fn resolved_ghostty_defaults() -> Option<DefaultColors> {
+    platform::ghostty_binary_paths()
+        .iter()
+        .find_map(|path| run_ghostty_show_config(path))
+        .map(|text| parse_resolved_ghostty_defaults(&text))
+}
+
+fn run_ghostty_show_config(path: &Path) -> Option<String> {
+    let mut child = Command::new(path)
+        .args(["+show-config", "--no-pager"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let status = loop {
+        match child.try_wait().ok()? {
+            Some(status) => break status,
+            None if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            None => std::thread::sleep(Duration::from_millis(10)),
+        }
+    };
+    if !status.success() {
+        return None;
+    }
+
+    let mut output = String::new();
+    child.stdout.take()?.read_to_string(&mut output).ok()?;
+    Some(output)
 }
 
 /// Parse the subset of Ghostty's `key = value` config used by cmux-tui.
-/// Later entries win, including invalid later entries clearing a value.
-fn parse_ghostty_defaults(text: &str) -> GhosttyDefaults {
-    let mut defaults = GhosttyDefaults::default();
+///
+/// When the Ghostty executable is unavailable, a theme is only accepted if
+/// its file can be read. This preserves Ghostty's fail-soft behavior: a
+/// later theme entries are ignored, matching Ghostty's first-theme-wins
+/// behavior.
+pub(crate) fn parse_ghostty_defaults(text: &str) -> DefaultColors {
+    parse_ghostty_defaults_with_theme_dirs(text, &platform::ghostty_theme_dirs())
+}
+
+fn parse_ghostty_defaults_with_theme_dirs(text: &str, theme_dirs: &[PathBuf]) -> DefaultColors {
+    let mut overrides = DefaultColors::default();
+    let mut theme = None;
     for line in text.lines() {
         let line = line.trim();
         let Some((key, value)) = line.split_once('=') else { continue };
-        match key.trim() {
-            "selection-background" => defaults.selection_bg = parse_color(value.trim()),
-            "selection-foreground" => defaults.selection_fg = parse_color(value.trim()),
-            "cursor-style" => {
-                defaults.cursor_style = match value.trim() {
-                    "block" => Some(CursorShape::Block),
-                    "underline" => Some(CursorShape::Underline),
-                    "bar" => Some(CursorShape::Bar),
-                    _ => None,
-                }
+        if key.trim() == "theme" {
+            if theme.is_none()
+                && let Some(theme_defaults) = load_ghostty_theme(value.trim(), theme_dirs)
+            {
+                theme = Some(theme_defaults);
             }
-            "cursor-style-blink" => defaults.cursor_blink = value.trim().parse::<bool>().ok(),
-            _ => {}
+        } else {
+            apply_ghostty_default(&mut overrides, key.trim(), value.trim());
         }
     }
+
+    let mut defaults = theme.unwrap_or_default();
+    overlay_ghostty_defaults(&mut defaults, overrides);
     defaults
+}
+
+/// Parse the fully resolved `ghostty +show-config` output. Theme lines are
+/// intentionally ignored because the output already contains their resolved
+/// color and cursor settings.
+fn parse_resolved_ghostty_defaults(text: &str) -> DefaultColors {
+    let mut defaults = DefaultColors::default();
+    for line in text.lines() {
+        let line = line.trim();
+        let Some((key, value)) = line.split_once('=') else { continue };
+        apply_ghostty_default(&mut defaults, key.trim(), value.trim());
+    }
+    defaults
+}
+
+fn apply_ghostty_default(defaults: &mut DefaultColors, key: &str, value: &str) {
+    let value = value.strip_prefix('"').and_then(|value| value.strip_suffix('"')).unwrap_or(value);
+    match key {
+        "foreground" => {
+            if let Some(color) = ghostty_vt::parse_color(value) {
+                defaults.fg = Some(color);
+            }
+        }
+        "background" => {
+            if let Some(color) = ghostty_vt::parse_color(value) {
+                defaults.bg = Some(color);
+            }
+        }
+        "cursor-color" => {
+            if let Some(color) = ghostty_vt::parse_color(value) {
+                defaults.cursor = Some(color);
+            }
+        }
+        "selection-background" => {
+            if let Some(color) = ghostty_vt::parse_color(value) {
+                defaults.selection_bg = Some(color);
+            }
+        }
+        "selection-foreground" => {
+            if let Some(color) = ghostty_vt::parse_color(value) {
+                defaults.selection_fg = Some(color);
+            }
+        }
+        "cursor-style" => {
+            let style = match value {
+                "block" => Some(CursorShape::Block),
+                "underline" => Some(CursorShape::Underline),
+                "bar" => Some(CursorShape::Bar),
+                _ => None,
+            };
+            if style.is_some() {
+                defaults.cursor_style = style;
+            }
+        }
+        "cursor-style-blink" => {
+            if let Ok(blink) = value.parse::<bool>() {
+                defaults.cursor_blink = Some(blink);
+            }
+        }
+        "palette" => {
+            if let Some((index, color)) = ghostty_vt::parse_palette_entry(value) {
+                defaults.palette[index as usize] = Some(color);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn load_ghostty_theme(value: &str, theme_dirs: &[PathBuf]) -> Option<DefaultColors> {
+    let theme = value.trim_matches('"');
+    let path = if Path::new(theme).is_absolute() {
+        PathBuf::from(theme)
+    } else if Path::new(theme).file_name().is_some_and(|name| name == theme) {
+        theme_dirs.iter().map(|dir| dir.join(theme)).find(|path| path.is_file())?
+    } else {
+        return None;
+    };
+    let text = std::fs::read_to_string(path).ok()?;
+    Some(parse_resolved_ghostty_defaults(&text))
+}
+
+fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColors) {
+    if overrides.fg.is_some() {
+        defaults.fg = overrides.fg;
+    }
+    if overrides.bg.is_some() {
+        defaults.bg = overrides.bg;
+    }
+    if overrides.cursor.is_some() {
+        defaults.cursor = overrides.cursor;
+    }
+    if overrides.selection_bg.is_some() {
+        defaults.selection_bg = overrides.selection_bg;
+    }
+    if overrides.selection_fg.is_some() {
+        defaults.selection_fg = overrides.selection_fg;
+    }
+    if overrides.cursor_style.is_some() {
+        defaults.cursor_style = overrides.cursor_style;
+    }
+    if overrides.cursor_blink.is_some() {
+        defaults.cursor_blink = overrides.cursor_blink;
+    }
+    for (default, override_) in defaults.palette.iter_mut().zip(overrides.palette) {
+        if override_.is_some() {
+            *default = override_;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1422,8 +1592,175 @@ mod tests {
              cursor-style = beam\n\
              cursor-style-blink = sometimes\n",
         );
-        assert_eq!(invalid.cursor_style, None);
-        assert_eq!(invalid.cursor_blink, None);
+        assert_eq!(invalid.cursor_style, Some(CursorShape::Underline));
+        assert_eq!(invalid.cursor_blink, Some(true));
+
+        let quoted = parse_ghostty_defaults(
+            "cursor-style = \"bar\"\n\
+             cursor-style-blink = \"false\"\n",
+        );
+        assert_eq!(quoted.cursor_style, Some(CursorShape::Bar));
+        assert_eq!(quoted.cursor_blink, Some(false));
+    }
+
+    #[test]
+    fn parses_ghostty_terminal_colors_and_palette_with_later_valid_entry_wins() {
+        let defaults = parse_ghostty_defaults(
+            "foreground = #010203\n\
+             background = 131415\n\
+             selection-background = #223344\n\
+             selection-foreground = GhostWhite\n\
+             palette = 1=#112233\n\
+             palette = 15=#abcdef\n\
+             palette = 1=#445566\n\
+             palette = 1=not-a-color\n\
+             palette = 256=#ffffff\n\
+             palette = malformed\n",
+        );
+
+        assert_eq!(defaults.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }));
+        assert_eq!(defaults.selection_bg, Some(Rgb { r: 0x22, g: 0x33, b: 0x44 }));
+        assert_eq!(defaults.selection_fg, Some(Rgb { r: 0xf8, g: 0xf8, b: 0xff }));
+        assert_eq!(defaults.palette[1], Some(Rgb { r: 0x44, g: 0x55, b: 0x66 }));
+        assert_eq!(defaults.palette[15], Some(Rgb { r: 0xab, g: 0xcd, b: 0xef }));
+        assert!(defaults.palette[2..15].iter().all(Option::is_none));
+        assert!(defaults.palette[16..].iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn parses_resolved_ghostty_show_config_output() {
+        let defaults = parse_resolved_ghostty_defaults(
+            "# Ghostty resolved configuration\n\
+             theme = \"Monokai Classic\"\n\
+             background = #272822\n\
+             foreground = #fdfff1\n\
+             selection-background = #57584f\n\
+             selection-foreground = #fdfff1\n\
+             cursor-color = #c0c1b5\n\
+             cursor-style = bar\n\
+             cursor-style-blink = false\n\
+             palette = 0=#272822\n\
+             palette = 1=#f92672\n\
+             palette = 15=#fdfff1\n",
+        );
+
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
+        assert_eq!(defaults.fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+        assert_eq!(defaults.selection_bg, Some(Rgb { r: 0x57, g: 0x58, b: 0x4f }));
+        assert_eq!(defaults.selection_fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+        assert_eq!(defaults.cursor, Some(Rgb { r: 0xc0, g: 0xc1, b: 0xb5 }));
+        assert_eq!(defaults.cursor_style, Some(CursorShape::Bar));
+        assert_eq!(defaults.cursor_blink, Some(false));
+        assert_eq!(defaults.palette[0], Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
+        assert_eq!(defaults.palette[1], Some(Rgb { r: 0xf9, g: 0x26, b: 0x72 }));
+        assert_eq!(defaults.palette[15], Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+    }
+
+    #[test]
+    fn fallback_theme_selection_matches_ghostty_first_theme_wins() {
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-theme-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("Monokai Classic"),
+            "background = #272822\nforeground = #fdfff1\npalette = 1=#f92672\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("Aizen Light"),
+            "background = #f0f2f6\nforeground = #1f2329\npalette = 1=#cc3768\n",
+        )
+        .unwrap();
+
+        let defaults = parse_ghostty_defaults_with_theme_dirs(
+            "theme = \"Monokai Classic\"\ntheme = \"Aizen Light\"\n",
+            std::slice::from_ref(&dir),
+        );
+
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
+        assert_eq!(defaults.fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+        assert_eq!(defaults.palette[1], Some(Rgb { r: 0xf9, g: 0x26, b: 0x72 }));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn injected_ghostty_defaults_drive_headless_render_state() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::time::Duration;
+
+        use cmux_tui_core::platform::transport;
+        use cmux_tui_core::{Mux, SurfaceOptions, server};
+
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let defaults = parse_ghostty_defaults(
+            "foreground = #010203\n\
+             background = #131415\n\
+             selection-background = #223344\n\
+             selection-foreground = #fefefe\n\
+             cursor-color = #c0c1b5\n\
+             cursor-style = bar\n\
+             cursor-style-blink = false\n\
+             palette = 1=#445566\n",
+        );
+        let session = format!(
+            "headless-config-test-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        );
+        let mux = Mux::new(
+            session,
+            SurfaceOptions { command: Some(vec!["/bin/cat".to_string()]), ..Default::default() },
+        );
+        mux.set_default_colors(defaults);
+        let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+        surface.try_with_terminal(|term| term.vt_write(b"\x1b[31mR")).unwrap();
+        // Re-applying through the mux exercises the existing-surface path and
+        // publishes a fresh immutable render frame for the protocol server.
+        mux.set_default_colors(defaults);
+
+        let socket = server::serve(mux.clone(), None).unwrap();
+        let stream = transport::connect(&socket).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut writer = stream.try_clone_box().unwrap();
+        let mut reader = BufReader::new(stream);
+        writeln!(
+            writer,
+            r#"{{"id":1,"cmd":"attach-surface","surface":{},"mode":"render"}}"#,
+            surface.id
+        )
+        .unwrap();
+
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let state: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(state["event"], "render-state");
+        assert_eq!(state["default_fg"], "#010203");
+        assert_eq!(state["default_bg"], "#131415");
+        assert_eq!(state["cursor"]["color"], "#c0c1b5");
+        assert_eq!(state["cursor"]["style"], "bar");
+        assert_eq!(state["cursor"]["blink"], false);
+        let red_run = state["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|row| row["runs"].as_array().into_iter().flatten())
+            .find(|run| run["text"].as_str().is_some_and(|text| text.contains('R')))
+            .expect("configured palette run");
+        assert_eq!(red_run["fg"], "#445566");
+
+        let colors = surface.attach_stream().unwrap().colors;
+        assert_eq!(colors.selection_bg, Some(Rgb { r: 0x22, g: 0x33, b: 0x44 }));
+        assert_eq!(colors.selection_fg, Some(Rgb { r: 0xfe, g: 0xfe, b: 0xfe }));
+
+        mux.close_surface(surface.id);
+        mux.shutdown();
+        server::cleanup(&socket);
     }
 
     #[test]
@@ -1495,8 +1832,11 @@ mod tests {
         std::fs::create_dir_all(&ghostty_dir).unwrap();
         std::fs::write(
             ghostty_dir.join("config"),
-            "selection-background = #445566\n\
+            "foreground = #010203\n\
+             background = #131415\n\
+             selection-background = #445566\n\
              selection-foreground = #abcdef\n\
+             palette = 1=#778899\n\
              cursor-style = bar\n\
              cursor-style-blink = false\n",
         )
@@ -1517,6 +1857,34 @@ mod tests {
         assert_eq!(config.theme.selection_fg, Some(Color::Rgb(0xab, 0xcd, 0xef)));
         assert_eq!(config.cursor_style, Some(CursorShape::Bar));
         assert_eq!(config.cursor_blink, Some(false));
+        assert_eq!(config.terminal_defaults.fg, Some(Rgb { r: 1, g: 2, b: 3 }));
+        assert_eq!(config.terminal_defaults.bg, Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }));
+        assert_eq!(config.terminal_defaults.palette[1], Some(Rgb { r: 0x77, g: 0x88, b: 0x99 }));
+    }
+
+    #[test]
+    fn omitted_ghostty_cursor_blink_resolves_to_blinking() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let old_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
+        let dir =
+            std::env::temp_dir().join(format!("mux-ghostty-cursor-default-{}", std::process::id()));
+        let ghostty_dir = dir.join("ghostty");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        std::fs::write(ghostty_dir.join("config"), "cursor-style = \"bar\"\n").unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", &dir) };
+
+        let config = load();
+
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        restore_env_var("XDG_CONFIG_HOME", old_xdg_config_home);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(config.terminal_defaults.cursor_style, Some(CursorShape::Bar));
+        assert_eq!(config.terminal_defaults.cursor_blink, Some(true));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 {
   "name": "cmux",
-  "version": "0.1.2",
+  "version": "0.3.0",
   "description": "Typed TypeScript client for cmux-tui frontends",
   "repository": {
     "type": "git",
