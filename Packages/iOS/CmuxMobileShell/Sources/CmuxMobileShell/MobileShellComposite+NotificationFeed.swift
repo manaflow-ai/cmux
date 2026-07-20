@@ -135,9 +135,46 @@ extension MobileShellComposite {
         }
     }
 
+    /// Starts a cancellable feed-open operation owned by the shell store.
+    ///
+    /// The operation remains cancellable until it commits navigation. Once navigation
+    /// is committed, ownership is released so the accompanying read mutation may
+    /// finish even though the feed view disappears.
+    public func requestOpenNotificationFeedItem(_ item: MobileNotificationFeedItem) {
+        cancelPendingNotificationFeedOpen()
+        let token = UUID()
+        notificationFeedOpenToken = token
+        notificationFeedOpenTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.openNotificationFeedItem(item, operationToken: token)
+        }
+    }
+
+    /// Cancels a feed open that has not committed navigation yet.
+    ///
+    /// - Returns: The cancelled task so tests or lifecycle owners can await its exit.
+    @discardableResult
+    public func cancelPendingNotificationFeedOpen() -> Task<Void, Never>? {
+        guard notificationFeedOpenToken != nil else { return nil }
+        let task = notificationFeedOpenTask
+        notificationFeedOpenToken = nil
+        notificationFeedOpenTask = nil
+        task?.cancel()
+        _ = cancelPendingMacSwitch(restorePreviousOnCancel: true)
+        return task
+    }
+
     /// Opens a feed item in its current destination workspace and pane, then marks it read.
     /// - Parameter item: The immutable feed item selected by the user.
     public func openNotificationFeedItem(_ item: MobileNotificationFeedItem) async {
+        await openNotificationFeedItem(item, operationToken: nil)
+    }
+
+    private func openNotificationFeedItem(
+        _ item: MobileNotificationFeedItem,
+        operationToken: UUID?
+    ) async {
+        defer { finishNotificationFeedOpenOperation(operationToken) }
         if item.macDeviceID != normalizedForegroundNotificationFeedMacID() {
             guard await switchToMac(macDeviceID: item.macDeviceID) else { return }
         }
@@ -145,21 +182,22 @@ extension MobileShellComposite {
             matchingRemoteWorkspaceID: item.remoteWorkspaceID,
             macDeviceID: item.macDeviceID
         )
-        let liveSurfaceOwnerID: MobileWorkspacePreview.ID?
+        let targetWorkspaceID: MobileWorkspacePreview.ID?
         if item.retargetsToLiveSurfaceOwner, let surfaceID = item.remoteSurfaceID {
-            liveSurfaceOwnerID = workspaceID(
+            targetWorkspaceID = workspaceID(
                 containingSurfaceID: surfaceID,
                 macDeviceID: item.macDeviceID
             )
         } else {
-            liveSurfaceOwnerID = nil
+            targetWorkspaceID = capturedWorkspaceID
         }
-        guard let workspaceID = liveSurfaceOwnerID ?? capturedWorkspaceID else {
+        guard let workspaceID = targetWorkspaceID else {
             notificationFeedLog.error(
                 "open target unavailable mac=\(item.macDeviceID, privacy: .public) notification=\(item.notificationID, privacy: .public)"
             )
             return
         }
+        guard commitNotificationFeedOpenOperation(operationToken) else { return }
 
         navigateToWorkspaceForDeeplink(workspaceID, origin: .notificationFeed)
         if let surfaceID = item.remoteSurfaceID,
@@ -223,6 +261,7 @@ extension MobileShellComposite {
 
     /// Cancels all feed work and removes account-scoped notification content.
     func resetNotificationFeed() {
+        cancelPendingNotificationFeedOpen()
         for task in notificationFeedRefreshTasksByMac.values {
             task.cancel()
         }
@@ -234,6 +273,20 @@ extension MobileShellComposite {
         notificationFeedSnapshotsByMac = [:]
         notificationFeedItems = []
         notificationFeedStatus = .idle
+    }
+
+    private func commitNotificationFeedOpenOperation(_ token: UUID?) -> Bool {
+        guard let token else { return true }
+        guard notificationFeedOpenToken == token, !Task.isCancelled else { return false }
+        notificationFeedOpenToken = nil
+        notificationFeedOpenTask = nil
+        return true
+    }
+
+    private func finishNotificationFeedOpenOperation(_ token: UUID?) {
+        guard let token, notificationFeedOpenToken == token else { return }
+        notificationFeedOpenToken = nil
+        notificationFeedOpenTask = nil
     }
 
     /// Removes one forgotten Mac's content and cancels work that could restore it.

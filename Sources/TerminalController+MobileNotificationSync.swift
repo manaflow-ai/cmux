@@ -8,7 +8,7 @@ extension TerminalController {
     /// phone merges snapshots from all connected Macs into its global feed.
     func v2MobileNotificationFeedList(params _: [String: Any]) -> V2CallResult {
         let store = TerminalNotificationStore.shared
-        store.notificationFeedHistory.bootstrapIfNeeded(from: store.notifications)
+        store.notificationFeedHistory.reconcileActiveNotifications(store.notifications)
         let snapshot = store.notificationFeedHistory.snapshot
         return .ok([
             "revision": snapshot.revision,

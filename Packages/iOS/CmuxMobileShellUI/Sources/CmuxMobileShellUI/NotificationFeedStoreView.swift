@@ -16,13 +16,16 @@ struct NotificationFeedStoreView: View {
             status: status,
             actions: actions
         )
+        .onDisappear {
+            store.cancelPendingNotificationFeedOpen()
+        }
     }
 
     private var actions: NotificationFeedActions {
         let store = store
         return NotificationFeedActions(
             open: { item in
-                Task { await store.openNotificationFeedItem(item) }
+                store.requestOpenNotificationFeedItem(item)
             },
             markRead: { item in
                 Task { await store.markNotificationFeedItemRead(item) }

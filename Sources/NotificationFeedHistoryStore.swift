@@ -3,17 +3,38 @@ import Foundation
 /// Main-actor owner of the durable, chronological notification feed.
 @MainActor
 final class NotificationFeedHistoryStore {
-    static let readRetentionLimit = 1_000
+    nonisolated static let readRetentionLimit = 1_000
 
-    private(set) var revision: Int
-    private(set) var notifications: [NotificationFeedHistoryRecord]
+    private enum Mutation {
+        case record(NotificationFeedHistoryRecord, supersededIDs: Set<UUID>)
+        case reconcileActive([NotificationFeedHistoryRecord])
+        case markReadIDs(Set<UUID>)
+        case markReadWorkspace(UUID)
+        case markReadSurface(tabId: UUID, surfaceId: UUID?)
+        case markAllRead
+        case markUnreadIDs(Set<UUID>)
+        case rebindSurface(sourceTabId: UUID, destinationTabId: UUID, surfaceId: UUID)
+    }
+
+    private struct MutationResult {
+        var changed = false
+        var marked = 0
+    }
+
+    private(set) var revision = 0
+    private(set) var notifications: [NotificationFeedHistoryRecord] = []
 
     private let readRetentionLimit: Int
     private let persistence: NotificationFeedHistoryPersistence
     private let persistsToDisk: Bool
     private let onChange: (Int) -> Void
+    private var didFinishLoading = false
+    private var persistenceAllowsWrites = true
+    private var pendingMutations: [Mutation] = []
+    private var readRecordCount = 0
+
+    private var loadingTask: Task<Void, Never>?
     private var persistenceTask: Task<Void, Never>?
-    private var bootstrapActiveNotifications: Bool
 
     init(
         fileURL: URL?,
@@ -21,25 +42,22 @@ final class NotificationFeedHistoryStore {
         readRetentionLimit: Int = NotificationFeedHistoryStore.readRetentionLimit,
         onChange: @escaping (Int) -> Void = { _ in }
     ) {
-        let loaded = NotificationFeedHistoryPersistence.loadSnapshot(
-            fileURL: fileURL,
-            fileManager: fileManager
-        )
-        revision = max(0, loaded?.revision ?? 0)
-        notifications = loaded?.notifications ?? []
-        self.readRetentionLimit = max(0, readRetentionLimit)
-        persistence = NotificationFeedHistoryPersistence(
+        let resolvedReadRetentionLimit = max(0, readRetentionLimit)
+        let persistence = NotificationFeedHistoryPersistence(
             fileURL: fileURL,
             fileManager: fileManager,
-            initialRevision: revision
+            readRetentionLimit: resolvedReadRetentionLimit
         )
+        self.readRetentionLimit = resolvedReadRetentionLimit
+        self.persistence = persistence
         persistsToDisk = fileURL != nil
         self.onChange = onChange
-        bootstrapActiveNotifications = loaded?.notifications.isEmpty ?? true
-        notifications = Self.normalized(
-            notifications,
-            readRetentionLimit: self.readRetentionLimit
-        )
+
+        loadingTask = Task { [weak self, persistence] in
+            let outcome = await persistence.load()
+            guard !Task.isCancelled else { return }
+            self?.finishLoading(outcome)
+        }
     }
 
     var snapshot: NotificationFeedHistorySnapshot {
@@ -51,95 +69,53 @@ final class NotificationFeedHistoryStore {
 
     func record(
         _ notification: TerminalNotification,
-        supersededIDs: Set<UUID>,
-        activeNotificationsForBootstrap: [TerminalNotification]
+        supersededIDs: Set<UUID>
     ) {
-        var updated = notifications
-        if bootstrapActiveNotifications {
-            Self.mergeMissing(activeNotificationsForBootstrap, into: &updated)
-            bootstrapActiveNotifications = false
-        }
-        for index in updated.indices where supersededIDs.contains(updated[index].id) {
-            updated[index].isRead = true
-        }
-        let record = NotificationFeedHistoryRecord(notification: notification)
-        if let index = updated.firstIndex(where: { $0.id == record.id }) {
-            updated[index] = record
-        } else {
-            updated.append(record)
-        }
-        commit(updated)
+        _ = commit(
+            .record(
+                NotificationFeedHistoryRecord(notification: notification),
+                supersededIDs: supersededIDs
+            )
+        )
     }
 
-    func bootstrapIfNeeded(from activeNotifications: [TerminalNotification]) {
-        guard bootstrapActiveNotifications, !activeNotifications.isEmpty else { return }
-        var updated = notifications
-        Self.mergeMissing(activeNotifications, into: &updated)
-        bootstrapActiveNotifications = false
-        commit(updated)
+    /// Idempotently folds the authoritative active-notification state into
+    /// durable history. Existing historical rows remain unchanged; only missing
+    /// UUIDs are inserted.
+    func reconcileActiveNotifications(_ activeNotifications: [TerminalNotification]) {
+        guard !activeNotifications.isEmpty else { return }
+        _ = commit(
+            .reconcileActive(
+                activeNotifications.map(NotificationFeedHistoryRecord.init(notification:))
+            )
+        )
     }
 
     @discardableResult
     func markRead(ids: Set<UUID>) -> Int {
         guard !ids.isEmpty else { return 0 }
-        var updated = notifications
-        var marked = 0
-        for index in updated.indices where ids.contains(updated[index].id) && !updated[index].isRead {
-            updated[index].isRead = true
-            marked += 1
-        }
-        commit(updated)
-        return marked
+        return commit(.markReadIDs(ids)).marked
     }
 
     @discardableResult
     func markRead(inWorkspace tabId: UUID) -> Int {
-        var updated = notifications
-        var marked = 0
-        for index in updated.indices where updated[index].tabId == tabId && !updated[index].isRead {
-            updated[index].isRead = true
-            marked += 1
-        }
-        commit(updated)
-        return marked
+        commit(.markReadWorkspace(tabId)).marked
     }
 
     @discardableResult
     func markRead(inWorkspace tabId: UUID, surfaceId: UUID?) -> Int {
-        var updated = notifications
-        var marked = 0
-        for index in updated.indices
-        where updated[index].matches(tabId: tabId, surfaceId: surfaceId) && !updated[index].isRead {
-            updated[index].isRead = true
-            marked += 1
-        }
-        commit(updated)
-        return marked
+        commit(.markReadSurface(tabId: tabId, surfaceId: surfaceId)).marked
     }
 
     @discardableResult
     func markAllRead() -> Int {
-        var updated = notifications
-        var marked = 0
-        for index in updated.indices where !updated[index].isRead {
-            updated[index].isRead = true
-            marked += 1
-        }
-        commit(updated)
-        return marked
+        commit(.markAllRead).marked
     }
 
     @discardableResult
     func markUnread(ids: Set<UUID>) -> Int {
         guard !ids.isEmpty else { return 0 }
-        var updated = notifications
-        var marked = 0
-        for index in updated.indices where ids.contains(updated[index].id) && updated[index].isRead {
-            updated[index].isRead = false
-            marked += 1
-        }
-        commit(updated)
-        return marked
+        return commit(.markUnreadIDs(ids)).marked
     }
 
     func rebindSurface(
@@ -148,15 +124,13 @@ final class NotificationFeedHistoryStore {
         surfaceId: UUID
     ) {
         guard sourceTabId != destinationTabId else { return }
-        var updated = notifications
-        for index in updated.indices {
-            guard updated[index].retargetsToLiveSurfaceOwner,
-                  updated[index].matches(tabId: sourceTabId, surfaceId: surfaceId) else {
-                continue
-            }
-            updated[index].tabId = destinationTabId
-        }
-        commit(updated)
+        _ = commit(
+            .rebindSurface(
+                sourceTabId: sourceTabId,
+                destinationTabId: destinationTabId,
+                surfaceId: surfaceId
+            )
+        )
     }
 
     static func defaultFileURL(
@@ -191,66 +165,229 @@ final class NotificationFeedHistoryStore {
             )
     }
 
-    #if DEBUG
-    func resetForTesting(bootstrapWith activeNotifications: [TerminalNotification] = []) {
-        persistenceTask?.cancel()
-        persistenceTask = nil
-        revision = 0
-        notifications = []
-        bootstrapActiveNotifications = true
-        if !activeNotifications.isEmpty {
-            bootstrapIfNeeded(from: activeNotifications)
+    private func commit(_ mutation: Mutation) -> MutationResult {
+        if !didFinishLoading {
+            pendingMutations.append(mutation)
         }
-    }
 
-    func waitForPersistenceForTesting() async {
-        await persistenceTask?.value
-    }
-    #endif
-
-    private func commit(_ proposed: [NotificationFeedHistoryRecord]) {
-        let normalized = Self.normalized(
-            proposed,
+        let result = Self.apply(
+            mutation,
+            to: &notifications,
+            readRecordCount: &readRecordCount,
             readRetentionLimit: readRetentionLimit
         )
-        guard normalized != notifications else { return }
-        notifications = normalized
+        guard result.changed else { return result }
+
         revision += 1
-        let persistedSnapshot = snapshot
-        if persistsToDisk {
-            persistenceTask = Task { [persistence] in
-                await persistence.persist(persistedSnapshot)
-            }
+        if didFinishLoading {
+            schedulePersistence()
         }
         onChange(revision)
+        return result
     }
 
-    private static func mergeMissing(
-        _ activeNotifications: [TerminalNotification],
-        into records: inout [NotificationFeedHistoryRecord]
-    ) {
-        var knownIDs = Set(records.map(\.id))
-        for notification in activeNotifications where knownIDs.insert(notification.id).inserted {
-            records.append(NotificationFeedHistoryRecord(notification: notification))
+    private func finishLoading(_ outcome: NotificationFeedHistoryLoadOutcome) {
+        guard !didFinishLoading else { return }
+        let previousSnapshot = snapshot
+
+        var loadedRevision: Int
+        var loadedNotifications: [NotificationFeedHistoryRecord]
+        switch outcome {
+        case .loaded(let snapshot):
+            loadedRevision = snapshot.revision
+            loadedNotifications = snapshot.notifications
+        case .missing, .corrupt:
+            loadedRevision = 0
+            loadedNotifications = []
+        case .unsupportedVersion:
+            loadedRevision = 0
+            loadedNotifications = []
+            persistenceAllowsWrites = false
         }
-    }
 
-    private static func normalized(
-        _ records: [NotificationFeedHistoryRecord],
-        readRetentionLimit: Int
-    ) -> [NotificationFeedHistoryRecord] {
-        let sorted = records.sorted { lhs, rhs in
-            if lhs.createdAt != rhs.createdAt {
-                return lhs.createdAt > rhs.createdAt
+        var loadedReadRecordCount = loadedNotifications.lazy.filter(\.isRead).count
+        var replayedChanges = 0
+        for mutation in pendingMutations {
+            let result = Self.apply(
+                mutation,
+                to: &loadedNotifications,
+                readRecordCount: &loadedReadRecordCount,
+                readRetentionLimit: readRetentionLimit
+            )
+            if result.changed {
+                replayedChanges += 1
             }
-            return lhs.id.uuidString > rhs.id.uuidString
         }
-        var remainingReadSlots = readRetentionLimit
-        return sorted.filter { record in
-            guard record.isRead else { return true }
-            guard remainingReadSlots > 0 else { return false }
-            remainingReadSlots -= 1
-            return true
+        pendingMutations.removeAll(keepingCapacity: false)
+
+        let persistedRevision = loadedRevision
+        loadedRevision += replayedChanges
+        revision = max(revision, loadedRevision)
+        notifications = loadedNotifications
+        readRecordCount = loadedReadRecordCount
+        didFinishLoading = true
+
+        if persistenceAllowsWrites,
+           revision > persistedRevision,
+           (replayedChanges > 0 || revision != loadedRevision) {
+            schedulePersistence()
         }
+        if snapshot != previousSnapshot {
+            onChange(revision)
+        }
+    }
+
+    private func schedulePersistence() {
+        guard persistsToDisk, persistenceAllowsWrites else { return }
+        let persistedSnapshot = snapshot
+        persistenceTask = Task { [persistence] in
+            await persistence.persist(persistedSnapshot)
+        }
+    }
+
+    private static func apply(
+        _ mutation: Mutation,
+        to records: inout [NotificationFeedHistoryRecord],
+        readRecordCount: inout Int,
+        readRetentionLimit: Int
+    ) -> MutationResult {
+        var result = MutationResult()
+        switch mutation {
+        case .record(let record, let supersededIDs):
+            for index in records.indices
+            where supersededIDs.contains(records[index].id) && !records[index].isRead {
+                records[index].isRead = true
+                readRecordCount += 1
+                result.changed = true
+            }
+            if insertOrReplace(record, in: &records, readRecordCount: &readRecordCount) {
+                result.changed = true
+            }
+
+        case .reconcileActive(let activeRecords):
+            var knownIDs = Set(records.map(\.id))
+            for record in activeRecords where knownIDs.insert(record.id).inserted {
+                insert(record, in: &records)
+                if record.isRead { readRecordCount += 1 }
+                result.changed = true
+            }
+
+        case .markReadIDs(let ids):
+            for index in records.indices where ids.contains(records[index].id) && !records[index].isRead {
+                records[index].isRead = true
+                readRecordCount += 1
+                result.marked += 1
+            }
+            result.changed = result.marked > 0
+
+        case .markReadWorkspace(let tabId):
+            for index in records.indices where records[index].tabId == tabId && !records[index].isRead {
+                records[index].isRead = true
+                readRecordCount += 1
+                result.marked += 1
+            }
+            result.changed = result.marked > 0
+
+        case .markReadSurface(let tabId, let surfaceId):
+            for index in records.indices
+            where records[index].matches(tabId: tabId, surfaceId: surfaceId) && !records[index].isRead {
+                records[index].isRead = true
+                readRecordCount += 1
+                result.marked += 1
+            }
+            result.changed = result.marked > 0
+
+        case .markAllRead:
+            for index in records.indices where !records[index].isRead {
+                records[index].isRead = true
+                readRecordCount += 1
+                result.marked += 1
+            }
+            result.changed = result.marked > 0
+
+        case .markUnreadIDs(let ids):
+            for index in records.indices where ids.contains(records[index].id) && records[index].isRead {
+                records[index].isRead = false
+                readRecordCount -= 1
+                result.marked += 1
+            }
+            result.changed = result.marked > 0
+
+        case .rebindSurface(let sourceTabId, let destinationTabId, let surfaceId):
+            for index in records.indices {
+                guard records[index].retargetsToLiveSurfaceOwner,
+                      records[index].matches(tabId: sourceTabId, surfaceId: surfaceId) else {
+                    continue
+                }
+                records[index].tabId = destinationTabId
+                result.changed = true
+            }
+        }
+
+        if result.changed {
+            trimOldestReadRecords(
+                in: &records,
+                readRecordCount: &readRecordCount,
+                readRetentionLimit: readRetentionLimit
+            )
+        }
+        return result
+    }
+
+    private static func insertOrReplace(
+        _ record: NotificationFeedHistoryRecord,
+        in records: inout [NotificationFeedHistoryRecord],
+        readRecordCount: inout Int
+    ) -> Bool {
+        if let existingIndex = records.firstIndex(where: { $0.id == record.id }) {
+            let existing = records[existingIndex]
+            guard existing != record else { return false }
+            records.remove(at: existingIndex)
+            if existing.isRead { readRecordCount -= 1 }
+        }
+        insert(record, in: &records)
+        if record.isRead { readRecordCount += 1 }
+        return true
+    }
+
+    private static func insert(
+        _ record: NotificationFeedHistoryRecord,
+        in records: inout [NotificationFeedHistoryRecord]
+    ) {
+        var lowerBound = 0
+        var upperBound = records.count
+        while lowerBound < upperBound {
+            let middle = lowerBound + (upperBound - lowerBound) / 2
+            if recordPrecedes(records[middle], record) {
+                lowerBound = middle + 1
+            } else {
+                upperBound = middle
+            }
+        }
+        records.insert(record, at: lowerBound)
+    }
+
+    private static func trimOldestReadRecords(
+        in records: inout [NotificationFeedHistoryRecord],
+        readRecordCount: inout Int,
+        readRetentionLimit: Int
+    ) {
+        var index = records.count
+        while readRecordCount > readRetentionLimit, index > 0 {
+            index -= 1
+            guard records[index].isRead else { continue }
+            records.remove(at: index)
+            readRecordCount -= 1
+        }
+    }
+
+    private static func recordPrecedes(
+        _ lhs: NotificationFeedHistoryRecord,
+        _ rhs: NotificationFeedHistoryRecord
+    ) -> Bool {
+        if lhs.createdAt != rhs.createdAt {
+            return lhs.createdAt > rhs.createdAt
+        }
+        return lhs.id.uuidString > rhs.id.uuidString
     }
 }

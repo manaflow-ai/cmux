@@ -16,10 +16,31 @@ private struct WorkspaceRootToolbarContentWidthKey: EnvironmentKey {
     static let defaultValue: CGFloat = WorkspaceRootToolbarSizing.maximumPickerWidth
 }
 
+private struct WorkspaceRootToolbarRenderContext: Equatable {
+    let title: String
+    let visibleSelection: WorkspaceMacSelection
+    let machines: [WorkspaceFilterMachine]
+
+    static let fallback = WorkspaceRootToolbarRenderContext(
+        title: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer"),
+        visibleSelection: .all,
+        machines: []
+    )
+}
+
+private struct WorkspaceRootToolbarRenderContextKey: EnvironmentKey {
+    static let defaultValue = WorkspaceRootToolbarRenderContext.fallback
+}
+
 extension EnvironmentValues {
     var workspaceRootToolbarContentWidth: CGFloat {
         get { self[WorkspaceRootToolbarContentWidthKey.self] }
         set { self[WorkspaceRootToolbarContentWidthKey.self] = newValue }
+    }
+
+    fileprivate var workspaceRootToolbarRenderContext: WorkspaceRootToolbarRenderContext {
+        get { self[WorkspaceRootToolbarRenderContextKey.self] }
+        set { self[WorkspaceRootToolbarRenderContextKey.self] = newValue }
     }
 }
 
@@ -76,6 +97,40 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
             .accessibilityIdentifier("MobileWorkspaceDevicesButton")
         }
     }
+}
+
+private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
+    @Environment(\.workspaceRootToolbarRenderContext) private var renderContext
+
+    let openSettings: () -> Void
+    let openDevices: () -> Void
+    let pendingSelection: WorkspaceMacSelection?
+    let select: (WorkspaceMacSelection) -> Void
+    let showAddDevice: (() -> Void)?
+
+    var body: some ToolbarContent {
+        WorkspaceRootToolbarContent(
+            openSettings: openSettings,
+            openDevices: openDevices,
+            title: renderContext.title,
+            isLoading: pendingSelection != nil,
+            selection: Binding(
+                get: { pendingSelection ?? renderContext.visibleSelection },
+                set: select
+            ),
+            machines: renderContext.machines,
+            showAddDevice: showAddDevice
+        )
+    }
+}
+
+private struct WorkspaceShellRenderPresentation {
+    let selectionScope: WorkspaceMacSelectionScope
+    let notificationFeedItems: [MobileNotificationFeedItem]
+    let notificationUnreadCount: Int
+    let notificationFeedStatus: MobileNotificationFeedStatus
+    let toolbarMachineSnapshots: WorkspaceMachineSnapshots
+    let canCreateWorkspaceForSelection: Bool
 }
 #endif
 
@@ -138,18 +193,22 @@ struct WorkspaceShellView: View {
 
     var body: some View {
         #if os(iOS)
+        let presentation = workspaceShellRenderPresentation
+        let toolbarRenderContext = rootToolbarRenderContext(for: presentation)
         GeometryReader { geometry in
             MobilePrimaryTabScaffold(
                 selection: $selectedPrimaryTab,
-                notificationUnreadCount: visibleNotificationFeedUnreadCount
+                notificationUnreadCount: presentation.notificationUnreadCount
             ) {
-                workspaceTabContent
+                workspaceTabContent(
+                    canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
+                )
             } notifications: {
                 NavigationStack(path: $notificationNavigationPath) {
                     NotificationFeedStoreView(
                         store: store,
-                        items: visibleNotificationFeedItems,
-                        status: visibleNotificationFeedStatus
+                        items: presentation.notificationFeedItems,
+                        status: presentation.notificationFeedStatus
                     )
                         .toolbar {
                             if notificationNavigationPath.isEmpty {
@@ -159,22 +218,24 @@ struct WorkspaceShellView: View {
                         .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                             workspaceDestination(
                                 for: workspaceID,
-                                createWorkspace: createWorkspaceInCompactStack
+                                createWorkspace: createWorkspaceInCompactStack,
+                                canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
                             )
                             .toolbarVisibility(.hidden, for: .tabBar)
                         }
                 }
             }
             .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
+            .environment(\.workspaceRootToolbarRenderContext, toolbarRenderContext)
             .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
                 guard request != nil else { return }
                 consumeDeeplinkNavigationRequestIfNeeded()
             }
             .onAppear {
-                updateRootToolbarMachineSnapshots(liveRootToolbarMachineSnapshots)
+                updateRootToolbarMachineSnapshots(presentation.toolbarMachineSnapshots)
                 consumeDeeplinkNavigationRequestIfNeeded()
             }
-            .onChange(of: liveRootToolbarMachineSnapshots) { _, snapshots in
+            .onChange(of: presentation.toolbarMachineSnapshots) { _, snapshots in
                 updateRootToolbarMachineSnapshots(snapshots)
             }
             .sheet(isPresented: $showingRootSettings) {
@@ -197,16 +258,16 @@ struct WorkspaceShellView: View {
             }
         }
         #else
-        workspaceTabContent
+        workspaceTabContent(canCreateWorkspaceForSelection: canCreateWorkspaceForMacSelection)
         .onAppear {
             consumeDeeplinkNavigationRequestIfNeeded()
         }
         #endif
     }
 
-    private var workspaceTabContent: some View {
+    private func workspaceTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
         ZStack(alignment: .bottom) {
-            layoutContent
+            layoutContent(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
             if let workspaceActionToast {
                 WorkspaceActionToast(
                     content: workspaceActionToast,
@@ -221,12 +282,12 @@ struct WorkspaceShellView: View {
         }
     }
 
-    private var layoutContent: some View {
+    private func layoutContent(canCreateWorkspaceForSelection: Bool) -> some View {
         Group {
             if usesCompactStack {
-                stackLayout
+                stackLayout(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
             } else {
-                splitLayout
+                splitLayout(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
             }
         }
         .onChange(of: usesCompactStack) { _, isCompact in
@@ -238,10 +299,14 @@ struct WorkspaceShellView: View {
         .accessibilityIdentifier("MobileWorkspaceShell")
     }
 
-    private var stackLayout: some View {
+    private func stackLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationStack(path: $compactNavigationPath) {
             WorkspaceListSearchHost { searchText in
-                workspaceList(navigationStyle: .push, searchText: searchText)
+                workspaceList(
+                    navigationStyle: .push,
+                    searchText: searchText,
+                    canCreateWorkspaceForSelection: canCreateWorkspaceForSelection
+                )
             }
             .toolbar {
                 if compactNavigationPath.isEmpty {
@@ -252,6 +317,7 @@ struct WorkspaceShellView: View {
                 workspaceDestination(
                     for: workspaceID,
                     createWorkspace: createWorkspaceInCompactStack,
+                    canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
                     backButtonConfiguration: WorkspaceBackButtonConfiguration(
                         unreadCount: unreadWorkspaceCount(excluding: workspaceID),
                         badgeContrast: .darkBackground,
@@ -311,10 +377,14 @@ struct WorkspaceShellView: View {
         }
     }
 
-    private var splitLayout: some View {
+    private func splitLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
             WorkspaceListSearchHost { searchText in
-                workspaceList(navigationStyle: .sidebar, searchText: searchText)
+                workspaceList(
+                    navigationStyle: .sidebar,
+                    searchText: searchText,
+                    canCreateWorkspaceForSelection: canCreateWorkspaceForSelection
+                )
             }
             .toolbar {
                 rootToolbarContent
@@ -324,6 +394,7 @@ struct WorkspaceShellView: View {
             workspaceDestination(
                 for: store.selectedWorkspaceID,
                 createWorkspace: createWorkspaceIfConnected,
+                canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
                 safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible
             )
             #if os(iOS)
@@ -338,7 +409,8 @@ struct WorkspaceShellView: View {
 
     private func workspaceList(
         navigationStyle: WorkspaceNavigationStyle,
-        searchText: String
+        searchText: String,
+        canCreateWorkspaceForSelection: Bool
     ) -> some View {
         WorkspaceListView(
             workspaces: store.workspaces,
@@ -367,7 +439,7 @@ struct WorkspaceShellView: View {
             createWorkspaceGroup: navigationStyle == .push
                 ? createWorkspaceGroupInCompactStackClosure
                 : createWorkspaceGroupIfConnectedClosure,
-            canCreateWorkspace: canCreateWorkspaceForMacSelection,
+            canCreateWorkspace: canCreateWorkspaceForSelection,
             macSelection: $macSelection,
             switchMac: { macDeviceID in
                 await switchMacFromWorkspacePicker(macDeviceID: macDeviceID)
@@ -399,45 +471,22 @@ struct WorkspaceShellView: View {
     #if os(iOS)
     @ToolbarContentBuilder
     private var rootToolbarContent: some ToolbarContent {
-        WorkspaceRootToolbarContent(
+        WorkspaceRootToolbarLiveContent(
             openSettings: { showingRootSettings = true },
             openDevices: { showingRootDeviceTree = true },
-            title: rootToolbarTitle,
-            isLoading: rootToolbarPendingSelection != nil,
-            selection: rootToolbarSelection,
-            machines: displayedRootToolbarMachineSnapshots.macPickerMachines,
+            pendingSelection: rootToolbarPendingSelection,
+            select: handleRootToolbarSelection,
             showAddDevice: showAddDevice
         )
     }
 
-    private var displayedRootToolbarMachineSnapshots: WorkspaceMachineSnapshots {
-        rootToolbarMachineSnapshots ?? liveRootToolbarMachineSnapshots
-    }
-
-    private var visibleNotificationFeedItems: [MobileNotificationFeedItem] {
-        macSelectionScope.notificationFeedItems(from: store.notificationFeedItems)
-    }
-
-    private var visibleNotificationFeedUnreadCount: Int {
-        visibleNotificationFeedItems.lazy.filter { !$0.isRead }.count
-    }
-
-    private var visibleNotificationFeedStatus: MobileNotificationFeedStatus {
-        store.notificationFeedStatus(scopedTo: macSelectionScope.selectedMachineIDs)
-    }
-
-    private var liveRootToolbarMachineSnapshots: WorkspaceMachineSnapshots {
+    private var workspaceShellRenderPresentation: WorkspaceShellRenderPresentation {
         let scope = macSelectionScope
-        return WorkspaceMachineSnapshots(
-            workspaces: store.workspaces,
-            filterMachineIDFor: { scope.aliasIndex.representativeID(for: $0) },
-            macPickerMachineIDs: scope.machineIDs,
-            namesByID: rootToolbarMacDisplayNames,
-            fallbackName: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
-        )
-    }
-
-    private var rootToolbarMacDisplayNames: [String: String] {
+        let selectedMachineIDs = scope.selectedMachineIDs
+        let allNotificationFeedItems = store.notificationFeedItems
+        var visibleNotificationFeedItems: [MobileNotificationFeedItem] = []
+        visibleNotificationFeedItems.reserveCapacity(allNotificationFeedItems.count)
+        var notificationUnreadCount = 0
         var names: [String: String] = [:]
         for workspace in store.workspaces {
             if let id = workspace.macDeviceID,
@@ -446,9 +495,15 @@ struct WorkspaceShellView: View {
                 names[id] = name
             }
         }
-        for item in store.notificationFeedItems
-        where !item.macDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            names[item.macDeviceID] = item.macDisplayName
+        for item in allNotificationFeedItems {
+            if !item.macDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                names[item.macDeviceID] = item.macDisplayName
+            }
+            guard selectedMachineIDs?.contains(item.macDeviceID) ?? true else { continue }
+            visibleNotificationFeedItems.append(item)
+            if !item.isRead {
+                notificationUnreadCount += 1
+            }
         }
         for device in store.deviceTreeDevices {
             if let name = device.displayName, !name.isEmpty {
@@ -458,30 +513,47 @@ struct WorkspaceShellView: View {
         for mac in store.pairedMacs + store.displayPairedMacs {
             names[mac.macDeviceID] = mac.resolvedName
         }
-        guard let buildScope = MobileIOSBuildScope.current() else { return names }
-        return names.mapValues(buildScope.computerDisplayName)
+        if let buildScope = MobileIOSBuildScope.current() {
+            names = names.mapValues(buildScope.computerDisplayName)
+        }
+
+        let toolbarMachineSnapshots = WorkspaceMachineSnapshots(
+            workspaces: store.workspaces,
+            filterMachineIDFor: { scope.aliasIndex.representativeID(for: $0) },
+            macPickerMachineIDs: scope.machineIDs,
+            namesByID: names,
+            fallbackName: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
+        )
+        return WorkspaceShellRenderPresentation(
+            selectionScope: scope,
+            notificationFeedItems: visibleNotificationFeedItems,
+            notificationUnreadCount: notificationUnreadCount,
+            notificationFeedStatus: store.notificationFeedStatus(scopedTo: selectedMachineIDs),
+            toolbarMachineSnapshots: toolbarMachineSnapshots,
+            canCreateWorkspaceForSelection: scope.canCreateWorkspace(
+                base: canCreateWorkspace,
+                switchPending: pendingMacSwitchID != nil
+            )
+        )
     }
 
-    private var rootToolbarVisibleSelection: WorkspaceMacSelection {
-        macSelectionScope.visibleSelection
-    }
-
-    private var rootToolbarTitle: String {
-        switch rootToolbarVisibleSelection {
+    private func rootToolbarRenderContext(
+        for presentation: WorkspaceShellRenderPresentation
+    ) -> WorkspaceRootToolbarRenderContext {
+        let machineSnapshots = rootToolbarMachineSnapshots ?? presentation.toolbarMachineSnapshots
+        let visibleSelection = presentation.selectionScope.visibleSelection
+        let title: String
+        switch visibleSelection {
         case .all, .automatic:
-            L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Computers")
+            title = L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Computers")
         case .machine(let id):
-            displayedRootToolbarMachineSnapshots.macPickerMachines.first { $0.id == id }?.name
+            title = machineSnapshots.macPickerMachines.first { $0.id == id }?.name
                 ?? L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
         }
-    }
-
-    private var rootToolbarSelection: Binding<WorkspaceMacSelection> {
-        Binding(
-            get: { rootToolbarPendingSelection ?? rootToolbarVisibleSelection },
-            set: { selection in
-                handleRootToolbarSelection(selection)
-            }
+        return WorkspaceRootToolbarRenderContext(
+            title: title,
+            visibleSelection: visibleSelection,
+            machines: machineSnapshots.macPickerMachines
         )
     }
 
@@ -664,6 +736,7 @@ struct WorkspaceShellView: View {
     private func workspaceDestination(
         for workspaceID: MobileWorkspacePreview.ID?,
         createWorkspace: @escaping () -> Void,
+        canCreateWorkspaceForSelection: Bool,
         safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth,
         backButtonConfiguration: WorkspaceBackButtonConfiguration? = nil
     ) -> some View {
@@ -671,7 +744,7 @@ struct WorkspaceShellView: View {
             store: store,
             workspaceID: workspaceID,
             createWorkspace: createWorkspace,
-            canCreateWorkspace: canCreateWorkspaceForMacSelection,
+            canCreateWorkspace: canCreateWorkspaceForSelection,
             renameWorkspace: renameWorkspaceClosure,
             setWorkspaceUnread: setWorkspaceUnreadClosure,
             closeWorkspace: closeWorkspaceClosure,

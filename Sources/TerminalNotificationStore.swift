@@ -185,7 +185,7 @@ final class TerminalNotificationStore: ObservableObject {
     static let feedChangedEventTopic = "notification.feed.changed"
 
     /// Durable chronological history for the paired-phone notification feed.
-    let notificationFeedHistory: NotificationFeedHistoryStore
+    private(set) var notificationFeedHistory: NotificationFeedHistoryStore
 
     /// The number of unread notification *entries* — the count the iOS app icon
     /// badge mirrors. The phone's banners mirror notification entries, so its
@@ -1215,8 +1215,7 @@ final class TerminalNotificationStore: ObservableObject {
         now: Date,
         cooldownReservation: NotificationCooldownReservation?
     ) {
-        let activeNotificationsBeforeRecord = notifications
-        var updated = activeNotificationsBeforeRecord
+        var updated = notifications
         var idsToClear: [String] = []
         updated.removeAll { existing in
             guard existing.tabId == notification.tabId, existing.surfaceId == notification.surfaceId else { return false }
@@ -1244,8 +1243,7 @@ final class TerminalNotificationStore: ObservableObject {
         notifications = updated
         notificationFeedHistory.record(
             notification,
-            supersededIDs: Set(idsToClear.compactMap { UUID(uuidString: $0) }),
-            activeNotificationsForBootstrap: activeNotificationsBeforeRecord
+            supersededIDs: Set(idsToClear.compactMap { UUID(uuidString: $0) })
         )
         commitCooldownReservation(cooldownReservation, at: now)
 #if DEBUG
@@ -1668,6 +1666,7 @@ final class TerminalNotificationStore: ObservableObject {
         if didChangeNotifications {
             notifications = nextNotifications
         }
+        notificationFeedHistory.reconcileActiveNotifications(nextNotifications)
         let nextIDs = Set(nextNotifications.map(\.id))
         notificationFeedHistory.markRead(
             ids: Set(removedIds.compactMap { UUID(uuidString: $0) }).subtracting(nextIDs)
@@ -2250,19 +2249,25 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    func promptToEnableNotificationsForTesting() {
-        promptToEnableNotifications()
-    }
-
     func replaceNotificationsForTesting(_ notifications: [TerminalNotification]) {
         TerminalMutationBus.shared.discardPendingNotifications()
         self.notifications = notifications
-        notificationFeedHistory.resetForTesting()
+        notificationFeedHistory = NotificationFeedHistoryStore(fileURL: nil) { revision in
+            MobileHostService.emitEvent(
+                topic: Self.feedChangedEventTopic,
+                payload: ["revision": revision]
+            )
+        }
         clearWorkspaceManualUnread()
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
     }
+
+    func promptToEnableNotificationsForTesting() {
+        promptToEnableNotifications()
+    }
+
 #endif
 
     private func refreshDockBadge() {

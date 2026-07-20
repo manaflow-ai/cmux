@@ -178,7 +178,11 @@ struct WorkspaceListView: View {
             && canRenderGroupsForSelection
     }
 
-    private func matchesQuery(_ workspace: MobileWorkspacePreview, query: String) -> Bool {
+    private func matchesQuery(
+        _ workspace: MobileWorkspacePreview,
+        query: String,
+        groupsByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview]
+    ) -> Bool {
         workspace.name.localizedCaseInsensitiveContains(query)
             || workspace.previewLine.localizedCaseInsensitiveContains(query)
             || workspace.terminals.contains { $0.name.localizedCaseInsensitiveContains(query) }
@@ -190,9 +194,15 @@ struct WorkspaceListView: View {
     var filteredWorkspaces: [MobileWorkspacePreview] {
         let query = trimmedQuery
         let currentFilter = activeFilter
-        let matches = workspaces.filter { workspace in
-            currentFilter.matches(workspace)
-                && (query.isEmpty || matchesQuery(workspace, query: query))
+        let matches: [MobileWorkspacePreview]
+        if query.isEmpty {
+            matches = workspaces.filter(currentFilter.matches)
+        } else {
+            let groupLookup = groupsByID
+            matches = workspaces.filter { workspace in
+                currentFilter.matches(workspace)
+                    && matchesQuery(workspace, query: query, groupsByID: groupLookup)
+            }
         }
         return matches.enumerated()
             .sorted { lhs, rhs in
@@ -584,6 +594,7 @@ struct WorkspaceListView: View {
     @ViewBuilder
     private var groupedRows: some View {
         let enablesReorder = enablesWorkspaceReorder
+        let groupLookup = groupsByID
         ForEach(displayedGroupedListItems, id: \.id) { item in
             switch item {
             case .groupHeader(let group, let hasUnread):
@@ -611,7 +622,7 @@ struct WorkspaceListView: View {
                 .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                 .listRowSeparator(.hidden)
             case .groupFooter(let groupID):
-                WorkspaceGroupFooterRow(groupName: groupsByID[groupID]?.name)
+                WorkspaceGroupFooterRow(groupName: groupLookup[groupID]?.name)
                     .moveDisabled(true)
                     .listRowInsets(EdgeInsets(top: 0, leading: 32, bottom: 0, trailing: 12))
                     .listRowSeparator(.hidden)
