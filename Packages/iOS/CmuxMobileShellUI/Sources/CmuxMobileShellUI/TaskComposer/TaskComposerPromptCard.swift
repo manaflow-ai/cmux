@@ -28,13 +28,7 @@ struct TaskComposerPromptCard: View {
                     selectTemplate: selectTemplate,
                     editTemplates: editTemplates
                 )
-
-                Spacer(minLength: 8)
-
-                Image(systemName: "plus.square.on.square")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(isFocused ? Color.accentColor : Color.secondary.opacity(0.65))
-                    .accessibilityHidden(true)
+                Spacer(minLength: 0)
             }
 
             TextField(placeholder, text: $prompt, axis: .vertical)
@@ -58,20 +52,6 @@ struct TaskComposerPromptCard: View {
                     lineWidth: isFocused ? 1.25 : 1
                 )
                 .allowsHitTesting(false)
-        }
-        .overlay(alignment: .leading) {
-            Capsule()
-                .fill(
-                    LinearGradient(
-                        colors: [Color.accentColor, Color.accentColor.opacity(0.12)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .frame(width: 3)
-                .padding(.vertical, 22)
-                .offset(x: -1)
-                .accessibilityHidden(true)
         }
         .shadow(
             color: isFocused ? Color.accentColor.opacity(0.1) : Color.black.opacity(0.035),

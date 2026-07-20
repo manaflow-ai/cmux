@@ -52,7 +52,7 @@ struct TaskComposerDirectoryPickerView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 12) {
                     if isSearchMode {
                         searchContent
                     } else {
@@ -89,6 +89,26 @@ struct TaskComposerDirectoryPickerView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel")) {
                         dismiss()
+                    }
+                    .accessibilityIdentifier("MobileTaskDirectoryPickerCancel")
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    if !isSearchMode {
+                        Button {
+                            if let parentPath {
+                                navigate(to: parentPath)
+                            }
+                        } label: {
+                            Image(systemName: "chevron.left")
+                        }
+                        .disabled(parentPath == nil)
+                        .accessibilityLabel(
+                            L10n.string(
+                                "mobile.taskComposer.directoryPicker.browse.parent",
+                                defaultValue: "Parent Folder"
+                            )
+                        )
+                        .accessibilityIdentifier("MobileTaskDirectoryBrowseParent")
                     }
                 }
             }
@@ -280,26 +300,6 @@ struct TaskComposerDirectoryPickerView: View {
 
     private var currentLocationCard: some View {
         HStack(spacing: 10) {
-            Button {
-                if let parentPath {
-                    navigate(to: parentPath)
-                }
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 38, height: 38)
-                    .background(Color.primary.opacity(0.055), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .disabled(parentPath == nil)
-            .accessibilityLabel(
-                L10n.string(
-                    "mobile.taskComposer.directoryPicker.browse.parent",
-                    defaultValue: "Parent Folder"
-                )
-            )
-            .accessibilityIdentifier("MobileTaskDirectoryBrowseParent")
-
             Image(systemName: "folder.fill")
                 .foregroundStyle(Color.accentColor)
                 .accessibilityHidden(true)

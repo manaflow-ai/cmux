@@ -571,7 +571,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(lastFolder.isHittable)
         XCTAssertTrue(parentFolder.isHittable)
 
-        let cancel = app.buttons["Cancel"]
+        let cancel = app.buttons["MobileTaskDirectoryPickerCancel"]
         XCTAssertTrue(cancel.isHittable)
         tap(cancel, in: app)
         XCTAssertFalse(cancel.waitForExistence(timeout: 3))
