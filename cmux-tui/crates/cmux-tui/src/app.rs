@@ -2428,7 +2428,7 @@ struct PaneFocusHistory {
     next_sequence: u64,
     recency: HashMap<PaneId, u64>,
     baseline: HashMap<PaneId, u64>,
-    membership: Option<(usize, u64, u64)>,
+    membership: HashSet<PaneId>,
 }
 
 impl PaneFocusHistory {
@@ -2445,26 +2445,7 @@ impl PaneFocusHistory {
             .unwrap_or_else(|| (false, self.baseline.get(&pane).copied().unwrap_or_default()))
     }
 
-    fn retain_present(&mut self, tree: &TreeView) {
-        let mut count = 0;
-        let mut xor = 0;
-        let mut sum = 0u64;
-        for pane in tree
-            .workspaces
-            .iter()
-            .flat_map(|workspace| workspace.screens.iter())
-            .flat_map(|screen| screen.panes.iter())
-            .map(|pane| pane.id)
-        {
-            count += 1;
-            let mixed = pane.wrapping_mul(0x9e37_79b9_7f4a_7c15).rotate_left(27);
-            xor ^= mixed;
-            sum = sum.wrapping_add(mixed);
-        }
-        let membership = (count, xor, sum);
-        if self.membership == Some(membership) {
-            return;
-        }
+    fn reconcile_membership(&mut self, tree: &TreeView) {
         let live = tree
             .workspaces
             .iter()
@@ -2472,6 +2453,9 @@ impl PaneFocusHistory {
             .flat_map(|screen| screen.panes.iter())
             .map(|pane| pane.id)
             .collect::<HashSet<_>>();
+        if self.membership == live {
+            return;
+        }
         self.recency.retain(|pane, _| live.contains(pane));
         self.baseline.retain(|pane, _| live.contains(pane));
         for pane in tree
@@ -2482,7 +2466,7 @@ impl PaneFocusHistory {
         {
             self.baseline.entry(pane.id).or_insert(pane.focused_at);
         }
-        self.membership = Some(membership);
+        self.membership = live;
     }
 }
 
@@ -2498,6 +2482,7 @@ pub struct App {
     stdout_lock: Arc<Mutex<()>>,
     pub pane_areas: Vec<PaneArea>,
     pane_focus_history: PaneFocusHistory,
+    pane_membership_dirty: bool,
     /// Terminal cells actually represented by the last rendered snapshot.
     /// Foreign-viewer padding outside these bounds is display-only.
     pub(crate) rendered_terminal_bounds: HashMap<SurfaceId, Rect>,
@@ -2837,6 +2822,7 @@ pub fn run(
         stdout_lock: stdout_lock.clone(),
         pane_areas: Vec::new(),
         pane_focus_history: PaneFocusHistory::default(),
+        pane_membership_dirty: true,
         rendered_terminal_bounds: HashMap::new(),
         visible_size_surfaces: HashSet::new(),
         pending_size_releases: HashSet::new(),
@@ -3241,9 +3227,10 @@ impl App {
         for surface in removed_browsers {
             self.browser_input.forget_surface(surface);
         }
-        // The membership fingerprint makes unchanged redraws allocation-free;
-        // a live-pane index is built only after structural changes.
-        self.pane_focus_history.retain_present(&tree);
+        if self.pane_membership_dirty {
+            self.pane_focus_history.reconcile_membership(&tree);
+            self.pane_membership_dirty = false;
+        }
         self.tree = tree;
         if self.active_pane() != previous_active
             && let Some(active) = self.active_pane()
@@ -3255,6 +3242,7 @@ impl App {
     }
 
     fn replace_authoritative_tree(&mut self, tree: TreeView, routing_generation: u64) {
+        self.pane_membership_dirty = true;
         let live_surfaces = tree
             .workspaces
             .iter()
@@ -3831,6 +3819,7 @@ impl App {
                 MuxEvent::TreeChanged | MuxEvent::LayoutChanged(_) | MuxEvent::SurfaceExited(_)
             )
         ) {
+            self.pane_membership_dirty = true;
             self.session.clear_surface_sync_failures();
         }
         let event = match event {
@@ -4035,6 +4024,7 @@ impl App {
                 match outcome {
                     SessionMutationOutcome::Success { tree } => {
                         if let Some(tree) = tree {
+                            self.pane_membership_dirty = true;
                             self.replace_tree(tree);
                         }
                         self.routing_refresh_retries_remaining = 0;
@@ -7712,7 +7702,7 @@ mod tests {
         let mut history = PaneFocusHistory::default();
         let mut tree = notify_tree(1, false);
         tree.workspaces[0].screens[0].panes[0].focused_at = 8;
-        history.retain_present(&tree);
+        history.reconcile_membership(&tree);
 
         assert_eq!(history.recency(2), (false, 8));
         history.record(2);
@@ -7726,7 +7716,7 @@ mod tests {
         history.record(2);
         history.record(99);
 
-        history.retain_present(&notify_tree(1, false));
+        history.reconcile_membership(&notify_tree(1, false));
 
         assert_eq!(history.recency(2), (true, 1));
         assert_eq!(history.recency(99), (false, 0));
@@ -7737,13 +7727,31 @@ mod tests {
         let mut history = PaneFocusHistory::default();
         let mut initial = notify_tree(1, false);
         initial.workspaces[0].screens[0].panes[0].focused_at = 8;
-        history.retain_present(&initial);
+        history.reconcile_membership(&initial);
 
         let mut peer_refresh = initial.clone();
         peer_refresh.workspaces[0].screens[0].panes[0].focused_at = 99;
-        history.retain_present(&peer_refresh);
+        history.reconcile_membership(&peer_refresh);
 
         assert_eq!(history.recency(2), (false, 8));
+    }
+
+    #[test]
+    fn pane_focus_history_reconciles_exact_same_size_membership_changes() {
+        let mut history = PaneFocusHistory::default();
+        history.record(2);
+        history.reconcile_membership(&notify_tree(1, false));
+
+        let mut replacement = notify_tree(2, false);
+        let screen = &mut replacement.workspaces[0].screens[0];
+        screen.active_pane = 99;
+        screen.layout = Node::Leaf(99);
+        screen.panes[0].id = 99;
+        screen.panes[0].focused_at = 5;
+        history.reconcile_membership(&replacement);
+
+        assert_eq!(history.recency(2), (false, 0));
+        assert_eq!(history.recency(99), (false, 5));
     }
 
     #[test]
@@ -11363,6 +11371,7 @@ mod tests {
             stdout_lock: Arc::new(Mutex::new(())),
             pane_areas: Vec::new(),
             pane_focus_history: PaneFocusHistory::default(),
+            pane_membership_dirty: true,
             rendered_terminal_bounds: HashMap::new(),
             visible_size_surfaces: HashSet::new(),
             pending_size_releases: HashSet::new(),
