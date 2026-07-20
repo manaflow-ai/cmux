@@ -60,9 +60,14 @@ struct ToastCardView: View {
     private var glassOrMaterial: some View {
         #if os(iOS)
         if #available(iOS 26.0, *) {
-            Color.clear
-                .glassEffect(.regular, in: shape)
-                .shadow(color: .black.opacity(0.06), radius: 12, y: 5)
+            // Bare Liquid Glass is nearly transparent over busy content (a
+            // terminal screen made toast text illegible), so the material
+            // plate guarantees diffusion and the glass rides on top purely
+            // for its rim and specular response.
+            shape
+                .fill(.regularMaterial)
+                .overlay(Color.clear.glassEffect(.regular, in: shape))
+                .shadow(color: .black.opacity(0.12), radius: 16, y: 6)
         } else {
             materialFallback
         }
