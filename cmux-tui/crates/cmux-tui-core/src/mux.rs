@@ -9354,7 +9354,9 @@ mod tests {
     #[test]
     fn empty_workspace_registry_enforces_count_and_string_limits() {
         let mux = test_mux();
-        let key = "k".repeat(WORKSPACE_KEY_MAX_BYTES);
+        let boundary_key = "k".repeat(WORKSPACE_KEY_MAX_BYTES);
+        Mux::validate_workspace_key(&boundary_key).expect("boundary-sized workspace key");
+        let key = "018f6e21-7b70-7e70-8000-000000001020".to_string();
         let name = "n".repeat(WORKSPACE_NAME_MAX_BYTES);
         let placement = mux
             .create_empty_workspace(Some(name.clone()), Some(key.clone()), None)
@@ -9367,7 +9369,7 @@ mod tests {
 
         let oversized_key = "k".repeat(WORKSPACE_KEY_MAX_BYTES + 1);
         assert_eq!(
-            mux.create_empty_workspace(None, Some(oversized_key), None)
+            Mux::validate_workspace_key(&oversized_key)
                 .expect_err("oversized key must fail")
                 .to_string(),
             format!("workspace key exceeds {WORKSPACE_KEY_MAX_BYTES} bytes")
@@ -10491,7 +10493,7 @@ mod tests {
     #[test]
     fn key_close_reacquires_replacement_workspace_lifecycle() {
         let mux = test_mux();
-        let key = "stable-key".to_string();
+        let key = "018f6e21-7b70-7e70-8000-000000001021".to_string();
         let original =
             mux.create_empty_workspace(Some("original".into()), Some(key.clone()), None).unwrap();
         let original_lifecycle = mux.workspace_lifecycle(original.workspace);

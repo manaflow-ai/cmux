@@ -6057,9 +6057,9 @@ mod tests {
     #[test]
     fn stale_workspace_selectors_report_revision_conflicts_before_lookup() {
         let mux = test_mux();
-        let workspace = mux
-            .create_empty_workspace(Some("stale".into()), Some("stable-key".into()), None)
-            .unwrap();
+        let key = "018f6e21-7b70-7e70-8000-000000001022";
+        let workspace =
+            mux.create_empty_workspace(Some("stale".into()), Some(key.into()), None).unwrap();
         mux.close_workspace_at_revision(workspace.workspace, Some(1)).unwrap();
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
@@ -6067,18 +6067,18 @@ mod tests {
         for command in [
             Command::CloseWorkspace {
                 workspace: None,
-                key: Some("stable-key".into()),
+                key: Some(key.into()),
                 mutation: MutationRequest { expected_revision: Some(1), ..Default::default() },
             },
             Command::RenameWorkspace {
                 workspace: None,
-                key: Some("stable-key".into()),
+                key: Some(key.into()),
                 name: "renamed".into(),
                 mutation: MutationRequest { expected_revision: Some(1), ..Default::default() },
             },
             Command::MoveWorkspace {
                 workspace: None,
-                key: Some("stable-key".into()),
+                key: Some(key.into()),
                 index: 0,
                 mutation: MutationRequest { expected_revision: Some(1), ..Default::default() },
             },
