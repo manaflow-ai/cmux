@@ -149,7 +149,7 @@ struct TitlebarInteractiveControlTests {
             defer: false
         )
         defer { window.orderOut(nil) }
-        window.isMovable = false
+        window.isMovable = true
 
         let controller = TitlebarControlsAccessoryViewController(notificationStore: TerminalNotificationStore.shared, settingsRuntime: nil)
         let container = controller.view
@@ -165,7 +165,7 @@ struct TitlebarInteractiveControlTests {
         #expect(hitView === container)
         #expect(
             !hitView.mouseDownCanMoveWindow,
-            "Empty accessory chrome must not rely on native AppKit window dragging because main windows are normally immovable."
+            "Empty accessory chrome must use the explicit drag path instead of implicit AppKit background dragging."
         )
 
         let event = Self.makeLeftMouseDownEvent(location: emptyTopRightPoint, window: window)
@@ -176,10 +176,7 @@ struct TitlebarInteractiveControlTests {
             window.isMovableDuringPerformDrag == true,
             "Empty accessory chrome should temporarily enable main-window movement before calling performDrag(with:)."
         )
-        #expect(
-            !window.isMovable,
-            "Explicit accessory dragging must restore the main window to its normal immovable state."
-        )
+        #expect(window.isMovable, "Explicit accessory dragging must preserve the AppKit-movable baseline.")
     }
 
     @Test func accessoryControlsRemainNonDraggable() {
