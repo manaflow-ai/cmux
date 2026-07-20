@@ -36,6 +36,7 @@ struct CmxIrohRegistrationSignerTests {
             pairingEnabled: false,
             capabilities: ["rpc", "terminal.streams"],
             pathHints: [hint],
+            directPorts: try CmxIrohDirectPorts(ipv4: 50_909, ipv6: 54_750),
             now: now
         )
         let signer = try CmxIrohRegistrationSigner(
@@ -73,6 +74,8 @@ struct CmxIrohRegistrationSignerTests {
         let encodedHint = try #require(pathHints.first)
         #expect(encodedHint["observed_at"] is String)
         #expect(encodedHint["expires_at"] is String)
+        let directPorts = try #require(payloadObject["directPorts"] as? [String: Int])
+        #expect(directPorts == ["ipv4": 50_909, "ipv6": 54_750])
     }
 
     @Test("secret and declared endpoint must match")

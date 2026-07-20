@@ -50,6 +50,18 @@ final class MobileIrohSettingsModel {
         mutate { try await self.controller.setIrohRelayPreference(try preference.validated()) }
     }
 
+    #if DEBUG
+    func setDebugTransportVerificationMode(
+        _ mode: CmxIrohTransportVerificationMode
+    ) {
+        mutate {
+            guard let debugController = self.controller
+                as? any CmxIrohDebugSettingsControlling else { return }
+            try await debugController.setIrohDebugTransportVerificationMode(mode)
+        }
+    }
+    #endif
+
     func upsertCustomRelay(_ relay: CmxIrohCustomRelayDraft, deviceSecret: String?) async -> Bool {
         await mutateAndWait {
             try await self.controller.upsertIrohCustomRelay(relay, deviceSecret: deviceSecret)
@@ -62,6 +74,22 @@ final class MobileIrohSettingsModel {
 
     func testCustomRelay(id: String) {
         Task { testResults[id] = await controller.testIrohCustomRelay(id: id) }
+    }
+
+    func upsertCustomPrivatePath(
+        _ path: CmxIrohCustomPrivatePathDraft
+    ) async -> Bool {
+        await mutateAndWait {
+            try await self.controller.upsertIrohCustomPrivatePath(path)
+        }
+    }
+
+    func removeCustomPrivatePath(macDeviceID: String) {
+        mutate {
+            try await self.controller.removeIrohCustomPrivatePath(
+                macDeviceID: macDeviceID
+            )
+        }
     }
 
     func clearSaveError() {
