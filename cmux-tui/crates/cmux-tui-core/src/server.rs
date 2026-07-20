@@ -2346,22 +2346,30 @@ fn render_state_json(
 struct RenderClientState {
     size: (u16, u16),
     default_colors: (Rgb, Rgb),
+    font_family: Option<String>,
     scrollback_rows: u32,
 }
 
 impl RenderClientState {
-    fn new(frame: &SurfaceRenderFrame) -> Self {
+    fn new(frame: &SurfaceRenderFrame, font_family: Option<String>) -> Self {
         Self {
             size: frame.frame.size,
             default_colors: frame.frame.default_colors,
+            font_family,
             scrollback_rows: frame.scrollback_rows,
         }
     }
 
-    fn delta_json(&mut self, surface: SurfaceId, frame: &SurfaceRenderFrame) -> Value {
+    fn delta_json(
+        &mut self,
+        surface: SurfaceId,
+        frame: &SurfaceRenderFrame,
+        font_family: Option<&str>,
+    ) -> Value {
         let size_changed = self.size != frame.frame.size;
         let foreground_changed = self.default_colors.1 != frame.frame.default_colors.1;
         let background_changed = self.default_colors.0 != frame.frame.default_colors.0;
+        let font_changed = self.font_family.as_deref() != font_family;
         let scrollback_changed = self.scrollback_rows != frame.scrollback_rows;
         let full = size_changed
             || foreground_changed
@@ -2388,11 +2396,15 @@ impl RenderClientState {
         if background_changed {
             value["default_bg"] = json!(rgb_hex(frame.frame.default_colors.0));
         }
+        if font_changed {
+            value["font_family"] = json!(font_family);
+        }
         if scrollback_changed {
             value["scrollback_rows"] = json!(frame.scrollback_rows);
         }
         self.size = frame.frame.size;
         self.default_colors = frame.frame.default_colors;
+        self.font_family = font_family.map(str::to_string);
         self.scrollback_rows = frame.scrollback_rows;
         value
     }
@@ -3511,14 +3523,15 @@ fn handle_command(
                         if worker_committed.recv().is_err() {
                             return;
                         }
-                        let mut state = RenderClientState::new(&attach.initial);
+                        let mut state = RenderClientState::new(&attach.initial, font_family);
                         while writer.is_open()
                             && outbound_stream.is_open()
                             && !lifecycle.is_canceled()
                         {
                             let value = match attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
                                 Ok(RenderAttachFrame::Frame(frame)) => {
-                                    state.delta_json(surface_id, &frame)
+                                    let font_family = mux.terminal_font_family();
+                                    state.delta_json(surface_id, &frame, font_family.as_deref())
                                 }
                                 Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => {
                                     json!({

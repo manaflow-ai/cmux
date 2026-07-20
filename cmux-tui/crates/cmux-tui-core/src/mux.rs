@@ -1919,7 +1919,21 @@ impl Mux {
             let value = value.trim();
             (!value.is_empty()).then(|| value.to_string())
         });
-        *self.terminal_font_family.lock().unwrap() = font_family;
+        {
+            let mut current = self.terminal_font_family.lock().unwrap();
+            if *current == font_family {
+                return;
+            }
+            *current = font_family;
+        }
+        let colors = self.default_colors();
+        let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
+        for surface in surfaces {
+            // Reuse the appearance stream already consumed by byte clients,
+            // while the rebuilt render frame carries the font delta below.
+            surface.set_default_colors(colors);
+            self.emit(MuxEvent::SurfaceOutput(surface.id));
+        }
     }
 
     /// Resize a surface and broadcast the final clamped size when it actually

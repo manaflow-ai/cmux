@@ -12,6 +12,7 @@ vi.mock("../src/lib/attachRecovery", () => ({
 }));
 
 let hostWidth = 800;
+let metricWidth = 10;
 
 class TestStream {
   private index = 0;
@@ -37,12 +38,12 @@ function Harness({ client }: { client: CmuxClient }) {
       Object.defineProperty(node, "clientHeight", { configurable: true, get: () => 480 });
       const probe = node.querySelector<HTMLElement>("[data-render-probe]")!;
       probe.getBoundingClientRect = () => ({
-        width: 10,
+        width: metricWidth,
         height: 20,
         x: 0,
         y: 0,
         top: 0,
-        right: 10,
+        right: metricWidth,
         bottom: 20,
         left: 0,
         toJSON: () => ({}),
@@ -68,6 +69,7 @@ describe("render terminal sizing", () => {
   afterEach(() => {
     globalThis.ResizeObserver = originalResizeObserver;
     hostWidth = 800;
+    metricWidth = 10;
     recoveryDelay = 60_000;
   });
 
@@ -175,6 +177,50 @@ describe("render terminal sizing", () => {
     await new Promise((resolve) => setTimeout(resolve, 150));
 
     expect(client.resizeSurface).toHaveBeenCalledTimes(1);
+  });
+
+  it("remeasures and refits when the rendered font changes the cell probe", async () => {
+    let resizeCallback: ResizeObserverCallback | null = null;
+    const observed = new Set<Element>();
+    globalThis.ResizeObserver = class {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback;
+      }
+      observe(target: Element) { observed.add(target); }
+      unobserve() {}
+      disconnect() {}
+    };
+    const cursor: RenderCursor = {
+      x: 0,
+      y: 0,
+      style: "bar",
+      blink: true,
+      visible: true,
+      color: null,
+    };
+    const client = {
+      attachSurface: vi.fn(async () => new TestStream([{
+        event: "render-state",
+        surface: 7,
+        size: { cols: 100, rows: 30 },
+        cursor,
+        default_fg: "#f8f8f2",
+        default_bg: "#272822",
+        scrollback_rows: 0,
+        rows: [],
+      }])),
+      resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
+      releaseSurfaceSize: vi.fn(async () => ({})),
+    } as unknown as CmuxClient;
+
+    const view = render(<Harness client={client} />);
+    const probe = view.container.querySelector("[data-render-probe]")!;
+    await waitFor(() => expect(client.resizeSurface).toHaveBeenCalledWith(7, 80, 24));
+    expect(observed.has(probe)).toBe(true);
+
+    metricWidth = 16;
+    resizeCallback!([], {} as ResizeObserver);
+    await waitFor(() => expect(client.resizeSurface).toHaveBeenLastCalledWith(7, 50, 24));
   });
 
   it("releases sizing when the render consumer terminates", async () => {

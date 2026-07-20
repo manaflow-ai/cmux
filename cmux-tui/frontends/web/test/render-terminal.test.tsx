@@ -8,6 +8,7 @@ import { RenderTerminal } from "../src/components/RenderTerminal";
 const renderHook = vi.hoisted(() => ({
   focused: true,
   historyActive: false,
+  terminalRef: vi.fn(),
   sendKey: vi.fn(),
   sendText: vi.fn(),
 }));
@@ -28,7 +29,7 @@ const model = {
 
 vi.mock("../src/hooks/useRenderTerminal", () => ({
   useRenderTerminal: () => ({
-    terminalRef: () => undefined,
+    terminalRef: renderHook.terminalRef,
     focused: renderHook.focused,
     foreignSize: null,
     model,
@@ -47,6 +48,7 @@ vi.mock("../src/hooks/useRenderTerminal", () => ({
 beforeEach(() => {
   renderHook.focused = true;
   renderHook.historyActive = false;
+  renderHook.terminalRef.mockClear();
   renderHook.sendKey.mockClear();
   renderHook.sendText.mockClear();
 });
@@ -60,6 +62,18 @@ describe("RenderTerminal DOM grid", () => {
     expect(container.querySelector<HTMLElement>(".render-terminal-host")?.style
       .getPropertyValue("--terminal-font-family"))
       .toBe('"Berkeley Mono \\"Retina\\"", Menlo, "SFMono-Regular", Consolas, "Liberation Mono", monospace');
+  });
+
+  it("keeps the terminal host callback stable across render frames", () => {
+    const view = render(
+      <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7} active error={null} onError={vi.fn()} />,
+    );
+
+    expect(renderHook.terminalRef).toHaveBeenCalledTimes(1);
+    view.rerender(
+      <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7} active error={null} onError={vi.fn()} />,
+    );
+    expect(renderHook.terminalRef).toHaveBeenCalledTimes(1);
   });
 
   it("renders one absolute row per model row, authoritative run width, and server cursor geometry", () => {

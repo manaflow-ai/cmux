@@ -142,6 +142,7 @@ object{
   size?:object{cols:uint16,rows:uint16},
   default_fg?:ColorHex,
   default_bg?:ColorHex,
+  font_family?:string|null,
   scrollback_rows?:uint32,
   rows:array<Row>
 }
@@ -151,7 +152,7 @@ The cursor is always present, including cursor-only frames where `rows` is empty
 
 `size` is present if and only if the surface resized. A resize always sends `full:true` and every viewport row at the new size. This full replacement is required because Ghostty may reflow content and invalidate every old row index. `full:true` may also be used without `size` when a palette/default-color change or engine full-damage state requires a complete repaint.
 
-When `full:true`, `rows` contains exactly the complete current viewport. Optional `default_fg` and `default_bg` are present only when that default changed. `scrollback_rows` is present only when the count changed. Runs still carry resolved RGB, so any palette change that affects visible cells must dirty those rows or cause a full delta.
+When `full:true`, `rows` contains exactly the complete current viewport. Optional `default_fg` and `default_bg` are present only when that default changed. `font_family` is present when a config reload changes or clears the session's primary Ghostty font family. `scrollback_rows` is present only when the count changed. Runs still carry resolved RGB, so any palette change that affects visible cells must dirty those rows or cause a full delta.
 
 `scroll-changed` carries viewport offset/at-bottom metadata; it does not carry cells and does not replace a delta. If scrolling changes visible content, the render stream also supplies the resulting dirty or full rows in an ordered `render-delta`. The two events need not be adjacent because frame coalescing may include other terminal mutations.
 

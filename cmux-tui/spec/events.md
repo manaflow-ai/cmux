@@ -691,12 +691,13 @@ object{
   size?:object{cols:uint16,rows:uint16},
   default_fg?:ColorHex,
   default_bg?:ColorHex,
+  font_family?:string|null,
   scrollback_rows?:uint32,
   rows:array<Row>
 }
 ```
 
-Meaning: One coalesced render frame. The cursor is always present; `rows` contains dirty replacements unless `full:true`. `size` is present if and only if the surface resized, and every resize is a full viewport replacement. See [`render.md`](render.md#render-delta).
+Meaning: One coalesced render frame. The cursor is always present; `rows` contains dirty replacements unless `full:true`. `size` is present if and only if the surface resized, every resize is a full viewport replacement, and `font_family` is present when config reload changes or clears it. See [`render.md`](render.md#render-delta).
 
 ### vt-state
 

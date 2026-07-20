@@ -68,7 +68,7 @@ export function applyDelta(model: RenderModel, delta: RenderDeltaEvent): RenderM
     cursor: { ...delta.cursor },
     defaultFg: delta.default_fg ?? model.defaultFg,
     defaultBg: delta.default_bg ?? model.defaultBg,
-    fontFamily: model.fontFamily,
+    fontFamily: delta.font_family === undefined ? model.fontFamily : delta.font_family,
     scrollbackRows: delta.scrollback_rows ?? model.scrollbackRows,
     rows,
   };

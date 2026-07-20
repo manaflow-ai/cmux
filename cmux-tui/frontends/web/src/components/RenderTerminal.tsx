@@ -1,4 +1,4 @@
-import { memo, type CSSProperties } from "react";
+import { memo, useCallback, useLayoutEffect, useRef, type CSSProperties } from "react";
 import type { CmuxClient, Id, RenderRow } from "cmux/browser";
 import { useRenderTerminal } from "../hooks/useRenderTerminal";
 import { t } from "../i18n";
@@ -63,6 +63,15 @@ export function RenderTerminal({
   const defaultBg = model?.defaultBg ?? "var(--terminal-background)";
   const cols = model?.size.cols ?? 0;
   const fontFamily = terminalFontStack(model?.fontFamily);
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const bindTerminalRef = useCallback((host: HTMLDivElement | null) => {
+    hostRef.current = host;
+    terminalRef(host);
+  }, [terminalRef]);
+  useLayoutEffect(() => {
+    hostRef.current?.closest<HTMLElement>(".app-shell")?.style
+      .setProperty("--terminal-font-family", fontFamily);
+  }, [fontFamily]);
   const gridStyle = {
     width: `calc(var(--render-cell-width) * ${cols})`,
     height: `calc(var(--render-cell-height) * ${rows.length})`,
@@ -85,13 +94,7 @@ export function RenderTerminal({
     >
       <div
         className="terminal-host render-terminal-host"
-        ref={(host) => {
-          terminalRef(host);
-          if (model?.fontFamily) {
-            host?.closest<HTMLElement>(".app-shell")?.style
-              .setProperty("--terminal-font-family", fontFamily);
-          }
-        }}
+        ref={bindTerminalRef}
         style={{ "--terminal-font-family": fontFamily } as CSSProperties}
       >
         <div

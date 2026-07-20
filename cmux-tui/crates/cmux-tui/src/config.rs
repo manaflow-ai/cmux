@@ -1471,10 +1471,11 @@ fn parse_resolved_ghostty_defaults(text: &str) -> DefaultColors {
 }
 
 fn parse_ghostty_font_family(text: &str) -> Option<String> {
-    text.lines().find_map(|line| {
-        let (key, value) = line.trim().split_once('=')?;
+    let mut primary = None;
+    for line in text.lines() {
+        let Some((key, value)) = line.trim().split_once('=') else { continue };
         if key.trim() != "font-family" {
-            return None;
+            continue;
         }
         let value = value.trim();
         let value = value
@@ -1482,8 +1483,13 @@ fn parse_ghostty_font_family(text: &str) -> Option<String> {
             .and_then(|value| value.strip_suffix('"'))
             .unwrap_or(value)
             .trim();
-        (!value.is_empty()).then(|| value.to_string())
-    })
+        if value.is_empty() {
+            primary = None;
+        } else if primary.is_none() {
+            primary = Some(value.to_string());
+        }
+    }
+    primary
 }
 
 fn apply_ghostty_default(defaults: &mut DefaultColors, key: &str, value: &str) {
@@ -1645,6 +1651,10 @@ mod tests {
             Some("Berkeley Mono".to_string())
         );
         assert_eq!(parse_ghostty_font_family("font-family = \"\"\n"), None);
+        assert_eq!(
+            parse_ghostty_font_family("font-family = Old\nfont-family = \"\"\nfont-family = New\n",),
+            Some("New".to_string())
+        );
     }
 
     #[test]
