@@ -10,9 +10,10 @@ public struct FileDiffPageView: View {
     private let onPersistFontSize: @MainActor @Sendable (Double) -> Void
     private let onLoad: @MainActor @Sendable (String, Bool) async throws -> FileDiffDocument
     private let onCopy: @MainActor @Sendable (String) -> Void
-    private let onPreviewFile: (@MainActor @Sendable (_ index: Int, _ revision: FileDiffPreviewRevision) -> Void)?
+    private let inlinePreview: (@MainActor @Sendable (_ index: Int, _ revision: FileDiffPreviewRevision) -> AnyView)?
     @State private var loadState: FileDiffLoadState
     @State private var magnificationStart: Double?
+    @State private var previewRevision: FileDiffPreviewRevision
     @Environment(\.colorScheme) private var colorScheme
 
     /// Creates one value-driven diff page.
@@ -25,7 +26,7 @@ public struct FileDiffPageView: View {
     ///   - onPersistFontSize: End-of-pinch persistence callback.
     ///   - onLoad: Parsed document loader with a force-refresh flag.
     ///   - onCopy: Clipboard seam.
-    ///   - onPreviewFile: Optional binary-file preview navigation callback.
+    ///   - inlinePreview: Optional binary-preview builder supplied by the composition layer.
     public init(
         fileIndex: Int,
         file: ChangedFileItem,
@@ -35,7 +36,7 @@ public struct FileDiffPageView: View {
         onPersistFontSize: @escaping @MainActor @Sendable (Double) -> Void,
         onLoad: @escaping @MainActor @Sendable (String, Bool) async throws -> FileDiffDocument,
         onCopy: @escaping @MainActor @Sendable (String) -> Void,
-        onPreviewFile: (@MainActor @Sendable (_ index: Int, _ revision: FileDiffPreviewRevision) -> Void)? = nil
+        inlinePreview: (@MainActor @Sendable (_ index: Int, _ revision: FileDiffPreviewRevision) -> AnyView)? = nil
     ) {
         self.fileIndex = fileIndex
         self.file = file
@@ -44,8 +45,9 @@ public struct FileDiffPageView: View {
         self.onPersistFontSize = onPersistFontSize
         self.onLoad = onLoad
         self.onCopy = onCopy
-        self.onPreviewFile = onPreviewFile
+        self.inlinePreview = inlinePreview
         _loadState = State(initialValue: initialDocument.map(FileDiffLoadState.loaded) ?? .loading)
+        _previewRevision = State(initialValue: FileDiffPreviewPolicy(kind: file.kind).defaultRevision)
     }
 
     public var body: some View {
@@ -55,7 +57,6 @@ public struct FileDiffPageView: View {
                 guard case .loading = loadState else { return }
                 await load(forceRefresh: false)
             }
-            .simultaneousGesture(magnifyGesture)
     }
 
     @ViewBuilder
@@ -104,12 +105,12 @@ public struct FileDiffPageView: View {
         }
     }
 
+    @ViewBuilder
     private func documentView(_ document: FileDiffDocument) -> some View {
-        ScrollView {
-            if document.isBinary {
-                binaryView
-                    .frame(maxWidth: .infinity, minHeight: 360)
-            } else {
+        if document.isBinary {
+            binaryView
+        } else {
+            ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(hunkSnapshots(document)) { snapshot in
                         hunkView(snapshot.hunk, gutterWidth: gutterWidth(for: document))
@@ -120,8 +121,9 @@ public struct FileDiffPageView: View {
                     }
                 }
             }
+            .refreshable { await load(forceRefresh: true) }
+            .simultaneousGesture(magnifyGesture)
         }
-        .refreshable { await load(forceRefresh: true) }
     }
 
     private func hunkView(_ hunk: DiffHunk, gutterWidth: CGFloat) -> some View {
@@ -148,6 +150,49 @@ public struct FileDiffPageView: View {
     }
 
     private var binaryView: some View {
+        let policy = FileDiffPreviewPolicy(kind: file.kind)
+        return VStack(spacing: 0) {
+            if policy.allowsRevisionSelection {
+                Picker(
+                    String(localized: "changes.binary.revision", defaultValue: "Revision", bundle: .module),
+                    selection: $previewRevision
+                ) {
+                    Text(String(localized: "changes.binary.before", defaultValue: "Before", bundle: .module))
+                        .tag(FileDiffPreviewRevision.base)
+                    Text(String(localized: "changes.binary.after", defaultValue: "After", bundle: .module))
+                        .tag(FileDiffPreviewRevision.current)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+            }
+            if let inlinePreview {
+                inlinePreview(fileIndex, previewRevision)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                binaryFallbackView
+            }
+        }
+    }
+
+    private var binaryFallbackView: some View {
+        VStack(spacing: 18) {
+            binaryFileCard
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(.secondary.opacity(0.08))
+                .overlay {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.system(size: 30, weight: .medium))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: 360, minHeight: 180)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(20)
+    }
+
+    private var binaryFileCard: some View {
         VStack(spacing: 14) {
             Image(systemName: "doc.richtext")
                 .font(.system(size: 34, weight: .medium))
@@ -163,48 +208,10 @@ public struct FileDiffPageView: View {
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
-            if onPreviewFile != nil {
-                binaryPreviewButtons
-            }
         }
         .padding(24)
         .frame(maxWidth: 360)
         .background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .padding(20)
-    }
-
-    @ViewBuilder
-    private var binaryPreviewButtons: some View {
-        switch file.kind {
-        case .modified, .renamed:
-            HStack(spacing: 10) {
-                previewButton(
-                    title: String(localized: "changes.binary.view_before", defaultValue: "View Before", bundle: .module),
-                    revision: .base
-                )
-                previewButton(
-                    title: String(localized: "changes.binary.view_after", defaultValue: "View After", bundle: .module),
-                    revision: .current
-                )
-            }
-        case .deleted:
-            previewButton(
-                title: String(localized: "changes.binary.view_file", defaultValue: "View File", bundle: .module),
-                revision: .base
-            )
-        case .added, .untracked, .unknown:
-            previewButton(
-                title: String(localized: "changes.binary.view_file", defaultValue: "View File", bundle: .module),
-                revision: .current
-            )
-        }
-    }
-
-    private func previewButton(title: String, revision: FileDiffPreviewRevision) -> some View {
-        Button(title) {
-            onPreviewFile?(fileIndex, revision)
-        }
-        .buttonStyle(.borderedProminent)
     }
 
     private func truncatedFooter(lineCount: Int) -> some View {

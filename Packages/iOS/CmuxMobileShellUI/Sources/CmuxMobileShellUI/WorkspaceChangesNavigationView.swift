@@ -13,7 +13,6 @@ struct WorkspaceChangesNavigationView: View {
     let listActions: WorkspaceChangesListActions
     let pagerActions: WorkspaceFileDiffPagerActions
     @Binding var path: [WorkspaceChangesNavigationRoute]
-    let previewDestination: @MainActor (_ index: Int, _ revision: FileDiffPreviewRevision, _ onDone: @escaping () -> Void) -> AnyView
     let onClose: @MainActor @Sendable () -> Void
 
     init(
@@ -27,7 +26,6 @@ struct WorkspaceChangesNavigationView: View {
         listActions: WorkspaceChangesListActions,
         pagerActions: WorkspaceFileDiffPagerActions,
         path: Binding<[WorkspaceChangesNavigationRoute]>,
-        previewDestination: @escaping @MainActor (_ index: Int, _ revision: FileDiffPreviewRevision, _ onDone: @escaping () -> Void) -> AnyView,
         onClose: @escaping @MainActor @Sendable () -> Void
     ) {
         self.branch = branch
@@ -40,7 +38,6 @@ struct WorkspaceChangesNavigationView: View {
         self.listActions = listActions
         self.pagerActions = pagerActions
         _path = path
-        self.previewDestination = previewDestination
         self.onClose = onClose
     }
 
@@ -68,10 +65,6 @@ struct WorkspaceChangesNavigationView: View {
                         initialFontSize: fontSize,
                         actions: pagerActions
                     )
-                case .preview(let index, let revision):
-                    previewDestination(index, revision) {
-                        if !path.isEmpty { path.removeLast() }
-                    }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)

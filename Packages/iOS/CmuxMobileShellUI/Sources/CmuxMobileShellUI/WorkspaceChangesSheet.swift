@@ -53,7 +53,6 @@ public struct WorkspaceChangesSheet: View {
             listActions: listActions,
             pagerActions: pagerActions,
             path: $navigationPath,
-            previewDestination: artifactPreviewDestination,
             onClose: { dismiss() }
         )
         .task(id: workspaceID) {
@@ -81,31 +80,22 @@ public struct WorkspaceChangesSheet: View {
             onCopy: { text in
                 UIPasteboard.general.string = text
             },
-            onPreviewFile: { index, revision in
-                navigationPath.append(.preview(index: index, revision: revision))
+            inlinePreview: { index, revision in
+                inlineArtifactPreview(index: index, revision: revision)
             }
         )
     }
 
     @MainActor
-    private func artifactPreviewDestination(
+    private func inlineArtifactPreview(
         index: Int,
-        revision: FileDiffPreviewRevision,
-        onDone: @escaping () -> Void
+        revision: FileDiffPreviewRevision
     ) -> AnyView {
         guard files.indices.contains(index) else {
             return AnyView(EmptyView())
         }
         let file = files[index]
         let resolvedPath = revision == .base ? (file.oldPath ?? file.path) : file.path
-        let swipeOrder = ChatArtifactGallerySwipeOrder(items: [
-            ChatArtifactGalleryItem(
-                path: resolvedPath,
-                kind: .binary,
-                displayName: URL(fileURLWithPath: resolvedPath).lastPathComponent,
-                size: file.byteSize
-            ),
-        ])
         let loader = store.workspaceChangesArtifactLoader(
             workspaceID: workspaceID,
             path: file.path,
@@ -113,13 +103,12 @@ public struct WorkspaceChangesSheet: View {
             revision: revision
         )
         return AnyView(
-            ChatArtifactViewerDestination(
+            ChatArtifactInlineViewer(
                 path: resolvedPath,
-                scope: .terminal,
-                swipeOrder: swipeOrder,
-                onDone: onDone
+                showsActions: true
             )
             .environment(\.chatArtifactLoader, loader)
+            .id("\(revision.rawValue)\u{0}\(resolvedPath)")
         )
     }
 

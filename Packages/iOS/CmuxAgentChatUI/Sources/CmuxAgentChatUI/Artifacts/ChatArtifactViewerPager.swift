@@ -219,40 +219,34 @@ struct ChatArtifactViewerPager: View {
 
     @ViewBuilder
     private func fileActionButtons(snapshot: ChatArtifactViewerPageSnapshot) -> some View {
-        Button {
+        let policy = ChatArtifactActionVisibilityPolicy(
+            viewerHasFileActions: snapshot.hasFileActions,
+            isTextFile: snapshot.isTextFile
+        )
+        ChatArtifactActionBar(
+            actions: policy.actions,
+            style: .menu,
+            disabledActions: snapshot.canCopyContents ? [] : [.copyContents],
+            isRunning: snapshot.fileActionState.isRunning,
+            onAction: { action in performFileAction(action, snapshot: snapshot) }
+        )
+    }
+
+    private func performFileAction(
+        _ action: ChatArtifactAction,
+        snapshot: ChatArtifactViewerPageSnapshot
+    ) {
+        switch action {
+        case .share:
             Task { await model.prepareShare(loader: loader) }
-        } label: {
-            Label(
-                String(localized: "chat.artifact.share", defaultValue: "Share", bundle: .module),
-                systemImage: "square.and.arrow.up"
-            )
-        }
-        Button {
+        case .save:
             Task { await model.prepareSave(loader: loader) }
-        } label: {
-            Label(
-                String(localized: "chat.artifact.save_to_files", defaultValue: "Save to Files", bundle: .module),
-                systemImage: "folder.badge.plus"
-            )
-        }
-        if snapshot.isTextFile {
-            Button {
-                UIPasteboard.general.string = snapshot.renderedText
-            } label: {
-                Label(
-                    String(localized: "chat.artifact.copy_contents", defaultValue: "Copy contents", bundle: .module),
-                    systemImage: "doc.on.doc"
-                )
-            }
-            .disabled(!snapshot.canCopyContents)
-        }
-        Button {
+        case .copyImage:
+            break
+        case .copyContents:
+            UIPasteboard.general.string = snapshot.renderedText
+        case .copyPath:
             UIPasteboard.general.string = snapshot.path
-        } label: {
-            Label(
-                String(localized: "chat.artifact.copy_path", defaultValue: "Copy path", bundle: .module),
-                systemImage: "link"
-            )
         }
     }
 

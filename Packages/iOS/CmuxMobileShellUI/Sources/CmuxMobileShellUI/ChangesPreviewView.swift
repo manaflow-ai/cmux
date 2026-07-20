@@ -59,7 +59,6 @@ public struct ChangesPreviewView: View {
                 listActions: listActions,
                 pagerActions: pagerActions,
                 path: $navigationPath,
-                previewDestination: { _, _, _ in AnyView(EmptyView()) },
                 onClose: {}
             )
         }
@@ -110,7 +109,7 @@ public struct ChangesPreviewView: View {
                 fontPreference.pointSize = pointSize
             },
             onCopy: { UIPasteboard.general.string = $0 },
-            onPreviewFile: { _, _ in }
+            inlinePreview: nil
         )
     }
 }

@@ -1,4 +1,4 @@
-/// A changed-file revision selected from the binary diff card.
+/// A changed-file revision rendered by a binary diff preview.
 public enum FileDiffPreviewRevision: String, Sendable, Equatable, Hashable {
     /// The current working-tree file.
     case current

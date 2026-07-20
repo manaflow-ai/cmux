@@ -71,4 +71,23 @@ import Testing
     func ordinaryKindsStayUnbadged(kind: FileChangeKind) {
         #expect(kind.badge == nil)
     }
+
+    @Test(arguments: [
+        (FileChangeKind.modified, FileDiffPreviewRevision.current, true),
+        (.renamed, .current, true),
+        (.deleted, .base, false),
+        (.added, .current, false),
+        (.untracked, .current, false),
+        (.unknown, .current, false),
+    ])
+    func binaryPreviewPolicy(
+        kind: FileChangeKind,
+        revision: FileDiffPreviewRevision,
+        allowsRevisionSelection: Bool
+    ) {
+        let policy = FileDiffPreviewPolicy(kind: kind)
+
+        #expect(policy.defaultRevision == revision)
+        #expect(policy.allowsRevisionSelection == allowsRevisionSelection)
+    }
 }
