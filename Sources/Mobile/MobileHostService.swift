@@ -251,9 +251,17 @@ final class MobileHostService {
     /// the display name or the device id, so this reply is where a freshly
     /// paired phone learns what to call this Mac, which paired-Mac record owns
     /// the connection, and which app instance owns its routes.
-    nonisolated static func identityStatusPayload(routes: [CmxAttachRoute], now: Date = Date()) -> [String: Any] {
+    nonisolated static func identityStatusPayload(
+        routes: [CmxAttachRoute],
+        additionalCapabilities: Set<String> = [],
+        now: Date = Date()
+    ) -> [String: Any] {
         var payload = publicStatusPayload(routes: [], now: now)
         payload["routes"] = routes.mobileHostJSONObjects(for: .authenticated, at: now)
+        if !additionalCapabilities.isEmpty {
+            payload["capabilities"] = mobileHostCapabilities
+                + additionalCapabilities.sorted()
+        }
         payload["terminal_theme_revision_epoch"] = terminalThemeRevisionEpoch
         payload["mac_device_id"] = MobileHostIdentity.deviceID()
         payload["mac_instance_tag"] = MobileHostIdentity.instanceTag()
@@ -429,8 +437,11 @@ final class MobileHostService {
 
     /// Whether the mobile pairing host should bind a network listener at all.
     ///
-    /// Defaults off in every build so macOS does not ask for Local Network
-    /// permission until the user enables iOS pairing in Settings.
+    /// An explicit current or legacy preference always wins. Without one,
+    /// dev and nightly builds preserve their historical listener default so an
+    /// older iOS app can still reach an updated Mac over Tailscale. Stable
+    /// remains opt-in so macOS does not ask every user for Local Network
+    /// permission.
     nonisolated static var isListeningEnabled: Bool {
         isListeningEnabled(defaults: .standard)
     }
@@ -448,13 +459,20 @@ final class MobileHostService {
     #endif
 
     nonisolated static func isListeningEnabled(defaults: UserDefaults) -> Bool {
+        isListeningEnabled(defaults: defaults, buildFlavor: .current)
+    }
+
+    nonisolated static func isListeningEnabled(
+        defaults: UserDefaults,
+        buildFlavor: BuildFlavor
+    ) -> Bool {
         if let override = defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool {
             return override
         }
         if let legacyOverride = defaults.object(forKey: legacyListeningEnabledDefaultsKey) as? Bool {
             return legacyOverride
         }
-        return SettingCatalog().mobile.iOSPairingHost.defaultValue
+        return buildFlavor != .stable
     }
 
     /// User-default key for the preferred iOS pairing listener port.
@@ -1001,7 +1019,7 @@ final class MobileHostService {
             let transport = CmxNetworkByteTransport(acceptedConnection: connection)
             await Self.acceptTransport(
                 transport,
-                authorization: .stackBearer,
+                authorization: .legacyPrivateNetworkListener,
                 isCurrent: {
                     await MobileHostService.shared.canAcceptConnection(
                         generation: generation
@@ -1014,6 +1032,7 @@ final class MobileHostService {
     nonisolated static func acceptTransport(
         _ transport: any CmxByteTransport,
         authorization: MobileHostConnectionAuthorizationContext,
+        artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         isCurrent: @escaping @Sendable () async -> Bool
     ) async {
@@ -1053,12 +1072,19 @@ final class MobileHostService {
                     return await Self.connectionStatusResult(
                         for: request,
                         authorization: authorization,
+                        supportsArtifactLane: artifactTransfers != nil,
                         stackStatus: { request in
                             await MobileHostService.networkStatusResult(for: request)
                         }
                     )
                 }
-                let result = await TerminalController.shared.mobileHostHandleRPC(request)
+                let result = await TerminalController.shared.mobileHostHandleRPC(
+                    request,
+                    executionContext: MobileHostRPCExecutionContext(
+                        authorization: authorization,
+                        artifactTransfers: artifactTransfers
+                    )
+                )
                 await MobileHostService.shared.recordCreatedResourcesIfNeeded(
                     request: request,
                     result: result
@@ -1108,13 +1134,19 @@ final class MobileHostService {
     nonisolated static func connectionStatusResult(
         for request: MobileHostRPCRequest,
         authorization: MobileHostConnectionAuthorizationContext,
+        supportsArtifactLane: Bool = false,
         stackStatus: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     ) async -> MobileHostRPCResult {
         switch authorization {
         case .stackBearer:
             return await stackStatus(request)
         case .irohAdmission:
-            return MobileHostPublicStatusCache.result(includeIdentity: true)
+            return MobileHostPublicStatusCache.result(
+                includeIdentity: true,
+                additionalCapabilities: supportsArtifactLane
+                    ? Set([irohArtifactLaneCapability])
+                    : Set()
+            )
         }
     }
 

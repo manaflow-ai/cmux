@@ -45,6 +45,55 @@ struct MobileRPCClientLifecycleGateTests {
 
         #expect(!invokedFactory)
     }
+
+    @Test
+    func retirementDuringArtifactOpenClosesTheStaleLane() async throws {
+        let gate = MobileRPCClientLifecycleGate()
+        let connection = RecordingArtifactLaneConnection()
+        let admission = try gate.beginArtifactLaneAdmission()
+
+        gate.retire()
+
+        do {
+            _ = try await gate.finishArtifactLaneAdmission(
+                admission,
+                connection: connection
+            )
+            Issue.record("stale artifact lane should be rejected")
+        } catch MobileShellConnectionError.connectionClosed {
+            // Expected.
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+        #expect(await connection.closeCount() == 1)
+    }
+
+    @Test
+    func retiredGateRejectsArtifactOpenBeforeProviderInvocation() {
+        let gate = MobileRPCClientLifecycleGate()
+        gate.retire()
+
+        do {
+            _ = try gate.beginArtifactLaneAdmission()
+            Issue.record("retired gate should reject artifact admission")
+        } catch MobileShellConnectionError.connectionClosed {
+            // Expected.
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+}
+
+private actor RecordingArtifactLaneConnection: MobileArtifactLaneConnection {
+    private var observedCloseCount = 0
+
+    func receive(maximumByteCount _: Int) async throws -> Data? { nil }
+
+    func close() async {
+        observedCloseCount += 1
+    }
+
+    func closeCount() -> Int { observedCloseCount }
 }
 
 private actor SuspendedLifecycleCloseTransport: CmxByteTransport {
