@@ -168,6 +168,96 @@ import Testing
         #expect(Array(relevant.suffix(2)) == ["capture", "state"])
     }
 
+    /// Repeated verified grows can arrive while the first visible repaint is
+    /// still queued behind a slow control-channel round trip. Keep the burst to
+    /// one in-flight repaint and one coalesced follow-up so seed state and the
+    /// command FIFO stay bounded without dropping the latest grid repair.
+    @Test func verifiedPaneGrowthCoalescesRepaintWhileSeedIsPending() throws {
+        let connection = makeConnection()
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-pane-grow-coalescing-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        connection.handleMessageForTesting(
+            .commandResult(commandNumber: 0, lines: [], isError: false)
+        )
+        connection.handleMessageForTesting(
+            .commandResult(commandNumber: 1, lines: [], isError: false)
+        )
+        connection.pendingAttachRedrawKick = false
+        defer {
+            connection.stop()
+            writer.close()
+            try? pipe.fileHandleForReading.close()
+        }
+
+        let initialPane = RemoteTmuxLayoutNode(
+            width: 99, height: 35, x: 0, y: 0, content: .pane(7)
+        )
+        connection.windowsByID = [
+            3: RemoteTmuxWindow(id: 3, width: 99, height: 35, layout: initialPane)
+        ]
+        connection.windowOrder = [3]
+        connection.publishedWindowIdByPane = [7: 3]
+
+        let capturesBefore = connection.pendingCommandKindsForTesting.reduce(into: 0) {
+            if case .capturePane(7, _) = $1 { $0 += 1 }
+        }
+        for (generation, height) in zip(1...3, 37...39) {
+            let grownPane = RemoteTmuxLayoutNode(
+                width: 94, height: height, x: 0, y: 0, content: .pane(7)
+            )
+            connection.pendingLayouts[3] = RemoteTmuxPendingLayout(
+                node: grownPane,
+                visibleNode: nil,
+                zoomed: false,
+                name: "main",
+                generation: generation,
+                inFlight: true
+            )
+            connection.handlePaneRectsReply(
+                windowId: 3,
+                generation: generation,
+                lines: ["%7 0 0 94 \(height) 1 off :"]
+            )
+        }
+
+        #expect(connection.pendingPaneSeeds[7]?.count == 1)
+        #expect(
+            connection.pendingCommandKindsForTesting.reduce(into: 0) {
+                if case .capturePane(7, _) = $1 { $0 += 1 }
+            } == capturesBefore + 1
+        )
+
+        let firstSeedID = try #require(connection.pendingPaneSeeds[7]?.first?.id)
+        connection.installPaneSeedCapture(paneId: 7, seedID: firstSeedID, data: Data())
+        connection.finishPaneSeed(paneId: 7, seedID: firstSeedID, state: Data())
+
+        #expect(connection.pendingPaneSeeds[7]?.count == 1)
+        #expect(
+            connection.pendingCommandKindsForTesting.reduce(into: 0) {
+                if case .capturePane(7, _) = $1 { $0 += 1 }
+            } == capturesBefore + 2
+        )
+
+        let followUpSeedID = try #require(connection.pendingPaneSeeds[7]?.first?.id)
+        #expect(followUpSeedID != firstSeedID)
+        connection.installPaneSeedCapture(paneId: 7, seedID: followUpSeedID, data: Data())
+        connection.finishPaneSeed(paneId: 7, seedID: followUpSeedID, state: Data())
+
+        #expect(connection.pendingPaneSeeds[7] == nil)
+        #expect(
+            connection.pendingCommandKindsForTesting.reduce(into: 0) {
+                if case .capturePane(7, _) = $1 { $0 += 1 }
+            } == capturesBefore + 2
+        )
+    }
+
     @Test func windowSizesAreTrackedPerWindow() {
         let connection = makeConnection()
         connection.setWindowSize(windowId: 0, columns: 98, rows: 35)
