@@ -119,11 +119,7 @@ extension WorkspaceListView {
             retryInitialConnection: initialConnectionTimedOut ? retryInitialConnection : nil,
             showAddDevice: initialConnectionTimedOut ? showAddDevice : nil,
             reconnect: reconnect,
-            refresh: refresh,
-            refreshCompletionGeneration: workspaceListRefreshCompletionGeneration,
-            refreshDidComplete: {
-                workspaceListRefreshCompletionGeneration &+= 1
-            }
+            refresh: refresh
         )
     }
 }

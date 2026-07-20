@@ -50,52 +50,13 @@ struct WorkspaceListTable: UIViewRepresentable {
     let showAddDevice: (() -> Void)?
     let reconnect: (() -> Void)?
     let refresh: (@Sendable () async -> Void)?
-    let refreshCompletionGeneration: UInt64
-    let refreshDidComplete: @MainActor () -> Void
 
     func makeCoordinator() -> WorkspaceListTableCoordinator {
         WorkspaceListTableCoordinator(configuration: self)
     }
 
-    func makeUIView(context: Context) -> WorkspaceListTableContainerView {
-        let containerView = WorkspaceListTableContainerView()
-        let tableView = containerView.tableView
-        context.coordinator.attach(to: containerView)
-        context.coordinator.update(configuration: self, in: tableView)
-        return containerView
-    }
-
-    func updateUIView(_ uiView: WorkspaceListTableContainerView, context: Context) {
-        context.coordinator.update(
-            configuration: self,
-            in: uiView.tableView
-        )
-    }
-
-    static func dismantleUIView(
-        _ uiView: WorkspaceListTableContainerView,
-        coordinator: WorkspaceListTableCoordinator
-    ) {
-        coordinator.detach(from: uiView)
-    }
-}
-
-/// Neutral SwiftUI boundary around the UIKit-owned scrolling hierarchy.
-///
-/// SwiftUI sizes this view while the child table owns its refresh inset and
-/// content offset. Keeping the scroll view off the representable boundary
-/// prevents refresh geometry from resizing the SwiftUI host mid-gesture.
-@MainActor
-final class WorkspaceListTableContainerView: UIView {
-    let tableView: WorkspaceListUITableView
-
-    override init(frame: CGRect) {
+    func makeUIView(context: Context) -> WorkspaceListUITableView {
         let tableView = WorkspaceListUITableView(frame: .zero, style: .plain)
-        self.tableView = tableView
-        super.init(frame: frame)
-
-        backgroundColor = .clear
-        clipsToBounds = true
         tableView.separatorStyle = .none
         tableView.backgroundColor = .clear
         tableView.keyboardDismissMode = .interactive
@@ -106,21 +67,13 @@ final class WorkspaceListTableContainerView: UIView {
         tableView.sectionFooterHeight = 0
         tableView.rowHeight = UITableView.automaticDimension
         tableView.accessibilityIdentifier = "MobileWorkspaceList"
-        addSubview(tableView)
+        context.coordinator.attach(to: tableView)
+        context.coordinator.update(configuration: self, in: tableView)
+        return tableView
     }
 
-    convenience init() {
-        self.init(frame: .zero)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("WorkspaceListTableContainerView does not support storyboards")
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        tableView.frame = bounds
+    func updateUIView(_ uiView: WorkspaceListUITableView, context: Context) {
+        context.coordinator.update(configuration: self, in: uiView)
     }
 }
 #endif

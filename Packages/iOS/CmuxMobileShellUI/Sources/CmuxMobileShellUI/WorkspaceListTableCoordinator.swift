@@ -9,30 +9,6 @@ import UIKit
 final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     UITableViewDragDelegate, UITableViewDropDelegate
 {
-    typealias RefreshCollapseAction = @MainActor @Sendable () -> Void
-    typealias RefreshCollapseScheduler = @MainActor (
-        @escaping RefreshCollapseAction
-    ) -> Void
-    typealias RefreshCollapseAnimation = (
-        WorkspaceListUITableView,
-        @escaping RefreshCollapseAction
-    ) -> Void
-
-    enum RefreshVisualState: Equatable {
-        case disabled
-        case idle
-        case settling(WorkspaceListRefreshLifecycle.RefreshID)
-        case held(WorkspaceListRefreshLifecycle.RefreshID)
-        case collapsing(WorkspaceListRefreshLifecycle.CollapseID)
-    }
-
-    struct RefreshBaseline {
-        let contentInset: UIEdgeInsets
-        let verticalScrollIndicatorInsets: UIEdgeInsets
-        let alwaysBounceVertical: Bool
-        let bounces: Bool
-    }
-
     private enum HeightKind: Hashable {
         case workspaceUniform
         case workspaceWrapped(id: MobileWorkspacePreview.ID, name: String, isSelected: Bool)
@@ -60,48 +36,13 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private let sizingCell = UITableViewCell(style: .default, reuseIdentifier: nil)
     private var heightCache: [HeightCacheKey: CGFloat] = [:]
     private var dropJustCompleted = false
-    var refreshLifecycle = WorkspaceListRefreshLifecycle()
-    var refreshTask: Task<Void, Never>?
-    var refreshTaskID: WorkspaceListRefreshLifecycle.RefreshID?
-    weak var containerView: WorkspaceListTableContainerView?
-    weak var tableView: WorkspaceListUITableView?
-    let scheduleRefreshCollapse: RefreshCollapseScheduler
-    let injectedRefreshCollapseAnimation: RefreshCollapseAnimation?
-    var refreshHeaderView: WorkspaceListRefreshHeaderView?
-    var refreshBaseline: RefreshBaseline?
-    var refreshVisualState: RefreshVisualState = .disabled
-    var pendingCollapseID: WorkspaceListRefreshLifecycle.CollapseID?
-    var refreshVisualAnimator: UIViewPropertyAnimator?
-    var refreshVisualAnimationGeneration: UInt64 = 0
-    var isMutatingRefreshInsets = false
-    var lastBaseAdjustedTop: CGFloat?
 
     init(configuration: WorkspaceListTable) {
         self.configuration = configuration
-        scheduleRefreshCollapse = { action in action() }
-        injectedRefreshCollapseAnimation = nil
         super.init()
     }
 
-    deinit {
-        refreshTask?.cancel()
-    }
-
-    init(
-        configuration: WorkspaceListTable,
-        scheduleRefreshCollapse: @escaping RefreshCollapseScheduler,
-        animateRefreshCollapse: @escaping RefreshCollapseAnimation
-    ) {
-        self.configuration = configuration
-        self.scheduleRefreshCollapse = scheduleRefreshCollapse
-        injectedRefreshCollapseAnimation = animateRefreshCollapse
-        super.init()
-    }
-
-    func attach(to containerView: WorkspaceListTableContainerView) {
-        let tableView = containerView.tableView
-        self.containerView = containerView
-        self.tableView = tableView
+    func attach(to tableView: WorkspaceListUITableView) {
         tableView.delegate = self
         tableView.dragDelegate = self
         tableView.dropDelegate = self
@@ -128,24 +69,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
     }
 
-    func detach(from containerView: WorkspaceListTableContainerView) {
-        guard self.containerView === containerView else { return }
-        let tableView = containerView.tableView
-        uninstallRefreshPresentation(from: tableView)
-        tableView.layoutMetricsDidChange = nil
-        tableView.delegate = nil
-        tableView.dragDelegate = nil
-        tableView.dropDelegate = nil
-        dataSource = nil
-        self.tableView = nil
-        self.containerView = nil
-    }
-
     func update(configuration next: WorkspaceListTable, in tableView: UITableView) {
         let previous = previousConfiguration
         configuration = next
         tableView.dragInteractionEnabled = next.enablesReorder
-        updateRefreshPresentation(in: tableView)
+        updateRefreshControl(in: tableView)
 
         var snapshot = NSDiffableDataSourceSnapshot<Int, WorkspaceListTableItem>()
         snapshot.appendSections([Self.section])
@@ -167,17 +95,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             snapshot.reconfigureItems(changed)
         }
         previousConfiguration = next
-        let refreshApplyID = refreshLifecycle.snapshotApplyStarted(
-            refreshCompletionGeneration: next.refreshCompletionGeneration
-        )
-        let animatesSnapshot = tableView.window != nil
-            && !dropJustCompleted
-            && !refreshLifecycle.suppressesSnapshotAnimations
+        let animatesSnapshot = tableView.window != nil && !dropJustCompleted
         dropJustCompleted = false
-        dataSource?.apply(snapshot, animatingDifferences: animatesSnapshot) { [weak self] in
-            guard let refreshApplyID else { return }
-            self?.refreshSnapshotApplyCompleted(refreshApplyID)
-        }
+        dataSource?.apply(snapshot, animatingDifferences: animatesSnapshot)
     }
 
     func tableView(
@@ -380,6 +300,32 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             previewProvider: nil
         ) { _ in
             UIMenu(children: actions)
+        }
+    }
+
+    @objc private func refreshRequested(_ refreshControl: UIRefreshControl) {
+        guard let refresh = configuration.refresh else {
+            refreshControl.endRefreshing()
+            return
+        }
+        Task { @MainActor in
+            await refresh()
+            refreshControl.endRefreshing()
+        }
+    }
+
+    private func updateRefreshControl(in tableView: UITableView) {
+        if configuration.refresh != nil {
+            guard tableView.refreshControl == nil else { return }
+            let refreshControl = UIRefreshControl()
+            refreshControl.addTarget(
+                self,
+                action: #selector(refreshRequested(_:)),
+                for: .valueChanged
+            )
+            tableView.refreshControl = refreshControl
+        } else {
+            tableView.refreshControl = nil
         }
     }
 

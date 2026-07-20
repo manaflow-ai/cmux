@@ -121,61 +121,6 @@ final class cmuxUITests: XCTestCase {
         add(attachment)
     }
 
-    @MainActor
-    func testWorkspaceListPullToRefreshCompletesAfterSnapshotUpdate() throws {
-        let app = launchApp(mockData: false, environment: [
-            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
-            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "7",
-            "CMUX_UITEST_WORKSPACE_LIST_REFRESH_DELAY_MS": "1800",
-        ])
-        defer { app.terminate() }
-
-        let table = app.tables["MobileWorkspaceList"]
-        XCTAssertTrue(table.waitForExistence(timeout: 8))
-
-        let firstRow = app.descendants(matching: .any)[
-            "MobileWorkspaceRow-workspace-seed-0"
-        ]
-        XCTAssertTrue(firstRow.waitForExistence(timeout: 3))
-        XCTAssertTrue((firstRow.value as? String)?.contains("Unread") == true)
-
-        func pullAndWaitForRefresh(expectsUnread: Bool) {
-            table.coordinate(
-                withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18)
-            ).press(
-                forDuration: 0.05,
-                thenDragTo: table.coordinate(
-                    withNormalizedOffset: CGVector(dx: 0.5, dy: 0.82)
-                ),
-                withVelocity: .slow,
-                thenHoldForDuration: 0.1
-            )
-
-            let indicator = app.activityIndicators["MobileWorkspaceRefreshIndicator"]
-            XCTAssertTrue(indicator.waitForExistence(timeout: 1))
-            let refreshed = XCTNSPredicateExpectation(
-                predicate: NSPredicate { object, _ in
-                    guard let row = object as? XCUIElement,
-                          let value = row.value as? String else {
-                        return false
-                    }
-                    return value.contains("Unread") == expectsUnread
-                },
-                object: firstRow
-            )
-            XCTAssertEqual(XCTWaiter.wait(for: [refreshed], timeout: 5), .completed)
-            let collapsed = XCTNSPredicateExpectation(
-                predicate: NSPredicate(format: "exists == false"),
-                object: indicator
-            )
-            XCTAssertEqual(XCTWaiter.wait(for: [collapsed], timeout: 2), .completed)
-        }
-
-        pullAndWaitForRefresh(expectsUnread: false)
-        pullAndWaitForRefresh(expectsUnread: true)
-        XCTAssertEqual(app.state, .runningForeground)
-    }
-
     /// Regression: fast pinch-zoom must not hang the main thread (the
     /// scene-update watchdog `0x8BADF00D` was killing the app because
     /// libghostty surface calls block on the main thread) and must not
