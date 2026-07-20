@@ -315,6 +315,28 @@ struct ComputerUseUXTests {
         #expect(restartCount == 1, "an intentional disabled state must not self-relaunch")
     }
 
+    @Test func helperProcessExitSignalReportsTheExitedProcessWithoutPolling() async throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["60"]
+        try process.run()
+        defer {
+            if process.isRunning {
+                process.terminate()
+            }
+            process.waitUntilExit()
+        }
+
+        let processIdentifier = process.processIdentifier
+        let exitEvents = ComputerUseRuntimeService.processExitEvents(
+            processIdentifier: processIdentifier
+        )
+        process.terminate()
+
+        var iterator = exitEvents.makeAsyncIterator()
+        #expect(await iterator.next() == processIdentifier)
+    }
+
     @Test func taggedRuntimeSocketFitsDarwinUnixPathLimit() {
         let paths = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/\(String(repeating: "long-home-", count: 10))"),
