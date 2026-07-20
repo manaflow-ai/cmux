@@ -179,7 +179,7 @@ struct ShellStartupMatrixTests {
     @Test
     func generatedSshBootstrapRunsResumeBeforeUnsupportedInteractiveShell() throws {
         let result = try runGeneratedBootstrap(
-            shellName: "nu",
+            shellName: "xonsh",
             initialCommand: #"printf 'resumed\n' > "$HOME/.cmux-resume-marker""#
         )
 

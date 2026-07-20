@@ -98,7 +98,7 @@ struct RemoteResumeBindingTests {
         #expect(liveFirstCommand.contains("ssh-pty-attach"), "\(liveFirstCommand)")
         #expect(liveFirstCommand.contains("--require-existing"), "\(liveFirstCommand)")
         let liveFirstRemoteCommand = try decodedRemoteCommand(from: liveFirstCommand)
-        expectRemoteResumeBootstrap(liveFirstRemoteCommand)
+        try expectRemoteResumeBootstrap(liveFirstRemoteCommand)
         #expect(restoredPanel.surface.debugInitialInputForTesting() == nil)
 
         let roundTrip = restoredWorkspace.sessionSnapshot(includeScrollback: false)
@@ -133,7 +133,7 @@ struct RemoteResumeBindingTests {
         )
         #expect(!gonePTYCommand.contains("--require-existing"), "\(gonePTYCommand)")
         let gonePTYRemoteCommand = try decodedRemoteCommand(from: gonePTYCommand)
-        expectRemoteResumeBootstrap(gonePTYRemoteCommand)
+        try expectRemoteResumeBootstrap(gonePTYRemoteCommand)
     }
 
     @Test
@@ -155,7 +155,7 @@ struct RemoteResumeBindingTests {
             restoredWorkspace.terminalPanel(for: restoredSurfaceID)?.surface.debugInitialCommand()
         )
         let remoteCommand = try decodedRemoteCommand(from: startupCommand)
-        expectRemoteResumeBootstrap(remoteCommand)
+        try expectRemoteResumeBootstrap(remoteCommand)
 
         let roundTripBinding = try #require(
             restoredWorkspace.sessionSnapshot(includeScrollback: false)
@@ -376,14 +376,27 @@ struct RemoteResumeBindingTests {
         return try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: legacyData)
     }
 
-    private func expectRemoteResumeBootstrap(_ command: String) {
+    private func expectRemoteResumeBootstrap(_ command: String) throws {
         #expect(command.contains("export CMUX_SOCKET_PATH=127.0.0.1:\(relayPort)"), "\(command)")
         #expect(command.contains("__CMUX_WORKSPACE_ID__"), "\(command)")
         #expect(command.contains("__CMUX_SURFACE_ID__"), "\(command)")
-        #expect(command.contains("/srv/remote project"), "\(command)")
-        #expect(command.contains("REMOTE_FLAG=value with spaces"), "\(command)")
-        #expect(command.contains("session-remote-7989"), "\(command)")
-        #expect(!command.contains("ANTHROPIC_API_KEY"), "\(command)")
+        let initialCommand = try decodedInitialCommand(from: command)
+        #expect(initialCommand.contains("/srv/remote project"), "\(initialCommand)")
+        #expect(initialCommand.contains("REMOTE_FLAG=value with spaces"), "\(initialCommand)")
+        #expect(initialCommand.contains("session-remote-7989"), "\(initialCommand)")
+        #expect(!initialCommand.contains("ANTHROPIC_API_KEY"), "\(initialCommand)")
+    }
+
+    private func decodedInitialCommand(from bootstrap: String) throws -> String {
+        let payloadLine = try #require(bootstrap.split(separator: "\n").first { line in
+            line.contains("printf %s '") && line.contains("> \"$cmux_initial_command_tmp\"")
+        })
+        let prefixRange = try #require(payloadLine.range(of: "printf %s '"))
+        let encodedSuffix = payloadLine[prefixRange.upperBound...]
+        let closingQuote = try #require(encodedSuffix.firstIndex(of: "'"))
+        let encodedCommand = String(encodedSuffix[..<closingQuote])
+        let data = try #require(Data(base64Encoded: encodedCommand))
+        return try #require(String(data: data, encoding: .utf8))
     }
 
     private func reserveRemoteRestoreSocket() -> String {
