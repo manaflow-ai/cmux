@@ -836,6 +836,25 @@ final class BrowserOmnibarNativeFieldRegistryWindowSelectionTests: XCTestCase {
 final class BrowserPortalOmnibarSuggestionsTests: XCTestCase {
     func testPortalSuggestionsOverlayPassesHitTestingOutsidePopupFrame() {
         let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 420, height: 260))
+        // The suggestions overlay is a SwiftUI hosting view, and SwiftUI only builds
+        // the content that answers a hit test once the view is in a window and has
+        // been through a layout/display pass. Host the slot in a window so the
+        // overlay reports real hits instead of nil for every point.
+        let window = NSWindow(
+            contentRect: slot.frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = slot
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.contentView = nil
+            window.orderOut(nil)
+            window.close()
+        }
+
         let item = OmnibarSuggestion.search(engineName: "Google", query: "news")
         let popupFrame = CGRect(
             x: 40,
@@ -859,6 +878,9 @@ final class BrowserPortalOmnibarSuggestionsTests: XCTestCase {
             )
         )
         slot.layoutSubtreeIfNeeded()
+        slot.displayIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        slot.layoutSubtreeIfNeeded()
 
         let overlay = slot.subviews.first {
             String(describing: type(of: $0)).contains("OmnibarSuggestionsHostingView")
@@ -866,13 +888,29 @@ final class BrowserPortalOmnibarSuggestionsTests: XCTestCase {
         XCTAssertNotNil(overlay)
         guard let overlay else { return }
 
+        // The overlay is pinned to the slot with constraints, so it only has a
+        // usable coordinate space once layout has run. Hit-testing a zero-sized
+        // overlay would report "outside the popup" for every point, including
+        // points that must hit.
+        XCTAssertEqual(overlay.bounds.size, slot.bounds.size, "Overlay must fill the slot before hit-testing")
+
         XCTAssertNil(overlay.hitTest(NSPoint(x: 8, y: 8)))
 
+        // `popupFrame` is in the overlay's own top-left space, while `hitTest`
+        // takes a point in the superview's space. Convert through AppKit rather
+        // than flipping by hand: the overlay is a flipped hosting view inside an
+        // unflipped slot, so the two spaces disagree about y and a hand-rolled
+        // flip lands outside the popup.
         let insideTopLeftPoint = NSPoint(x: popupFrame.midX, y: popupFrame.midY)
-        let insidePoint = overlay.isFlipped
+        let overlayLocalPoint = overlay.isFlipped
             ? insideTopLeftPoint
             : NSPoint(x: insideTopLeftPoint.x, y: overlay.bounds.height - insideTopLeftPoint.y)
-        XCTAssertNotNil(overlay.hitTest(insidePoint))
+        let insidePoint = overlay.convert(overlayLocalPoint, to: overlay.superview)
+        XCTAssertNotNil(
+            overlay.hitTest(insidePoint),
+            "isFlipped=\(overlay.isFlipped) bounds=\(overlay.bounds) popup=\(popupFrame) "
+                + "point=\(insidePoint) inWindow=\(overlay.window != nil) subviews=\(overlay.subviews.count)"
+        )
     }
 }
 
