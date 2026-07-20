@@ -207,6 +207,18 @@ struct ShellStartupMatrixTests {
         expectEqual(result.status, 126, result.stderr)
     }
 
+    @Test
+    func generatedStagedBootstrapUsesBundledCLIAsPersistentPTYExecHelper() throws {
+        let result = try runGeneratedBootstrap(
+            shellName: "sh",
+            injectPersistentPTYExecHelper: false
+        )
+
+        expectEqual(result.process.status, 0, result.process.stderr)
+        expectFalse(result.process.timedOut, result.process.stderr)
+        expectTrue(result.capture.contains("PERSISTENT_PTY_EXEC_USED=yes"), result.capture)
+    }
+
     @Test(arguments: ["zsh", "bash", "fish", "sh", "dash", "ksh", "tcsh", "csh"])
     func generatedSshBootstrapStartupStaysUnderPerformanceBudget(shellName: String) throws {
         let result = try runGeneratedBootstrap(shellName: shellName)
@@ -329,7 +341,8 @@ struct ShellStartupMatrixTests {
         fakeCmuxDelay: TimeInterval? = nil,
         workspaceID: String? = nil,
         surfaceID: String? = nil,
-        bootstrapTTY: String? = nil
+        bootstrapTTY: String? = nil,
+        injectPersistentPTYExecHelper: Bool = true
     ) throws -> GeneratedBootstrapResult {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-shell-matrix-\(UUID().uuidString)")
@@ -341,7 +354,13 @@ struct ShellStartupMatrixTests {
         defer { try? fileManager.removeItem(at: root) }
 
         try writeExecutableShellFile(at: bin.appendingPathComponent(shellName), capturePath: capturePath)
-        let persistentPTYExecHelper = bin.appendingPathComponent("persistent-pty-exec-helper")
+        let persistentPTYExecHelper = injectPersistentPTYExecHelper
+            ? bin.appendingPathComponent("persistent-pty-exec-helper")
+            : home.appendingPathComponent(".cmux/bin/cmux")
+        try fileManager.createDirectory(
+            at: persistentPTYExecHelper.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
         try writePersistentPTYExecHelper(at: persistentPTYExecHelper)
         if let fakeCmuxDelay {
             try writeExecutableCmuxFile(at: bin.appendingPathComponent("cmux"), delay: fakeCmuxDelay)
@@ -369,8 +388,10 @@ struct ShellStartupMatrixTests {
             "USER=\(NSUserName())",
             "ZDOTDIR=\(home.path)/user-zdotdir",
             "CMUX_CAPTURE_PATH=\(capturePath.path)",
-            "CMUX_PERSISTENT_PTY_EXEC_HELPER=\(persistentPTYExecHelper.path)",
         ]
+        if injectPersistentPTYExecHelper {
+            arguments.append("CMUX_PERSISTENT_PTY_EXEC_HELPER=\(persistentPTYExecHelper.path)")
+        }
         if let bootstrapTTY {
             arguments.append("CMUX_BOOTSTRAP_TTY=\(bootstrapTTY)")
         }
