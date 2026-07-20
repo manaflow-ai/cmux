@@ -36,7 +36,7 @@ Common CLI exit codes for every mapping are `0` success, `1` command error, `2` 
 `Tree`:
 
 ```text
-object{workspace_revision?:uint64,workspaces:array<Workspace>}
+object{workspace_revision?:uint64,pane_revision?:uint64,workspaces:array<Workspace>}
 ```
 
 `Workspace`:
@@ -48,6 +48,10 @@ object{id:Id,key?:string,name:string,active:boolean,screens:array<Screen>}
 `workspace_revision` and `Workspace.key` are present on servers advertising
 `workspace-registry-v1`. They are omitted by older servers, so clients must
 treat a missing revision as `0` and a missing key as unavailable.
+
+`pane_revision` changes only when the live pane-ID set changes. Renderers can
+use it to invalidate pane-membership caches without scanning unchanged trees.
+Older servers omit it, so clients must treat it as unavailable.
 
 `Screen`:
 
@@ -88,9 +92,11 @@ Applying a stack creates one fresh pane per exported pane id, preserves membersh
 `Pane`:
 
 ```text
-object{id:Id,name:string|null,active_tab:usize,tabs:array<Tab>}
+object{id:Id,name:string|null,active_tab:usize,focused_at?:u64,tabs:array<Tab>}
 | object{id:Id,dead:true}
 ```
+
+`focused_at` is an additive focus-only monotonic sequence. Clients must default it to `0` when connected to servers that omit it.
 
 `Tab`:
 
@@ -467,7 +473,7 @@ Example:
 
 ```json
 {"id":2,"cmd":"list-workspaces"}
-{"id":2,"ok":true,"data":{"workspace_revision":1,"workspaces":[{"id":4,"key":"6ba7b810-9dad-41d1-80b4-00c04fd430c8","name":"1","active":true,"screens":[{"id":3,"name":null,"active":true,"active_pane":2,"layout":{"type":"leaf","pane":2},"panes":[{"id":2,"name":null,"active_tab":0,"tabs":[{"surface":1,"kind":"pty","browser_source":null,"name":null,"title":"","size":{"cols":80,"rows":24},"dead":false}]}]}]}]}}
+{"id":2,"ok":true,"data":{"workspace_revision":1,"workspaces":[{"id":4,"key":"6ba7b810-9dad-41d1-80b4-00c04fd430c8","name":"1","active":true,"screens":[{"id":3,"name":null,"active":true,"active_pane":2,"layout":{"type":"leaf","pane":2},"panes":[{"id":2,"name":null,"active_tab":0,"focused_at":1,"tabs":[{"surface":1,"kind":"pty","browser_source":null,"name":null,"title":"","size":{"cols":80,"rows":24},"dead":false}]}]}]}]}}
 ```
 
 ### export-layout

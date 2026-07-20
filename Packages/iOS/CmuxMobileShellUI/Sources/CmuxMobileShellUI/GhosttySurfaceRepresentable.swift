@@ -9,20 +9,9 @@ import CmuxMobileTerminal
 import SwiftUI
 import UIKit
 
-/// SwiftUI wrapper that mounts a `GhosttySurfaceView` and routes terminal output
-/// chunks into `ghostty_surface_process_output`. Primary-screen output can stay
-/// at the phone's natural height, while alternate-screen render-grid replay can
-/// pin the surface to the Mac's authoritative grid.
-///
-/// The bottom dock (terminal grid / composer band / accessory toolbar / keyboard)
-/// is owned entirely by the `GhosttySurfaceView` in one coordinate system. The
-/// iMessage-style composer is a SwiftUI view, so it is hosted in a
-/// `UIHostingController` and installed into the surface's composer band; this
-/// representable is the only layer that can see both the terminal package and the
-/// shell-UI composer, so it owns that bridge. The surface owns the band's position
-/// and the grid reservation; the host reports the field's measured height back so a
-/// field-grow pushes only the terminal up. There is no toolbar handoff and no second
-/// layout system reaching into the surface's bottom math.
+/// Mounts a `GhosttySurfaceView`, routes terminal output, and bridges the SwiftUI
+/// composer into the surface-owned bottom dock. Primary-screen output uses the
+/// phone's natural height; alternate-screen replay can pin to the Mac's grid.
 struct GhosttySurfaceRepresentable: UIViewRepresentable {
     let workspaceID: String
     let surfaceID: String

@@ -4,9 +4,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-public record Tree(long workspaceRevision, List<Workspace> workspaces) {
+public record Tree(long workspaceRevision, Long paneRevision, List<Workspace> workspaces) {
+    public Tree(long workspaceRevision, List<Workspace> workspaces) {
+        this(workspaceRevision, null, workspaces);
+    }
+
     public Tree(List<Workspace> workspaces) {
-        this(0, workspaces);
+        this(0, null, workspaces);
     }
 
     @SuppressWarnings("unchecked")
@@ -19,6 +23,11 @@ public record Tree(long workspaceRevision, List<Workspace> workspaces) {
             }
         }
         Object revision = data.get("workspace_revision");
-        return new Tree(revision == null ? 0 : CmuxClient.asLong(revision), workspaces);
+        Object paneRevision = data.get("pane_revision");
+        return new Tree(
+            revision == null ? 0 : CmuxClient.asLong(revision),
+            paneRevision == null ? null : CmuxClient.asLong(paneRevision),
+            workspaces
+        );
     }
 }

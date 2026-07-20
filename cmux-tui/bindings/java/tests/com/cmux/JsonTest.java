@@ -75,6 +75,13 @@ public final class JsonTest {
         assertTrue(ResizeSurfaceResult.from(Map.of()).accepted(), "legacy resize accepted");
         Tree legacyTree = Tree.from(Map.of("workspaces", List.of()));
         assertEquals(0L, legacyTree.workspaceRevision(), "legacy workspace revision");
+        assertEquals(null, legacyTree.paneRevision(), "legacy pane revision");
+        Tree revisionedTree = Tree.from(Map.of("pane_revision", 7L, "workspaces", List.of()));
+        assertEquals(7L, revisionedTree.paneRevision(), "pane revision");
+        Tree sourceCompatibleTree = new Tree(4, List.of());
+        assertEquals(null, sourceCompatibleTree.paneRevision(), "source-compatible tree pane revision");
+        Pane sourceCompatiblePane = new Pane(7, "shell", 0, List.of(), false);
+        assertEquals(0L, sourceCompatiblePane.focusedAt(), "source-compatible pane focus recency");
 
         CreateTerminalRequest terminalRequest = CreateTerminalRequest.builder()
             .key("stable")

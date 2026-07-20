@@ -214,6 +214,42 @@ struct FishShellIntegrationTests {
         )
     }
 
+    @Test(.enabled(if: fishExecutablePath != nil))
+    func testReattachedTmuxFishAdoptsSessionWorkspaceBinding() throws {
+        _ = try requireFishExecutable()
+        let result = try runInteractiveFish(
+            command: """
+            function tmux
+                if test "$argv[1]" = show-environment
+                    if test "$argv[2]" = -g
+                        printf '%s\\n' 'CMUX_SOCKET_PATH=127.0.0.1:63135' 'CMUX_TAB_ID=stale-workspace' 'CMUX_WORKSPACE_ID=stale-workspace'
+                    else
+                        printf '%s\\n' 'CMUX_SOCKET_PATH=127.0.0.1:55272' 'CMUX_TAB_ID=current-workspace' 'CMUX_WORKSPACE_ID=current-workspace'
+                    end
+                end
+            end
+            _cmux_tmux_sync_cmux_environment
+            printf 'workspace=%s\\nsocket=%s\\nsurface=%s\\npanel=%s\\n' \
+                "$CMUX_WORKSPACE_ID" "$CMUX_SOCKET_PATH" \
+                (set -q CMUX_SURFACE_ID; and printf %s "$CMUX_SURFACE_ID"; or printf %s '<unset>') \
+                (set -q CMUX_PANEL_ID; and printf %s "$CMUX_PANEL_ID"; or printf %s '<unset>')
+            """,
+            extraEnvironment: [
+                "CMUX_PANEL_ID": "stale-surface",
+                "CMUX_SOCKET_PATH": "127.0.0.1:63135",
+                "CMUX_SURFACE_ID": "stale-surface",
+                "CMUX_TAB_ID": "stale-workspace",
+                "CMUX_WORKSPACE_ID": "stale-workspace",
+                "TMUX": "/tmp/tmux-test,1,0",
+            ]
+        )
+
+        expectTrue(result.stdout.contains("workspace=current-workspace"), result.stdout)
+        expectTrue(result.stdout.contains("socket=127.0.0.1:55272"), result.stdout)
+        expectTrue(result.stdout.contains("surface=<unset>"), result.stdout)
+        expectTrue(result.stdout.contains("panel=<unset>"), result.stdout)
+    }
+
     @Test
     func testGeneratedFishBootstrapStagesIntegrationAndPreservesUserConfigHome() throws {
         let fileManager = FileManager.default
