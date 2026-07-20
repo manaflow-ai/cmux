@@ -287,7 +287,8 @@ public struct ChatScreen: View {
             },
             showCodeBlockDetail: { messageID, segmentIndex in
                 selectedBlockSelection = .codeBlock(messageID: messageID, segmentIndex: segmentIndex)
-            }
+            },
+            notifyCopied: { toasts.present(.copied()) }
         )
     }
 }

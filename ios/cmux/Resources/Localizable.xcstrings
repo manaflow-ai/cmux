@@ -7362,23 +7362,6 @@
         }
       }
     },
-    "mobile.textSheet.copied": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copied"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コピーしました"
-          }
-        }
-      }
-    },
     "mobile.textSheet.copyAll": {
       "extractionState": "manual",
       "localizations": {
@@ -9823,6 +9806,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "グループを削除"
+          }
+        }
+      }
+    },
+    "mobile.connection.reconnectedToast": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnected to your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac に再接続しました。"
+          }
+        }
+      }
+    },
+    "mobile.feedback.sentToast": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feedback sent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィードバックを送信しました"
+          }
+        }
+      }
+    },
+    "mobile.toast.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピーしました"
+          }
+        }
+      }
+    },
+    "mobile.toast.pathCopied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Path copied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスをコピーしました"
           }
         }
       }

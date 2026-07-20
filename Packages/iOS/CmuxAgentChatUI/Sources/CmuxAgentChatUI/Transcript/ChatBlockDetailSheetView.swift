@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxMobileToast
 import SwiftUI
 
 #if canImport(UIKit)
@@ -11,6 +12,7 @@ struct ChatBlockDetailSheetView: View {
     let detail: ChatBlockDetail
     let onOpenTerminal: (() -> Void)?
 
+    @Environment(ToastCenter.self) private var toasts
     @Environment(\.dismiss) private var dismiss
     @Environment(\.chatArtifactLoader) private var artifactLoader
     @State private var selectedArtifact: ChatArtifactPathSelection?
@@ -118,7 +120,8 @@ struct ChatBlockDetailSheetView: View {
         guard !detail.copyText.isEmpty else { return }
         #if canImport(UIKit)
         UIPasteboard.general.string = detail.copyText
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        // The toast supplies the confirmation haptic.
+        toasts.present(.copied())
         #elseif canImport(AppKit)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(detail.copyText, forType: .string)

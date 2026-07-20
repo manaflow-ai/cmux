@@ -6,6 +6,7 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTerminal
+import CmuxMobileToast
 import CmuxMobileWorkspace
 import SwiftUI
 #if os(iOS)
@@ -34,6 +35,7 @@ struct WorkspaceDetailView: View {
     let signOut: (() -> Void)?
     @Environment(BrowserSurfaceStore.self) var browserStore
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(ToastCenter.self) private var toasts
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -598,8 +600,13 @@ struct WorkspaceDetailView: View {
             isSubmittingFeedback = false
             switch outcome {
             case .sentToAgent, .emailed:
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
                 isFeedbackComposerPresented = false
+                // The toast supplies the success haptic; presenting after the
+                // composer dismisses keeps it as the single confirmation.
+                toasts.present(.success(L10n.string(
+                    "mobile.feedback.sentToast",
+                    defaultValue: "Feedback sent"
+                )))
             case .failed:
                 UINotificationFeedbackGenerator().notificationOccurred(.error)
                 feedbackErrorMessage = L10n.string(

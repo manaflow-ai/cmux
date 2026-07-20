@@ -1,6 +1,7 @@
 import Foundation
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import CmuxMobileToast
 import CmuxMobileWorkspace
 import SwiftUI
@@ -29,6 +30,9 @@ struct WorkspaceShellView: View {
     @Environment(ToastCenter.self) var toasts
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
+    /// True once this shell has held a live connection, so only genuine
+    /// reconnections toast (the expected first attach stays silent).
+    @State private var hasHeldConnection = false
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -86,6 +90,19 @@ struct WorkspaceShellView: View {
         }
         .onAppear {
             consumeDeeplinkNavigationRequestIfNeeded()
+        }
+        .onChange(of: store.connectionState) { _, state in
+            guard state == .connected else { return }
+            if hasHeldConnection {
+                toasts.present(.success(
+                    L10n.string(
+                        "mobile.connection.reconnectedToast",
+                        defaultValue: "Reconnected to your Mac."
+                    ),
+                    coalescingKey: "connection.reconnected"
+                ))
+            }
+            hasHeldConnection = true
         }
         .accessibilityIdentifier("MobileWorkspaceShell")
     }

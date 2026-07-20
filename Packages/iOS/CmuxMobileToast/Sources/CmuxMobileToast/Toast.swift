@@ -1,3 +1,4 @@
+internal import CmuxMobileSupport
 public import Foundation
 
 /// A transient, non-blocking notice presented through ``ToastCenter``.
@@ -180,6 +181,24 @@ public extension Toast {
             style: .failure, title: title, message: message, systemImage: systemImage,
             placement: placement, autoDismiss: autoDismiss, action: action,
             coalescingKey: coalescingKey
+        )
+    }
+}
+
+public extension Toast {
+    /// The standard clipboard confirmation: a quiet capsule with a shorter
+    /// dwell than a regular notice. Every copy in the app shares one
+    /// coalescing key, so rapid copies pulse a single capsule instead of
+    /// queueing a parade.
+    ///
+    /// - Parameter message: Overrides the default "Copied" label (e.g.
+    ///   "Path copied") while keeping the shared look and coalescing.
+    static func copied(_ message: String? = nil) -> Toast {
+        Toast.info(
+            message ?? L10n.string("mobile.toast.copied", defaultValue: "Copied"),
+            systemImage: "doc.on.doc",
+            autoDismiss: .after(.seconds(2.2)),
+            coalescingKey: "clipboard"
         )
     }
 }
