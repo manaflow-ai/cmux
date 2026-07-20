@@ -44,7 +44,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/blog/cmd-shift-u", lastModified: "2026-03-04", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/getting-started", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.9 },
     { path: "/docs/concepts", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.8 },
-    { path: "/docs/base", lastModified: "2026-06-25", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/workspace-groups", lastModified: "2026-06-09", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/configuration", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/textbox", lastModified: "2026-05-26", changeFrequency: "monthly" as const, priority: 0.7 },
@@ -95,9 +94,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/eula", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
   ];
 
-  // Legal pages and the Base docs page are English-only, so they only get one entry.
+  // Legal pages are English-only, so they only get one entry.
   // The SEO landing pages are localized, so they go through the per-locale loop.
-  const englishOnly = new Set(["/docs/base", "/terms-of-service", "/eula"]);
+  const englishOnly = new Set(["/terms-of-service", "/eula"]);
 
   const entries: MetadataRoute.Sitemap = [];
 

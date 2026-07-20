@@ -1,4 +1,7 @@
 extension MobileShellComposite {
+    static let chatArtifactFoldersCapability = "chat.artifact.folders.v1"
+    static let terminalArtifactListCapability = "terminal.artifact.list.v1"
+
     /// Whether the Mac supports workspace close requests.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
     /// Whether the Mac supports workspace move/reorder requests.
@@ -17,6 +20,17 @@ extension MobileShellComposite {
     public var supportsChatArtifactGallery: Bool {
         supportedHostCapabilities.contains(Self.chatArtifactGalleryCapability)
     }
+    /// Whether the Mac supports recursive chat artifact folder browsing.
+    public var supportsChatArtifactFolders: Bool {
+        supportedHostCapabilities.contains(Self.chatArtifactFoldersCapability)
+    }
     /// Whether the Mac supports terminal artifact scan/stat/fetch/thumbnail RPCs.
     public var supportsTerminalArtifacts: Bool { supportedHostCapabilities.contains(Self.terminalArtifactCapability) }
+    public var supportsIrohArtifactLane: Bool {
+        supportedHostCapabilities.contains(Self.irohArtifactLaneCapability)
+    }
+    /// Whether the Mac supports terminal-scoped directory listing.
+    public var supportsTerminalArtifactList: Bool {
+        supportedHostCapabilities.contains(Self.terminalArtifactListCapability)
+    }
 }

@@ -182,7 +182,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-client"
-version = "0.1.2"
+version = "0.3.0"
 dependencies = [
  "libc",
  "serde",
@@ -212,6 +212,7 @@ name = "cmux-tui-cdp"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64",
  "serde_json",
  "tungstenite",
 ]

@@ -1922,6 +1922,23 @@
         }
       }
     },
+    "mobile.connection.requestTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile sync request timed out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル同期リクエストがタイムアウトしました"
+          }
+        }
+      }
+    },
     "mobile.connection.unavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -4904,6 +4921,23 @@
         }
       }
     },
+    "mobile.settings.betaFeatures": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beta Features"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ベータ機能"
+          }
+        }
+      }
+    },
     "mobile.settings.deleteAccount": {
       "extractionState": "manual",
       "localizations": {
@@ -5716,6 +5750,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "バージョン"
+          }
+        }
+      }
+    },
+    "mobile.settings.showMissingFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show missing files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "見つからないファイルを表示"
+          }
+        }
+      }
+    },
+    "mobile.settings.terminalFilesChip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Files Chip"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのファイルチップ"
           }
         }
       }
@@ -10722,7 +10790,45 @@
     "mobile.iroh.custom.secret.note": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Relay secrets stay in this device's Keychain and do not sync with your account."}},"ja":{"stringUnit":{"state":"translated","value":"リレーシークレットはこのデバイスのキーチェーンに保存され、アカウントとは同期されません。"}}}},
     "mobile.iroh.custom.summary": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%1$@ · %2$@"}},"ja":{"stringUnit":{"state":"translated","value":"%1$@ · %2$@"}}}},
     "mobile.iroh.custom.url": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Relay URL"}},"ja":{"stringUnit":{"state":"translated","value":"リレー URL"}}}},
+    "mobile.iroh.debug": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Debug Verification"}},"ja":{"stringUnit":{"state":"translated","value":"デバッグ検証"}}}},
+    "mobile.iroh.debug.footer": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Changing this restarts Iroh without signing out or changing this app's device identity."}},"ja":{"stringUnit":{"state":"translated","value":"この設定を変更すると、サインアウトせず、このアプリのデバイス ID を変更せずに Iroh が再起動します。"}}}},
+    "mobile.iroh.debug.transportMode": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Transport Mode"}},"ja":{"stringUnit":{"state":"translated","value":"トランスポートモード"}}}},
+    "mobile.iroh.debug.transportMode.automatic": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Automatic"}},"ja":{"stringUnit":{"state":"translated","value":"自動"}}}},
+    "mobile.iroh.debug.transportMode.directOnly": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No Relay (Direct Only)"}},"ja":{"stringUnit":{"state":"translated","value":"リレーなし（直接接続のみ）"}}}},
+    "mobile.iroh.debug.transportMode.relayOnly": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Relay Only"}},"ja":{"stringUnit":{"state":"translated","value":"リレーのみ"}}}},
     "mobile.iroh.diagnostics": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Diagnostics"}},"ja":{"stringUnit":{"state":"translated","value":"診断"}}}},
+    "mobile.iroh.diagnostics.clear": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Clear Report"}},"ja":{"stringUnit":{"state":"translated","value":"レポートを消去"}}}},
+    "mobile.iroh.diagnostics.clear.confirm": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Clear this diagnostic report?"}},"ja":{"stringUnit":{"state":"translated","value":"この診断レポートを消去しますか？"}}}},
+    "mobile.iroh.diagnostics.clear.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This permanently removes the connection timeline stored on this device."}},"ja":{"stringUnit":{"state":"translated","value":"このデバイスに保存された接続タイムラインを完全に削除します。"}}}},
+    "mobile.iroh.diagnostics.eventCount": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Recorded Events"}},"ja":{"stringUnit":{"state":"translated","value":"記録済みイベント"}}}},
+    "mobile.iroh.diagnostics.failure.accountMismatch": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Account Mismatch"}},"ja":{"stringUnit":{"state":"translated","value":"アカウントが一致しません"}}}},
+    "mobile.iroh.diagnostics.failure.admissionDenied": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Connection Admission Denied"}},"ja":{"stringUnit":{"state":"translated","value":"接続の受け入れが拒否されました"}}}},
+    "mobile.iroh.diagnostics.failure.authorizationFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Authorization Failed"}},"ja":{"stringUnit":{"state":"translated","value":"認可に失敗"}}}},
+    "mobile.iroh.diagnostics.failure.cancelled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cancelled"}},"ja":{"stringUnit":{"state":"translated","value":"キャンセル"}}}},
+    "mobile.iroh.diagnostics.failure.connectionClosed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Connection Closed"}},"ja":{"stringUnit":{"state":"translated","value":"接続が終了しました"}}}},
+    "mobile.iroh.diagnostics.failure.connectionRefused": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Connection Refused"}},"ja":{"stringUnit":{"state":"translated","value":"接続が拒否されました"}}}},
+    "mobile.iroh.diagnostics.failure.credentialUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Credentials Unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"認証情報を利用できません"}}}},
+    "mobile.iroh.diagnostics.failure.dnsFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Name Resolution Failed"}},"ja":{"stringUnit":{"state":"translated","value":"名前解決に失敗"}}}},
+    "mobile.iroh.diagnostics.failure.endpointUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Endpoint Unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"エンドポイントを利用できません"}}}},
+    "mobile.iroh.diagnostics.failure.hostUnreachable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Host Unreachable"}},"ja":{"stringUnit":{"state":"translated","value":"ホストに到達できません"}}}},
+    "mobile.iroh.diagnostics.failure.identityMismatch": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Endpoint Identity Mismatch"}},"ja":{"stringUnit":{"state":"translated","value":"エンドポイント ID が一致しません"}}}},
+    "mobile.iroh.diagnostics.failure.noRoute": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No Route Available"}},"ja":{"stringUnit":{"state":"translated","value":"利用可能な経路がありません"}}}},
+    "mobile.iroh.diagnostics.failure.none": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"None"}},"ja":{"stringUnit":{"state":"translated","value":"なし"}}}},
+    "mobile.iroh.diagnostics.failure.offline": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Offline"}},"ja":{"stringUnit":{"state":"translated","value":"オフライン"}}}},
+    "mobile.iroh.diagnostics.failure.permissionDenied": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Permission Denied"}},"ja":{"stringUnit":{"state":"translated","value":"権限がありません"}}}},
+    "mobile.iroh.diagnostics.failure.policyUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Relay Policy Unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"リレーポリシーを利用できません"}}}},
+    "mobile.iroh.diagnostics.failure.protocolViolation": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Protocol Error"}},"ja":{"stringUnit":{"state":"translated","value":"プロトコルエラー"}}}},
+    "mobile.iroh.diagnostics.failure.secureChannelFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Secure Channel Failed"}},"ja":{"stringUnit":{"state":"translated","value":"安全なチャネルの確立に失敗"}}}},
+    "mobile.iroh.diagnostics.failure.superseded": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Replaced by a Newer Attempt"}},"ja":{"stringUnit":{"state":"translated","value":"新しい接続試行に置き換えられました"}}}},
+    "mobile.iroh.diagnostics.failure.timedOut": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Timed Out"}},"ja":{"stringUnit":{"state":"translated","value":"タイムアウト"}}}},
+    "mobile.iroh.diagnostics.failure.unknown": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Unknown"}},"ja":{"stringUnit":{"state":"translated","value":"不明"}}}},
+    "mobile.iroh.diagnostics.failure.unsupportedRoute": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Unsupported Route"}},"ja":{"stringUnit":{"state":"translated","value":"サポートされていない経路"}}}},
+    "mobile.iroh.diagnostics.lastFailure": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Last Failure"}},"ja":{"stringUnit":{"state":"translated","value":"直近の失敗"}}}},
+    "mobile.iroh.diagnostics.lastFailureTime": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Failure Time"}},"ja":{"stringUnit":{"state":"translated","value":"失敗時刻"}}}},
+    "mobile.iroh.diagnostics.lastSuccess": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Last Successful Connection"}},"ja":{"stringUnit":{"state":"translated","value":"最終接続成功"}}}},
+    "mobile.iroh.diagnostics.notRecorded": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not Recorded"}},"ja":{"stringUnit":{"state":"translated","value":"記録なし"}}}},
+    "mobile.iroh.diagnostics.privacy": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This report remains available while disconnected. It excludes terminal content, account and endpoint identities, network addresses, relay URLs, credentials, and raw errors. Nothing leaves this device until you share it."}},"ja":{"stringUnit":{"state":"translated","value":"このレポートは接続が切れていても利用できます。ターミナルの内容、アカウントおよびエンドポイントの識別情報、ネットワークアドレス、リレー URL、認証情報、生のエラーは含まれません。共有するまで、このデバイスから送信されることはありません。"}}}},
+    "mobile.iroh.diagnostics.share": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Share Safe Report"}},"ja":{"stringUnit":{"state":"translated","value":"安全なレポートを共有"}}}},
     "mobile.iroh.policy": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Relay Policy"}},"ja":{"stringUnit":{"state":"translated","value":"リレーポリシー"}}}},
     "mobile.iroh.policy.cached": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Last Verified Catalog"}},"ja":{"stringUnit":{"state":"translated","value":"最後に検証済みのカタログ"}}}},
     "mobile.iroh.policy.server": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Verified from cmux"}},"ja":{"stringUnit":{"state":"translated","value":"cmux から検証済み"}}}},

@@ -1,4 +1,7 @@
+import CmuxAgentChat
 import CmuxIrohTransport
+import Darwin
+import Dispatch
 import Foundation
 import OSLog
 
@@ -21,7 +24,7 @@ protocol MobileHostIrohArtifactLaneHandling: Sendable {
     ) async -> Bool
 }
 
-/// Safe production default until artifact preview installs a resource owner.
+/// Safe fallback for hosts that do not install an artifact resource owner.
 struct MobileHostIrohRejectingArtifactLaneHandler: MobileHostIrohArtifactLaneHandling {
     func handleArtifactLane(
         resourceID: CmxIrohResourceID,
@@ -33,6 +36,381 @@ struct MobileHostIrohRejectingArtifactLaneHandler: MobileHostIrohArtifactLaneHan
     }
 }
 
+enum MobileHostIrohArtifactTransferIssueFailure: Equatable, Sendable {
+    case fileNotFound
+    case unavailable
+}
+
+/// Runtime-scoped, peer-bound capabilities minted only after control-RPC authorization.
+actor MobileHostIrohArtifactTransferRegistry {
+    enum Error: Swift.Error, Equatable {
+        case unavailable
+        case invalidFile
+        case capacityExceeded
+        case unknownResource
+        case expired
+        case peerMismatch
+        case invalidOffset
+        case alreadyInUse
+        case resumeLimitExceeded
+
+        var issueFailure: MobileHostIrohArtifactTransferIssueFailure {
+            switch self {
+            case .invalidFile:
+                .fileNotFound
+            case .unavailable, .capacityExceeded, .unknownResource, .expired,
+                 .peerMismatch, .invalidOffset, .alreadyInUse, .resumeLimitExceeded:
+                .unavailable
+            }
+        }
+    }
+
+    struct Lease: Equatable, Sendable {
+        let id: UUID
+        let resourceID: CmxIrohResourceID
+        let canonicalPath: String
+        let identity: MobileHostIrohArtifactFileIdentity
+        let offset: UInt64
+        let totalSize: Int64
+    }
+
+    private struct Entry: Sendable {
+        let peer: CmxIrohAdmittedPeer
+        let canonicalPath: String
+        let identity: MobileHostIrohArtifactFileIdentity
+        let expiresAt: Date
+        var activeLeaseID: UUID?
+        var remainingClaims: Int
+    }
+
+    private static let maximumEntryCount = 128
+    private static let maximumSerialClaimCount = 8
+    private static let defaultTimeToLive: TimeInterval = 5 * 60
+
+    private let timeToLive: TimeInterval
+    private let now: @Sendable () -> Date
+    private let resourceID: @Sendable () throws -> CmxIrohResourceID
+    private var entries: [CmxIrohResourceID: Entry] = [:]
+
+    init(
+        timeToLive: TimeInterval = defaultTimeToLive,
+        // A closure literal, not `Date.init`: the initializer reference
+        // resolves as a non-@Sendable function value and trips the Swift 6
+        // data-race warning (zero-bucket file in the warning budget).
+        now: @escaping @Sendable () -> Date = { Date() },
+        resourceID: @escaping @Sendable () throws -> CmxIrohResourceID = {
+            let token = (UUID().uuidString + UUID().uuidString)
+                .replacingOccurrences(of: "-", with: "")
+                .lowercased()
+            return try CmxIrohResourceID("artifact:\(token)")
+        }
+    ) {
+        self.timeToLive = max(1, timeToLive)
+        self.now = now
+        self.resourceID = resourceID
+    }
+
+    func issue(
+        canonicalPath: String,
+        peer: CmxIrohAdmittedPeer
+    ) throws -> ChatArtifactLaneDescriptor {
+        let currentTime = now()
+        pruneExpired(at: currentTime)
+        guard entries.count < Self.maximumEntryCount else {
+            throw Error.capacityExceeded
+        }
+        let resolvedPath = URL(fileURLWithPath: canonicalPath)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .path
+        let identity = try MobileHostIrohArtifactFileIdentity.snapshot(path: resolvedPath)
+        guard identity.size >= 0 else { throw Error.invalidFile }
+        let capability = try resourceID()
+        guard entries[capability] == nil else { throw Error.capacityExceeded }
+        let expiresAt = currentTime.addingTimeInterval(timeToLive)
+        entries[capability] = Entry(
+            peer: peer,
+            canonicalPath: resolvedPath,
+            identity: identity,
+            expiresAt: expiresAt,
+            activeLeaseID: nil,
+            remainingClaims: Self.maximumSerialClaimCount
+        )
+        return ChatArtifactLaneDescriptor(
+            resourceID: capability.value,
+            totalSize: identity.size,
+            expiresAt: expiresAt
+        )
+    }
+
+    func claim(
+        resourceID: CmxIrohResourceID,
+        offset: UInt64,
+        peer: CmxIrohAdmittedPeer
+    ) throws -> Lease {
+        let currentTime = now()
+        guard var entry = entries[resourceID] else { throw Error.unknownResource }
+        guard entry.expiresAt > currentTime else {
+            entries[resourceID] = nil
+            throw Error.expired
+        }
+        guard entry.peer == peer else { throw Error.peerMismatch }
+        guard offset <= UInt64(entry.identity.size) else { throw Error.invalidOffset }
+        guard entry.activeLeaseID == nil else { throw Error.alreadyInUse }
+        guard entry.remainingClaims > 0 else { throw Error.resumeLimitExceeded }
+        let leaseID = UUID()
+        entry.activeLeaseID = leaseID
+        entry.remainingClaims -= 1
+        entries[resourceID] = entry
+        return Lease(
+            id: leaseID,
+            resourceID: resourceID,
+            canonicalPath: entry.canonicalPath,
+            identity: entry.identity,
+            offset: offset,
+            totalSize: entry.identity.size
+        )
+    }
+
+    func release(_ lease: Lease) {
+        guard var entry = entries[lease.resourceID],
+              entry.activeLeaseID == lease.id else { return }
+        entry.activeLeaseID = nil
+        entries[lease.resourceID] = entry
+    }
+
+    private func pruneExpired(at currentTime: Date) {
+        entries = entries.filter { _, entry in
+            entry.activeLeaseID != nil || entry.expiresAt > currentTime
+        }
+    }
+}
+
+struct MobileHostIrohArtifactFileIdentity: Equatable, Sendable {
+    let device: UInt64
+    let inode: UInt64
+    let size: Int64
+    let modifiedSeconds: Int64
+    let modifiedNanoseconds: Int64
+
+    static func snapshot(path: String) throws -> Self {
+        let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
+        defer { try? handle.close() }
+        return try snapshot(fileDescriptor: handle.fileDescriptor)
+    }
+
+    static func snapshot(fileDescriptor: Int32) throws -> Self {
+        var value = stat()
+        guard fstat(fileDescriptor, &value) == 0,
+              (value.st_mode & S_IFMT) == S_IFREG else {
+            throw MobileHostIrohArtifactTransferRegistry.Error.invalidFile
+        }
+        return Self(
+            device: UInt64(value.st_dev),
+            inode: UInt64(value.st_ino),
+            size: Int64(value.st_size),
+            modifiedSeconds: Int64(value.st_mtimespec.tv_sec),
+            modifiedNanoseconds: Int64(value.st_mtimespec.tv_nsec)
+        )
+    }
+}
+
+/// Random-access file reader backed by DispatchIO so a slow file system never
+/// blocks Swift's cooperative executor. Cancelling a lane stops pending I/O.
+private final class MobileHostIrohArtifactDispatchReader: @unchecked Sendable {
+    private static let queue = DispatchQueue(
+        label: "dev.cmux.mobile-host-iroh-artifact-read",
+        qos: .utility
+    )
+
+    private let fileDescriptor: Int32
+    private let channel: DispatchIO
+
+    init(path: String) throws {
+        let fileDescriptor = Darwin.open(path, O_RDONLY | O_CLOEXEC)
+        guard fileDescriptor >= 0 else {
+            throw MobileHostIrohArtifactTransferRegistry.Error.invalidFile
+        }
+        self.fileDescriptor = fileDescriptor
+        self.channel = DispatchIO(
+            type: .random,
+            fileDescriptor: fileDescriptor,
+            queue: Self.queue
+        ) { _ in
+            _ = Darwin.close(fileDescriptor)
+        }
+        channel.setLimit(lowWater: 1)
+    }
+
+    func snapshot() throws -> MobileHostIrohArtifactFileIdentity {
+        try MobileHostIrohArtifactFileIdentity.snapshot(fileDescriptor: fileDescriptor)
+    }
+
+    func read(offset: UInt64, maximumByteCount: Int) async throws -> Data {
+        guard offset <= UInt64(Int64.max), maximumByteCount > 0 else {
+            throw MobileHostIrohArtifactTransferRegistry.Error.invalidOffset
+        }
+        try Task.checkCancellation()
+        let channel = channel
+        let data = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Data, any Error>) in
+                let result = MobileHostIrohArtifactDispatchReadResult(
+                    continuation: continuation
+                )
+                channel.read(
+                    offset: off_t(offset),
+                    length: maximumByteCount,
+                    queue: Self.queue
+                ) { done, bytes, errorCode in
+                    result.receive(done: done, bytes: bytes, errorCode: errorCode)
+                }
+            }
+        } onCancel: {
+            channel.close(flags: .stop)
+        }
+        try Task.checkCancellation()
+        return data
+    }
+
+    func close() {
+        channel.close()
+    }
+}
+
+/// DispatchIO may deliver one read through several callbacks on its serial queue.
+private final class MobileHostIrohArtifactDispatchReadResult: @unchecked Sendable {
+    private let continuation: CheckedContinuation<Data, any Error>
+    private var data = Data()
+    private var didResume = false
+
+    init(continuation: CheckedContinuation<Data, any Error>) {
+        self.continuation = continuation
+    }
+
+    func receive(done: Bool, bytes: DispatchData?, errorCode: Int32) {
+        guard !didResume else { return }
+        if let bytes {
+            data.append(contentsOf: bytes)
+        }
+        guard done else { return }
+        didResume = true
+        if errorCode == 0 {
+            continuation.resume(returning: data)
+        } else {
+            continuation.resume(
+                throwing: POSIXError(POSIXErrorCode(rawValue: errorCode) ?? .EIO)
+            )
+        }
+    }
+}
+
+/// Concrete Mac owner for low-priority raw artifact bytes.
+struct MobileHostIrohArtifactLaneHandler: MobileHostIrohArtifactLaneHandling {
+    private static let chunkByteCount = 64 * 1_024
+    // noq transmits larger priorities first. Keep artifact bytes below terminal
+    // streams (default 0) and server events (50).
+    private static let streamPriority: Int32 = -10
+    private static let streamFailureCode: UInt64 = 6
+
+    let registry: MobileHostIrohArtifactTransferRegistry
+
+    func handleArtifactLane(
+        resourceID: CmxIrohResourceID,
+        offset: UInt64,
+        stream: CmxIrohBidirectionalStream,
+        peer: CmxIrohAdmittedPeer
+    ) async -> Bool {
+        let lease: MobileHostIrohArtifactTransferRegistry.Lease
+        do {
+            lease = try await registry.claim(
+                resourceID: resourceID,
+                offset: offset,
+                peer: peer
+            )
+        } catch {
+            return false
+        }
+
+        do {
+            let reader = try MobileHostIrohArtifactDispatchReader(path: lease.canonicalPath)
+            defer { reader.close() }
+            guard try reader.snapshot() == lease.identity else {
+                throw MobileHostIrohArtifactTransferRegistry.Error.invalidFile
+            }
+            try await stream.sendStream.setPriority(Self.streamPriority)
+            await stream.receiveStream.stop(errorCode: 0)
+            let totalSize = UInt64(lease.totalSize)
+            var readOffset = lease.offset
+            while readOffset < totalSize {
+                try Task.checkCancellation()
+                let remainingByteCount = totalSize - readOffset
+                let readByteCount = Int(min(
+                    UInt64(Self.chunkByteCount),
+                    remainingByteCount
+                ))
+                let data = try await reader.read(
+                    offset: readOffset,
+                    maximumByteCount: readByteCount
+                )
+                guard !data.isEmpty else {
+                    throw MobileHostIrohArtifactTransferRegistry.Error.invalidFile
+                }
+                try Task.checkCancellation()
+                try await stream.sendStream.send(data)
+                readOffset += UInt64(data.count)
+            }
+            try Task.checkCancellation()
+            guard try reader.snapshot() == lease.identity else {
+                throw MobileHostIrohArtifactTransferRegistry.Error.invalidFile
+            }
+            try await stream.sendStream.finish()
+        } catch is CancellationError {
+            await stream.sendStream.reset(errorCode: 0)
+            await stream.receiveStream.stop(errorCode: 0)
+        } catch {
+            await stream.sendStream.reset(errorCode: Self.streamFailureCode)
+            await stream.receiveStream.stop(errorCode: Self.streamFailureCode)
+        }
+        await registry.release(lease)
+        return true
+    }
+}
+
+/// Separate credits prevent terminal fan-out from starving one artifact lane.
+struct MobileHostIrohApplicationLaneQuota {
+    enum LaneClass {
+        case terminal
+        case artifact
+    }
+
+    static let maximumTerminalCount = 4
+    static let maximumArtifactCount = 1
+
+    private var terminalIDs: Set<UUID> = []
+    private var artifactIDs: Set<UUID> = []
+
+    var terminalCount: Int { terminalIDs.count }
+    var artifactCount: Int { artifactIDs.count }
+
+    mutating func reserve(_ id: UUID, laneClass: LaneClass) -> Bool {
+        switch laneClass {
+        case .terminal:
+            guard terminalIDs.count < Self.maximumTerminalCount else { return false }
+            terminalIDs.insert(id)
+        case .artifact:
+            guard artifactIDs.count < Self.maximumArtifactCount else { return false }
+            artifactIDs.insert(id)
+        }
+        return true
+    }
+
+    mutating func release(_ id: UUID) {
+        terminalIDs.remove(id)
+        artifactIDs.remove(id)
+    }
+}
+
 /// Sole Mac-side accept owner for post-admission Iroh application streams.
 ///
 /// Terminal lanes route a validated surface UUID to sequence-framed PTY output
@@ -40,7 +418,12 @@ struct MobileHostIrohRejectingArtifactLaneHandler: MobileHostIrohArtifactLaneHan
 /// registration seam and otherwise reset. Every task is owned by this admitted
 /// session and cancelled when the control connection or runtime generation ends.
 actor MobileHostIrohApplicationLaneRouter {
-    static let maximumConcurrentLaneCount: UInt64 = 4
+    static let maximumConcurrentTerminalLaneCount =
+        UInt64(MobileHostIrohApplicationLaneQuota.maximumTerminalCount)
+    static let maximumConcurrentArtifactLaneCount =
+        UInt64(MobileHostIrohApplicationLaneQuota.maximumArtifactCount)
+    static let maximumConcurrentLaneCount =
+        maximumConcurrentTerminalLaneCount + maximumConcurrentArtifactLaneCount
 
     enum InputFrameError: Error, Equatable {
         case invalidLength
@@ -60,6 +443,7 @@ actor MobileHostIrohApplicationLaneRouter {
     private let session: CmxIrohAdmittedServerSession
     private let artifactHandler: any MobileHostIrohArtifactLaneHandling
     private var laneTasks: [UUID: Task<Void, Never>] = [:]
+    private var laneQuota = MobileHostIrohApplicationLaneQuota()
     private var stopped = false
 
     init(
@@ -83,6 +467,13 @@ actor MobileHostIrohApplicationLaneRouter {
                 await start(accepted.lane, stream: accepted.stream)
             } catch is CancellationError {
                 break
+            } catch CmxIrohServerSessionError.applicationLaneRejected {
+                if !stopped, !Task.isCancelled {
+                    mobileHostIrohLaneLog.info(
+                        "Rejected one invalid Iroh application lane; session remains active"
+                    )
+                }
+                continue
             } catch {
                 if !stopped, !Task.isCancelled {
                     mobileHostIrohLaneLog.error(
@@ -100,6 +491,7 @@ actor MobileHostIrohApplicationLaneRouter {
         stopped = true
         let tasks = Array(laneTasks.values)
         laneTasks.removeAll()
+        laneQuota = MobileHostIrohApplicationLaneQuota()
         for task in tasks { task.cancel() }
         for task in tasks { await task.value }
     }
@@ -108,11 +500,21 @@ actor MobileHostIrohApplicationLaneRouter {
         _ lane: CmxIrohLane,
         stream: CmxIrohBidirectionalStream
     ) async {
-        guard laneTasks.count < Int(Self.maximumConcurrentLaneCount) else {
-            await Self.reject(stream, errorCode: ErrorCode.quotaExceeded)
+        let laneClass: MobileHostIrohApplicationLaneQuota.LaneClass
+        switch lane {
+        case .terminal:
+            laneClass = .terminal
+        case .artifact:
+            laneClass = .artifact
+        case .control, .serverEvents:
+            await Self.reject(stream, errorCode: ErrorCode.unsupportedResource)
             return
         }
         let id = UUID()
+        guard laneQuota.reserve(id, laneClass: laneClass) else {
+            await Self.reject(stream, errorCode: ErrorCode.quotaExceeded)
+            return
+        }
         let peer = session.peer
         let artifactHandler = artifactHandler
         let task = Task { [weak self] in
@@ -143,6 +545,7 @@ actor MobileHostIrohApplicationLaneRouter {
 
     private func laneDidFinish(_ id: UUID) {
         laneTasks[id] = nil
+        laneQuota.release(id)
     }
 
     private nonisolated static func handleTerminalLane(
