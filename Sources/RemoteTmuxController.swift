@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import CmuxSettings
 import OSLog
@@ -436,6 +437,42 @@ final class RemoteTmuxController {
         sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId })?.host.destination
     }
 
+    /// The in-flight routed New Workspace request, if any. Tests await it so the
+    /// create round trip and mirror creation finish inside the test body.
+    private(set) var newSessionRoutingTask: Task<Void, Never>?
+
+    /// How a failed routed New Workspace reaches the user (host, failure detail,
+    /// requesting manager). Local creation stays suppressed either way — a mirror
+    /// workspace's Cmd+N must not quietly fall back to a local workspace — so the
+    /// failure has to be visible. Settable so tests can capture it instead of
+    /// presenting an alert.
+    lazy var reportNewSessionFailure: (RemoteTmuxHost, String, TabManager) -> Void = {
+        [weak self] host, detail, manager in
+        self?.presentNewSessionFailureAlert(host: host, detail: detail, manager: manager)
+    }
+
+    private func presentNewSessionFailureAlert(host: RemoteTmuxHost, detail: String, manager: TabManager) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "dialog.remoteTmux.newSessionFailed.title",
+            defaultValue: "Couldn't Create a tmux Session on \(host.destination)"
+        )
+        let trimmedDetail = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        alert.informativeText = trimmedDetail.isEmpty
+            ? String(
+                localized: "dialog.remoteTmux.newSessionFailed.message",
+                defaultValue: "tmux new-session failed on the remote host. No workspace was created."
+            )
+            : trimmedDetail
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        if let window = manager.window ?? NSApp.keyWindow ?? NSApp.mainWindow {
+            alert.beginSheetModal(for: window, completionHandler: nil)
+        } else {
+            alert.runModal()
+        }
+    }
+
     /// New Workspace requested in `manager`: when its ACTIVE workspace is a live
     /// session mirror, create a new detached tmux session on that mirror's host and
     /// mirror it into the same manager, returning `true` (the caller suppresses local
@@ -455,7 +492,7 @@ final class RemoteTmuxController {
         // selected when it surfaces, and a dropped send does nothing (matching the
         // dedicated transport's silent-failure semantics for the same race).
         if let view = multiplexedViewsByHost[host.connectionHash] {
-            Task { @MainActor in
+            newSessionRoutingTask = Task { @MainActor in
                 guard let name = await view.createWorkspaceReturningName() else { return }
                 guard self.multiplexedViewsByHost[host.connectionHash] === view else { return }
                 var intents = self.multiplexIntentsByHost[host.connectionHash] ?? .init()
@@ -465,7 +502,7 @@ final class RemoteTmuxController {
             }
             return true
         }
-        Task { @MainActor in
+        newSessionRoutingTask = Task { @MainActor in
             do {
                 let result = try await self.transport(for: host).runTmux(
                     ["new-session", "-d", "-P", "-F", "#{session_name}"]
