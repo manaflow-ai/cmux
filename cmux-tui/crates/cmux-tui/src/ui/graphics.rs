@@ -101,13 +101,7 @@ pub fn probe_kitty_graphics() -> bool {
     let _ = write!(stdout, "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c");
     let _ = stdout.flush();
     let bytes = read_stdin_for(Duration::from_millis(180));
-    let ok = find_bytes(&bytes, b"_Gi=31;OK");
-    let da = find_da1(&bytes);
-    match (ok, da) {
-        (Some(ok), Some(da)) => ok < da,
-        (Some(_), None) => true,
-        _ => false,
-    }
+    kitty_probe_succeeded(&bytes)
 }
 
 const FALLBACK_CELL_PIXELS: (u16, u16) = (8, 16);
@@ -187,9 +181,11 @@ fn read_stdin_for(timeout: Duration) -> Vec<u8> {
             break;
         }
         out.extend_from_slice(&buf[..n as usize]);
-        if find_da1(&out).is_some() {
-            break;
-        }
+        // DA1 is emitted as an inexpensive progress marker, but it is not a
+        // completion fence: terminals can produce the Kitty APC reply on a
+        // different render/output lane. Drain the entire bounded probe window
+        // so that a valid reply arriving after DA1 cannot leak into crossterm
+        // input (or the shell that resumes after cmux exits).
     }
     out
 }
@@ -206,14 +202,8 @@ fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|window| window == needle)
 }
 
-fn find_da1(bytes: &[u8]) -> Option<usize> {
-    bytes.iter().enumerate().find_map(|(idx, byte)| {
-        if *byte == b'c' && bytes[..idx].iter().rev().take(16).any(|b| *b == b'[') {
-            Some(idx)
-        } else {
-            None
-        }
-    })
+fn kitty_probe_succeeded(bytes: &[u8]) -> bool {
+    find_bytes(bytes, b"_Gi=31;OK").is_some()
 }
 
 #[cfg(test)]
@@ -235,6 +225,22 @@ mod tests {
     #[test]
     fn newly_detected_metrics_replace_known_metrics() {
         assert_eq!(resolve_cell_pixels(Some((8, 16)), Some((11, 23))), (11, 23));
+    }
+
+    #[test]
+    fn kitty_probe_accepts_ok_before_da1() {
+        assert!(kitty_probe_succeeded(b"\x1b_Gi=31;OK\x1b\\\x1b[?62;c"));
+    }
+
+    #[test]
+    fn kitty_probe_accepts_async_ok_after_da1() {
+        assert!(kitty_probe_succeeded(b"\x1b[?62;c\x1b_Gi=31;OK\x1b\\"));
+    }
+
+    #[test]
+    fn kitty_probe_rejects_da1_or_error_without_ok() {
+        assert!(!kitty_probe_succeeded(b"\x1b[?62;c"));
+        assert!(!kitty_probe_succeeded(b"\x1b_Gi=31;EINVAL\x1b\\"));
     }
 
     #[test]

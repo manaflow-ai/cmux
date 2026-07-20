@@ -606,13 +606,14 @@ enum PtyRuntime {
 fn hosted_terminal_callbacks(
     id: SurfaceId,
     mux: Weak<Mux>,
-    pending_responses: Arc<Mutex<Vec<u8>>>,
     title_changed: Arc<AtomicBool>,
 ) -> Callbacks {
     Callbacks {
-        on_pty_write: Some(Box::new(move |bytes| {
-            pending_responses.lock().unwrap().extend_from_slice(bytes);
-        })),
+        // The terminal-host parser is authoritative and already writes query
+        // responses (DA/DSR, Kitty graphics, OSC colors, ...) to the PTY. A
+        // hosted Surface is only a mirror: answering here would inject one
+        // duplicate reply per server/frontend mirror into the child input.
+        on_pty_write: None,
         on_title_changed: Some(Box::new(move || {
             title_changed.store(true, Ordering::Relaxed);
         })),
@@ -896,14 +897,8 @@ impl Surface {
         let mut capability_responses = attachment.capability_responses();
         let snapshot = attachment.snapshot.clone();
         let mut applied_color_overrides = snapshot.colors.clone();
-        let pending_responses: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
         let title_changed = Arc::new(AtomicBool::new(false));
-        let callbacks = hosted_terminal_callbacks(
-            id,
-            mux.clone(),
-            pending_responses.clone(),
-            title_changed.clone(),
-        );
+        let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed.clone());
         let mut term = Terminal::new(snapshot.cols, snapshot.rows, opts.scrollback, callbacks)?;
         if let Some(mux) = mux.upgrade() {
             let colors = mux.default_colors();
@@ -916,9 +911,6 @@ impl Surface {
         if !initial_color_delta.is_empty() {
             term.vt_write(&initial_color_delta);
         }
-        // Query replies represented in a replay have already been answered by
-        // the authoritative host; never send them a second time on adoption.
-        pending_responses.lock().unwrap().clear();
         let title = term.title().unwrap_or_default();
         let pwd = term.pwd();
         let mut mouse_encoders = MouseEncoders::new()?;
@@ -1080,11 +1072,6 @@ impl Surface {
                                         at_bottom,
                                     });
                                 }
-                                let responses =
-                                    std::mem::take(&mut *pending_responses.lock().unwrap());
-                                if !responses.is_empty() {
-                                    let _ = surface.write_bytes(&responses);
-                                }
                             }
                             HostedTransition::ResizedWithColors { cols, rows, replay, colors } => {
                                 let defaults = mux
@@ -1094,7 +1081,6 @@ impl Surface {
                                 let callbacks = hosted_terminal_callbacks(
                                     id,
                                     mux.clone(),
-                                    pending_responses.clone(),
                                     title_changed.clone(),
                                 );
                                 let Ok(mut replacement) =
@@ -1117,9 +1103,6 @@ impl Surface {
                                 if !delta.is_empty() {
                                     replacement.vt_write(&delta);
                                 }
-                                // Replay query responses were already answered by
-                                // the host; never send them again from the mirror.
-                                pending_responses.lock().unwrap().clear();
                                 title_changed.store(false, Ordering::Relaxed);
                                 let title = replacement.title().unwrap_or_default();
                                 let pwd = replacement.pwd();
@@ -1309,12 +1292,8 @@ impl Surface {
 
                         let defaults =
                             mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
-                        let callbacks = hosted_terminal_callbacks(
-                            id,
-                            mux.clone(),
-                            pending_responses.clone(),
-                            title_changed.clone(),
-                        );
+                        let callbacks =
+                            hosted_terminal_callbacks(id, mux.clone(), title_changed.clone());
                         let Ok(mut replacement_term) = Terminal::new(
                             replacement_snapshot.cols,
                             replacement_snapshot.rows,
@@ -1338,7 +1317,6 @@ impl Surface {
                         if !color_delta.is_empty() {
                             replacement_term.vt_write(&color_delta);
                         }
-                        pending_responses.lock().unwrap().clear();
                         title_changed.store(false, Ordering::Relaxed);
                         let title = replacement_term.title().unwrap_or_default();
                         let pwd = replacement_term.pwd();
@@ -1417,10 +1395,8 @@ impl Surface {
         mux: Weak<Mux>,
         identity: crate::terminal_host_runtime::TerminalHostIdentity,
     ) -> anyhow::Result<Arc<Surface>> {
-        let pending_responses = Arc::new(Mutex::new(Vec::new()));
         let title_changed = Arc::new(AtomicBool::new(false));
-        let callbacks =
-            hosted_terminal_callbacks(id, mux.clone(), pending_responses, title_changed);
+        let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed);
         let (cols, rows) = (opts.cols.max(1), opts.rows.max(1));
         let mut term = Terminal::new(cols, rows, opts.scrollback, callbacks)?;
         if let Some(mux) = mux.upgrade() {
@@ -2580,6 +2556,26 @@ fn terminal_scroll_position(term: &Terminal) -> (u64, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn hosted_mirror_never_answers_terminal_queries() {
+        let mux = Mux::new_for_test("hosted-query-authority", SurfaceOptions::default());
+        let callbacks =
+            hosted_terminal_callbacks(1, Arc::downgrade(&mux), Arc::new(AtomicBool::new(false)));
+
+        assert!(
+            callbacks.on_pty_write.is_none(),
+            "only the durable terminal host may answer Kitty/DA/DSR queries"
+        );
+
+        // Exercise the exact query that cmux-tui uses for Kitty graphics
+        // detection. The mirror still parses it for screen state, but with no
+        // PTY callback it cannot inject a duplicate `ESC_Gi=31;OK ESC\\` into
+        // the child input after the authoritative host has already replied.
+        let mut term = Terminal::new(80, 24, 0, callbacks).unwrap();
+        term.vt_write(b"\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c");
+    }
 
     #[test]
     fn attach_colors_preserve_same_valued_authored_palette_override() {
