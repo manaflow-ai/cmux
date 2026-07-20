@@ -1904,6 +1904,7 @@ fn pane_json(
         "short_id": short_ids.get(&id).cloned().unwrap_or_default(),
         "name": pane.name,
         "active_tab": pane.active_tab,
+        "focused_at": pane.focused_at,
         "tabs": pane.tabs.iter().map(|sid| {
             let surface = state.surfaces.get(sid);
             json!({
@@ -1961,6 +1962,7 @@ fn workspaces_json(
     let short_ids = tree_short_ids(state);
     json!({
         "workspace_revision": state.workspace_revision,
+        "pane_revision": state.pane_revision,
         "workspaces": state.workspaces.iter().enumerate().map(|(index, workspace)| {
             workspace_json(state, workspace, index, &short_ids, notifications)
         }).collect::<Vec<_>>(),

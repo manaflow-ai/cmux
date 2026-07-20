@@ -5,6 +5,98 @@ import Testing
 
 extension CmxIrohRelayCredentialCoordinatorTests {
     @Test
+    func scheduledRefreshReplacesCredentialWithoutChangingEndpointIdentity() async throws {
+        let fixture = try RelayCoordinatorFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.identity)
+        let supervisor = try await fixture.activeSupervisor(endpoint: endpoint)
+        let clock = TestRelayClock(now: fixture.now)
+        var clockEvents = clock.events().makeAsyncIterator()
+        let initialExpiry = fixture.now.addingTimeInterval(5 * 60)
+        let initialRefresh = initialExpiry.addingTimeInterval(-60)
+        let replacementExpiry = fixture.now.addingTimeInterval(13 * 60)
+        let replacementRefresh = replacementExpiry.addingTimeInterval(-60)
+        let broker = TestRelayTokenBroker(steps: [
+            .response(try fixture.response(
+                tokens: ["ghi234", "jkl234"],
+                refreshAfter: replacementRefresh,
+                expiresAt: replacementExpiry
+            )),
+        ])
+        let coordinator = CmxIrohRelayCredentialCoordinator(
+            supervisor: supervisor,
+            broker: broker,
+            managedRelayURLs: Set(fixture.relayURLs),
+            clock: clock,
+            jitter: { _, refreshAfter in refreshAfter },
+            retryJitter: { 0 }
+        )
+
+        try await coordinator.activate(
+            bindingID: fixture.bindingID,
+            endpointIdentity: fixture.identity,
+            bootstrap: try fixture.response(
+                tokens: ["abc234", "def234"],
+                refreshAfter: initialRefresh,
+                expiresAt: initialExpiry
+            )
+        )
+        #expect(await clockEvents.next() == .sleep(initialRefresh))
+
+        clock.advance(to: initialRefresh)
+        #expect(await clockEvents.next() == .sleep(replacementRefresh))
+
+        #expect(await broker.observedEndpointIDs() == [fixture.identity])
+        #expect(await endpoint.observedRelayUpdates().count == 2)
+        #expect(await endpoint.observedRelayUpdates().last?.map(\.token) == [
+            "ghi234",
+            "jkl234",
+        ])
+        #expect(await coordinator.credentialExpiresAt() == replacementExpiry)
+        #expect(try await supervisor.activeEndpoint().identity() == fixture.identity)
+        await coordinator.deactivate()
+    }
+
+    @Test
+    func disabledAutomaticRefreshKeepsTheInstalledShortLivedCredential() async throws {
+        let fixture = try RelayCoordinatorFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.identity)
+        let supervisor = try await fixture.activeSupervisor(endpoint: endpoint)
+        let clock = TestRelayClock(now: fixture.now)
+        let broker = TestRelayTokenBroker(steps: [
+            .response(try fixture.response(
+                tokens: ["replacement-a", "replacement-b"],
+                refreshAfter: fixture.now.addingTimeInterval(10 * 60),
+                expiresAt: fixture.now.addingTimeInterval(11 * 60)
+            )),
+        ])
+        let coordinator = CmxIrohRelayCredentialCoordinator(
+            supervisor: supervisor,
+            broker: broker,
+            managedRelayURLs: Set(fixture.relayURLs),
+            clock: clock,
+            jitter: { _, refreshAfter in refreshAfter },
+            retryJitter: { 0 },
+            automaticRefreshEnabled: false
+        )
+
+        try await coordinator.activate(
+            bindingID: fixture.bindingID,
+            endpointIdentity: fixture.identity,
+            bootstrap: try fixture.response()
+        )
+        clock.advance(to: fixture.expiresAt.addingTimeInterval(1))
+        try await coordinator.refreshIfNeeded()
+        for _ in 0 ..< 20 { await Task.yield() }
+
+        #expect(clock.observedSleepDeadlines().isEmpty)
+        #expect(await broker.observedEndpointIDs().isEmpty)
+        #expect(await endpoint.observedRelayUpdates().count == 1)
+        #expect(await coordinator.credentialExpiresAt() == fixture.expiresAt)
+        #expect(try await supervisor.activeEndpoint().identity() == fixture.identity)
+        await coordinator.deactivate()
+    }
+
+    @Test
     func concurrentForegroundCatchUpSharesOneBrokerMint() async throws {
         let fixture = try RelayCoordinatorFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.identity)

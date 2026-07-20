@@ -41,6 +41,7 @@ struct CmxIrohClientSessionTests {
         )
 
         try await session.connect()
+        #expect(await session.connectionContinuityID() == 1)
 
         // Admission must not grant peer-initiated stream credit before a
         // production owner is installed. The dedicated server-events receiver
@@ -67,6 +68,33 @@ struct CmxIrohClientSessionTests {
             "control.send",
         ])
         #expect(try await session.receiveControl() == Data("rpc".utf8))
+    }
+
+    @Test
+    func closedNativeConnectionDoesNotReportContinuityIdentity() async throws {
+        let control = controlStream(decision: .accepted)
+        let connection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            continuityID: 42,
+            bidirectionalStreams: [control.stream]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(),
+            credential: credential
+        )
+
+        try await session.connect()
+        #expect(await session.connectionContinuityID() == 42)
+
+        await connection.close(errorCode: 0, reason: "expired")
+
+        #expect(await session.connectionContinuityID() == nil)
     }
 
     @Test

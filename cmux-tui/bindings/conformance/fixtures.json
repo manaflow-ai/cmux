@@ -52,7 +52,9 @@
           "match": "partial",
           "bind": {
             "workspace0": "data.workspaces[0].id",
-            "pane0": "data.workspaces[0].screens[0].panes[0].id"
+            "pane0": "data.workspaces[0].screens[0].panes[0].id",
+            "focused0": "data.workspaces[0].screens[0].panes[0].focused_at",
+            "pane_revision0": "data.pane_revision"
           }
         },
         {
