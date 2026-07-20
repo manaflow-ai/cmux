@@ -5,7 +5,7 @@ use std::sync::mpsc::{RecvError, RecvTimeoutError, TryRecvError};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
-use crate::{MuxEvent, SurfaceId};
+use crate::{MuxEvent, SurfaceId, TreeDeltaKind};
 
 // A subscriber may drain accepted events after crossing this limit, then observes a disconnect.
 const MAX_PENDING_EVENTS: usize = 4_096;
@@ -141,11 +141,29 @@ impl MuxEventMailbox {
                 state.events.push_back((sequence, MuxEvent::SurfaceExited(surface)));
             }
             MuxEvent::Empty => {
+                let mut terminal_events = state
+                    .events
+                    .iter()
+                    .filter(|(_, event)| {
+                        matches!(event, MuxEvent::SurfaceExited(_))
+                            || matches!(
+                                event,
+                                MuxEvent::TreeDelta(delta)
+                                    if delta.kind == TreeDeltaKind::WorkspaceClosed
+                            )
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let keep = MAX_PENDING_EVENTS.saturating_sub(1);
+                if terminal_events.len() > keep {
+                    terminal_events.drain(..terminal_events.len() - keep);
+                }
                 state.events.clear();
                 state.title_sequences.clear();
                 state.titles.clear();
                 state.surface_output_sequences.clear();
                 state.surface_outputs.clear();
+                state.events.extend(terminal_events);
                 state.events.push_back((sequence, MuxEvent::Empty));
             }
             event => {

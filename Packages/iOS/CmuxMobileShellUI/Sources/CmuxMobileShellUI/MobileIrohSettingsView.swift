@@ -9,6 +9,9 @@ struct MobileIrohSettingsView: View {
     @State private var showsCustomEditor = false
     @State private var editedCustomRelayID: String?
     @State private var pendingCustomRemovalID: String?
+    @State private var showsPrivatePathEditor = false
+    @State private var editedPrivatePathMacDeviceID: String?
+    @State private var pendingPrivatePathRemovalMacDeviceID: String?
 
     init(controller: any CmxIrohSettingsControlling) {
         _model = State(initialValue: MobileIrohSettingsModel(controller: controller))
@@ -91,23 +94,39 @@ struct MobileIrohSettingsView: View {
                 ))
             }
 
-            Section {
-                LabeledContent(
-                    L10n.string("mobile.iroh.private.iroh", defaultValue: "Iroh Private Paths"),
-                    value: L10n.string("mobile.iroh.private.automatic", defaultValue: "Automatic")
+            MobileIrohPrivateNetworksSection(
+                configurations: model.snapshot.customPrivateNetworks,
+                availableMacs: model.snapshot.privateNetworkMacs,
+                edit: { macDeviceID in
+                    editedPrivatePathMacDeviceID = macDeviceID
+                    showsPrivatePathEditor = true
+                },
+                add: {
+                    editedPrivatePathMacDeviceID = nil
+                    showsPrivatePathEditor = true
+                },
+                setEnabled: { configuration, isEnabled in
+                    let draft = CmxIrohCustomPrivatePathDraft(
+                        macDeviceID: configuration.macDeviceID,
+                        macDisplayName: configuration.macDisplayName,
+                        addresses: configuration.addresses,
+                        isEnabled: isEnabled
+                    )
+                    Task { _ = await model.upsertCustomPrivatePath(draft) }
+                },
+                requestRemoval: { macDeviceID in
+                    pendingPrivatePathRemovalMacDeviceID = macDeviceID
+                }
+            )
+
+            #if DEBUG
+            if let mode = model.snapshot.debugTransportVerificationMode {
+                MobileIrohDebugTransportSection(
+                    mode: mode,
+                    setMode: model.setDebugTransportVerificationMode
                 )
-                LabeledContent(
-                    L10n.string("mobile.iroh.private.tailscale", defaultValue: "Tailscale Compatibility"),
-                    value: L10n.string("mobile.iroh.private.automatic", defaultValue: "Automatic")
-                )
-            } header: {
-                Text(L10n.string("mobile.iroh.private", defaultValue: "Private Networks"))
-            } footer: {
-                Text(L10n.string(
-                    "mobile.iroh.private.footer",
-                    defaultValue: "Iroh discovers LAN and VPN paths after authenticating the Mac. Custom raw TCP routes are not accepted because they cannot prove the remote Mac."
-                ))
             }
+            #endif
 
             MobileIrohDiagnosticsSection(
                 connectionStatus: runtimeStatusText,
@@ -133,6 +152,14 @@ struct MobileIrohSettingsView: View {
                 await model.upsertCustomRelay(relay, deviceSecret: secret)
             }
         }
+        .sheet(isPresented: $showsPrivatePathEditor) {
+            MobileIrohCustomPrivatePathEditor(
+                path: editedPrivatePath,
+                availableMacs: privatePathEditorMacs
+            ) { path in
+                await model.upsertCustomPrivatePath(path)
+            }
+        }
         .alert(
             L10n.string("mobile.iroh.saveFailed", defaultValue: "Could Not Save Networking Settings"),
             isPresented: Binding(
@@ -144,7 +171,7 @@ struct MobileIrohSettingsView: View {
         } message: {
             Text(L10n.string(
                 "mobile.iroh.saveFailed.message",
-                defaultValue: "Your previous networking configuration is still active. Check your account connection and values, then try again."
+                defaultValue: "Your previous networking configuration is still active. Check the values, then try again."
             ))
         }
         .confirmationDialog(
@@ -157,6 +184,26 @@ struct MobileIrohSettingsView: View {
             Button(L10n.string("mobile.common.remove", defaultValue: "Remove"), role: .destructive) {
                 if let id = pendingCustomRemovalID { model.removeCustomRelay(id: id) }
                 pendingCustomRemovalID = nil
+            }
+        }
+        .confirmationDialog(
+            L10n.string(
+                "mobile.iroh.private.custom.remove.confirm",
+                defaultValue: "Remove these private addresses?"
+            ),
+            isPresented: Binding(
+                get: { pendingPrivatePathRemovalMacDeviceID != nil },
+                set: { if !$0 { pendingPrivatePathRemovalMacDeviceID = nil } }
+            )
+        ) {
+            Button(
+                L10n.string("mobile.common.remove", defaultValue: "Remove"),
+                role: .destructive
+            ) {
+                if let macDeviceID = pendingPrivatePathRemovalMacDeviceID {
+                    model.removeCustomPrivatePath(macDeviceID: macDeviceID)
+                }
+                pendingPrivatePathRemovalMacDeviceID = nil
             }
         }
     }
@@ -208,6 +255,26 @@ struct MobileIrohSettingsView: View {
     private var editedCustomRelay: CmxIrohSettingsSnapshot.CustomRelay? {
         guard let editedCustomRelayID else { return nil }
         return model.snapshot.customRelays.first { $0.id == editedCustomRelayID }
+    }
+
+    private var editedPrivatePath: CmxIrohSettingsSnapshot.CustomPrivateNetwork? {
+        guard let editedPrivatePathMacDeviceID else { return nil }
+        return model.snapshot.customPrivateNetworks.first {
+            $0.macDeviceID == editedPrivatePathMacDeviceID
+        }
+    }
+
+    private var privatePathEditorMacs: [CmxIrohSettingsSnapshot.PrivateNetworkMac] {
+        if let editedPrivatePath {
+            return [.init(
+                id: editedPrivatePath.macDeviceID,
+                displayName: editedPrivatePath.macDisplayName
+            )]
+        }
+        let configuredIDs = Set(model.snapshot.customPrivateNetworks.map(\.macDeviceID))
+        return model.snapshot.privateNetworkMacs.filter {
+            !configuredIDs.contains($0.id)
+        }
     }
 
     private func customRelaySubtitle(_ relay: CmxIrohSettingsSnapshot.CustomRelay) -> String {
@@ -319,6 +386,56 @@ private extension MobileIrohSettingsView {
         }
     }
 }
+
+#if DEBUG
+@MainActor
+private struct MobileIrohDebugTransportSection: View {
+    let mode: CmxIrohTransportVerificationMode
+    let setMode: (CmxIrohTransportVerificationMode) -> Void
+
+    var body: some View {
+        Section {
+            Picker(
+                L10n.string(
+                    "mobile.iroh.debug.transportMode",
+                    defaultValue: "Transport Mode"
+                ),
+                selection: Binding(
+                    get: { mode },
+                    set: setMode
+                )
+            ) {
+                Text(L10n.string(
+                    "mobile.iroh.debug.transportMode.automatic",
+                    defaultValue: "Automatic"
+                ))
+                .tag(CmxIrohTransportVerificationMode.automatic)
+                Text(L10n.string(
+                    "mobile.iroh.debug.transportMode.relayOnly",
+                    defaultValue: "Relay Only"
+                ))
+                .tag(CmxIrohTransportVerificationMode.relayOnly)
+                Text(L10n.string(
+                    "mobile.iroh.debug.transportMode.directOnly",
+                    defaultValue: "No Relay (Direct Only)"
+                ))
+                .tag(CmxIrohTransportVerificationMode.directOnly)
+            }
+            .accessibilityIdentifier("MobileIrohDebugTransportMode")
+        } header: {
+            Text(L10n.string(
+                "mobile.iroh.debug",
+                defaultValue: "Debug Verification"
+            ))
+        } footer: {
+            Text(L10n.string(
+                "mobile.iroh.debug.footer",
+                defaultValue: "Changing this restarts Iroh without signing out or changing this app's device identity."
+            ))
+        }
+    }
+}
+#endif
 
 @MainActor
 private struct MobileIrohDiagnosticsSection: View {

@@ -12,12 +12,17 @@ use serde_json::Value;
 #[derive(Clone, Default)]
 pub struct TreeView {
     pub workspaces: Vec<WorkspaceView>,
+    #[allow(dead_code)]
+    pub workspace_revision: u64,
+    pub pane_revision: Option<u64>,
     pub active_workspace: usize,
 }
 
 #[derive(Clone)]
 pub struct WorkspaceView {
     pub id: WorkspaceId,
+    #[allow(dead_code)]
+    pub key: String,
     pub short_id: String,
     pub name: String,
     pub screens: Vec<ScreenView>,
@@ -46,6 +51,7 @@ pub struct PaneView {
     pub name: Option<String>,
     pub tabs: Vec<TabView>,
     pub active_tab: usize,
+    pub focused_at: u64,
 }
 
 #[derive(Clone)]
@@ -182,6 +188,7 @@ pub fn tree_from_state_with_notifications(
             short_id: short_ids.get(&pane.id).cloned().unwrap_or_default(),
             name: pane.name.clone(),
             active_tab: pane.active_tab,
+            focused_at: pane.focused_at,
             tabs: pane
                 .tabs
                 .iter()
@@ -206,12 +213,15 @@ pub fn tree_from_state_with_notifications(
         })
     };
     TreeView {
+        workspace_revision: state.workspace_revision,
+        pane_revision: Some(state.pane_revision),
         active_workspace: state.active_workspace,
         workspaces: state
             .workspaces
             .iter()
             .map(|ws| WorkspaceView {
                 id: ws.id,
+                key: ws.key.clone(),
                 short_id: short_ids.get(&ws.id).cloned().unwrap_or_default(),
                 name: ws.name.clone(),
                 active_screen: ws.active_screen,
@@ -254,6 +264,16 @@ fn parse_layout(value: &Value) -> Option<Node> {
                 b: Box::new(parse_layout(value.get("b")?)?),
             })
         }
+        "stack" => {
+            let panes = value
+                .get("panes")?
+                .as_array()?
+                .iter()
+                .map(Value::as_u64)
+                .collect::<Option<Vec<_>>>()?;
+            let expanded = value.get("expanded")?.as_u64()?;
+            Node::stack_with_expanded(panes, expanded)
+        }
         _ => None,
     }
 }
@@ -264,6 +284,7 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
         short_id: value.get("short_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
         name: value.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
         active_tab: value.get("active_tab").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
+        focused_at: value.get("focused_at").and_then(|v| v.as_u64()).unwrap_or(0),
         tabs: value
             .get("tabs")
             .and_then(|v| v.as_array())
@@ -336,7 +357,14 @@ fn parse_screen(value: &Value) -> Option<ScreenView> {
 
 /// Parse the remote `list-workspaces` response.
 pub fn parse_tree(data: &Value) -> TreeView {
-    let mut tree = TreeView::default();
+    let mut tree = TreeView {
+        workspace_revision: data
+            .get("workspace_revision")
+            .and_then(Value::as_u64)
+            .unwrap_or_default(),
+        pane_revision: data.get("pane_revision").and_then(Value::as_u64),
+        ..TreeView::default()
+    };
     let Some(workspaces) = data.get("workspaces").and_then(|v| v.as_array()) else {
         return tree;
     };
@@ -346,6 +374,7 @@ pub fn parse_tree(data: &Value) -> TreeView {
         }
         let mut view = WorkspaceView {
             id: ws.get("id").and_then(|v| v.as_u64()).unwrap_or(0),
+            key: ws.get("key").and_then(Value::as_str).unwrap_or_default().to_string(),
             short_id: ws.get("short_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
             name: ws.get("name").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
             screens: Vec::new(),
@@ -399,5 +428,38 @@ mod tests {
             panic!("layout should be split");
         };
         assert_eq!(*id, 9);
+    }
+
+    #[test]
+    fn protocol_v9_parser_preserves_stack_expansion() {
+        let layout = parse_layout(&json!({
+            "type": "stack",
+            "panes": [3, 4, 5],
+            "expanded": 4
+        }))
+        .unwrap();
+
+        assert!(matches!(layout, Node::Stack { expanded: 4, .. }));
+    }
+
+    #[test]
+    fn pane_parser_preserves_authoritative_focus_recency() {
+        let pane = parse_pane(&json!({
+            "id": 3,
+            "focused_at": 42,
+            "tabs": []
+        }))
+        .unwrap();
+
+        assert_eq!(pane.focused_at, 42);
+    }
+
+    #[test]
+    fn tree_parser_defaults_and_preserves_pane_revision() {
+        assert_eq!(parse_tree(&json!({"workspaces": []})).pane_revision, None);
+        assert_eq!(
+            parse_tree(&json!({"pane_revision": 7, "workspaces": []})).pane_revision,
+            Some(7)
+        );
     }
 }

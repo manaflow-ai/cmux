@@ -7,14 +7,67 @@ use std::sync::Arc;
 
 use crate::{PaneId, ScreenId, SplitDir, SplitId, Surface, SurfaceId, WorkspaceId};
 
+/// Pane membership for a stack. Construction rejects empty stacks so layout
+/// and protocol consumers never need to assume a member exists.
+#[derive(Debug, Clone)]
+pub struct StackPanes(Vec<PaneId>);
+
+impl StackPanes {
+    pub fn new(panes: Vec<PaneId>) -> Option<Self> {
+        (!panes.is_empty()).then_some(Self(panes))
+    }
+
+    pub fn as_slice(&self) -> &[PaneId] {
+        &self.0
+    }
+
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut PaneId> {
+        self.0.iter_mut()
+    }
+
+    fn retain(&mut self, predicate: impl FnMut(&PaneId) -> bool) {
+        self.0.retain(predicate);
+    }
+}
+
+impl std::ops::Deref for StackPanes {
+    type Target = [PaneId];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
 /// Binary split tree over panes for one screen.
 #[derive(Debug, Clone)]
 pub enum Node {
     Leaf(PaneId),
-    Split { id: SplitId, dir: SplitDir, ratio: f32, a: Box<Node>, b: Box<Node> },
+    Split {
+        id: SplitId,
+        dir: SplitDir,
+        ratio: f32,
+        a: Box<Node>,
+        b: Box<Node>,
+    },
+    /// Zellij-style stacked panes. `expanded` preserves the selected member
+    /// while focus is elsewhere in the split tree.
+    Stack {
+        panes: StackPanes,
+        expanded: PaneId,
+    },
 }
 
 impl Node {
+    pub fn stack(panes: Vec<PaneId>) -> Option<Self> {
+        let expanded = *panes.last()?;
+        StackPanes::new(panes).map(|panes| Self::Stack { panes, expanded })
+    }
+
+    pub fn stack_with_expanded(panes: Vec<PaneId>, expanded: PaneId) -> Option<Self> {
+        let panes = StackPanes::new(panes)?;
+        panes.contains(&expanded).then_some(Self::Stack { panes, expanded })
+    }
+
     pub fn pane_ids(&self, out: &mut Vec<PaneId>) {
         match self {
             Node::Leaf(id) => out.push(*id),
@@ -22,6 +75,7 @@ impl Node {
                 a.pane_ids(out);
                 b.pane_ids(out);
             }
+            Node::Stack { panes, .. } => out.extend(panes.iter().copied()),
         }
     }
 
@@ -29,6 +83,45 @@ impl Node {
         match self {
             Node::Leaf(id) => *id == target,
             Node::Split { a, b, .. } => a.contains(target) || b.contains(target),
+            Node::Stack { panes, .. } => panes.contains(&target),
+        }
+    }
+
+    pub(crate) fn contains_stack_pane(&self, target: PaneId) -> bool {
+        match self {
+            Node::Leaf(_) => false,
+            Node::Split { a, b, .. } => {
+                a.contains_stack_pane(target) || b.contains_stack_pane(target)
+            }
+            Node::Stack { panes, .. } => panes.contains(&target),
+        }
+    }
+
+    pub(crate) fn expand_stack_pane(&mut self, target: PaneId) -> bool {
+        match self {
+            Node::Leaf(_) => false,
+            Node::Split { a, b, .. } => a.expand_stack_pane(target) || b.expand_stack_pane(target),
+            Node::Stack { panes, expanded } if panes.contains(&target) => {
+                *expanded = target;
+                true
+            }
+            Node::Stack { .. } => false,
+        }
+    }
+
+    pub(crate) fn stack_expanded_pane(&self) -> Option<PaneId> {
+        match self {
+            Node::Leaf(_) => None,
+            Node::Split { a, b, .. } => a.stack_expanded_pane().or_else(|| b.stack_expanded_pane()),
+            Node::Stack { expanded, .. } => Some(*expanded),
+        }
+    }
+
+    pub(crate) fn first_visible_pane(&self) -> PaneId {
+        match self {
+            Node::Leaf(pane) => *pane,
+            Node::Split { a, .. } => a.first_visible_pane(),
+            Node::Stack { expanded, .. } => *expanded,
         }
     }
 
@@ -38,6 +131,7 @@ impl Node {
             Node::Split { id, a, b, .. } => {
                 *id == target || a.contains_split(target) || b.contains_split(target)
             }
+            Node::Stack { .. } => false,
         }
     }
 
@@ -57,6 +151,24 @@ impl Node {
             Node::Split { a, b, .. } => {
                 a.swap_leaf_ids(first, second);
                 b.swap_leaf_ids(first, second);
+            }
+            Node::Stack { panes, expanded } => {
+                let first_in_stack = panes.contains(&first);
+                let second_in_stack = panes.contains(&second);
+                for pane in panes.iter_mut() {
+                    if *pane == first {
+                        *pane = second;
+                    } else if *pane == second {
+                        *pane = first;
+                    }
+                }
+                if first_in_stack != second_in_stack {
+                    if *expanded == first {
+                        *expanded = second;
+                    } else if *expanded == second {
+                        *expanded = first;
+                    }
+                }
             }
         }
     }
@@ -85,6 +197,19 @@ impl Node {
                 a.split_leaf(target, split_id, dir, new_pane)
                     || b.split_leaf(target, split_id, dir, new_pane)
             }
+            Node::Stack { panes, expanded } if panes.contains(&target) => {
+                *expanded = target;
+                let old = std::mem::replace(self, Node::Leaf(target));
+                *self = Node::Split {
+                    id: split_id,
+                    dir,
+                    ratio: 0.5,
+                    a: Box::new(old),
+                    b: Box::new(Node::Leaf(new_pane)),
+                };
+                true
+            }
+            Node::Stack { .. } => false,
         }
     }
 
@@ -102,6 +227,24 @@ impl Node {
                     (Some(a), None) => Some(a),
                     (None, Some(b)) => Some(b),
                     (None, None) => None,
+                }
+            }
+            Node::Stack { panes, expanded } if !panes.contains(&target) => {
+                Some(Node::Stack { panes, expanded })
+            }
+            Node::Stack { mut panes, expanded } => {
+                panes.retain(|pane| *pane != target);
+                match panes.as_slice() {
+                    [] => None,
+                    [pane] => Some(Node::Leaf(*pane)),
+                    _ => {
+                        let expanded = if expanded == target {
+                            *panes.last().expect("retained stack is non-empty")
+                        } else {
+                            expanded
+                        };
+                        Some(Node::Stack { panes, expanded })
+                    }
                 }
             }
         }
@@ -133,6 +276,7 @@ impl Node {
                         (contains, false)
                     }
                 }
+                Node::Stack { panes, .. } => (panes.contains(&target), false),
             }
         }
 
@@ -150,6 +294,7 @@ impl Node {
                     a.set_split_ratio(target, new_ratio) || b.set_split_ratio(target, new_ratio)
                 }
             }
+            Node::Stack { .. } => false,
         }
     }
 }
@@ -157,6 +302,12 @@ impl Node {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stack_construction_rejects_empty_membership() {
+        assert!(Node::stack(Vec::new()).is_none());
+        assert!(Node::stack(vec![1]).is_some());
+    }
 
     fn nested_tree() -> Node {
         Node::Split {
@@ -215,6 +366,24 @@ mod tests {
         let Node::Split { id, .. } = collapsed else { panic!("child split should survive") };
         assert_eq!(id, 11);
     }
+
+    #[test]
+    fn removing_an_unrelated_branch_preserves_a_singleton_stack() {
+        let root = Node::Split {
+            id: 10,
+            dir: SplitDir::Right,
+            ratio: 0.5,
+            a: Box::new(Node::stack_with_expanded(vec![1], 1).unwrap()),
+            b: Box::new(Node::Leaf(2)),
+        };
+
+        let remaining = root.remove_leaf(2).unwrap();
+
+        assert!(matches!(
+            remaining,
+            Node::Stack { ref panes, expanded: 1 } if panes.as_slice() == [1]
+        ));
+    }
 }
 
 /// A split-tree leaf: an ordered list of tabs (surfaces) with one active.
@@ -226,6 +395,8 @@ pub struct Pane {
     pub tabs: Vec<SurfaceId>,
     pub active_tab: usize,
     pub active_at: u64,
+    /// Monotonic sequence updated only when this pane receives focus.
+    pub focused_at: u64,
 }
 
 impl Pane {
@@ -244,11 +415,18 @@ pub struct Screen {
     pub root: Node,
     pub active_pane: PaneId,
     pub zoomed_pane: Option<PaneId>,
+    /// Stable pane creation order for Zellij's default auto-layout family.
+    /// `None` means the screen owns a custom/damaged layout.
+    pub zellij_auto_layout: Option<Vec<PaneId>>,
 }
 
 #[derive(Debug)]
 pub struct Workspace {
     pub id: WorkspaceId,
+    /// Stable external identity used by detached frontends. Unlike `id`, this
+    /// survives snapshot/reconciliation boundaries and is safe to persist in
+    /// a frontend's richer layout state.
+    pub key: String,
     pub name: String,
     pub screens: Vec<Screen>,
     pub active_screen: usize,
@@ -264,6 +442,15 @@ impl Workspace {
 /// closures.
 pub struct State {
     pub workspaces: Vec<Workspace>,
+    pub(crate) workspace_index_by_id: HashMap<WorkspaceId, usize>,
+    pub(crate) workspace_id_by_key: HashMap<String, WorkspaceId>,
+    /// Monotonic version of the ordered workspace registry. Pane, screen, and
+    /// tab-only mutations do not advance this counter.
+    pub workspace_revision: u64,
+    /// Monotonic version of the live pane-ID set. Focus, layout, tab, screen,
+    /// and workspace selection changes do not advance this counter.
+    pub pane_revision: u64,
+    pub(crate) focus_sequence: u64,
     pub active_workspace: usize,
     pub panes: HashMap<PaneId, Pane>,
     pub surfaces: HashMap<SurfaceId, Arc<Surface>>,
@@ -271,6 +458,70 @@ pub struct State {
 }
 
 impl State {
+    pub(crate) fn next_focus_sequence(&mut self) -> u64 {
+        self.focus_sequence = self.focus_sequence.saturating_add(1);
+        self.focus_sequence
+    }
+
+    pub(crate) fn insert_pane(&mut self, pane: Pane) {
+        let id = pane.id;
+        let replaced = self.panes.insert(id, pane);
+        debug_assert!(replaced.is_none(), "pane {id} was inserted twice");
+        if replaced.is_none() {
+            self.pane_revision = self.pane_revision.saturating_add(1);
+        }
+    }
+
+    pub(crate) fn remove_pane(&mut self, pane: PaneId) -> Option<Pane> {
+        let removed = self.panes.remove(&pane);
+        if removed.is_some() {
+            self.pane_revision = self.pane_revision.saturating_add(1);
+        }
+        removed
+    }
+
+    pub(crate) fn push_workspace(&mut self, workspace: Workspace) {
+        let index = self.workspaces.len();
+        debug_assert!(!self.workspace_index_by_id.contains_key(&workspace.id));
+        debug_assert!(!self.workspace_id_by_key.contains_key(&workspace.key));
+        self.workspace_index_by_id.insert(workspace.id, index);
+        self.workspace_id_by_key.insert(workspace.key.clone(), workspace.id);
+        self.workspaces.push(workspace);
+    }
+
+    pub(crate) fn remove_workspace(&mut self, index: usize) -> Workspace {
+        let workspace = self.workspaces.remove(index);
+        self.rebuild_workspace_indexes();
+        workspace
+    }
+
+    pub(crate) fn move_workspace(&mut self, old_index: usize, new_index: usize) {
+        let workspace = self.workspaces.remove(old_index);
+        self.workspaces.insert(new_index, workspace);
+        self.rebuild_workspace_indexes();
+    }
+
+    pub(crate) fn rebuild_workspace_indexes(&mut self) {
+        self.workspace_index_by_id.clear();
+        self.workspace_id_by_key.clear();
+        for (index, workspace) in self.workspaces.iter().enumerate() {
+            self.workspace_index_by_id.insert(workspace.id, index);
+            self.workspace_id_by_key.insert(workspace.key.clone(), workspace.id);
+        }
+    }
+
+    pub(crate) fn workspace_index(&self, id: WorkspaceId) -> Option<usize> {
+        self.workspace_index_by_id.get(&id).copied()
+    }
+
+    pub(crate) fn workspace_by_id(&self, id: WorkspaceId) -> Option<&Workspace> {
+        self.workspace_index(id).and_then(|index| self.workspaces.get(index))
+    }
+
+    pub(crate) fn workspace_by_key(&self, key: &str) -> Option<&Workspace> {
+        self.workspace_id_by_key.get(key).and_then(|id| self.workspace_by_id(*id))
+    }
+
     /// Workspace and screen indices of the screen containing a pane.
     pub fn screen_of(&self, pane: PaneId) -> Option<(usize, usize)> {
         self.workspaces.iter().enumerate().find_map(|(wi, ws)| {

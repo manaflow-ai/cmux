@@ -117,7 +117,7 @@ public actor CmxIrohLANPeerDiscovery {
         }
         let path = await networkPath()
         let key = RequestKey(
-            deviceID: expectedMacDeviceID.lowercased(),
+            deviceID: cmxCanonicalDeviceID(expectedMacDeviceID),
             endpointID: expectedEndpointID
         )
         guard requests[key] != nil || requests.count < 32 else { return .notFound }

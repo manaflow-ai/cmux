@@ -1,12 +1,14 @@
 use std::collections::BTreeMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
 
 const REQUEST_ID: u64 = 1;
+const CAPABILITY_REQUEST_ID: u64 = 0;
+const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 
 type BuildFn = fn(&FlagMap) -> Result<Value, UsageError>;
 type PrintFn = fn(&Value, &mut dyn Write) -> io::Result<()>;
@@ -217,6 +219,12 @@ const VERBS: &[VerbSpec] = &[
         kind: socket(build_new_screen, print_surface, false),
     },
     VerbSpec {
+        name: "new-pane",
+        help: "Create a pane with automatic distribution.",
+        allowed: &["pane", "cols", "rows"],
+        kind: socket(build_new_pane, print_surface, false),
+    },
+    VerbSpec {
         name: "split",
         help: "Split a pane.",
         allowed: &["pane", "dir", "cols", "rows"],
@@ -381,7 +389,7 @@ const VERBS: &[VerbSpec] = &[
     VerbSpec {
         name: "attach-surface",
         help: "Attach to a surface stream.",
-        allowed: &["surface", "mode"],
+        allowed: &["surface", "mode", "cols", "rows"],
         kind: socket(build_attach_surface, print_empty, true),
     },
     VerbSpec {
@@ -560,7 +568,7 @@ fn run_command(args: CliArgs) -> i32 {
         }
     };
     let socket_path = resolve_socket(&args.global);
-    let mut stream = match transport::connect(&socket_path) {
+    let stream = match transport::connect(&socket_path) {
         Ok(stream) => stream,
         Err(err) => {
             eprintln!("cannot connect to session socket {}: {err}", socket_path.display());
@@ -572,24 +580,83 @@ fn run_command(args: CliArgs) -> i32 {
     } else {
         let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
     }
-    let mut line = match serde_json::to_vec(&request) {
-        Ok(line) => line,
-        Err(err) => {
-            eprintln!("failed to encode request: {err}");
-            return 2;
+    let mut reader = BufReader::new(stream);
+    if request.get("cmd").and_then(Value::as_str) == Some("attach-surface")
+        && request.get("cols").is_some()
+    {
+        match server_supports_capability(&mut reader, ATTACH_INITIAL_SIZE_CAPABILITY) {
+            Ok(true) => {}
+            Ok(false) => {
+                eprintln!("initial attach sizing is not supported by this server");
+                return 1;
+            }
+            Err(err) => {
+                eprintln!("{err}");
+                return 3;
+            }
         }
-    };
-    line.push(b'\n');
-    if let Err(err) = stream.write_all(&line) {
+    }
+    if let Err(err) = write_json_line(reader.get_mut(), &request) {
         eprintln!("transport error: {err}");
         return 3;
     }
-
-    let mut reader = BufReader::new(stream);
     if stream_mode {
         run_stream(reader)
     } else {
         run_one_response(&mut reader, args.global.json, print)
+    }
+}
+
+fn write_json_line(writer: &mut dyn Write, value: &Value) -> io::Result<()> {
+    serde_json::to_writer(&mut *writer, value).map_err(io::Error::other)?;
+    writer.write_all(b"\n")
+}
+
+fn server_supports_capability(
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+    capability: &str,
+) -> Result<bool, String> {
+    write_json_line(reader.get_mut(), &json!({"id": CAPABILITY_REQUEST_ID, "cmd": "identify"}))
+        .map_err(|err| format!("transport error: {err}"))?;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut line = String::new();
+
+    loop {
+        match reader.read_line(&mut line) {
+            Ok(0) => return Err("transport closed before identify response".to_string()),
+            Ok(_) => {}
+            Err(err)
+                if matches!(err.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut)
+                    && Instant::now() < deadline =>
+            {
+                continue;
+            }
+            Err(err)
+                if matches!(err.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) =>
+            {
+                return Err("timed out waiting for identify response".to_string());
+            }
+            Err(err) => return Err(format!("transport error: {err}")),
+        }
+        let value: Value =
+            serde_json::from_str(&line).map_err(|err| format!("bad identify response: {err}"))?;
+        if value.get("event").is_some()
+            || value.get("id").and_then(Value::as_u64) != Some(CAPABILITY_REQUEST_ID)
+        {
+            line.clear();
+            continue;
+        }
+        if value.get("ok").and_then(Value::as_bool) != Some(true) {
+            return Err(value
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("identify failed")
+                .to_string());
+        }
+        return Ok(value
+            .pointer("/data/capabilities")
+            .and_then(Value::as_array)
+            .is_some_and(|values| values.iter().any(|value| value.as_str() == Some(capability))));
     }
 }
 
@@ -837,6 +904,7 @@ fn build_attach_surface(flags: &FlagMap) -> Result<Value, UsageError> {
         }
         value["mode"] = json!(mode);
     }
+    flags.insert_optional_size(&mut value)?;
     Ok(value)
 }
 
@@ -972,6 +1040,12 @@ fn build_new_workspace(flags: &FlagMap) -> Result<Value, UsageError> {
 fn build_new_screen(flags: &FlagMap) -> Result<Value, UsageError> {
     let mut value = json!({});
     flags.insert_optional_u64(&mut value, "workspace")?;
+    flags.insert_optional_size(&mut value)?;
+    Ok(value)
+}
+
+fn build_new_pane(flags: &FlagMap) -> Result<Value, UsageError> {
+    let mut value = json!({ "pane": flags.required_u64("pane")? });
     flags.insert_optional_size(&mut value)?;
     Ok(value)
 }
@@ -1531,7 +1605,100 @@ fn atom(value: Option<&Value>) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+    use std::net::Shutdown;
+
     use super::*;
+
+    struct ScriptedStream {
+        reads: VecDeque<Result<Vec<u8>, io::ErrorKind>>,
+        current: io::Cursor<Vec<u8>>,
+        writes: Vec<u8>,
+    }
+
+    impl Read for ScriptedStream {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if self.current.position() < self.current.get_ref().len() as u64 {
+                return self.current.read(buf);
+            }
+            match self.reads.pop_front() {
+                Some(Ok(bytes)) => {
+                    self.current = io::Cursor::new(bytes);
+                    self.current.read(buf)
+                }
+                Some(Err(kind)) => Err(io::Error::from(kind)),
+                None => Ok(0),
+            }
+        }
+    }
+
+    impl Write for ScriptedStream {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.writes.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl transport::Stream for ScriptedStream {
+        fn try_clone_box(&self) -> io::Result<Box<dyn transport::Stream>> {
+            Err(io::Error::new(io::ErrorKind::Unsupported, "test stream is not cloneable"))
+        }
+
+        fn set_read_timeout(&self, _timeout: Option<Duration>) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn set_write_timeout(&self, _timeout: Option<Duration>) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn shutdown(&self, _how: Shutdown) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn capability_probe_tolerates_polling_timeouts() {
+        let stream = ScriptedStream {
+            reads: VecDeque::from([
+                Err(io::ErrorKind::WouldBlock),
+                Err(io::ErrorKind::TimedOut),
+                Ok(b"{\"id\":0,\"ok\":true,\"data\":{\"capabilities\":[\"attach-initial-size\"]}}\n"
+                    .to_vec()),
+            ]),
+            current: io::Cursor::new(Vec::new()),
+            writes: Vec::new(),
+        };
+        let mut reader = BufReader::new(Box::new(stream) as Box<dyn transport::Stream>);
+
+        assert_eq!(
+            server_supports_capability(&mut reader, ATTACH_INITIAL_SIZE_CAPABILITY),
+            Ok(true)
+        );
+    }
+
+    #[test]
+    fn capability_probe_preserves_partial_line_across_timeout() {
+        let stream = ScriptedStream {
+            reads: VecDeque::from([
+                Ok(b"{\"id\":0,\"ok\":true,\"data\":".to_vec()),
+                Err(io::ErrorKind::TimedOut),
+                Ok(b"{\"capabilities\":[\"attach-initial-size\"]}}\n".to_vec()),
+            ]),
+            current: io::Cursor::new(Vec::new()),
+            writes: Vec::new(),
+        };
+        let mut reader = BufReader::new(Box::new(stream) as Box<dyn transport::Stream>);
+
+        assert_eq!(
+            server_supports_capability(&mut reader, ATTACH_INITIAL_SIZE_CAPABILITY),
+            Ok(true)
+        );
+    }
 
     #[test]
     fn plugin_verb_is_registered_as_local_with_help() {
@@ -1550,6 +1717,10 @@ mod tests {
 
     #[test]
     fn protocol_v7_cli_builders_emit_render_tree_paste_and_scrollback_fields() {
+        let attach = VERBS.iter().find(|verb| verb.name == "attach-surface").unwrap();
+        assert!(attach.allowed.contains(&"cols"));
+        assert!(attach.allowed.contains(&"rows"));
+
         let flags = FlagMap {
             values: BTreeMap::from([
                 ("surface".to_string(), "9".to_string()),
@@ -1567,10 +1738,27 @@ mod tests {
             values: BTreeMap::from([
                 ("surface".to_string(), "9".to_string()),
                 ("mode".to_string(), "render".to_string()),
+                ("cols".to_string(), "120".to_string()),
+                ("rows".to_string(), "40".to_string()),
             ]),
             ..Default::default()
         };
-        assert_eq!(build_attach_surface(&flags).unwrap(), json!({"surface": 9, "mode": "render"}));
+        assert_eq!(
+            build_attach_surface(&flags).unwrap(),
+            json!({"surface": 9, "mode": "render", "cols": 120, "rows": 40})
+        );
+
+        let flags = FlagMap {
+            values: BTreeMap::from([
+                ("surface".to_string(), "9".to_string()),
+                ("cols".to_string(), "120".to_string()),
+            ]),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_attach_surface(&flags).unwrap_err().0,
+            "--cols and --rows must be supplied together"
+        );
 
         let flags = FlagMap {
             values: BTreeMap::from([("tree-events".to_string(), "deltas".to_string())]),

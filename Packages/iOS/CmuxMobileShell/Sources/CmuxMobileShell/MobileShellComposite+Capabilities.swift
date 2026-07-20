@@ -26,6 +26,9 @@ extension MobileShellComposite {
     }
     /// Whether the Mac supports terminal artifact scan/stat/fetch/thumbnail RPCs.
     public var supportsTerminalArtifacts: Bool { supportedHostCapabilities.contains(Self.terminalArtifactCapability) }
+    public var supportsIrohArtifactLane: Bool {
+        supportedHostCapabilities.contains(Self.irohArtifactLaneCapability)
+    }
     /// Whether the Mac supports terminal-scoped directory listing.
     public var supportsTerminalArtifactList: Bool {
         supportedHostCapabilities.contains(Self.terminalArtifactListCapability)

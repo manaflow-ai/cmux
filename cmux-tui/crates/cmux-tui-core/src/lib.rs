@@ -25,13 +25,15 @@ pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 pub use layout::{
     ExactSplitResize, LayoutResult, Rect, SplitEdge, SplitResize, directional_neighbor,
     exact_split_for_pane_edge, layout_screen, split_for_pane_edge, split_sides,
+    zellij_default_pane_layout,
 };
 pub use model::{Node, Pane, Screen, State, Workspace};
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
     CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutSpec, Mux, MuxEvent,
     NotificationEvent, NotificationLevel, RunPlacement, SidebarPluginOptions, SidebarPluginStatus,
-    SurfaceNotification, SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ZoomMode, ZoomState,
+    SurfaceNotification, SurfaceResizeReporter, TreeDelta, TreeDeltaKind, WorkspacePlacement,
+    ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use short_id::assign_short_ids;

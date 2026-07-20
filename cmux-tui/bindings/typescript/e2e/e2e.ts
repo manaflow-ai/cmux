@@ -10,7 +10,7 @@ async function main(): Promise<void> {
   try {
     const identify = await client.identify();
     assert(identify.app === "cmux-tui", `unexpected app ${identify.app}`);
-    assert(identify.protocol >= 5 && identify.protocol <= 8, `unsupported protocol ${identify.protocol}`);
+    assert(identify.protocol >= 5 && identify.protocol <= 9, `unsupported protocol ${identify.protocol}`);
 
     const created = await client.newWorkspace({ name: marker, cols: 80, rows: 24 });
     await client.send(created.surface, { text: `printf '${marker}\\n'\r` });
@@ -57,7 +57,7 @@ async function main(): Promise<void> {
     assert(duplicate === null, "same-size resize emitted surface-resized");
     events.close();
 
-    const attach = await client.attachSurface(created.surface);
+    const attach = await client.attachSurface(created.surface, { cols: 100, rows: 31 });
     const first = await attach.next(1000);
     assert(first.event === "vt-state", `first attach event was ${first.event}`);
     await client.send(created.surface, { text: `printf '${later}\\n'\r` });
