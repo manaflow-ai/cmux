@@ -17,8 +17,8 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use cmux_tui_core::{
     BrowserSource, BrowserStatus, Direction, MuxEvent, PairingChallenge, PaneId, Rect, SplitDir,
-    SplitEdge, SplitId, SurfaceId, SurfaceKind, WorkspaceId, exact_split_for_pane_edge,
-    layout_screen, split_sides, zellij_default_pane_layout,
+    SplitEdge, SplitId, SurfaceId, SurfaceKind, TreeDelta, TreeDeltaKind, WorkspaceId,
+    exact_split_for_pane_edge, layout_screen, split_sides, zellij_default_pane_layout,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -2429,6 +2429,7 @@ struct PaneFocusHistory {
     recency: HashMap<PaneId, u64>,
     baseline: HashMap<PaneId, u64>,
     membership: HashSet<PaneId>,
+    membership_initialized: bool,
 }
 
 impl PaneFocusHistory {
@@ -2467,6 +2468,71 @@ impl PaneFocusHistory {
             self.baseline.entry(pane.id).or_insert(pane.focused_at);
         }
         self.membership = live;
+        self.membership_initialized = true;
+    }
+
+    fn ensure_membership(&mut self, tree: &TreeView) {
+        if !self.membership_initialized {
+            self.reconcile_membership(tree);
+        }
+    }
+
+    fn apply_tree_delta(&mut self, delta: &TreeDelta) {
+        let added = matches!(
+            delta.kind,
+            TreeDeltaKind::WorkspaceAdded | TreeDeltaKind::ScreenAdded | TreeDeltaKind::PaneAdded
+        );
+        let removed = matches!(
+            delta.kind,
+            TreeDeltaKind::WorkspaceClosed
+                | TreeDeltaKind::ScreenClosed
+                | TreeDeltaKind::PaneClosed
+        );
+        if !added && !removed {
+            return;
+        }
+        if matches!(delta.kind, TreeDeltaKind::PaneAdded | TreeDeltaKind::PaneClosed) {
+            if let Some(pane) = delta.pane {
+                let focused_at = delta
+                    .entity
+                    .get("focused_at")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or_default();
+                self.apply_membership_change(pane, focused_at, added);
+            }
+            return;
+        }
+        visit_entity_panes(&delta.entity, &mut |pane, focused_at| {
+            self.apply_membership_change(pane, focused_at, added);
+        });
+    }
+
+    fn apply_membership_change(&mut self, pane: PaneId, focused_at: u64, added: bool) {
+        if added {
+            self.membership.insert(pane);
+            self.baseline.entry(pane).or_insert(focused_at);
+        } else {
+            self.membership.remove(&pane);
+            self.recency.remove(&pane);
+            self.baseline.remove(&pane);
+        }
+    }
+}
+
+fn visit_entity_panes(value: &serde_json::Value, visit: &mut impl FnMut(PaneId, u64)) {
+    if let Some(panes) = value.get("panes").and_then(serde_json::Value::as_array) {
+        for pane in panes {
+            if let Some(id) = pane.get("id").and_then(serde_json::Value::as_u64) {
+                let focused_at =
+                    pane.get("focused_at").and_then(serde_json::Value::as_u64).unwrap_or_default();
+                visit(id, focused_at);
+            }
+        }
+    }
+    if let Some(screens) = value.get("screens").and_then(serde_json::Value::as_array) {
+        for screen in screens {
+            visit_entity_panes(screen, visit);
+        }
     }
 }
 
@@ -2482,7 +2548,6 @@ pub struct App {
     stdout_lock: Arc<Mutex<()>>,
     pub pane_areas: Vec<PaneArea>,
     pane_focus_history: PaneFocusHistory,
-    pane_membership_dirty: bool,
     /// Terminal cells actually represented by the last rendered snapshot.
     /// Foreign-viewer padding outside these bounds is display-only.
     pub(crate) rendered_terminal_bounds: HashMap<SurfaceId, Rect>,
@@ -2822,7 +2887,6 @@ pub fn run(
         stdout_lock: stdout_lock.clone(),
         pane_areas: Vec::new(),
         pane_focus_history: PaneFocusHistory::default(),
-        pane_membership_dirty: true,
         rendered_terminal_bounds: HashMap::new(),
         visible_size_surfaces: HashSet::new(),
         pending_size_releases: HashSet::new(),
@@ -3227,10 +3291,7 @@ impl App {
         for surface in removed_browsers {
             self.browser_input.forget_surface(surface);
         }
-        if self.pane_membership_dirty {
-            self.pane_focus_history.reconcile_membership(&tree);
-            self.pane_membership_dirty = false;
-        }
+        self.pane_focus_history.ensure_membership(&tree);
         self.tree = tree;
         if self.active_pane() != previous_active
             && let Some(active) = self.active_pane()
@@ -3242,7 +3303,6 @@ impl App {
     }
 
     fn replace_authoritative_tree(&mut self, tree: TreeView, routing_generation: u64) {
-        self.pane_membership_dirty = true;
         let live_surfaces = tree
             .workspaces
             .iter()
@@ -3813,13 +3873,15 @@ impl App {
             }
             _ => {}
         }
+        if let AppEvent::Mux(MuxEvent::TreeDelta(delta)) = &event {
+            self.pane_focus_history.apply_tree_delta(delta);
+        }
         if matches!(
             &event,
             AppEvent::Mux(
                 MuxEvent::TreeChanged | MuxEvent::LayoutChanged(_) | MuxEvent::SurfaceExited(_)
             )
         ) {
-            self.pane_membership_dirty = true;
             self.session.clear_surface_sync_failures();
         }
         let event = match event {
@@ -3868,6 +3930,7 @@ impl App {
                 match result {
                     Ok(tree) => {
                         let empty = tree.workspaces.is_empty();
+                        self.pane_focus_history.reconcile_membership(&tree);
                         self.replace_authoritative_tree(tree, routing_generation);
                         self.session.refresh_clients_background();
                         if empty {
@@ -4024,7 +4087,6 @@ impl App {
                 match outcome {
                     SessionMutationOutcome::Success { tree } => {
                         if let Some(tree) = tree {
-                            self.pane_membership_dirty = true;
                             self.replace_tree(tree);
                         }
                         self.routing_refresh_retries_remaining = 0;
@@ -7646,7 +7708,7 @@ mod tests {
 
     use cmux_tui_core::{
         BrowserStatus, Direction, Mux, MuxEvent, Node, Rect, SplitDir, SurfaceId, SurfaceKind,
-        SurfaceOptions, layout_screen,
+        SurfaceOptions, TreeDelta, TreeDeltaKind, layout_screen,
     };
     use crossterm::event::{
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -7752,6 +7814,42 @@ mod tests {
 
         assert_eq!(history.recency(2), (false, 0));
         assert_eq!(history.recency(99), (false, 5));
+    }
+
+    #[test]
+    fn pane_focus_history_applies_workspace_lifecycle_deltas_incrementally() {
+        let mut history = PaneFocusHistory::default();
+        history.reconcile_membership(&notify_tree(1, false));
+        history.record(2);
+        let entity = serde_json::json!({
+            "screens": [{
+                "panes": [{"id": 99, "focused_at": 5}]
+            }]
+        });
+        history.apply_tree_delta(&TreeDelta {
+            kind: TreeDeltaKind::WorkspaceAdded,
+            workspace: 10,
+            screen: None,
+            pane: None,
+            surface: None,
+            index: Some(1),
+            entity: entity.clone(),
+            workspace_revision: Some(2),
+        });
+        assert_eq!(history.recency(99), (false, 5));
+
+        history.apply_tree_delta(&TreeDelta {
+            kind: TreeDeltaKind::WorkspaceClosed,
+            workspace: 10,
+            screen: None,
+            pane: None,
+            surface: None,
+            index: Some(1),
+            entity,
+            workspace_revision: Some(3),
+        });
+        assert_eq!(history.recency(2), (true, 1));
+        assert_eq!(history.recency(99), (false, 0));
     }
 
     #[test]
@@ -11371,7 +11469,6 @@ mod tests {
             stdout_lock: Arc::new(Mutex::new(())),
             pane_areas: Vec::new(),
             pane_focus_history: PaneFocusHistory::default(),
-            pane_membership_dirty: true,
             rendered_terminal_bounds: HashMap::new(),
             visible_size_surfaces: HashSet::new(),
             pending_size_releases: HashSet::new(),
