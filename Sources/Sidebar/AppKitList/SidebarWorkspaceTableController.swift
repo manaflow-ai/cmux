@@ -219,16 +219,19 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             let mismatches = zip(previousIds, nextIds).reduce(into: 0) { count, pair in
                 if pair.0 != pair.1 { count += 1 }
             }
-            if previousIds.count == nextIds.count,
+            if heightChanges.isEmpty,
+               previousIds.count == nextIds.count,
                mismatches <= Self.maxAnimatedReorderMoves,
                Self.multisetEqual(previousIds, nextIds) {
 #if DEBUG
                 structuralUpdateProbe?(.moveRows)
 #endif
-                // Pure reorder (drag-drop): move rows in place. reloadData
-                // tears down every visible cell and snaps the scroll
-                // position — the "click to reorder is jank" report — while
-                // moves keep cells alive and settle smoothly.
+                // Stable-geometry reorder (drag-drop): move rows in place.
+                // AppKit reuses the live cell views during this transaction,
+                // so combining it with row-height invalidation can leave the
+                // reused views at stale frames. Geometry-changing reorders
+                // take the atomic reload path below. Stable moves keep cells
+                // alive and preserve smooth drag-drop settlement.
                 let table = containerView.tableView
                 table.beginUpdates()
                 var current = previousIds
@@ -246,9 +249,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                     reconfigureVisibleRows(
                         IndexSet(integersIn: visible.lowerBound..<(visible.lowerBound + visible.length))
                     )
-                }
-                if !heightChanges.isEmpty {
-                    noteHeightOfRowsWithoutAnimation(table, heightChanges)
                 }
             } else {
 #if DEBUG

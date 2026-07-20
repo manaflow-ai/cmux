@@ -312,6 +312,48 @@ struct SidebarWorkspaceTableTests {
             #expect(cell.representedRowId == nextRows[index].id)
         }
     }
+
+    @Test
+    @MainActor
+    func stableHeightReorderKeepsAnimatedMovePath() {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 300),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+
+        let ids = (0..<3).map { _ in UUID() }
+        let initialRows = ids.enumerated().map { index, id in
+            makeSizedRowConfiguration(workspaceId: id, contentToken: index, height: 64)
+        }
+        controller.apply(
+            rows: initialRows,
+            actions: makeTableActions(),
+            workspaceIds: ids,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+
+        var structuralUpdates: [SidebarWorkspaceTableStructuralUpdate] = []
+        controller.structuralUpdateProbe = { structuralUpdates.append($0) }
+        let reorderedIds = [ids[2], ids[0], ids[1]]
+        let reorderedRows = reorderedIds.map { id in
+            initialRows[ids.firstIndex(of: id)!]
+        }
+        controller.apply(
+            rows: reorderedRows,
+            actions: makeTableActions(),
+            workspaceIds: reorderedIds,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+
+        #expect(structuralUpdates == [.moveRows])
+    }
 #endif
 
     @Test
