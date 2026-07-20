@@ -186,6 +186,7 @@ struct WindowZombieRegressionTests {
         #expect(reference?.window == nil)
         #expect(releasedWindow == nil)
     }
+
     @Test("Closed Settings window is fully retired")
     func closedSettingsWindowIsFullyRetired() async {
         _ = NSApplication.shared
