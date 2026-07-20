@@ -72,6 +72,9 @@ import Testing
             "CMUX_CUSTOM_CODEX_PATH": agentURL.path,
             "CMUX_CUA_SOCKET_PATH": "/tmp/hostile-default/cua-driver.sock",
             "CMUX_CUA_STATE_DIR": "/tmp/hostile-default/state",
+            "CUA_DRIVER_DAEMON_APP": "/Applications/CuaDriver.app",
+            "CUA_DRIVER_EMBEDDED": "1",
+            "CUA_DRIVER_RS_MCP_NO_RELAUNCH": "1",
         ]
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
@@ -83,7 +86,15 @@ import Testing
         #expect(recorded.contains("/tmp/cmux-cua-\(uid)/cua-healing/cua.sock"), Comment(rawValue: recorded))
         #expect(recorded.contains("/computer-use/runtime/cua-healing/state"), Comment(rawValue: recorded))
         #expect(recorded.contains("CUA_DRIVER_RS_MCP_FORCE_PROXY"), Comment(rawValue: recorded))
+        #expect(recorded.contains("CUA_DRIVER_DAEMON_APP"), Comment(rawValue: recorded))
+        #expect(recorded.contains("CUA_DRIVER_EMBEDDED"), Comment(rawValue: recorded))
+        #expect(recorded.contains("CUA_DRIVER_RS_MCP_NO_RELAUNCH"), Comment(rawValue: recorded))
+        let valueSeparator = wrapperName.contains("claude") ? "\":\"" : "=\""
+        #expect(recorded.contains("CUA_DRIVER_DAEMON_APP\(valueSeparator)\""), Comment(rawValue: recorded))
+        #expect(recorded.contains("CUA_DRIVER_EMBEDDED\(valueSeparator)0\""), Comment(rawValue: recorded))
+        #expect(recorded.contains("CUA_DRIVER_RS_MCP_NO_RELAUNCH\(valueSeparator)0\""), Comment(rawValue: recorded))
         #expect(!recorded.contains("hostile-default"), Comment(rawValue: recorded))
+        #expect(!recorded.contains("/Applications/CuaDriver.app"), Comment(rawValue: recorded))
     }
 
     @Test func bundledClaudeWrapperScrubsSessionIdentityAndPreservesTrustBypassOnResume() throws {
