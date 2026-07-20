@@ -63,15 +63,25 @@ extension GhosttySurfaceView {
 
     private func verifiedReplayPresentedRendererSnapshot() -> VerifiedReplayFrozenRendererSnapshot {
         let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
-        let presentedRenderer = renderer?.presentation() ?? renderer
-        let contents = presentedRenderer?.contents ?? renderer?.contents
+        let presentationRenderer = renderer?.presentation()
+        let presentationHost = layer.presentation()
+        let snapshotRenderer: CALayer?
+        let snapshotHost: CALayer
+        if let presentationRenderer, let presentationHost {
+            snapshotRenderer = presentationRenderer
+            snapshotHost = presentationHost
+        } else {
+            snapshotRenderer = renderer
+            snapshotHost = layer
+        }
+        let contents = snapshotRenderer?.contents
         return VerifiedReplayFrozenRendererSnapshot(
-            renderer: presentedRenderer,
+            renderer: snapshotRenderer,
             contents: contents,
             identity: verifiedReplayRendererIdentity(from: contents),
             geometry: verifiedReplayPresentationGeometry(
-                renderer: presentedRenderer,
-                host: layer.presentation() ?? layer,
+                renderer: snapshotRenderer,
+                host: snapshotHost,
                 viewportRect: terminalViewportRect
             ),
             geometryRevision: verifiedReplayGeometryRevision
