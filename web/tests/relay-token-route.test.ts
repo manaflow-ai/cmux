@@ -56,6 +56,7 @@ function deps(overrides: Partial<RelayTokenDeps> = {}): RelayTokenDeps {
       key: input.key,
       nowSeconds: input.nowSeconds,
     }),
+    isEndpointBound: async () => true,
     checkRateLimit: async () => ({ rateLimited: false }),
     rateLimitRuleId: () => undefined,
     isVercel: () => false,
@@ -114,6 +115,53 @@ describe("POST /api/relay/token", () => {
       exp: 1_700_000_300,
       endpoint_id: ENDPOINT_ID,
     });
+  });
+
+  test("withholds relay credentials until the endpoint has an active broker binding", async () => {
+    let mintedCredentials = false;
+    const unboundDeps = {
+      ...deps({
+        issueCredentials: (input) => {
+          mintedCredentials = true;
+          return mintManagedRelayCredentials({
+            sub: input.accountId,
+            endpointId: input.endpointId,
+            relayUrls: input.relayUrls,
+            key: input.key,
+            nowSeconds: input.nowSeconds,
+          });
+        },
+      }),
+      isEndpointBound: async (input: {
+        accountId: string;
+        endpointId: string;
+        nowSeconds: number;
+      }) => {
+        expect(input).toEqual({
+          accountId: "account-a",
+          endpointId: ENDPOINT_ID,
+          nowSeconds: 1_700_000_000,
+        });
+        return false;
+      },
+    };
+
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      unboundDeps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(mintedCredentials).toBe(false);
+    const body = await response.json() as Record<string, unknown>;
+    expect(body.endpointId).toBe(ENDPOINT_ID);
+    expect(body.policy).toBe("signed.policy.value");
+    expect(body.preferenceRevision).toBe(3);
+    expect(body.relayCredentials).toBeUndefined();
+    expect(body.token).toBeUndefined();
+    expect(body.relays).toBeUndefined();
+    expect(body.expiresAt).toBeUndefined();
+    expect(body.ttlSeconds).toBeUndefined();
   });
 
   test("preserves distinct URL-token associations without ambiguous legacy fields", async () => {

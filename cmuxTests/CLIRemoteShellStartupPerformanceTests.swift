@@ -165,7 +165,10 @@ struct CLIRemoteShellStartupPerformanceTests {
         }
         switch method {
         case "workspace.create":
-            return v2Response(id: id, ok: true, result: ["workspace_id": "workspace-cli-perf"])
+            return v2Response(id: id, ok: true, result: [
+                "workspace_id": "workspace-cli-perf",
+                "surface_id": "surface-cli-perf",
+            ])
         case "workspace.remote.configure":
             return v2Response(
                 id: id,

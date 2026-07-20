@@ -261,9 +261,49 @@ public actor CmxIrohHostRuntime {
                 endpointID: endpointID,
                 bindingID: policy.binding.bindingID
             )
-            if let registration = policy.registration,
-               let discovery = policy.discovery {
-                await handleBinding(registration, discovery, policy.attestation)
+            var publishedPolicy = policy
+            let requiresRelayReadiness = !protocolConfiguration
+                .allowsNATTraversalAfterAdmission
+            if requiresRelayReadiness {
+                if let relayCoordinator {
+                    try await relayCoordinator.activate(
+                        bindingID: policy.binding.bindingID,
+                        endpointIdentity: endpointID,
+                        bootstrap: policy.relayBootstrap
+                    )
+                }
+                try requireCurrent(revision)
+                guard await supervisor.hasConfiguredRelay() else {
+                    throw CmxIrohEndpointSupervisorError.relayReadinessTimedOut
+                }
+                try await supervisor.waitForUsableHomeRelay()
+                try requireCurrent(revision)
+                let readyPolicy = try await resolvePolicy(
+                    supervisor: supervisor,
+                    expectedEndpointID: endpointID,
+                    revision: revision,
+                    allowCachedFallback: false
+                )
+                guard readyPolicy.binding.bindingID == policy.binding.bindingID else {
+                    throw CmxIrohHostRuntimeError.invalidLocalBinding
+                }
+                await admissionController.update(
+                    keys: readyPolicy.grantVerificationKeys,
+                    acceptor: grantPeer(for: readyPolicy.binding),
+                    pairingEnabled: readyPolicy.pairingEnabled
+                )
+                try requireCurrent(revision)
+                localBinding = readyPolicy.binding
+                endpointAttestation = readyPolicy.attestation ?? endpointAttestation
+                lanRendezvous = readyPolicy.lanRendezvous
+                publishedPolicy = readyPolicy
+                // The online event that released the barrier is already folded
+                // into `readyPolicy`; do not immediately publish a third copy.
+                registrationRefreshPending = false
+            }
+            if let registration = publishedPolicy.registration,
+               let discovery = publishedPolicy.discovery {
+                await handleBinding(registration, discovery, publishedPolicy.attestation)
                 scheduleRegistrationRenewal(
                     binding: registration.binding,
                     revision: revision
@@ -274,7 +314,7 @@ public actor CmxIrohHostRuntime {
                 registrationRefreshPending = false
                 scheduleRegistrationRefresh(revision: revision)
             }
-            if let relayCoordinator {
+            if let relayCoordinator, !requiresRelayReadiness {
                 scheduleRelayActivation(
                     relayCoordinator,
                     binding: policy.binding,
@@ -284,13 +324,13 @@ public actor CmxIrohHostRuntime {
                 )
             }
             scheduleLANPublication(
-                binding: policy.binding,
-                rendezvous: policy.lanRendezvous,
+                binding: publishedPolicy.binding,
+                rendezvous: publishedPolicy.lanRendezvous,
                 supervisor: supervisor,
                 revision: revision
             )
         } catch {
-            guard lifecyclePhase == .starting,
+            guard lifecyclePhase.ownsNetworkOperation,
                   lifecycleRevision == revision else {
                 throw error
             }

@@ -5,6 +5,33 @@ import Testing
 
 @Suite
 struct CmxIrohHostRuntimeTests {
+    @Test("direct-only startup does not wait for relay readiness")
+    func directOnlyStartupSkipsRelayReadiness() async throws {
+        let fixture = try HostRuntimeFixture()
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
+            ),
+            broker: broker,
+            configuration: fixture.configuration(
+                endpointRelayProfile: .unavailableManagedSelection
+            ),
+            pendingRevocations: fixture.pendingRevocations(),
+            protocolConfiguration: .testDirectOnlyApplicationLanes,
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await broker.observedRelayIssueCount() == 0)
+        await runtime.stop()
+    }
+
     @Test("cold start retries transient broker connectivity before becoming active")
     func coldStartRetriesTransientBrokerConnectivity() async throws {
         let fixture = try HostRuntimeFixture()

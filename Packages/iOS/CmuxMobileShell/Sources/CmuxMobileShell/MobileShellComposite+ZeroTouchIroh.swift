@@ -26,7 +26,7 @@ extension MobileShellComposite {
         var candidates: [MobilePairedMac] = []
         for mac in discovered {
             let pairingID = MobilePairedMac.pairingID(
-                macDeviceID: mac.deviceID.lowercased(),
+                macDeviceID: mac.deviceID,
                 instanceTag: mac.instanceTag
             )
             guard !mac.routes.isEmpty,

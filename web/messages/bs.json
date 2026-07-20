@@ -1494,6 +1494,7 @@
       "flagName": "Zastava",
       "flagDesc": "Opis",
       "flagNameVal": "Postavite naslov radnog prostora",
+      "flagCommand": "Pokrenite tekst naredbe jednom u početnom udaljenom terminalu nakon pokretanja ljuske",
       "flagPort": "SSH port (zadano 22)",
       "flagIdentity": "Put do datoteke identiteta",
       "flagSshOption": "Proslijedi proizvoljne SSH opcije (npr. -o StrictHostKeyChecking=no)",

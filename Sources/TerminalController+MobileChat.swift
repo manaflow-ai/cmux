@@ -29,7 +29,11 @@ extension TerminalController {
 
     /// Routes one `mobile.chat.*` method to its handler (single dispatch
     /// case in `mobileHostHandleRPC` keeps the god-file growth flat).
-    func v2MobileChatDispatch(method: String, params: [String: Any]) async -> V2CallResult {
+    func v2MobileChatDispatch(
+        method: String,
+        params: [String: Any],
+        executionContext: MobileHostRPCExecutionContext? = nil
+    ) async -> V2CallResult {
         switch method {
         case "mobile.chat.sessions":
             return await v2MobileChatSessions(params: params)
@@ -46,7 +50,10 @@ extension TerminalController {
         case "mobile.chat.artifact.stat":
             return await v2MobileChatArtifactStat(params: params)
         case "mobile.chat.artifact.fetch":
-            return await v2MobileChatArtifactFetch(params: params)
+            return await v2MobileChatArtifactFetch(
+                params: params,
+                executionContext: executionContext
+            )
         case "mobile.chat.artifact.thumbnail":
             return await v2MobileChatArtifactThumbnail(params: params)
         case "mobile.chat.artifact.list":
