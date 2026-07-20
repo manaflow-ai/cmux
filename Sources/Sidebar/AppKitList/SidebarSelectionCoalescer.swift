@@ -1,5 +1,86 @@
 import AppKit
 
+/// Pointer-selection lifecycle for one AppKit sidebar table.
+///
+/// The table paints the pressed row immediately, but the workspace remains
+/// authoritative in TabManager and is activated only after AppKit completes
+/// the click. Drag and cancelled-tracking paths leave the lifecycle without
+/// waiting for a timer or an unrelated model update to repair the paint.
+enum SidebarWorkspaceSelectionInteractionPhase<Identifier: Equatable, Context: Equatable>: Equatable {
+    case idle
+    case pressed(id: Identifier, context: Context)
+    case dragging(id: Identifier, context: Context)
+    case activating(id: Identifier, context: Context)
+}
+
+struct SidebarWorkspaceSelectionActivation<Identifier: Equatable, Context: Equatable>: Equatable {
+    let id: Identifier
+    let context: Context
+}
+
+struct SidebarWorkspaceSelectionInteraction<Identifier: Equatable, Context: Equatable> {
+    typealias Phase = SidebarWorkspaceSelectionInteractionPhase<Identifier, Context>
+    typealias Activation = SidebarWorkspaceSelectionActivation<Identifier, Context>
+
+    private(set) var phase: Phase = .idle
+
+    mutating func mouseDown(on id: Identifier, context: Context) {
+        phase = .pressed(id: id, context: context)
+    }
+
+    mutating func completedClick(on id: Identifier, fallbackContext: Context) -> Activation? {
+        let activation: Activation
+        switch phase {
+        case let .pressed(pressedId, context) where pressedId == id:
+            activation = Activation(id: id, context: context)
+        case .idle:
+            // Accessibility and programmatic table actions can arrive without
+            // the table's mouseDown override. They still use this lifecycle.
+            activation = Activation(id: id, context: fallbackContext)
+        case .pressed, .dragging, .activating:
+            return nil
+        }
+        phase = .activating(id: activation.id, context: activation.context)
+        return activation
+    }
+
+    mutating func dragDidBegin(on id: Identifier) -> Bool {
+        guard case let .pressed(pressedId, context) = phase, pressedId == id else {
+            return false
+        }
+        phase = .dragging(id: id, context: context)
+        return true
+    }
+
+    mutating func dragDidEnd() {
+        guard case .dragging = phase else { return }
+        phase = .idle
+    }
+
+    /// Returns true when tracking ended without a completed click or drag.
+    mutating func trackingDidEnd() -> Bool {
+        guard case .pressed = phase else { return false }
+        phase = .idle
+        return true
+    }
+
+    /// Returns true when the authoritative render completed this activation.
+    mutating func authoritativeSelectionDidApply(id: Identifier) -> Bool {
+        guard case let .activating(activatingId, _) = phase, activatingId == id else {
+            return false
+        }
+        phase = .idle
+        return true
+    }
+
+    @discardableResult
+    mutating func cancel() -> Bool {
+        guard phase != .idle else { return false }
+        phase = .idle
+        return true
+    }
+}
+
 /// Coalesces rapid plain-click workspace selections to the latest request.
 ///
 /// A selection commit re-renders the container and swaps the terminal

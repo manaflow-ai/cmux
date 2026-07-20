@@ -28,6 +28,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var resizeDidEndObserver: NSObjectProtocol?
     private let rowHeightCache = SidebarWorkspaceTableRowHeightCache()
     private let dropTargetGeometry = SidebarWorkspaceTableDropTargetGeometryGate()
+    private var selectionInteraction = SidebarWorkspaceSelectionInteraction<
+        SidebarWorkspaceRenderItemID,
+        NSEvent.ModifierFlags
+    >()
 
 #if DEBUG
     var reconfigurationProbe: (() -> Void)?
@@ -45,7 +49,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if let resizeDidEndObserver {
             NotificationCenter.default.removeObserver(resizeDidEndObserver)
         }
-        previewBailoutTask?.cancel()
     }
     func makeContainerView() -> SidebarWorkspaceTableContainerView {
         let container = SidebarWorkspaceTableContainerView()
@@ -140,11 +143,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         selectedScrollTargetWorkspaceId: UUID?
     ) {
         guard let containerView else { return }
-        // Authoritative render: reconciles any optimistic preview, so the
-        // preview bailout stands down.
-        applyGeneration &+= 1
-        previewBailoutTask?.cancel()
-        previewBailoutTask = nil
         self.actions = actions
         actions.attachScrollView(containerView.scrollView)
         configureDropViews(in: containerView, actions: actions)
@@ -301,6 +299,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if selectionTargetChanged || shouldScrollAfterWorkspaceChange {
             scrollSelectedRowToVisibleIfNeeded()
         }
+        reconcileSelectionInteractionAfterApply()
         synchronizeAppKitDropIndicator(actions: actions)
         recomputeHoveredRow()
         enforceHoverOnVisibleCells()
@@ -322,11 +321,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             // ~100ms later, and the global NSEvent.modifierFlags reads
             // hardware state, which misses event-carried flags (synthetic
             // clicks, exotic input methods).
-            let modifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
-            // Down-then-up highlight: the optimistic paint bridges the model
-            // round trip, applied here (action == completed click), never on
-            // the press.
-            previewSelection(row: row, modifiers: modifiers, hitView: nil)
+            let fallbackModifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+            guard let activation = completedSelectionClick(
+                row: row,
+                fallbackModifiers: fallbackModifiers
+            ) else { return }
+            let modifiers = activation.context
             if modifiers.contains(.command) || modifiers.contains(.shift) {
                 // Multi-select mutations are order-dependent and extend the
                 // selection the user currently sees: flush (not drop) a
@@ -342,8 +342,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             // Group headers focus their anchor workspace: same fast path as
             // workspace rows (burst coalescing; the completed click paints
             // the optimistic anchor-active treatment).
-            let modifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
-            previewSelection(row: row, modifiers: modifiers, hitView: nil)
+            let fallbackModifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+            guard let activation = completedSelectionClick(
+                row: row,
+                fallbackModifiers: fallbackModifiers
+            ) else { return }
+            let modifiers = activation.context
             if modifiers.contains(.command) || modifiers.contains(.shift) {
                 selectionCoalescer.flushNow()
                 headerActions.onFocusAnchor()
@@ -353,6 +357,49 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 }
             }
         }
+    }
+
+    /// Starts the visual half of selection before AppKit enters its tracking
+    /// loop. The model remains unchanged until `didClickTableRow` confirms a
+    /// matching mouse-up.
+    func pointerMouseDown(row: Int, modifiers: NSEvent.ModifierFlags, hitView: NSView?) {
+        guard rows.indices.contains(row) else { return }
+        cancelSelectionInteraction()
+        guard previewSelection(row: row, modifiers: modifiers, hitView: hitView) else { return }
+        selectionInteraction.mouseDown(on: rows[row].id, context: modifiers)
+    }
+
+    /// AppKit returns from mouse tracking for clicks, drags, and cancelled
+    /// presses. Only an unconsumed press remains in `.pressed` at this point.
+    func pointerTrackingDidEnd() {
+        guard selectionInteraction.trackingDidEnd() else { return }
+        restoreVisibleCellPaint()
+    }
+
+    private func completedSelectionClick(
+        row: Int,
+        fallbackModifiers: NSEvent.ModifierFlags
+    ) -> SidebarWorkspaceSelectionActivation<SidebarWorkspaceRenderItemID, NSEvent.ModifierFlags>? {
+        guard rows.indices.contains(row) else { return nil }
+        let beganWithoutPointerPress: Bool
+        if case .idle = selectionInteraction.phase {
+            beganWithoutPointerPress = true
+        } else {
+            beganWithoutPointerPress = false
+        }
+        guard let activation = selectionInteraction.completedClick(
+            on: rows[row].id,
+            fallbackContext: fallbackModifiers
+        ) else { return nil }
+
+        // Accessibility and programmatic actions do not pass through the
+        // table's mouseDown override, so paint their optimistic state here.
+        if beganWithoutPointerPress,
+           !previewSelection(row: row, modifiers: activation.context, hitView: nil) {
+            selectionInteraction.cancel()
+            return nil
+        }
+        return activation
     }
 
     @objc private func didDoubleClickTableRow() {
@@ -373,6 +420,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // vanishes. A double-click is a rename gesture: drop the queued
         // selection before starting the edit.
         selectionCoalescer.cancel()
+        cancelSelectionInteraction()
         cell.beginInlineRename()
     }
 
@@ -434,7 +482,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         guard rows.indices.contains(row), !rows[row].isGroupHeader, let actions else { return nil }
         let workspaceId = rows[row].workspaceId
         actions.beginWorkspaceDrag(workspaceId)
-        workspaceDragSessionDidBegin()
+        workspaceDragSessionDidBegin(rowId: rows[row].id)
         let item = NSPasteboardItem()
         item.setString(
             "\(SidebarTabDragPayload.prefix)\(workspaceId.uuidString)",
@@ -453,7 +501,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         workspaceDragSessionDidEnd()
     }
 
-    func workspaceDragSessionDidBegin() {
+    func workspaceDragSessionDidBegin(rowId: SidebarWorkspaceRenderItemID? = nil) {
         // A drag consumes the press: the click action never fires, so no
         // authoritative selection apply will reconcile the optimistic press
         // highlight painted in previewSelection — without this rollback a
@@ -461,8 +509,17 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // visible row peeled. Drop the queued selection and restore visible
         // cells from their stored models before drop targets paint.
         selectionCoalescer.cancel()
-        previewBailoutTask?.cancel()
-        previewBailoutTask = nil
+        let pressedRowId: SidebarWorkspaceRenderItemID?
+        if let rowId {
+            pressedRowId = rowId
+        } else if case let .pressed(id, _) = selectionInteraction.phase {
+            pressedRowId = id
+        } else {
+            pressedRowId = nil
+        }
+        if let pressedRowId {
+            _ = selectionInteraction.dragDidBegin(on: pressedRowId)
+        }
         restoreVisibleCellPaint()
         if dropTargetGeometry.setWorkspaceDragSessionActive(true, rows: rows) {
             positionAppKitDropIndicator()
@@ -470,6 +527,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func workspaceDragSessionDidEnd() {
+        selectionInteraction.dragDidEnd()
         dropTargetGeometry.setWorkspaceDragSessionActive(false, rows: rows)
         dropTargetGeometry.setReorderTargetCollectionActive(false, rows: rows)
     }
@@ -479,21 +537,22 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// the outgoing rows so old and new selection never show together while
     /// the authoritative render is queued behind the terminal-view swap.
     /// The authoritative apply reconciles right after.
-    func previewSelection(row: Int, modifiers: NSEvent.ModifierFlags, hitView: NSView?) {
+    @discardableResult
+    func previewSelection(row: Int, modifiers: NSEvent.ModifierFlags, hitView: NSView?) -> Bool {
         guard rows.indices.contains(row),
-              let table = containerView?.tableView else { return }
+              let table = containerView?.tableView else { return false }
         let workspaceCell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
             as? SidebarWorkspaceRowTableCellView
         let headerCell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
             as? SidebarGroupHeaderTableCellView
         if rows[row].appKitWorkspaceRowModel != nil {
-            guard let workspaceCell else { return }
-            if let hitView, workspaceCell.selectionPreviewShouldIgnore(hitView) { return }
+            guard let workspaceCell else { return false }
+            if let hitView, workspaceCell.selectionPreviewShouldIgnore(hitView) { return false }
         } else if rows[row].appKitGroupHeaderModel != nil {
-            guard let headerCell else { return }
-            if let hitView, headerCell.selectionPreviewShouldIgnore(hitView) { return }
+            guard let headerCell else { return false }
+            if let hitView, headerCell.selectionPreviewShouldIgnore(hitView) { return false }
         } else {
-            return
+            return false
         }
         let extendsSelection = modifiers.contains(.command) || modifiers.contains(.shift)
         if !extendsSelection {
@@ -518,12 +577,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         headerCell?.showOptimisticAnchorActive()
         optimisticallyPaintedRowIds.insert(rows[row].id)
-        // Optimistic paint is only reconciled by an authoritative apply, and
-        // some presses never produce one (drag that lands where it started,
-        // press swallowed by the drag threshold, selection unchanged). Left
-        // alone, those strand the peel — the sidebar shows NO selection until
-        // an unrelated change repaints. Restore truth if no apply arrives.
-        schedulePreviewBailout()
+        return true
     }
 
     /// A user drag misaligns one contiguous span (single-digit moves); past
@@ -546,26 +600,44 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         return true
     }
 
-    private var applyGeneration: UInt64 = 0
-    private var previewBailoutTask: Task<Void, Never>?
-    private let previewBailoutClock = ContinuousClock()
     /// Rows whose cells carry optimistic paint. apply()'s reconcile diff only
-    /// reconfigures rows whose MODEL changed, and a preview on a row whose
-    /// authoritative state ends up unchanged (modifier mismatch, replaced
-    /// preview) would otherwise keep its speculative paint forever — the
-    /// apply cancels the bailout believing it reconciled.
+    /// reconfigures rows whose model changed, so these ids explicitly bridge
+    /// the visual press state back to authoritative row models.
     private var optimisticallyPaintedRowIds: Set<SidebarWorkspaceRenderItemID> = []
 
-    private func schedulePreviewBailout() {
-        previewBailoutTask?.cancel()
-        let generation = applyGeneration
-        // Injected-Clock sleep with cancellation (bounded-delay policy); the
-        // authoritative apply cancels it and bumps the generation.
-        previewBailoutTask = Task { [weak self, previewBailoutClock] in
-            try? await previewBailoutClock.sleep(for: .milliseconds(400))
-            guard let self, !Task.isCancelled, self.applyGeneration == generation else { return }
-            self.previewBailoutTask = nil
-            self.restoreVisibleCellPaint()
+    private func reconcileSelectionInteractionAfterApply() {
+        let target: (id: SidebarWorkspaceRenderItemID, modifiers: NSEvent.ModifierFlags)
+        switch selectionInteraction.phase {
+        case .idle, .dragging:
+            return
+        case let .pressed(id, modifiers), let .activating(id, modifiers):
+            target = (id, modifiers)
+        }
+
+        guard let row = rows.firstIndex(where: { $0.id == target.id }) else {
+            cancelSelectionInteraction()
+            return
+        }
+        if case .activating = selectionInteraction.phase {
+            let isAuthoritativelyActive = rows[row].appKitWorkspaceRowModel?.isActive
+                ?? rows[row].appKitGroupHeaderModel?.isAnchorActive
+                ?? false
+            if isAuthoritativelyActive {
+                _ = selectionInteraction.authoritativeSelectionDidApply(id: target.id)
+                return
+            }
+        }
+
+        // An unrelated render can repaint the cells while a press or queued
+        // activation is in flight. Reapply the phase-owned visual state after
+        // the authoritative table transaction, without extending its life.
+        _ = previewSelection(row: row, modifiers: target.modifiers, hitView: nil)
+    }
+
+    private func cancelSelectionInteraction() {
+        let hadInteraction = selectionInteraction.cancel()
+        if hadInteraction || !optimisticallyPaintedRowIds.isEmpty {
+            restoreVisibleCellPaint()
         }
     }
 

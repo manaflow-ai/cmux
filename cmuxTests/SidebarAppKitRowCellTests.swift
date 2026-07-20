@@ -177,6 +177,55 @@ struct SidebarAppKitRowCellTests {
         )
     }
 
+    private static func makeRowConfiguration(
+        model: SidebarWorkspaceRowModel
+    ) -> SidebarWorkspaceTableRowConfiguration {
+#if DEBUG
+        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
+            colorScheme: .dark,
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+#else
+        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
+            colorScheme: .dark,
+            globalFontMagnificationPercent: 100
+        )
+#endif
+        return SidebarWorkspaceTableRowConfiguration(
+            workspaceRowModel: model,
+            actions: makeActions(model: model),
+            groupId: nil,
+            isPinned: false,
+            environment: environment
+        )
+    }
+
+    private static func makeTableActions() -> SidebarWorkspaceTableActions {
+        SidebarWorkspaceTableActions(
+            attachScrollView: { _ in },
+            closeWorkspace: { _ in },
+            createWorkspaceAtEnd: {},
+            createEmptyWorkspaceGroup: {},
+            beginWorkspaceDrag: { _ in },
+            endWorkspaceDrag: {},
+            isValidWorkspaceDrag: { true },
+            updateWorkspaceDrag: { _, _ in false },
+            performWorkspaceDrop: { _, _ in false },
+            clearWorkspaceDropIndicator: {},
+            currentDropIndicator: { nil },
+            currentDropIndicatorScope: { .raw },
+            setWorkspaceDropTargetCollectionActive: { _ in },
+            canPerformBonsplitAction: { _, _ in false },
+            moveBonsplitToExistingWorkspace: { _, _ in false },
+            moveBonsplitToNewWorkspace: { _, _ in nil },
+            didMoveBonsplitToWorkspace: { _ in },
+            updateDragAutoscroll: {},
+            setBonsplitDropTargetCollectionActive: { _ in },
+            setBonsplitDropIndicator: { _ in }
+        )
+    }
+
     private static func configuredCell(
         model: SidebarWorkspaceRowModel
     ) -> SidebarWorkspaceRowTableCellView {
@@ -255,6 +304,57 @@ struct SidebarAppKitRowCellTests {
         activeCell.showOptimisticDeselection()
         #expect(activeApplied == [false])
         #expect(activeCell.currentModelForMeasurement?.isActive == true)
+    }
+
+    @Test
+    func controllerPaintsOnPressAndRestoresCancelledTracking() throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+
+        let activeModel = Self.makeModel(isActive: true)
+        let pressedModel = Self.makeModel(isActive: false)
+        let rows = [activeModel, pressedModel].map(Self.makeRowConfiguration)
+        controller.apply(
+            rows: rows,
+            actions: Self.makeTableActions(),
+            workspaceIds: [activeModel.workspaceId, pressedModel.workspaceId],
+            selectedWorkspaceId: activeModel.workspaceId,
+            selectedScrollTargetWorkspaceId: activeModel.workspaceId
+        )
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        let activeCell = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
+                as? SidebarWorkspaceRowTableCellView
+        )
+        let pressedCell = try #require(
+            container.tableView.view(atColumn: 0, row: 1, makeIfNecessary: true)
+                as? SidebarWorkspaceRowTableCellView
+        )
+        var activePaint: [Bool] = []
+        var pressedPaint: [Bool] = []
+        activeCell.applyModelProbeForTesting = { activePaint.append($0.isActive) }
+        pressedCell.applyModelProbeForTesting = { pressedPaint.append($0.isActive) }
+
+        controller.pointerMouseDown(row: 1, modifiers: [], hitView: nil)
+
+        #expect(activePaint.last == false)
+        #expect(pressedPaint.last == true)
+        #expect(activeCell.currentModelForMeasurement?.isActive == true)
+        #expect(pressedCell.currentModelForMeasurement?.isActive == false)
+
+        controller.pointerTrackingDidEnd()
+
+        #expect(activePaint.last == true)
+        #expect(pressedPaint.last == false)
     }
 
     @Test

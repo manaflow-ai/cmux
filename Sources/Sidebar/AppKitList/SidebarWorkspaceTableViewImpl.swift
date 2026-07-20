@@ -50,11 +50,19 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let clickedRow = row(at: point)
-        // No selection paint on press: the highlight applies on down-then-up
-        // (owner ruling). The action fires on mouse-up and paints the
-        // optimistic treatment there, so a press that becomes a drag or a
-        // cancelled click never shows a speculative highlight at all.
+        if clickedRow >= 0 {
+            workspaceController?.pointerMouseDown(
+                row: clickedRow,
+                modifiers: event.modifierFlags,
+                hitView: hitTest(point)
+            )
+        }
         super.mouseDown(with: event)
+        // The table action transitions a completed click to activating during
+        // super.mouseDown. If neither that action nor drag startup consumed
+        // the press, tracking was cancelled and the optimistic paint rolls
+        // back synchronously here.
+        workspaceController?.pointerTrackingDidEnd()
         if event.clickCount == 2, clickedRow < 0 {
             workspaceController?.doubleClickEmptyArea()
         }

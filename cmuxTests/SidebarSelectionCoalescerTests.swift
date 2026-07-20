@@ -181,7 +181,8 @@ struct SidebarWorkspaceSelectionInteractionTests {
         var interaction = SidebarWorkspaceSelectionInteraction<String, Int>()
         interaction.mouseDown(on: "workspace-a", context: 7)
 
-        #expect(interaction.dragDidBegin(on: "workspace-a"))
+        let didBeginDrag = interaction.dragDidBegin(on: "workspace-a")
+        #expect(didBeginDrag)
         #expect(interaction.phase == .dragging(id: "workspace-a", context: 7))
         #expect(interaction.completedClick(on: "workspace-a", fallbackContext: 99) == nil)
 
@@ -195,7 +196,8 @@ struct SidebarWorkspaceSelectionInteractionTests {
         var interaction = SidebarWorkspaceSelectionInteraction<String, Int>()
         interaction.mouseDown(on: "workspace-a", context: 7)
 
-        #expect(interaction.trackingDidEnd())
+        let didCancelPress = interaction.trackingDidEnd()
+        #expect(didCancelPress)
         #expect(interaction.phase == .idle)
     }
 
@@ -205,9 +207,11 @@ struct SidebarWorkspaceSelectionInteractionTests {
         interaction.mouseDown(on: "workspace-a", context: 7)
         _ = interaction.completedClick(on: "workspace-a", fallbackContext: 99)
 
-        #expect(!interaction.authoritativeSelectionDidApply(id: "workspace-b"))
+        let unrelatedApplyReconciled = interaction.authoritativeSelectionDidApply(id: "workspace-b")
+        #expect(!unrelatedApplyReconciled)
         #expect(interaction.phase == .activating(id: "workspace-a", context: 7))
-        #expect(interaction.authoritativeSelectionDidApply(id: "workspace-a"))
+        let targetApplyReconciled = interaction.authoritativeSelectionDidApply(id: "workspace-a")
+        #expect(targetApplyReconciled)
         #expect(interaction.phase == .idle)
     }
 
