@@ -91,7 +91,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var surfaceTitle: String?
     var displayLink: CADisplayLink?
     private var cursorBlinkState = TerminalCursorBlinkState()
-    private var cursorOverlayLayer: CALayer?
+    var cursorOverlayLayer: CALayer?
     /// Whether the host terminal currently wants the cursor shown (DECTCEM).
     /// TUIs that hide the cursor (vim, fzf, htop, less, …) emit `ESC [ ? 25 l`;
     /// the render-grid producer forwards that in the VT-patch bytes, so we track
@@ -345,6 +345,47 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         view.isHidden = true
         return view
     }()
+    var authoritativeGridView: AuthoritativeTerminalGridView?
+    /// True from authoritative stream registration until raw rendering resumes.
+    /// The local Ghostty parser is intentionally stale in this mode, so every
+    /// consumer of its text, links, selection, or accessibility state must fail closed.
+    var isAuthoritativeGridAuthorityActive = false
+
+    var allowsGhosttySemanticConsumers: Bool {
+        Self.allowsSemanticConsumer(
+            .selectionCopy,
+            authoritativeGridActive: isAuthoritativeGridAuthorityActive
+        )
+    }
+
+    func setAuthoritativeGridAuthorityActive(_ active: Bool) {
+        guard isAuthoritativeGridAuthorityActive != active else { return }
+        isAuthoritativeGridAuthorityActive = active
+        if active {
+            // Direct-grid mode presents the Mac producer's immutable geometry.
+            // Discard any phone-natural report that was queued before stream
+            // ownership changed so it cannot resize the producer after attach.
+            pendingViewportReport = nil
+            viewportReportSettleFrames = 0
+            viewportReportRetries = 0
+        } else {
+            // Raw replay owns viewport negotiation again. Force one fresh
+            // natural-capacity report even when the view's bounds did not change.
+            lastReportedSize = nil
+            setNeedsGeometrySync(reassertNaturalSize: true)
+            return
+        }
+        #if DEBUG
+        debugAccessibilityProxy.accessibilityLabel = nil
+        #endif
+        resetVisibleArtifactCountTracking()
+    }
+
+    nonisolated static func shouldReportNaturalViewport(
+        authoritativeGridActive: Bool
+    ) -> Bool {
+        !authoritativeGridActive
+    }
 
     var surface: ghostty_surface_t?
     var surfaceGeneration: UInt64 = 0
@@ -474,11 +515,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     #endif
 
     /// Suppresses render dispatch while keeping the display link, geometry,
-    /// and viewport reporting alive. Hosts where a Metal present can never
-    /// complete (a scene-less xctest process) set this so a stalled present
-    /// cannot trip the render-pipeline stall recovery and pause geometry;
-    /// geometry (`set_size` + measure) never needs a present. Defaults false;
-    /// no production caller flips it (tests reach it via `@testable import`).
+    /// and viewport reporting alive. Scene-less tests use this to avoid a Metal
+    /// present that cannot complete. Authoritative-grid presentation also uses
+    /// it because the producer-authored view owns visible pixels while Ghostty
+    /// remains mounted only for geometry and input plumbing.
     var isRenderDispatchSuppressed = false
 
     var currentGridSize: TerminalGridSize {
@@ -1089,6 +1129,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         recordBottomViewportMismatchIfNeeded()
         #endif
         syncRendererLayerFrame(scale: preferredScreenScale, renderRect: renderRect)
+        layoutAuthoritativeGridView()
         updateLetterboxBorder(
             renderRect: renderRect,
             isLetterboxed: snapshot.isLetterboxed(renderSize: renderRect.size)
@@ -1694,6 +1735,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         pendingFontSize = nil
         guard target != liveFontSize else { return false }
         liveFontSize = target
+        authoritativeGridView?.terminalFontSize = CGFloat(target)
         MobileDebugLog.anchormux("zoom.apply \(target) eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")")
         // Absolute set: the prior `±1` binding action drove libghostty's own
         // font counter independently of our clamp, so a fast burst could push
@@ -2154,7 +2196,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     }
                 }
                 #if DEBUG
-                if let accessibilityText, !accessibilityText.isEmpty {
+                if self.allowsGhosttySemanticConsumers,
+                   let accessibilityText,
+                   !accessibilityText.isEmpty {
                     self.debugAccessibilityProxy.accessibilityLabel = accessibilityText
                 }
                 self.onOutputProcessedForTesting?()
@@ -2253,6 +2297,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Stops user-visible and accessibility output from a surface SwiftUI has removed.
     public func prepareForDismantle() {
         isDismantled = true
+        clearAuthoritativeRenderGrid(surfaceID: hostSurfaceID ?? "")
         prepareForReuseAfterDetach()
     }
 
@@ -2306,7 +2351,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func renderedTextForTesting(pointTag: ghostty_point_tag_e = GHOSTTY_POINT_VIEWPORT) -> String? {
-        guard let surface else { return nil }
+        guard allowsGhosttySemanticConsumers, let surface else { return nil }
 
         let topLeft = ghostty_point_s(
             tag: pointTag,
@@ -2344,6 +2389,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     #if DEBUG
     func accessibilityRenderedTextForTesting() -> String? {
+        guard Self.allowsSemanticConsumer(
+            .accessibility,
+            authoritativeGridActive: isAuthoritativeGridAuthorityActive
+        ) else { return nil }
         let candidates = [
             renderedTextForTesting(pointTag: GHOSTTY_POINT_SURFACE),
             renderedTextForTesting(pointTag: GHOSTTY_POINT_SCREEN),
@@ -2391,7 +2440,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     func copyableTextForCurrentSurface(surface expectedSurface: ghostty_surface_t) async -> String? {
         let generation = surfaceGeneration
-        guard surface == expectedSurface,
+        guard Self.allowsSemanticConsumer(
+            .selectionCopy,
+            authoritativeGridActive: isAuthoritativeGridAuthorityActive
+        ), surface == expectedSurface,
               !isDismantled,
               !renderPipelineRecoveryPaused,
               !renderingSuspended else {
@@ -2427,7 +2479,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 guard !read.cancellation.isCancelled else { return }
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    guard self.surface == read.surface,
+                    guard self.allowsGhosttySemanticConsumers,
+                          self.surface == read.surface,
                           self.surfaceGeneration == read.generation else {
                         self.completePendingCopyableTextRead(id: operationID, returning: nil)
                         return
@@ -2577,6 +2630,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     @objc func handleDisplayLinkFire() {
         let now = CACurrentMediaTime()
+        authoritativeGridView?.advanceBlink(now: now)
         if checkSurfaceOperationDeadlines(now: now) {
             return
         }
@@ -2805,12 +2859,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             syncSurfaceGeometry(shouldReassertNaturalSize: reassert)
         }
     }
-    private func updateCursorOverlay() {
+    func updateCursorOverlay() {
         guard terminalTheme.cursorColorSemantic == nil else {
             cursorOverlayLayer?.isHidden = true
             return
         }
         guard let surface,
+              !shouldHideGhosttyRenderer,
               hostCursorVisible,
               window != nil,
               !isHidden,
@@ -2878,6 +2933,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         configBackgroundColor = themeBackground
         configCursorColor = terminalTheme.terminalCursorUIColor
         inputProxy.terminalTheme = terminalTheme
+        inputProxy.refreshThemeColors()
+        authoritativeGridView?.terminalTheme = terminalTheme
+        authoritativeGridView?.setNeedsDisplay()
         updateCursorOverlay()
         needsDraw = true
     }
@@ -2918,7 +2976,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// display-link driven (the existing settle machinery re-fires it); a
     /// confirmed `applyViewSize` resets the counter. No-op once the cap is hit.
     public func retryViewportReport() {
-        guard viewportReportRetries < Self.maxViewportReportRetries,
+        guard Self.shouldReportNaturalViewport(
+                  authoritativeGridActive: isAuthoritativeGridAuthorityActive
+              ),
+              viewportReportRetries < Self.maxViewportReportRetries,
               let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else { return }
         viewportReportRetries += 1
         MobileDebugLog.anchormux(
@@ -3233,6 +3294,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             clampsStaleLiveViewport: shouldClampStaleLiveViewport(using: snapshot)
         )
         lastRenderRect = renderRect
+        layoutAuthoritativeGridView()
         #if DEBUG
         recordBottomViewportMismatchIfNeeded()
         #endif
@@ -3289,8 +3351,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let effectiveMatchesNatural = effectiveGrid.map { grid in
             grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
         } ?? true
-        let shouldReportNaturalSize = reportGrid != lastReportedSize ||
-            (shouldReassertNaturalSize && !effectiveMatchesNatural)
+        let shouldReportNaturalSize = Self.shouldReportNaturalViewport(
+            authoritativeGridActive: isAuthoritativeGridAuthorityActive
+        ) && (reportGrid != lastReportedSize ||
+            (shouldReassertNaturalSize && !effectiveMatchesNatural))
         guard shouldReportNaturalSize, reportGrid.columns > 0, reportGrid.rows > 0 else { return }
         lastReportedSize = reportGrid
         // Debounce the actual report (a PTY resize on the Mac) until the grid
@@ -3318,6 +3382,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         CATransaction.setDisableActions(true)
         layer.contentsScale = scale
         for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
+            sublayer.isHidden = shouldHideGhosttyRenderer
             if sublayer.frame != renderRect {
                 sublayer.frame = renderRect
             }
@@ -3385,7 +3450,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    private func isGhosttyRendererLayer(_ layer: CALayer) -> Bool {
+    func isGhosttyRendererLayer(_ layer: CALayer) -> Bool {
         String(describing: type(of: layer)) == "IOSurfaceLayer"
     }
 
@@ -3461,6 +3526,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func syncSnapshotFallback() {
+        if shouldHideGhosttyRenderer {
+            snapshotFallbackView.isHidden = true
+            return
+        }
         // Once the Metal renderer is active (surface has received output),
         // keep the fallback hidden so the IOSurfaceLayer is visible.
         if surfaceHasReceivedOutput {
@@ -3609,6 +3678,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @MainActor
+    static func setTitle(_ title: String, surfaceIdentifier: UInt) {
+        view(surfaceIdentifier: surfaceIdentifier)?.surfaceTitle = title
+    }
+
+    @MainActor
     static func ringBell(for surface: ghostty_surface_t) {
         view(for: surface)?.handleBell()
     }
@@ -3616,6 +3690,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @MainActor
     static func title(for surface: ghostty_surface_t) -> String? {
         view(for: surface)?.surfaceTitle
+    }
+
+    @MainActor
+    static func title(surfaceIdentifier: UInt) -> String? {
+        view(surfaceIdentifier: surfaceIdentifier)?.surfaceTitle
     }
 
     @MainActor

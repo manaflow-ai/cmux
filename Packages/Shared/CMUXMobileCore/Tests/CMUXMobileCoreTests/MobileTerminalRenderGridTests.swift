@@ -321,8 +321,93 @@ import Testing
     let frame = try MobileTerminalRenderGridFrame.decodeJSONObject(object)
 
     #expect(frame.full)
+    #expect(frame.renderRevision == 0)
     #expect(frame.clearedRows.isEmpty)
     #expect(frame.rowSpans == [.init(row: 0, column: 0, text: "alpha")])
+}
+
+@Test func renderGridRoundTripPreservesProducerVisualRevision() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 44,
+        producerEpoch: 12,
+        renderRevision: 91,
+        columns: 8,
+        rows: 4,
+        rowSpans: [.init(row: 0, column: 0, text: "alpha")]
+    )
+
+    let decoded = try MobileTerminalRenderGridFrame.decodeJSONObject(frame.jsonObject())
+
+    #expect(decoded.producerEpoch == 12)
+    #expect(decoded.renderRevision == 91)
+    #expect(decoded == frame)
+}
+
+@Test func renderGridPreservesResolvedCursorColorsAcrossDeltas() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface",
+        stateSeq: 9,
+        renderRevision: 4,
+        columns: 2,
+        rows: 1,
+        cursor: .init(row: 0, column: 1),
+        full: true,
+        rowSpans: [.init(row: 0, column: 0, text: "ok")],
+        terminalCursorColor: "#112233",
+        terminalCursorTextColor: "#ddeeff"
+    )
+
+    let decoded = try MobileTerminalRenderGridFrame.decode(JSONEncoder().encode(frame))
+    #expect(decoded.terminalCursorColor == "#112233")
+    #expect(decoded.terminalCursorTextColor == "#ddeeff")
+
+    let delta = try frame.filteredRows([0], full: false)
+    #expect(delta.terminalCursorColor == "#112233")
+    #expect(delta.terminalCursorTextColor == "#ddeeff")
+}
+
+@Test func renderGridRoundTripPreservesResolvedCursorGeometryAndOpacity() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface",
+        stateSeq: 10,
+        columns: 4,
+        rows: 1,
+        cursor: .init(
+            row: 0,
+            column: 1,
+            style: .block,
+            blinking: true,
+            cellWidth: 2,
+            opacity: 0.35
+        ),
+        rowSpans: [.init(row: 0, column: 0, text: "A界", cellWidth: 3)]
+    )
+
+    let decoded = try MobileTerminalRenderGridFrame.decode(JSONEncoder().encode(frame))
+
+    #expect(decoded.cursor?.column == 1)
+    #expect(decoded.cursor?.cellWidth == 2)
+    #expect(decoded.cursor?.opacity == 0.35)
+}
+
+@Test func renderGridRoundTripPreservesResolvedForegroundOpacity() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface",
+        stateSeq: 11,
+        columns: 4,
+        rows: 1,
+        styles: [
+            .default,
+            .init(id: 1, foreground: "#abcdef", faint: true, foregroundOpacity: 0.4),
+        ],
+        rowSpans: [.init(row: 0, column: 0, styleID: 1, text: "dim")]
+    )
+
+    let decoded = try MobileTerminalRenderGridFrame.decode(JSONEncoder().encode(frame))
+
+    #expect(decoded.styles[1].foregroundOpacity == 0.4)
+    #expect(decoded == frame)
 }
 
 @Test func renderGridRejectsInvalidSpanCoordinates() throws {

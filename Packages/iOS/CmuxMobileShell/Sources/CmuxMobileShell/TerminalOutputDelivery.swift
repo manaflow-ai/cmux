@@ -58,6 +58,9 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         case .bytes(let bytes):
             bytes
         case .renderGrid(let frame):
+            // Compatibility consumers still paint render-grid events by
+            // replaying their VT patch. Direct-grid consumers receive the
+            // typed frame and never read this byte representation.
             frame.vtPatchBytes()
         case .theme(let frame):
             MobileTerminalRenderGridReplay(frame).themePatchBytes()
@@ -71,6 +74,11 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         case .bytes:
             nil
         }
+    }
+
+    var renderGrid: MobileTerminalRenderGridFrame? {
+        guard case .renderGrid(let frame) = payload else { return nil }
+        return frame
     }
 }
 

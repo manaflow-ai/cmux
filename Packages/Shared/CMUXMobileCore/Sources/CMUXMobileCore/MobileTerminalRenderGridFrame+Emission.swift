@@ -8,7 +8,14 @@ extension MobileTerminalRenderGridFrame {
             columns: columns,
             rows: rows,
             stateSeq: stateSeq,
+            producerEpoch: producerEpoch,
             activeScreen: activeScreen,
+            cursor: cursor,
+            defaultStyle: styles.first(where: { $0.id == 0 }),
+            terminalForeground: terminalForeground,
+            terminalBackground: terminalBackground,
+            terminalCursorColor: terminalCursorColor,
+            terminalCursorTextColor: terminalCursorTextColor,
             terminalTheme: terminalTheme,
             terminalConfigTheme: terminalConfigTheme,
             rowSignatures: rowSignatures()
@@ -34,11 +41,21 @@ extension MobileTerminalRenderGridFrame {
             columns: columns,
             rows: rows,
             stateSeq: stateSeq,
+            producerEpoch: producerEpoch,
             activeScreen: activeScreen,
+            cursor: cursor,
+            defaultStyle: styles.first(where: { $0.id == 0 }),
+            terminalForeground: terminalForeground,
+            terminalBackground: terminalBackground,
+            terminalCursorColor: terminalCursorColor,
+            terminalCursorTextColor: terminalCursorTextColor,
             terminalTheme: terminalTheme,
             terminalConfigTheme: terminalConfigTheme,
             rowSignatures: nextSignatures
         )
+        if let previous, previous.producerEpoch != producerEpoch {
+            return (self, nextState)
+        }
         guard let previous,
               previous.columns == columns,
               previous.rows == rows else {
@@ -60,8 +77,24 @@ extension MobileTerminalRenderGridFrame {
             changedRows.insert(index)
         }
 
-        if changedRows.isEmpty, previous.stateSeq == stateSeq {
+        let cursorChanged = previous.cursor != cursor
+            || previous.terminalCursorColor != terminalCursorColor
+            || previous.terminalCursorTextColor != terminalCursorTextColor
+        let defaultPaintChanged = previous.defaultStyle != nextState.defaultStyle
+            || previous.terminalForeground != terminalForeground
+            || previous.terminalBackground != terminalBackground
+
+        if changedRows.isEmpty,
+           previous.stateSeq == stateSeq,
+           !cursorChanged,
+           !defaultPaintChanged {
             return nil
+        }
+
+        // Empty cells are painted from the default style, so a default-color
+        // change must remain a complete repaint even when no row span changed.
+        if defaultPaintChanged {
+            return (self, nextState)
         }
 
         // Row repaints under DEC origin mode stay full snapshots, but a

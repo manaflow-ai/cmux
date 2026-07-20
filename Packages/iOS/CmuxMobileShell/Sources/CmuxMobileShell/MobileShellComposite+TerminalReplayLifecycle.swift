@@ -196,6 +196,7 @@ extension MobileShellComposite {
         // budget here would let an empty-answering host be hammered with one
         // replay per gated delta.
         let baselineDelivered = terminalOutputTransport == .hybrid
+            && !usesAuthoritativeRenderGrid(surfaceID: surfaceID)
             ? terminalAlternateRenderGridBaselineSurfaceIDs.contains(surfaceID)
             : (!restoredBaselineFromFloor && deliveredTerminalByteEndSeqBySurfaceID[surfaceID] != nil)
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -287,10 +288,13 @@ extension MobileShellComposite {
             MobileDebugLog.anchormux(
                 "CMUX_REPLAY retry_exhausted surface=\(surfaceID) attempts=\(retryCount)"
             )
-            failOpenTerminalReplayBarrier(
+            // Resolve through the barrier owner before clearing its token. A
+            // cold-attach or missing-baseline barrier must also spend the
+            // baseline-replay budget, otherwise the next partial grid starts
+            // a fresh replay episode immediately after exhaustion.
+            resolveTerminalReplayFailureBarrier(
                 surfaceID: surfaceID,
-                token: replayBarrierToken,
-                reason: "retry_exhausted"
+                token: replayBarrierToken
             )
             return nil
         }

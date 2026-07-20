@@ -14,7 +14,14 @@ extension MobileTerminalRenderGridFrame {
         return true
     }
 
+    /// Direct-grid presentation preserves the producer's rows and columns.
+    /// The phone fits this grid locally and never negotiates a second PTY size.
     var mobileViewportPolicy: MobileTerminalOutputViewportPolicy {
+        .remoteGrid(columns: columns, rows: rows)
+    }
+
+    /// Compatibility policy for consumers that still replay the grid as VT bytes.
+    var mobileLegacyReplayViewportPolicy: MobileTerminalOutputViewportPolicy {
         switch activeScreen {
         case .alternate:
             return .remoteGrid(columns: columns, rows: rows)

@@ -33,6 +33,7 @@ actor LivenessHostRouter {
     )] = []
     private var hostStatusRequestCount = 0
     private var heldHostStatusRequestNumbers: Set<Int> = []
+    private var hostStatusFailuresRemaining = 0
     private var workspaceListRequestCount = 0
     private var heldWorkspaceListRequestNumbers: Set<Int> = []
     private var subscribeRequestCount = 0
@@ -46,7 +47,14 @@ actor LivenessHostRouter {
     private var heldViewportRequestNumbers: Set<Int> = []
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
-    private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    private var capabilities = [
+        "events.v1",
+        "terminal.bytes.v1",
+        "terminal.render_grid.v1",
+        "terminal.render_grid.full_frame.v1",
+        "terminal.replay.v1",
+    ]
+    private var terminalFidelity: String? = "render_grid"
     // This router models the current authenticated Mac host by default. Tests
     // for legacy identity omission opt out explicitly via `setHostIdentity`.
     // Supplying the matching instance identity also keeps unrelated liveness
@@ -166,6 +174,10 @@ actor LivenessHostRouter {
         self.capabilities = capabilities
     }
 
+    func setTerminalFidelity(_ terminalFidelity: String?) {
+        self.terminalFidelity = terminalFidelity
+    }
+
     func setHostIdentity(deviceID: String?, instanceTag: String?, displayName: String? = nil) {
         macDeviceID = deviceID
         macInstanceTag = instanceTag
@@ -211,6 +223,12 @@ actor LivenessHostRouter {
     /// a host that stopped answering on a half-dead transport.
     func holdHostStatusRequest(number: Int) {
         heldHostStatusRequestNumbers.insert(number)
+    }
+
+    /// Fail the next N status probes after they reach the host, modeling a
+    /// transient RPC failure on an otherwise live authenticated session.
+    func failNextHostStatus(count: Int = 1) {
+        hostStatusFailuresRemaining += count
     }
 
     /// Hold the Nth workspace-list response so tests can change persisted
@@ -302,10 +320,12 @@ actor LivenessHostRouter {
                 await park()
                 return nil
             }
-            var result: [String: Any] = [
-                "terminal_fidelity": "render_grid",
-                "capabilities": capabilities,
-            ]
+            if hostStatusFailuresRemaining > 0 {
+                hostStatusFailuresRemaining -= 1
+                return try? Self.errorFrame(id: id, message: "status unavailable")
+            }
+            var result: [String: Any] = ["capabilities": capabilities]
+            if let terminalFidelity { result["terminal_fidelity"] = terminalFidelity }
             if let macDeviceID { result["mac_device_id"] = macDeviceID }
             if let macInstanceTag { result["mac_instance_tag"] = macInstanceTag }
             if let macDisplayName { result["mac_display_name"] = macDisplayName }

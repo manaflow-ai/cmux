@@ -138,6 +138,74 @@ import Testing
     #expect(emission.frame.rowSpans == [.init(row: 0, column: 0, text: "new")])
 }
 
+@Test func renderGridEmissionKeepsSameSequenceCursorChanges() throws {
+    let previous = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 60,
+        columns: 8,
+        rows: 2,
+        cursor: .init(row: 0, column: 0, visible: true, style: .block),
+        rowSpans: [.init(row: 0, column: 0, text: "same")]
+    ).emissionState
+    let next = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 60,
+        columns: 8,
+        rows: 2,
+        cursor: .init(row: 1, column: 4, visible: false, style: .bar),
+        rowSpans: [.init(row: 0, column: 0, text: "same")]
+    )
+
+    #expect(try next.renderGridEmission(comparedTo: previous) != nil)
+}
+
+@Test func renderGridEmissionKeepsSameSequenceDefaultColorChanges() throws {
+    let previous = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 61,
+        columns: 8,
+        rows: 2,
+        rowSpans: [],
+        terminalBackground: "#000000"
+    ).emissionState
+    let next = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 61,
+        columns: 8,
+        rows: 2,
+        rowSpans: [],
+        terminalBackground: "#ffffff"
+    )
+
+    #expect(try next.renderGridEmission(comparedTo: previous) != nil)
+}
+
+@Test func renderGridEmissionAnnouncesProducerReplacementWithIdenticalPixels() throws {
+    let previous = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 0,
+        producerEpoch: 7,
+        renderRevision: 1,
+        columns: 8,
+        rows: 2,
+        rowSpans: []
+    ).emissionState
+    let replacement = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 0,
+        producerEpoch: 8,
+        renderRevision: 1,
+        columns: 8,
+        rows: 2,
+        rowSpans: []
+    )
+
+    let emission = try #require(try replacement.renderGridEmission(comparedTo: previous))
+
+    #expect(emission.frame.full)
+    #expect(emission.state.producerEpoch == 8)
+}
+
 @Test func renderGridEmissionKeepsThemeOnlyChangesAsFullSnapshots() throws {
     var dark = TerminalTheme.monokai
     dark.background = "#101820"

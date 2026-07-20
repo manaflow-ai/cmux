@@ -6,6 +6,8 @@ public enum MobileTerminalRenderGridError: Error, Equatable, Sendable {
     case invalidRow(Int)
     case invalidColumn(Int)
     case invalidCursor(row: Int, column: Int)
+    case invalidCursorCellWidth(Int)
+    case invalidOpacity(Double)
     case invalidStyleID(Int)
     case invalidSpanWidth(row: Int, column: Int, width: Int, columns: Int)
 }
@@ -16,6 +18,14 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public var format: String
     public var surfaceID: String
     public var stateSeq: UInt64
+    /// Process-local monotonic identity of the producing TerminalSurface instance.
+    public var producerEpoch: UInt64
+    /// Monotonic visual revision assigned by the producing terminal surface.
+    ///
+    /// Unlike ``stateSeq``, this advances for geometry-only repaints where no
+    /// PTY bytes were consumed. Consumers use it to reject an old-width frame
+    /// that arrives after a newer resize snapshot with the same byte sequence.
+    public var renderRevision: UInt64
     public var columns: Int
     public var rows: Int
     public var cursor: Cursor?
@@ -39,6 +49,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public var terminalForeground: String?
     public var terminalBackground: String?
     public var terminalCursorColor: String?
+    /// Resolved glyph color used beneath a block cursor.
+    public var terminalCursorTextColor: String?
     /// The Mac terminal's resolved theme when this is a full snapshot.
     ///
     /// Mobile chrome uses this value to match the mirrored surface. Delta
@@ -65,6 +77,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         format: String = Self.currentFormat,
         surfaceID: String,
         stateSeq: UInt64,
+        producerEpoch: UInt64 = 0,
+        renderRevision: UInt64 = 0,
         columns: Int,
         rows: Int,
         cursor: Cursor? = nil,
@@ -77,6 +91,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         terminalForeground: String? = nil,
         terminalBackground: String? = nil,
         terminalCursorColor: String? = nil,
+        terminalCursorTextColor: String? = nil,
         terminalTheme: TerminalTheme? = nil,
         terminalConfigTheme: TerminalTheme? = nil,
         terminalThemeRevision: UInt64? = nil,
@@ -89,9 +104,16 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         guard columns > 0, rows > 0 else {
             throw MobileTerminalRenderGridError.invalidDimensions(columns: columns, rows: rows)
         }
-        if let cursor,
-           !(0..<rows).contains(cursor.row) || !(0..<columns).contains(cursor.column) {
-            throw MobileTerminalRenderGridError.invalidCursor(row: cursor.row, column: cursor.column)
+        if let cursor {
+            guard (0..<rows).contains(cursor.row), (0..<columns).contains(cursor.column) else {
+                throw MobileTerminalRenderGridError.invalidCursor(row: cursor.row, column: cursor.column)
+            }
+            guard (1...2).contains(cursor.cellWidth), cursor.column + cursor.cellWidth <= columns else {
+                throw MobileTerminalRenderGridError.invalidCursorCellWidth(cursor.cellWidth)
+            }
+            guard cursor.opacity.isFinite, (0...1).contains(cursor.opacity) else {
+                throw MobileTerminalRenderGridError.invalidOpacity(cursor.opacity)
+            }
         }
         for row in clearedRows {
             guard (0..<rows).contains(row) else {
@@ -99,6 +121,11 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             }
         }
         let resolvedStyles = styles.isEmpty ? [.default] : styles
+        for style in resolvedStyles {
+            guard style.foregroundOpacity.isFinite, (0...1).contains(style.foregroundOpacity) else {
+                throw MobileTerminalRenderGridError.invalidOpacity(style.foregroundOpacity)
+            }
+        }
         let styleIDs = Set(resolvedStyles.map(\.id))
         for span in rowSpans {
             guard (0..<rows).contains(span.row) else {
@@ -144,6 +171,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.format = format
         self.surfaceID = surfaceID
         self.stateSeq = stateSeq
+        self.producerEpoch = producerEpoch
+        self.renderRevision = renderRevision
         self.columns = columns
         self.rows = rows
         self.cursor = cursor
@@ -156,6 +185,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.terminalForeground = terminalForeground
         self.terminalBackground = terminalBackground
         self.terminalCursorColor = terminalCursorColor
+        self.terminalCursorTextColor = terminalCursorTextColor
         self.terminalTheme = full ? terminalTheme?.validatedOrDefault() : nil
         self.terminalConfigTheme = full ? terminalConfigTheme?.validatedOrDefault() : nil
         self.terminalThemeRevision = full ? terminalThemeRevision : nil
@@ -168,6 +198,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let format = try container.decode(String.self, forKey: .format)
         let surfaceID = try container.decode(String.self, forKey: .surfaceID)
         let stateSeq = try container.decode(UInt64.self, forKey: .stateSeq)
+        let producerEpoch = try container.decodeIfPresent(UInt64.self, forKey: .producerEpoch) ?? 0
+        let renderRevision = try container.decodeIfPresent(UInt64.self, forKey: .renderRevision) ?? 0
         let columns = try container.decode(Int.self, forKey: .columns)
         let rows = try container.decode(Int.self, forKey: .rows)
         let cursor = try container.decodeIfPresent(Cursor.self, forKey: .cursor)
@@ -180,6 +212,10 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let terminalForeground = try container.decodeIfPresent(String.self, forKey: .terminalForeground)
         let terminalBackground = try container.decodeIfPresent(String.self, forKey: .terminalBackground)
         let terminalCursorColor = try container.decodeIfPresent(String.self, forKey: .terminalCursorColor)
+        let terminalCursorTextColor = try container.decodeIfPresent(
+            String.self,
+            forKey: .terminalCursorTextColor
+        )
         let terminalTheme = try container.decodeIfPresent(TerminalTheme.self, forKey: .terminalTheme)
         let terminalConfigTheme = try container.decodeIfPresent(TerminalTheme.self, forKey: .terminalConfigTheme)
         let terminalThemeRevision = try container.decodeIfPresent(UInt64.self, forKey: .terminalThemeRevision)
@@ -189,6 +225,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             format: format,
             surfaceID: surfaceID,
             stateSeq: stateSeq,
+            producerEpoch: producerEpoch,
+            renderRevision: renderRevision,
             columns: columns,
             rows: rows,
             cursor: cursor,
@@ -201,6 +239,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             terminalForeground: terminalForeground,
             terminalBackground: terminalBackground,
             terminalCursorColor: terminalCursorColor,
+            terminalCursorTextColor: terminalCursorTextColor,
             terminalTheme: terminalTheme,
             terminalConfigTheme: terminalConfigTheme,
             terminalThemeRevision: terminalThemeRevision,
@@ -306,13 +345,16 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let foregroundSource = style.foregroundSource?.rawValue ?? "legacy"
         let backgroundSource = style.backgroundSource?.rawValue ?? "legacy"
         return "\(style.foreground ?? "-"):\(foregroundSource):\(style.foregroundPaletteIndex ?? -1)/" +
-            "\(style.background ?? "-"):\(backgroundSource):\(style.backgroundPaletteIndex ?? -1)/\(flags)"
+            "\(style.background ?? "-"):\(backgroundSource):\(style.backgroundPaletteIndex ?? -1)/" +
+            "\(style.foregroundOpacity)/\(flags)"
     }
 
     public func filteredRows(_ includedRows: Set<Int>, full: Bool) throws -> MobileTerminalRenderGridFrame {
         try MobileTerminalRenderGridFrame(
             surfaceID: surfaceID,
             stateSeq: stateSeq,
+            producerEpoch: producerEpoch,
+            renderRevision: renderRevision,
             columns: columns,
             rows: rows,
             cursor: cursor,
@@ -326,7 +368,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             modes: full ? modes : modes.filter(\.isDECAutowrapMode),
             terminalForeground: full ? terminalForeground : nil,
             terminalBackground: full ? terminalBackground : nil,
-            terminalCursorColor: full ? terminalCursorColor : nil,
+            terminalCursorColor: terminalCursorColor,
+            terminalCursorTextColor: terminalCursorTextColor,
             terminalTheme: full ? terminalTheme : nil,
             terminalConfigTheme: full ? terminalConfigTheme : nil,
             terminalThemeRevision: full ? terminalThemeRevision : nil,
@@ -471,19 +514,28 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         public var visible: Bool
         public var style: Style
         public var blinking: Bool
+        /// Width of the cursor cell in terminal columns after resolving a wide
+        /// character tail back to its leading cell.
+        public var cellWidth: Int
+        /// Effective cursor opacity from the producer renderer configuration.
+        public var opacity: Double
 
         public init(
             row: Int,
             column: Int,
             visible: Bool = true,
             style: Style = .block,
-            blinking: Bool = false
+            blinking: Bool = false,
+            cellWidth: Int = 1,
+            opacity: Double = 1
         ) {
             self.row = row
             self.column = column
             self.visible = visible
             self.style = style
             self.blinking = blinking
+            self.cellWidth = cellWidth
+            self.opacity = opacity
         }
 
         public init(from decoder: Decoder) throws {
@@ -493,6 +545,18 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             self.visible = try container.decodeIfPresent(Bool.self, forKey: .visible) ?? true
             self.style = try container.decodeIfPresent(Style.self, forKey: .style) ?? .block
             self.blinking = try container.decodeIfPresent(Bool.self, forKey: .blinking) ?? false
+            self.cellWidth = try container.decodeIfPresent(Int.self, forKey: .cellWidth) ?? 1
+            self.opacity = try container.decodeIfPresent(Double.self, forKey: .opacity) ?? 1
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case row
+            case column
+            case visible
+            case style
+            case blinking
+            case cellWidth = "cell_width"
+            case opacity
         }
 
         public enum Style: String, Codable, Equatable, Sendable {

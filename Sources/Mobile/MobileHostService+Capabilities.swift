@@ -24,6 +24,7 @@ extension MobileHostService {
             "notification.reconcile.v1",
             "terminal.bytes.v1",
             "terminal.render_grid.v1",
+            "terminal.render_grid.full_frame.v1",
             "terminal.replay.v1",
             "terminal.viewport.v1",
             "terminal.artifact.v1",

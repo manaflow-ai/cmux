@@ -174,6 +174,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void
         var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void
         private var outputTask: Task<Void, Never>?
+        /// The delivery generation currently accepted by the atomic grid view.
+        /// Replay barriers rotate this token, which must also reset the view's
+        /// monotonic producer-revision floor before the replacement arrives.
+        var authoritativeStreamToken: UUID?
         private var liveFontTask: Task<Void, Never>?
         let themeApplicationScheduler = TerminalThemeApplicationScheduler()
         var artifactCountTask: Task<Void, Never>?
@@ -188,7 +192,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var artifactChipController: UIHostingController<TerminalArtifactChipView>?
         var lastArtifactChipRender: (count: Int, enabled: Bool)?
         private var composerMounted = false
-        private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
+        var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
         /// Serializes the natural-grid viewport reports and their echoes. One
         /// detached Task per report (the previous shape) let Task scheduling
         /// scramble the send order AND let the echo of an old keyboard-up
@@ -274,74 +278,32 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     }
                 }
             )
-            // Drive every output chunk into the libghostty surface. Ending this
-            // task terminates the stream, which unregisters the surface and
-            // clears its viewport pin on the Mac (see `terminalOutputStream`).
-            outputTask = Task { @MainActor [weak self, weak surfaceView, weak store] in
-                guard let store else { return }
-                for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
-                    guard !Task.isCancelled else { return }
-                    guard let self else { return }
-                    guard let surfaceView else { return }
-                    switch chunk.viewportPolicy {
-                    case .natural:
-                        self.activeViewportPolicy = .natural
-                        if chunk.data.isEmpty {
-                            surfaceView.useNaturalViewSize()
-                        } else {
-                            let applied = await surfaceView.useNaturalViewSizeAndWait()
-                            guard applied else {
-                                store.terminalOutputDidReset(
-                                    surfaceID: surfaceID,
-                                    streamToken: chunk.streamToken
-                                )
-                                continue
-                            }
-                        }
-                    case .remoteGrid(let columns, let rows):
-                        self.activeViewportPolicy = .remoteGrid(columns: columns, rows: rows)
-                        if chunk.data.isEmpty {
-                            surfaceView.applyViewSize(cols: columns, rows: rows)
-                        } else {
-                            let applied = await surfaceView.applyViewSizeAndWait(cols: columns, rows: rows)
-                            guard applied else {
-                                store.terminalOutputDidReset(
-                                    surfaceID: surfaceID,
-                                    streamToken: chunk.streamToken
-                                )
-                                continue
-                            }
-                        }
-                    case nil:
-                        break
-                    }
-                    if let chunkConfigTheme = chunk.terminalConfigTheme,
-                       chunkConfigTheme != store.terminalConfigTheme(for: surfaceID) {
-                        store.terminalOutputDidReset(
-                            surfaceID: surfaceID,
-                            streamToken: chunk.streamToken
-                        )
-                        continue
-                    }
-                    if !chunk.data.isEmpty || chunk.terminalConfigTheme != nil {
-                        let applied = await surfaceView.processOutputAndWait(
-                            chunk.data,
-                            terminalConfigTheme: chunk.terminalConfigTheme
-                        )
-                        guard applied else {
-                            store.terminalOutputDidReset(
-                                surfaceID: surfaceID,
-                                streamToken: chunk.streamToken
-                            )
-                            continue
-                        }
-                    }
-                    store.terminalOutputDidProcess(
+            // Preserve typed render grids through the final presentation hop.
+            // Raw output still feeds libghostty when the paired host predates
+            // render-grid support. Ending this task unregisters the surface and
+            // clears its viewport pin on the Mac.
+            // Suppress Ghostty synchronously before stream registration so a
+            // stale local parser cannot flash before the first direct grid.
+            var viewportOwnershipRelease: Task<Void, Never>?
+            outputTask = Self.start(
+                authoritativeGridEnabled: store.supportsAuthoritativeTerminalGrid,
+                releaseViewportOwnership: {
+                    viewportOwnershipRelease = store.clearTerminalViewport(
+                        surfaceID: surfaceID
+                    )
+                },
+                suppressPresentation: {
+                    surfaceView.beginAuthoritativeRenderGridReplay(surfaceID: surfaceID)
+                },
+                registerStreams: {
+                    makeTerminalOutputTask(
+                        store: store,
+                        surfaceView: surfaceView,
                         surfaceID: surfaceID,
-                        streamToken: chunk.streamToken
+                        viewportOwnershipRelease: viewportOwnershipRelease
                     )
                 }
-            }
+            )
             // Drive Mac-pushed live font-size changes (`terminal.set_font`) into
             // the surface's shared zoom apply path. Runs for the surface's whole
             // mount, ending when the representable is dismantled.
@@ -358,6 +320,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         func detach() {
             outputTask?.cancel()
             outputTask = nil
+            authoritativeStreamToken = nil
             liveFontTask?.cancel()
             liveFontTask = nil
             themeApplicationScheduler.cancel()
@@ -368,7 +331,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             viewportReportScheduler?.cancel()
             viewportReportScheduler = nil
         }
-
 
         // MARK: - Composer band hosting
 

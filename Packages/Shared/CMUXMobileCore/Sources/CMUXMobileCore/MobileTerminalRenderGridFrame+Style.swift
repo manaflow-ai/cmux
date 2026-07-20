@@ -36,6 +36,8 @@ extension MobileTerminalRenderGridFrame {
         public var strikethrough: Bool
         /// Whether overline styling is enabled.
         public var overline: Bool
+        /// Effective foreground alpha after resolving Ghostty's faint opacity.
+        public var foregroundOpacity: Double
 
         /// Creates a render-grid cell style.
         public init(
@@ -54,7 +56,8 @@ extension MobileTerminalRenderGridFrame {
             inverse: Bool = false,
             invisible: Bool = false,
             strikethrough: Bool = false,
-            overline: Bool = false
+            overline: Bool = false,
+            foregroundOpacity: Double? = nil
         ) {
             self.id = id
             self.foreground = foreground
@@ -72,6 +75,7 @@ extension MobileTerminalRenderGridFrame {
             self.invisible = invisible
             self.strikethrough = strikethrough
             self.overline = overline
+            self.foregroundOpacity = foregroundOpacity ?? (faint ? 0.5 : 1)
         }
 
         /// Decodes a style while preserving compatibility with legacy frames.
@@ -93,6 +97,10 @@ extension MobileTerminalRenderGridFrame {
             self.invisible = try container.decodeIfPresent(Bool.self, forKey: .invisible) ?? false
             self.strikethrough = try container.decodeIfPresent(Bool.self, forKey: .strikethrough) ?? false
             self.overline = try container.decodeIfPresent(Bool.self, forKey: .overline) ?? false
+            self.foregroundOpacity = try container.decodeIfPresent(
+                Double.self,
+                forKey: .foregroundOpacity
+            ) ?? (self.faint ? 0.5 : 1)
         }
 
         enum CodingKeys: String, CodingKey {
@@ -112,6 +120,7 @@ extension MobileTerminalRenderGridFrame {
             case invisible
             case strikethrough
             case overline
+            case foregroundOpacity = "foreground_opacity"
         }
     }
 }

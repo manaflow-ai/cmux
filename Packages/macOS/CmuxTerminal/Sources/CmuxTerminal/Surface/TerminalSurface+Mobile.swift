@@ -5,6 +5,15 @@ public import CMUXMobileCore
 // MARK: - Paired-iPhone (mobile) input and grid export
 
 extension TerminalSurface {
+    /// Exact PTY prefix committed to Ghostty's parser for this surface.
+    @MainActor
+    public func mobileAppliedOutputSequence() -> UInt64? {
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileOutputSequence") else {
+            return nil
+        }
+        return ghostty_surface_pty_output_sequence(surface)
+    }
+
     /// Forward a mobile scroll gesture to this real surface. libghostty does the
     /// mode-correct thing: a normal screen moves the viewport into scrollback;
     /// an alt screen with mouse reporting encodes mouse-wheel to the PTY for the
@@ -53,43 +62,41 @@ extension TerminalSurface {
     }
 
     /// Exports the surface grid as a mobile render frame (optionally filtered
-    /// to changed rows). Set `includeTheme` to `false` for ordinary live ticks
-    /// after the caller has cached this surface's theme; replay and invalidation
-    /// snapshots should retain the default complete theme payload.
+    /// to changed rows). Ghostty captures the grid and its parser sequence under
+    /// one terminal-state lock, so callers never assign a guessed sequence.
     @MainActor
     public func mobileRenderGridFrame(
-        stateSeq: UInt64,
         full: Bool = true,
         changedRows: Set<Int>? = nil,
-        scrollbackLines: Int = 0,
-        includeTheme: Bool = true
+        scrollbackLines: Int = 0
     ) -> (frame: MobileTerminalRenderGridFrame, rows: [String])? {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileRenderGrid") else { return nil }
         let surfaceID = id.uuidString
+        var capturedStateSeq: UInt64 = 0
+        var status = GHOSTTY_RENDER_GRID_FAILURE
         let exported = surfaceID.withCString { ptr in
-            ghostty_surface_render_grid_json_with_theme(
+            ghostty_surface_render_grid_json(
                 surface,
                 ptr,
                 UInt(surfaceID.utf8.count),
-                stateSeq,
                 UInt(max(0, scrollbackLines)),
-                includeTheme
+                &capturedStateSeq,
+                &status
             )
         }
         defer { ghostty_string_free(exported) }
-        guard let ptr = exported.ptr, exported.len > 0 else { return nil }
+        guard status == GHOSTTY_RENDER_GRID_SUCCESS,
+              let ptr = exported.ptr,
+              exported.len > 0 else { return nil }
 
         let data = Data(bytes: ptr, count: Int(exported.len))
         guard var fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
             return nil
         }
-        if fullFrame.modes.contains(where: { !$0.ansi && $0.code == 5 && $0.on }) {
-            // Ghostty exports renderer-effective defaults. Keep the v1 outer
-            // fields raw because older iOS clients replay DEC reverse separately.
-            let foreground = fullFrame.terminalForeground
-            fullFrame.terminalForeground = fullFrame.terminalBackground
-            fullFrame.terminalBackground = foreground
-        }
+        guard fullFrame.stateSeq == capturedStateSeq else { return nil }
+        mobileRenderRevision &+= 1
+        fullFrame.producerEpoch = mobileRenderProducerEpoch
+        fullFrame.renderRevision = mobileRenderRevision
         let frame: MobileTerminalRenderGridFrame
         if full, changedRows == nil {
             frame = fullFrame

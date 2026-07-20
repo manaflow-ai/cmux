@@ -247,8 +247,22 @@ public final class GhosttyRuntime {
             let data = Data(bytes: urlPtr, count: Int(payload.len))
             guard let urlString = String(data: data, encoding: .utf8),
                   let url = URL(string: urlString) else { return false }
+            let surfaceIdentifier: UInt?
+            if target.tag == GHOSTTY_TARGET_SURFACE,
+               let surface = target.target.surface {
+                surfaceIdentifier = GhosttySurfaceView.surfaceIdentifier(for: surface)
+            } else {
+                surfaceIdentifier = nil
+            }
 
             Task { @MainActor in
+                if let surfaceIdentifier,
+                   !GhosttySurfaceView.allowsSemanticConsumer(
+                    .openURL,
+                    surfaceIdentifier: surfaceIdentifier
+                   ) {
+                    return
+                }
                 UIApplication.shared.open(url)
             }
             return true
@@ -268,8 +282,13 @@ public final class GhosttyRuntime {
                   let surface = target.target.surface,
                   let titlePtr = action.action.set_title.title else { return false }
             let title = String(cString: titlePtr)
+            let surfaceIdentifier = GhosttySurfaceView.surfaceIdentifier(for: surface)
             Task { @MainActor in
-                GhosttySurfaceView.setTitle(title, for: surface)
+                guard GhosttySurfaceView.allowsSemanticConsumer(
+                    .titleUpdate,
+                    surfaceIdentifier: surfaceIdentifier
+                ) else { return }
+                GhosttySurfaceView.setTitle(title, surfaceIdentifier: surfaceIdentifier)
             }
             return true
         }
@@ -277,8 +296,13 @@ public final class GhosttyRuntime {
         if action.tag == GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD {
             guard target.tag == GHOSTTY_TARGET_SURFACE,
                   let surface = target.target.surface else { return false }
+            let surfaceIdentifier = GhosttySurfaceView.surfaceIdentifier(for: surface)
             Task { @MainActor in
-                let title = GhosttySurfaceView.title(for: surface)
+                guard GhosttySurfaceView.allowsSemanticConsumer(
+                    .titleCopy,
+                    surfaceIdentifier: surfaceIdentifier
+                ) else { return }
+                let title = GhosttySurfaceView.title(surfaceIdentifier: surfaceIdentifier)
                 clipboardWriter(title)
             }
             return true
@@ -330,6 +354,15 @@ public final class GhosttyRuntime {
                 : UnsafeMutableRawPointer(bitPattern: stateBits)
             guard let surfaceView = surfaceView(from: userdataPtr),
                   let surface = surfaceView.surface else { return }
+            guard GhosttySurfaceView.allowsSemanticConsumer(
+                .clipboardRead,
+                authoritativeGridActive: surfaceView.isAuthoritativeGridAuthorityActive
+            ) else {
+                "".withCString { ptr in
+                    ghostty_surface_complete_clipboard_request(surface, ptr, statePtr, false)
+                }
+                return
+            }
             let value = clipboardReader() ?? ""
 
             value.withCString { ptr in
@@ -347,6 +380,7 @@ public final class GhosttyRuntime {
         confirm: Bool
     ) {
         guard let content, len > 0 else { return }
+        let userdataBits: Int = userdata.map { Int(bitPattern: $0) } ?? 0
 
         for index in 0..<len {
             let item = content[index]
@@ -356,6 +390,14 @@ public final class GhosttyRuntime {
             guard mime == "text/plain" else { continue }
             let value = String(cString: dataPtr)
             Task { @MainActor in
+                let userdataPtr = userdataBits == 0
+                    ? nil
+                    : UnsafeMutableRawPointer(bitPattern: userdataBits)
+                guard let surfaceView = surfaceView(from: userdataPtr),
+                      GhosttySurfaceView.allowsSemanticConsumer(
+                        .clipboardWrite,
+                        authoritativeGridActive: surfaceView.isAuthoritativeGridAuthorityActive
+                      ) else { return }
                 clipboardWriter(value)
             }
             return

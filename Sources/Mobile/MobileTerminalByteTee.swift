@@ -17,10 +17,10 @@ private let mobileTerminalByteTeeLog = Logger(
 /// screen state for TUIs.
 ///
 /// The byte source is libghostty's `ghostty_surface_set_pty_tee_cb`
-/// callback (cmux fork addition). The callback fires on the IO read
-/// thread before the VT parser sees the bytes, so the bytes the
-/// iPhone receives are byte-identical to what the Mac's own libghostty
-/// surface will process.
+/// callback (cmux fork addition). The callback fires on the IO read thread
+/// after the VT parser applies the bytes and carries the parser-owned start
+/// sequence. Raw events and grid snapshots therefore share one coverage
+/// coordinate without racing terminal mutation.
 ///
 /// This class is intentionally lock-light: the hot path is just an
 /// atomic load of a per-surface queue, a `memcpy` into a buffer, and a
@@ -69,7 +69,11 @@ final class MobileTerminalByteTee {
 
     /// Non-isolated entry point called from the C tee trampoline. Safe
     /// to invoke from any thread.
-    nonisolated func append(surfaceID: UUID, bytes: UnsafeBufferPointer<UInt8>) {
+    nonisolated func append(
+        surfaceID: UUID,
+        bytes: UnsafeBufferPointer<UInt8>,
+        startSeq: UInt64
+    ) {
         // Hot path: this runs on the Ghostty PTY/IO read thread for *every*
         // surface, including normal desktop use with no phone attached. Bail
         // before any allocation or main-actor hop when no mobile client wants
@@ -93,7 +97,11 @@ final class MobileTerminalByteTee {
         let copy = Data(bytes: base, count: bytes.count)
         publishQueue.async { [weak self] in
             Task { @MainActor [weak self] in
-                self?.publishFromMain(surfaceID: surfaceID, data: copy)
+                self?.publishFromMain(
+                    surfaceID: surfaceID,
+                    data: copy,
+                    startSeq: startSeq
+                )
             }
         }
     }
@@ -144,10 +152,16 @@ final class MobileTerminalByteTee {
         }
     }
 
-    private func publishFromMain(surfaceID: UUID, data: Data) {
+    private func publishFromMain(surfaceID: UUID, data: Data, startSeq: UInt64) {
         var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
-        let chunkSeq = state.seq
-        state.seq &+= UInt64(data.count)
+        let endSeq = startSeq &+ UInt64(data.count)
+        if state.seq != startSeq {
+            // A subscription gap or reordered emergency-tail handoff cannot be
+            // represented as one replay buffer. Keep only the new contiguous
+            // suffix; live raw events still carry their absolute startSeq.
+            state.replayBuffer.removeAll(keepingCapacity: true)
+        }
+        state.seq = endSeq
         state.replayBuffer.append(data)
         if state.replayBuffer.count > replayBudget {
             state.replayBuffer.removeFirst(state.replayBuffer.count - replayBudget)
@@ -156,7 +170,7 @@ final class MobileTerminalByteTee {
         MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: surfaceID)
 
         if let continuations = laneContinuationsBySurfaceID[surfaceID] {
-            let chunk = OutputChunk(sequence: chunkSeq, data: data)
+            let chunk = OutputChunk(sequence: startSeq, data: data)
             var droppedIDs: [UUID] = []
             for (id, continuation) in continuations {
                 if case .dropped = continuation.yield(chunk) {
@@ -184,7 +198,7 @@ final class MobileTerminalByteTee {
         // throughput becomes a bottleneck.
         let payload: [String: Any] = [
             "surface_id": surfaceID.uuidString,
-            "seq": chunkSeq,
+            "seq": startSeq,
             "data_b64": data.base64EncodedString(),
         ]
         MobileHostService.shared.emitEvent(topic: "terminal.bytes", payload: payload)

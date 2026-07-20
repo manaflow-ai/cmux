@@ -255,7 +255,6 @@ final class MobileTerminalRenderObserver {
     }
 
     private func emitRenderGrid(surfaceID: UUID, forceIncludeTheme: Bool) {
-        let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
               surface.surface != nil else {
             clearRenderGridCache(surfaceID: surfaceID)
@@ -267,15 +266,10 @@ final class MobileTerminalRenderObserver {
         if didReplaceRuntimeSurface {
             clearRenderGridCache(surfaceID: surfaceID)
         }
-        let includeTheme = forceIncludeTheme
-            || renderGridStatesBySurfaceID[surfaceID]?.terminalTheme == nil
-            || didReplaceRuntimeSurface
-        guard let snapshot = surface.mobileRenderGridFrame(
-                stateSeq: stateSeq,
-                full: true,
-                includeTheme: includeTheme
-              ) else {
-            clearRenderGridCache(surfaceID: surfaceID)
+        guard let snapshot = surface.mobileRenderGridFrame(full: true) else {
+            // Ghostty can decline while an escape, UTF-8, or synchronized-output
+            // unit is in flight. Preserve the last emission baseline and retry on
+            // the next tick instead of treating a transient gate as surface loss.
             return
         }
 
@@ -308,7 +302,11 @@ final class MobileTerminalRenderObserver {
         guard let emission = try? themedFrame.renderGridEmission(
             comparedTo: renderGridStatesBySurfaceID[surfaceID]
         ) else { return }
-        let frame = emission.frame
+        // The phone presents immutable producer-authored grids directly. The
+        // delta calculation remains the change detector, but every emitted
+        // visual frame is the complete snapshot so no consumer ever composes
+        // rows from different geometry generations.
+        let frame = themedFrame
         renderGridStatesBySurfaceID[surfaceID] = emission.state
         guard let payload = try? frame.jsonObject() else { return }
         MobileHostService.emitEvent(topic: "terminal.render_grid", payload: payload)

@@ -159,7 +159,8 @@ extension MobileShellComposite {
 
     /// Tell the Mac to drop this device's viewport pin for a surface (on
     /// detach). Fire-and-forget; the Mac also clears on connection close.
-    public func clearTerminalViewport(surfaceID: String) {
+    @discardableResult
+    public func clearTerminalViewport(surfaceID: String) -> Task<Void, Never>? {
         // The generation entry deliberately outlives the surface: it is the
         // monotonic fence that keeps a still-in-flight viewport report from
         // applying after detach and blocks generation reuse across re-attach.
@@ -169,11 +170,11 @@ extension MobileShellComposite {
         reportedTerminalViewportSizesBySurfaceID.removeValue(forKey: surfaceID)
         guard let client = remoteClient,
               let workspaceID = workspaceID(forTerminalID: surfaceID) else {
-            return
+            return nil
         }
         let id = clientID
         let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
-        Task { @MainActor in
+        return Task { @MainActor in
             let request = try? MobileCoreRPCClient.requestData(
                 method: "mobile.terminal.viewport",
                 params: [

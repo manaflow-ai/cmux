@@ -18,6 +18,27 @@ extension MobileShellComposite {
     }
 
     func recordTerminalRenderGridDelivery(_ renderGrid: MobileTerminalRenderGridFrame) {
+        let surfaceID = renderGrid.surfaceID
+        let deliveredEpoch = terminalDeliveredRenderEpochBySurfaceID[surfaceID] ?? 0
+        if renderGrid.producerEpoch > deliveredEpoch {
+            // A TerminalSurface replacement restarts both parser sequence and
+            // paint revision. Rebase every old-producer floor before the new
+            // frame records its own sequence below.
+            terminalDeliveredRenderEpochBySurfaceID[surfaceID] = renderGrid.producerEpoch
+            terminalDeliveredRenderRevisionBySurfaceID[surfaceID] = renderGrid.renderRevision
+            deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+            terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+            pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+            pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
+            terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
+            terminalFullReplacementGenerationBySurfaceID.removeValue(forKey: surfaceID)
+        } else if renderGrid.producerEpoch == deliveredEpoch,
+                  renderGrid.renderRevision > 0 {
+            terminalDeliveredRenderRevisionBySurfaceID[renderGrid.surfaceID] = max(
+                terminalDeliveredRenderRevisionBySurfaceID[renderGrid.surfaceID] ?? 0,
+                renderGrid.renderRevision
+            )
+        }
         // The toolbar observes this dictionary via `isAlternateScreen`; same-value
         // writes would re-fire observers for every delivered render-grid frame.
         if terminalActiveScreenBySurfaceID[renderGrid.surfaceID] != renderGrid.activeScreen {
@@ -35,6 +56,7 @@ extension MobileShellComposite {
         previous: MobileTerminalRenderGridFrame.Screen?
     ) -> (requestReplay: Bool, updateTrackedScreen: Bool, deliverViewportPolicy: Bool)? {
         guard terminalOutputTransport == .hybrid,
+              !usesAuthoritativeRenderGrid(surfaceID: renderGrid.surfaceID),
               renderGrid.activeScreen == .primary else {
             return nil
         }
@@ -55,12 +77,56 @@ extension MobileShellComposite {
             return
         }
         // Theme revisions are ordered independently from terminal byte content.
-        // A delayed full frame may be stale for the VT replay while still carrying
-        // the newest theme revision, and subsequent deltas intentionally omit it.
+        // A delayed grid may be stale for paint while still carrying the newest theme.
         let acceptedNewTheme = recordTerminalTheme(renderGrid)
         if acceptedNewTheme {
             _ = deliverTerminalTheme(renderGrid, surfaceID: renderGrid.surfaceID)
         }
+        guard admitsTerminalRenderGrid(
+            renderGrid,
+            source: source,
+            allowRequestBoundEqualPreBarrierSequence: source != "event"
+        ) else { return }
+        let hasDeliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID] != nil
+        let previousScreen = terminalActiveScreenBySurfaceID[renderGrid.surfaceID]
+        let hasAlternateBaseline = terminalAlternateRenderGridBaselineSurfaceIDs.contains(renderGrid.surfaceID)
+        let establishesRenderGridBaseline = renderGrid.full
+            || (
+                renderGrid.activeScreen == .primary
+                    && !hasAlternateBaseline
+                    && renderGrid.isReplaceableViewportPatchForMobileDelivery
+            )
+        let needsRenderGridBaseline = (
+                (terminalOutputTransport == .renderGrid
+                    || usesAuthoritativeRenderGrid(surfaceID: renderGrid.surfaceID))
+                    && !establishesRenderGridBaseline
+                    && (
+                        !hasDeliveredSeq
+                            || (renderGrid.activeScreen == .alternate) != hasAlternateBaseline
+                    )
+            )
+            || (
+                terminalOutputTransport == .hybrid
+                    && !usesAuthoritativeRenderGrid(surfaceID: renderGrid.surfaceID)
+                    && renderGrid.activeScreen == .alternate
+                    && !hasAlternateBaseline
+            )
+        deliverAdmittedTerminalRenderGrid(
+            renderGrid,
+            source: source,
+            previousScreen: previousScreen,
+            establishesRenderGridBaseline: establishesRenderGridBaseline,
+            needsRenderGridBaseline: needsRenderGridBaseline,
+            acceptedNewTheme: acceptedNewTheme
+        )
+    }
+
+    /// Reject a stale paint before the UI is allowed to mutate Ghostty geometry.
+    func admitsTerminalRenderGrid(
+        _ renderGrid: MobileTerminalRenderGridFrame,
+        source: String,
+        allowRequestBoundEqualPreBarrierSequence: Bool = false
+    ) -> Bool {
         // The stale floor is the delivered high-water mark, surviving a replay
         // barrier via the pre-barrier stash: a buffered frame from before the
         // barrier must not paint (and must not establish an outdated baseline)
@@ -73,44 +139,57 @@ extension MobileShellComposite {
         // still deliver.
         let deliveredSeqValue = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID] ?? 0
         let preBarrierFloorSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[renderGrid.surfaceID]
-        if deliveredSeqValue > renderGrid.stateSeq
-            || preBarrierFloorSeq.map({ $0 >= renderGrid.stateSeq }) ?? false {
-            MobileDebugLog.anchormux(
-                "sync.render_grid_stale source=\(source) surface=\(renderGrid.surfaceID) delivered=\(max(deliveredSeqValue, preBarrierFloorSeq ?? 0)) frame=\(renderGrid.stateSeq)"
+        let deliveredEpoch = terminalDeliveredRenderEpochBySurfaceID[renderGrid.surfaceID] ?? 0
+        let deliveredRevision = terminalDeliveredRenderRevisionBySurfaceID[renderGrid.surfaceID] ?? 0
+        let comparesProducerEpoch = deliveredEpoch > 0 || renderGrid.producerEpoch > 0
+        let staleProducer = comparesProducerEpoch && renderGrid.producerEpoch < deliveredEpoch
+        let replacementProducer = comparesProducerEpoch && renderGrid.producerEpoch > deliveredEpoch
+        let requestBoundRevisionIsCurrent = allowRequestBoundEqualPreBarrierSequence
+            && (
+                (!comparesProducerEpoch
+                    && renderGrid.renderRevision == 0
+                    && deliveredRevision == 0)
+                    || (renderGrid.renderRevision > 0
+                        && renderGrid.renderRevision >= deliveredRevision)
             )
-            return
+        let staleAtRenderRevision = renderGrid.renderRevision > 0
+            && deliveredRevision > 0
+            && (renderGrid.renderRevision < deliveredRevision
+                || (renderGrid.renderRevision == deliveredRevision
+                    && !allowRequestBoundEqualPreBarrierSequence))
+        let staleAtPreBarrierFloor = preBarrierFloorSeq.map {
+            $0 > renderGrid.stateSeq
+                || ($0 == renderGrid.stateSeq && !requestBoundRevisionIsCurrent)
+        } ?? false
+        if staleProducer
+            || (!replacementProducer && deliveredSeqValue > renderGrid.stateSeq)
+            || (!replacementProducer && staleAtPreBarrierFloor)
+            || (!replacementProducer && staleAtRenderRevision) {
+            MobileDebugLog.anchormux(
+                "sync.render_grid_stale source=\(source) surface=\(renderGrid.surfaceID) delivered=\(max(deliveredSeqValue, preBarrierFloorSeq ?? 0)) frame=\(renderGrid.stateSeq) delivered_revision=\(deliveredRevision) frame_revision=\(renderGrid.renderRevision)"
+            )
+            return false
         }
+        if replacementProducer { return true }
         // Frames behind an outstanding typing ACK (or partial frames while a
         // dropped-frame replay is pending) must not paint an older cursor
         // frame or establish a baseline from pre-input content.
-        guard !shouldDropRenderGridBehindPendingInput(renderGrid, source: source) else { return }
-        let hasDeliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID] != nil
-        let previousScreen = terminalActiveScreenBySurfaceID[renderGrid.surfaceID]
+        return !shouldDropRenderGridBehindPendingInput(renderGrid, source: source)
+    }
+
+    private func deliverAdmittedTerminalRenderGrid(
+        _ renderGrid: MobileTerminalRenderGridFrame,
+        source: String,
+        previousScreen: MobileTerminalRenderGridFrame.Screen?,
+        establishesRenderGridBaseline: Bool,
+        needsRenderGridBaseline: Bool,
+        acceptedNewTheme: Bool
+    ) {
         // The alternate baseline flag is maintained by DELIVERED frames only,
         // so gating on it (in both screen directions) cannot be fooled by the
         // speculative tracked-screen write below: a delta VT patch cannot
         // switch screens, so it may only paint the screen the local surface
         // actually shows.
-        let hasAlternateBaseline = terminalAlternateRenderGridBaselineSurfaceIDs.contains(renderGrid.surfaceID)
-        let establishesRenderGridBaseline = renderGrid.full
-            || (
-                renderGrid.activeScreen == .primary
-                    && !hasAlternateBaseline
-                    && renderGrid.isReplaceableViewportPatchForMobileDelivery
-            )
-        let needsRenderGridBaseline = (
-                terminalOutputTransport == .renderGrid
-                    && !establishesRenderGridBaseline
-                    && (
-                        !hasDeliveredSeq
-                            || (renderGrid.activeScreen == .alternate) != hasAlternateBaseline
-                    )
-            )
-            || (
-                terminalOutputTransport == .hybrid
-                    && renderGrid.activeScreen == .alternate
-                    && !hasAlternateBaseline
-            )
         if source == "event", needsRenderGridBaseline, !establishesRenderGridBaseline {
             if renderGrid.activeScreen == .alternate {
                 if terminalActiveScreenBySurfaceID[renderGrid.surfaceID] != .alternate {
@@ -144,7 +223,10 @@ extension MobileShellComposite {
                 }
             }
             if deliveryDecision.deliverViewportPolicy {
-                deliverTerminalViewportPolicy(renderGrid.mobileViewportPolicy, surfaceID: renderGrid.surfaceID)
+                deliverTerminalViewportPolicy(
+                    renderGrid.mobileLegacyReplayViewportPolicy,
+                    surfaceID: renderGrid.surfaceID
+                )
             }
             MobileDebugLog.anchormux(
                 "sync.render_grid_advisory source=\(source) surface=\(renderGrid.surfaceID) screen=\(renderGrid.activeScreen.rawValue) seq=\(renderGrid.stateSeq) requestReplay=\(deliveryDecision.requestReplay) updateTrackedScreen=\(deliveryDecision.updateTrackedScreen) deliverViewportPolicy=\(deliveryDecision.deliverViewportPolicy)"
@@ -238,11 +320,16 @@ extension MobileShellComposite {
                 revision: terminalThemeState.revisionsBySurfaceID[frame.surfaceID]
             )
         }
+        let usesAuthoritativeGrid = usesAuthoritativeRenderGrid(surfaceID: surfaceID)
         return deliverTerminalOutput(
             TerminalOutputDelivery(
                 renderGrid: deliveryFrame,
-                replaceable: deliveryFrame.isReplaceableViewportPatchForMobileDelivery,
-                viewportPolicy: deliveryFrame.mobileViewportPolicy
+                replaceable: usesAuthoritativeGrid
+                    ? deliveryFrame.full
+                    : deliveryFrame.isReplaceableViewportPatchForMobileDelivery,
+                viewportPolicy: usesAuthoritativeGrid
+                    ? deliveryFrame.mobileViewportPolicy
+                    : deliveryFrame.mobileLegacyReplayViewportPolicy
             ),
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier
@@ -328,14 +415,11 @@ extension MobileShellComposite {
             )
         }
         if let immediate {
-            continuation.yield(
-                MobileTerminalOutputChunk(
-                    data: immediate.bytes,
-                    streamToken: streamToken,
-                    viewportPolicy: immediate.viewportPolicy,
-                    terminalConfigTheme: immediate.terminalConfigTheme
-                )
-            )
+            continuation.yield(outputChunk(
+                from: immediate,
+                surfaceID: surfaceID,
+                streamToken: streamToken
+            ))
         }
         return true
     }
@@ -414,12 +498,28 @@ extension MobileShellComposite {
               terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else {
             return
         }
-        continuation.yield(MobileTerminalOutputChunk(
-            data: next.bytes,
-            streamToken: streamToken,
-            viewportPolicy: next.viewportPolicy,
-            terminalConfigTheme: next.terminalConfigTheme
+        continuation.yield(outputChunk(
+            from: next,
+            surfaceID: surfaceID,
+            streamToken: streamToken
         ))
+    }
+
+    private func outputChunk(
+        from delivery: TerminalOutputDelivery,
+        surfaceID: String,
+        streamToken: UUID
+    ) -> MobileTerminalOutputChunk {
+        let renderGrid = usesAuthoritativeRenderGrid(surfaceID: surfaceID)
+            ? delivery.renderGrid
+            : nil
+        return MobileTerminalOutputChunk(
+            data: renderGrid == nil ? delivery.bytes : Data(),
+            streamToken: streamToken,
+            viewportPolicy: delivery.viewportPolicy,
+            renderGrid: renderGrid,
+            terminalConfigTheme: delivery.terminalConfigTheme
+        )
     }
 
     /// Abandon the current yielded terminal-output chunk after the local render

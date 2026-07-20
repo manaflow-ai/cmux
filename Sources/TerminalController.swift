@@ -14193,12 +14193,12 @@ class TerminalController {
         }
         _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel, reason: "mobile.terminal.replay")
         let state = MobileTerminalByteTee.shared.replayState(surfaceID: surfaceId)
-        let seq = state?.seq ?? 0
         let renderGrid = mobileTerminalRenderGridFrame(
             terminalPanel: terminalPanel,
-            surfaceID: surfaceId,
-            seq: seq
+            surfaceID: surfaceId
         )
+        let appliedSeq = terminalPanel.surface.mobileAppliedOutputSequence()
+        let seq = renderGrid?.stateSeq ?? appliedSeq ?? state?.seq ?? 0
         #if DEBUG
         cmuxDebugLog("mobile.terminal.replay surface=\(surfaceId.uuidString.prefix(8)) renderGrid=\(renderGrid != nil) seq=\(seq) hasState=\(state != nil)")
         #endif
@@ -14213,22 +14213,17 @@ class TerminalController {
             payload["rows"] = renderGrid.rows
             payload["render_grid"] = renderGridObject
         } else {
-            let snapshotData = readTerminalTextFromVTExportForSnapshot(
-                terminalPanel: terminalPanel,
-                bindingAction: "write_active_file:copy,vt",
-                lineLimit: nil,
-                normalizeLineEndings: false
-            )?.data(using: .utf8) ?? Data()
-            let data = state?.data ?? Data()
+            // A separately exported VT snapshot cannot be stamped atomically
+            // with parser-applied coverage. Only expose an emergency raw tail
+            // when it ends at the exact locked Ghostty sequence; authoritative
+            // clients retry until a typed grid is available.
+            let data = state?.seq == seq ? (state?.data ?? Data()) : Data()
             if let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalReplay") {
                 let size = ghostty_surface_size(surface)
                 payload["columns"] = max(Int(size.columns), 1)
                 payload["rows"] = max(Int(size.rows), 1)
             }
-            if !snapshotData.isEmpty {
-                payload["snapshot_format"] = "ghostty.active.vt"
-                payload["snapshot_data_b64"] = snapshotData.base64EncodedString()
-            } else if !data.isEmpty {
+            if !data.isEmpty {
                 payload["data_b64"] = data.base64EncodedString()
             }
         }

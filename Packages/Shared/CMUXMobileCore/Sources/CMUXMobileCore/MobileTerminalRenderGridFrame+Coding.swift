@@ -3,6 +3,8 @@ extension MobileTerminalRenderGridFrame {
         case format
         case surfaceID = "surface_id"
         case stateSeq = "state_seq"
+        case producerEpoch = "producer_epoch"
+        case renderRevision = "render_revision"
         case columns
         case rows
         case cursor
@@ -15,6 +17,7 @@ extension MobileTerminalRenderGridFrame {
         case terminalForeground = "terminal_foreground"
         case terminalBackground = "terminal_background"
         case terminalCursorColor = "terminal_cursor_color"
+        case terminalCursorTextColor = "terminal_cursor_text_color"
         case terminalTheme = "terminal_theme"
         case terminalConfigTheme = "terminal_config_theme"
         case terminalThemeRevision = "terminal_theme_revision"
