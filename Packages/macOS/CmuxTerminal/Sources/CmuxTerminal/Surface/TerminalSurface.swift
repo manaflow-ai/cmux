@@ -154,7 +154,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// every runtime startup path uses the same immutable workspace port range.
     let portOrdinal: Int
     let surfaceContext: ghostty_surface_context_e
-    let configTemplate: CmuxSurfaceConfigTemplate?
+    public let configTemplate: CmuxSurfaceConfigTemplate?
     let workingDirectory: String?
 
     /// The command to run instead of the default shell, if any.

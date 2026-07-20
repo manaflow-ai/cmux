@@ -563,12 +563,19 @@ extension Workspace {
                 includeScrollback: includeScrollback,
                 allowFallbackScrollback: shouldPersistScrollback || allowDebugFallbackScrollback || hasRestoredScrollbackFallback
             )
-            // Runtime zoom lives only in the live surface; a hibernated/dead surface
-            // falls back to the lineage-seeded points so the zoom survives capture.
+            // Persist font size only for explicit zoom (runtime-adjusted surface
+            // or zoomed creation template); tabs at the config default persist
+            // nothing, so config font-size changes still apply across restarts.
+            let creationFontBasePoints: Float? = {
+                guard let points = terminalPanel.surface.configTemplate?.fontSize,
+                      points > 0 else { return nil }
+                return points
+            }()
             let capturedFontBasePoints: Float? = {
                 guard let surface = terminalPanel.surface.surface,
-                      let runtimePoints = cmuxCurrentSurfaceFontSizePoints(surface) else {
-                    return terminalInheritanceFontPointsByPanelId[panelId]
+                      let runtimePoints = cmuxCurrentSurfaceFontSizePoints(surface),
+                      ghostty_surface_font_size_adjusted(surface) else {
+                    return creationFontBasePoints
                 }
                 return CmuxSurfaceConfigTemplate.baseFontSize(
                     fromRuntimePoints: runtimePoints,
