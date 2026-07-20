@@ -75,6 +75,8 @@ public final class JsonTest {
         assertTrue(ResizeSurfaceResult.from(Map.of()).accepted(), "legacy resize accepted");
         Tree legacyTree = Tree.from(Map.of("workspaces", List.of()));
         assertEquals(0L, legacyTree.workspaceRevision(), "legacy workspace revision");
+        Pane sourceCompatiblePane = new Pane(7, "shell", 0, List.of(), false);
+        assertEquals(0L, sourceCompatiblePane.focusedAt(), "source-compatible pane focus recency");
 
         CreateTerminalRequest terminalRequest = CreateTerminalRequest.builder()
             .key("stable")
