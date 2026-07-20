@@ -63,6 +63,12 @@ public import UIKit
         )
     }
 
+    func applyActivityPresentation(
+        onShowActivity: @escaping (TranscriptActivityDetails) -> Void
+    ) {
+        transcript.applyActivityPresentation(onShowActivity: onShowActivity)
+    }
+
     /// Recolors the mounted transcript without replacing its list or collection view.
     public func apply(theme: AgentGUITheme, terminalThemeGeneration: UInt64) {
         self.terminalThemeGeneration = terminalThemeGeneration

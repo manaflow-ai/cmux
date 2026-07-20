@@ -103,5 +103,11 @@ final class TranscriptDemoContainerViewController: UIViewController {
     func setDensity(_ density: TranscriptDensity) {
         transcript.setDensity(density)
     }
+
+    func applyActivityPresentation(
+        onShowActivity: @escaping (TranscriptActivityDetails) -> Void
+    ) {
+        transcript.applyActivityPresentation(onShowActivity: onShowActivity)
+    }
 }
 #endif

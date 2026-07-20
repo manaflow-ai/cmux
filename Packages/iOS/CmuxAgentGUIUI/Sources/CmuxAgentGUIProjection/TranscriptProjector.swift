@@ -19,7 +19,9 @@ public struct TranscriptProjector: Sendable {
             chronological.append(TranscriptRow(rowID: .boundary, rowKind: .boundary))
         }
 
-        let entryContexts = input.entries.map { entry in
+        let entryContexts = input.entries.filter { entry in
+            !Self.isKnownInternal(entry.content.payload)
+        }.map { entry in
             EntryContext(
                 entry: entry,
                 tick: input.displayTick(entry),
@@ -363,6 +365,18 @@ public struct TranscriptProjector: Sendable {
             return payload.isRunning
         }
         return false
+    }
+
+    private static func isKnownInternal(_ payload: EntryPayload) -> Bool {
+        guard case .status(let status) = payload else { return false }
+        switch status.code {
+        case .sessionMeta:
+            return true
+        case .other(let rawCode):
+            return rawCode == "stop_hook_summary"
+        case .compacted, .turnAborted, .apiError:
+            return false
+        }
     }
 
     private static func diff(previous: [TranscriptRow], current: [TranscriptRow]) -> TranscriptProjectionDiff {

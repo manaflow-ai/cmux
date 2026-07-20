@@ -14,6 +14,7 @@ public struct TranscriptLiveControllerRepresentable: UIViewControllerRepresentab
     private let failedAskID: String?
     private let onAnswer: (PendingAsk, Int) -> Void
     private let onShowTerminal: () -> Void
+    private let onShowActivity: (TranscriptActivityDetails) -> Void
 
     /// Creates a live transcript bridge.
     /// - Parameters:
@@ -31,7 +32,8 @@ public struct TranscriptLiveControllerRepresentable: UIViewControllerRepresentab
         answeringAskID: String?,
         failedAskID: String?,
         onAnswer: @escaping (PendingAsk, Int) -> Void,
-        onShowTerminal: @escaping () -> Void
+        onShowTerminal: @escaping () -> Void,
+        onShowActivity: @escaping (TranscriptActivityDetails) -> Void = { _ in }
     ) {
         self.input = input
         self.bottomChromeHeight = bottomChromeHeight
@@ -42,6 +44,7 @@ public struct TranscriptLiveControllerRepresentable: UIViewControllerRepresentab
         self.failedAskID = failedAskID
         self.onAnswer = onAnswer
         self.onShowTerminal = onShowTerminal
+        self.onShowActivity = onShowActivity
     }
 
     public func makeUIViewController(context: Context) -> TranscriptLiveContainerViewController {
@@ -57,6 +60,7 @@ public struct TranscriptLiveControllerRepresentable: UIViewControllerRepresentab
             onAnswer: onAnswer,
             onShowTerminal: onShowTerminal
         )
+        controller.applyActivityPresentation(onShowActivity: onShowActivity)
         controller.setBottomChromeHeight(bottomChromeHeight)
         return controller
     }
@@ -77,6 +81,7 @@ public struct TranscriptLiveControllerRepresentable: UIViewControllerRepresentab
             onAnswer: onAnswer,
             onShowTerminal: onShowTerminal
         )
+        uiViewController.applyActivityPresentation(onShowActivity: onShowActivity)
         uiViewController.setBottomChromeHeight(bottomChromeHeight)
     }
 }

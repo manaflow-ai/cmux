@@ -1,3 +1,4 @@
+import CmuxAgentGUIUI
 import CmuxMobileBrowser
 import CmuxMobileDiagnostics
 import CmuxMobileShell
@@ -52,15 +53,7 @@ struct WorkspaceDetailView: View {
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
     @State var guiModeSelected = false
     @State var transcriptBottomChromeHeight = GhosttySurfaceView.persistentBottomToolbarHeight
-    #endif
-    /// The active browser surface for this workspace, when a browser pane is open.
-    var activeBrowser: BrowserSurfaceState? {
-        browserStore.activeBrowser(for: workspace.id.rawValue)
-    }
-    #if os(iOS)
-    var activeSurface: WorkspaceActiveSurface {
-        WorkspaceActiveSurface.derive(hasActiveBrowser: activeBrowser != nil)
-    }
+    @State var transcriptActivityDetails: TranscriptActivityDetails?
     #endif
     var body: some View {
         let content = Group { detailSurfaceContent }
@@ -95,6 +88,10 @@ struct WorkspaceDetailView: View {
             }
             .sheet(isPresented: $isTextSheetPresented) {
                 TerminalTextSheetView(surfaceID: textSheetSurfaceID)
+            }
+            .sheet(item: $transcriptActivityDetails) { details in
+                TranscriptActivityTimelineView(details: details, terminalTheme: store.activeTerminalTheme)
+                    .presentationDetents([.medium, .large])
             }
             .workspaceRenameDialog(
                 isPresented: $isRenamePresented,

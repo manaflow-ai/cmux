@@ -2,15 +2,15 @@
 import CmuxAgentGUIProjection
 import CmuxAgentReplica
 import SwiftUI
+import UIKit
 
 struct TranscriptRowContentView: View {
     let row: TranscriptRow
     let spacing: TranscriptRowSpacing
     let theme: AgentGUITheme
-    let isActivitySummaryExpanded: Bool
     let answeringAskID: String?
     let failedAskID: String?
-    let onToggleActivitySummary: () -> Void
+    let onShowActivity: (TranscriptActivityDetails) -> Void
     let onAnswer: (PendingAsk, Int) -> Void
     let onShowTerminal: () -> Void
 
@@ -49,11 +49,13 @@ struct TranscriptRowContentView: View {
             activityRow(activity)
         case .activitySummary(let summary):
             TranscriptActivitySummaryView(
-                isExpanded: isActivitySummaryExpanded,
                 summary: summary,
                 theme: theme,
                 density: spacing.density,
-                onToggleExpanded: onToggleActivitySummary
+                onOpen: {
+                    guard let turnID = row.turnID else { return }
+                    onShowActivity(TranscriptActivityDetails(turnID: turnID, summary: summary))
+                }
             )
                 .padding(.horizontal, 24)
                 .padding(.top, spacing.top)
@@ -77,13 +79,13 @@ struct TranscriptRowContentView: View {
             if alignment == .trailing {
                 Spacer(minLength: 42)
             }
-            Text(text)
-                .font(.body)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
+            TranscriptSelectableText(
+                text: text,
+                color: UIColor(style.foreground(theme: theme)),
+                usesAvailableWidth: alignment == .leading
+            )
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
-                .foregroundStyle(style.foreground(theme: theme))
                 .background(style.background(theme: theme), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .accessibilityLabel(text)
             if alignment == .leading {
@@ -99,11 +101,11 @@ struct TranscriptRowContentView: View {
     }
 
     private func agentAnswer(text: String) -> some View {
-        Text(text)
-            .font(.body)
-            .fixedSize(horizontal: false, vertical: true)
-            .textSelection(.enabled)
-            .foregroundStyle(Color(theme.foreground))
+        TranscriptSelectableText(
+            text: text,
+            color: UIColor(theme.foreground),
+            usesAvailableWidth: true
+        )
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
             .padding(.top, spacing.top)

@@ -8,6 +8,7 @@ public import SwiftUI
 public struct TranscriptDemoScreen: View {
     @State private var model = TranscriptDemoModel()
     @State private var density: TranscriptDensity
+    @State private var activityDetails: TranscriptActivityDetails?
 
     /// Creates the transcript demo screen.
     public init() {
@@ -26,12 +27,17 @@ public struct TranscriptDemoScreen: View {
             bottomChromeHeight: 0,
             density: density,
             composerModel: model,
-            densityBinding: $density
+            densityBinding: $density,
+            onShowActivity: { activityDetails = $0 }
         )
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .background(Color(theme.background).ignoresSafeArea())
         .navigationTitle(AgentGUIL10n.string("agent.demo.title", defaultValue: "Transcript Demo"))
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $activityDetails) { details in
+            TranscriptActivityTimelineView(details: details, terminalTheme: .monokai)
+                .presentationDetents([.medium, .large])
+        }
         .onDisappear {
             model.tearDown()
         }

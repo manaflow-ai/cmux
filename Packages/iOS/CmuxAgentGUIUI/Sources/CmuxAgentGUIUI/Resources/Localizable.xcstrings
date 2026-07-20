@@ -35,19 +35,19 @@
         }
       }
     },
-    "agent.activity.collapsed": {
+    "agent.activity.details.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Collapsed"
+            "value": "Activity"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "折りたたみ"
+            "value": "アクティビティ"
           }
         }
       }
@@ -69,19 +69,19 @@
         }
       }
     },
-    "agent.activity.expanded": {
+    "agent.activity.openHint": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Expanded"
+            "value": "Opens activity details"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "展開"
+            "value": "アクティビティの詳細を開きます"
           }
         }
       }
@@ -354,23 +354,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "思考"
-          }
-        }
-      }
-    },
-    "agent.activity.toggleHint": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shows or hides completed activity"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "完了したアクティビティの表示と非表示を切り替えます"
           }
         }
       }

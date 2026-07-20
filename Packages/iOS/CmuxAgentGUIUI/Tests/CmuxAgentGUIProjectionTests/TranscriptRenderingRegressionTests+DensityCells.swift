@@ -34,10 +34,9 @@ extension TranscriptRenderingRegressionTests {
             row: row,
             spacing: TranscriptRowSpacing(top: 0, bottom: 0, density: density),
             theme: theme,
-            isActivitySummaryExpanded: false,
             answeringAskID: nil,
             failedAskID: nil,
-            onToggleActivitySummary: {},
+            onShowActivity: { _ in },
             onAnswer: { _, _ in },
             onShowTerminal: {}
         )

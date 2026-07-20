@@ -14,6 +14,7 @@ public struct TranscriptLiveView: View {
     private let terminalThemeGeneration: UInt64
     private let density: TranscriptDensity
     private let onShowTerminal: () -> Void
+    private let onShowActivity: (TranscriptActivityDetails) -> Void
     @State private var input = TranscriptProjectionInput(entries: [])
     @State private var driver: TranscriptProjectionDriver?
     @State private var answeringAskID: String?
@@ -37,7 +38,8 @@ public struct TranscriptLiveView: View {
         terminalTheme: TerminalTheme,
         terminalThemeGeneration: UInt64,
         density: TranscriptDensity,
-        onShowTerminal: @escaping () -> Void = {}
+        onShowTerminal: @escaping () -> Void = {},
+        onShowActivity: @escaping (TranscriptActivityDetails) -> Void = { _ in }
     ) {
         self.engine = engine
         self.sessionID = sessionID
@@ -46,6 +48,7 @@ public struct TranscriptLiveView: View {
         self.terminalThemeGeneration = terminalThemeGeneration
         self.density = density
         self.onShowTerminal = onShowTerminal
+        self.onShowActivity = onShowActivity
     }
 
     public var body: some View {
@@ -65,7 +68,8 @@ public struct TranscriptLiveView: View {
                 answeringAskID: answeringAskID,
                 failedAskID: failedAskID,
                 onAnswer: answer,
-                onShowTerminal: onShowTerminal
+                onShowTerminal: onShowTerminal,
+                onShowActivity: onShowActivity
             )
             TranscriptSyncStatusView(
                 presentation: syncPresentation,

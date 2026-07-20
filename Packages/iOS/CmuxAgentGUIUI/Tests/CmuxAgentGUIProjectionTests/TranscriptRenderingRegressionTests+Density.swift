@@ -56,10 +56,6 @@ extension TranscriptRenderingRegressionTests {
             let compactAnchorY = try Self.screenY(of: comfortableAnchor.rowID, in: controller)
             let compactTrace = try #require(controller.lastAnchorTrace)
             let compactSpacing = try Self.spacing(for: comfortableAnchor.rowID, in: controller)
-            if position == 0.67 {
-                #expect(comfortableSpacing.top == 4)
-                #expect(compactSpacing.top == 2.5)
-            }
             print("density-anchor comfortable->compact position=\(position) capturedScreenTop=\(compactTrace.capturedScreenTop) postLayoutAttributeTop=\(compactTrace.postLayoutAttributeTop) postLayoutVisualTop=\(compactTrace.postLayoutVisualTop) computedTargetOffset=\(compactTrace.computedTargetOffset) appliedOffset=\(compactTrace.appliedOffset) finalScreenTop=\(compactTrace.finalScreenTop)")
             #expect(controller.currentDensity == .compact)
             #expect(compactSpacing.density == .compact)

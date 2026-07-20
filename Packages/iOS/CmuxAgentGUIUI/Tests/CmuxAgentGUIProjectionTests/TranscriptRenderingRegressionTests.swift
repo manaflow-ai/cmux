@@ -129,57 +129,41 @@ import UIKit
         #expect(cell.contentView.backgroundColor == UIColor.clear)
     }
 
-    @Test func reusedSummaryCellDoesNotCarryExpansionToAnotherTurn() {
+    @Test func reusedSummaryCellKeepsStableHeightAcrossTurns() {
         let theme = AgentGUITheme(terminalTheme: .monokai)
         let cell = TranscriptCollectionCell(frame: CGRect(x: 0, y: 0, width: 390, height: 200))
-        let expandedRow = Self.summaryRow(journal: "summary-a", promptSeq: 1)
-        let collapsedRow = Self.summaryRow(journal: "summary-b", promptSeq: 2)
+        let firstRow = Self.summaryRow(journal: "summary-a", promptSeq: 1)
+        let secondRow = Self.summaryRow(journal: "summary-b", promptSeq: 2)
 
         cell.configure(
-            row: expandedRow,
+            row: firstRow,
             spacing: TranscriptRowSpacing(top: 0, bottom: 0),
             theme: theme,
-            isActivitySummaryExpanded: true,
             answeringAskID: nil,
             failedAskID: nil,
-            onToggleActivitySummary: {},
+            onShowActivity: { _ in },
             onAnswer: { _, _ in },
             onShowTerminal: {}
         )
-        let expandedHeight = Self.fittingHeight(of: cell)
+        let firstHeight = Self.fittingHeight(of: cell)
 
         cell.configure(
-            row: collapsedRow,
+            row: secondRow,
             spacing: TranscriptRowSpacing(top: 0, bottom: 0),
             theme: theme,
-            isActivitySummaryExpanded: false,
             answeringAskID: nil,
             failedAskID: nil,
-            onToggleActivitySummary: {},
+            onShowActivity: { _ in },
             onAnswer: { _, _ in },
             onShowTerminal: {}
         )
-        let collapsedHeight = Self.fittingHeight(of: cell)
+        let secondHeight = Self.fittingHeight(of: cell)
 
-        #expect(cell.row?.turnID == collapsedRow.turnID)
-        #expect(collapsedHeight < expandedHeight)
+        #expect(cell.row?.turnID == secondRow.turnID)
+        #expect(abs(firstHeight - secondHeight) < 0.5)
     }
 
-    @Test func projectionPrunesExpansionStateForDepartedTurns() {
-        let controller = TranscriptListViewController(theme: AgentGUITheme(terminalTheme: .monokai))
-        let departedTurn = TranscriptTurnID(
-            journalID: JournalID(rawValue: "departed"),
-            promptSeq: EntrySeq(rawValue: 1),
-            segmentAnchorSeq: EntrySeq(rawValue: 1)
-        )
-        controller.expandedActivityTurnIDs.insert(departedTurn)
-
-        controller.apply(input: TranscriptProjectionInput(entries: []))
-
-        #expect(controller.expandedActivityTurnIDs.isEmpty)
-    }
-
-    @Test func summaryToggleLeavesVisibleCellLayersAnimationFree() throws {
+    @Test func activityPresentationDoesNotMutateSnapshotOrLayout() throws {
         let controller = TranscriptListViewController(theme: AgentGUITheme(terminalTheme: .monokai))
         controller.loadViewIfNeeded()
         controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
@@ -224,10 +208,23 @@ import UIKit
         let summaryCell = try #require(controller.collectionView.visibleCells.first {
             ($0 as? TranscriptCollectionCell)?.row?.rowID == summaryRow.rowID
         } as? TranscriptCollectionCell)
+        guard case .activitySummary(let summary) = summaryRow.rowKind,
+              let turnID = summaryRow.turnID
+        else {
+            Issue.record("Expected an activity summary with a turn identity")
+            return
+        }
+        let snapshotIDs = controller.dataSource.snapshot().itemIdentifiers
+        let initialFrame = summaryCell.frame
+        var presentedDetails: TranscriptActivityDetails?
+        controller.applyActivityPresentation { presentedDetails = $0 }
 
-        controller.toggleActivitySummary(row: summaryRow)
+        controller.onShowActivity(TranscriptActivityDetails(turnID: turnID, summary: summary))
         controller.collectionView.layoutIfNeeded()
 
+        #expect(presentedDetails?.turnID == turnID)
+        #expect(controller.dataSource.snapshot().itemIdentifiers == snapshotIDs)
+        #expect(summaryCell.frame == initialFrame)
         #expect(controller.collectionView.layer.animationKeys()?.isEmpty != false)
         #expect(summaryCell.layer.animationKeys()?.isEmpty != false)
         #expect(summaryCell.contentView.layer.animationKeys()?.isEmpty != false)
