@@ -36,6 +36,61 @@ private func rendererRealizedCallValue(_ index: UInt32) -> Bool
         #expect(surface.isRendererPortalVisible)
         #expect(surface.isRendererRealized)
         #expect(rendererRealizedCalls() == [false, true])
+
+        surface.setRendererPortalVisible(true)
+
+        #expect(rendererRealizedCalls() == [false, true])
+    }
+
+    @Test func visibleRuntimeIsPresentedWithoutRedundantNativeTransition() {
+        let registry = TerminalSurfaceRegistry()
+        let surface = makeSurface(registry: registry)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        resetGhosttyRuntimeStubs()
+        surface.setRendererPortalVisible(true)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        defer {
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+            resetGhosttyRuntimeStubs()
+        }
+
+        #expect(surface.isRendererPortalVisible)
+        #expect(surface.isRendererRealized)
+        #expect(surface.isRendererPresented)
+        #expect(rendererRealizedCalls().isEmpty)
+
+        surface.setRendererPortalVisible(true)
+
+        #expect(rendererRealizedCalls().isEmpty)
+    }
+
+    @Test func reclaimedRuntimeIsRealizedOnceWhenShownAgain() {
+        let registry = TerminalSurfaceRegistry()
+        let surface = makeSurface(registry: registry)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        resetGhosttyRuntimeStubs()
+        surface.setRendererPortalVisible(true)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        defer {
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+            resetGhosttyRuntimeStubs()
+        }
+
+        surface.setRendererPortalVisible(false)
+
+        #expect(surface.releaseRenderer())
+        #expect(!surface.isRendererRealized)
+        #expect(rendererRealizedCalls() == [false])
+
+        surface.setRendererPortalVisible(true)
+        surface.setRendererPortalVisible(true)
+
+        #expect(surface.isRendererPresented)
+        #expect(rendererRealizedCalls() == [false, true])
     }
 
     private func rendererRealizedCalls() -> [Bool] {
