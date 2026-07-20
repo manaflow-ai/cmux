@@ -489,4 +489,111 @@ import Testing
         _ = try? await task.value
     }
 
+    @Test func exactLegacyTailscaleEvidenceCarriesStackBearer() async throws {
+        let macDeviceID = "123e4567-e89b-42d3-a456-426614174004"
+        let route = try hostPortRoute(
+            kind: .tailscale,
+            host: "100.64.0.5",
+            port: 58_465
+        )
+        let evidence = try CmxLegacyTailscaleAuthorizationEvidence(
+            macDeviceID: macDeviceID,
+            host: "100.64.0.5",
+            port: 58_465
+        )
+        let transport = QueuedCancellationProbeTransport()
+        let capture = TransportRequestCapture()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: IntentRecordingTransportFactory(
+                transport: transport,
+                capture: capture
+            ),
+            stackAccessToken: "legacy-stack-token"
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: macDeviceID,
+            macDisplayName: "Legacy Mac",
+            routes: [route],
+            expiresAt: nil,
+            authToken: nil
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            legacyTailscaleAuthorizationEvidence: evidence
+        )
+        let request = try MobileCoreRPCClient.requestData(method: "workspace.list")
+
+        let task = Task { try await client.sendRequest(request) }
+        let sent = try await transport.waitForSentRequestCount(1)
+
+        let frame = try #require(sent.first)
+        #expect(frame.stackAccessToken == "legacy-stack-token")
+        #expect(frame.attachToken == nil)
+        #expect(
+            capture.request()?.authorizationMode
+                == .legacyTailscaleBearer(evidence)
+        )
+        task.cancel()
+        await transport.releaseFirstSend()
+        _ = try? await task.value
+    }
+
+    @Test func mismatchedLegacyTailscaleEvidenceFailsBeforeFetchingBearer() async throws {
+        let route = try hostPortRoute(
+            kind: .tailscale,
+            host: "100.64.0.6",
+            port: 58_465
+        )
+        let evidence = try CmxLegacyTailscaleAuthorizationEvidence(
+            macDeviceID: "123e4567-e89b-42d3-a456-426614174004",
+            host: "100.64.0.5",
+            port: 58_465
+        )
+        let transport = QueuedCancellationProbeTransport()
+        let capture = TransportRequestCapture()
+        let stackTokenRequested = AsyncFlag()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: IntentRecordingTransportFactory(
+                transport: transport,
+                capture: capture
+            ),
+            stackAccessTokenProvider: {
+                await stackTokenRequested.set()
+                return "must-not-cross-mismatched-route"
+            }
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "123e4567-e89b-42d3-a456-426614174004",
+            macDisplayName: "Legacy Mac",
+            routes: [route],
+            expiresAt: nil,
+            authToken: nil
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            legacyTailscaleAuthorizationEvidence: evidence
+        )
+        let request = try MobileCoreRPCClient.requestData(method: "workspace.list")
+
+        do {
+            _ = try await client.sendRequest(request)
+            Issue.record("Expected mismatched legacy route to fail closed")
+        } catch MobileShellConnectionError.insecureManualRoute {
+        } catch {
+            Issue.record("Expected insecureManualRoute, got \(error)")
+        }
+
+        #expect(!(await stackTokenRequested.isSet()))
+        #expect(capture.request() == nil)
+        #expect(try await transport.sentRequests().isEmpty)
+    }
+
 }

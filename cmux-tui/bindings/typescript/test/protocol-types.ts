@@ -9,8 +9,12 @@ import type {
   RenderAttachEvent,
   RenderDeltaEvent,
   RenderStateEvent,
+  Tree,
   TreeDeltaEvent,
 } from "../src/browser.js";
+
+const treeWithPaneRevision: Tree = { pane_revision: 7, workspaces: [] };
+void treeWithPaneRevision;
 
 const requests = [
   { cmd: "identify" },
@@ -23,8 +27,11 @@ const requests = [
   { cmd: "set-window-title", title: "cmux" },
   { cmd: "clear-window-title" },
   { cmd: "list-workspaces" },
+  { cmd: "create-workspace", name: "gui", key: "stable", expected_revision: 4 },
+  { cmd: "create-terminal", key: "stable", command: "echo ready", cols: 80, rows: 24 },
   { cmd: "export-layout", screen: 1 },
   { cmd: "apply-layout", layout: { type: "leaf" } },
+  { cmd: "apply-layout", layout: { type: "stack", panes: [1, 2], expanded: 2 } },
   { cmd: "send", surface: 1, text: "ls\r" },
   { cmd: "send", surface: 1, bytes: "AAEC", paste: true },
   { cmd: "read-screen", surface: 1 },
@@ -35,8 +42,10 @@ const requests = [
   { cmd: "new-browser-tab", url: "https://example.com" },
   { cmd: "new-workspace", name: "sdk" },
   { cmd: "new-screen", workspace: 1 },
+  { cmd: "new-pane", pane: 1 },
   { cmd: "split", pane: 1, dir: "right" },
   { cmd: "set-ratio", pane: 1, dir: "down", ratio: 0.5 },
+  { cmd: "set-split-ratio", split: 2, ratio: 0.5 },
   { cmd: "pane-neighbor", pane: 1, dir: "left" },
   { cmd: "focus-direction", dir: "up" },
   { cmd: "swap-pane", pane: 1, target: 2 },
@@ -74,8 +83,30 @@ const requests = [
 ] satisfies CmuxRequest[];
 
 type IdentifyData = CmuxResponseData<(typeof requests)[0]>;
-const identify: IdentifyData = { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 };
+const identify: IdentifyData = {
+  app: "cmux-tui",
+  version: "0.1.2",
+  build_commit: "cmux-sha",
+  ghostty_commit: null,
+  protocol: 8,
+  session: "main",
+  pid: 1,
+};
 void identify;
+
+type LegacyWorkspaceMutationData = CmuxResponseData<{
+  cmd: "close-workspace";
+  workspace: number;
+}>;
+const legacyWorkspaceMutation: LegacyWorkspaceMutationData = {};
+void legacyWorkspaceMutation;
+
+const stackLayout = {
+  type: "stack",
+  panes: [1, 2, 3],
+  expanded: 3,
+} as const satisfies import("../src/browser.js").Layout;
+void stackLayout;
 
 function surfaceFromKnownEvent(event: KnownCmuxEvent): number | undefined {
   switch (event.event) {
@@ -106,6 +137,7 @@ const colorsChanged: KnownCmuxEvent = {
   cursor: null,
   selection_bg: null,
   selection_fg: null,
+  palette: { "4": "#ff4f8b" },
   cursor_style: "bar",
   cursor_blink: false,
 };
@@ -124,6 +156,7 @@ const protocolV7Resize: KnownCmuxEvent = {
   cols: 80,
   rows: 24,
   replay: "cmVwbGF5",
+  colors: colorsChanged,
 };
 const clientEvents: KnownCmuxEvent[] = [
   { event: "client-attached", client: 2, transport: "ws", name: "browser", kind: "web" },
@@ -182,13 +215,56 @@ const treeDelta: TreeDeltaEvent = {
     dead: false,
   },
 };
+const legacyWorkspaceDelta: TreeDeltaEvent = {
+  event: "workspace-added",
+  workspace: 1,
+  index: 0,
+  entity: {
+    id: 1,
+    name: "legacy",
+    active: true,
+    screens: [],
+  },
+};
+const movedWorkspaceDelta: TreeDeltaEvent = {
+  event: "workspace-moved",
+  workspace: 1,
+  index: 0,
+  workspace_revision: 2,
+  entity: {
+    id: 1,
+    key: "stable",
+    name: "moved",
+    active: true,
+    screens: [],
+  },
+};
+// `workspace-moved` was introduced with the registry capability, so it has no
+// legacy shape without a revision and stable key.
+// @ts-expect-error missing registry revision and stable key
+const invalidMovedWorkspaceDelta: TreeDeltaEvent = {
+  event: "workspace-moved",
+  workspace: 1,
+  index: 0,
+  entity: {
+    id: 1,
+    name: "moved",
+    active: true,
+    screens: [],
+  },
+};
 void renderState;
 void renderDelta;
 void treeDelta;
+void legacyWorkspaceDelta;
+void movedWorkspaceDelta;
+void invalidMovedWorkspaceDelta;
 
 async function typedAttachModes(client: CmuxClient): Promise<void> {
   const bytes: CmuxStream<DecodedAttachEvent> = await client.attachSurface(1);
   const render: CmuxStream<RenderAttachEvent> = await client.attachSurface(1, { mode: "render" });
+  // @ts-expect-error Initial attach dimensions are an all-or-nothing pair.
+  void client.attachSurface(1, { cols: 80 });
   bytes.close();
   render.close();
 }
@@ -197,3 +273,13 @@ void typedAttachModes;
 // @ts-expect-error `read-screen` requires a surface id.
 const invalidRequest: CmuxRequest = { cmd: "read-screen" };
 void invalidRequest;
+
+// @ts-expect-error Registry terminal creation requires a workspace id or stable key.
+const invalidTerminalSelector: CmuxRequest = { cmd: "create-terminal" };
+// @ts-expect-error Workspace close requires a workspace id or stable key.
+const invalidCloseSelector: CmuxRequest = { cmd: "close-workspace" };
+// @ts-expect-error Workspace move requires a workspace id or stable key.
+const invalidMoveSelector: CmuxRequest = { cmd: "move-workspace", index: 0 };
+void invalidTerminalSelector;
+void invalidCloseSelector;
+void invalidMoveSelector;

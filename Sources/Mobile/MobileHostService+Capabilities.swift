@@ -1,6 +1,8 @@
 import Foundation
 
 extension MobileHostService {
+    nonisolated static let irohArtifactLaneCapability = "iroh.artifact_lane.v1"
+
     /// The single source of truth for the capabilities advertised to mobile
     /// clients via `mobile.host.status`. Every status path (the public-status
     /// cache, the network status gate, and `TerminalController`'s

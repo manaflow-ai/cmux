@@ -27,6 +27,7 @@ import ObjectiveC.runtime
 import Darwin
 import CmuxFoundation
 import CmuxSidebar
+import CmuxGit
 
 private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
@@ -664,6 +665,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
+#if DEBUG
+    private(set) var pullRequestProbeService = PullRequestProbeService(debugLog: { cmuxDebugLog($0) })
+#else
+    private(set) var pullRequestProbeService = PullRequestProbeService()
+#endif
 
     /// Notification jump/open navigation, extracted into `CmuxNotifications`. `AppDelegate` is the
     /// composition root: it conforms to every seam (see `AppDelegate+NotificationNavSeams.swift`)
@@ -2032,6 +2038,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         auth: MacAuthComposition
     ) {
         self.tabManager = tabManager
+        // SwiftUI constructs the initial TabManager before this delegate is
+        // available; adopt its coordinator so every later window shares it.
+        pullRequestProbeService = tabManager.pullRequestProbeService
         self.settingsRuntime = settingsRuntime
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
@@ -8567,7 +8576,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialWorkingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil,
-            pullRequestProbeService: self.tabManager?.pullRequestProbeService,
+            pullRequestProbeService: pullRequestProbeService,
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
         )
         tabManager.windowId = windowId

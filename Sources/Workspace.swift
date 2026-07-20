@@ -11481,7 +11481,10 @@ extension Workspace: BonsplitDelegate {
                         "to=\(panelId.uuidString.prefix(5))"
                     )
 #endif
-                    terminalPanel.hostedView.moveFocus(from: previousTerminalHostedView)
+                    terminalPanel.hostedView.moveFocus(
+                        from: previousTerminalHostedView,
+                        respectForeignFirstResponder: true
+                    )
                 }
 #if DEBUG
                 cmuxDebugLog(

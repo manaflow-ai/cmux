@@ -458,9 +458,8 @@ class TabManager: ObservableObject {
     // entry points.
     let sidebarGitMetadataService: any SidebarGitMetadataServing
     let pullRequestProbing: any PullRequestProbing
-    /// Process-scoped GitHub transport state. AppDelegate passes this same
-    /// value to every subsequently-created window so their pollers share one
-    /// session, ETag cache, backoff deadline, and request queue.
+    /// GitHub transport state injected process-wide by the app composition root.
+    /// The fallback initializer is retained for isolated `TabManager` tests.
     let pullRequestProbeService: PullRequestProbeService
 
     init(

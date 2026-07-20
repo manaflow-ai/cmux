@@ -55,7 +55,10 @@ actor MobileCoreRPCSession {
     private let didReceiveConnectedCandidate: ConnectedCandidateHook?
     private let diagnosticTransport: DiagnosticTransportKind?
     private let transportConnectObserver: TransportConnectObserver?
-    private var transport: (any CmxByteTransport)?
+    // The getter is internal so the debug-only release-gate extension can
+    // inspect the installed transport. Only this actor's production code can
+    // replace it.
+    private(set) var transport: (any CmxByteTransport)?
     private var connectionTask: ConnectingTask?
     private var installedConnectionID: UUID?
     private var readerTask: Task<Void, Never>?

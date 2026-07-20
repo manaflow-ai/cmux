@@ -13795,7 +13795,10 @@ class TerminalController {
     // MARK: - Mobile Host V2 Methods
 
     @MainActor
-    func mobileHostHandleRPC(_ request: MobileHostRPCRequest) async -> MobileHostRPCResult {
+    func mobileHostHandleRPC(
+        _ request: MobileHostRPCRequest,
+        executionContext: MobileHostRPCExecutionContext? = nil
+    ) async -> MobileHostRPCResult {
         // The mobile data-plane RPC speaks `MobileHostRPCRequest` /
         // `MobileHostRPCResult` and dispatches directly to the app-side
         // `v2Mobile*` bodies. It deliberately does NOT route through the v2
@@ -13842,7 +13845,11 @@ class TerminalController {
         case "mobile.terminal.mouse", "terminal.mouse":
             result = v2MobileTerminalMouse(params: request.params)
         case let method where method.hasPrefix("mobile.terminal.artifact."):
-            result = await v2MobileTerminalArtifactDispatch(method: method, params: request.params)
+            result = await v2MobileTerminalArtifactDispatch(
+                method: method,
+                params: request.params,
+                executionContext: executionContext
+            )
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
         case "workspace.move":
@@ -13850,7 +13857,11 @@ class TerminalController {
         case "workspace.group.action", "workspace.group.create":
             result = request.method == "workspace.group.create" ? v2MobileWorkspaceGroupCreate(params: request.params) : v2MobileWorkspaceGroupAction(params: request.params)
         case let method where method.hasPrefix("mobile.chat."):
-            result = await v2MobileChatDispatch(method: method, params: request.params)
+            result = await v2MobileChatDispatch(
+                method: method,
+                params: request.params,
+                executionContext: executionContext
+            )
         case "workspace.close":
             result = v2MobileWorkspaceClose(params: request.params)
         case "workspace.group.collapse":

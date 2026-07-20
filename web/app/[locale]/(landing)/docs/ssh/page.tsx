@@ -38,6 +38,7 @@ export default async function SshPage({
       <DocsHeading level={2} id="usage">{t("usage")}</DocsHeading>
       <CodeBlock lang="bash">{`cmux ssh user@remote
 cmux ssh user@remote --name "dev server"
+cmux ssh user@remote --command 'omp "investigate auth"'
 cmux ssh user@remote -p 2222
 cmux ssh user@remote -i ~/.ssh/id_ed25519`}</CodeBlock>
       <p>{t("usageDesc")}</p>
@@ -52,6 +53,7 @@ cmux ssh user@remote -i ~/.ssh/id_ed25519`}</CodeBlock>
         </thead>
         <tbody>
           <tr><td><code>--name</code></td><td>{t("flagNameVal")}</td></tr>
+          <tr><td><code>--command</code></td><td>{t("flagCommand")}</td></tr>
           <tr><td><code>-p, --port</code></td><td>{t("flagPort")}</td></tr>
           <tr><td><code>-i, --identity</code></td><td>{t("flagIdentity")}</td></tr>
           <tr><td><code>-o, --ssh-option</code></td><td>{t("flagSshOption")}</td></tr>

@@ -16,8 +16,9 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserSource, BrowserStatus, MuxEvent, PairingChallenge, PaneId, Rect, SplitDir, SplitEdge,
-    SurfaceId, SurfaceKind, WorkspaceId, layout_screen, split_for_pane_edge, split_sides,
+    BrowserSource, BrowserStatus, Direction, MuxEvent, PairingChallenge, PaneId, Rect, SplitDir,
+    SplitEdge, SplitId, SurfaceId, SurfaceKind, WorkspaceId, exact_split_for_pane_edge,
+    layout_screen, split_sides, zellij_default_pane_layout,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -1655,20 +1656,24 @@ impl OrderedSession {
         Ok(())
     }
 
-    pub fn set_ratio(&self, pane: PaneId, dir: SplitDir, ratio: f32) {
-        self.set_ratio_deferred(pane, dir, ratio);
+    pub fn new_pane(&self, pane: PaneId, size: Option<(u16, u16)>) -> anyhow::Result<()> {
+        self.enqueue_with_completion("create pane", true, move |session| {
+            let surface = session.new_pane(pane, size)?;
+            Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
+        });
+        Ok(())
+    }
+
+    pub fn set_split_ratio(&self, split: SplitId, ratio: f32) {
+        self.set_split_ratio_deferred(split, ratio);
         self.settle_split_ratio();
     }
 
-    fn set_ratio_deferred(&self, pane: PaneId, dir: SplitDir, ratio: f32) {
-        let direction = match dir {
-            SplitDir::Right => "horizontal split ratio",
-            SplitDir::Down => "vertical split ratio",
-        };
+    fn set_split_ratio_deferred(&self, split: SplitId, ratio: f32) {
         self.enqueue_coalescing_session_mutation(
-            "resize pane split",
-            (direction, pane),
-            move |session| session.set_ratio(pane, dir, ratio),
+            "resize exact pane split",
+            ("split id", split),
+            move |session| session.set_split_ratio(split, ratio),
         );
     }
 
@@ -2418,6 +2423,60 @@ struct DeferredInput {
     sidebar_focus_intent: bool,
 }
 
+#[derive(Default)]
+struct PaneFocusHistory {
+    next_sequence: u64,
+    recency: HashMap<PaneId, u64>,
+    baseline: HashMap<PaneId, u64>,
+    membership_revision: Option<u64>,
+    membership_initialized: bool,
+}
+
+impl PaneFocusHistory {
+    fn record(&mut self, pane: PaneId) {
+        self.next_sequence = self.next_sequence.saturating_add(1);
+        self.recency.insert(pane, self.next_sequence);
+    }
+
+    fn recency(&self, pane: PaneId) -> (bool, u64) {
+        self.recency
+            .get(&pane)
+            .copied()
+            .map(|sequence| (true, sequence))
+            .unwrap_or_else(|| (false, self.baseline.get(&pane).copied().unwrap_or_default()))
+    }
+
+    fn reconcile_membership(&mut self, tree: &TreeView) {
+        let live = tree
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .map(|pane| pane.id)
+            .collect::<HashSet<_>>();
+        self.recency.retain(|pane, _| live.contains(pane));
+        self.baseline.retain(|pane, _| live.contains(pane));
+        for pane in tree
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+        {
+            self.baseline.entry(pane.id).or_insert(pane.focused_at);
+        }
+        self.membership_revision = tree.pane_revision;
+        self.membership_initialized = true;
+    }
+
+    fn sync_membership(&mut self, tree: &TreeView) {
+        if !self.membership_initialized
+            || tree.pane_revision.is_some() && self.membership_revision != tree.pane_revision
+        {
+            self.reconcile_membership(tree);
+        }
+    }
+}
+
 pub struct App {
     pub session: OrderedSession,
     pub config: Config,
@@ -2429,6 +2488,10 @@ pub struct App {
     pub graphics_supported: bool,
     stdout_lock: Arc<Mutex<()>>,
     pub pane_areas: Vec<PaneArea>,
+    pane_focus_history: PaneFocusHistory,
+    /// Terminal cells actually represented by the last rendered snapshot.
+    /// Foreign-viewer padding outside these bounds is display-only.
+    pub(crate) rendered_terminal_bounds: HashMap<SurfaceId, Rect>,
     /// Surfaces whose active tabs were visible in the previous layout pass.
     /// Attach streams may outlive this set, but only members hold size leases.
     visible_size_surfaces: HashSet<SurfaceId>,
@@ -2578,50 +2641,6 @@ fn content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Option<(u1
     (content.width > 0 && content.height > 0).then_some((content.width, content.height))
 }
 
-fn cell_height_width_ratio(cell_pixels: (u16, u16)) -> u16 {
-    let (width, height) = cell_pixels;
-    if width == 0 || height == 0 {
-        return 4;
-    }
-    ((height as f32 / width as f32).round() as u16).max(1)
-}
-
-fn zellij_smart_direction(content: Rect, ratio: u16) -> Option<SplitDir> {
-    let rows = content.height as u32;
-    let cols = content.width as u32;
-    let ratio = ratio as u32;
-    if rows.saturating_mul(ratio) > cols && rows > 20 {
-        Some(SplitDir::Down)
-    } else if cols > 60 {
-        Some(SplitDir::Right)
-    } else {
-        None
-    }
-}
-
-fn smart_split_target(
-    areas: &[PaneArea],
-    focused: Option<PaneId>,
-    cell_pixels: (u16, u16),
-) -> Option<(PaneId, SplitDir)> {
-    let ratio = cell_height_width_ratio(cell_pixels);
-    if let Some(area) = focused.and_then(|pane| areas.iter().find(|area| area.pane == pane))
-        && let Some(dir) = zellij_smart_direction(area.content, ratio)
-    {
-        return Some((area.pane, dir));
-    }
-    areas
-        .iter()
-        .filter_map(|area| {
-            zellij_smart_direction(area.content, ratio).map(|dir| {
-                let area_score = area.content.width as u32 * area.content.height as u32;
-                (area_score, area.pane, dir)
-            })
-        })
-        .max_by_key(|(area_score, _, _)| *area_score)
-        .map(|(_, pane, dir)| (pane, dir))
-}
-
 fn browser_content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Option<(u16, u16)> {
     let (_, _, content, _) = pane_parts_for_rect(rect, scrollbar, true);
     (content.width > 0 && content.height > 0).then_some((content.width, content.height))
@@ -2664,6 +2683,10 @@ fn pane_parts_for_rect(
         None
     };
     (bar, omnibar, content, track)
+}
+
+fn stacked_header_parts_for_rect(rect: Rect) -> (Option<Rect>, Option<Rect>, Rect, Option<Rect>) {
+    (Some(rect), None, Rect { y: rect.y.saturating_add(rect.height), height: 0, ..rect }, None)
 }
 
 pub fn run(
@@ -2804,6 +2827,8 @@ pub fn run(
         graphics_supported,
         stdout_lock: stdout_lock.clone(),
         pane_areas: Vec::new(),
+        pane_focus_history: PaneFocusHistory::default(),
+        rendered_terminal_bounds: HashMap::new(),
         visible_size_surfaces: HashSet::new(),
         pending_size_releases: HashSet::new(),
         prefix_armed: false,
@@ -3081,11 +3106,12 @@ impl App {
         let Some(workspace) = self.tree.workspaces.get_mut(workspace_index) else { return };
         workspace.active_screen = screen_index;
         let Some(screen) = workspace.screens.get_mut(screen_index) else { return };
-        let Some(pane) = screen.panes.get(pane_index) else { return };
-        screen.active_pane = pane.id;
+        let Some(pane_id) = screen.panes.get(pane_index).map(|pane| pane.id) else { return };
+        screen.active_pane = pane_id;
         if let Some(pane) = screen.panes.get_mut(pane_index) {
             pane.active_tab = tab_index;
         }
+        self.pane_focus_history.record(pane_id);
     }
 
     fn apply_session_cancellation(&mut self) {
@@ -3179,6 +3205,7 @@ impl App {
     }
 
     fn replace_tree(&mut self, mut tree: TreeView) {
+        let previous_active = self.active_pane();
         if self.session.remote {
             preserve_client_view(&self.tree, &mut tree);
         }
@@ -3205,12 +3232,23 @@ impl App {
         for surface in removed_browsers {
             self.browser_input.forget_surface(surface);
         }
+        self.pane_focus_history.sync_membership(&tree);
         self.tree = tree;
+        if self.active_pane() != previous_active
+            && let Some(active) = self.active_pane()
+        {
+            self.pane_focus_history.record(active);
+        }
         self.rebuild_tab_locations();
         self.reapply_mux_titles();
     }
 
     fn replace_authoritative_tree(&mut self, tree: TreeView, routing_generation: u64) {
+        if tree.pane_revision.is_none() {
+            self.pane_focus_history.reconcile_membership(&tree);
+        } else {
+            self.pane_focus_history.sync_membership(&tree);
+        }
         let live_surfaces = tree
             .workspaces
             .iter()
@@ -3411,6 +3449,9 @@ impl App {
             if surface.kind() != SurfaceKind::Browser {
                 continue;
             }
+            if area.content.width == 0 || area.content.height == 0 {
+                continue;
+            }
             if self.browser_graphic_occluded(area.content) {
                 continue;
             }
@@ -3536,9 +3577,9 @@ impl App {
             .active_screen()
             .map(|screen| {
                 if let Some(pane) = screen.zoomed_pane {
-                    layout_screen(&cmux_tui_core::Node::Leaf(pane), area)
+                    layout_screen(&cmux_tui_core::Node::Leaf(pane), area, Some(pane))
                 } else {
-                    layout_screen(&screen.layout, area)
+                    layout_screen(&screen.layout, area, Some(screen.active_pane))
                 }
             })
             .unwrap_or_default();
@@ -3559,13 +3600,17 @@ impl App {
             }
             return;
         };
+        let stacked_headers = layout.stacked_headers;
         for (pane_id, rect) in layout.panes {
             let Some(pane) = screen.pane(pane_id) else { continue };
             let Some(surface_id) = pane.active_surface() else { continue };
             let has_browser_omnibar =
                 pane.tabs.get(pane.active_tab).is_some_and(|tab| tab.kind == SurfaceKind::Browser);
-            let (bar, omnibar, content, track) =
-                pane_parts_for_rect(rect, self.config.scrollbar.position, has_browser_omnibar);
+            let (bar, omnibar, content, track) = if stacked_headers.contains(&pane_id) {
+                stacked_header_parts_for_rect(rect)
+            } else {
+                pane_parts_for_rect(rect, self.config.scrollbar.position, has_browser_omnibar)
+            };
             self.pane_areas.push(PaneArea {
                 pane: pane_id,
                 surface: surface_id,
@@ -3606,6 +3651,9 @@ impl App {
         // cached transport state, the shared-size ownership boundary.
         for index in 0..self.pane_areas.len() {
             let area = self.pane_areas[index];
+            if area.content.width == 0 || area.content.height == 0 {
+                continue;
+            }
             let Some(pane) = screen.pane(area.pane) else { continue };
             for tab in &pane.tabs {
                 if self.session.has_surface(tab.surface) {
@@ -3619,10 +3667,6 @@ impl App {
                 {
                     self.session.attach_surface(tab.surface, size);
                 }
-            }
-
-            if area.content.width == 0 || area.content.height == 0 {
-                continue;
             }
             let Some(surface) = self.session.surface(area.surface) else { continue };
             let desired = (area.content.width, area.content.height);
@@ -4623,12 +4667,24 @@ impl App {
     }
 
     fn new_pane_smart(&mut self) -> anyhow::Result<()> {
-        let Some((pane, dir)) =
-            smart_split_target(&self.pane_areas, self.active_pane(), self.cell_pixels)
-        else {
+        let Some(pane) = self.active_pane() else {
             return Ok(());
         };
-        self.split_pane(pane, dir)
+        let Some(hint) = self.tree.active_screen().and_then(|screen| {
+            let mut panes = Vec::new();
+            screen.layout.pane_ids(&mut panes);
+            panes.push(PaneId::MAX);
+            let layout = zellij_default_pane_layout(&panes)?;
+            let rect = layout_screen(&layout, self.content_area, Some(PaneId::MAX))
+                .rect_of(PaneId::MAX)?;
+            self.size_of_rect(rect)
+        }) else {
+            return Ok(());
+        };
+        if !self.prepare_pty_input_before_mutation() {
+            return Ok(());
+        }
+        self.session.new_pane(pane, Some(hint))
     }
 
     fn new_workspace(&mut self) -> anyhow::Result<()> {
@@ -5068,10 +5124,10 @@ impl App {
             }
             Action::ToggleSidebarView => self.toggle_sidebar_view(),
             Action::FocusSidebar => self.toggle_sidebar_focus(),
-            Action::FocusLeft => self.move_focus(-1, 0),
-            Action::FocusRight => self.move_focus(1, 0),
-            Action::FocusUp => self.move_focus(0, -1),
-            Action::FocusDown => self.move_focus(0, 1),
+            Action::FocusLeft => self.move_focus(Direction::Left),
+            Action::FocusRight => self.move_focus(Direction::Right),
+            Action::FocusUp => self.move_focus(Direction::Up),
+            Action::FocusDown => self.move_focus(Direction::Down),
             Action::FocusNextPane => self.focus_next_pane(),
             Action::SwapPanePrev => self.swap_pane_by_order(-1),
             Action::SwapPaneNext => self.swap_pane_by_order(1),
@@ -5380,13 +5436,25 @@ impl App {
         Ok(())
     }
 
-    fn move_focus(&mut self, dx: i32, dy: i32) {
-        let Some(active) = self.active_pane() else { return };
-        // Re-derive the layout geometry from the frame's pane areas.
-        let layout = cmux_tui_core::LayoutResult {
-            panes: self.pane_areas.iter().map(|a| (a.pane, a.rect)).collect(),
+    fn move_focus(&mut self, direction: Direction) {
+        let Some(screen) = self.tree.active_screen() else { return };
+        if screen.zoomed_pane.is_some() {
+            return;
+        }
+        let active = screen.active_pane;
+        let (dx, dy) = match direction {
+            Direction::Left => (-1, 0),
+            Direction::Right => (1, 0),
+            Direction::Up => (0, -1),
+            Direction::Down => (0, 1),
         };
-        if let Some(next) = layout.neighbor(active, dx, dy) {
+        let layout = cmux_tui_core::LayoutResult {
+            panes: self.pane_areas.iter().map(|area| (area.pane, area.rect)).collect(),
+            ..Default::default()
+        };
+        if let Some(next) =
+            layout.neighbor_by_recency(active, dx, dy, |pane| self.pane_focus_history.recency(pane))
+        {
             self.focus_pane_after_input(next);
         }
     }
@@ -5862,12 +5930,18 @@ impl App {
         {
             return PtyMousePressResult::NotOwned;
         }
+        let Some(content) = self.terminal_input_rect(&area) else {
+            return PtyMousePressResult::NotOwned;
+        };
+        if !content.contains(x, y) {
+            return PtyMousePressResult::NotOwned;
+        }
         let Some(handle) = self.session.surface(area.surface) else {
             return PtyMousePressResult::Consumed;
         };
         let (release_capture, forwarded) = self.prepare_pty_mouse_press(
             (area.surface, handle.clone()),
-            area.content,
+            content,
             x,
             y,
             button,
@@ -5899,7 +5973,7 @@ impl App {
             handle: Some(handle),
             reservation_id,
             release_bytes,
-            content: area.content,
+            content,
             button,
             position: (x, y),
             modifiers,
@@ -6170,10 +6244,14 @@ impl App {
         {
             return false;
         }
+        let Some(content) = self.terminal_input_rect(&area) else { return false };
+        if !content.contains(x, y) {
+            return false;
+        }
         if action == MouseAction::Motion {
             return self.forward_pty_mouse_motion_if_uncontended(
                 area.surface,
-                area.content,
+                content,
                 (x, y),
                 None,
                 modifiers,
@@ -6182,7 +6260,7 @@ impl App {
         }
         self.forward_pty_mouse_to_surface(
             area.surface,
-            area.content,
+            content,
             x,
             y,
             action,
@@ -6388,14 +6466,20 @@ impl App {
 
     fn focus_pane_after_input(&mut self, pane: PaneId) {
         if self.prepare_pty_input_before_mutation() {
-            if self.session.remote
+            let focused = if self.session.remote
                 && let Some(screen) = self.tree.active_workspace_mut_screen()
                 && screen.panes.iter().any(|candidate| candidate.id == pane)
             {
                 screen.active_pane = pane;
-            }
-            if !self.session.remote {
+                true
+            } else if !self.session.remote {
                 self.session.focus_pane(pane);
+                true
+            } else {
+                false
+            };
+            if focused {
+                self.pane_focus_history.record(pane);
             }
         }
     }
@@ -6426,17 +6510,23 @@ impl App {
     }
 
     fn select_screen_for_client(&mut self, index: Option<usize>, delta: Option<isize>) {
+        let mut selected = false;
         if self.session.remote
             && let Some(workspace) = self.tree.active_workspace_mut()
             && !workspace.screens.is_empty()
         {
             if let Some(index) = index.filter(|index| *index < workspace.screens.len()) {
                 workspace.active_screen = index;
+                selected = true;
             } else if let Some(delta) = delta {
                 workspace.active_screen = ((workspace.active_screen as isize + delta)
                     .rem_euclid(workspace.screens.len() as isize))
                     as usize;
+                selected = true;
             }
+        }
+        if selected && let Some(active) = self.active_pane() {
+            self.pane_focus_history.record(active);
         }
         if !self.session.remote {
             self.session.select_screen(index, delta);
@@ -6444,22 +6534,35 @@ impl App {
     }
 
     fn select_workspace_for_client(&mut self, index: Option<usize>, delta: Option<isize>) {
+        let mut selected = false;
         if self.session.remote && !self.tree.workspaces.is_empty() {
             if let Some(index) = index.filter(|index| *index < self.tree.workspaces.len()) {
                 self.tree.active_workspace = index;
+                selected = true;
             } else if let Some(delta) = delta {
                 self.tree.active_workspace = ((self.tree.active_workspace as isize + delta)
                     .rem_euclid(self.tree.workspaces.len() as isize))
                     as usize;
+                selected = true;
             }
+        }
+        if selected && let Some(active) = self.active_pane() {
+            self.pane_focus_history.record(active);
         }
         if !self.session.remote {
             self.session.select_workspace(index, delta);
         }
     }
 
+    fn terminal_input_rect(&self, area: &PaneArea) -> Option<Rect> {
+        self.rendered_terminal_bounds.get(&area.surface).copied()
+    }
+
     fn current_pty_content(&self, surface: SurfaceId) -> Option<Rect> {
-        self.pane_areas.iter().find(|area| area.surface == surface).map(|area| area.content)
+        self.pane_areas
+            .iter()
+            .find(|area| area.surface == surface)
+            .and_then(|area| self.terminal_input_rect(area))
     }
 
     fn cancel_pty_release_reservation(&self) {
@@ -6798,17 +6901,20 @@ impl App {
                     if self.active_pane() != Some(area.pane) {
                         self.focus_pane_after_input(area.pane);
                     }
+                    let Some(content) = self.terminal_input_rect(&area) else {
+                        return Ok(RenderAction::Draw);
+                    };
+                    if !content.contains(x, y) {
+                        return Ok(RenderAction::Draw);
+                    }
                     // Begin a text selection; it becomes visible once the
                     // mouse moves to a second cell.
                     let offset = self.surface_scroll_offset(area.surface);
-                    let cell = (x - area.content.x, offset + (y - area.content.y) as u64);
+                    let cell = (x - content.x, offset + (y - content.y) as u64);
                     self.selection =
                         Some(Selection { surface: area.surface, anchor: cell, head: cell });
-                    self.drag = Some(Drag::Select {
-                        content: area.content,
-                        auto_scroll: None,
-                        col: x - area.content.x,
-                    });
+                    self.drag =
+                        Some(Drag::Select { content, auto_scroll: None, col: x - content.x });
                 }
             } else if self.active_pane() != Some(area.pane) {
                 self.focus_pane_after_input(area.pane);
@@ -6940,10 +7046,10 @@ impl App {
         }
         if let Some(Drag::Workspace { workspace, .. }) = self.drag {
             self.drag = None;
-            if let Some(index) = self.workspace_drop_target_at(x, y)
+            if let Some(insertion) = self.workspace_drop_target_at(x, y)
                 && self.prepare_pty_input_before_mutation()
             {
-                self.session.move_workspace(workspace, index);
+                self.session.move_workspace(workspace, insertion);
             }
             return Ok(RenderAction::Draw);
         }
@@ -7111,45 +7217,43 @@ impl App {
         let Some((edge, target)) = candidates
             .into_iter()
             .filter_map(|(split_edge, pane_edge)| {
-                split_for_pane_edge(&screen.layout, self.content_area, pane, split_edge)
-                    .map(|target| (pane_edge, target))
+                exact_split_for_pane_edge(
+                    &screen.layout,
+                    self.content_area,
+                    Some(screen.active_pane),
+                    pane,
+                    split_edge,
+                )
+                .map(|target| (pane_edge, target))
             })
             .min_by_key(|(_, target)| target.area.width as u32 * target.area.height as u32)
         else {
             return;
         };
-        let (current, dir, sign) = match edge {
+        let (current, sign) = match edge {
             PaneEdge::Left => (
                 (area.rect.x.saturating_sub(target.area.x)) as f32
                     / target.area.width.max(1) as f32,
-                SplitDir::Right,
                 -1.0,
             ),
             PaneEdge::Right => (
                 (area.rect.x + area.rect.width).saturating_sub(target.area.x) as f32
                     / target.area.width.max(1) as f32,
-                SplitDir::Right,
                 1.0,
             ),
             PaneEdge::Top => (
                 (area.rect.y.saturating_sub(target.area.y)) as f32
                     / target.area.height.max(1) as f32,
-                SplitDir::Down,
                 -1.0,
             ),
             PaneEdge::Bottom => (
                 (area.rect.y + area.rect.height).saturating_sub(target.area.y) as f32
                     / target.area.height.max(1) as f32,
-                SplitDir::Down,
                 1.0,
             ),
         };
         if self.prepare_pty_input_before_mutation() {
-            self.session.set_ratio(
-                target.set_pane,
-                dir,
-                (current + delta * sign).clamp(0.05, 0.95),
-            );
+            self.session.set_split_ratio(target.split, (current + delta * sign).clamp(0.05, 0.95));
         }
     }
 
@@ -7161,26 +7265,27 @@ impl App {
             PaneEdge::Top => SplitEdge::Top,
             PaneEdge::Bottom => SplitEdge::Bottom,
         };
-        let Some(target) = split_for_pane_edge(&screen.layout, self.content_area, pane, split_edge)
-        else {
+        let Some(target) = exact_split_for_pane_edge(
+            &screen.layout,
+            self.content_area,
+            Some(screen.active_pane),
+            pane,
+            split_edge,
+        ) else {
             return;
         };
-        let (coord, start, extent, dir) = match edge {
-            PaneEdge::Left => (x, target.area.x, target.area.width, SplitDir::Right),
-            PaneEdge::Right => {
-                (x.saturating_add(1), target.area.x, target.area.width, SplitDir::Right)
-            }
-            PaneEdge::Top => (y, target.area.y, target.area.height, SplitDir::Down),
-            PaneEdge::Bottom => {
-                (y.saturating_add(1), target.area.y, target.area.height, SplitDir::Down)
-            }
+        let (coord, start, extent) = match edge {
+            PaneEdge::Left => (x, target.area.x, target.area.width),
+            PaneEdge::Right => (x.saturating_add(1), target.area.x, target.area.width),
+            PaneEdge::Top => (y, target.area.y, target.area.height),
+            PaneEdge::Bottom => (y.saturating_add(1), target.area.y, target.area.height),
         };
         if extent == 0 {
             return;
         }
         let ratio = (coord.saturating_sub(start) as f32 / extent as f32).clamp(0.05, 0.95);
         if self.prepare_pty_input_before_mutation() {
-            self.session.set_ratio_deferred(target.set_pane, dir, ratio);
+            self.session.set_split_ratio_deferred(target.split, ratio);
         }
     }
 
@@ -7253,6 +7358,12 @@ impl App {
             return Ok(RenderAction::None);
         }
         let Some(area) = self.pane_area_at(x, y).copied() else { return Ok(RenderAction::None) };
+        if self.surface_kind(area.surface) == Some(SurfaceKind::Pty)
+            && area.content.contains(x, y)
+            && !self.terminal_input_rect(&area).is_some_and(|rect| rect.contains(x, y))
+        {
+            return Ok(RenderAction::None);
+        }
         if self.active_pane() != Some(area.pane) {
             self.focus_pane_after_input(area.pane);
         }
@@ -7327,6 +7438,12 @@ impl App {
         let Some(area) = self.pane_area_at(x, y).copied() else {
             return Ok(RenderAction::None);
         };
+        if self.surface_kind(area.surface) == Some(SurfaceKind::Pty)
+            && area.content.contains(x, y)
+            && !self.terminal_input_rect(&area).is_some_and(|rect| rect.contains(x, y))
+        {
+            return Ok(RenderAction::None);
+        }
         if self.active_pane() != Some(area.pane) {
             self.focus_pane_after_input(area.pane);
         }
@@ -7516,7 +7633,7 @@ mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag,
         ForwardMuxOutcome, MenuAction, MenuItem, MuxTitleIngress, OrderedSession, PaneArea,
-        PendingSessionMutation, PendingSessionMutationState, PtyFailureIngress,
+        PaneFocusHistory, PendingSessionMutation, PendingSessionMutationState, PtyFailureIngress,
         PtyMousePressResult, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
         SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
         SurfaceResizeOwnership, browser_content_size_for_rect, browser_hover_forward_allowed,
@@ -7532,7 +7649,8 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use cmux_tui_core::{
-        BrowserStatus, Mux, MuxEvent, Node, Rect, SplitDir, SurfaceId, SurfaceKind, SurfaceOptions,
+        BrowserStatus, Direction, Mux, MuxEvent, Node, Rect, SplitDir, SurfaceId, SurfaceKind,
+        SurfaceOptions, layout_screen,
     };
     use crossterm::event::{
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -7581,6 +7699,302 @@ mod tests {
                 MenuItem::Action(MenuAction::CopyPaneId(pane)),
             ]
         );
+    }
+
+    #[test]
+    fn pane_focus_history_overlays_authoritative_recency() {
+        let mut history = PaneFocusHistory::default();
+        let mut tree = notify_tree(1, false);
+        tree.workspaces[0].screens[0].panes[0].focused_at = 8;
+        history.reconcile_membership(&tree);
+
+        assert_eq!(history.recency(2), (false, 8));
+        history.record(2);
+        assert_eq!(history.recency(2), (true, 1));
+        assert_eq!(history.recency(99), (false, 0));
+    }
+
+    #[test]
+    fn pane_focus_history_prunes_closed_panes() {
+        let mut history = PaneFocusHistory::default();
+        history.record(2);
+        history.record(99);
+
+        history.reconcile_membership(&notify_tree(1, false));
+
+        assert_eq!(history.recency(2), (true, 1));
+        assert_eq!(history.recency(99), (false, 0));
+    }
+
+    #[test]
+    fn pane_focus_history_freezes_remote_baseline_until_membership_changes() {
+        let mut history = PaneFocusHistory::default();
+        let mut initial = notify_tree(1, false);
+        initial.workspaces[0].screens[0].panes[0].focused_at = 8;
+        history.reconcile_membership(&initial);
+
+        let mut peer_refresh = initial.clone();
+        peer_refresh.workspaces[0].screens[0].panes[0].focused_at = 99;
+        history.sync_membership(&peer_refresh);
+
+        assert_eq!(history.recency(2), (false, 8));
+    }
+
+    #[test]
+    fn pane_focus_history_reconciles_exact_same_size_membership_changes() {
+        let mut history = PaneFocusHistory::default();
+        history.record(2);
+        history.reconcile_membership(&notify_tree(1, false));
+
+        let mut replacement = notify_tree(2, false);
+        let screen = &mut replacement.workspaces[0].screens[0];
+        screen.active_pane = 99;
+        screen.layout = Node::Leaf(99);
+        screen.panes[0].id = 99;
+        screen.panes[0].focused_at = 5;
+        replacement.pane_revision = Some(2);
+        history.sync_membership(&replacement);
+
+        assert_eq!(history.recency(2), (false, 0));
+        assert_eq!(history.recency(99), (false, 5));
+    }
+
+    #[test]
+    fn directional_focus_uses_client_history_and_visible_geometry() {
+        let mux = Mux::new("directional-focus-memory-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        let left = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(left, SplitDir::Right, Some((40, 30))).unwrap();
+        let top_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(top_right, SplitDir::Down, Some((40, 15))).unwrap();
+        let bottom_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        assert!(mux.focus_pane(left));
+
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 31));
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            app.handle(event).unwrap();
+        }
+        app.session.remote = true;
+
+        app.move_focus(Direction::Right);
+        assert_eq!(app.active_pane(), Some(bottom_right));
+        app.move_focus(Direction::Left);
+        assert_eq!(app.active_pane(), Some(left));
+        app.focus_pane_after_input(top_right);
+        app.move_focus(Direction::Left);
+        app.move_focus(Direction::Right);
+        assert_eq!(app.active_pane(), Some(top_right));
+
+        app.tree.active_workspace_mut_screen().unwrap().zoomed_pane = Some(top_right);
+        app.move_focus(Direction::Left);
+        assert_eq!(app.active_pane(), Some(top_right));
+
+        app.tree.active_workspace_mut_screen().unwrap().zoomed_pane = None;
+        app.focus_pane_after_input(left);
+        app.pane_areas.iter_mut().find(|area| area.pane == top_right).unwrap().content.height = 0;
+        app.move_focus(Direction::Right);
+        assert_eq!(app.active_pane(), Some(top_right));
+
+        app.focus_pane_after_input(left);
+        app.pane_areas.iter_mut().find(|area| area.pane == top_right).unwrap().rect.height = 0;
+        app.move_focus(Direction::Right);
+        assert_eq!(app.active_pane(), Some(bottom_right));
+        assert_eq!(Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane, left);
+        assert!(!app.session.has_pending_mutations());
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface);
+        }
+    }
+
+    #[test]
+    fn remote_screen_switch_records_the_new_active_pane() {
+        let mux = Mux::new("remote-screen-focus-memory-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        let workspace = Session::Local(mux.clone()).tree().active_workspace().unwrap().id;
+        mux.new_screen(Some(workspace), Some((80, 30))).unwrap();
+        let left = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(left, SplitDir::Right, Some((40, 30))).unwrap();
+        let top_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(top_right, SplitDir::Down, Some((40, 15))).unwrap();
+        let bottom_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.select_screen(Some(0), None);
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.session.remote = true;
+        app.select_screen_for_client(Some(1), None);
+        app.sync_layout((80, 31));
+
+        app.move_focus(Direction::Left);
+        assert_eq!(app.active_pane(), Some(left));
+        app.move_focus(Direction::Right);
+        assert_eq!(app.active_pane(), Some(bottom_right));
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface);
+        }
+    }
+
+    #[test]
+    fn remote_workspace_switch_records_the_new_active_pane() {
+        let mux = Mux::new("remote-workspace-focus-memory-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        let left = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(left, SplitDir::Right, Some((40, 30))).unwrap();
+        let top_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(top_right, SplitDir::Down, Some((40, 15))).unwrap();
+        let bottom_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.select_workspace(Some(0), None);
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.session.remote = true;
+        app.select_workspace_for_client(Some(1), None);
+        app.sync_layout((80, 31));
+
+        app.move_focus(Direction::Left);
+        assert_eq!(app.active_pane(), Some(left));
+        app.move_focus(Direction::Right);
+        assert_eq!(app.active_pane(), Some(bottom_right));
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface);
+        }
+    }
+
+    #[test]
+    fn alt_n_uses_zellij_default_vertical_distribution() {
+        let (mux, _) = test_mux("alt-n-zellij-layout-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+
+        for _ in 0..4 {
+            app.sync_layout((200, 40));
+            app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
+            while app.session.has_pending_mutations() {
+                let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+                app.handle(event).unwrap();
+            }
+        }
+
+        let screen = app.tree.active_screen().unwrap();
+        let mut panes = Vec::new();
+        screen.layout.pane_ids(&mut panes);
+        panes.sort_unstable();
+        assert_eq!(panes.len(), 5);
+
+        let layout = layout_screen(
+            &screen.layout,
+            Rect { x: 0, y: 0, width: 200, height: 40 },
+            Some(screen.active_pane),
+        );
+        assert_eq!(
+            layout.panes,
+            vec![
+                (panes[0], Rect { x: 0, y: 0, width: 100, height: 40 }),
+                (panes[1], Rect { x: 100, y: 0, width: 100, height: 10 }),
+                (panes[2], Rect { x: 100, y: 10, width: 100, height: 10 }),
+                (panes[3], Rect { x: 100, y: 20, width: 100, height: 10 }),
+                (panes[4], Rect { x: 100, y: 30, width: 100, height: 10 }),
+            ]
+        );
+
+        for _ in 0..8 {
+            app.sync_layout((200, 40));
+            app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
+            while app.session.has_pending_mutations() {
+                let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+                app.handle(event).unwrap();
+            }
+        }
+
+        let screen = app.tree.active_screen().unwrap();
+        let mut panes = Vec::new();
+        screen.layout.pane_ids(&mut panes);
+        panes.sort_unstable();
+        assert_eq!(panes.len(), 13);
+
+        let layout = layout_screen(
+            &screen.layout,
+            Rect { x: 0, y: 0, width: 200, height: 40 },
+            Some(screen.active_pane),
+        );
+        assert_eq!(layout.panes[0], (panes[0], Rect { x: 0, y: 0, width: 100, height: 40 }));
+        for (index, (pane, rect)) in layout.panes[1..12].iter().enumerate() {
+            assert_eq!(*pane, panes[index + 1]);
+            assert_eq!(*rect, Rect { x: 100, y: index as u16, width: 100, height: 1 });
+        }
+        assert_eq!(layout.panes[12], (panes[12], Rect { x: 100, y: 11, width: 100, height: 29 }));
+
+        app.sync_layout((200, 41));
+        let leading = app.pane_areas.iter().find(|area| area.pane == panes[0]).unwrap();
+        assert_eq!(leading.rect, Rect { x: 0, y: 0, width: 100, height: 40 });
+        assert_eq!(leading.bar, Some(Rect { x: 0, y: 0, width: 100, height: 1 }));
+        assert_eq!(leading.content.height, 38);
+        for pane in &panes[1..12] {
+            let area = app.pane_areas.iter().find(|area| area.pane == *pane).unwrap();
+            assert_eq!(area.bar, Some(area.rect));
+            assert_eq!(area.content.height, 0);
+        }
+        let expanded = app.pane_areas.iter().find(|area| area.pane == panes[12]).unwrap();
+        assert_eq!(expanded.rect.height, 29);
+        assert_eq!(expanded.content.height, 27);
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface);
+        }
+    }
+
+    #[test]
+    fn alt_n_rejects_a_new_pane_with_no_visible_content() {
+        let (mux, _) = test_mux("alt-n-zero-content-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+
+        for _ in 0..3 {
+            app.sync_layout((200, 40));
+            app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
+            while app.session.has_pending_mutations() {
+                let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+                app.handle(event).unwrap();
+            }
+        }
+        let before = app.tree.active_screen().unwrap().clone();
+        let mut before_panes = Vec::new();
+        before.layout.pane_ids(&mut before_panes);
+        assert_eq!(before_panes.len(), 4);
+
+        app.sync_layout((200, 4));
+        app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            app.handle(event).unwrap();
+        }
+
+        let after = app.tree.active_screen().unwrap();
+        let mut after_panes = Vec::new();
+        after.layout.pane_ids(&mut after_panes);
+        assert_eq!(after_panes, before_panes);
+        assert_eq!(after.active_pane, before.active_pane);
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface);
+        }
     }
 
     #[test]
@@ -7928,6 +8342,7 @@ mod tests {
             content,
             track: None,
         });
+        app.rendered_terminal_bounds.insert(surface.id, content);
 
         let event = |kind, modifiers| MouseEvent {
             kind,
@@ -8002,6 +8417,7 @@ mod tests {
             .unwrap();
         app.pane_areas[0].content.x += 3;
         let moved_content = app.pane_areas[0].content;
+        app.rendered_terminal_bounds.insert(surface.id, moved_content);
         let moved_event = MouseEvent {
             kind: MouseEventKind::Drag(MouseButton::Left),
             column: moved_content.x + 4,
@@ -8014,6 +8430,7 @@ mod tests {
             .unwrap();
         assert_eq!(app.encode_buf, b"\x1b[<0;5;3m");
         app.pane_areas[0].content = content;
+        app.rendered_terminal_bounds.insert(surface.id, content);
 
         app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE))
             .unwrap();
@@ -8036,6 +8453,136 @@ mod tests {
         assert!(app.encode_buf.is_empty());
         assert!(app.selection.is_some());
         assert!(matches!(app.drag, Some(Drag::Select { .. })));
+
+        mux.close_surface(surface.id);
+    }
+
+    #[test]
+    fn foreign_viewport_rejects_pty_mouse_input_outside_rendered_grid() {
+        let mux = Mux::new(
+            "foreign-viewport-mouse-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("work".to_string()), Some((12, 5))).unwrap();
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let content = Rect { x: 2, y: 3, width: 20, height: 8 };
+        let live = Rect { x: content.x, y: content.y, width: 12, height: 5 };
+        app.pane_areas.push(PaneArea {
+            pane,
+            surface: surface.id,
+            rect: Rect { x: 1, y: 2, width: 23, height: 10 },
+            bar: Some(Rect { x: 1, y: 2, width: 23, height: 1 }),
+            omnibar: None,
+            content,
+            track: None,
+        });
+        app.rendered_terminal_bounds.insert(surface.id, live);
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: live.x + live.width - 1,
+            row: live.y + live.height - 1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<0;12;5M");
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { content: rect, .. }) if rect == live));
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: live.x + live.width - 1,
+            row: live.y + live.height - 1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        app.encode_buf.clear();
+        let dead_column = live.x + live.width;
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: dead_column,
+            row: live.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.encode_buf.is_empty());
+        assert!(app.drag.is_none());
+        assert!(app.selection.is_none());
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: dead_column,
+            row: live.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.menu.is_some());
+        app.menu = None;
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: dead_column,
+            row: live.y,
+            modifiers: KeyModifiers::SHIFT,
+        })
+        .unwrap();
+        assert!(app.selection.is_none());
+        assert!(app.drag.is_none());
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: live.x + 1,
+            row: live.y + 1,
+            modifiers: KeyModifiers::SHIFT,
+        })
+        .unwrap();
+        assert!(matches!(app.drag, Some(Drag::Select { content: rect, .. }) if rect == live));
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + content.width - 1,
+            row: content.y + content.height - 1,
+            modifiers: KeyModifiers::SHIFT,
+        })
+        .unwrap();
+        assert_eq!(app.selection.map(|selection| selection.head), Some((11, 4)));
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: content.x + content.width - 1,
+            row: content.y + content.height - 1,
+            modifiers: KeyModifiers::SHIFT,
+        })
+        .unwrap();
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: dead_column,
+            row: live.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.encode_buf.is_empty());
+
+        app.rendered_terminal_bounds.remove(&surface.id);
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: live.x,
+            row: live.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.encode_buf.is_empty());
+        assert!(app.selection.is_none());
+        assert!(app.drag.is_none());
 
         mux.close_surface(surface.id);
     }
@@ -8117,6 +8664,7 @@ mod tests {
             content,
             track: None,
         });
+        app.rendered_terminal_bounds.insert(surface.id, content);
 
         let held_surface = surface.clone();
         let (locked_tx, locked_rx) = std::sync::mpsc::channel();
@@ -8166,6 +8714,7 @@ mod tests {
             content,
             track: None,
         });
+        app.rendered_terminal_bounds.insert(surface.id, content);
         app.sidebar_focused = true;
 
         assert_eq!(
@@ -10225,6 +10774,13 @@ mod tests {
         mux.new_workspace(None, Some((40, 12))).unwrap();
         let target = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
         mux.split(target, SplitDir::Right, Some((20, 12))).unwrap();
+        let split = mux.with_state(|state| {
+            let root = &state.workspaces[0].screens[0].root;
+            let Node::Split { id, .. } = root else {
+                panic!("expected split root");
+            };
+            *id
+        });
         let (app, events) = test_app_with_events(Session::Local(mux));
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
@@ -10236,7 +10792,7 @@ mod tests {
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
         for ratio in [0.2, 0.4, 0.8] {
-            app.session.set_ratio_deferred(target, SplitDir::Right, ratio);
+            app.session.set_split_ratio_deferred(split, ratio);
         }
         app.session.settle_split_ratio();
         release_tx.send(()).unwrap();
@@ -10516,6 +11072,7 @@ mod tests {
             content,
             track: None,
         });
+        app.rendered_terminal_bounds.insert(surface.id, content);
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
         let event = |button| MouseEvent {
             kind: MouseEventKind::Down(button),
@@ -10681,9 +11238,12 @@ mod tests {
             tabs.push(tab(active_surface));
         }
         TreeView {
+            workspace_revision: 0,
+            pane_revision: Some(1),
             active_workspace: 0,
             workspaces: vec![WorkspaceView {
                 id: 4,
+                key: "00000000-0000-4000-8000-000000000004".to_string(),
                 short_id: "000004".to_string(),
                 name: "work".to_string(),
                 active_screen: 0,
@@ -10700,6 +11260,7 @@ mod tests {
                         name: None,
                         tabs,
                         active_tab: usize::from(active_surface != created_surface),
+                        focused_at: 0,
                     }],
                 }],
             }],
@@ -10815,6 +11376,8 @@ mod tests {
             graphics_supported: false,
             stdout_lock: Arc::new(Mutex::new(())),
             pane_areas: Vec::new(),
+            pane_focus_history: PaneFocusHistory::default(),
+            rendered_terminal_bounds: HashMap::new(),
             visible_size_surfaces: HashSet::new(),
             pending_size_releases: HashSet::new(),
             prefix_armed: false,
@@ -10874,9 +11437,12 @@ mod tests {
 
     fn notify_tree(surface: u64, unread: bool) -> TreeView {
         TreeView {
+            workspace_revision: 0,
+            pane_revision: Some(1),
             active_workspace: 0,
             workspaces: vec![WorkspaceView {
                 id: 4,
+                key: "00000000-0000-4000-8000-000000000004".to_string(),
                 short_id: "000004".to_string(),
                 name: "work".to_string(),
                 active_screen: 0,
@@ -10892,6 +11458,7 @@ mod tests {
                         short_id: "000002".to_string(),
                         name: None,
                         active_tab: 0,
+                        focused_at: 0,
                         tabs: vec![TabView {
                             surface,
                             short_id: "000001".to_string(),
