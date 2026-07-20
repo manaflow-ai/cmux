@@ -49,6 +49,14 @@ struct SidebarScrollViewConfiguratorTests {
                 super.scrollerStyle = newValue
             }
         }
+
+        override var verticalScrollElasticity: NSScrollView.Elasticity {
+            get { super.verticalScrollElasticity }
+            set {
+                configPropertyWrites += 1
+                super.verticalScrollElasticity = newValue
+            }
+        }
     }
 
     @Test func firstApplyEstablishesOverlayConfiguration() {
@@ -60,6 +68,7 @@ struct SidebarScrollViewConfiguratorTests {
         #expect(scrollView.hasVerticalScroller)
         #expect(scrollView.autohidesScrollers)
         #expect(scrollView.scrollerStyle == .overlay)
+        #expect(scrollView.verticalScrollElasticity == .none)
     }
 
     @Test func reapplyToConfiguredScrollViewWritesNothing() {
