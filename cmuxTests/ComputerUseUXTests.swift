@@ -277,17 +277,34 @@ struct ComputerUseUXTests {
     }
 
     @Test @MainActor func unexpectedHelperTerminationRestartsOnlyWhileEnabled() async {
+        let helperURL = URL(fileURLWithPath: "/Applications/cmux Computer Use.app")
         var restartCount = 0
-        let supervisor = ComputerUseHelperSupervisor {
+        let supervisor = ComputerUseHelperSupervisor(
+            helperAppURL: helperURL,
+            helperBundleIdentifier: "com.cmuxterm.app.debug.test.computer-use"
+        ) {
             restartCount += 1
         }
 
         supervisor.setEnabled(true)
-        await supervisor.helperDidTerminate()
+        supervisor.helperDidLaunch(
+            bundleURL: helperURL,
+            bundleIdentifier: "com.cmuxterm.app.debug.test.computer-use",
+            processIdentifier: 101
+        )
+        await supervisor.helperDidTerminate(
+            bundleURL: helperURL,
+            bundleIdentifier: "com.cmuxterm.app.debug.test.computer-use",
+            processIdentifier: 202
+        )
         #expect(restartCount == 1)
 
         supervisor.setEnabled(false)
-        await supervisor.helperDidTerminate()
+        await supervisor.helperDidTerminate(
+            bundleURL: helperURL,
+            bundleIdentifier: "com.cmuxterm.app.debug.test.computer-use",
+            processIdentifier: 303
+        )
         #expect(restartCount == 1, "an intentional disabled state must not self-relaunch")
     }
 
