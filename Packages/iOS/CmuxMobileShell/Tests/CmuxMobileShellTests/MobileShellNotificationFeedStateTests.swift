@@ -23,6 +23,7 @@ struct MobileShellNotificationFeedStateTests {
             displayName: "Laptop"
         ))
         #expect(store.notificationFeedItems.map(\.notificationID) == ["b-new", "a-old"])
+        #expect(store.notificationFeedUnreadCount == 2)
 
         store.notificationFeedKnownRevisionsByMac["mac-a"] = 4
         #expect(!store.applyNotificationFeedSnapshot(
@@ -49,10 +50,12 @@ struct MobileShellNotificationFeedStateTests {
             macDeviceID: "mac",
             displayName: "Mac"
         )
+        #expect(store.notificationFeedUnreadCount == 1)
 
         store.resetNotificationFeed()
 
         #expect(store.notificationFeedItems.isEmpty)
+        #expect(store.notificationFeedUnreadCount == 0)
         #expect(store.notificationFeedSnapshotsByMac.isEmpty)
         #expect(store.notificationFeedStatus == .idle)
     }
@@ -65,6 +68,7 @@ struct MobileShellNotificationFeedStateTests {
             macDeviceID: "mac",
             displayName: "Mac"
         )
+        #expect(store.notificationFeedUnreadCount == 1)
 
         store.applyNotificationFeedReadStateMutation(
             macDeviceID: "mac",
@@ -76,6 +80,7 @@ struct MobileShellNotificationFeedStateTests {
         #expect(store.notificationFeedSnapshotsByMac["mac"]?.revision == 2)
         #expect(store.notificationFeedKnownRevisionsByMac["mac"] == 5)
         #expect(store.notificationFeedItems.first?.isRead == true)
+        #expect(store.notificationFeedUnreadCount == 0)
 
         store.applyNotificationFeedReadStateMutation(
             macDeviceID: "mac",
@@ -87,6 +92,7 @@ struct MobileShellNotificationFeedStateTests {
         #expect(store.notificationFeedSnapshotsByMac["mac"]?.revision == 2)
         #expect(store.notificationFeedKnownRevisionsByMac["mac"] == 6)
         #expect(store.notificationFeedItems.first?.isRead == false)
+        #expect(store.notificationFeedUnreadCount == 1)
     }
 
     @Test("Active ticket preserves the foreground feed before foreground identity settles")
@@ -200,6 +206,79 @@ struct MobileShellNotificationFeedStateTests {
         #expect(store.selectedTerminalID == "surface-retargeted")
         #expect(store.deeplinkWorkspaceNavigationRequest?.origin == .notificationFeed)
         #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == "workspace-live-row")
+    }
+
+    @Test("Open fails closed when a retargetable surface no longer exists")
+    func openFailsClosedForMissingRetargetableSurface() async {
+        var capturedWorkspace = MobileWorkspacePreview(
+            id: "workspace-captured-row",
+            macDeviceID: "mac",
+            name: "Captured",
+            terminals: [MobileTerminalPreview(id: "surface-other", name: "other")]
+        )
+        capturedWorkspace.remoteWorkspaceID = "workspace-captured"
+        let store = MobileShellComposite(
+            connectionState: .connected,
+            workspaces: [capturedWorkspace]
+        )
+        store.foregroundMacDeviceID = "mac"
+        let item = MobileNotificationFeedItem(
+            macDeviceID: "mac",
+            notificationID: "missing-surface",
+            macDisplayName: "Mac",
+            remoteWorkspaceID: "workspace-captured",
+            remoteSurfaceID: "surface-missing",
+            title: "Approval needed",
+            body: "Allow the command?",
+            createdAt: Date(),
+            isRead: true,
+            retargetsToLiveSurfaceOwner: true,
+            connectionStatus: .connected
+        )
+
+        await store.openNotificationFeedItem(item)
+
+        #expect(store.selectedWorkspaceID == "workspace-captured-row")
+        #expect(store.selectedTerminalID == "surface-other")
+        #expect(store.deeplinkWorkspaceNavigationRequest == nil)
+        #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == nil)
+    }
+
+    @Test("Cancelling a pending feed open prevents later navigation")
+    func cancelPendingOpenPreventsNavigation() async {
+        var workspace = MobileWorkspacePreview(
+            id: "workspace-row",
+            macDeviceID: "mac",
+            name: "cmux",
+            terminals: [MobileTerminalPreview(id: "surface", name: "agent")]
+        )
+        workspace.remoteWorkspaceID = "workspace-remote"
+        let store = MobileShellComposite(
+            connectionState: .connected,
+            workspaces: [workspace]
+        )
+        store.foregroundMacDeviceID = "mac"
+        let item = MobileNotificationFeedItem(
+            macDeviceID: "mac",
+            notificationID: "notification",
+            macDisplayName: "Mac",
+            remoteWorkspaceID: "workspace-remote",
+            remoteSurfaceID: "surface",
+            title: "Approval needed",
+            body: "Allow the command?",
+            createdAt: Date(),
+            isRead: true,
+            connectionStatus: .connected
+        )
+
+        store.requestOpenNotificationFeedItem(item)
+        let cancelledTask = store.cancelPendingNotificationFeedOpen()
+        await cancelledTask?.value
+
+        #expect(store.selectedWorkspaceID == "workspace-row")
+        #expect(store.selectedTerminalID == "surface")
+        #expect(store.deeplinkWorkspaceNavigationRequest == nil)
+        #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == nil)
     }
 
     @Test("Open confines a source-scoped notification to its captured workspace")
