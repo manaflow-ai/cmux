@@ -15861,10 +15861,7 @@ private struct SidebarMetadataRows: View {
     }
 
     private var helpText: String {
-        entries.map { entry in
-            let trimmed = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? entry.key : trimmed
-        }
+        entries.map(\.sidebarDisplayText)
         .joined(separator: "\n")
     }
 
@@ -15954,8 +15951,7 @@ private struct SidebarMetadataEntryRow: View {
 
     @ViewBuilder
     private func metadataText(underlined: Bool) -> some View {
-        let trimmed = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
-        let display = trimmed.isEmpty ? entry.key : trimmed
+        let display = entry.sidebarDisplayText
         if entry.format == .markdown,
            let attributed = try? AttributedString(
                 markdown: display,

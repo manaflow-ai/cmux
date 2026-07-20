@@ -267,7 +267,7 @@ extension CmxIrohClientRuntimeTests {
 
         await runtime.stop()
         await gate.open()
-        try? await refresh?.value
+        _ = try? await refresh?.value
 
         #expect(await runtime.snapshot().state == .inactive)
         #expect(await endpoint.observedCloseCallCount() == 1)
@@ -300,7 +300,7 @@ extension CmxIrohClientRuntimeTests {
 
         let preparation = await runtime.deactivateForSignOut()
         await gate.open()
-        try? await refresh?.value
+        _ = try? await refresh?.value
 
         #expect(preparation.wasPersisted)
         #expect(await runtime.snapshot().state == .inactive)

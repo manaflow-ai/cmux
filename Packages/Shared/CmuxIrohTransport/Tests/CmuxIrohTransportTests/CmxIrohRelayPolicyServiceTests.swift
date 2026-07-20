@@ -96,12 +96,13 @@ struct CmxIrohRelayPolicyServiceTests {
         #expect(active.endpointRelayProfile.activeRelays.first?.authenticationToken
             == "private-secret-token")
         let diagnostic = await stores.service.diagnosticsSnapshot()
-        #expect(diagnostic.selectedRelayURLs == [definition.url])
+        #expect(diagnostic.selectedRelayCount == 1)
+        #expect(String(describing: diagnostic).contains(definition.url) == false)
         #expect(String(describing: diagnostic).contains("private-secret-token") == false)
     }
 
     @Test
-    func unavailableCustomCredentialStorageFailsClosed() async throws {
+    func unauthenticatedCustomRelayDoesNotDependOnCredentialStorage() async throws {
         let fixture = RelayPolicyServiceTestFixture()
         let preferenceStore = CmxIrohRelayPreferenceStore(secureStore: TestSecureCredentialStore())
         let service = CmxIrohRelayPolicyService(
@@ -117,6 +118,42 @@ struct CmxIrohRelayPolicyServiceTests {
             provider: "personal",
             region: "home",
             authMode: .none
+        )
+
+        let effective = try await service.install(
+            response: CmxIrohRelayPolicyResponse(
+                policy: fixture.token(sequence: 1),
+                preference: .custom([definition]),
+                preferenceRevision: 1
+            ),
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            relayCredential: nil,
+            now: fixture.now
+        )
+
+        #expect(effective.source == .custom)
+        #expect(effective.endpointRelayProfile.allowedRelayURLs == [definition.url])
+        #expect(await service.diagnosticsSnapshot().failure == .customCredentialUnavailable)
+    }
+
+    @Test
+    func unavailableCustomCredentialStorageFailsClosedForStaticToken() async throws {
+        let fixture = RelayPolicyServiceTestFixture()
+        let preferenceStore = CmxIrohRelayPreferenceStore(secureStore: TestSecureCredentialStore())
+        let service = CmxIrohRelayPolicyService(
+            policyCache: CmxIrohRelayPolicyCache(secureStore: TestSecureCredentialStore()),
+            preferenceStore: preferenceStore,
+            credentialStore: CmxIrohCustomRelayCredentialStore(
+                secureStore: RelayPolicyServiceUnavailableSecureStore()
+            )
+        )
+        let definition = try CmxIrohCustomRelayDefinition(
+            id: "private-home",
+            url: "https://relay.example.net/",
+            provider: "personal",
+            region: "home",
+            authMode: .staticToken
         )
 
         let effective = try await service.install(

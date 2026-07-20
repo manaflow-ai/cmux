@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSidebar
 import Testing
 @testable import cmux_DEV
 
@@ -188,6 +189,22 @@ struct SidebarAppKitRowCellTests {
             contextMenuDidClose: {}
         )
         return cell
+    }
+
+    @Test(arguments: zip(["codex", "claude_code"], ["Running", "Needs input"]))
+    func metadataStatusTextOmitsRawAgentKey(_ key: String, _ status: String) throws {
+        let model = Self.makeModel()
+        let row = SidebarRowIconTextLine()
+
+        row.configureMetadataEntry(
+            SidebarStatusEntry(key: key, value: status, icon: "bolt.fill"),
+            model: model,
+            color: .labelColor
+        )
+
+        let textView = try #require(row.subviews.compactMap { $0 as? SidebarRowTextView }.first)
+        #expect(textView.stringValue == status)
+        #expect(!textView.stringValue.contains(key))
     }
 
     @Test
