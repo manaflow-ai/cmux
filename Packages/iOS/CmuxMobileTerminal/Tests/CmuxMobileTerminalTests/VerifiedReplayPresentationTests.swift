@@ -7,6 +7,12 @@ import Testing
 
 @Suite("Verified replay presentation")
 struct VerifiedReplayPresentationTests {
+    @Test("verified render-grid scrolling waits for the authoritative Mac frame")
+    func verifiedReplayUsesRemoteScrollAuthority() {
+        #expect(!TerminalScrollPresentationAuthority.verifiedRenderGrid.appliesLocally)
+        #expect(TerminalScrollPresentationAuthority.legacyMirror.appliesLocally)
+    }
+
     @Test("a cold surface does not wait for an impossible presented-frame drain")
     func coldSurfaceSkipsPresentedFrameDrain() {
         #expect(!GhosttySurfaceView.requiresVerifiedReplayPresentedDrain(

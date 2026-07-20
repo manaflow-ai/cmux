@@ -122,6 +122,74 @@ struct VerifiedTerminalReplayStateMachineTests {
         #expect(machine.isFrozen)
     }
 
+    @Test("a viewport acknowledgement rejects frames captured before the resize settled")
+    func viewportAcknowledgementRejectsOlderCapture() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        let oldGrid = try frame(
+            renderEpoch: "epoch-resize",
+            renderRevision: 40,
+            stateSeq: 9,
+            columns: 41,
+            text: "old narrow grid"
+        )
+        commit(oldGrid, to: machine)
+
+        machine.acknowledgeViewport(
+            renderEpoch: "epoch-resize",
+            renderRevisionFloor: 42
+        )
+
+        let delayedOldGrid = try frame(
+            renderEpoch: "epoch-resize",
+            renderRevision: 42,
+            stateSeq: 9,
+            columns: 41,
+            text: "delayed old narrow grid"
+        )
+        guard case .keepFrozenAndRequestReplay = machine.begin(frame: delayedOldGrid) else {
+            Issue.record("a frame at the pre-resize capture floor must never be presented")
+            return
+        }
+
+        let settledGrid = try frame(
+            renderEpoch: "epoch-resize",
+            renderRevision: 43,
+            stateSeq: 9,
+            columns: 70,
+            text: "settled phone grid"
+        )
+        let transaction = try #require(extractTransaction(from: machine.begin(frame: settledGrid)))
+        #expect(
+            machine.complete(transactionID: transaction.id, observedFrame: settledGrid) == .reveal
+        )
+        #expect(machine.visibleSnapshot?.columns == 70)
+    }
+
+    @Test("a viewport acknowledgement invalidates a replay already applying at the old floor")
+    func viewportAcknowledgementInvalidatesInFlightCapture() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        let oldGrid = try frame(
+            renderEpoch: "epoch-resize",
+            renderRevision: 11,
+            stateSeq: 2,
+            columns: 41,
+            text: "in flight old grid"
+        )
+        let transaction = try #require(extractTransaction(from: machine.begin(frame: oldGrid)))
+
+        machine.acknowledgeViewport(
+            renderEpoch: "epoch-resize",
+            renderRevisionFloor: 11
+        )
+
+        #expect(
+            machine.complete(transactionID: transaction.id, observedFrame: oldGrid)
+                == .ignoreStaleCompletion
+        )
+        #expect(machine.isFrozen)
+        #expect(machine.visibleSnapshot == nil)
+    }
+
     @Test("a width change presents only the old or fully verified new grid")
     func widthChangeIsAtomic() throws {
         let machine = VerifiedTerminalReplayStateMachine()
