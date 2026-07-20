@@ -60,4 +60,42 @@ struct TerminalArtifactPathDetectorTests {
             "/tmp/parity/O4-line-only.swift",
         ])
     }
+
+    @Test("extracts a first-line path after a captured OSC color-report prologue")
+    func capturedOSCColorReportPrologue() {
+        let text = "\u{1B}]10;rgb:ff/ff/ff\u{1B}\\\u{1B}]11;rgb:1e/1e/1e\u{1B}\\/tmp/dirtap-demo\n\n\u{1B}[0m\u{1B}[38;2;0;135;175m\u{1B}[48;2;88;88;88m \u{1B}[0m..."
+
+        #expect(TerminalArtifactPathDetector().paths(in: text).contains("/tmp/dirtap-demo"))
+    }
+
+    @Test("extracts a path wrapped in SGR sequences")
+    func sgrWrappedPath() {
+        let text = "\u{1B}[1m/tmp/x/y.txt\u{1B}[0m"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/x/y.txt"])
+    }
+
+    @Test("extracts a path glued to a BEL-terminated OSC sequence")
+    func belTerminatedOSCBeforePath() {
+        let text = "\u{1B}]0;terminal title\u{07}/tmp/osc-bel/file.txt"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/osc-bel/file.txt"])
+    }
+
+    @Test("drops an unterminated trailing CSI sequence")
+    func unterminatedTrailingCSI() {
+        let text = "/tmp/complete/file.txt\u{1B}[38;2"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == ["/tmp/complete/file.txt"])
+    }
+
+    @Test("plain terminal text behavior is unchanged")
+    func plainTextBehavior() {
+        let text = "opened /tmp/plain/file.txt and ./relative/note.md; ignored words"
+
+        #expect(TerminalArtifactPathDetector().paths(in: text) == [
+            "/tmp/plain/file.txt",
+            "./relative/note.md",
+        ])
+    }
 }
