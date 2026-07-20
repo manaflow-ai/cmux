@@ -596,7 +596,20 @@ extension ControlCommandCoordinator {
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        let resolution = context?.controlSurfaceClose(routing: routing, surfaceID: uuid(params, "surface_id"))
+        // An explicitly-supplied surface_id that fails to resolve (an unknown/stale
+        // `kind:N` ref, or a value that is neither a UUID nor a live handle) must be a
+        // hard error — never a silent fallback to the focused surface, which would
+        // close the *caller's own* surface (self-decapitation). Only an *omitted*
+        // surface_id is allowed to fall through to the focused-surface default.
+        let surfaceID = uuid(params, "surface_id")
+        if surfaceID == nil, let requested = string(params, "surface_id") {
+            return .err(
+                code: "not_found",
+                message: "Surface not found",
+                data: .object(["surface_id": .string(requested)])
+            )
+        }
+        let resolution = context?.controlSurfaceClose(routing: routing, surfaceID: surfaceID)
             ?? .tabManagerUnavailable
         switch resolution {
         case .tabManagerUnavailable:
