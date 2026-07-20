@@ -7746,16 +7746,16 @@ fn browser_key_mapping(
 mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag,
-        ForwardMuxOutcome, MenuAction, MenuItem, MuxTitleIngress, OrderedSession, PaneArea,
-        OuterCursorSpec, PaneFocusHistory, PendingSessionMutation, PendingSessionMutationState,
-        PtyFailureIngress,
-        PtyMousePressResult, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
-        SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
-        SurfaceResizeOwnership, browser_content_size_for_rect, browser_hover_forward_allowed,
-        canonical_terminal_content, client_menu_item, forward_mux_event, forward_mux_events,
-        outer_cursor_escape, outer_cursor_escape_if_changed, pane_context_menu_groups,
-        pane_parts_for_rect, preserve_client_view, record_surface_resize_dispatch_result,
-        sidebar_plugin_status_settles_passive_claim, sidebar_width_for,
+        ForwardMuxOutcome, MenuAction, MenuItem, MuxTitleIngress, OrderedSession, OuterCursorSpec,
+        PaneArea, PaneFocusHistory, PendingSessionMutation, PendingSessionMutationState,
+        PtyFailureIngress, PtyMousePressResult, RenderAction, Selection, SessionCompletion,
+        SessionCompletionAction, SidebarPluginSyncClaim, SidebarPluginSyncState,
+        SurfaceResizeDecision, SurfaceResizeOwnership, browser_content_size_for_rect,
+        browser_hover_forward_allowed, canonical_terminal_content, client_menu_item,
+        forward_mux_event, forward_mux_events, outer_cursor_escape, outer_cursor_escape_if_changed,
+        pane_context_menu_groups, pane_parts_for_rect, preserve_client_view,
+        record_surface_resize_dispatch_result, sidebar_plugin_status_settles_passive_claim,
+        sidebar_width_for,
     };
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -7926,12 +7926,20 @@ mod tests {
         app.pane_areas.iter_mut().find(|area| area.pane == top_right).unwrap().rect.height = 0;
         app.move_focus(Direction::Right);
         assert_eq!(app.active_pane(), Some(bottom_right));
-        assert_eq!(Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane, left);
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            app.handle(event).unwrap();
+        }
+        assert_eq!(app.active_pane(), Some(bottom_right));
+        assert_eq!(
+            Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane,
+            bottom_right
+        );
         assert!(!app.session.has_pending_mutations());
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface);
+            mux.close_surface(surface).unwrap();
         }
     }
 
@@ -7962,7 +7970,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface);
+            mux.close_surface(surface).unwrap();
         }
     }
 
@@ -7992,7 +8000,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface);
+            mux.close_surface(surface).unwrap();
         }
     }
 

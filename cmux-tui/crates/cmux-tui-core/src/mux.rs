@@ -1152,7 +1152,10 @@ impl Mux {
             });
             workspace.active_screen = workspace.screens.len() - 1;
         }
-        state.panes.insert(pane_id, pane);
+        // Adoption materializes a live pane without stealing focus, but it
+        // must still advance the pane-set revision used by frontend focus
+        // history pruning.
+        state.insert_pane(pane);
         Ok(())
     }
 
@@ -6067,10 +6070,16 @@ impl Mux {
             .unwrap_or_else(|| {
                 let pane = self.next_id();
                 let screen = self.next_id();
-                state.panes.insert(
-                    pane,
-                    Pane { id: pane, name: None, tabs: Vec::new(), active_tab: 0, active_at },
-                );
+                state.insert_pane(Pane {
+                    id: pane,
+                    name: None,
+                    tabs: Vec::new(),
+                    active_tab: 0,
+                    active_at,
+                    // The projection preserves the user's existing focus
+                    // identity below; this destination starts unfocused.
+                    focused_at: 0,
+                });
                 state.workspaces[destination].screens.push(Screen {
                     id: screen,
                     name: None,
