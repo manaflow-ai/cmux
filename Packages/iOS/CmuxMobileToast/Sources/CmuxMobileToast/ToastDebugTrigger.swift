@@ -23,11 +23,13 @@ import notify
 final class ToastDebugTrigger {
     static let presentNotification = "dev.cmux.toast.debug.present"
     static let dismissNotification = "dev.cmux.toast.debug.dismiss"
+    static let demoNotification = "dev.cmux.toast.debug.demo"
     static let specDefaultsKey = "cmux.debug.toast"
 
     private let center: ToastCenter
     private var presentToken: Int32 = 0
     private var dismissToken: Int32 = 0
+    private var demoToken: Int32 = 0
 
     init(center: ToastCenter) {
         self.center = center
@@ -41,13 +43,23 @@ final class ToastDebugTrigger {
             MainActor.assumeIsolated { self?.center.dismissAll() }
         }
         dismissToken = cancelToken
+        var demoTok: Int32 = 0
+        notify_register_dispatch(Self.demoNotification, &demoTok, .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                ToastDemo.run(on: self.center)
+            }
+        }
+        demoToken = demoTok
     }
 
     func invalidate() {
         if presentToken != 0 { notify_cancel(presentToken) }
         if dismissToken != 0 { notify_cancel(dismissToken) }
+        if demoToken != 0 { notify_cancel(demoToken) }
         presentToken = 0
         dismissToken = 0
+        demoToken = 0
     }
 
     private struct Spec: Decodable {

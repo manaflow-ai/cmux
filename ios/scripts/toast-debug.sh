@@ -10,10 +10,11 @@
 #     [--icon <sf-symbol>] [--bottom] [--persistent] [--action <label>] \
 #     [--key <coalescing-key>]
 #   ios/scripts/toast-debug.sh --udid <udid> --bundle-id <id> --dismiss-all
+#   ios/scripts/toast-debug.sh --udid <udid> --bundle-id <id> --demo
 set -euo pipefail
 
 UDID="" BUNDLE_ID="" STYLE="info" TITLE="" MESSAGE="" ICON="" PLACEMENT="top"
-PERSISTENT="false" ACTION_LABEL="" KEY="" DISMISS_ALL=0
+PERSISTENT="false" ACTION_LABEL="" KEY="" DISMISS_ALL=0 DEMO=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -28,6 +29,7 @@ while [[ $# -gt 0 ]]; do
     --action) ACTION_LABEL="$2"; shift 2 ;;
     --key) KEY="$2"; shift 2 ;;
     --dismiss-all) DISMISS_ALL=1; shift ;;
+    --demo) DEMO=1; shift ;;
     *) echo "error: unknown argument '$1'" >&2; exit 1 ;;
   esac
 done
@@ -40,6 +42,12 @@ fi
 if [[ "$DISMISS_ALL" -eq 1 ]]; then
   xcrun simctl spawn "$UDID" notifyutil -p dev.cmux.toast.debug.dismiss
   echo "dismissed all toasts on $BUNDLE_ID"
+  exit 0
+fi
+
+if [[ "$DEMO" -eq 1 ]]; then
+  xcrun simctl spawn "$UDID" notifyutil -p dev.cmux.toast.debug.demo
+  echo "started toast demo on $BUNDLE_ID"
   exit 0
 fi
 

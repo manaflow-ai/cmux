@@ -92,54 +92,21 @@ public struct ToastGalleryView: View {
         .task { await runAutodemoIfRequested() }
     }
 
-    /// With `CMUX_TOAST_GALLERY_AUTORUN=1`, walks the full toast vocabulary on
-    /// a fixed cadence so a screen recording captures every arrival,
-    /// departure, coalescing bump, and queue advance without UI driving.
-    /// Demo pacing only (DEBUG harness), hence the deliberate wall-clock sleeps.
+    /// With `CMUX_TOAST_GALLERY_AUTORUN=1`, runs the passthrough probe and
+    /// then the shared ``ToastDemo`` script so a screen recording captures
+    /// every arrival, departure, coalescing bump, and queue advance without
+    /// UI driving.
     private func runAutodemoIfRequested() async {
         guard ProcessInfo.processInfo.environment["CMUX_TOAST_GALLERY_AUTORUN"] == "1" else { return }
+        #if os(iOS)
         let clock = ContinuousClock()
         func pause(_ seconds: Double) async {
             try? await clock.sleep(for: .seconds(seconds))
         }
-
         await pause(2)
-        #if os(iOS)
         await recordPassthroughProbe(pause: pause)
         #endif
-        toasts.present(.success("Workspace created"))
-        await pause(5.5)
-
-        toasts.present(.failure(
-            "Not connected to your Mac.",
-            title: "Couldn't rename workspace",
-            coalescingKey: "demo.error"
-        ))
-        await pause(2)
-        toasts.present(.failure(
-            "Not connected to your Mac.",
-            title: "Couldn't rename workspace",
-            coalescingKey: "demo.error"
-        ))
-        await pause(7.5)
-
-        toasts.present(.success("First: workspace created"))
-        toasts.present(.info("Second: agent finished"))
-        toasts.present(.warning("Third: build is out of date"))
-        await pause(13)
-
-        toasts.present(.info("Copied to clipboard", systemImage: "doc.on.doc"))
-        await pause(4.5)
-        toasts.present(.success("Saved", placement: .bottom))
-        await pause(5)
-
-        toasts.present(.failure(
-            "The request timed out.",
-            title: "Couldn't create workspace",
-            action: Toast.Action(label: "Retry") {}
-        ))
-        await pause(7.5)
-        toasts.dismissAll()
+        ToastDemo.run(on: toasts)
     }
 
     #if os(iOS)
