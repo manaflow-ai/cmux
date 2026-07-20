@@ -240,7 +240,11 @@ _cmux_path_prepend_unique_directory() {
 _cmux_install_cli_command_shim() {
     local command_name="$1"
     local wrapper_path="$2"
-    local shim_root="${TMPDIR:-/tmp}/cmux-cli-shims/${CMUX_SURFACE_ID:-$$}"
+    local tmp_root="${TMPDIR:-/tmp}"
+    while [[ "$tmp_root" == */ ]]; do
+        tmp_root="${tmp_root%/}"
+    done
+    local shim_root="$tmp_root/cmux-cli-shims/${CMUX_SURFACE_ID:-$$}"
     local shim_path="$shim_root/$command_name"
     local escaped_wrapper="$wrapper_path"
 
