@@ -55,6 +55,37 @@ struct ReconnectRefreshSnapshot: Sendable {
 
 @MainActor
 extension MobileShellComposite {
+    /// Resolves one immutable pre-Iroh capability for an exact raw Tailscale
+    /// route. Fresh registry/manual routes cannot create this evidence; they
+    /// must match a route retained by the local schema migration.
+    static func legacyTailscaleAuthorizationEvidence(
+        for route: CmxAttachRoute,
+        macDeviceID: String,
+        persistedRoutes: [CmxAttachRoute]
+    ) -> CmxLegacyTailscaleAuthorizationEvidence? {
+        guard route.kind == .tailscale,
+              case let .hostPort(host, port) = route.endpoint else {
+            return nil
+        }
+        for persistedRoute in persistedRoutes where persistedRoute.kind == .tailscale {
+            guard case let .hostPort(persistedHost, persistedPort) = persistedRoute.endpoint,
+                  let evidence = try? CmxLegacyTailscaleAuthorizationEvidence(
+                      macDeviceID: macDeviceID,
+                      host: persistedHost,
+                      port: persistedPort
+                  ),
+                  evidence.authorizes(
+                      macDeviceID: macDeviceID,
+                      host: host,
+                      port: port
+                  ) else {
+                continue
+            }
+            return evidence
+        }
+        return nil
+    }
+
     /// Supported routes for reconnecting an already-paired Mac.
     ///
     /// Unlike the legacy host/port helper, this preserves Iroh peer routes. Once
@@ -202,11 +233,16 @@ extension MobileShellComposite {
         evaluatePresenceSubscription()
         let shouldResync = shouldResyncTerminalOutputOnForeground()
         lastBackgroundedAt = nil
-        if shouldResync {
+        // Persisted connections let the recovery owner probe first. Restarting
+        // their listener here can make a dead MobileCoreRPCClient reopen its old
+        // transport before the probe decides to replace it, creating two owners
+        // for one foreground transition. Preview/legacy clients have no stored
+        // route to redial, so retain their same-client resubscribe fallback.
+        if shouldResync, pairedMacStore == nil {
             resyncTerminalOutput(reason: "foreground", restartEventStream: true)
         }
         restartActiveMobileBrowserStreams()
-        recoverForegroundConnectionIfNeeded()
+        recoverForegroundConnectionIfNeeded(resyncAfterHealthy: shouldResync)
         // The foreground Mac's workspace list updates live over the sync stream,
         // but the other Macs are a read-only snapshot. Re-aggregate them on
         // foreground so workspaces created on another Mac while backgrounded
@@ -390,6 +426,18 @@ extension MobileShellComposite {
         guard generation == storedMacReconnectGeneration else { return }
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = true
+    }
+
+    /// Returns the completed result when an async stored reconnect must stop.
+    /// A newer generation owns the work (`false`); an already-live foreground
+    /// client satisfies the request without another dial (`true`).
+    func storedMacReconnectInterruptionResult(generation: Int) -> Bool? {
+        guard generation == storedMacReconnectGeneration else { return false }
+        guard !hasActiveMacConnection else {
+            finishStoredMacReconnectAttempt(generation: generation)
+            return true
+        }
+        return nil
     }
 
     /// Ordered host/port reconnect candidates for a Mac, preserving the single-route

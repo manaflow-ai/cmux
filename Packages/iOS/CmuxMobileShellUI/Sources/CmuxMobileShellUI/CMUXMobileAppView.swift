@@ -19,6 +19,9 @@ public struct CMUXMobileAppView: View {
     @State private var browserStore: BrowserSurfaceStore
     /// Mac browser stream state kept beside the shell store for the app lifetime.
     @State private var browserStreamStore: BrowserStreamStore
+    /// App-lifetime owner for the initial explicit-attach versus saved-Mac
+    /// reconnect decision. Root view lifecycle callbacks share this instance.
+    @State private var startupConnectionCoordinator = MobileStartupConnectionCoordinator()
     private let signOutHook: MobileSignOutHook
     #if os(iOS)
     private let onboardingStore: MobileOnboardingStore
@@ -74,12 +77,17 @@ public struct CMUXMobileAppView: View {
         CMUXMobileRootView(
             store: store,
             onboardingStore: onboardingStore,
-            signOutHook: signOutHook
+            signOutHook: signOutHook,
+            startupConnectionCoordinator: startupConnectionCoordinator
         )
             .environment(browserStore)
             .environment(browserStreamStore)
         #else
-        CMUXMobileRootView(store: store, signOutHook: signOutHook)
+        CMUXMobileRootView(
+            store: store,
+            signOutHook: signOutHook,
+            startupConnectionCoordinator: startupConnectionCoordinator
+        )
             .environment(browserStore)
             .environment(browserStreamStore)
         #endif

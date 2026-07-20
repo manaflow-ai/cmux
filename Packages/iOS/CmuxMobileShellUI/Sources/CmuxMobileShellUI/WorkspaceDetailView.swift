@@ -74,6 +74,7 @@ struct WorkspaceDetailView: View {
     @State var selectedTerminalArtifact: TerminalArtifactSelection?
     @State var terminalArtifactThumbnailCache = ChatArtifactThumbnailCache()
     @State var visibleArtifactCount = 0
+    @State var artifactGalleryRefreshSignal = TerminalArtifactGalleryRefreshSignal.initial
     /// App lifecycle phase used to re-pull chat sessions on foreground.
     @Environment(\.scenePhase) var scenePhase
     #endif
@@ -85,6 +86,9 @@ struct WorkspaceDetailView: View {
         browserStreamStore.activeState(in: workspace.rpcWorkspaceID.rawValue)
     }
     #if os(iOS)
+    var terminalFilesChipEnabled: Bool {
+        displaySettings.terminalFilesChipEnabled
+    }
     var activeSurface: WorkspaceActiveSurface {
         WorkspaceActiveSurface.derive(
             isChatMode: isChatMode,
@@ -279,15 +283,19 @@ struct WorkspaceDetailView: View {
             store.activeTerminalTheme.terminalBackgroundColor
                 .ignoresSafeArea(.container, edges: [.horizontal, .top, .bottom])
         }
-        .sheet(item: $selectedTerminalArtifact) { selection in
-            ChatArtifactViewerSheet(path: selection.path, scope: .terminal)
-                .environment(
-                    \.chatArtifactLoader,
-                    terminalArtifactLoader(
-                        workspaceID: selection.workspaceID,
-                        surfaceID: selection.surfaceID
+        .navigationDestination(isPresented: terminalArtifactIsPresented) {
+            if let selectedTerminalArtifact {
+                ChatArtifactViewerDestination(
+                    path: selectedTerminalArtifact.path,
+                    scope: selectedTerminalArtifact.usesSessionAuthorization ? .chat : .terminal
+                ) {
+                    self.selectedTerminalArtifact = nil
+                }
+                    .environment(
+                        \.chatArtifactLoader,
+                        artifactLoader(for: selectedTerminalArtifact)
                     )
-                )
+            }
         }
         #else
         .background(store.activeTerminalTheme.terminalBackgroundColor)
@@ -304,6 +312,15 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
+    private var terminalArtifactIsPresented: Binding<Bool> {
+        Binding(
+            get: { selectedTerminalArtifact != nil },
+            set: { isPresented in
+                if !isPresented { selectedTerminalArtifact = nil }
+            }
+        )
+    }
+
     func terminalArtifactLoader(workspaceID: String, surfaceID: String) -> ChatArtifactLoader {
         guard let source = store.makeChatEventSource() else {
             return .unsupported(cache: terminalArtifactThumbnailCache)
@@ -312,6 +329,7 @@ struct WorkspaceDetailView: View {
             terminalWorkspaceID: workspaceID,
             terminalSurfaceID: surfaceID,
             supportsArtifacts: store.supportsTerminalArtifacts,
+            supportsDirectoryBrowsing: store.supportsTerminalArtifactList,
             cache: terminalArtifactThumbnailCache,
             stat: { path in
                 try await source.terminalArtifactStat(
@@ -328,6 +346,14 @@ struct WorkspaceDetailView: View {
                     progress: progress
                 )
             },
+            stream: { path, onChunk in
+                try await source.terminalArtifactFetch(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path,
+                    onChunk: onChunk
+                )
+            },
             thumbnail: { path, maxDimension in
                 try await source.terminalArtifactThumbnail(
                     workspaceID: workspaceID,
@@ -335,7 +361,32 @@ struct WorkspaceDetailView: View {
                     path: path,
                     maxDimension: maxDimension
                 )
+            },
+            list: { path in
+                try await source.terminalArtifactList(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path
+                )
             }
+        )
+    }
+
+    private func artifactLoader(for selection: TerminalArtifactSelection) -> ChatArtifactLoader {
+        guard let sessionID = selection.sessionID else {
+            return terminalArtifactLoader(
+                workspaceID: selection.workspaceID,
+                surfaceID: selection.surfaceID
+            )
+        }
+        guard store.supportsChatArtifacts,
+              let source = store.makeChatEventSource() else {
+            return .unsupported(cache: terminalArtifactThumbnailCache)
+        }
+        return ChatArtifactLoader(
+            source: source,
+            sessionID: sessionID,
+            cache: terminalArtifactThumbnailCache
         )
     }
     #endif

@@ -1494,6 +1494,7 @@
       "flagName": "Bandera",
       "flagDesc": "Descripción",
       "flagNameVal": "Establecer el título del espacio de trabajo",
+      "flagCommand": "Ejecutar el texto del comando una vez en el terminal remoto inicial después de iniciar el shell",
       "flagPort": "Puerto SSH (predeterminado 22)",
       "flagIdentity": "Ruta al archivo de identidad",
       "flagSshOption": "Pasar opciones SSH arbitrarias (por ejemplo, -o StrictHostKeyChecking=no)",

@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxAgentChat
 import CmuxAuthRuntime
 import CmuxIrohTransport
 import CmuxMobileTransport
@@ -14,6 +15,37 @@ import os
 enum MobileHostConnectionAuthorizationContext: Equatable, Sendable {
     case stackBearer
     case irohAdmission(CmxIrohAdmittedPeer)
+}
+
+extension MobileHostConnectionAuthorizationContext {
+    /// One policy authority for transports accepted by the legacy
+    /// private-network listener. Keeping this separate from Iroh admission
+    /// makes version-skew coverage exercise the same authorization choice as
+    /// the production listener.
+    static let legacyPrivateNetworkListener: Self = .stackBearer
+}
+
+/// Immutable trust context carried from transport admission into RPC dispatch.
+struct MobileHostRPCExecutionContext: Sendable {
+    /// The per-connection identity, used to key long-lived subscriptions
+    /// (e.g. browser stream sessions) and route pushed events back to the
+    /// originating phone connection.
+    let connectionID: UUID
+    let authorization: MobileHostConnectionAuthorizationContext
+    let artifactTransfers: MobileHostIrohArtifactTransferRegistry?
+
+    func issueArtifactTransfer(
+        canonicalPath: String
+    ) async throws -> ChatArtifactLaneDescriptor {
+        guard case let .irohAdmission(peer) = authorization,
+              let artifactTransfers else {
+            throw MobileHostIrohArtifactTransferRegistry.Error.unavailable
+        }
+        return try await artifactTransfers.issue(
+            canonicalPath: canonicalPath,
+            peer: peer
+        )
+    }
 }
 
 
@@ -266,13 +298,19 @@ enum MobileHostPublicStatusCache {
         return irohRoute != nil
     }
 
-    static func result(includeIdentity: Bool = false) -> MobileHostRPCResult {
+    static func result(
+        includeIdentity: Bool = false,
+        additionalCapabilities: Set<String> = []
+    ) -> MobileHostRPCResult {
         lock.lock()
         let cachedRoutes = mergedRoutesLocked()
         lock.unlock()
         return .ok(
             includeIdentity
-                ? MobileHostService.identityStatusPayload(routes: cachedRoutes)
+                ? MobileHostService.identityStatusPayload(
+                    routes: cachedRoutes,
+                    additionalCapabilities: additionalCapabilities
+                )
                 : MobileHostService.publicStatusPayload(routes: cachedRoutes)
         )
     }
