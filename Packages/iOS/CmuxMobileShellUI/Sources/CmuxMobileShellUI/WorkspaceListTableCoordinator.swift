@@ -36,9 +36,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private let sizingCell = UITableViewCell(style: .default, reuseIdentifier: nil)
     private var heightCache: [HeightCacheKey: CGFloat] = [:]
     private var dropJustCompleted = false
+    private var refreshTask: (id: UUID, task: Task<Void, Never>)?
+    private var appliedRefreshCompletionGeneration: UInt64
 
     init(configuration: WorkspaceListTable) {
         self.configuration = configuration
+        appliedRefreshCompletionGeneration = configuration.refreshCompletionGeneration
         super.init()
     }
 
@@ -71,6 +74,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
 
     func update(configuration next: WorkspaceListTable, in tableView: UITableView) {
         let previous = previousConfiguration
+        let completesRefresh = next.refreshCompletionGeneration
+            != appliedRefreshCompletionGeneration
+        appliedRefreshCompletionGeneration = next.refreshCompletionGeneration
         configuration = next
         tableView.dragInteractionEnabled = next.enablesReorder
         updateRefreshControl(in: tableView)
@@ -95,9 +101,17 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             snapshot.reconfigureItems(changed)
         }
         previousConfiguration = next
-        let animatesSnapshot = tableView.window != nil && !dropJustCompleted
+        let animatesSnapshot = tableView.window != nil
+            && !dropJustCompleted
+            && tableView.refreshControl?.isRefreshing != true
         dropJustCompleted = false
-        dataSource?.apply(snapshot, animatingDifferences: animatesSnapshot)
+        dataSource?.apply(
+            snapshot,
+            animatingDifferences: animatesSnapshot
+        ) { [weak tableView] in
+            guard completesRefresh else { return }
+            tableView?.refreshControl?.endRefreshing()
+        }
     }
 
     func tableView(
@@ -308,10 +322,20 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             refreshControl.endRefreshing()
             return
         }
-        Task { @MainActor in
+        guard refreshTask == nil else { return }
+
+        let taskID = UUID()
+        let refreshDidComplete = configuration.refreshDidComplete
+        let task = Task { @MainActor [weak self, weak refreshControl] in
             await refresh()
-            refreshControl.endRefreshing()
+            guard !Task.isCancelled,
+                  let self,
+                  self.refreshTask?.id == taskID else { return }
+            self.refreshTask = nil
+            guard refreshControl?.isRefreshing == true else { return }
+            refreshDidComplete()
         }
+        refreshTask = (taskID, task)
     }
 
     private func updateRefreshControl(in tableView: UITableView) {
@@ -325,6 +349,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             )
             tableView.refreshControl = refreshControl
         } else {
+            refreshTask?.task.cancel()
+            refreshTask = nil
+            tableView.refreshControl?.endRefreshing()
             tableView.refreshControl = nil
         }
     }

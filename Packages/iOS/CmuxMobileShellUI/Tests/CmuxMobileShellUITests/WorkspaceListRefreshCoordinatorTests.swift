@@ -54,6 +54,49 @@ struct WorkspaceListRefreshCoordinatorTests {
         #expect(tableView.bounces == originalBounces)
     }
 
+    @Test("ends native refresh only after the refreshed snapshot applies")
+    func endsRefreshAfterSnapshotApplication() async throws {
+        let gate = RefreshActionGate()
+        let refreshCompleted = MainActorSignal()
+        var completionGeneration: UInt64 = 0
+        let configuration = makeConfiguration(
+            refreshDidComplete: {
+                completionGeneration &+= 1
+                refreshCompleted.signal()
+            }
+        ) {
+            await gate.waitForRelease()
+        }
+        let tableView = makeTableView()
+        let coordinator = WorkspaceListTableCoordinator(configuration: configuration)
+        coordinator.attach(to: tableView)
+        coordinator.update(configuration: configuration, in: tableView)
+        _ = try #require(tableView.refreshControl)
+        let refreshControl = RecordingRefreshControl()
+        tableView.refreshControl = refreshControl
+
+        refreshControl.beginRefreshing()
+        _ = coordinator.perform(
+            NSSelectorFromString("refreshRequested:"),
+            with: refreshControl
+        )
+        await gate.waitUntilStarted()
+        await gate.release()
+        await refreshCompleted.wait()
+
+        #expect(refreshControl.endCount == 0)
+
+        coordinator.update(
+            configuration: makeConfiguration(
+                refreshCompletionGeneration: completionGeneration,
+                refresh: {}
+            ),
+            in: tableView
+        )
+        await refreshControl.waitUntilEndCount(1)
+        #expect(refreshControl.endCount == 1)
+    }
+
     private func makeTableView() -> WorkspaceListUITableView {
         let tableView = WorkspaceListUITableView(
             frame: CGRect(x: 0, y: 0, width: 390, height: 700),
@@ -67,6 +110,8 @@ struct WorkspaceListRefreshCoordinatorTests {
     }
 
     private func makeConfiguration(
+        refreshCompletionGeneration: UInt64 = 0,
+        refreshDidComplete: @escaping @MainActor () -> Void = {},
         refresh: (@Sendable () async -> Void)?
     ) -> WorkspaceListTable {
         WorkspaceListTable(
@@ -111,8 +156,78 @@ struct WorkspaceListRefreshCoordinatorTests {
             retryInitialConnection: nil,
             showAddDevice: nil,
             reconnect: nil,
-            refresh: refresh
+            refresh: refresh,
+            refreshCompletionGeneration: refreshCompletionGeneration,
+            refreshDidComplete: refreshDidComplete
         )
+    }
+
+}
+
+@MainActor
+private final class RecordingRefreshControl: UIRefreshControl {
+    private(set) var endCount = 0
+    private var waiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    override func endRefreshing() {
+        endCount += 1
+        super.endRefreshing()
+        let ready = waiters.filter { $0.count <= endCount }
+        waiters.removeAll { $0.count <= endCount }
+        for waiter in ready { waiter.continuation.resume() }
+    }
+
+    func waitUntilEndCount(_ count: Int) async {
+        guard endCount < count else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append((count, continuation))
+        }
+    }
+}
+
+private actor RefreshActionGate {
+    private var didStart = false
+    private var isReleased = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func waitForRelease() async {
+        didStart = true
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        guard !isReleased else { return }
+        await withCheckedContinuation { releaseWaiters.append($0) }
+    }
+
+    func waitUntilStarted() async {
+        guard !didStart else { return }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
+
+    func release() {
+        isReleased = true
+        let waiters = releaseWaiters
+        releaseWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+}
+
+@MainActor
+private final class MainActorSignal {
+    private var isSignaled = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func signal() {
+        isSignaled = true
+        let waiters = waiters
+        self.waiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func wait() async {
+        guard !isSignaled else { return }
+        await withCheckedContinuation { waiters.append($0) }
     }
 }
 
