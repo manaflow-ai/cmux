@@ -234,13 +234,26 @@ final class cmuxUITests: XCTestCase {
         let approvalTitle = app.staticTexts["Codex needs approval"]
         let approvalWorkspace = app.staticTexts["cmux iOS"]
         let approvalSubtitle = app.staticTexts["Notification feed"]
+        let approvalWorkspaceLabel = app.descendants(matching: .any)[
+            "MobileNotificationFeedWorkspaceLabel-studio-codex-approval"
+        ]
+        let approvalContextLabel = app.descendants(matching: .any)[
+            "MobileNotificationFeedContextLabel-studio-codex-approval"
+        ]
+        let approvalDestinationLabel = app.descendants(matching: .any)[
+            "MobileNotificationFeedDestinationLabel-studio-codex-approval"
+        ]
         XCTAssertTrue(approvalTitle.waitForExistence(timeout: 3))
         XCTAssertTrue(approvalWorkspace.waitForExistence(timeout: 3))
         XCTAssertTrue(approvalSubtitle.waitForExistence(timeout: 3))
+        XCTAssertTrue(approvalWorkspaceLabel.waitForExistence(timeout: 3))
+        XCTAssertTrue(approvalContextLabel.waitForExistence(timeout: 3))
+        XCTAssertTrue(approvalDestinationLabel.waitForExistence(timeout: 3))
         XCTAssertLessThanOrEqual(approvalTitle.frame.maxY, approvalWorkspace.frame.minY)
         XCTAssertLessThanOrEqual(approvalWorkspace.frame.minY - approvalTitle.frame.maxY, 6)
-        XCTAssertEqual(approvalWorkspace.frame.midY, approvalSubtitle.frame.midY, accuracy: 1)
-        XCTAssertLessThan(approvalWorkspace.frame.maxX, approvalSubtitle.frame.minX)
+        XCTAssertEqual(approvalWorkspaceLabel.frame.midY, approvalWorkspace.frame.midY, accuracy: 1)
+        XCTAssertEqual(approvalContextLabel.frame.midY, approvalSubtitle.frame.midY, accuracy: 1)
+        XCTAssertLessThan(approvalWorkspace.frame.maxY, approvalSubtitle.frame.minY)
         XCTAssertGreaterThanOrEqual(approvalWorkspace.frame.height, approvalSubtitle.frame.height)
 
         let approvalRow = app.descendants(matching: .any)["MobileNotificationFeedRow-studio-codex-approval"]
@@ -250,6 +263,10 @@ final class cmuxUITests: XCTestCase {
         let workspaceRange = try XCTUnwrap(approvalValue.range(of: "cmux iOS"))
         let subtitleRange = try XCTUnwrap(approvalValue.range(of: "Notification feed"))
         let bodyRange = try XCTUnwrap(approvalValue.range(of: "The feed is ready"))
+        XCTAssertTrue(approvalValue.contains("Workspace: cmux iOS"))
+        XCTAssertTrue(approvalValue.contains("Context: Notification feed"))
+        XCTAssertTrue(approvalValue.contains("Pane: Codex"))
+        XCTAssertTrue(approvalValue.contains("Computer: Studio"))
         XCTAssertLessThan(workspaceRange.lowerBound, subtitleRange.lowerBound)
         XCTAssertLessThan(workspaceRange.lowerBound, bodyRange.lowerBound)
 
