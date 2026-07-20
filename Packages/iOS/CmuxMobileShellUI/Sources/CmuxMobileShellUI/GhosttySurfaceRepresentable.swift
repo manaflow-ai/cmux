@@ -169,6 +169,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void
         var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void
         private var outputTask: Task<Void, Never>?
+        var outputStartContinuation: AsyncStream<Void>.Continuation?
+        var preparedViewportReportsByReportID: [UInt64: MobileTerminalViewportPreparation] = [:]
         private var liveFontTask: Task<Void, Never>?
         let themeApplicationScheduler = TerminalThemeApplicationScheduler()
         var artifactCountTask: Task<Void, Never>?
@@ -242,9 +244,17 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             guard outputTask == nil else { return }
             guard let store else { return }
             let surfaceID = surfaceID
+            let outputStartSignal = AsyncStream<Void> { [weak self] continuation in
+                self?.outputStartContinuation = continuation
+            }
             viewportReportScheduler = TerminalViewportReportScheduler(
                 send: { [weak self] report in
                     guard let self, let store = self.store else { return nil }
+                    if let preparation = self.preparedViewportReportsByReportID.removeValue(
+                        forKey: report.id
+                    ) {
+                        return await store.updatePreparedTerminalViewport(preparation)
+                    }
                     return await store.updateTerminalViewport(
                         surfaceID: self.surfaceID,
                         columns: report.columns,
@@ -287,6 +297,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // task terminates the stream, which unregisters the surface and
             // clears its viewport pin on the Mac (see `terminalOutputStream`).
             outputTask = Task { @MainActor [weak self, weak surfaceView, weak store] in
+                for await _ in outputStartSignal { break }
+                guard !Task.isCancelled else { return }
                 guard let store else { return }
                 for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
@@ -389,9 +401,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     surfaceView.setLiveFontSize(points)
                 }
             }
+            surfaceView.requestViewportReportForMount()
         }
 
         private func stopMountedTasks() {
+            outputStartContinuation?.finish()
+            outputStartContinuation = nil
+            preparedViewportReportsByReportID.removeAll()
             outputTask?.cancel()
             outputTask = nil
             verifiedReplayState.invalidate()

@@ -2944,6 +2944,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
+    /// Require a fresh settled viewport report whenever this view mounts.
+    /// Reuses the last measured grid as a candidate, while later layout passes
+    /// may supersede it before the debounce finishes.
+    public func requestViewportReportForMount() {
+        viewportReportRetries = 0
+        if let pending = lastReportedSize,
+           pending.columns > 0,
+           pending.rows > 0 {
+            pendingViewportReport = pending
+            viewportReportSettleFrames = 0
+        } else {
+            setNeedsGeometrySync(reassertNaturalSize: true)
+        }
+    }
+
     /// Re-arm the debounced viewport report after a round-trip returned no
     /// effective grid, so a transient RPC drop does not leave the render pinned
     /// to a stale effective grid (the "stuck letterbox" freeze). Bounded and
