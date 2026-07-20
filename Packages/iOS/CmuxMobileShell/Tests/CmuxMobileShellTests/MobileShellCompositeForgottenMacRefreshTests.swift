@@ -271,6 +271,167 @@ import Testing
         #expect(await store.secondaryAggregationCandidateMacIDs() == ["mac-a"])
     }
 
+    @Test func secondaryAggregationUsesFreshUUIDAliasWithoutMergingStaleRoutes() throws {
+        let uppercaseUUID = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"
+        let lowercaseUUID = uppercaseUUID.lowercased()
+        let staleRoute = try CmxAttachRoute(
+            id: "stale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.10", port: 50_901)
+        )
+        let freshRoute = try CmxAttachRoute(
+            id: "fresh",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.10", port: 50_902)
+        )
+        let shell = MobileShellComposite(isSignedIn: true)
+        let candidates = shell.secondaryAggregationCandidateMacs(from: [
+            try Self.pairedMac(
+                id: uppercaseUUID,
+                displayName: "Stale Studio",
+                host: "unused",
+                lastSeenAt: Date(timeIntervalSince1970: 10),
+                isActive: true,
+                customName: "Stale Name",
+                routes: [staleRoute],
+                instanceTag: "stale"
+            ),
+            try Self.pairedMac(
+                id: lowercaseUUID,
+                displayName: "Fresh Studio",
+                host: "unused",
+                lastSeenAt: Date(timeIntervalSince1970: 20),
+                isActive: false,
+                customName: "Fresh Name",
+                routes: [freshRoute],
+                instanceTag: "fresh"
+            ),
+            try Self.pairedMac(
+                id: "Legacy-ID",
+                displayName: "Opaque Upper",
+                host: "100.64.0.11",
+                lastSeenAt: Date(timeIntervalSince1970: 30),
+                isActive: false
+            ),
+            try Self.pairedMac(
+                id: "legacy-id",
+                displayName: "Opaque Lower",
+                host: "100.64.0.12",
+                lastSeenAt: Date(timeIntervalSince1970: 40),
+                isActive: false
+            ),
+        ])
+
+        let canonical = try #require(candidates.first { $0.macDeviceID == lowercaseUUID })
+        #expect(candidates.count == 3)
+        #expect(Set(candidates.map(\.macDeviceID)) == Set([
+            lowercaseUUID, "Legacy-ID", "legacy-id",
+        ]))
+        #expect(canonical.displayName == "Fresh Studio")
+        #expect(canonical.customName == "Fresh Name")
+        #expect(canonical.instanceTag == "fresh")
+        #expect(canonical.routes.map(\.id) == ["fresh"])
+        #expect(!canonical.isActive)
+    }
+
+    @Test func secondaryAggregationExcludesStaleRecordSharingForegroundIrohEndpoint() async throws {
+        let identity = try CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64))
+        let liveRoute = try CmxAttachRoute(
+            id: "iroh-live",
+            kind: .iroh,
+            endpoint: .peer(identity: identity, pathHints: [])
+        )
+        let staleRoute = try CmxAttachRoute(
+            id: "iroh-stale",
+            kind: .iroh,
+            endpoint: .peer(identity: identity, pathHints: [])
+        )
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-live",
+                        displayName: "Current Mac",
+                        host: "unused",
+                        lastSeenAt: Date(timeIntervalSince1970: 20),
+                        isActive: true,
+                        routes: [liveRoute],
+                        instanceTag: "current"
+                    ),
+                    try Self.pairedMac(
+                        id: "mac-stale",
+                        displayName: "Old Mac Name",
+                        host: "unused",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: false,
+                        routes: [staleRoute],
+                        instanceTag: "old"
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: SlowIgnoringCancellationTransportFactory(),
+                now: { Date(timeIntervalSince1970: 30) },
+                supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" }
+        )
+        store.setWorkspaceStatesForTesting(
+            [:],
+            foregroundMacDeviceID: "mac-live"
+        )
+
+        #expect(await store.secondaryAggregationCandidateMacIDs().isEmpty)
+    }
+
+    @Test func secondaryAggregationExcludesInFlightForegroundIrohEndpointBeforeIdentityAdoption() async throws {
+        let route = try CmxAttachRoute(
+            id: "iroh-live",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "b", count: 64)
+                ),
+                pathHints: []
+            )
+        )
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [try Self.pairedMac(
+                    id: "mac-saved",
+                    displayName: "Saved Mac",
+                    host: "unused",
+                    lastSeenAt: Date(timeIntervalSince1970: 20),
+                    isActive: true,
+                    routes: [route],
+                    instanceTag: "saved"
+                )],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: SlowIgnoringCancellationTransportFactory(),
+                now: { Date(timeIntervalSince1970: 30) },
+                supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" }
+        )
+        store.activeRoute = route
+        store.setWorkspaceStatesForTesting([:], foregroundMacDeviceID: nil)
+
+        #expect(await store.secondaryAggregationCandidateMacIDs().isEmpty)
+    }
+
     @Test func workspaceListReconnectUsesSingleUnavailableWorkspaceOwner() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [

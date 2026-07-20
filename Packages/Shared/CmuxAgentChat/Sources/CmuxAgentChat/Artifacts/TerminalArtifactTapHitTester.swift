@@ -45,7 +45,7 @@ public struct TerminalArtifactTapHitTester: Sendable {
         var currentRawEndColumn = token.rawEndColumn
 
         while currentRawEndColumn >= columns,
-              lines[currentRow].count >= columns,
+              Self.cellWidth(of: lines[currentRow]) >= columns,
               currentRow + 1 < lines.count,
               let continuation = leadingContinuation(in: lines[currentRow + 1]) {
             currentRow += 1
@@ -58,7 +58,7 @@ public struct TerminalArtifactTapHitTester: Sendable {
             ))
         }
 
-        let normalizedPath = TerminalArtifactPathDetector().tokens(in: rawPath).first?.path ?? token.path
+        let normalizedPath = Self.normalizedPath(in: rawPath) ?? token.path
         return StitchedPath(path: normalizedPath, segments: segments)
     }
 
@@ -76,20 +76,51 @@ public struct TerminalArtifactTapHitTester: Sendable {
                 index = line.index(after: index)
             }
             let raw = String(line[tokenStart..<index])
-            guard let path = TerminalArtifactPathDetector().tokens(in: raw).first?.path else {
+            guard let path = Self.normalizedPath(in: raw) else {
                 continue
             }
-            let leadingTrim = raw.count - raw.drop(while: Self.leadingTrimCharacters.contains).count
-            let startColumn = line.distance(from: line.startIndex, to: tokenStart) + leadingTrim
+            let leadingTrim = String(raw.prefix(while: Self.leadingTrimCharacters.contains))
+            let startColumn = Self.cellWidth(of: String(line[..<tokenStart]))
+                + Self.cellWidth(of: leadingTrim)
             result.append(TokenRange(
                 rawText: raw,
                 path: path,
                 startColumn: startColumn,
-                endColumn: startColumn + path.count,
-                rawEndColumn: line.distance(from: line.startIndex, to: index)
+                endColumn: startColumn + Self.cellWidth(of: path),
+                rawEndColumn: Self.cellWidth(of: String(line[..<index]))
             ))
         }
         return result
+    }
+
+    /// Transcript prose often names a file without a slash. Keep the gallery's
+    /// broad path detector conservative, but make the tapped token itself
+    /// actionable when it has an unambiguous filename extension.
+    private static func normalizedPath(in raw: String) -> String? {
+        if let path = TerminalArtifactPathDetector().tokens(in: raw).first?.path {
+            return path
+        }
+
+        var candidate = raw.trimmingCharacters(in: bareFilenameLeadingCharacters)
+        while let scalar = candidate.unicodeScalars.last,
+              bareFilenameTrailingCharacters.contains(scalar) {
+            candidate.removeLast()
+        }
+        guard !candidate.isEmpty,
+              !candidate.contains("/"),
+              !candidate.contains("@"),
+              !candidate.contains("://"),
+              !candidate.unicodeScalars.contains(where: forbiddenBareFilenameCharacters.contains)
+        else { return nil }
+
+        let path = candidate as NSString
+        let pathExtension = path.pathExtension
+        let basename = path.deletingPathExtension
+        guard !basename.isEmpty,
+              !pathExtension.isEmpty,
+              candidate.contains(where: { $0.isLetter })
+        else { return nil }
+        return candidate
     }
 
     private func leadingContinuation(in line: String) -> Continuation? {
@@ -100,7 +131,49 @@ public struct TerminalArtifactTapHitTester: Sendable {
         }
         let text = String(line.prefix(while: { !$0.isWhitespace }))
         guard !text.isEmpty else { return nil }
-        return Continuation(text: text, endColumn: text.count)
+        return Continuation(text: text, endColumn: Self.cellWidth(of: text))
+    }
+
+    private static func cellWidth(of text: String) -> Int {
+        text.reduce(0) { $0 + cellWidth(of: $1) }
+    }
+
+    private static func cellWidth(of character: Character) -> Int {
+        let scalars = character.unicodeScalars
+        guard scalars.contains(where: { !isZeroWidth($0) }) else { return 0 }
+        if scalars.contains(where: { isWide($0) || $0.properties.isEmojiPresentation }) {
+            return 2
+        }
+        return 1
+    }
+
+    private static func isZeroWidth(_ scalar: UnicodeScalar) -> Bool {
+        switch scalar.properties.generalCategory {
+        case .nonspacingMark, .spacingMark, .enclosingMark, .control, .format:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isWide(_ scalar: UnicodeScalar) -> Bool {
+        switch scalar.value {
+        case 0x1100...0x115F,
+             0x2329...0x232A,
+             0x2E80...0xA4CF,
+             0xAC00...0xD7A3,
+             0xF900...0xFAFF,
+             0xFE10...0xFE19,
+             0xFE30...0xFE6F,
+             0xFF00...0xFF60,
+             0xFFE0...0xFFE6,
+             0x16FE0...0x18DFF,
+             0x1AFF0...0x1B2FF,
+             0x20000...0x3FFFD:
+            return true
+        default:
+            return false
+        }
     }
 
     private static func isPathContinuation(_ character: Character) -> Bool {
@@ -142,6 +215,9 @@ public struct TerminalArtifactTapHitTester: Sendable {
     }
 
     private static let leadingTrimCharacters: Set<Character> = ["\"", "'", "`", "(", "[", "{", "<"]
+    private static let bareFilenameLeadingCharacters = CharacterSet(charactersIn: "\"'`([{<")
+    private static let bareFilenameTrailingCharacters = CharacterSet(charactersIn: "\"'`)]}>,;:!?.")
+    private static let forbiddenBareFilenameCharacters = CharacterSet(charactersIn: "<>\"'\\`")
     private static let pathContinuationCharacters: Set<Character> = [
         "/", ".", "_", "-", "+", "=", "~", "@", "%", ":", "\\",
     ]

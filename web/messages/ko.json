@@ -1493,6 +1493,7 @@
       "flagName": "깃발",
       "flagDesc": "설명",
       "flagNameVal": "작업공간 제목 설정",
+      "flagCommand": "셸 시작 후 첫 원격 터미널에서 명령 텍스트를 한 번만 실행",
       "flagPort": "SSH 포트(기본값 22)",
       "flagIdentity": "ID 파일 경로",
       "flagSshOption": "임의 SSH 옵션 전달(예: -o StrictHostKeyChecking=no)",

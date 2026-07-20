@@ -36,12 +36,11 @@ struct SidebarWorkspaceRowCommands {
 
     // MARK: Selection (parity with TabItemView.updateSelection)
 
-    func updateSelection() {
+    func updateSelection(modifiers: NSEvent.ModifierFlags = NSEvent.modifierFlags) {
 #if DEBUG
         cmuxDebugLog("sidebar.select.enter workspace=\(tab.id.uuidString.prefix(5)) hasTabManager=\(tabManager != nil)")
 #endif
         guard let tabManager else { return }
-        let modifiers = NSEvent.modifierFlags
         let isCommand = modifiers.contains(.command)
         let isShift = modifiers.contains(.shift)
         let wasSelected = tabManager.selectedTabId == tab.id

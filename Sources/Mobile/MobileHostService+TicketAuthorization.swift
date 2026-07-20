@@ -75,7 +75,8 @@ extension MobileHostService {
              "mobile.terminal.artifact.scan",
              "mobile.terminal.artifact.stat",
              "mobile.terminal.artifact.fetch",
-             "mobile.terminal.artifact.thumbnail":
+             "mobile.terminal.artifact.thumbnail",
+             "mobile.terminal.artifact.list":
             return ticketTerminalAuthorizationError(
                 authorization: authorization,
                 workspaceSelection: workspaceSelection.value,

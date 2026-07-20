@@ -17,7 +17,7 @@ extension MobileHostIrohRuntime {
             accountID: accountID,
             appInstanceID: appInstanceID
         )
-        let deviceID = MobileHostIdentity.deviceID().lowercased()
+        let deviceID = cmxCanonicalDeviceID(MobileHostIdentity.deviceID())
         let cachedBinding = try await brokerCredentials.loadBinding(
             accountID: accountID,
             appInstanceID: appInstanceID
@@ -85,8 +85,11 @@ extension MobileHostIrohRuntime {
             lastKnownTag = tag
         }
 
+        guard let brokerBaseURL = AuthEnvironment.irohBrokerBaseURL else {
+            throw CmxIrohTrustBrokerClientError.invalidBaseURL
+        }
         let broker = try CmxIrohTrustBrokerClient(
-            baseURL: AuthEnvironment.vmAPIBaseURL,
+            baseURL: brokerBaseURL,
             tokenSource: CmxIrohBrokerTokenSource(
                 accessToken: { [weak auth] in
                     guard let auth,
@@ -112,6 +115,7 @@ extension MobileHostIrohRuntime {
                 broker: broker
             )
             let effective: CmxIrohEffectiveRelayPolicy
+            diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshStarted))
             do {
                 effective = try await service.refresh(
                     endpointID: derivedEndpointID,
@@ -119,7 +123,12 @@ extension MobileHostIrohRuntime {
                     trustRoot: relayPolicyTrustRoot,
                     now: Date()
                 )
+                diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
             } catch {
+                diagnosticLog.record(DiagnosticEvent(
+                    .relayPolicyRefreshFailed,
+                    b: Self.diagnosticFailureKind(for: error).rawValue
+                ))
                 effective = await service.restore(
                     accountID: accountID,
                     trustRoot: relayPolicyTrustRoot,
@@ -185,28 +194,46 @@ extension MobileHostIrohRuntime {
             configuration: configuration,
             pendingRevocations: pendingRevocations,
             protocolConfiguration: protocolConfiguration,
-            handleTransport: { session, isCurrent in
+            handleTransport: { [diagnosticLog] session, isCurrent in
+                diagnosticLog.record(DiagnosticEvent(
+                    .admissionSucceeded,
+                    a: DiagnosticTransportKind.iroh.rawValue
+                ))
                 let eventWriter = MobileHostIrohServerEventWriter(
                     session: session
                 )
-                let laneRouter = MobileHostIrohApplicationLaneRouter(session: session)
-                await withTaskGroup(of: Void.self) { group in
-                    group.addTask {
+                let artifactTransfers = MobileHostIrohArtifactTransferRegistry()
+                let laneRouter = MobileHostIrohApplicationLaneRouter(
+                    session: session,
+                    artifactHandler: MobileHostIrohArtifactLaneHandler(
+                        registry: artifactTransfers
+                    )
+                )
+                let connectionSupervisor = CmxIrohAdmittedConnectionSupervisor(
+                    runControl: {
                         await MobileHostService.acceptTransport(
                             session.controlTransport,
                             authorization: .irohAdmission(session.peer),
+                            artifactTransfers: artifactTransfers,
                             independentEventWriter: eventWriter,
                             isCurrent: isCurrent
                         )
-                    }
-                    group.addTask {
+                    },
+                    runApplicationLanes: {
                         await laneRouter.run(isCurrent: isCurrent)
+                    },
+                    closeConnection: {
+                        await session.close()
+                    },
+                    stopApplicationLanes: {
+                        await laneRouter.stop()
                     }
-                    _ = await group.next()
-                    group.cancelAll()
-                    await session.close()
-                    await laneRouter.stop()
-                }
+                )
+                await connectionSupervisor.run()
+                diagnosticLog.record(DiagnosticEvent(
+                    .sessionClosed,
+                    a: DiagnosticTransportKind.iroh.rawValue
+                ))
             },
             handleBinding: { [weak self] registration, discovery, attestation in
                 let binding = registration.binding
@@ -293,9 +320,17 @@ extension MobileHostIrohRuntime {
                 )
             },
             handleLANRefresh: {
+                guard MobileHostService.isListeningEnabled else {
+                    await lanPublisher.stop()
+                    return
+                }
                 await lanPublisher.refresh()
             },
             handleLANPolicy: { context, directAddresses in
+                guard MobileHostService.isListeningEnabled else {
+                    await lanPublisher.stop()
+                    return
+                }
                 await lanPublisher.activate(
                     rendezvous: context.rendezvous,
                     binding: context.binding,
@@ -332,6 +367,10 @@ extension MobileHostIrohRuntime {
         runtime = hostRuntime
         activeAccountID = accountID
         activeAppInstanceID = appInstanceID
+        diagnosticLog.record(DiagnosticEvent(
+            .endpointActive,
+            a: DiagnosticTransportKind.iroh.rawValue
+        ))
         relayPolicyService = resolvedPolicyService
         relayPolicyEffective = resolvedEffectivePolicy
         relayPolicyDiagnostics = await resolvedPolicyService?.diagnosticsSnapshot()
