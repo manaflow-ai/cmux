@@ -55,6 +55,7 @@ extension GhosttySurfaceView {
            now - pending.startedAt >= effectiveOutputApplyTimeout {
             let failureReason = verifiedReplayPendingFenceFailureReason() ?? "pending_missing"
             pendingVerifiedReplayPresentation = nil
+            clearVerifiedReplayPresentation()
             let elapsedMs = Int((now - pending.startedAt) * 1000)
             MobileDebugLog.anchormux(
                 "verified_replay.TIMEOUT elapsedMs=\(elapsedMs) reason=\(failureReason)"
