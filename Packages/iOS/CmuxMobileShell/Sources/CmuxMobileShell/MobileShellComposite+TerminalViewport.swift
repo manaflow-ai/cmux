@@ -19,7 +19,12 @@ extension MobileShellComposite {
         surfaceID: String,
         columns: Int,
         rows: Int
-    ) async -> (columns: Int, rows: Int)? {
+    ) async -> (
+        columns: Int,
+        rows: Int,
+        renderEpoch: String?,
+        renderRevisionFloor: UInt64?
+    )? {
         guard columns > 0, rows > 0,
               let workspaceID = workspaceID(forTerminalID: surfaceID) else {
             return nil
@@ -132,7 +137,12 @@ extension MobileShellComposite {
                     reason: "viewport_unchanged"
                 )
             }
-            return (grid.columns, grid.rows)
+            return (
+                columns: grid.columns,
+                rows: grid.rows,
+                renderEpoch: payload.renderEpoch,
+                renderRevisionFloor: payload.renderRevisionFloor
+            )
         } catch {
             guard viewportReportGenerationsBySurfaceID[surfaceID] == requestGeneration else {
                 // A newer viewport request now owns any pending pre-ACK barrier.

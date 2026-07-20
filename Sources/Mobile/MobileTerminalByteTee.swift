@@ -115,6 +115,16 @@ final class MobileTerminalByteTee {
         statesBySurfaceID[surfaceID]?.seq
     }
 
+    /// Returns the producer identity that orders every render-grid capture.
+    ///
+    /// The state is installed even before the first capture so a viewport RPC
+    /// can return a floor in the same epoch that the subsequent replay uses.
+    func currentRenderCaptureIdentity(surfaceID: UUID) -> (epoch: String, revision: UInt64) {
+        let state = statesBySurfaceID[surfaceID] ?? SurfaceState()
+        statesBySurfaceID[surfaceID] = state
+        return (epoch: state.renderEpoch, revision: state.renderRevision)
+    }
+
     /// Claims the next epoch-aware render-grid capture identity for one surface.
     func nextRenderCaptureIdentity(surfaceID: UUID) -> (epoch: String, revision: UInt64) {
         var state = statesBySurfaceID[surfaceID] ?? SurfaceState()

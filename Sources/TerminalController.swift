@@ -14291,6 +14291,11 @@ class TerminalController {
             payload["columns"] = max(Int(size.columns), 1)
             payload["rows"] = max(Int(size.rows), 1)
         }
+        let renderFloor = MobileTerminalByteTee.shared.currentRenderCaptureIdentity(
+            surfaceID: surfaceId
+        )
+        payload["render_epoch"] = renderFloor.epoch
+        payload["render_revision_floor"] = renderFloor.revision
         return .ok(payload)
     }
 

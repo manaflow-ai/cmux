@@ -21,6 +21,7 @@ final class VerifiedTerminalReplayStateMachine {
     private var retiredRenderEpochs = Set<String>()
     private var lastVerifiedRenderRevision: UInt64 = 0
     private var lastVerifiedStateSeq: UInt64 = 0
+    private var viewportRenderRevisionFloors: [String: UInt64] = [:]
 
     private(set) var visibleSnapshot: MobileTerminalRenderGridVisualSnapshot?
 
@@ -47,6 +48,10 @@ final class VerifiedTerminalReplayStateMachine {
             return rejectFrame()
         }
         guard phase != .recovering || frame.full else {
+            return rejectFrame()
+        }
+        if let floor = viewportRenderRevisionFloors[frame.renderEpoch],
+           frame.renderRevision <= floor {
             return rejectFrame()
         }
 
@@ -134,12 +139,31 @@ final class VerifiedTerminalReplayStateMachine {
         return nextTransactionID
     }
 
+    /// Orders viewport acknowledgements against frame captures from the same
+    /// producer epoch. A capture at or below the returned floor was taken
+    /// before the Mac acknowledged the new effective grid.
+    func acknowledgeViewport(renderEpoch: String, renderRevisionFloor: UInt64) {
+        guard !renderEpoch.isEmpty else { return }
+        viewportRenderRevisionFloors[renderEpoch] = max(
+            viewportRenderRevisionFloors[renderEpoch] ?? 0,
+            renderRevisionFloor
+        )
+        guard let activeTransaction,
+              activeTransaction.renderEpoch == renderEpoch,
+              activeTransaction.renderRevision <= renderRevisionFloor else {
+            return
+        }
+        self.activeTransaction = nil
+        phase = .recovering
+    }
+
     func invalidate() {
         nextTransactionID &+= 1
         activeTransaction = nil
         visibleSnapshot = nil
         activeRenderEpoch = nil
         retiredRenderEpochs.removeAll()
+        viewportRenderRevisionFloors.removeAll()
         phase = .invalidated
     }
 

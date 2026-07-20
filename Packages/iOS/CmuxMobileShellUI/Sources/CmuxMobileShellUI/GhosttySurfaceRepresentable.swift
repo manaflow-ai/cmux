@@ -94,6 +94,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         view.artifactFilesEnabled = artifactFilesEnabled
+        view.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
+            ? .verifiedRenderGrid
+            : .legacyMirror
         #if DEBUG
         // Hand the surface the structured diagnostic log so the composer-dock
         // probes land in the blob the "Send to agent" feedback pane exports.
@@ -137,6 +140,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             sessionArtifactCountEnabled: sessionArtifactCountEnabled
         )
         surfaceView.artifactFilesEnabled = artifactFilesEnabled
+        surfaceView.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
+            ? .verifiedRenderGrid
+            : .legacyMirror
         if artifactCountModeChanged {
             surfaceView.resetVisibleArtifactCountTracking()
         }
@@ -266,6 +272,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         return
                     }
                     surfaceView.markViewportReportConfirmed()
+                    if let renderEpoch = effectiveGrid.renderEpoch,
+                       let renderRevisionFloor = effectiveGrid.renderRevisionFloor {
+                        self.verifiedReplayState.acknowledgeViewport(
+                            renderEpoch: renderEpoch,
+                            renderRevisionFloor: renderRevisionFloor
+                        )
+                    }
                     if case .remoteGrid = self.activeViewportPolicy {
                         surfaceView.applyConfirmedViewSize(
                             cols: effectiveGrid.columns,
