@@ -208,6 +208,99 @@ struct RemoteDaemonUploadTests {
         #expect(cleanupRequest.arguments.last?.contains(location.absolutePath) == true)
     }
 
+    @Test("Upload process failures do not expose arbitrary local error text")
+    func uploadProcessFailureSanitizesLocalDetail() throws {
+        try assertProcessFailureIsSanitized(
+            at: .upload,
+            expectedCode: 31,
+            expectedDescription: "failed to upload cmuxd-remote"
+        )
+    }
+
+    @Test("Directory process failures do not expose arbitrary local error text")
+    func directoryProcessFailureSanitizesLocalDetail() throws {
+        try assertProcessFailureIsSanitized(
+            at: .createDirectory,
+            expectedCode: 30,
+            expectedDescription: "failed to create remote daemon directory"
+        )
+    }
+
+    @Test("Finalization process failures do not expose arbitrary local error text")
+    func finalizationProcessFailureSanitizesLocalDetail() throws {
+        try assertProcessFailureIsSanitized(
+            at: .finalize,
+            expectedCode: 32,
+            expectedDescription: "failed to install remote daemon binary"
+        )
+    }
+
+    private func assertProcessFailureIsSanitized(
+        at failingStep: RemoteDaemonUploadStep,
+        expectedCode: Int,
+        expectedDescription: String
+    ) throws {
+        let fileManager = FileManager.default
+        let localBinary = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-upload-\(UUID().uuidString)",
+            isDirectory: false
+        )
+        try Data("fake daemon".utf8).write(to: localBinary)
+        defer { try? fileManager.removeItem(at: localBinary) }
+
+        let privateDetail = "sensitive local path /Users/example/private/key"
+        let runner = RecordingProcessRunner { request in
+            let step = Self.uploadStep(for: request)
+            if step == failingStep {
+                throw NSError(domain: "test.local.process", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: privateDetail,
+                ])
+            }
+            switch step {
+            case .createDirectory, .upload, .finalize, .cleanup:
+                return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+            case .unknown:
+                return Self.unexpectedRequestResult(request)
+            }
+        }
+        let coordinator = makeCoordinator(runner: runner)
+        defer { coordinator.stop() }
+        let location = RemoteDaemonInstallLocation(
+            relativePath: ".cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote",
+            absolutePath: "/home/test/.cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote"
+        )
+
+        do {
+            try coordinator.queue.sync {
+                try coordinator.uploadRemoteDaemonBinaryLocked(
+                    localBinary: localBinary,
+                    location: location
+                )
+            }
+            Issue.record("Expected the injected process failure to propagate")
+        } catch {
+            let nsError = error as NSError
+            #expect(nsError.domain == "cmux.remote.daemon")
+            #expect(nsError.code == expectedCode)
+            #expect(nsError.localizedDescription == expectedDescription)
+            #expect(!nsError.localizedDescription.contains(privateDetail))
+        }
+
+        let expectedSteps: [RemoteDaemonUploadStep]
+        switch failingStep {
+        case .createDirectory:
+            expectedSteps = [.createDirectory]
+        case .upload:
+            expectedSteps = [.createDirectory, .upload, .cleanup]
+        case .finalize:
+            expectedSteps = [.createDirectory, .upload, .finalize, .cleanup]
+        case .cleanup, .unknown:
+            Issue.record("Unsupported process-failure test step: \(failingStep)")
+            return
+        }
+        #expect(runner.requests.map(Self.uploadStep) == expectedSteps)
+    }
+
     private static func uploadStep(for request: RemoteProcessRequest) -> RemoteDaemonUploadStep {
         guard request.executable == "/usr/bin/ssh",
               let command = request.arguments.last else {
