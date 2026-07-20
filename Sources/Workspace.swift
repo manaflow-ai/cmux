@@ -563,8 +563,21 @@ extension Workspace {
                 includeScrollback: includeScrollback,
                 allowFallbackScrollback: shouldPersistScrollback || allowDebugFallbackScrollback || hasRestoredScrollbackFallback
             )
+            // Runtime zoom lives only in the live surface; a hibernated/dead surface
+            // falls back to the lineage-seeded points so the zoom survives capture.
+            let capturedFontBasePoints: Float? = {
+                guard let surface = terminalPanel.surface.surface,
+                      let runtimePoints = cmuxCurrentSurfaceFontSizePoints(surface) else {
+                    return terminalInheritanceFontPointsByPanelId[panelId]
+                }
+                return CmuxSurfaceConfigTemplate.baseFontSize(
+                    fromRuntimePoints: runtimePoints,
+                    percent: GlobalFontMagnification.storedPercent
+                )
+            }()
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: directory,
+                fontSize: capturedFontBasePoints,
                 scrollback: resolvedScrollback,
                 agent: effectiveRestorableAgent,
                 tmuxStartCommand: restorableTmuxStartCommand,
@@ -1472,7 +1485,8 @@ extension Workspace {
                 runtimeSpawnPolicy: .pacedSessionRestore,
                 remotePTYSessionID: restoredRemotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
-                restoredSurfaceId: reusableSurfaceId
+                restoredSurfaceId: reusableSurfaceId,
+                restoredFontBasePoints: snapshot.terminal?.fontSize
             ) else {
                 if let replayFileURL { try? FileManager.default.removeItem(at: replayFileURL) }
                 return nil
@@ -7141,6 +7155,7 @@ final class Workspace: Identifiable, ObservableObject {
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
+        restoredFontBasePoints: Float? = nil,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
         allowTextBoxFocusDefault: Bool = true
@@ -7159,6 +7174,7 @@ final class Workspace: Identifiable, ObservableObject {
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
+            restoredFontBasePoints: restoredFontBasePoints,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault
@@ -7182,6 +7198,7 @@ final class Workspace: Identifiable, ObservableObject {
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
+        restoredFontBasePoints: Float? = nil,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
         allowTextBoxFocusDefault: Bool = true
@@ -7230,6 +7247,7 @@ final class Workspace: Identifiable, ObservableObject {
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
+            restoredFontBasePoints: restoredFontBasePoints,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault
@@ -7251,6 +7269,7 @@ final class Workspace: Identifiable, ObservableObject {
         remotePTYSessionID: String?,
         suppressWorkspaceRemoteStartupCommand: Bool,
         restoredSurfaceId: UUID?,
+        restoredFontBasePoints: Float?,
         inheritWorkingDirectoryFallback: Bool,
         workingDirectoryFallbackSourcePanelId: UUID?,
         allowTextBoxFocusDefault: Bool
@@ -7260,6 +7279,12 @@ final class Workspace: Identifiable, ObservableObject {
         let previousHostedView = focusedTerminalPanel?.hostedView
 
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+        if let restoredFontBasePoints, restoredFontBasePoints > 0 {
+            // A restored tab keeps its own persisted zoom, not the pane's inherited one.
+            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+            template.fontSize = restoredFontBasePoints
+            inheritedConfig = template
+        }
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
