@@ -4,6 +4,13 @@ import CmuxAppKitSupportUI
 import CmuxFoundation
 import SwiftUI
 
+#if DEBUG
+enum SidebarWorkspaceTableStructuralUpdate: Equatable {
+    case moveRows
+    case reloadData
+}
+#endif
+
 /// Main-actor owner of the default sidebar table lifecycle and its AppKit interactions.
 @MainActor
 final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NSTableViewDelegate {
@@ -24,6 +31,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
 #if DEBUG
     var reconfigurationProbe: (() -> Void)?
+    var structuralUpdateProbe: ((SidebarWorkspaceTableStructuralUpdate) -> Void)?
     var dropTargetComputationProbe: (() -> Void)? {
         get { dropTargetGeometry.computationProbe }
         set { dropTargetGeometry.computationProbe = newValue }
@@ -214,6 +222,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             if previousIds.count == nextIds.count,
                mismatches <= Self.maxAnimatedReorderMoves,
                Self.multisetEqual(previousIds, nextIds) {
+#if DEBUG
+                structuralUpdateProbe?(.moveRows)
+#endif
                 // Pure reorder (drag-drop): move rows in place. reloadData
                 // tears down every visible cell and snaps the scroll
                 // position — the "click to reorder is jank" report — while
@@ -240,6 +251,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                     noteHeightOfRowsWithoutAnimation(table, heightChanges)
                 }
             } else {
+#if DEBUG
+                structuralUpdateProbe?(.reloadData)
+#endif
                 containerView.tableView.reloadData()
             }
         } else {

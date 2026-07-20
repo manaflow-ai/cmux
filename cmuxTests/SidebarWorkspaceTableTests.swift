@@ -241,6 +241,77 @@ struct SidebarWorkspaceTableTests {
         controller.viewportDidChange()
         #expect(computations == 2)
     }
+
+    @Test
+    @MainActor
+    func notificationReorderWithHeightChangeUsesAtomicReload() throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 900),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+
+        let ids = (0..<9).map { _ in UUID() }
+        let heights: [CGFloat] = [42, 86, 54, 132, 62, 104, 48, 118, 76]
+        let initialRows = zip(ids, heights).enumerated().map { index, pair in
+            makeSizedRowConfiguration(
+                workspaceId: pair.0,
+                contentToken: index,
+                height: pair.1
+            )
+        }
+        controller.apply(
+            rows: initialRows,
+            actions: makeTableActions(),
+            workspaceIds: ids,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        var structuralUpdates: [SidebarWorkspaceTableStructuralUpdate] = []
+        controller.structuralUpdateProbe = { structuralUpdates.append($0) }
+
+        let notifiedId = ids[7]
+        let reorderedIds = [notifiedId] + ids.filter { $0 != notifiedId }
+        let heightsById = Dictionary(uniqueKeysWithValues: zip(ids, heights))
+        let nextRows = reorderedIds.enumerated().map { index, id in
+            makeSizedRowConfiguration(
+                workspaceId: id,
+                contentToken: id == notifiedId ? 100 : index,
+                height: id == notifiedId ? 168 : heightsById[id]!
+            )
+        }
+
+        controller.apply(
+            rows: nextRows,
+            actions: makeTableActions(),
+            workspaceIds: reorderedIds,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        #expect(structuralUpdates == [.reloadData])
+        let table = container.tableView
+        let rowRects = nextRows.indices.map(table.rect(ofRow:))
+        for index in rowRects.indices.dropLast() {
+            #expect(rowRects[index].maxY <= rowRects[index + 1].minY)
+        }
+        for index in nextRows.indices {
+            let cell = try #require(
+                table.view(atColumn: 0, row: index, makeIfNecessary: true)
+                    as? SidebarWorkspaceTableCellView
+            )
+            #expect(cell.representedRowId == nextRows[index].id)
+        }
+    }
 #endif
 
     @Test
@@ -299,6 +370,38 @@ struct SidebarWorkspaceTableTests {
         }
     }
 
+    @MainActor
+    private func makeSizedRowConfiguration(
+        workspaceId: UUID,
+        contentToken: Int,
+        height: CGFloat
+    ) -> SidebarWorkspaceTableRowConfiguration {
+#if DEBUG
+        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
+            colorScheme: .dark,
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+#else
+        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
+            colorScheme: .dark,
+            globalFontMagnificationPercent: 100
+        )
+#endif
+        let content = SizedTestRowContent(token: contentToken, height: height)
+        return SidebarWorkspaceTableRowConfiguration(
+            id: .workspace(workspaceId),
+            workspaceId: workspaceId,
+            groupId: nil,
+            isGroupHeader: false,
+            isPinned: false,
+            environment: environment,
+            equivalenceValue: content
+        ) { _, _ in
+            AnyView(content)
+        }
+    }
+
 #if DEBUG
     @MainActor
     private func configure(
@@ -346,6 +449,15 @@ struct SidebarWorkspaceTableTests {
 
         var body: some View {
             EmptyView()
+        }
+    }
+
+    private struct SizedTestRowContent: View, Equatable {
+        let token: Int
+        let height: CGFloat
+
+        var body: some View {
+            Color.clear.frame(height: height)
         }
     }
 }
