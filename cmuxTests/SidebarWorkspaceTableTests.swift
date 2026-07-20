@@ -176,7 +176,7 @@ struct SidebarWorkspaceTableTests {
             container.tableView.numberOfRows == 0,
             "Representable updates must not mutate NSTableView before the originating callback returns."
         )
-        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
+        flushStagedTableMutations()
         #expect(
             container.tableView.numberOfRows == 2,
             "The deferred boundary must coalesce repeated inputs and apply the newest table snapshot."
@@ -255,7 +255,7 @@ struct SidebarWorkspaceTableTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
-        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
+        flushStagedTableMutations()
         container.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
         var computations = 0
@@ -263,6 +263,7 @@ struct SidebarWorkspaceTableTests {
 
         controller.viewportDidChange()
         controller.viewportDidChange()
+        flushStagedTableMutations()
         #expect(computations == 0)
 
         controller.workspaceDragSessionDidBegin()
@@ -270,11 +271,13 @@ struct SidebarWorkspaceTableTests {
         #expect(container.reorderDropView.targets.map(\.workspaceId) == [workspaceId])
 
         controller.viewportDidChange()
+        flushStagedTableMutations()
         #expect(computations == 2)
 
         controller.workspaceDragSessionDidEnd()
         #expect(container.reorderDropView.targets.isEmpty)
         controller.viewportDidChange()
+        flushStagedTableMutations()
         #expect(computations == 2)
     }
 #endif
@@ -333,6 +336,11 @@ struct SidebarWorkspaceTableTests {
         ) { _, _ in
             AnyView(TestRowContent(token: contentToken))
         }
+    }
+
+    @MainActor
+    private func flushStagedTableMutations() {
+        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
     }
 
 #if DEBUG
