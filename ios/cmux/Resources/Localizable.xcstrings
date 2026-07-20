@@ -5356,6 +5356,23 @@
         }
       }
     },
+    "mobile.settings.terminalFolderTap": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Folders on Tap"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タップでフォルダを開く"
+          }
+        }
+      }
+    },
     "mobile.settings.terminalFilesChip": {
       "extractionState": "manual",
       "localizations": {

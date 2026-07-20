@@ -265,6 +265,24 @@ extension GhosttySurfaceRepresentable.Coordinator {
                     row: row,
                     columns: snapshot.columns
                 ) {
+                    let decision = await TerminalFolderTapPolicy.decision(
+                        for: path,
+                        folderTapEnabled: terminalFolderTapEnabled
+                    ) { [weak self] path in
+                        guard let self,
+                              let source = self.store?.makeChatEventSource() else {
+                            return .binary
+                        }
+                        return try await source.terminalArtifactStat(
+                            workspaceID: self.workspaceID,
+                            surfaceID: self.surfaceID,
+                            path: path
+                        ).kind
+                    }
+                    guard decision == .openArtifact else {
+                        await store?.clickTerminal(surfaceID: surfaceID, col: col, row: row)
+                        return .focusTerminal
+                    }
                     onArtifactPathTapped(path)
                     return .openedArtifact
                 }

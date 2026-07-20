@@ -65,6 +65,26 @@ import Testing
         #expect(defaults.object(forKey: "cmux.mobile.terminalFilesChipEnabled") == nil)
     }
 
+    @Test func terminalFolderTapDefaultsToTrueWithoutAWrite() throws {
+        let defaults = try makeDefaults("terminalFolderTapDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        #expect(settings.terminalFolderTapEnabled)
+        #expect(defaults.object(forKey: "cmux.mobile.terminalFolderTapEnabled") == nil)
+    }
+
+    @Test func terminalFolderTapDidSetPersists() throws {
+        let defaults = try makeDefaults("terminalFolderTapDidSetPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.terminalFolderTapEnabled = false
+        #expect(defaults.object(forKey: "cmux.mobile.terminalFolderTapEnabled") as? Bool == false)
+    }
+
+    @Test func terminalFolderTapReadsStoredFalse() throws {
+        let defaults = try makeDefaults("terminalFolderTapReadsStoredFalse")
+        defaults.set(false, forKey: "cmux.mobile.terminalFolderTapEnabled")
+        #expect(!MobileDisplaySettings(defaults: defaults).terminalFolderTapEnabled)
+    }
+
     @Test func terminalFilesChipPersistsAcrossInstances() throws {
         let defaults = try makeDefaults("terminalFilesChipPersists")
         let settings = MobileDisplaySettings(defaults: defaults)

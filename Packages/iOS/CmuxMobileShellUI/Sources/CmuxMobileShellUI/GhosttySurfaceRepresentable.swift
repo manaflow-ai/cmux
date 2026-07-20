@@ -46,6 +46,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// Ghostty config update without remounting or changing another scene.
     var configThemeGeneration: UInt64 = 0
     var artifactFilesEnabled: Bool = false
+    var terminalFolderTapEnabled: Bool = true
     var terminalFilesChipEnabled: Bool = false
     var sessionArtifactCountEnabled: Bool = false
     var visibleArtifactCount: Int = 0
@@ -60,6 +61,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceID: surfaceID,
             store: store,
             artifactFilesEnabled: artifactFilesEnabled,
+            terminalFolderTapEnabled: terminalFolderTapEnabled,
             terminalFilesChipEnabled: terminalFilesChipEnabled,
             sessionArtifactCountEnabled: sessionArtifactCountEnabled,
             visibleArtifactCount: visibleArtifactCount,
@@ -131,6 +133,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         context.coordinator.onArtifactPathTapped = onArtifactPathTapped
         context.coordinator.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
         context.coordinator.onArtifactGalleryRefreshSignal = onArtifactGalleryRefreshSignal
+        context.coordinator.terminalFolderTapEnabled = terminalFolderTapEnabled
         let artifactCountModeChanged = context.coordinator.updateArtifactCountMode(
             artifactFilesEnabled: artifactFilesEnabled,
             terminalFilesChipEnabled: terminalFilesChipEnabled,
@@ -166,6 +169,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
         var artifactFilesEnabled: Bool
+        var terminalFolderTapEnabled: Bool
         var artifactChipGate: TerminalArtifactChipFeatureGate
         var sessionArtifactCountEnabled: Bool
         var visibleArtifactCount: Int
@@ -208,6 +212,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceID: String,
             store: CMUXMobileShellStore,
             artifactFilesEnabled: Bool,
+            terminalFolderTapEnabled: Bool,
             terminalFilesChipEnabled: Bool,
             sessionArtifactCountEnabled: Bool,
             visibleArtifactCount: Int,
@@ -220,6 +225,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.surfaceID = surfaceID
             self.store = store
             self.artifactFilesEnabled = artifactFilesEnabled
+            self.terminalFolderTapEnabled = terminalFolderTapEnabled
             self.artifactChipGate = TerminalArtifactChipFeatureGate(
                 artifactsAvailable: artifactFilesEnabled,
                 preferenceEnabled: terminalFilesChipEnabled
