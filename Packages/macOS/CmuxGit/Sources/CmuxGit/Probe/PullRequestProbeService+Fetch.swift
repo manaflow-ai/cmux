@@ -8,8 +8,9 @@ extension PullRequestProbeService {
     /// Repositories are fetched concurrently. A repository whose cached entry is
     /// fresh (younger than ``repoCacheLifetime``) and already covers every
     /// candidate branch is served from cache when `allowCachedResults` permits;
-    /// otherwise the recent-PRs pages are fetched and any still-unresolved
-    /// branches get targeted per-branch lookups.
+    /// otherwise each candidate branch is resolved with a targeted per-branch
+    /// `head={owner}:{branch}` lookup, which keeps the response small and its
+    /// ETag stable so the coordinator's `If-None-Match` cache stays effective.
     ///
     /// - Parameters:
     ///   - repoDirectoriesBySlug: Repositories to fetch (slug → representative directory).
@@ -81,7 +82,7 @@ extension PullRequestProbeService {
     }
 
     /// Fetches one repository: serve from cache when permitted and complete,
-    /// else page the recent PRs and per-branch-look-up any leftover branches.
+    /// else resolve every candidate branch with a per-branch `head=` lookup.
     nonisolated func repoFetchResult(
         repoSlug: String,
         candidateBranches: Set<String>,
@@ -126,61 +127,22 @@ extension PullRequestProbeService {
         }
 
         let fetchTimestamp = Date()
-        var page = 1
-        var fetchedPageCount = 0
-        var allPullRequests: [GitHubPullRequestProbeItem] = []
-
-        while page <= Self.repoPageLimit {
-            let endpoint = "repos/\(repoSlug)/pulls?state=all&sort=updated&direction=desc&per_page=\(Self.repoPageSize)&page=\(page)"
-            guard let response = await performRequest(
-                endpoint: endpoint,
-                authHeader: authHeader
-            ) else {
-                debugLog("workspace.prRefresh.repo.fail repo=\(repoSlug) page=\(page) status=nil")
-                return .transientFailure
-            }
-
-            guard response.statusCode == 200,
-                  let pullRequests = Self.decodeJSON([WorkspacePullRequestRESTItem].self, from: response.data) else {
-                debugLog("workspace.prRefresh.repo.fail repo=\(repoSlug) page=\(page) status=\(response.statusCode)")
-                return .transientFailure
-            }
-
-            fetchedPageCount += 1
-            allPullRequests.append(contentsOf: pullRequests.map(Self.probeItem))
-            if pullRequests.count < Self.repoPageSize {
-                break
-            }
-            page += 1
-        }
-
-        let recentWindowEntry = WorkspacePullRequestRepoCacheEntry(
+        let baseEntry = WorkspacePullRequestRepoCacheEntry(
             fetchedAt: fetchTimestamp,
-            pullRequestsByBranch: Self.pullRequestMapByNormalizedBranch(from: allPullRequests)
+            pullRequestsByBranch: [:]
         )
-        let unresolvedBranches = Self.unresolvedBranches(
-            normalizedCandidateBranches,
-            in: recentWindowEntry
+        let lookupOutcome = await branchLookupOutcome(
+            repoSlug: repoSlug,
+            candidateBranches: normalizedCandidateBranches.sorted(),
+            baseEntry: baseEntry,
+            refreshedAt: fetchTimestamp,
+            authHeader: authHeader
         )
-        let lookupOutcome: WorkspacePullRequestBranchLookupOutcome
-        if unresolvedBranches.isEmpty {
-            lookupOutcome = WorkspacePullRequestBranchLookupOutcome(
-                cacheEntry: recentWindowEntry,
-                transientBranches: []
-            )
-        } else {
-            lookupOutcome = await branchLookupOutcome(
-                repoSlug: repoSlug,
-                candidateBranches: unresolvedBranches,
-                baseEntry: recentWindowEntry,
-                refreshedAt: fetchTimestamp,
-                authHeader: authHeader
-            )
-        }
         debugLog(
-            "workspace.prRefresh.repo.success repo=\(repoSlug) pages=\(fetchedPageCount) " +
+            "workspace.prRefresh.repo.perBranch repo=\(repoSlug) " +
+            "branchLookups=\(normalizedCandidateBranches.count) " +
             "branches=\(lookupOutcome.cacheEntry.pullRequestsByBranch.count) " +
-            "branchLookups=\(unresolvedBranches.count) transient=\(lookupOutcome.transientBranches.count)"
+            "transient=\(lookupOutcome.transientBranches.count)"
         )
         return .success(
             lookupOutcome.cacheEntry,
@@ -285,6 +247,13 @@ extension PullRequestProbeService {
         ) else {
             debugLog("workspace.prRefresh.branch.fail repo=\(repoSlug) branch=\(branch) status=nil")
             return .transientFailure
+        }
+
+        if response.statusCode == 404 {
+            debugLog(
+                "workspace.prRefresh.branch.notFound repo=\(repoSlug) branch=\(branch)"
+            )
+            return .notFound
         }
 
         guard response.statusCode == 200,

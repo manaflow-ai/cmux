@@ -52,14 +52,26 @@ public struct PullRequestProbeService: Sendable {
         self.debugLog = debugLog
     }
 
+    /// Test seam: injects a request coordinator (typically one backed by a stub
+    /// `URLSession`) so the network fetch layer can be exercised deterministically
+    /// without contacting GitHub.
+    init(
+        commandRunner: any CommandRunning,
+        requestCoordinator: GitHubPullRequestRequestCoordinator,
+        debugLog: @escaping @Sendable (String) -> Void = { _ in }
+    ) {
+        self.commandRunner = commandRunner
+        self.authHeaderCache = GitHubAuthHeaderCache()
+        self.requestCoordinator = requestCoordinator
+        self.debugLog = debugLog
+    }
+
     // MARK: Tuning constants
 
     /// How long a fetched repo cache entry satisfies periodic refreshes.
     static let repoCacheLifetime: TimeInterval = 15
-    /// REST page size for the recent-PRs fetch.
+    /// REST page size for per-branch `head=` pull-request lookups.
     static let repoPageSize = 100
-    /// Maximum REST pages fetched per repository.
-    static let repoPageLimit = 2
     /// Per-request timeout for GitHub API calls and the `gh auth token` probe.
     static let probeTimeout: TimeInterval = 5.0
     /// Merged PRs older than this no longer earn a badge.
