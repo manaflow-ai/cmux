@@ -65,6 +65,11 @@ final class SettingsWindowPresenter: NSObject {
     /// (and the window's identifier removed) in `settingsWindowWillClose` so
     /// a closed window can never absorb a future open request.
     private var settingsWindow: NSWindow?
+    /// Retains each AppKit window controller through its close callback. The
+    /// identity map matters because `show()` may re-enter from another
+    /// `willClose` observer and install a replacement before teardown of the
+    /// closing window has finished.
+    private var windowControllers: [ObjectIdentifier: ReleasingWindowController] = [:]
     // Navigation-delivery state is internal (not private) because its
     // behavior lives in SettingsWindowNavigationDelivery.swift (split for
     // the file-length budget); no type outside the presenter touches it.
@@ -339,6 +344,7 @@ final class SettingsWindowPresenter: NSObject {
             name: NSWindow.willCloseNotification,
             object: window
         )
+        installWindowController(for: window)
         settingsWindow = window
     }
 
@@ -346,6 +352,9 @@ final class SettingsWindowPresenter: NSObject {
         let window = windowFactory(self)
         window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
         window.isReleasedWhenClosed = false
+        // Do not expose a close-time transform surface that tiling window
+        // managers can retain as an empty workspace node.
+        window.animationBehavior = .none
         window.isRestorable = false
         window.minSize = Self.minimumSize
         window.contentMinSize = Self.minimumSize
@@ -370,6 +379,7 @@ final class SettingsWindowPresenter: NSObject {
             name: NSWindow.willCloseNotification,
             object: window
         )
+        installWindowController(for: window)
         settingsWindow = window
         isContentReadyForNavigation = false
         return window
@@ -450,6 +460,7 @@ final class SettingsWindowPresenter: NSObject {
             object: window
         )
         window.identifier = nil
+        retireWindowController(for: window)
         if settingsWindow === window {
             settingsWindow = nil
             isContentReadyForNavigation = false
@@ -462,20 +473,28 @@ final class SettingsWindowPresenter: NSObject {
             let window = notification.object as? NSWindow,
             window === settingsWindow
         else { return }
-        NotificationCenter.default.removeObserver(
-            self,
-            name: NSWindow.willCloseNotification,
-            object: window
-        )
         // A closed window must never be rediscovered by an open request, and
         // its SwiftUI tree must be released with it so it cannot linger
         // half-alive (the #4964 blank-reopen / #5321 lingering-window
         // classes). The next show() builds a fresh window from scratch.
-        window.identifier = nil
-        settingsWindow = nil
-        isContentReadyForNavigation = false
+        strip(window)
         window.contentViewController = nil
         window.contentView = nil
+    }
+
+    private func installWindowController(for window: NSWindow) {
+        let key = ObjectIdentifier(window)
+        guard windowControllers[key] == nil else { return }
+        windowControllers[key] = ReleasingWindowController(window: window)
+    }
+
+    private func retireWindowController(for window: NSWindow) {
+        let key = ObjectIdentifier(window)
+        guard let controller = windowControllers[key] else { return }
+        DispatchQueue.main.async { [weak self, weak controller] in
+            guard let self, self.windowControllers[key] === controller else { return }
+            self.windowControllers.removeValue(forKey: key)
+        }
     }
 
     // Multi-monitor recovery + diagnostics live in SettingsWindowGeometry.swift.
