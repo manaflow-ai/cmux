@@ -94,7 +94,10 @@ actor MobileHostIrohArtifactTransferRegistry {
 
     init(
         timeToLive: TimeInterval = defaultTimeToLive,
-        now: @escaping @Sendable () -> Date = Date.init,
+        // A closure literal, not `Date.init`: unapplied initializer references
+        // are not inferred @Sendable, and converting one trips the strict
+        // sendability warning that the zero-warning budget rejects.
+        now: @escaping @Sendable () -> Date = { Date() },
         resourceID: @escaping @Sendable () throws -> CmxIrohResourceID = {
             let token = (UUID().uuidString + UUID().uuidString)
                 .replacingOccurrences(of: "-", with: "")
