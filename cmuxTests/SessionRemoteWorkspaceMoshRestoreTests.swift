@@ -1,4 +1,5 @@
 import CmuxCore
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -38,24 +39,18 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
 
         let readyURL = directory.appendingPathComponent("management.ready")
         let argumentsURL = directory.appendingPathComponent("mosh.args")
-        let options = CMUXCLI.SSHCommandOptions(
+        let command = MoshTerminalCommandBuilder(
+            capabilityProbeSSHArguments: [sshURL.path],
+            sessionSSHArguments: [sshURL.path],
             destination: "user@example.com",
-            port: nil,
-            identityFile: nil,
-            workspaceName: nil,
-            noFocus: true,
-            sshOptions: [],
-            extraArguments: ["printf", "remote command"],
-            terminalTransport: .mosh,
-            localSocketPath: "/tmp/cmux.sock",
-            remoteRelayPort: 52_001
-        )
-        let command = CMUXCLI(args: []).buildMoshTerminalStartupCommand(
-            options: options,
-            remoteBootstrapScript: nil,
-            localCommandScript: "printf ready > \"$READY_FILE\"",
-            sshFallbackCommand: "exit 90"
-        )
+            remoteCommandArguments: ["printf", "remote command"],
+            managementReadyShellScript: "printf ready > \"$READY_FILE\"",
+            sshFallbackCommand: "exit 90",
+            localMoshMissingMessage: "local Mosh missing",
+            localMoshUnsupportedMessage: "local Mosh unsupported",
+            remoteMoshMissingMessage: "remote Mosh missing",
+            remoteMoshProbeFailedMessage: "remote Mosh probe failed"
+        ).command()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", command]

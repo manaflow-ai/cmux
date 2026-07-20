@@ -333,10 +333,10 @@ struct ShellStartupMatrixTests {
             shellFeatures: RemoteInteractiveShellBootstrapBuilder.shellFeatures(environment: [
                 "GHOSTTY_SHELL_FEATURES": "existing-feature"
             ]),
+            initialCommand: initialCommand,
             bundledZshIntegration: "cmux_zsh_marker=1",
             bundledBashIntegration: "cmux_bash_marker=1",
-            bundledFishIntegration: "set -gx CMUX_FISH_MARKER 1",
-            initialCommand: initialCommand
+            bundledFishIntegration: "set -gx CMUX_FISH_MARKER 1"
         )
         if let workspaceID {
             script = script.replacingOccurrences(of: "__CMUX_WORKSPACE_ID__", with: workspaceID)
