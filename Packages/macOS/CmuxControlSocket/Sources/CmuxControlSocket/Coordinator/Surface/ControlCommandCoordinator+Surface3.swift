@@ -362,7 +362,7 @@ extension ControlCommandCoordinator {
 
     /// The shared workspace/requested-surface field block the report/kick payloads
     /// echo (the legacy `v2OrNull` requested-surface shape).
-    private func surfaceReportSurfaceFields(
+    func surfaceReportSurfaceFields(
         workspaceID: UUID,
         requestedSurfaceID: UUID?
     ) -> [String: JSONValue] {
