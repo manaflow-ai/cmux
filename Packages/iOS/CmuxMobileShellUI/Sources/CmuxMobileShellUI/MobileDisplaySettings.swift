@@ -24,6 +24,7 @@ public final class MobileDisplaySettings {
     private static let showAltScreenNoticeKey = "cmux.mobile.showAltScreenNotice"
     private static let showMissingFilesKey = "cmux.mobile.showMissingFiles"
     private static let terminalFilesChipEnabledKey = "cmux.mobile.terminalFilesChipEnabled"
+    private static let taskComposerEnabledKey = "cmux.mobile.taskComposerEnabled"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     private static let profilePictureLeftShiftKey = "cmux.mobile.debug.profilePictureLeftShift"
@@ -76,6 +77,15 @@ public final class MobileDisplaySettings {
     public var terminalFilesChipEnabled: Bool {
         didSet {
             defaults.set(terminalFilesChipEnabled, forKey: Self.terminalFilesChipEnabledKey)
+        }
+    }
+
+    /// Whether the beta New Task composer is available from the workspace list.
+    /// Defaults to `false`. Mutating this writes through to the injected
+    /// ``UserDefaults``.
+    public var taskComposerEnabled: Bool {
+        didSet {
+            defaults.set(taskComposerEnabled, forKey: Self.taskComposerEnabledKey)
         }
     }
 
@@ -147,6 +157,7 @@ public final class MobileDisplaySettings {
         self.showAltScreenNotice = defaults.object(forKey: Self.showAltScreenNoticeKey) as? Bool ?? true
         self.showMissingFiles = defaults.bool(forKey: Self.showMissingFilesKey)
         self.terminalFilesChipEnabled = defaults.bool(forKey: Self.terminalFilesChipEnabledKey)
+        self.taskComposerEnabled = defaults.bool(forKey: Self.taskComposerEnabledKey)
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int
         self.workspacePreviewLineCount = Self.clampedWorkspacePreviewLineCount(
             storedPreviewLines ?? Self.defaultWorkspacePreviewLineCount

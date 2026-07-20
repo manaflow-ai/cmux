@@ -168,6 +168,14 @@ struct MobileSettingsView: View {
                 }
 
                 Section(L10n.string("mobile.settings.betaFeatures", defaultValue: "Beta Features")) {
+                    Toggle(isOn: $displaySettings.taskComposerEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.taskComposer",
+                            defaultValue: "New Task Composer"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsTaskComposer")
+
                     Toggle(isOn: $displaySettings.terminalFilesChipEnabled) {
                         Text(L10n.string(
                             "mobile.settings.terminalFilesChip",
