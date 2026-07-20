@@ -91,10 +91,6 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     ) {
         let previous = previousConfiguration
         configuration = next
-        configuredItemsByID = Dictionary(
-            next.items.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
         tableView.dragInteractionEnabled = next.enablesReorder
         updateRefreshControl(in: tableView)
 
@@ -108,18 +104,28 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             || currentSnapshot.itemIdentifiers != next.items
         var changed: [WorkspaceListTableItem] = []
         if let previous {
-            let previousByID = Dictionary(
-                previous.items.map { ($0.id, $0) },
-                uniquingKeysWith: { first, _ in first }
-            )
-            changed = next.items.filter { item in
-                guard let oldItem = previousByID[item.id] else { return false }
-                return itemPayloadChanged(
+            // This map already mirrors previousConfiguration. Reuse it instead
+            // of rebuilding a second full index for every live row update.
+            for item in next.items {
+                guard let oldItem = configuredItemsByID[item.id] else { continue }
+                if itemPayloadChanged(
                     item,
                     oldItem: oldItem,
                     previous: previous,
                     next: next
-                )
+                ) {
+                    changed.append(item)
+                }
+            }
+        }
+        if structureChanged {
+            configuredItemsByID = Dictionary(
+                next.items.map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+        } else {
+            for item in changed {
+                configuredItemsByID[item.id] = item
             }
         }
         previousConfiguration = next
