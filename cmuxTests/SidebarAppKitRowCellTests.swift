@@ -145,7 +145,10 @@ struct SidebarAppKitRowCellTests {
         UserDefaults(suiteName: "SidebarAppKitRowCellTests.\(UUID().uuidString)")!
     }
 
-    private static func makeActions(model: SidebarWorkspaceRowModel) -> SidebarAppKitRowActions {
+    private static func makeActions(
+        model: SidebarWorkspaceRowModel,
+        onOpenStatusURL: @escaping (URL) -> Void = { _ in }
+    ) -> SidebarAppKitRowActions {
         let commands = SidebarWorkspaceRowCommands(
             tab: Workspace(),
             tabManager: nil,
@@ -167,6 +170,7 @@ struct SidebarAppKitRowCellTests {
         )
         return SidebarAppKitRowActions(
             commands: commands,
+            onOpenStatusURL: onOpenStatusURL,
             onOpenPullRequest: { _ in },
             onOpenPort: { _ in },
             onToggleChecklistExpansion: {},
@@ -182,12 +186,13 @@ struct SidebarAppKitRowCellTests {
     }
 
     private static func configuredCell(
-        model: SidebarWorkspaceRowModel
+        model: SidebarWorkspaceRowModel,
+        onOpenStatusURL: @escaping (URL) -> Void = { _ in }
     ) -> SidebarWorkspaceRowTableCellView {
         let cell = SidebarWorkspaceRowTableCellView()
         cell.configure(
             model: model,
-            actions: makeActions(model: model),
+            actions: makeActions(model: model, onOpenStatusURL: onOpenStatusURL),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
@@ -207,7 +212,8 @@ struct SidebarAppKitRowCellTests {
         row.configureMetadataEntry(
             SidebarStatusEntry(key: key, value: status, icon: "bolt.fill"),
             model: model,
-            color: .labelColor
+            color: .labelColor,
+            onOpenURL: { _ in }
         )
 
         let textView = try #require(row.subviews.compactMap { $0 as? SidebarRowTextView }.first)
@@ -221,13 +227,16 @@ struct SidebarAppKitRowCellTests {
         let model = Self.makeModel(
             metadataEntries: [SidebarStatusEntry(key: "repro_link", value: "click me", url: url)]
         )
-        let cell = Self.configuredCell(model: model)
-        let controls = Self.descendants(of: cell).compactMap { $0 as? NSControl }
+        var openedURL: URL?
+        let cell = Self.configuredCell(model: model) { openedURL = $0 }
+        let buttons = Self.descendants(of: cell).compactMap { $0 as? NSButton }
 
-        let link = try #require(controls.first { $0.toolTip == url.absoluteString })
+        let link = try #require(buttons.first { $0.toolTip == url.absoluteString })
         #expect(link.action != nil)
         #expect(link.target != nil)
         #expect(link.isEnabled)
+        link.performClick(nil)
+        #expect(openedURL == url)
     }
 
     @Test
