@@ -166,6 +166,26 @@ struct ClosedMainWindowRoutingTests {
 @MainActor
 @Suite("Window zombie regressions", .serialized)
 struct WindowZombieRegressionTests {
+    @Test("SwiftUI window state does not own its native window")
+    func swiftUIWindowStateDoesNotOwnItsNativeWindow() {
+        weak var releasedWindow: NSWindow?
+        var reference: WeakWindowReference?
+
+        autoreleasepool {
+            var window: NSWindow? = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            releasedWindow = window
+            reference = WeakWindowReference(window)
+            window = nil
+        }
+
+        #expect(reference?.window == nil)
+        #expect(releasedWindow == nil)
+    }
     @Test("Closed Settings window is fully retired")
     func closedSettingsWindowIsFullyRetired() async {
         _ = NSApplication.shared
