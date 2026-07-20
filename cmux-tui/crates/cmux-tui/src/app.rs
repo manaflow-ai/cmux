@@ -2427,6 +2427,7 @@ struct DeferredInput {
 struct PaneFocusHistory {
     next_sequence: u64,
     recency: HashMap<PaneId, u64>,
+    baseline: HashMap<PaneId, u64>,
     membership: Option<(usize, u64, u64)>,
 }
 
@@ -2441,7 +2442,7 @@ impl PaneFocusHistory {
             .get(&pane)
             .copied()
             .map(|sequence| (true, sequence))
-            .unwrap_or((false, authoritative))
+            .unwrap_or_else(|| (false, self.baseline.get(&pane).copied().unwrap_or(authoritative)))
     }
 
     fn retain_present(&mut self, tree: &TreeView) {
@@ -2472,6 +2473,15 @@ impl PaneFocusHistory {
             .map(|pane| pane.id)
             .collect::<HashSet<_>>();
         self.recency.retain(|pane, _| live.contains(pane));
+        self.baseline.retain(|pane, _| live.contains(pane));
+        for pane in tree
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+        {
+            self.baseline.entry(pane.id).or_insert(pane.focused_at);
+        }
         self.membership = Some(membership);
     }
 }
@@ -7722,6 +7732,20 @@ mod tests {
 
         assert_eq!(history.recency(2, 0), (true, 1));
         assert_eq!(history.recency(99, 7), (false, 7));
+    }
+
+    #[test]
+    fn pane_focus_history_freezes_remote_baseline_until_membership_changes() {
+        let mut history = PaneFocusHistory::default();
+        let mut initial = notify_tree(1, false);
+        initial.workspaces[0].screens[0].panes[0].focused_at = 8;
+        history.retain_present(&initial);
+
+        let mut peer_refresh = initial.clone();
+        peer_refresh.workspaces[0].screens[0].panes[0].focused_at = 99;
+        history.retain_present(&peer_refresh);
+
+        assert_eq!(history.recency(2, 99), (false, 8));
     }
 
     #[test]
