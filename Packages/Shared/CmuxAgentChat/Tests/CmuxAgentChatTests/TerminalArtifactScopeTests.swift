@@ -11,6 +11,14 @@ struct TerminalArtifactScopeTests {
         #expect(scope.canonicalPath(for: "/safe/file.txt") == "/safe/file.txt")
     }
 
+    @Test("visible files authorize file operations and visible directories authorize listing")
+    func visibleFileAndDirectoryOperationScopes() {
+        let scope = scope(text: "cat /safe/file.txt && ls /safe/project")
+
+        #expect(scope.canonicalPath(for: "/safe/file.txt") == "/safe/file.txt")
+        #expect(scope.canonicalDirectoryListPath(for: "/safe/project") == "/safe/project")
+    }
+
     @Test("denies a path not present on screen")
     func deniesOffScreenPath() {
         let scope = scope(text: "cat /safe/file.txt")

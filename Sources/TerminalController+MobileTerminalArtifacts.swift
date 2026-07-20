@@ -101,7 +101,7 @@ extension TerminalController {
         }
         do {
             let stat = try await Task.detached(priority: .utility) {
-                try context.authorizedRead { reader, canonicalPath in
+                try context.authorizedStat { reader, canonicalPath in
                     try reader.stat(path: canonicalPath)
                 }
             }.value
@@ -437,6 +437,39 @@ private struct TerminalArtifactReadContext: Sendable {
             directoryAccessMode: directoryAccessMode
         )
         guard let canonicalPath = scope.canonicalPath(for: requestedPath) else {
+            throw Error.forbidden
+        }
+        return try operation(ArtifactByteReader(), canonicalPath)
+    }
+
+    /// Stat may be answered for any path the scope would let the client list,
+    /// because listing already reveals more than the directory's own metadata.
+    func authorizedStat<T>(
+        _ operation: (ArtifactByteReader, String) throws -> T
+    ) throws -> T {
+        guard let requestedPath else { throw Error.forbidden }
+        let resolver = ChatArtifactScope.FoundationResolver()
+        let snapshotScope = ChatArtifactScope(
+            referencedPaths: scanAuthorizedPaths,
+            directoryAccessMode: directoryAccessMode,
+            resolver: resolver
+        )
+        if let canonicalPath = snapshotScope.canonicalFilePath(for: requestedPath) {
+            return try operation(ArtifactByteReader(), canonicalPath)
+        }
+        if let canonicalPath = snapshotScope.canonicalDirectoryListPath(for: requestedPath) {
+            return try operation(ArtifactByteReader(), canonicalPath)
+        }
+        let scope = TerminalArtifactScope(
+            terminalText: terminalText,
+            workingDirectory: workingDirectory,
+            resolver: resolver,
+            directoryAccessMode: directoryAccessMode
+        )
+        if let canonicalPath = scope.canonicalPath(for: requestedPath) {
+            return try operation(ArtifactByteReader(), canonicalPath)
+        }
+        guard let canonicalPath = scope.canonicalDirectoryListPath(for: requestedPath) else {
             throw Error.forbidden
         }
         return try operation(ArtifactByteReader(), canonicalPath)
