@@ -13,6 +13,7 @@ struct OnboardingSceneContainer<Visual: View>: View {
     let onSkip: () -> Void
     let onPrimary: () -> Void
     let onSecondary: () -> Void
+    let showsContent: Bool
     let visual: Visual
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -37,19 +38,23 @@ struct OnboardingSceneContainer<Visual: View>: View {
                     onSkip: onSkip
                 )
 
-                ScrollView {
-                    OnboardingSceneContent(
-                        title: title,
-                        message: message,
-                        usesWideLayout: usesWideLayout,
-                        visual: visual
-                    )
-                    .padding(.horizontal, usesWideLayout ? 48 : 24)
-                    .padding(.top, usesWideLayout ? 48 : 22)
-                    .padding(.bottom, 28)
-                    .frame(maxWidth: .infinity)
+                if showsContent {
+                    ScrollView {
+                        OnboardingSceneContent(
+                            title: title,
+                            message: message,
+                            usesWideLayout: usesWideLayout,
+                            visual: visual
+                        )
+                        .padding(.horizontal, usesWideLayout ? 48 : 24)
+                        .padding(.top, usesWideLayout ? 48 : 22)
+                        .padding(.bottom, 28)
+                        .frame(maxWidth: .infinity)
+                    }
+                    .scrollIndicators(.hidden)
+                } else {
+                    Spacer(minLength: 0)
                 }
-                .scrollIndicators(.hidden)
 
                 OnboardingSceneFooter(
                     primaryTitle: primaryTitle,

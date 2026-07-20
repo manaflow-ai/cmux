@@ -21,6 +21,7 @@ struct OnboardingConnectionView: View {
             onSkip: {},
             onPrimary: onPrimary,
             onSecondary: onFallback,
+            showsContent: true,
             visual: OnboardingConnectionPreview(phase: phase)
         )
     }

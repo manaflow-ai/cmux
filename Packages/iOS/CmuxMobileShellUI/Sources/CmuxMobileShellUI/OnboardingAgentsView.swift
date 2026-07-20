@@ -28,6 +28,7 @@ struct OnboardingAgentsView: View {
             onSkip: onSkip,
             onPrimary: onContinue,
             onSecondary: {},
+            showsContent: true,
             visual: OnboardingWorkspacePreview()
         )
     }

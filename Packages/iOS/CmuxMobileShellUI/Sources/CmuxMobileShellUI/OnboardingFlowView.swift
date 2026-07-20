@@ -3,8 +3,8 @@ import CMUXMobileCore
 import CmuxMobileSupport
 import SwiftUI
 
-/// A short product demonstration that hands directly into authentication and
-/// same-account computer discovery, with QR available only as fallback.
+/// A short product tour that hands directly into authentication and same-account
+/// computer discovery, with QR available only as fallback.
 struct OnboardingFlowView: View {
     let context: OnboardingContext
     let isAuthenticated: Bool
@@ -54,25 +54,24 @@ struct OnboardingFlowView: View {
     @ViewBuilder
     private var scene: some View {
         if stage == .connect && !isAuthenticated {
-            OnboardingSignInBridgeView(onBack: showHandoff)
+            OnboardingSignInBridgeView(onBack: showReserved)
         } else {
             switch stage {
             case .agents:
                 OnboardingAgentsView(
                     onSkip: skip,
-                    onContinue: showHandoff
+                    onContinue: showReserved
                 )
-            case .handoff:
-                OnboardingHandoffView(
+            case .reserved:
+                OnboardingReservedView(
                     onBack: showAgents,
                     onSkip: skip,
-                    onRespond: captureDemoReply,
                     onContinue: showConnection
                 )
             case .connect:
                 OnboardingConnectionView(
                     phase: connectionPhase,
-                    onBack: showHandoff,
+                    onBack: showReserved,
                     onPrimary: finishOrRetry,
                     onFallback: startFallbackPairing
                 )
@@ -84,8 +83,8 @@ struct OnboardingFlowView: View {
         stage = .agents
     }
 
-    private func showHandoff() {
-        stage = .handoff
+    private func showReserved() {
+        stage = .reserved
     }
 
     private func showConnection() {
@@ -116,10 +115,6 @@ struct OnboardingFlowView: View {
         properties["source"] = .string("qr_fallback")
         analytics.capture("ios_onboarding_pairing_started", properties)
         onStartFallbackPairing()
-    }
-
-    private func captureDemoReply() {
-        analytics.capture("ios_onboarding_demo_replied", eventProperties)
     }
 
     private func captureSceneViewed() {

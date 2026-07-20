@@ -31,8 +31,9 @@ final class cmuxUITests: XCTestCase {
     /// durable progress key to `welcome`; advancing to Connect writes the real
     /// `.connect` milestone. The default connection scene must describe
     /// same-account automatic discovery without presenting QR as the primary
-    /// path. Relaunching after the simulated search finishes must resume at
-    /// Connect and expose QR as an explicit fallback.
+    /// path. The middle scene reserves its position without presenting an
+    /// unfinished interface. Relaunching after the simulated search finishes
+    /// must resume at Connect and expose QR as an explicit fallback.
     @MainActor
     func testOnboardingScenesReservedSlotResumeAndScannerFallback() throws {
         let app = XCUIApplication()
@@ -78,6 +79,8 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts[
             "Choose an answer when an agent needs a decision. It keeps working on your Mac."
         ].exists)
+        XCTAssertTrue(app.buttons["MobileOnboardingBackButton"].exists)
+        XCTAssertTrue(app.buttons["MobileOnboardingSkipButton"].exists)
         XCTAssertTrue(primaryButton.exists)
         capture("onboarding-02-reserved")
 

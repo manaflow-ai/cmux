@@ -2,11 +2,11 @@ public import Foundation
 
 /// Persists the durable milestone reached in first-run onboarding.
 ///
-/// The flow first demonstrates the mobile agent handoff, then signs in if
-/// needed, and finally starts same-account computer discovery. Persisting the
-/// transition to ``MobileOnboardingProgress/connect`` means a person who leaves
-/// during sign-in or connection resumes at the remaining prerequisite instead
-/// of replaying the product tour. QR pairing remains an explicit fallback.
+/// The flow presents a short product tour, then signs in if needed, and finally
+/// starts same-account computer discovery. Persisting the transition to
+/// ``MobileOnboardingProgress/connect`` means a person who leaves during sign-in
+/// or connection resumes at the remaining prerequisite instead of replaying the
+/// product tour. QR pairing remains an explicit fallback.
 ///
 /// The backing `UserDefaults` is injected so the store is testable without
 /// touching `.standard`; the app constructs it at the composition root with
