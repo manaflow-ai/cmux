@@ -106,10 +106,16 @@ struct ShellIntegrationSendTransportTests {
         let error = String(decoding: standardError.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
 
         #expect(process.terminationStatus == 0, "\(error)\n\(output)")
-        #expect(output.contains("set-environment -g CMUX_SOCKET_PATH 127.0.0.1:64011"), output)
-        #expect(output.contains("set-environment -g CMUX_WORKSPACE_ID 11111111-1111-1111-1111-111111111111"), output)
-        #expect(output.contains("set-environment -gu CMUX_SURFACE_ID"), output)
-        #expect(output.contains("set-environment -gu CMUX_PANEL_ID"), output)
+        #expect(
+            output.contains("set-environment -g CMUX_SOCKET_PATH 127.0.0.1:64011"),
+            Comment(rawValue: output)
+        )
+        #expect(
+            output.contains("set-environment -g CMUX_WORKSPACE_ID 11111111-1111-1111-1111-111111111111"),
+            Comment(rawValue: output)
+        )
+        #expect(output.contains("set-environment -gu CMUX_SURFACE_ID"), Comment(rawValue: output))
+        #expect(output.contains("set-environment -gu CMUX_PANEL_ID"), Comment(rawValue: output))
     }
 
     @Test("reattached tmux zsh adopts the named session workspace binding")
@@ -169,10 +175,10 @@ struct ShellIntegrationSendTransportTests {
         let error = String(decoding: standardError.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
 
         #expect(process.terminationStatus == 0, "\(error)\n\(output)")
-        #expect(output.contains("workspace=current-workspace"), output)
-        #expect(output.contains("socket=127.0.0.1:55272"), output)
-        #expect(output.contains("surface=<unset>"), output)
-        #expect(output.contains("panel=<unset>"), output)
+        #expect(output.contains("workspace=current-workspace"), Comment(rawValue: output))
+        #expect(output.contains("socket=127.0.0.1:55272"), Comment(rawValue: output))
+        #expect(output.contains("surface=<unset>"), Comment(rawValue: output))
+        #expect(output.contains("panel=<unset>"), Comment(rawValue: output))
     }
 
     private func assertRemoteShellReportsGitMetadataThroughRelay(
@@ -242,7 +248,7 @@ struct ShellIntegrationSendTransportTests {
         let surfaceField = surfaceID.map { ",\"surface_id\":\"\($0)\"" } ?? ""
         #expect(output.contains(
             #"rpc surface.report_git_branch {"workspace_id":"11111111-1111-1111-1111-111111111111","branch":"feature/mosh-parity"\#(surfaceField)}"#
-        ), output)
+        ), Comment(rawValue: output))
     }
 
     /// End-to-end contract for `_cmux_send`: sourcing the bundled integration
