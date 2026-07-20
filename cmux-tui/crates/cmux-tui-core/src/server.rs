@@ -2364,12 +2364,13 @@ impl RenderClientState {
         &mut self,
         surface: SurfaceId,
         frame: &SurfaceRenderFrame,
-        font_family: Option<&str>,
+        font_family_update: Option<Option<String>>,
     ) -> Value {
         let size_changed = self.size != frame.frame.size;
         let foreground_changed = self.default_colors.1 != frame.frame.default_colors.1;
         let background_changed = self.default_colors.0 != frame.frame.default_colors.0;
-        let font_changed = self.font_family.as_deref() != font_family;
+        let font_changed =
+            font_family_update.as_ref().is_some_and(|font_family| self.font_family != *font_family);
         let scrollback_changed = self.scrollback_rows != frame.scrollback_rows;
         let full = size_changed
             || foreground_changed
@@ -2397,14 +2398,16 @@ impl RenderClientState {
             value["default_bg"] = json!(rgb_hex(frame.frame.default_colors.0));
         }
         if font_changed {
-            value["font_family"] = json!(font_family);
+            value["font_family"] = json!(font_family_update.as_ref().unwrap());
         }
         if scrollback_changed {
             value["scrollback_rows"] = json!(frame.scrollback_rows);
         }
         self.size = frame.frame.size;
         self.default_colors = frame.frame.default_colors;
-        self.font_family = font_family.map(str::to_string);
+        if let Some(font_family) = font_family_update {
+            self.font_family = font_family;
+        }
         self.scrollback_rows = frame.scrollback_rows;
         value
     }
@@ -3493,7 +3496,7 @@ fn handle_command(
                         return Err(error.into());
                     }
                 };
-                let font_family = mux.terminal_font_family();
+                let (font_generation, font_family) = mux.terminal_font_snapshot();
                 if let Err(error) = writer.send_initial(
                     &render_state_json(surface_id, &attach.initial, font_family.as_deref()),
                     &outbound_stream,
@@ -3524,14 +3527,22 @@ fn handle_command(
                             return;
                         }
                         let mut state = RenderClientState::new(&attach.initial, font_family);
+                        let mut font_generation = font_generation;
                         while writer.is_open()
                             && outbound_stream.is_open()
                             && !lifecycle.is_canceled()
                         {
                             let value = match attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
                                 Ok(RenderAttachFrame::Frame(frame)) => {
-                                    let font_family = mux.terminal_font_family();
-                                    state.delta_json(surface_id, &frame, font_family.as_deref())
+                                    let current_generation = mux.terminal_font_generation();
+                                    let font_family_update =
+                                        (current_generation != font_generation).then(|| {
+                                            let (generation, font_family) =
+                                                mux.terminal_font_snapshot();
+                                            font_generation = generation;
+                                            font_family
+                                        });
+                                    state.delta_json(surface_id, &frame, font_family_update)
                                 }
                                 Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => {
                                     json!({

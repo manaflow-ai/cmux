@@ -538,6 +538,7 @@ pub struct Mux {
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
     terminal_font_family: Mutex<Option<String>>,
+    terminal_font_generation: AtomicU64,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<SurfaceId, AgentRecord>>,
     surface_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
@@ -602,6 +603,7 @@ impl Mux {
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(DefaultColors::default()),
             terminal_font_family: Mutex::new(None),
+            terminal_font_generation: AtomicU64::new(0),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(HashMap::new()),
             surface_notifications: Mutex::new(HashMap::new()),
@@ -1914,6 +1916,16 @@ impl Mux {
         self.terminal_font_family.lock().unwrap().clone()
     }
 
+    pub(crate) fn terminal_font_generation(&self) -> u64 {
+        self.terminal_font_generation.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn terminal_font_snapshot(&self) -> (u64, Option<String>) {
+        let font_family = self.terminal_font_family.lock().unwrap().clone();
+        let generation = self.terminal_font_generation.load(Ordering::Acquire);
+        (generation, font_family)
+    }
+
     pub fn set_terminal_font_family(&self, font_family: Option<String>) {
         let font_family = font_family.and_then(|value| {
             let value = value.trim();
@@ -1925,6 +1937,7 @@ impl Mux {
                 return;
             }
             *current = font_family;
+            self.terminal_font_generation.fetch_add(1, Ordering::Release);
         }
         let colors = self.default_colors();
         let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();

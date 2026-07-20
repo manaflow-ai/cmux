@@ -176,7 +176,7 @@ button { color: inherit; touch-action: manipulation; }
 .render-cursor-block.unfocused { border: 1px solid currentColor; background: transparent; }
 .render-cursor-blink { animation: render-cursor-blink 1s steps(1, end) infinite; }
 .render-input { position: absolute; z-index: -1; top: 0; left: 0; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; resize: none; }
-.render-metric-probe { position: absolute; visibility: hidden; top: -1000px; left: -1000px; white-space: pre; }
+.render-metric-probe { position: absolute; display: inline-block; visibility: hidden; top: -1000px; left: -1000px; white-space: pre; }
 .back-to-live { position: absolute; z-index: 12; right: 8px; bottom: 8px; padding: 5px 8px; border: 1px solid var(--border-active); background: var(--status-bg); color: var(--status-active-fg); font-size: 11px; cursor: pointer; }
 .scrollback-status { position: absolute; z-index: 11; top: 50%; left: 50%; padding: 5px 8px; transform: translate(-50%, -50%); background: var(--status-bg); color: var(--status-dim); font-size: 11px; pointer-events: none; }
 .terminal-empty { display: grid; place-items: center; height: 100%; color: var(--status-dim); font-size: 12px; }
