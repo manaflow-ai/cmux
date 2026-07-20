@@ -157,7 +157,8 @@ extension CmxIrohClientRuntime {
                 localBindingExpectation: policy.expectation,
                 managedRelayURLs: managedRelayURLs,
                 allowedRouteRelayURLs: endpointRelayProfile.allowedRelayURLs,
-                offlinePolicy: offlinePolicy
+                offlinePolicy: offlinePolicy,
+                verifiedDiscovery: policy.discovery
             )
             provider = registryContextProvider
         } else {
@@ -171,6 +172,7 @@ extension CmxIrohClientRuntime {
                 offlinePolicy: offlinePolicy,
                 lanFallback: lanFallback,
                 customPrivateFallback: customPrivateFallback,
+                verifiedDiscovery: policy.discovery,
                 now: now
             )
             registryContextProvider = provider
