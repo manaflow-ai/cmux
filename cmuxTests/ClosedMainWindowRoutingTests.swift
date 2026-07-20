@@ -206,8 +206,12 @@ struct WindowZombieRegressionTests {
             closingWindow?.close()
             closingWindow = nil
         }
-        await settleWindowLifecycle()
+        let didRetireWindow = await settleWindowLifecycle {
+            releasedWindow == nil
+                && (closingWindowNumber.map { !isWindowServerWindowAlive($0) } ?? true)
+        }
 
+        #expect(didRetireWindow)
         #expect(releasedWindow == nil)
         #expect(closingWindowNumber != nil)
         if let closingWindowNumber {
@@ -254,8 +258,12 @@ struct WindowZombieRegressionTests {
             closingWindow?.close()
             closingWindow = nil
         }
-        await settleWindowLifecycle()
+        let didRetireWindow = await settleWindowLifecycle {
+            releasedWindow == nil
+                && (closingWindowNumber.map { !isWindowServerWindowAlive($0) } ?? true)
+        }
 
+        #expect(didRetireWindow)
         #expect(releasedWindow?.windowController == nil)
         #expect(releasedWindow?.contentViewController == nil)
         #expect(releasedWindow?.contentView == nil)
@@ -279,11 +287,17 @@ struct WindowZombieRegressionTests {
         }
     }
 
-    private func settleWindowLifecycle() async {
-        for _ in 0..<5 {
+    private func settleWindowLifecycle(
+        until condition: () async -> Bool
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while !(await condition()) {
+            guard clock.now < deadline else { return false }
             await Task.yield()
-            try? await Task.sleep(for: .milliseconds(200))
+            try? await clock.sleep(for: .milliseconds(50))
         }
+        return true
     }
 
     private func isWindowServerWindowAlive(_ windowNumber: Int) -> Bool {

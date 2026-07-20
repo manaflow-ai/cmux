@@ -65,10 +65,10 @@ final class SettingsWindowPresenter: NSObject {
     /// (and the window's identifier removed) in `settingsWindowWillClose` so
     /// a closed window can never absorb a future open request.
     private var settingsWindow: NSWindow?
-    /// Retains each AppKit window controller through its close callback. The
-    /// identity map matters because `show()` may re-enter from another
-    /// `willClose` observer and install a replacement before teardown of the
-    /// closing window has finished.
+    /// Retains each AppKit window controller until presenter teardown begins.
+    /// The identity map matters because `show()` may re-enter from another
+    /// `willClose` observer and install a replacement while the closing
+    /// window is still unwinding.
     private var windowControllers: [ObjectIdentifier: ReleasingWindowController] = [:]
     // Navigation-delivery state is internal (not private) because its
     // behavior lives in SettingsWindowNavigationDelivery.swift (split for
@@ -489,12 +489,7 @@ final class SettingsWindowPresenter: NSObject {
     }
 
     private func retireWindowController(for window: NSWindow) {
-        let key = ObjectIdentifier(window)
-        guard let controller = windowControllers[key] else { return }
-        DispatchQueue.main.async { [weak self, weak controller] in
-            guard let self, self.windowControllers[key] === controller else { return }
-            self.windowControllers.removeValue(forKey: key)
-        }
+        windowControllers.removeValue(forKey: ObjectIdentifier(window))
     }
 
     // Multi-monitor recovery + diagnostics live in SettingsWindowGeometry.swift.
