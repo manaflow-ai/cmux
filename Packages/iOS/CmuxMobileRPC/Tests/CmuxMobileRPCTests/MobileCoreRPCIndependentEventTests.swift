@@ -132,6 +132,73 @@ struct MobileCoreRPCIndependentEventTests {
     }
 
     @Test
+    func stateSyncDeltaRidesTheIndependentIrohLaneAndDecodesTyped() async throws {
+        // Mobile state sync v2 events must be lane-agnostic: on an Iroh
+        // connection the negotiated `iroh_server_events_v1` stream, not the
+        // control stream, carries `mobile.sync.delta`. Prove the topic flows
+        // through the independent lane and decodes to the typed frame.
+        let route = try irohRoute(hexBytePair: "ef")
+        let source = IndependentEventSource()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: FixedTransportFactory(transport: NeverConnectedTransport()),
+            independentEventByteStreamProvider: { _ in
+                await source.makeStream()
+            }
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: try ticket(route: route, deviceSuffix: "005")
+        )
+        let subscription = await client.subscribe(to: ["mobile.sync.delta"])
+        var events = subscription.makeAsyncIterator()
+
+        #expect(await client.prepareIndependentServerEvents())
+
+        let delta = MobileSyncDeltaEvent(
+            epoch: "epoch-iroh",
+            collection: .workspaces,
+            fromRev: 7,
+            toRev: 8,
+            records: [
+                WorkspaceSyncRecord(
+                    id: "ws-iroh",
+                    windowID: "win-1",
+                    title: "over-iroh",
+                    currentDirectory: nil,
+                    isSelected: false,
+                    isPinned: false,
+                    groupID: nil,
+                    preview: nil,
+                    previewAt: nil,
+                    lastActivityAt: 1,
+                    hasUnread: false,
+                    sortIndex: 0,
+                    terminals: []
+                )
+            ],
+            removedIDs: ["ws-gone"]
+        )
+        let envelope = try JSONSerialization.data(withJSONObject: [
+            "kind": "event",
+            "topic": "mobile.sync.delta",
+            "payload": try MobileSyncFrameJSON.jsonObject(from: delta),
+        ])
+        await source.yield(try MobileSyncFrameCodec.encodeFrame(envelope))
+
+        let event = await events.next()
+        #expect(event?.topic == "mobile.sync.delta")
+        let payload = try #require(event?.payloadJSON)
+        let decoded = try JSONDecoder().decode(
+            MobileSyncDeltaEvent<WorkspaceSyncRecord>.self,
+            from: payload
+        )
+        #expect(decoded == delta)
+
+        await client.disconnect()
+    }
+
+    @Test
     func independentStreamFailureDoesNotFinishControlEventListeners() async throws {
         let route = try irohRoute(hexBytePair: "cd")
         let source = IndependentEventSource()
