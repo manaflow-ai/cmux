@@ -174,7 +174,7 @@ struct TitlebarInteractiveControlTests {
         #expect(window.performDragCallCount == 1)
         #expect(
             window.isMovableDuringPerformDrag == true,
-            "Empty accessory chrome should temporarily enable main-window movement before calling performDrag(with:)."
+            "Empty accessory chrome must keep main-window movement enabled while calling performDrag(with:)."
         )
         #expect(window.isMovable, "Explicit accessory dragging must preserve the AppKit-movable baseline.")
     }
