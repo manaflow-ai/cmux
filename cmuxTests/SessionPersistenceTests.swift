@@ -519,6 +519,44 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNil(decoded.forwardHistoryURLStrings)
     }
 
+    @MainActor
+    func testWorkspaceSessionSnapshotRestoresTerminalFontSize() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        XCTAssertNotNil(snapshot.panels.first { $0.id == panelId }?.terminal)
+
+        // Inject the persisted zoom through JSON so this test compiles (and fails)
+        // on a build that predates the terminal snapshot fontSize field.
+        let data = try JSONEncoder().encode(snapshot)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var panels = try XCTUnwrap(object["panels"] as? [[String: Any]])
+        let index = try XCTUnwrap(panels.firstIndex { $0["terminal"] != nil })
+        var terminal = try XCTUnwrap(panels[index]["terminal"] as? [String: Any])
+        terminal["fontSize"] = 5.5
+        panels[index]["terminal"] = terminal
+        object["panels"] = panels
+        let mutated = try JSONSerialization.data(withJSONObject: object)
+        let zoomedSnapshot = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: mutated)
+
+        let restored = Workspace()
+        let idMap = restored.restoreSessionSnapshot(zoomedSnapshot)
+        let restoredPanelId = idMap[panelId] ?? panelId
+
+        let seededPoints = try XCTUnwrap(restored.terminalInheritanceFontPointsByPanelId[restoredPanelId])
+        XCTAssertEqual(seededPoints, 5.5, accuracy: 0.01)
+
+        // The restored zoom must also survive the next capture even without a
+        // live surface to probe (under tests the runtime probe has nothing to read).
+        let recaptured = restored.sessionSnapshot(includeScrollback: false)
+        let recapturedData = try JSONEncoder().encode(recaptured)
+        let recapturedObject = try XCTUnwrap(JSONSerialization.jsonObject(with: recapturedData) as? [String: Any])
+        let recapturedPanels = try XCTUnwrap(recapturedObject["panels"] as? [[String: Any]])
+        let recapturedTerminal = try XCTUnwrap(recapturedPanels.first { $0["terminal"] != nil }?["terminal"] as? [String: Any])
+        let recapturedFontSize = try XCTUnwrap(recapturedTerminal["fontSize"] as? Double)
+        XCTAssertEqual(recapturedFontSize, 5.5, accuracy: 0.01)
+    }
+
     func testScrollbackReplayEnvironmentWritesReplayFile() {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
