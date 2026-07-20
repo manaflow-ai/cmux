@@ -30,7 +30,8 @@ public struct WorkspaceRemoteTerminalProfile: Codable, Equatable, Sendable {
     /// Creates a validated terminal profile.
     ///
     /// A missing tmux session uses ``defaultTmuxSessionName``. Session names
-    /// are limited to 128 UTF-8 bytes and reject hidden/control characters.
+    /// are limited to 128 UTF-8 bytes and reject hidden/control characters and
+    /// tmux target separators.
     ///
     /// - Parameters:
     ///   - kind: Program family to launch.
@@ -125,6 +126,8 @@ private extension String {
     var validatedRemoteTmuxSessionName: String? {
         guard let normalized = Optional(self).normalizedRemoteTmuxSessionName,
               normalized.utf8.count <= 128,
+              !normalized.contains("."),
+              !normalized.contains(":"),
               !normalized.unicodeScalars.contains(where: { scalar in
                   switch scalar.properties.generalCategory {
                   case .control, .format, .lineSeparator, .paragraphSeparator:
