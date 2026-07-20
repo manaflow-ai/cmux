@@ -21,6 +21,7 @@ public struct WorkspaceChangesSheet: View {
     @State private var cachedDocuments: [String: FileDiffDocument] = [:]
     @State private var fontSize: Double
     @State private var navigationPath: [WorkspaceChangesNavigationRoute] = []
+    @State private var inlineActionHost = ChatArtifactInlineActionHost()
     @Environment(\.dismiss) private var dismiss
 
     /// Creates a changes sheet for one remote workspace.
@@ -52,6 +53,7 @@ public struct WorkspaceChangesSheet: View {
             fontSize: fontSize,
             listActions: listActions,
             pagerActions: pagerActions,
+            inlineActionHost: inlineActionHost,
             path: $navigationPath,
             onClose: { dismiss() }
         )
@@ -105,7 +107,7 @@ public struct WorkspaceChangesSheet: View {
         return AnyView(
             ChatArtifactInlineViewer(
                 path: resolvedPath,
-                showsActions: true
+                actionHost: inlineActionHost
             )
             .environment(\.chatArtifactLoader, loader)
             .id("\(revision.rawValue)\u{0}\(resolvedPath)")

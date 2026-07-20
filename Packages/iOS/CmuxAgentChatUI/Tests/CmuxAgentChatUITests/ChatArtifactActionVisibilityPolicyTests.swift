@@ -54,4 +54,55 @@ struct ChatArtifactActionVisibilityPolicyTests {
             isTextFile: false
         ).actions.isEmpty)
     }
+
+    @Test
+    func inlineDescriptorEqualityIncludesIdentityActionsAndRunningState() {
+        let descriptor = ChatArtifactInlineActionDescriptor(
+            id: "/tmp/image.png\u{0}image",
+            actions: [.share, .save, .copyImage],
+            isRunning: false
+        )
+
+        #expect(descriptor == ChatArtifactInlineActionDescriptor(
+            id: "/tmp/image.png\u{0}image",
+            actions: [.share, .save, .copyImage],
+            isRunning: false
+        ))
+        #expect(descriptor != ChatArtifactInlineActionDescriptor(
+            id: "/tmp/other.png\u{0}image",
+            actions: [.share, .save, .copyImage],
+            isRunning: false
+        ))
+        #expect(descriptor != ChatArtifactInlineActionDescriptor(
+            id: "/tmp/image.png\u{0}image",
+            actions: [.share, .save],
+            isRunning: false
+        ))
+        #expect(descriptor != ChatArtifactInlineActionDescriptor(
+            id: "/tmp/image.png\u{0}image",
+            actions: [.share, .save, .copyImage],
+            isRunning: true
+        ))
+    }
+
+    @Test @MainActor
+    func inlineActionHostRejectsStaleDescriptorAndInvalidActions() {
+        let host = ChatArtifactInlineActionHost()
+        let descriptor = ChatArtifactInlineActionDescriptor(
+            id: "current",
+            actions: [.share, .save],
+            isRunning: false
+        )
+        var performed: [ChatArtifactAction] = []
+        let staleRegistrationID = host.register(descriptor: descriptor) { performed.append($0) }
+
+        host.perform(.share, descriptorID: "stale")
+        host.perform(.copyImage, descriptorID: descriptor.id)
+
+        _ = host.register(descriptor: descriptor) { _ in performed.append(.save) }
+        host.clear(registrationID: staleRegistrationID)
+        host.perform(.share, descriptorID: descriptor.id)
+
+        #expect(performed == [.save])
+    }
 }

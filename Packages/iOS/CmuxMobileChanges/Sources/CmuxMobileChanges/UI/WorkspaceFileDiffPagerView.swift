@@ -81,7 +81,7 @@ public struct WorkspaceFileDiffPagerView: View {
                     onPersistFontSize: actions.onPersistFontSize,
                     onLoad: actions.onLoad,
                     onCopy: actions.onCopy,
-                    inlinePreview: actions.inlinePreview
+                    inlinePreview: index == selection ? actions.inlinePreview : nil
                 )
                 .tag(index)
             }

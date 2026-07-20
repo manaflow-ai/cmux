@@ -51,39 +51,9 @@ struct ChatArtifactActionBar: View {
         Button {
             onAction(action)
         } label: {
-            Label(title(for: action), systemImage: systemImage(for: action))
+            Label(action.localizedTitle, systemImage: action.systemImage)
         }
         .disabled(isRunning || disabledActions.contains(action))
-    }
-
-    private func title(for action: ChatArtifactAction) -> String {
-        switch action {
-        case .share:
-            String(localized: "chat.artifact.share", defaultValue: "Share", bundle: .module)
-        case .save:
-            String(localized: "chat.artifact.save_to_files", defaultValue: "Save to Files", bundle: .module)
-        case .copyImage:
-            String(localized: "chat.artifact.copy_image", defaultValue: "Copy image", bundle: .module)
-        case .copyContents:
-            String(localized: "chat.artifact.copy_contents", defaultValue: "Copy contents", bundle: .module)
-        case .copyPath:
-            String(localized: "chat.artifact.copy_path", defaultValue: "Copy path", bundle: .module)
-        }
-    }
-
-    private func systemImage(for action: ChatArtifactAction) -> String {
-        switch action {
-        case .share:
-            "square.and.arrow.up"
-        case .save:
-            "folder.badge.plus"
-        case .copyImage:
-            "photo.on.rectangle"
-        case .copyContents:
-            "doc.on.doc"
-        case .copyPath:
-            "link"
-        }
     }
 }
 #endif

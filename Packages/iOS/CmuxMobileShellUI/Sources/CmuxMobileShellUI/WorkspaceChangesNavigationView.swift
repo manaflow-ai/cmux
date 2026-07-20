@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxAgentChatUI
 import CmuxMobileChanges
 import SwiftUI
 
@@ -12,8 +13,10 @@ struct WorkspaceChangesNavigationView: View {
     let fontSize: Double
     let listActions: WorkspaceChangesListActions
     let pagerActions: WorkspaceFileDiffPagerActions
+    let inlineActionHost: ChatArtifactInlineActionHost?
     @Binding var path: [WorkspaceChangesNavigationRoute]
     let onClose: @MainActor @Sendable () -> Void
+    @State private var inlineActionDescriptor: ChatArtifactInlineActionDescriptor?
 
     init(
         branch: String,
@@ -25,6 +28,7 @@ struct WorkspaceChangesNavigationView: View {
         fontSize: Double,
         listActions: WorkspaceChangesListActions,
         pagerActions: WorkspaceFileDiffPagerActions,
+        inlineActionHost: ChatArtifactInlineActionHost? = nil,
         path: Binding<[WorkspaceChangesNavigationRoute]>,
         onClose: @escaping @MainActor @Sendable () -> Void
     ) {
@@ -37,7 +41,9 @@ struct WorkspaceChangesNavigationView: View {
         self.fontSize = fontSize
         self.listActions = listActions
         self.pagerActions = pagerActions
+        self.inlineActionHost = inlineActionHost
         _path = path
+        _inlineActionDescriptor = State(initialValue: nil)
         self.onClose = onClose
     }
 
@@ -65,6 +71,31 @@ struct WorkspaceChangesNavigationView: View {
                         initialFontSize: fontSize,
                         actions: pagerActions
                     )
+                    // A pushed destination owns its own navigation bar, so the
+                    // conditional preview actions must be declared here rather
+                    // than on the root list screen's toolbar.
+                    .toolbar {
+                        if let inlineActionDescriptor,
+                           let inlineActionHost {
+                            ToolbarItemGroup(placement: .topBarTrailing) {
+                                ForEach(inlineActionDescriptor.actions, id: \.self) { action in
+                                    Button {
+                                        inlineActionHost.perform(
+                                            action,
+                                            descriptorID: inlineActionDescriptor.id
+                                        )
+                                    } label: {
+                                        Label(
+                                            action.localizedTitle,
+                                            systemImage: action.systemImage
+                                        )
+                                        .labelStyle(.iconOnly)
+                                    }
+                                    .disabled(inlineActionDescriptor.isRunning)
+                                }
+                            }
+                        }
+                    }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -77,18 +108,23 @@ struct WorkspaceChangesNavigationView: View {
                     ))
                     .font(.headline)
                 }
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(action: onClose) {
-                        Image(systemName: "xmark")
+                if path.isEmpty {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(action: onClose) {
+                            Image(systemName: "xmark")
+                        }
+                        .accessibilityLabel(String(
+                            localized: "workspace.changes.close",
+                            defaultValue: "Close",
+                            bundle: .module
+                        ))
+                        .accessibilityIdentifier("MobileChangesClose")
                     }
-                    .accessibilityLabel(String(
-                        localized: "workspace.changes.close",
-                        defaultValue: "Close",
-                        bundle: .module
-                    ))
-                    .accessibilityIdentifier("MobileChangesClose")
                 }
             }
+        }
+        .onPreferenceChange(ChatArtifactInlineActionsPreferenceKey.self) { descriptor in
+            inlineActionDescriptor = descriptor
         }
         .accessibilityIdentifier("MobileChangesSheet")
     }

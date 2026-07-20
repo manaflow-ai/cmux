@@ -15,17 +15,17 @@ public struct ChatArtifactInlineViewer: View {
     }
 
     private let path: String
-    private let showsActions: Bool
+    private let actionHost: ChatArtifactInlineActionHost?
     @Environment(\.chatArtifactLoader) private var loader
     @State private var pageModel: ChatArtifactViewerPageModel
 
     /// Creates an inline preview for one artifact path.
     /// - Parameters:
     ///   - path: Artifact path passed to the environment's ``ChatArtifactLoader``.
-    ///   - showsActions: Whether loaded preview content exposes compact file actions.
-    public init(path: String, showsActions: Bool = false) {
+    ///   - actionHost: Optional bridge that lets an ancestor toolbar invoke loaded-preview actions.
+    public init(path: String, actionHost: ChatArtifactInlineActionHost? = nil) {
         self.path = path
-        self.showsActions = showsActions
+        self.actionHost = actionHost
         _pageModel = State(initialValue: ChatArtifactViewerPageModel(
             path: path,
             textPreferences: ChatArtifactTextPreferences(defaults: .standard)
@@ -34,6 +34,7 @@ public struct ChatArtifactInlineViewer: View {
 
     public var body: some View {
         let snapshot = pageModel.snapshot
+        let actionDescriptor = inlineActionDescriptor(snapshot: snapshot)
         ChatArtifactViewerRouteView(
             snapshot: snapshot,
             scope: .terminal,
@@ -52,11 +53,20 @@ public struct ChatArtifactInlineViewer: View {
             ).renderingOnly,
             onDone: {}
         )
-        .overlay(alignment: .topTrailing) {
-            inlineActionBar(snapshot: snapshot)
-        }
         .clipped()
         #if os(iOS)
+        .preference(
+            key: ChatArtifactInlineActionsPreferenceKey.self,
+            value: actionDescriptor
+        )
+        .task(id: actionDescriptor?.id) {
+            guard let actionHost, let actionDescriptor else { return }
+            let registrationID = actionHost.register(descriptor: actionDescriptor) { action in
+                performInlineAction(action)
+            }
+            defer { actionHost.clear(registrationID: registrationID) }
+            await waitForViewerTaskCancellation()
+        }
         .chatArtifactFileActionPresentation(fileActionPresentationBinding)
         .alert(
             String(
@@ -95,37 +105,33 @@ public struct ChatArtifactInlineViewer: View {
         }
     }
 
-    @ViewBuilder
-    private func inlineActionBar(snapshot: ChatArtifactViewerPageSnapshot) -> some View {
+    private func inlineActionDescriptor(
+        snapshot: ChatArtifactViewerPageSnapshot
+    ) -> ChatArtifactInlineActionDescriptor? {
         #if os(iOS)
-        if showsActions {
-            let policy = ChatArtifactActionVisibilityPolicy(inlineState: snapshot.state)
-            if !policy.actions.isEmpty {
-                ChatArtifactActionBar(
-                    actions: policy.actions,
-                    style: .compact,
-                    disabledActions: [],
-                    isRunning: snapshot.fileActionState.isRunning,
-                    onAction: { action in performInlineAction(action, snapshot: snapshot) }
-                )
-                .padding(12)
-            }
+        let policy = ChatArtifactActionVisibilityPolicy(inlineState: snapshot.state)
+        guard let stateIdentity = policy.inlineStateIdentity, !policy.actions.isEmpty else {
+            return nil
         }
+        return ChatArtifactInlineActionDescriptor(
+            id: "\(snapshot.path)\u{0}\(stateIdentity)",
+            actions: policy.actions,
+            isRunning: snapshot.fileActionState.isRunning
+        )
+        #else
+        nil
         #endif
     }
 
     #if os(iOS)
-    private func performInlineAction(
-        _ action: ChatArtifactAction,
-        snapshot: ChatArtifactViewerPageSnapshot
-    ) {
+    private func performInlineAction(_ action: ChatArtifactAction) {
         switch action {
         case .share:
             Task { await pageModel.prepareShare(loader: loader) }
         case .save:
             Task { await pageModel.prepareSave(loader: loader) }
         case .copyImage:
-            guard case .image(let data) = snapshot.state else { return }
+            guard case .image(let data) = pageModel.snapshot.state else { return }
             UIPasteboard.general.image = UIImage(data: data)
         case .copyContents, .copyPath:
             break
