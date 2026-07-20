@@ -208,15 +208,7 @@ struct RemoteDaemonUploadTests {
         #expect(cleanupRequest.arguments.last?.contains(location.absolutePath) == true)
     }
 
-    private enum UploadStep: Equatable {
-        case createDirectory
-        case upload
-        case finalize
-        case cleanup
-        case unknown
-    }
-
-    private static func uploadStep(for request: RemoteProcessRequest) -> UploadStep {
+    private static func uploadStep(for request: RemoteProcessRequest) -> RemoteDaemonUploadStep {
         guard request.executable == "/usr/bin/ssh",
               let command = request.arguments.last else {
             return .unknown
