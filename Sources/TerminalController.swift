@@ -13876,6 +13876,14 @@ class TerminalController {
             result = v2MobileNotificationDismiss(params: request.params)
         case "notification.reconcile":
             result = v2MobileNotificationReconcile(params: request.params)
+        case "notification.feed.list":
+            result = v2MobileNotificationFeedList(params: request.params)
+        case "notification.feed.mark_read":
+            result = v2MobileNotificationFeedMarkRead(params: request.params)
+        case "notification.feed.mark_unread":
+            result = v2MobileNotificationFeedMarkUnread(params: request.params)
+        case "notification.feed.mark_all_read":
+            result = v2MobileNotificationFeedMarkAllRead(params: request.params)
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
         default:

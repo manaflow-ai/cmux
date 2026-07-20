@@ -106,8 +106,14 @@ struct ShellIntegrationSendTransportTests {
         let error = String(decoding: standardError.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
 
         #expect(process.terminationStatus == 0, "\(error)\n\(output)")
-        #expect(output.contains("set-environment -g CMUX_SOCKET_PATH 127.0.0.1:64011"), Comment(rawValue: output))
-        #expect(output.contains("set-environment -g CMUX_WORKSPACE_ID 11111111-1111-1111-1111-111111111111"), Comment(rawValue: output))
+        #expect(
+            output.contains("set-environment -g CMUX_SOCKET_PATH 127.0.0.1:64011"),
+            Comment(rawValue: output)
+        )
+        #expect(
+            output.contains("set-environment -g CMUX_WORKSPACE_ID 11111111-1111-1111-1111-111111111111"),
+            Comment(rawValue: output)
+        )
         #expect(output.contains("set-environment -gu CMUX_SURFACE_ID"), Comment(rawValue: output))
         #expect(output.contains("set-environment -gu CMUX_PANEL_ID"), Comment(rawValue: output))
     }
