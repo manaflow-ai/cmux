@@ -1,6 +1,23 @@
 import Foundation
 
 extension RemoteTmuxController {
+    /// A split was requested on a mirror window-tab (the split button / any
+    /// bonsplit-level split) → propagate to tmux `split-window`. Covers both
+    /// single-pane mirror windows and multi-pane ones. Returns `true` if handled.
+    func handleMirrorTabSplitRequested(
+        workspaceId: UUID,
+        panelId: UUID,
+        vertical: Bool,
+        focusIntent: RemoteTmuxSplitFocusIntent
+    ) -> Bool {
+        guard let mirror = sessionMirror(workspaceId: workspaceId) else { return false }
+        return mirror.requestSplit(
+            windowPanelId: panelId,
+            vertical: vertical,
+            focusIntent: focusIntent
+        )
+    }
+
     /// A new tab was requested in a mirrored workspace → create a tmux window in
     /// that session. The new tab arrives via the `%window-add` notification (one
     /// source of truth), so the caller must NOT also create a local tab.
@@ -52,6 +69,35 @@ extension RemoteTmuxController {
             workingDirectory: commandWorkingDirectory,
             focus: focus
         )
+        return sendMirrorNewWindow(command, through: mirror, focus: focus)
+    }
+
+    /// Routes a projected control-pane target to a new tmux window immediately
+    /// after the window containing that pane. The target pane's authoritative
+    /// remote cwd is inherited when available.
+    func handleMirrorNewTabRequested(
+        workspaceId: UUID,
+        targetPaneId: Int,
+        focus: Bool
+    ) -> Bool {
+        guard let mirror = sessionMirror(workspaceId: workspaceId),
+              mirror.connection.connectionState == .connected,
+              let afterWindowId = mirror.windowIdByPane[targetPaneId] else {
+            return false
+        }
+        let command = Self.newWindowCommand(
+            afterWindowId: afterWindowId,
+            workingDirectory: mirror.cwdByPane[targetPaneId],
+            focus: focus
+        )
+        return sendMirrorNewWindow(command, through: mirror, focus: focus)
+    }
+
+    private func sendMirrorNewWindow(
+        _ command: String,
+        through mirror: RemoteTmuxSessionMirror,
+        focus: Bool
+    ) -> Bool {
         guard focus else { return mirror.connection.send(command) }
         return mirror.connection.sendNewWindow(command) { [weak mirror] windowId in
             guard let windowId else { return }

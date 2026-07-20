@@ -3,7 +3,7 @@ import Foundation
 
 private nonisolated let cmuxTopPIDPathBufferSize = 4096
 
-nonisolated extension CmuxTopProcessSnapshot {
+extension CmuxTopProcessSnapshot {
     static func allProcesses(includeProcessDetails: Bool, includeCMUXScope: Bool) -> [CmuxTopProcessInfo] {
         let sampledProcesses = allBSDProcesses()
         guard !sampledProcesses.isEmpty else { return [] }

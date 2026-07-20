@@ -118,12 +118,41 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
     /// Mark one paired Mac active in the selected team scope.
     public func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         let team = await resolvedTeam(teamID)
-        let scope = try await visibleScope(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: team)
+        let visible = try await visibleMac(
+            macDeviceID: macDeviceID,
+            instanceTag: nil,
+            stackUserID: stackUserID,
+            teamID: team,
+            requiresExactInstanceTag: false
+        )
+        try await setActive(
+            macDeviceID: macDeviceID,
+            instanceTag: visible?.instanceTag,
+            stackUserID: stackUserID,
+            teamID: team
+        )
+    }
+
+    /// Mark one exact tagged Mac app instance active in the selected team scope.
+    public func setActive(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        let team = await resolvedTeam(teamID)
+        let scope = try await visibleScope(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: team
+        )
         if scope.teamID != team {
             try await inner.clearActive(stackUserID: scope.stackUserID, teamID: team)
         }
         try await inner.setActive(
             macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
             stackUserID: scope.stackUserID,
             teamID: scope.teamID
         )
@@ -145,9 +174,46 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         now: Date
     ) async throws {
         let team = await resolvedTeam(teamID)
-        let scope = try await visibleScope(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: team)
+        let visible = try await visibleMac(
+            macDeviceID: macDeviceID,
+            instanceTag: nil,
+            stackUserID: stackUserID,
+            teamID: team,
+            requiresExactInstanceTag: false
+        )
+        try await setCustomization(
+            macDeviceID: macDeviceID,
+            instanceTag: visible?.instanceTag,
+            customName: customName,
+            customColor: customColor,
+            customIcon: customIcon,
+            stackUserID: stackUserID,
+            teamID: team,
+            now: now
+        )
+    }
+
+    /// Persist local customizations for one exact tagged app instance.
+    public func setCustomization(
+        macDeviceID: String,
+        instanceTag: String?,
+        customName: String?,
+        customColor: String?,
+        customIcon: String?,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        let team = await resolvedTeam(teamID)
+        let scope = try await visibleScope(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: team
+        )
         try await inner.setCustomization(
             macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,
@@ -160,9 +226,38 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
     /// Remove one paired Mac in the selected team scope.
     public func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         let team = await resolvedTeam(teamID)
-        let scope = try await visibleScope(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: team)
+        let visible = try await visibleMac(
+            macDeviceID: macDeviceID,
+            instanceTag: nil,
+            stackUserID: stackUserID,
+            teamID: team,
+            requiresExactInstanceTag: false
+        )
+        try await remove(
+            macDeviceID: macDeviceID,
+            instanceTag: visible?.instanceTag,
+            stackUserID: stackUserID,
+            teamID: team
+        )
+    }
+
+    /// Remove one exact tagged app instance in the selected team scope.
+    public func remove(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        let team = await resolvedTeam(teamID)
+        let scope = try await visibleScope(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: team
+        )
         try await inner.remove(
             macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
             stackUserID: scope.stackUserID,
             teamID: scope.teamID
         )
@@ -180,14 +275,34 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
 
     private func visibleScope(
         macDeviceID: String,
+        instanceTag: String?,
         stackUserID: String?,
         teamID: String?
     ) async throws -> (stackUserID: String?, teamID: String?) {
-        let visibleMac = try await inner.loadAll(stackUserID: stackUserID, teamID: teamID)
-            .first { $0.macDeviceID == macDeviceID }
+        let visibleMac = try await visibleMac(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: teamID,
+            requiresExactInstanceTag: true
+        )
         guard let visibleMac else {
             return (stackUserID, teamID)
         }
         return (visibleMac.stackUserID, visibleMac.teamID)
+    }
+
+    private func visibleMac(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        requiresExactInstanceTag: Bool
+    ) async throws -> MobilePairedMac? {
+        try await inner.loadAll(stackUserID: stackUserID, teamID: teamID)
+            .first {
+                $0.macDeviceID == macDeviceID
+                    && (!requiresExactInstanceTag || $0.instanceTag == instanceTag)
+            }
     }
 }

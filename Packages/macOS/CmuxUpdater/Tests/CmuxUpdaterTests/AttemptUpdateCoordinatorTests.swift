@@ -48,28 +48,25 @@ import Testing
         var coordinator = AttemptUpdateCoordinator()
         _ = coordinator.requestInstallLatest(currentState: updateAvailable("0.64.15"))
 
-        // The active prompt is dismissed and the updater re-checks.
-        #expect(coordinator.handleStateChange(.idle) == .none)
+        // The lifecycle owner invokes Sparkle only after the old cycle finishes.
+        coordinator.didStartFreshCheck()
         #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
 
         // The fresh check resolves the newer version — install THAT one.
         #expect(coordinator.handleStateChange(updateAvailable("0.64.16")) == .confirmInstall)
+        #expect(coordinator.isMonitoring)
+        #expect(coordinator.handleStateChange(.startingDownload) == .none)
+        #expect(coordinator.handleStateChange(.downloading(.init(cancel: {}, expectedLength: nil, progress: 0))) == .none)
         #expect(!coordinator.isMonitoring)
     }
 
-    /// Regression for #7235: dismissing the stale Sparkle prompt can emit an idle state from
-    /// Sparkle's dismissal callback and then another idle state from cmux's reset path. The second
-    /// idle is still before the fresh check starts, so it must not cancel the install attempt.
-    @Test func duplicateIdleDismissSignalsBeforeFreshCheckDoNotCancelAttempt() {
+    /// An unattributed idle cannot be interpreted as user cancellation. It is a failed accepted
+    /// install that the controller must turn into a retryable error.
+    @Test func unattributedIdleBeforeFreshCheckFailsInstall() {
         var coordinator = AttemptUpdateCoordinator()
         _ = coordinator.requestInstallLatest(currentState: updateAvailable("0.64.15"))
 
-        #expect(coordinator.handleStateChange(.idle) == .none)
-        #expect(coordinator.isMonitoring)
-        #expect(coordinator.handleStateChange(.idle) == .none)
-        #expect(coordinator.isMonitoring)
-        #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
-        #expect(coordinator.handleStateChange(updateAvailable("0.64.16")) == .confirmInstall)
+        #expect(coordinator.handleStateChange(.idle) == .installFailed)
         #expect(!coordinator.isMonitoring)
     }
 
@@ -79,11 +76,9 @@ import Testing
         var coordinator = AttemptUpdateCoordinator()
         _ = coordinator.requestInstallLatest(currentState: updateAvailable("0.64.15"))
 
-        // Same prompt re-emitted before any restart signal: do not install it.
-        #expect(coordinator.handleStateChange(updateAvailable("0.64.15")) == .none)
-        #expect(coordinator.isMonitoring)
-
-        // Once the check restarts and resolves the latest, confirm that one.
+        #expect(coordinator.handleStateChange(.preparingCheck(.init(cancel: {}))) == .none)
+        // Once the controller starts the check and it resolves the latest, confirm that one.
+        coordinator.didStartFreshCheck()
         #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
         #expect(coordinator.handleStateChange(updateAvailable("0.64.16")) == .confirmInstall)
     }
@@ -92,9 +87,10 @@ import Testing
         var coordinator = AttemptUpdateCoordinator()
         _ = coordinator.requestInstallLatest(currentState: .idle)
 
+        coordinator.didStartFreshCheck()
         #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
         #expect(coordinator.handleStateChange(updateAvailable("0.64.16")) == .confirmInstall)
-        #expect(!coordinator.isMonitoring)
+        #expect(coordinator.isMonitoring)
     }
 
     @Test func doesNotInterruptAnInProgressInstall() {
@@ -102,6 +98,7 @@ import Testing
             .downloading(.init(cancel: {}, expectedLength: 100, progress: 10)),
             .extracting(.init(progress: 0.5)),
             .installing(.init(retryTerminatingApplication: {}, dismiss: {})),
+            .startingDownload,
         ] {
             var coordinator = AttemptUpdateCoordinator()
             #expect(coordinator.requestInstallLatest(currentState: state) == .none)
@@ -112,9 +109,9 @@ import Testing
     @Test func stopsMonitoringWhenFreshCheckFindsNothing() {
         var coordinator = AttemptUpdateCoordinator()
         _ = coordinator.requestInstallLatest(currentState: updateAvailable("0.64.15"))
-        #expect(coordinator.handleStateChange(.idle) == .none)
+        coordinator.didStartFreshCheck()
         #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
-        #expect(coordinator.handleStateChange(.notFound(.init(acknowledgement: {}))) == .none)
+        #expect(coordinator.handleStateChange(.notFound(.init(acknowledgement: {}))) == .installFailed)
         #expect(!coordinator.isMonitoring)
     }
 
@@ -124,10 +121,11 @@ import Testing
     @Test func cancellingFreshCheckStopsMonitoringSoLaterCheckIsNotAutoInstalled() {
         var coordinator = AttemptUpdateCoordinator()
         _ = coordinator.requestInstallLatest(currentState: .idle)
+        coordinator.didStartFreshCheck()
         #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
 
-        // User cancels the in-flight check → model returns to idle.
-        #expect(coordinator.handleStateChange(.idle) == .none)
+        // The controller receives the causal user-cancel signal before Sparkle emits idle.
+        coordinator.cancel()
         #expect(!coordinator.isMonitoring)
 
         // A later, unrelated check that finds an update must NOT be auto-confirmed.
@@ -139,9 +137,9 @@ import Testing
     @Test func cancellingAfterActivePromptDismissStopsMonitoring() {
         var coordinator = AttemptUpdateCoordinator()
         _ = coordinator.requestInstallLatest(currentState: updateAvailable("0.64.15"))
-        #expect(coordinator.handleStateChange(.idle) == .none)   // stale prompt dismissed
+        coordinator.didStartFreshCheck()
         #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
-        #expect(coordinator.handleStateChange(.idle) == .none)   // user cancels the fresh check
+        coordinator.cancel()
         #expect(!coordinator.isMonitoring)
         #expect(coordinator.handleStateChange(updateAvailable("0.64.16")) == .none)
     }
@@ -149,6 +147,7 @@ import Testing
     @Test func stopsMonitoringWhenFreshCheckErrors() {
         var coordinator = AttemptUpdateCoordinator()
         _ = coordinator.requestInstallLatest(currentState: .idle)
+        coordinator.didStartFreshCheck()
         #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
         let error = UpdateState.error(.init(error: NSError(domain: "t", code: 1), retry: {}, dismiss: {}))
         #expect(coordinator.handleStateChange(error) == .none)

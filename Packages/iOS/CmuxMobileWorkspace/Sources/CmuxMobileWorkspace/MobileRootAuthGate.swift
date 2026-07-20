@@ -78,14 +78,19 @@ public struct MobileRootAuthGate {
     /// - Parameters:
     ///   - stackAuthenticated: Whether Stack auth is established.
     ///   - attachTicketAuthenticated: Whether a temporary attach ticket grants access.
+    ///   - isRestoringSession: Whether cached auth is still being validated or recreated.
     ///   - connectionState: The current connection state.
-    /// - Returns: `true` when Stack-authenticated without a temporary ticket and not yet connected.
+    /// - Returns: `true` when Stack-authenticated, auth restore is complete, no temporary ticket is active, and the Mac is not yet connected.
     public static func shouldReconnectStoredMac(
         stackAuthenticated: Bool,
         attachTicketAuthenticated: Bool,
+        isRestoringSession: Bool,
         connectionState: MobileConnectionState
     ) -> Bool {
-        stackAuthenticated && !attachTicketAuthenticated && connectionState != .connected
+        stackAuthenticated
+            && !isRestoringSession
+            && !attachTicketAuthenticated
+            && connectionState != .connected
     }
 
     /// Whether the restoring-session UI should be shown while reconnecting a known
@@ -109,9 +114,9 @@ public struct MobileRootAuthGate {
     ///   - hasKnownPairedMac: The persisted hint that this device has paired a Mac before.
     ///   - pairedMacHintUndetermined: Whether the hint has never been written on this install (key absent).
     ///   - didFinishStoredMacReconnectAttempt: Whether the first launch reconnect attempt has resolved.
-    /// - Returns: `true` while authenticated, not yet connected, and either actively
-    ///   reconnecting a stored Mac or — before the first attempt resolves — holding
-    ///   the paired-Mac hint or an undetermined hint.
+    /// - Returns: `true` while authenticated and the first stored-Mac reconnect
+    ///   attempt has not resolved, provided a reconnect is active or a paired-Mac
+    ///   hint indicates that restoration may be possible.
     public static func shouldShowRestoringStoredMac(
         authenticated: Bool,
         connectionState: MobileConnectionState,
@@ -121,8 +126,8 @@ public struct MobileRootAuthGate {
         didFinishStoredMacReconnectAttempt: Bool
     ) -> Bool {
         guard authenticated, connectionState != .connected else { return false }
-        if isReconnectingStoredMac { return true }
         guard !didFinishStoredMacReconnectAttempt else { return false }
+        if isReconnectingStoredMac { return true }
         return hasKnownPairedMac || pairedMacHintUndetermined
     }
 }

@@ -103,9 +103,9 @@ Chrome 136 and newer reject CDP remote debugging on the OS-default profile direc
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `server.ws` | socket address string | unset | Enables the WebSocket control listener, for example `127.0.0.1:7681` |
-| `server.ws_token` | string | unset | Requires the first WebSocket text frame to be `{"auth":{"token":"..."}}` |
+| `server.ws_token` | string | unset | Adds a static-token bypass for interactive TUI pairing |
 
-WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-bind`. The listener has no TLS; use an authenticated TLS reverse proxy for remote access. See the [transport contract](../spec/transports.md#websocket).
+WebSocket clients pair through a six-digit browser/TUI comparison by default. WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-bind`. The listener has no TLS; use an authenticated TLS reverse proxy for remote access. See the [transport contract](../spec/transports.md#websocket).
 
 ## Keys
 
@@ -115,7 +115,7 @@ WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-
 | `keys.alt_shortcuts` | boolean | `true` | Enables default modeless Alt bindings when true |
 | `keys.new-tab` | chord string or array or `"none"` | `["t","alt+t"]` | New PTY tab |
 | `keys.new_browser_tab` | chord string or array or `"none"` | `"B"` | Browser URL prompt |
-| `keys.new-pane-smart` | chord string or array or `"none"` | `"alt+n"` | New pane using smart split direction |
+| `keys.new-pane-smart` | chord string or array or `"none"` | `"alt+n"` | New pane using the default automatic layout |
 | `keys.next-tab` | chord string or array or `"none"` | `"tab"` | Next tab |
 | `keys.prev-tab` | chord string or array or `"none"` | `"backtab"` | Previous tab |
 | `keys.select-tab-1` through `keys.select-tab-9` | chord string or array or `"none"` | unbound | Select tab by visible tab number; use these to restore the old `Ctrl-b 1` through `Ctrl-b 9` tab selectors |

@@ -241,8 +241,9 @@ extension RemoteTmuxWindowMirror {
         // at the top of performSizingPassNow does NOT cover a window resize,
         // so gate the stale re-pin here. The fresh setAssignedGrid below is
         // left alone: it applies tmux's own assignment, never a stale one.
-        let suppressPin = visibleHostingContext()?.window?.inLiveResize == true
-            || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
+        let hostingWindow = visibleHostingContext()?.window
+        let suppressPin = hostingWindow?.inLiveResize == true
+            || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: hostingWindow)
         var panesToRepaint: [Int] = []
         for (paneId, panel) in panelsByPaneId {
             // Under zoom the visible tree is the single zoomed leaf, but the

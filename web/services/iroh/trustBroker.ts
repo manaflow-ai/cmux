@@ -19,7 +19,8 @@ import {
   type PairGrantPeer,
 } from "./crypto";
 import {
-  deviceLimitOverrideAllowed,
+  bindingQuotaForUser,
+  challengeQuotaForUser,
   IrohTrustBrokerConfig,
   IrohTrustBrokerConfigLive,
   type IrohTrustBrokerConfigShape,
@@ -202,6 +203,7 @@ export function makeIrohTrustBroker(
         nonceHash: nonceHash(nonce),
         now,
         expiresAt: new Date(now.getTime() + IROH_CHALLENGE_LIFETIME_MS),
+        challengeQuota: challengeQuotaForUser(config, userId),
       });
       return {
         challenge_id: challenge.id,
@@ -245,7 +247,7 @@ export function makeIrohTrustBroker(
           ),
         },
         now,
-        deviceLimitOverrideAllowed: deviceLimitOverrideAllowed(config, userId),
+        bindingQuota: bindingQuotaForUser(config, userId),
       });
 
       // New registration is already committed before relay minting starts.
@@ -465,6 +467,14 @@ function publicBinding(
     identity_generation: binding.identityGeneration,
     pairing_enabled: binding.pairingEnabled,
     capabilities: binding.capabilities,
+    ...(binding.directPortV4 === null && binding.directPortV6 === null
+      ? {}
+      : {
+          direct_ports: {
+            ...(binding.directPortV4 === null ? {} : { ipv4: binding.directPortV4 }),
+            ...(binding.directPortV6 === null ? {} : { ipv6: binding.directPortV6 }),
+          },
+        }),
     path_hints: accountPrivateIrohPathHints(binding.pathHints.flatMap((hint): IrohPathHint[] => {
       try {
         return [parseIrohPathHint(hint, now)];

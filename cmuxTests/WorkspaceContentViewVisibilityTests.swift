@@ -147,6 +147,7 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(
             !WorkspaceContentView.panelVisibleInUI(
                 isWorkspaceVisible: false,
+                paneHasSelectedTab: true,
                 isSelectedInPane: true,
                 isFocused: true
             )
@@ -158,6 +159,7 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(
             WorkspaceContentView.panelVisibleInUI(
                 isWorkspaceVisible: true,
+                paneHasSelectedTab: true,
                 isSelectedInPane: true,
                 isFocused: false
             )
@@ -169,6 +171,19 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(
             WorkspaceContentView.panelVisibleInUI(
                 isWorkspaceVisible: true,
+                paneHasSelectedTab: false,
+                isSelectedInPane: false,
+                isFocused: true
+            )
+        )
+    }
+
+    @Test
+    func testPanelVisibleInUIReturnsFalseForStaleFocusedPanelWhenAnotherTabIsSelected() {
+        #expect(
+            !WorkspaceContentView.panelVisibleInUI(
+                isWorkspaceVisible: true,
+                paneHasSelectedTab: true,
                 isSelectedInPane: false,
                 isFocused: true
             )
@@ -180,9 +195,43 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(
             !WorkspaceContentView.panelVisibleInUI(
                 isWorkspaceVisible: true,
+                paneHasSelectedTab: false,
                 isSelectedInPane: false,
                 isFocused: false
             )
+        )
+    }
+
+    @Test
+    func testRenderedVisiblePanelPolicyPrefersSelectedTabOverStaleFocusedPanel() {
+        let paneId = UUID()
+        let selectedPanelId = UUID()
+        let staleFocusedPanelId = UUID()
+
+        #expect(
+            WorkspacePanelVisibilityPolicy.visiblePanelIdForRenderedPane(
+                paneId: paneId,
+                selectedPanelId: selectedPanelId,
+                firstPanelId: selectedPanelId,
+                focusedPanelId: staleFocusedPanelId,
+                focusedPanelPaneId: paneId
+            ) == selectedPanelId
+        )
+    }
+
+    @Test
+    func testRenderedVisiblePanelPolicyFallsBackToFocusedPanelOnlyDuringSelectionGap() {
+        let paneId = UUID()
+        let focusedPanelId = UUID()
+
+        #expect(
+            WorkspacePanelVisibilityPolicy.visiblePanelIdForRenderedPane(
+                paneId: paneId,
+                selectedPanelId: nil,
+                firstPanelId: UUID(),
+                focusedPanelId: focusedPanelId,
+                focusedPanelPaneId: paneId
+            ) == focusedPanelId
         )
     }
 

@@ -55,6 +55,49 @@ const requireVercelNonPreviewValue = (
       });
     }
   });
+const requireVercelRelayValue = (
+  schema: z.ZodString = z.string().min(1),
+): z.ZodType<string | undefined> =>
+  schema.optional().superRefine((value, context) => {
+    if (isVercelNonPreviewDeployment && !value) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Self-hosted relay runtime configuration is incomplete",
+      });
+    }
+  });
+const privateRelayEnvNames = new Set([
+  "CMUX_RELAY_JWT_PRIVATE_KEY_PEM",
+  "CMUX_RELAY_POLICY_KEY_ID",
+  "CMUX_RELAY_POLICY_PRIVATE_KEY_PEM",
+  "CMUX_RELAY_TOKEN_RATE_LIMIT_ID",
+]);
+const publicEnvValidationIssues = (issues: readonly unknown[]): readonly unknown[] => {
+  const publicIssues: unknown[] = [];
+  let hasPrivateRelayIssue = false;
+  for (const issue of issues) {
+    const path = (issue as { path?: unknown } | null)?.path;
+    const firstSegment = Array.isArray(path) ? path[0] : undefined;
+    const pathKey = typeof firstSegment === "string"
+      ? firstSegment
+      : typeof firstSegment === "object" && firstSegment !== null && "key" in firstSegment
+      ? String((firstSegment as { key: unknown }).key)
+      : undefined;
+    if (pathKey && privateRelayEnvNames.has(pathKey)) {
+      hasPrivateRelayIssue = true;
+    } else {
+      publicIssues.push(issue);
+    }
+  }
+  if (hasPrivateRelayIssue) {
+    publicIssues.push({
+      code: "custom",
+      message: "Self-hosted relay runtime configuration is incomplete",
+      path: ["relayRuntimeConfiguration"],
+    });
+  }
+  return publicIssues;
+};
 const localDevelopmentOptIn = (name: string) =>
   z.enum(["0", "1"]).optional().superRefine((value, context) => {
     if (
@@ -78,6 +121,14 @@ const irohMinterUrl = z.string().url().superRefine((value, context) => {
       code: z.ZodIssueCode.custom,
       message:
         "CMUX_IROH_MINT_URL must use HTTPS, except for an opted-in local loopback development minter",
+    });
+  }
+});
+const irohBindingLimit = z.string().regex(/^[1-9][0-9]{0,3}$/).superRefine((value, context) => {
+  if (Number(value) > 4_096) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Iroh binding limits must not exceed 4096",
     });
   }
 });
@@ -190,6 +241,24 @@ export const env = createEnv({
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENABLED: z.enum(["0", "1"]).optional(),
     CMUX_IROH_DEV_BINDING_OVERRIDE_USER_IDS: z.string().max(8_192).optional(),
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS: z.string().max(256).optional(),
+    CMUX_IROH_DEV_BINDING_ACCOUNT_LIMIT: irohBindingLimit.optional(),
+    CMUX_IROH_DEV_BINDING_DEVICE_LIMIT: irohBindingLimit.optional(),
+    // Self-hosted relay fleet. Preview and local builds remain credential-free,
+    // while every deployed non-preview runtime must be able to mint endpoint-
+    // bound credentials, sign the fleet policy, and enforce its account limit.
+    CMUX_RELAY_JWT_PRIVATE_KEY_PEM: requireVercelRelayValue(
+      z.string().min(64).max(16_384),
+    ),
+    CMUX_RELAY_POLICY_KEY_ID: requireVercelRelayValue(
+      z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?$/),
+    ),
+    CMUX_RELAY_POLICY_PRIVATE_KEY_PEM: requireVercelRelayValue(
+      z.string().min(64).max(16_384),
+    ),
+    CMUX_RELAY_TOKEN_RATE_LIMIT_ID: requireVercelRelayValue(),
+    // Optional dedicated rule. Preferences deliberately fall back to the token
+    // rule so existing deployments keep one shared account-scoped limiter.
+    CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID: z.string().min(1).optional(),
   },
   client: {
     NEXT_PUBLIC_STACK_PROJECT_ID: z.string().min(1),
@@ -242,6 +311,15 @@ export const env = createEnv({
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENABLED: trimEnv(process.env.CMUX_IROH_DEV_BINDING_OVERRIDE_ENABLED),
     CMUX_IROH_DEV_BINDING_OVERRIDE_USER_IDS: trimEnv(process.env.CMUX_IROH_DEV_BINDING_OVERRIDE_USER_IDS),
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS: trimEnv(process.env.CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS),
+    CMUX_IROH_DEV_BINDING_ACCOUNT_LIMIT: trimEnv(process.env.CMUX_IROH_DEV_BINDING_ACCOUNT_LIMIT),
+    CMUX_IROH_DEV_BINDING_DEVICE_LIMIT: trimEnv(process.env.CMUX_IROH_DEV_BINDING_DEVICE_LIMIT),
+    CMUX_RELAY_JWT_PRIVATE_KEY_PEM: trimEnv(process.env.CMUX_RELAY_JWT_PRIVATE_KEY_PEM),
+    CMUX_RELAY_POLICY_KEY_ID: trimEnv(process.env.CMUX_RELAY_POLICY_KEY_ID),
+    CMUX_RELAY_POLICY_PRIVATE_KEY_PEM: trimEnv(process.env.CMUX_RELAY_POLICY_PRIVATE_KEY_PEM),
+    CMUX_RELAY_TOKEN_RATE_LIMIT_ID: trimEnv(process.env.CMUX_RELAY_TOKEN_RATE_LIMIT_ID),
+    CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID: trimEnv(
+      process.env.CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID,
+    ),
     NEXT_PUBLIC_STACK_PROJECT_ID: stackEnv(
       process.env.NEXT_PUBLIC_STACK_PROJECT_ID,
       "00000000-0000-4000-8000-000000000000"
@@ -256,4 +334,8 @@ export const env = createEnv({
     ),
   },
   skipValidation: skipEnvValidation,
+  onValidationError: (issues) => {
+    console.error("❌ Invalid environment variables:", publicEnvValidationIssues(issues));
+    throw new Error("Invalid environment variables");
+  },
 });

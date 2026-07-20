@@ -14,6 +14,12 @@ import {
   IrohRepositoryLive,
   type IrohRepositoryShape,
 } from "../services/iroh/repository";
+import type { RelayCatalog } from "../services/relay/model";
+import {
+  RelayRepository,
+  RelayRepositoryLive,
+  type RelayRepositoryShape,
+} from "../services/relay/repository";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
@@ -21,6 +27,7 @@ const NOW = new Date("2026-07-09T20:00:00.000Z");
 
 let sql: Sql | null = null;
 let repository: IrohRepositoryShape | null = null;
+let relayRepository: RelayRepositoryShape | null = null;
 
 beforeAll(async () => {
   if (!runDbTests) return;
@@ -30,6 +37,11 @@ beforeAll(async () => {
   repository = await Effect.runPromise(
     Effect.gen(function* () { return yield* IrohRepository; }).pipe(
       Effect.provide(IrohRepositoryLive),
+    ),
+  );
+  relayRepository = await Effect.runPromise(
+    Effect.gen(function* () { return yield* RelayRepository; }).pipe(
+      Effect.provide(RelayRepositoryLive),
     ),
   );
 });
@@ -43,6 +55,8 @@ beforeEach(async () => {
       iroh_registration_challenges,
       iroh_endpoint_bindings,
       iroh_account_security_states,
+      iroh_relay_preferences,
+      iroh_relay_catalog_state,
       account_deletion_tombstones
     restart identity cascade
   `;
@@ -54,6 +68,119 @@ afterAll(async () => {
 });
 
 describe("Iroh trust broker database behavior", () => {
+  dbTest("validates the expanded relay issuance status constraint", async () => {
+    const [constraint] = await requiredSql()<Array<{ validated: boolean }>>`
+      select convalidated as validated
+      from pg_constraint
+      where conname = 'iroh_relay_token_issuances_status_check'
+        and conrelid = 'iroh_relay_token_issuances'::regclass
+    `;
+
+    expect(constraint).toEqual({ validated: true });
+  });
+
+  dbTest("serializes and rejects unsafe managed relay catalog activation", async () => {
+    const current: RelayCatalog = {
+      version: 1,
+      sequence: 20,
+      relays: [{
+        id: "relay-a",
+        provider: "cmux",
+        region: "A",
+        url: "https://relay-a.cmux.dev/",
+      }],
+    };
+    const added: RelayCatalog = {
+      ...current,
+      sequence: 21,
+      relays: [
+        ...current.relays,
+        {
+          id: "relay-b",
+          provider: "cmux",
+          region: "B",
+          url: "https://relay-b.cmux.dev/",
+        },
+      ],
+    };
+    const removed: RelayCatalog = {
+      ...added,
+      sequence: 22,
+      relays: [added.relays[1]!],
+    };
+    const acceptCatalog = requiredRelayRepository().acceptCatalog as unknown as (
+      input: { readonly catalog: RelayCatalog; readonly nowSeconds: number },
+    ) => Effect.Effect<void, unknown>;
+
+    await Effect.runPromise(acceptCatalog({ catalog: current, nowSeconds: 1_000 }));
+    await Effect.runPromise(acceptCatalog({ catalog: added, nowSeconds: 1_001 }));
+
+    const earlyRemoval = await Effect.runPromiseExit(
+      acceptCatalog({ catalog: removed, nowSeconds: 1_300 }),
+    );
+    expect(earlyRemoval._tag).toBe("Failure");
+    expect(String(earlyRemoval)).toContain("unsafe_transition");
+
+    await Effect.runPromise(acceptCatalog({ catalog: removed, nowSeconds: 1_301 }));
+    const [state] = await requiredSql()<Array<{
+      sequence: string;
+      catalog: RelayCatalog;
+    }>>`
+      select catalog_sequence::text as sequence, catalog
+      from iroh_relay_catalog_state
+      where id = 'managed'
+    `;
+    expect(state).toEqual({ sequence: "22", catalog: removed });
+  });
+
+  dbTest("fails closed when the persisted relay catalog digest is corrupt", async () => {
+    const current: RelayCatalog = {
+      version: 1,
+      sequence: 30,
+      relays: [{
+        id: "relay-a",
+        provider: "cmux",
+        region: "A",
+        url: "https://relay-a.cmux.dev/",
+      }],
+    };
+    const next: RelayCatalog = {
+      ...current,
+      sequence: 31,
+      relays: [
+        ...current.relays,
+        {
+          id: "relay-b",
+          provider: "cmux",
+          region: "B",
+          url: "https://relay-b.cmux.dev/",
+        },
+      ],
+    };
+    await requiredSql()`
+      insert into iroh_relay_catalog_state (
+        id, catalog_sequence, catalog_digest, catalog, updated_at
+      ) values (
+        'managed', ${current.sequence}, ${"0".repeat(64)}, ${requiredSql().json(current)},
+        to_timestamp(1_000)
+      )
+    `;
+
+    const exit = await Effect.runPromiseExit(
+      requiredRelayRepository().acceptCatalog({ catalog: next, nowSeconds: 1_001 }),
+    );
+
+    expect(exit._tag).toBe("Failure");
+    expect(String(exit)).toContain("RelayCatalogIntegrityError");
+    expect(String(exit)).toContain("persisted_catalog_digest_mismatch");
+    const [state] = await requiredSql()<Array<{ sequence: string }>>`
+      select catalog_sequence::text as sequence
+      from iroh_relay_catalog_state
+      where id = 'managed'
+    `;
+    expect(state).toEqual({ sequence: "30" });
+  });
+
   dbTest("blocks new trust state once account deletion wins the account fence", async () => {
     const userId = "user-deleting";
     let mutation: ReturnType<typeof Effect.runPromiseExit> | undefined;
@@ -270,7 +397,7 @@ describe("Iroh trust broker database behavior", () => {
         pathHints: [],
       },
       now: NOW,
-      deviceLimitOverrideAllowed: false,
+      bindingQuota: { account: 32, device: 8, baselineDevice: 8, staleAfterMs: null },
     }));
     const results = await Promise.allSettled([register(), register()]);
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
@@ -290,6 +417,96 @@ describe("Iroh trust broker database behavior", () => {
     expect({ bindings, consumed }).toEqual({ bindings: "1", consumed: "1" });
     expect(nextExpiry).toBeNull();
     expect(pathHints).toEqual([]);
+  });
+
+  dbTest("recycles the least-recently-seen stale development binding under pressure", async () => {
+    const repo = requiredRepository();
+    const userId = "user-development-recycling";
+    const deviceId = randomUUID();
+    const oldestId = await insertBinding({
+      userId,
+      deviceUuid: deviceId,
+      endpointId: "21".repeat(32),
+    });
+    const newerInactiveId = await insertBinding({
+      userId,
+      deviceUuid: deviceId,
+      endpointId: "22".repeat(32),
+    });
+    await insertBinding({ userId, deviceUuid: deviceId, endpointId: "23".repeat(32) });
+    await insertBinding({ userId, deviceUuid: deviceId, endpointId: "24".repeat(32) });
+    await requiredSql()`
+      update iroh_endpoint_bindings
+      set last_seen_at = case id
+        when ${oldestId} then ${new Date(NOW.getTime() - 72 * 60 * 60 * 1_000)}
+        when ${newerInactiveId} then ${new Date(NOW.getTime() - 48 * 60 * 60 * 1_000)}
+        else ${NOW}
+      end
+      where user_id = ${userId}
+    `;
+
+    const appInstanceId = randomUUID();
+    const endpointId = "25".repeat(32);
+    const nonceHash = "26".repeat(32);
+    const challenge = await Effect.runPromise(repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      tag: "newest",
+      endpointId,
+      identityGeneration: 1,
+      payloadSha256: "27".repeat(32),
+      nonceHash,
+      now: NOW,
+      expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+    }));
+    await Effect.runPromise(repo.consumeChallengeAndRegister({
+      userId,
+      challengeId: challenge.id,
+      nonceHash,
+      payload: {
+        route_contract_version: 1,
+        deviceId,
+        appInstanceId,
+        tag: "newest",
+        platform: "mac",
+        endpointId,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: [],
+        pathHints: [],
+      },
+      now: NOW,
+      bindingQuota: {
+        account: 8,
+        device: 4,
+        baselineDevice: 8,
+        staleAfterMs: 24 * 60 * 60 * 1_000,
+      },
+    }));
+
+    const [state] = await requiredSql()<Array<{
+      active: string;
+      oldestReason: string | null;
+      newerInactive: boolean;
+      generation: number;
+    }>>`
+      select
+        (select count(*)::text from iroh_endpoint_bindings
+          where user_id = ${userId} and revoked_at is null) as active,
+        (select revoked_reason from iroh_endpoint_bindings
+          where id = ${oldestId}) as "oldestReason",
+        exists(select 1 from iroh_endpoint_bindings
+          where id = ${newerInactiveId} and revoked_at is null) as "newerInactive",
+        (select lan_discovery_generation from iroh_account_security_states
+          where user_id = ${userId}) as generation
+    `;
+    expect(state).toEqual({
+      active: "4",
+      oldestReason: "stale_development_binding",
+      newerInactive: true,
+      generation: 2,
+    });
   });
 
   dbTest("persists account-private path hints already filtered by the trust broker", async () => {
@@ -351,7 +568,7 @@ describe("Iroh trust broker database behavior", () => {
         pathHints,
       },
       now: NOW,
-      deviceLimitOverrideAllowed: false,
+      bindingQuota: { account: 32, device: 8, baselineDevice: 8, staleAfterMs: null },
     }));
 
     const [stored] = await requiredSql()<Array<{
@@ -366,6 +583,97 @@ describe("Iroh trust broker database behavior", () => {
     `;
     expect(stored?.pathHints).toEqual(pathHints);
     expect(stored?.nextExpiry).toEqual(directExpiry);
+  });
+
+  dbTest("persists, updates, and clears family-specific direct ports", async () => {
+    const repo = requiredRepository();
+    const userId = "user-direct-ports";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "4f".repeat(32);
+    type DirectPorts = { readonly ipv4?: number; readonly ipv6?: number };
+
+    const register = async (
+      directPorts: DirectPorts | undefined,
+      sequence: number,
+    ): Promise<void> => {
+      const now = new Date(NOW.getTime() + sequence * 1_000);
+      const nonceHash = sequence.toString(16).padStart(64, "0");
+      const challenge = await Effect.runPromise(repo.issueChallenge({
+        userId,
+        deviceUuid: deviceId,
+        appInstanceId,
+        tag: "stable",
+        endpointId,
+        identityGeneration: 1,
+        payloadSha256: (sequence + 10).toString(16).padStart(64, "0"),
+        nonceHash,
+        now,
+        expiresAt: new Date(now.getTime() + 5 * 60 * 1_000),
+      }));
+      const payload: Parameters<
+        IrohRepositoryShape["consumeChallengeAndRegister"]
+      >[0]["payload"] & { readonly directPorts?: DirectPorts } = {
+        route_contract_version: 1,
+        deviceId,
+        appInstanceId,
+        tag: "stable",
+        platform: "mac",
+        endpointId,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: [],
+        ...(directPorts ? { directPorts } : {}),
+        pathHints: [],
+      };
+      await Effect.runPromise(repo.consumeChallengeAndRegister({
+        userId,
+        challengeId: challenge.id,
+        nonceHash,
+        payload,
+        now,
+        bindingQuota: { account: 32, device: 8, baselineDevice: 8, staleAfterMs: null },
+      }));
+    };
+
+    await register({ ipv4: 49_152, ipv6: 49_153 }, 1);
+    let [stored] = await requiredSql()<Array<{
+      directPortV4: number | null;
+      directPortV6: number | null;
+    }>>`
+      select
+        direct_port_v4 as "directPortV4",
+        direct_port_v6 as "directPortV6"
+      from iroh_endpoint_bindings
+      where app_instance_id = ${appInstanceId}
+    `;
+    expect(stored).toEqual({ directPortV4: 49_152, directPortV6: 49_153 });
+
+    await register({ ipv6: 50_000 }, 2);
+    [stored] = await requiredSql()<Array<{
+      directPortV4: number | null;
+      directPortV6: number | null;
+    }>>`
+      select
+        direct_port_v4 as "directPortV4",
+        direct_port_v6 as "directPortV6"
+      from iroh_endpoint_bindings
+      where app_instance_id = ${appInstanceId}
+    `;
+    expect(stored).toEqual({ directPortV4: null, directPortV6: 50_000 });
+
+    await register(undefined, 3);
+    [stored] = await requiredSql()<Array<{
+      directPortV4: number | null;
+      directPortV6: number | null;
+    }>>`
+      select
+        direct_port_v4 as "directPortV4",
+        direct_port_v6 as "directPortV6"
+      from iroh_endpoint_bindings
+      where app_instance_id = ${appInstanceId}
+    `;
+    expect(stored).toEqual({ directPortV4: null, directPortV6: null });
   });
 
   dbTest("requires revocation before changing an active binding platform", async () => {
@@ -406,7 +714,7 @@ describe("Iroh trust broker database behavior", () => {
           pathHints: [],
         },
         now,
-        deviceLimitOverrideAllowed: false,
+        bindingQuota: { account: 32, device: 8, baselineDevice: 8, staleAfterMs: null },
       });
     };
 
@@ -477,6 +785,74 @@ describe("Iroh trust broker database behavior", () => {
     expect(total).toBe("120");
   });
 
+  dbTest("allows forty same-device challenges under an explicit development quota", async () => {
+    const userId = "user-development-challenges";
+    const deviceUuid = randomUUID();
+    const results = await Promise.all(Array.from({ length: 40 }, (_, index) => {
+      const suffix = (index + 1).toString(16).padStart(64, "0");
+      const input = {
+        userId,
+        deviceUuid,
+        appInstanceId: randomUUID(),
+        tag: `dev-${index + 1}`,
+        endpointId: suffix,
+        identityGeneration: 1,
+        payloadSha256: suffix,
+        nonceHash: (index + 101).toString(16).padStart(64, "0"),
+        now: NOW,
+        expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+        challengeQuota: { account: 2_048, deviceInstance: 128, outstanding: 256 },
+      } as Parameters<IrohRepositoryShape["issueChallenge"]>[0];
+      return Effect.runPromiseExit(requiredRepository().issueChallenge(input));
+    }));
+
+    expect(results.filter((result) => result._tag === "Success")).toHaveLength(40);
+    const [{ total }] = await requiredSql()<Array<{ total: string }>>`
+      select count(*)::text as total
+      from iroh_registration_challenges
+      where user_id = ${userId}
+    `;
+    expect(total).toBe("40");
+  });
+
+  dbTest("scopes challenge burst quota to an exact device app instance", async () => {
+    const userId = "user-instance-scoped-challenges";
+    const deviceUuid = randomUUID();
+    const firstAppInstanceId = randomUUID();
+    const secondAppInstanceId = randomUUID();
+    const issue = (appInstanceId: string, index: number) => {
+      const suffix = index.toString(16).padStart(64, "0");
+      return Effect.runPromiseExit(requiredRepository().issueChallenge({
+        userId,
+        deviceUuid,
+        appInstanceId,
+        tag: appInstanceId === firstAppInstanceId ? "dev-first" : "dev-second",
+        endpointId: suffix,
+        identityGeneration: 1,
+        payloadSha256: suffix,
+        nonceHash: (index + 100).toString(16).padStart(64, "0"),
+        now: NOW,
+        expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+        challengeQuota: { account: 10, deviceInstance: 2, outstanding: 10 },
+      }));
+    };
+
+    expect((await issue(firstAppInstanceId, 1))._tag).toBe("Success");
+    expect((await issue(firstAppInstanceId, 2))._tag).toBe("Success");
+
+    const firstInstanceOverflow = await issue(firstAppInstanceId, 3);
+    expect(firstInstanceOverflow._tag).toBe("Failure");
+    const causeError = firstInstanceOverflow._tag === "Failure"
+      ? (firstInstanceOverflow.cause as unknown as { error?: unknown }).error
+      : undefined;
+    expect(causeError).toMatchObject({
+      _tag: "IrohQuotaExceededError",
+      code: "challenge_rate_limited",
+    });
+
+    expect((await issue(secondAppInstanceId, 4))._tag).toBe("Success");
+  });
+
   dbTest("enforces globally unique active EndpointIDs and app instances", async () => {
     const appInstanceId = randomUUID();
     const endpointId = "40".repeat(32);
@@ -498,6 +874,73 @@ describe("Iroh trust broker database behavior", () => {
         'user-a', ${randomUUID()}, ${randomUUID()}, 'stable', 'mac', ${"43".repeat(32)}, 2147483648
       )
     `, "22003");
+  });
+
+  dbTest("enforces the UDP port range for each direct-address family", async () => {
+    const bindingId = await insertBinding({
+      userId: "user-direct-port-checks",
+      endpointId: "4e".repeat(32),
+    });
+    await expectPostgresError(requiredSql()`
+      update iroh_endpoint_bindings set direct_port_v4 = 0 where id = ${bindingId}
+    `, "23514");
+    await expectPostgresError(requiredSql()`
+      update iroh_endpoint_bindings set direct_port_v4 = 65536 where id = ${bindingId}
+    `, "23514");
+    await expectPostgresError(requiredSql()`
+      update iroh_endpoint_bindings set direct_port_v6 = 0 where id = ${bindingId}
+    `, "23514");
+    await expectPostgresError(requiredSql()`
+      update iroh_endpoint_bindings set direct_port_v6 = 65536 where id = ${bindingId}
+    `, "23514");
+
+    await requiredSql()`
+      update iroh_endpoint_bindings
+      set direct_port_v4 = 1, direct_port_v6 = 65535
+      where id = ${bindingId}
+    `;
+    const [stored] = await requiredSql()<Array<{
+      directPortV4: number | null;
+      directPortV6: number | null;
+    }>>`
+      select
+        direct_port_v4 as "directPortV4",
+        direct_port_v6 as "directPortV6"
+      from iroh_endpoint_bindings
+      where id = ${bindingId}
+    `;
+    expect(stored).toEqual({ directPortV4: 1, directPortV6: 65_535 });
+  });
+
+  dbTest("scrubs direct ports when a binding is revoked", async () => {
+    const repo = requiredRepository();
+    const bindingId = await insertBinding({
+      userId: "user-revoked-direct-ports",
+      endpointId: "4d".repeat(32),
+    });
+    await requiredSql()`
+      update iroh_endpoint_bindings
+      set direct_port_v4 = 49_152, direct_port_v6 = 49_153
+      where id = ${bindingId}
+    `;
+
+    expect(await Effect.runPromise(repo.revokeBinding({
+      userId: "user-revoked-direct-ports",
+      bindingId,
+      now: NOW,
+    }))).toBe(true);
+
+    const [stored] = await requiredSql()<Array<{
+      directPortV4: number | null;
+      directPortV6: number | null;
+    }>>`
+      select
+        direct_port_v4 as "directPortV4",
+        direct_port_v6 as "directPortV6"
+      from iroh_endpoint_bindings
+      where id = ${bindingId}
+    `;
+    expect(stored).toEqual({ directPortV4: null, directPortV6: null });
   });
 
   dbTest("keeps LAN discovery account-scoped and coherent across binding revocation", async () => {
@@ -901,10 +1344,22 @@ describe("Iroh trust broker database behavior", () => {
       userId: "user-retention",
       endpointId: "83".repeat(32),
     });
+    const legacyRevokedId = await insertBinding({
+      userId: "user-retention",
+      endpointId: "84".repeat(32),
+    });
     await requiredSql()`
       update iroh_endpoint_bindings
       set revoked_at = ${new Date(NOW.getTime() - 31 * 24 * 60 * 60 * 1_000)}
       where id = ${oldRevokedId}
+    `;
+    await requiredSql()`
+      update iroh_endpoint_bindings
+      set
+        revoked_at = ${NOW},
+        direct_port_v4 = 49_152,
+        direct_port_v6 = 49_153
+      where id = ${legacyRevokedId}
     `;
     const [untouchedBefore] = await requiredSql()<Array<{ updatedAt: Date }>>`
       select updated_at as "updatedAt" from iroh_endpoint_bindings where id = ${untouchedId}
@@ -928,6 +1383,17 @@ describe("Iroh trust broker database behavior", () => {
     `;
     expect(rows.find((row) => row.id === activeId)?.pathHints).toHaveLength(1);
     expect(rows.find((row) => row.id === revokedId)?.pathHints).toEqual([]);
+    const [legacyRevoked] = await requiredSql()<Array<{
+      directPortV4: number | null;
+      directPortV6: number | null;
+    }>>`
+      select
+        direct_port_v4 as "directPortV4",
+        direct_port_v6 as "directPortV6"
+      from iroh_endpoint_bindings
+      where id = ${legacyRevokedId}
+    `;
+    expect(legacyRevoked).toEqual({ directPortV4: null, directPortV6: null });
     const [grant] = await requiredSql()<Array<{ revokedAt: Date | null }>>`
       select revoked_at as "revokedAt" from iroh_pair_grant_issuances where acceptor_binding_id = ${revokedId}
     `;
@@ -1169,6 +1635,11 @@ async function insertBinding(input: {
   `;
   if (!row) throw new Error("binding insert returned no row");
   return row.id;
+}
+
+function requiredRelayRepository(): RelayRepositoryShape {
+  if (!relayRepository) throw new Error("relay repository not initialized");
+  return relayRepository;
 }
 
 async function pairPeer(bindingId: string): Promise<PairGrantPeer> {

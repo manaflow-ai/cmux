@@ -150,6 +150,42 @@ describe("Iroh route wire contract", () => {
     expect(parseRegistrationPayload(registrationPayload(hint), NOW).pathHints[0]).toEqual(hint);
   });
 
+  test("accepts independent IPv4 and IPv6 UDP ports while preserving legacy omission", () => {
+    const safeDirectHint = directHint({ value: "8.8.8.8:4433" });
+    const legacy = parseRegistrationPayload(registrationPayload(safeDirectHint), NOW);
+    expect("directPorts" in legacy).toBe(false);
+
+    for (const directPorts of [
+      { ipv4: 49_152 },
+      { ipv6: 49_153 },
+      { ipv4: 49_152, ipv6: 49_153 },
+    ]) {
+      const parsed = parseRegistrationPayload({
+        ...registrationPayload(safeDirectHint),
+        directPorts,
+      }, NOW) as unknown as { directPorts?: unknown };
+      expect(parsed.directPorts).toEqual(directPorts);
+    }
+  });
+
+  for (const directPorts of [
+    {},
+    { ipv4: 0 },
+    { ipv4: 65_536 },
+    { ipv4: 4_433.5 },
+    { ipv6: 0 },
+    { ipv6: 65_536 },
+    { ipv6: 4_433.5 },
+    { ipv4: 4_433, extra: 4_434 },
+  ]) {
+    test(`rejects invalid direct ports ${JSON.stringify(directPorts)}`, () => {
+      expect(() => parseRegistrationPayload({
+        ...registrationPayload(directHint({ value: "8.8.8.8:4433" })),
+        directPorts,
+      }, NOW)).toThrow();
+    });
+  }
+
   test("allows globally routed address space inside an explicit custom VPN profile", () => {
     const hint = directHint({
       value: "8.8.4.4:4433",
@@ -622,6 +658,8 @@ describe("Iroh relay minter response bounds", () => {
         relayMinterHmacSecretBase64: secret.toString("base64"),
         relayMinterInsecureLoopbackOptIn: false,
         deviceLimitOverrideEnabled: false,
+        developmentAccountBindingLimit: 256,
+        developmentDeviceBindingLimit: 128,
         deviceLimitOverrideUserIds: new Set(),
         deviceLimitOverrideEnvironments: new Set(),
         deploymentEnvironment: "test",
@@ -666,6 +704,8 @@ describe("Iroh relay minter response bounds", () => {
       relayMinterHmacSecretBase64: Buffer.alloc(32, 0x63).toString("base64"),
       relayMinterInsecureLoopbackOptIn: false,
       deviceLimitOverrideEnabled: false,
+      developmentAccountBindingLimit: 256,
+      developmentDeviceBindingLimit: 128,
       deviceLimitOverrideUserIds: new Set(),
       deviceLimitOverrideEnvironments: new Set(),
       deploymentEnvironment: "test",

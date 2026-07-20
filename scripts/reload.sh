@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/mobile-attach.sh
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
+# shellcheck source=scripts/lib/dev-secrets.sh
+source "$SCRIPT_DIR/lib/dev-secrets.sh"
 
 APP_NAME="cmux DEV"
 BUNDLE_ID="com.cmuxterm.app.debug"
@@ -19,6 +21,12 @@ CMUX_DEV_PORT=""
 CMUX_DEV_PORT_END=""
 CMUX_DEV_PORT_RANGE=""
 CMUX_DEV_ORIGIN=""
+CMUX_DEV_API_BASE_URL_VALUE=""
+CMUX_IROH_BROKER_BASE_URL_VALUE=""
+CMUX_AUTH_WWW_ORIGIN_VALUE=""
+CMUX_WWW_ORIGIN_VALUE=""
+PROD_AUTH=0
+AUTH_CREDENTIALS_FILE=""
 CLI_PATH=""
 NO_GLOBAL_CLI_LINKS="${CMUX_RELOAD_NO_GLOBAL_CLI_LINKS:-0}"
 # Matches CmuxStateDirectory (non-TCC ~/.local/state/cmux) where the app/CLI now
@@ -257,6 +265,12 @@ Options:
                          so macOS launches the freshly-built binary on cmd-click or --launch.
   --launch               Launch the app after building. Without this flag, the script
                          builds and prints the app path but does not open it.
+  --prod-auth            Point this tagged Debug build at production Stack auth,
+                         cmux APIs, and the production Iroh broker.
+  --credentials-file <path>
+                         Bake only the path to a current-user-owned 0600 auth file.
+                         The credential values never enter argv, Info.plist, or
+                         the long-lived Mac process environment.
   --name <app name>      Override app display/bundle name.
   --bundle-id <id>       Override bundle identifier.
   --derived-data <path>  Override derived data path.
@@ -490,6 +504,18 @@ while [[ $# -gt 0 ]]; do
       LAUNCH=1
       shift
       ;;
+    --prod-auth)
+      PROD_AUTH=1
+      shift
+      ;;
+    --credentials-file)
+      AUTH_CREDENTIALS_FILE="${2:-}"
+      if [[ -z "$AUTH_CREDENTIALS_FILE" ]]; then
+        echo "error: --credentials-file requires a value" >&2
+        exit 1
+      fi
+      shift 2
+      ;;
     --derived-data)
       DERIVED_DATA="${2:-}"
       if [[ -z "$DERIVED_DATA" ]]; then
@@ -529,6 +555,11 @@ if [[ -z "$TAG" ]]; then
   exit 1
 fi
 
+if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
+  cmux_dev_secrets_validate_file "$AUTH_CREDENTIALS_FILE"
+  AUTH_CREDENTIALS_FILE="$(cd "$(dirname "$AUTH_CREDENTIALS_FILE")" && pwd -P)/$(basename "$AUTH_CREDENTIALS_FILE")"
+fi
+
 if [[ -n "$TAG" ]]; then
   if ! cmux_attach_validate_dev_tag "$TAG"; then
     exit 1
@@ -550,6 +581,16 @@ CMUX_DEV_PORT="$(choose_cmux_dev_port)"
 CMUX_DEV_PORT_RANGE="$(choose_cmux_dev_port_range)"
 CMUX_DEV_PORT_END="$(choose_cmux_dev_port_end "$CMUX_DEV_PORT" "$CMUX_DEV_PORT_RANGE")"
 CMUX_DEV_ORIGIN="http://localhost:${CMUX_DEV_PORT}"
+CMUX_DEV_API_BASE_URL_VALUE="$(cmux_attach_resolve_dev_api_base_url "$CMUX_DEV_ORIGIN")"
+CMUX_IROH_BROKER_BASE_URL_VALUE="${CMUX_IROH_BROKER_BASE_URL:-https://cmux-staging.vercel.app}"
+CMUX_AUTH_WWW_ORIGIN_VALUE="$CMUX_DEV_ORIGIN"
+CMUX_WWW_ORIGIN_VALUE="$CMUX_DEV_ORIGIN"
+if [[ "$PROD_AUTH" -eq 1 ]]; then
+  CMUX_DEV_API_BASE_URL_VALUE="${CMUX_DEV_API_BASE_URL:-https://cmux.com}"
+  CMUX_IROH_BROKER_BASE_URL_VALUE="${CMUX_IROH_BROKER_BASE_URL:-https://cmux.com}"
+  CMUX_AUTH_WWW_ORIGIN_VALUE="https://cmux.com"
+  CMUX_WWW_ORIGIN_VALUE="https://cmux.com"
+fi
 
 # Quiet logging: capture all noisy build output (xcodebuild, zig, codesign,
 # plistbuddy, etc.) to a single log file. On success we print only a one-line
@@ -612,6 +653,10 @@ reload_finalize() {
     echo
     echo "Dev web origin:"
     echo "  $CMUX_DEV_ORIGIN"
+    echo "Dev API origin:"
+    echo "  $CMUX_DEV_API_BASE_URL_VALUE"
+    echo "Iroh broker origin:"
+    echo "  $CMUX_IROH_BROKER_BASE_URL_VALUE"
     if [[ -n "${TAG_SLUG:-}" ]]; then
       echo "Dev web command:"
       echo "  cd web && CMUX_PORT=$CMUX_DEV_PORT CMUX_PORT_RANGE=$CMUX_DEV_PORT_RANGE CMUX_PORT_END=$CMUX_DEV_PORT_END CMUX_AUTH_CALLBACK_SCHEME=cmux-dev-$TAG_SLUG bun dev"
@@ -958,9 +1003,17 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_PORT_END "$CMUX_DEV_PORT_END"
       set_plist_env "$INFO_PLIST" CMUX_PORT_RANGE "$CMUX_DEV_PORT_RANGE"
       set_plist_env "$INFO_PLIST" PORT "$CMUX_DEV_PORT"
-      set_plist_env "$INFO_PLIST" CMUX_AUTH_WWW_ORIGIN "$CMUX_DEV_ORIGIN"
-      set_plist_env "$INFO_PLIST" CMUX_API_BASE_URL "$CMUX_DEV_ORIGIN"
-      set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_DEV_ORIGIN"
+      set_plist_env "$INFO_PLIST" CMUX_AUTH_WWW_ORIGIN "$CMUX_AUTH_WWW_ORIGIN_VALUE"
+      set_plist_env "$INFO_PLIST" CMUX_WWW_ORIGIN "$CMUX_WWW_ORIGIN_VALUE"
+      set_plist_env "$INFO_PLIST" CMUX_API_BASE_URL "$CMUX_DEV_API_BASE_URL_VALUE"
+      set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_DEV_API_BASE_URL_VALUE"
+      set_plist_env "$INFO_PLIST" CMUX_IROH_BROKER_BASE_URL "$CMUX_IROH_BROKER_BASE_URL_VALUE"
+      if [[ "$PROD_AUTH" -eq 1 ]]; then
+        set_plist_env "$INFO_PLIST" CMUX_AUTH_ENVIRONMENT production
+      fi
+      if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
+        set_plist_env "$INFO_PLIST" CMUX_AUTH_CREDENTIALS_FILE "$AUTH_CREDENTIALS_FILE"
+      fi
       if [[ -S "$CMUXD_SOCKET" ]]; then
         for PID in $(lsof -t "$CMUXD_SOCKET" 2>/dev/null); do
           kill "$PID" 2>/dev/null || true
@@ -1098,10 +1151,18 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     CMUX_PORT_END="$CMUX_DEV_PORT_END"
     CMUX_PORT_RANGE="$CMUX_DEV_PORT_RANGE"
     PORT="$CMUX_DEV_PORT"
-    CMUX_AUTH_WWW_ORIGIN="$CMUX_DEV_ORIGIN"
-    CMUX_API_BASE_URL="$CMUX_DEV_ORIGIN"
-    CMUX_VM_API_BASE_URL="$CMUX_DEV_ORIGIN"
+    CMUX_AUTH_WWW_ORIGIN="$CMUX_AUTH_WWW_ORIGIN_VALUE"
+    CMUX_WWW_ORIGIN="$CMUX_WWW_ORIGIN_VALUE"
+    CMUX_API_BASE_URL="$CMUX_DEV_API_BASE_URL_VALUE"
+    CMUX_VM_API_BASE_URL="$CMUX_DEV_API_BASE_URL_VALUE"
+    CMUX_IROH_BROKER_BASE_URL="$CMUX_IROH_BROKER_BASE_URL_VALUE"
   )
+  if [[ "$PROD_AUTH" -eq 1 ]]; then
+    TAG_LAUNCH_ENV+=(CMUX_AUTH_ENVIRONMENT=production)
+  fi
+  if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
+    TAG_LAUNCH_ENV+=(CMUX_AUTH_CREDENTIALS_FILE="$AUTH_CREDENTIALS_FILE")
+  fi
 
   LAUNCH_CMD=()
   LAUNCH_RETRY_CMD=()

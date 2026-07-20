@@ -19,6 +19,10 @@ let package = Package(
             name: "cmuxFeature",
             targets: ["cmuxFeature"]
         ),
+        .library(
+            name: "CmuxIrohReleaseGateSupport",
+            targets: ["CmuxIrohReleaseGateSupport"]
+        ),
     ],
     dependencies: [
         .package(path: "../../Packages/Shared/CMUXAuthCore"),
@@ -74,10 +78,29 @@ let package = Package(
                 .swiftLanguageMode(.v6),
             ]
         ),
+        .target(
+            name: "CmuxIrohReleaseGateSupport",
+            dependencies: [
+                "cmuxFeature",
+                "CMUXMobileCore",
+                "CmuxIrohTransport",
+                "CmuxMobileShell",
+                .product(
+                    name: "CmuxMobileShellReleaseGateSupport",
+                    package: "CmuxMobileShell"
+                ),
+                "CmuxMobileShellModel",
+                "CmuxMobileShellUI",
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
         .testTarget(
             name: "cmuxFeatureTests",
             dependencies: [
                 "cmuxFeature",
+                "CmuxIrohReleaseGateSupport",
                 "CMUXAuthCore",
                 "CmuxAuthRuntime",
                 "CmuxClientConfig",

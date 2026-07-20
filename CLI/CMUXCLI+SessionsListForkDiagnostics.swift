@@ -361,6 +361,9 @@ extension CMUXCLI {
         guard forkCommandAvailable else {
             return (false, "agent_has_no_fork_command")
         }
+        if let piFamilyAgent = sessionsListPiFamilyAgent(agent: agent, launchCommand: launchCommand) {
+            return (false, "\(piFamilyAgent)_version_unverified")
+        }
         guard agent == "opencode" else {
             return (true, "available")
         }
@@ -376,6 +379,34 @@ extension CMUXCLI {
             return (false, "opencode_executable_missing")
         }
         return (false, "opencode_version_unverified")
+    }
+
+    private func sessionsListPiFamilyAgent(
+        agent: String,
+        launchCommand: AgentHookLaunchCommandRecord?
+    ) -> String? {
+        let normalizedAgent = agent.lowercased()
+        if normalizedAgent == "pi" || normalizedAgent == "omp" {
+            return normalizedAgent
+        }
+        let launcher = sessionsListNormalized(launchCommand?.launcher)?.lowercased()
+        if launcher == "pi" || launcher == "omp" {
+            return launcher
+        }
+        if !normalizedAgent.isEmpty || launcher != nil {
+            return nil
+        }
+        let capturedExecutable = [
+            launchCommand?.executablePath,
+            launchCommand?.arguments.first,
+        ]
+            .compactMap { $0.map(sessionsListExecutableBasename) }
+            .map { $0.lowercased() }
+            .first { $0 == "pi" || $0 == "omp" }
+        if let capturedExecutable {
+            return capturedExecutable
+        }
+        return nil
     }
 
     private func sessionsListOpenCodeLooksRemoteLike(

@@ -57,7 +57,10 @@ public struct CmxIrohLANRendezvousAliasGenerator: Sendable {
         among candidates: [CmxIrohBrokerBindingMetadata],
         at date: Date
     ) throws -> CmxIrohBrokerBindingMetadata? {
-        guard Self.isCanonicalAlias(alias), candidates.count <= 32 else { return nil }
+        guard Self.isCanonicalAlias(alias),
+              candidates.count <= CmxIrohDiscoveryResponse.maximumBindingCount else {
+            return nil
+        }
         var match: CmxIrohBrokerBindingMetadata?
         for candidate in candidates {
             guard try acceptedAliases(for: candidate, at: date).contains(alias) else {

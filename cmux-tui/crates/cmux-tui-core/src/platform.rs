@@ -287,6 +287,50 @@ pub fn ghostty_config_paths() -> Vec<PathBuf> {
     candidates
 }
 
+/// Candidate Ghostty executables, in the order cmux-tui should probe them.
+///
+/// `GHOSTTY_BIN` is useful for packaged and development installations; the
+/// remaining paths cover the standard CLI and macOS app bundles.
+pub fn ghostty_binary_paths() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(path) = env_path("GHOSTTY_BIN") {
+        push_unique(&mut candidates, path);
+    }
+    if let Some(path) = find_on_path(&["ghostty"]) {
+        push_unique(&mut candidates, path);
+    }
+    push_unique(&mut candidates, PathBuf::from("/Applications/Ghostty.app/Contents/MacOS/ghostty"));
+    push_unique(
+        &mut candidates,
+        PathBuf::from("/Applications/cmux.app/Contents/Resources/bin/ghostty"),
+    );
+    candidates.retain(|path| is_executable_file(path));
+    candidates
+}
+
+/// Theme directories in Ghostty's resolution order.
+///
+/// A user-supplied theme overrides a bundled one with the same name. Include
+/// cmux's bundled Ghostty resources as well so the headless fallback works
+/// when cmux is installed without the standalone Ghostty app.
+pub fn ghostty_theme_dirs() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(config_home) = env_path("XDG_CONFIG_HOME") {
+        push_unique(&mut candidates, config_home.join("ghostty").join("themes"));
+    } else if let Some(home) = home_dir() {
+        push_unique(&mut candidates, home.join(".config").join("ghostty").join("themes"));
+    }
+    push_unique(
+        &mut candidates,
+        PathBuf::from("/Applications/Ghostty.app/Contents/Resources/ghostty/themes"),
+    );
+    push_unique(
+        &mut candidates,
+        PathBuf::from("/Applications/cmux.app/Contents/Resources/ghostty/themes"),
+    );
+    candidates
+}
+
 /// Persistent profile directory for launched Chrome/Chromium sessions.
 pub fn chrome_user_data_dir() -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
