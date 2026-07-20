@@ -867,7 +867,7 @@ final class RemoteTmuxController {
                 }
                 for (_, mirror) in mirrors { mirror.connection.endSession(kill: true) }
                 if let view = multiplexedViewsByHost[host.connectionHash] {
-                    await view.awaitCommandBarrier(timeout: 3)
+                    await view.awaitCommandBarrier(timeout: timeout.asSeconds)
                 }
                 for (key, _) in mirrors { teardownMultiplexedMirror(key: key) }
                 if !hostHasLiveMirror(host) { stopMultiplexedHost(host: host) }
