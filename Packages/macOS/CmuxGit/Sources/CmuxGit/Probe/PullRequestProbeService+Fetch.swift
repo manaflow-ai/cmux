@@ -249,6 +249,14 @@ extension PullRequestProbeService {
             return .transientFailure
         }
 
+        // A 404 here is repo-level, not branch-level: the pulls list endpoint
+        // returns `200 []` for a branch with no matching PR, so a 404 means the
+        // repo was renamed/deleted or is no longer visible to this credential
+        // (auth failures surface as 401/403 and are handled by the coordinator).
+        // Resolving `.notFound` folds the branch into `knownAbsentBranches` so it
+        // stops re-polling on the fast loop; a cache-bypassing refresh
+        // (branchChange/shellPrompt/commandHint) or cache eviction clears that,
+        // so regained access is picked up on the next non-cached pass.
         if response.statusCode == 404 {
             debugLog(
                 "workspace.prRefresh.branch.notFound repo=\(repoSlug) branch=\(branch)"
