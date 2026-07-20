@@ -22,6 +22,7 @@ struct MobileIrohReleaseGateArtifactPreparation: Equatable, Sendable {
             completionMarker: completionPrefix + completionNonce,
             command: "dd if=/dev/zero of='\(path)' bs=1048576 count=32 2>/dev/null; "
                 + "printf '%s' '\(suffixText)' >> '\(path)'; "
+                + "printf '\\n%s\\n' '\(path)'; "
                 + "printf '\\n%s%s\\n' '\(completionPrefix)' '\(completionNonce)'\n"
         )
     }
