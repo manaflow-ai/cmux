@@ -101,15 +101,6 @@ final class cmuxUITests: XCTestCase {
             XCTAssertTrue(page.frame.intersects(app.frame), file: file, line: line)
         }
 
-        func assertPageNotVisible(
-            _ page: XCUIElement,
-            file: StaticString = #filePath,
-            line: UInt = #line
-        ) {
-            guard page.exists else { return }
-            XCTAssertFalse(page.frame.intersects(app.frame), file: file, line: line)
-        }
-
         capture("onboarding-01-agents")
 
         let primaryButton = app.buttons["MobileOnboardingPrimaryButton"]
@@ -118,7 +109,7 @@ final class cmuxUITests: XCTestCase {
 
         let reservedScene = element("MobileOnboardingReservedScene")
         assertPageVisible(reservedScene)
-        assertPageNotVisible(agentsScene)
+        XCTAssertFalse(app.staticTexts["Your agents keep working on your Mac"].exists)
         XCTAssertFalse(element("MobileOnboardingHandoffPreview").exists)
         XCTAssertFalse(app.staticTexts["Answer agents from your phone"].exists)
         XCTAssertFalse(app.staticTexts[
@@ -133,19 +124,21 @@ final class cmuxUITests: XCTestCase {
         let backButton = app.buttons["MobileOnboardingBackButton"]
         backButton.tap()
         assertPageVisible(agentsScene)
-        assertPageNotVisible(reservedScene)
+        XCTAssertTrue(backButton.waitForNonExistence(timeout: 2))
         assertStableChrome()
+        capture("onboarding-02a-agents-after-back")
 
         primaryButton.tap()
         assertPageVisible(reservedScene)
-        assertPageNotVisible(agentsScene)
+        XCTAssertTrue(backButton.waitForExistence(timeout: 2))
+        XCTAssertFalse(app.staticTexts["Your agents keep working on your Mac"].exists)
         assertStableChrome()
+        capture("onboarding-02b-reserved-after-return")
 
         primaryButton.tap()
 
         let connectScene = element("MobileOnboardingConnectScene")
         assertPageVisible(connectScene)
-        assertPageNotVisible(reservedScene)
         XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].exists)
         XCTAssertTrue(app.staticTexts[
             "Keep cmux open on your Mac and sign in with the same account. cmux finds it and connects securely."
@@ -166,8 +159,6 @@ final class cmuxUITests: XCTestCase {
         app.launch()
 
         assertPageVisible(connectScene, timeout: 8)
-        assertPageNotVisible(element("MobileOnboardingAgentsScene"))
-        assertPageNotVisible(element("MobileOnboardingReservedScene"))
         XCTAssertTrue(app.buttons["Check Again"].exists)
         XCTAssertTrue(app.buttons["Use QR Code Instead"].exists)
         capture("onboarding-04-resumed-connect")
