@@ -110,6 +110,7 @@ extension TerminalController {
             debugLogMobileTerminalArtifactDenial(op: "stat", path: context.requestedPath)
             #if DEBUG
             cmuxDebugLog("mobile.terminal.artifact.stat.deny \(context.authorizationDiagnostics())")
+            context.dumpAuthorizationText()
             #endif
             return mobileTerminalArtifactError(.forbidden, path: context.requestedPath)
         } catch ArtifactByteReader.Error.fileNotFound {
@@ -505,7 +506,17 @@ private struct TerminalArtifactReadContext: Sendable {
             + " snapDir=\(snapshotScope.canonicalDirectoryListPath(for: requestedPath) != nil)"
             + " liveFile=\(scope.canonicalPath(for: requestedPath) != nil)"
             + " liveDir=\(scope.canonicalDirectoryListPath(for: requestedPath) != nil)"
-            + " textSample=\(terminalText.prefix(280).unicodeScalars.map { $0.escaped(asASCII: true) }.joined())"
+    }
+
+    /// Temporary diagnosis aid: dumps the authorization text with visible
+    /// escapes so the deny cause can be read outside the redacting log sink.
+    func dumpAuthorizationText() {
+        let escaped = terminalText.unicodeScalars.map { $0.escaped(asASCII: true) }.joined()
+        try? escaped.write(
+            toFile: "/tmp/cmux-dirtap-statdeny.txt",
+            atomically: true,
+            encoding: .utf8
+        )
     }
 
     func authorizedDirectoryList<T>(
