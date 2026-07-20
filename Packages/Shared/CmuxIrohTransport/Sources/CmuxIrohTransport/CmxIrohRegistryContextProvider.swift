@@ -3,6 +3,13 @@ public import Foundation
 
 /// Resolves fresh same-account reachability and a locally verified pair grant per dial.
 public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
+    private struct VerifiedDiscoverySnapshot: Sendable {
+        let response: CmxIrohDiscoveryResponse
+        let verifiedAt: Date
+    }
+
+    private static let maximumVerifiedDiscoveryReuseAge: TimeInterval = 30
+
     public typealias LANFallbackProvider = @Sendable (
         _ target: CmxIrohBrokerBindingMetadata,
         _ authenticatedBindings: [CmxIrohBrokerBindingMetadata],
@@ -26,6 +33,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     var grantCache: [CmxIrohPeerIdentity: CmxIrohRegistryGrantCache] = [:]
     var pairGrantRetryDeadline: (code: String?, date: Date)?
     var lanAuthorities: [CmxIrohPeerIdentity: CmxIrohRegistryLANAuthority] = [:]
+    private var verifiedDiscoverySnapshot: VerifiedDiscoverySnapshot?
 
     /// Creates a public-route provider from the generation-less seam.
     public init(
@@ -38,6 +46,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         offlinePolicy: CmxIrohClientOfflinePolicyContext? = nil,
         lanFallback: LANFallbackProvider? = nil,
         customPrivateFallback: CustomPrivateFallbackProvider? = nil,
+        verifiedDiscovery: CmxIrohDiscoveryResponse? = nil,
         verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
@@ -53,6 +62,9 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         self.customPrivateFallback = customPrivateFallback
         self.verifier = verifier
         self.now = now
+        verifiedDiscoverySnapshot = verifiedDiscovery.map {
+            VerifiedDiscoverySnapshot(response: $0, verifiedAt: now())
+        }
     }
 
     /// Creates a provider with generation-aware private-network validation.
@@ -66,6 +78,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         offlinePolicy: CmxIrohClientOfflinePolicyContext? = nil,
         lanFallback: LANFallbackProvider? = nil,
         customPrivateFallback: CustomPrivateFallbackProvider? = nil,
+        verifiedDiscovery: CmxIrohDiscoveryResponse? = nil,
         verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
@@ -80,6 +93,9 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         self.customPrivateFallback = customPrivateFallback
         self.verifier = verifier
         self.now = now
+        verifiedDiscoverySnapshot = verifiedDiscovery.map {
+            VerifiedDiscoverySnapshot(response: $0, verifiedAt: now())
+        }
     }
 
     public func context(
@@ -98,26 +114,30 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
               localBindingExpectation.endpointID == localIdentity else {
             throw CmxIrohRegistryContextError.localBindingUnavailable
         }
+        let clock = now()
         let discovery: CmxIrohDiscoveryResponse
-        do {
-            discovery = try await broker.discover()
-        } catch {
-            let clock = now()
-            guard Self.isConnectivity(error),
-                  let cached = try await cachedPolicy(
-                      for: request,
-                      confirmedDiscovery: nil,
-                      at: clock
-                  ) else {
-                throw error
+        if let verified = takeVerifiedDiscovery(at: clock) {
+            discovery = verified
+        } else {
+            do {
+                discovery = try await broker.discover()
+            } catch {
+                guard Self.isConnectivity(error),
+                      let cached = try await cachedPolicy(
+                          for: request,
+                          confirmedDiscovery: nil,
+                          at: clock
+                      ) else {
+                    throw error
+                }
+                rememberCachedLANAuthority(cached)
+                return try await context(
+                    targetBinding: cached.targetBinding,
+                    routeHints: routeHints,
+                    pairGrantToken: cached.pairGrant.grant,
+                    at: clock
+                )
             }
-            rememberCachedLANAuthority(cached)
-            return try await context(
-                targetBinding: cached.targetBinding,
-                routeHints: routeHints,
-                pairGrantToken: cached.pairGrant.grant,
-                at: clock
-            )
         }
         guard discovery.routeContractVersion == 1 else {
             throw CmxIrohRegistryContextError.incompatibleContract
@@ -149,7 +169,6 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         replaceLANAuthorities(with: discovery)
         let initiator = CmxIrohGrantPeer(binding: localBinding)
         let acceptor = CmxIrohGrantPeer(binding: targetBinding)
-        let clock = now()
         let pairGrant: CmxIrohPairGrantResponse
         do {
             pairGrant = try await grant(
@@ -202,16 +221,36 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         localBindingExpectation: CmxIrohLocalBindingExpectation,
         managedRelayURLs: Set<String>,
         allowedRouteRelayURLs: Set<String>,
-        offlinePolicy: CmxIrohClientOfflinePolicyContext?
+        offlinePolicy: CmxIrohClientOfflinePolicyContext?,
+        verifiedDiscovery: CmxIrohDiscoveryResponse? = nil
     ) {
         if self.localBindingExpectation != localBindingExpectation {
             grantCache.removeAll(keepingCapacity: false)
             lanAuthorities.removeAll(keepingCapacity: false)
+            verifiedDiscoverySnapshot = nil
         }
         self.localBindingExpectation = localBindingExpectation
         self.managedRelayURLs = managedRelayURLs
         self.allowedRouteRelayURLs = allowedRouteRelayURLs
         self.offlinePolicy = offlinePolicy
+        if let verifiedDiscovery {
+            verifiedDiscoverySnapshot = VerifiedDiscoverySnapshot(
+                response: verifiedDiscovery,
+                verifiedAt: now()
+            )
+        }
+    }
+
+    /// Consumes the startup or refresh response once, preventing an immediate
+    /// duplicate broker lookup while bounding the revocation visibility delay.
+    private func takeVerifiedDiscovery(at clock: Date) -> CmxIrohDiscoveryResponse? {
+        guard let snapshot = verifiedDiscoverySnapshot else { return nil }
+        verifiedDiscoverySnapshot = nil
+        let age = clock.timeIntervalSince(snapshot.verifiedAt)
+        guard age >= 0, age <= Self.maximumVerifiedDiscoveryReuseAge else {
+            return nil
+        }
+        return snapshot.response
     }
 
     private func context(

@@ -75,7 +75,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private static let hasKnownPairedMacDefaultsKey = "cmux.mobile.hasKnownPairedMac"
-
     /// Max seconds the launch reconnect may keep the restoring gate
     /// (``RestoringSessionView``) on screen before resolving to the
     /// disconnected/add-device UI. A stored Mac whose route went stale makes the
@@ -95,6 +94,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let workspaceMoveCapability = "workspace.move.v1"
     static let workspaceGroupActionsCapability = "workspace.group_actions.v1"
     static let workspaceCreateInGroupCapability = "workspace.create_in_group.v1", workspaceGroupCreateCapability = "workspace.group_create.v1"
+    static let taskCreateCapability = "workspace.task_create.v1"
     static let chatArtifactCapability = "chat.artifact.v1"
     static let chatArtifactGalleryCapability = "chat.artifact.gallery.v1"
     static let terminalArtifactCapability = "terminal.artifact.v1"
@@ -333,6 +333,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Mac, then phone-owned. `@ObservationIgnored` (views read `workspaceGroups`);
     /// injected so tests/previews can pass a suite-scoped `UserDefaults`.
     @ObservationIgnored var groupCollapseStore: MobileWorkspaceGroupCollapseStore
+    /// Device-local task templates used by the iOS task composer.
+    @ObservationIgnored public let taskTemplateStore: (any MobileTaskTemplateStoring)?
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
@@ -494,7 +496,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// a sign-out bumps the token, so stale continuations are dropped instead of
     /// writing the previous user's state under ids the next account may reuse. Not
     /// observed: it gates async hand-backs, not view state.
-    @ObservationIgnored private var signInGeneration = 0
+    @ObservationIgnored var signInGeneration = 0
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
             syncSelectedTerminalForWorkspace()
@@ -734,6 +736,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var notificationReconcileTask: Task<Void, Never>?
     var createWorkspaceTask: Task<Result<Void, MobileWorkspaceMutationFailure>, Never>?
     var createWorkspaceTaskGroupID: MobileWorkspaceGroupPreview.ID?
+    var createWorkspaceTaskSpec: MobileWorkspaceCreateSpec?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
     /// The user pull-to-refresh round-trip, kept on its own handle so the
@@ -745,9 +748,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var connectionGeneration: UUID
     var connectionAttemptGeneration: UUID
     @ObservationIgnored var macSwitchAttemptID: UUID?
-    @ObservationIgnored private var macSwitchAttemptSignInGeneration: Int?
-    @ObservationIgnored private var macSwitchRestorePreviousOnCancelAttemptIDs: Set<UUID> = []
-    @ObservationIgnored private var macSwitchRestoreBaseline: MobilePairedMac?
+    @ObservationIgnored var macSwitchAttemptSignInGeneration: Int?
+    @ObservationIgnored var macSwitchRestorePreviousOnCancelAttemptIDs: Set<UUID> = []
+    @ObservationIgnored var macSwitchRestoreBaseline: MobilePairedMac?
     @ObservationIgnored private var macSwitchCancelRestoreGeneration: UInt64 = 0
     private var chatEventSourceGeneration: UUID
     /// The per-Mac connection pool (P2 of the multi-Mac work), keyed by
@@ -934,11 +937,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
         draftStore: (any TerminalDraftStoring)? = nil,
-        groupCollapseStore: MobileWorkspaceGroupCollapseStore = MobileWorkspaceGroupCollapseStore()
+        groupCollapseStore: MobileWorkspaceGroupCollapseStore = MobileWorkspaceGroupCollapseStore(),
+        taskTemplateStore: (any MobileTaskTemplateStoring)? = nil
     ) {
         self.runtime = runtime
         self.draftStore = draftStore
         self.groupCollapseStore = groupCollapseStore
+        self.taskTemplateStore = taskTemplateStore
         self.pairedMacStore = pairedMacStore
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.pairedMacRestoreBoundary = pairedMacRestoreBoundary
@@ -998,6 +1003,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalSubscriptionRefreshTask = nil
         self.createWorkspaceTask = nil
         self.createWorkspaceTaskGroupID = nil
+        self.createWorkspaceTaskSpec = nil
         self.createTerminalTask = nil
         self.workspaceListRefreshTask = nil
         self.pullToRefreshTask = nil
@@ -1129,10 +1135,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectedHostName = ""
         pairingCode = ""
         clearPairingVersionWarning()
-        // Wipe every saved draft so the next account never sees the previous
-        // user's unsent text. Guard the in-memory clear (and the selection resets
-        // below) so the per-terminal draft hooks do not write partial state into a
-        // store we are about to empty wholesale.
+        // Wipe every draft so the next account never sees its predecessor's text.
+        // Guard the in-memory clear and selection resets so per-terminal hooks do
+        // not write partial state into a store we are emptying wholesale.
         isLoadingDraft = true
         terminalInputText = ""
         chatSessionSnapshotsByWorkspaceID = [:]
@@ -1142,6 +1147,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let draftStore {
             enqueueDraftOperation { await draftStore.clearAllDrafts() }
         }
+        taskTemplateStore?.clearAllUserData()
         // Drop unflushed keystroke snapshots too: an armed flush that runs
         // before the wipe would only write text the wipe then deletes, but the
         // buffer itself must not carry one account's text into the next.
@@ -1642,6 +1648,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             guard isCurrentPairingAttempt(attemptID) else { return }
             if connectionState == .connected {
+                // `connect()` persists the manual pairing, while Settings,
+                // the Mac picker, and the task composer read the shared
+                // in-memory list. Refresh it before dismissing PairingView so
+                // those surfaces can use the new Mac immediately.
+                await loadPairedMacs()
+                guard isCurrentPairingAttempt(attemptID) else { return }
                 recordPairingSucceeded()
             } else {
                 // `connect()` returned without connecting and already set a
@@ -2306,6 +2318,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let pairedMacStore else { return false }
         let switchAttemptID = beginMacSwitchAttempt()
         let liveForegroundRestoreBaseline = liveForegroundMacForSwitchRestore()
+        return await withTaskCancellationHandler {
+            guard !Task.isCancelled else {
+                await restoreMacSwitchBaselineIfCancelled(switchAttemptID)
+                return false
+            }
+            return await performMacSwitch(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
+                pairedMacStore: pairedMacStore,
+                switchAttemptID: switchAttemptID,
+                liveForegroundRestoreBaseline: liveForegroundRestoreBaseline
+            )
+        } onCancel: {
+            Task { @MainActor [weak self] in _ = self?.cancelMacSwitchAttempt(switchAttemptID) }
+        }
+    }
+
+    private func performMacSwitch(
+        macDeviceID: String,
+        instanceTag: String?,
+        pairedMacStore: any MobilePairedMacStoring,
+        switchAttemptID: UUID,
+        liveForegroundRestoreBaseline: MobilePairedMac?
+    ) async -> Bool {
         defer { finishMacSwitchAttempt(switchAttemptID) }
         // FAST PATH: if a live read-only connection to this Mac already exists,
         // promote it to the foreground (reuse the client) instead of re-dialing.
@@ -2616,32 +2652,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         hasKnownPairedMac = false
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = false
-    }
-
-    /// Whether stored-route selection must reject loopback routes. A loopback route
-    /// (`.debugLoopback`, `127.0.0.1`) names the host it runs on, so on a
-    /// physical device it can only ever reach the phone itself, never a remote
-    /// Mac. Simulators and explicit mock-data UI tests host their test server at
-    /// loopback, so those harnesses opt into it instead of weakening real-device
-    /// reconnect for every debug build.
-    static var prefersNonLoopbackRoutes: Bool {
-        #if os(iOS) && !targetEnvironment(simulator)
-        !UITestConfig.mockDataEnabled
-        #else
-        false
-        #endif
-    }
-
-    /// Whether `host` is a numeric IP literal (IPv4 or IPv6) rather than a name
-    /// that needs DNS resolution. Used to prefer directly-dialable IP routes over
-    /// MagicDNS hostnames, which fail to resolve on some clients.
-    static func isIPLiteralHost(_ host: String) -> Bool {
-        if host.contains(":") { return true } // IPv6 literal
-        let octets = host.split(separator: ".", omittingEmptySubsequences: false)
-        return octets.count == 4 && octets.allSatisfy { part in
-            guard let value = Int(part), (0...255).contains(value), !part.isEmpty else { return false }
-            return String(value) == part // reject leading zeros / non-canonical
-        }
     }
 
     /// Enqueues one paired-Mac store mutation on the serialized write chain.
@@ -3012,6 +3022,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let noThrowFailure = try await connect(ticket: ticket)
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             if connectionState == .connected && activeTicket != nil {
+                // Fresh pairing persists the Mac during `connect(ticket:)`, but
+                // presentation surfaces read the shared in-memory list. Refresh
+                // it before reporting success so an immediately opened picker or
+                // task composer sees the Mac without a manual Computers refresh.
+                await loadPairedMacs()
+                guard isCurrentPairingAttempt(attemptID) else { return .superseded }
                 recordPairingSucceeded()
                 return .connected
             }
@@ -4114,6 +4130,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return await self.createRemoteWorkspace(inGroup: groupID)
             }
             createWorkspaceTaskGroupID = groupID
+            createWorkspaceTaskSpec = nil
             return
         }
         guard groupID == nil else { return }
@@ -5521,6 +5538,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createWorkspaceTask?.cancel()
         createWorkspaceTask = nil
         createWorkspaceTaskGroupID = nil
+        createWorkspaceTaskSpec = nil
         createWorkspaceTaskID = nil
         createTerminalTask?.cancel()
         createTerminalTask = nil
@@ -5685,21 +5703,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return attemptID
     }
 
-    func isCurrentMacSwitchAttempt(_ attemptID: UUID) -> Bool {
-        macSwitchAttemptID == attemptID
-            && macSwitchAttemptSignInGeneration == signInGeneration
-            && isSignedIn
-    }
-
-    private func finishMacSwitchAttempt(_ attemptID: UUID) {
-        if macSwitchAttemptID == attemptID {
-            macSwitchAttemptID = nil
-            macSwitchAttemptSignInGeneration = nil
-            macSwitchRestoreBaseline = nil
-        }
-        macSwitchRestorePreviousOnCancelAttemptIDs.remove(attemptID)
-    }
-
     private func clearMacSwitchAttemptState(invalidateUnderlyingConnectionAttempt: Bool = false) {
         macSwitchCancelRestoreGeneration &+= 1
         macSwitchAttemptID = nil
@@ -5717,6 +5720,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ attemptID: UUID,
         fallback: MobilePairedMac? = nil
     ) async -> Bool {
+        if Task.isCancelled {
+            _ = cancelMacSwitchAttempt(attemptID)
+        }
         guard consumeMacSwitchRestorePreviousOnCancel(attemptID) else { return false }
         let restoreGeneration = macSwitchCancelRestoreGeneration
         let restored = await restorePreviousMacIfNeeded(
@@ -5878,6 +5884,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard createWorkspaceTaskID == id else { return }
         createWorkspaceTask = nil
         createWorkspaceTaskGroupID = nil
+        createWorkspaceTaskSpec = nil
         createWorkspaceTaskID = nil
     }
 
