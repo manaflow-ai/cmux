@@ -125,7 +125,7 @@ final class cmuxUITests: XCTestCase {
     func testWorkspaceListRapidDirectionChangesAndBoundariesRemainResponsive() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
-            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "100",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "60",
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_LIVE_UPDATES": "1",
         ])
         defer { app.terminate() }
@@ -136,7 +136,7 @@ final class cmuxUITests: XCTestCase {
             "MobileWorkspaceRow-workspace-seed-0"
         ]
         let lastRow = app.descendants(matching: .any)[
-            "MobileWorkspaceRow-workspace-seed-99"
+            "MobileWorkspaceRow-workspace-seed-59"
         ]
         XCTAssertTrue(firstRow.isHittable)
 

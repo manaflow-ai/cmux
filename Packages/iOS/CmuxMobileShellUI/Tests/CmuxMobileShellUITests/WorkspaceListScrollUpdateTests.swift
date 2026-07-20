@@ -6,6 +6,14 @@ import UIKit
 
 @MainActor
 @Suite struct WorkspaceListScrollUpdateTests {
+    @Test func workspaceTableUsesNativeSoftTopScrollEdgeEffect() {
+        guard #available(iOS 26.0, *) else { return }
+
+        let tableView = makeTableView()
+
+        #expect(tableView.topEdgeEffect.style == .soft)
+    }
+
     @Test func coordinatorLeavesPanLifecycleToUIKit() {
         let initial = configuration(workspaceIDs: ["workspace-1"])
         let coordinator = WorkspaceListTableCoordinator(configuration: initial)
