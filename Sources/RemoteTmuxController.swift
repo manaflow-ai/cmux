@@ -489,11 +489,15 @@ final class RemoteTmuxController {
         // Multiplexer: create the session IN BAND over the shared view stream — a
         // one-shot ssh would need a second channel a single-connection host refuses.
         // The reply carries the new session's name, so exactly that workspace is
-        // selected when it surfaces, and a dropped send does nothing (matching the
-        // dedicated transport's silent-failure semantics for the same race).
+        // selected when it surfaces. A create that never comes back with a name
+        // is reported: local creation is already suppressed, so staying quiet
+        // would leave Cmd+N looking like it did nothing.
         if let view = multiplexedViewsByHost[host.connectionHash] {
             newSessionRoutingTask = Task { @MainActor in
-                guard let name = await view.createWorkspaceReturningName() else { return }
+                guard let name = await view.createWorkspaceReturningName() else {
+                    self.reportNewSessionFailure(host, "", manager)
+                    return
+                }
                 guard self.multiplexedViewsByHost[host.connectionHash] === view else { return }
                 var intents = self.multiplexIntentsByHost[host.connectionHash] ?? .init()
                 intents.pendingSelect = .init(sessionName: name, originatingTabId: activeTabId)
@@ -507,16 +511,25 @@ final class RemoteTmuxController {
                 let result = try await self.transport(for: host).runTmux(
                     ["new-session", "-d", "-P", "-F", "#{session_name}"]
                 )
-                let name = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard result.succeeded, !name.isEmpty else { return }
                 // Revalidate across the ssh round trip: the manager's window may have
                 // closed (skip — the detached session is picked up on the next
                 // attach), and the user may have moved on (mirror, don't steal focus).
+                // This precedes the failure check so a closed window is never told
+                // about a failure it can no longer act on.
                 guard AppDelegate.shared?.windowId(for: manager) != nil else { return }
+                let name = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard result.succeeded, !name.isEmpty else {
+                    self.reportNewSessionFailure(host, result.stderr, manager)
+                    return
+                }
                 let select = manager.selectedTab?.id == activeTabId
                 _ = try self.mirrorSession(host: host, sessionName: name, into: manager, select: select)
             } catch {
-                // A failed create leaves nothing to mirror; the user can retry.
+                #if DEBUG
+                cmuxDebugLog("remote-tmux: new-session on active mirror's host failed: \(error)")
+                #endif
+                guard AppDelegate.shared?.windowId(for: manager) != nil else { return }
+                self.reportNewSessionFailure(host, error.localizedDescription, manager)
             }
         }
         return true
