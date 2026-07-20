@@ -1,15 +1,5 @@
 import Foundation
 
-/// The latest immutable input delivered by the SwiftUI table bridge.
-@MainActor
-struct SidebarWorkspaceTableApplyInput {
-    let rows: [SidebarWorkspaceTableRowConfiguration]
-    let actions: SidebarWorkspaceTableActions
-    let workspaceIds: [UUID]
-    let selectedWorkspaceId: UUID?
-    let selectedScrollTargetWorkspaceId: UUID?
-}
-
 /// Owns the boundary between SwiftUI/AppKit callbacks and table mutations.
 ///
 /// `NSViewRepresentable.updateNSView` and scroll-view bounds notifications can
