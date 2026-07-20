@@ -1,4 +1,6 @@
+import AppKit
 import CmuxRemoteSession
+import CmuxTerminal
 import Foundation
 import Testing
 
@@ -310,6 +312,100 @@ import Testing
         )
     }
 
+    /// A visible-screen repair after a verified pane-height grow must not turn
+    /// rows already represented in primary-screen history into a second copy.
+    /// This drives the real Ghostty manual-I/O parser because observer-byte
+    /// equality alone cannot expose corruption retained outside the viewport.
+    @Test(.timeLimit(.minutes(1)))
+    func visibleRepaintAfterGridGrowthPreservesPrimaryScreenHistory() async throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        let initialLayout = RemoteTmuxLayoutNode(
+            width: 80, height: 26, x: 0, y: 0, content: .pane(7)
+        )
+        let initialWindow = RemoteTmuxWindow(
+            id: 1,
+            name: "main",
+            width: 80,
+            height: 26,
+            layout: initialLayout
+        )
+        fixture.connection.windowsByID[1] = initialWindow
+        fixture.connection.windowOrder = [1]
+        fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.isRemoteTmuxMirror = true
+        let sessionMirror = RemoteTmuxSessionMirror(
+            host: fixture.connection.host,
+            sessionName: "work",
+            connection: fixture.connection,
+            tabManager: manager,
+            workspace: workspace
+        )
+        defer { sessionMirror.detachObserver() }
+        let panelID = try #require(sessionMirror.panelIdByPane[7])
+        let panel = try #require(workspace.panels[panelID] as? TerminalPanel)
+        let terminal = try hostedTerminal(panel.surface)
+        defer { terminal.window.orderOut(nil) }
+        await waitForLiveSurface(terminal.surface)
+        try #require(terminal.surface.hasLiveSurface)
+
+        terminal.surface.setAssignedGrid(columns: 80, rows: 26)
+        await waitForAppliedTerminalGrid(terminal.surface, columns: 80, rows: 26)
+
+        let authoritativeRows = (1...80).map { String(format: "HISTORY_ROW_%03d", $0) }
+        finishPendingCommands(
+            on: fixture.connection,
+            captureRows: authoritativeRows,
+            paneHeight: 26,
+            startingAt: 20
+        )
+        await waitForTerminalText(terminal.surface) { text in
+            authoritativeRows.allSatisfy {
+                text.components(separatedBy: $0).count - 1 == 1
+            }
+        }
+        terminal.surface.setManualIONoReflow(false)
+
+        let grownLayout = RemoteTmuxLayoutNode(
+            width: 80, height: 50, x: 0, y: 0, content: .pane(7)
+        )
+        let grownWindow = RemoteTmuxWindow(
+            id: 1,
+            name: "main",
+            width: 80,
+            height: 50,
+            layout: grownLayout
+        )
+        fixture.connection.windowsByID[1] = grownWindow
+        fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
+        fixture.connection.observers.notifyTopologyChanged()
+        fixture.connection.repaintPanesThatGrew(from: initialWindow, to: grownWindow)
+
+        finishPendingCommands(
+            on: fixture.connection,
+            captureRows: Array(authoritativeRows.suffix(50)),
+            paneHeight: 50,
+            startingAt: 50
+        )
+
+        terminal.surface.setAssignedGrid(columns: 80, rows: 50)
+        await waitForAppliedTerminalGrid(terminal.surface, columns: 80, rows: 50)
+        await waitForTerminalText(terminal.surface) { text in
+            text.contains(authoritativeRows[79])
+        }
+
+        let rendered = try readFullTerminalText(terminal.surface)
+        for row in authoritativeRows {
+            #expect(
+                rendered.components(separatedBy: row).count - 1 == 1,
+                "verified growth must preserve exactly one copy of \(row)"
+            )
+        }
+    }
+
     private static func seedRaceStream(
         preCaptureOutput: String,
         capturedRows: [String],
@@ -333,11 +429,15 @@ import Testing
         return Data(text.utf8)
     }
 
-    private static func paneStateLine(cursorX: Int, cursorY: Int) -> String {
+    private static func paneStateLine(
+        cursorX: Int,
+        cursorY: Int,
+        paneHeight: Int = 24
+    ) -> String {
         "cursor_x=\(cursorX),cursor_y=\(cursorY),"
-            + "scroll_region_upper=0,scroll_region_lower=23,"
+            + "scroll_region_upper=0,scroll_region_lower=\(paneHeight - 1),"
             + "cursor_flag=1,insert_flag=0,keypad_cursor_flag=0,keypad_flag=0,"
-            + "wrap_flag=1,origin_flag=0,pane_height=24,"
+            + "wrap_flag=1,origin_flag=0,pane_height=\(paneHeight),"
             + "mouse_all_flag=0,mouse_button_flag=0,mouse_standard_flag=0,"
             + "mouse_sgr_flag=0,mouse_utf8_flag=0"
     }
@@ -398,6 +498,193 @@ import Testing
         )
         _ = pipe.fileHandleForReading.availableData
         return Fixture(connection: connection, writer: writer, pipe: pipe)
+    }
+
+    private func finishPendingCommands(
+        on connection: RemoteTmuxControlConnection,
+        captureRows: [String],
+        paneHeight: Int,
+        startingAt firstCommandNumber: Int
+    ) {
+        var commandNumber = firstCommandNumber
+        while let kind = connection.pendingCommandKindsForTesting.first {
+            let lines: [String]
+            switch kind {
+            case .paneReflow:
+                lines = ["0|zsh"]
+            case .paneAltScreen:
+                lines = ["0"]
+            case .capturePane:
+                lines = captureRows
+            case .paneState:
+                lines = [
+                    Self.paneStateLine(
+                        cursorX: 0,
+                        cursorY: paneHeight - 1,
+                        paneHeight: paneHeight
+                    )
+                ]
+            case .panePath:
+                lines = ["/tmp"]
+            default:
+                lines = []
+            }
+            connection.handleMessageForTesting(
+                .commandResult(commandNumber: commandNumber, lines: lines, isError: false)
+            )
+            commandNumber += 1
+        }
+    }
+
+    private func hostedTerminal(_ surface: TerminalSurface) throws -> HostedTerminal {
+        _ = NSApplication.shared
+        let hostedView = surface.hostedView
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = try #require(window.contentView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        return HostedTerminal(surface: surface, window: window)
+    }
+
+    private func waitForLiveSurface(_ surface: TerminalSurface) async {
+        guard !surface.hasLiveSurface else { return }
+        let readiness = AsyncStream<Void> { continuation in
+            surface.onRuntimeReady = {
+                continuation.yield()
+                continuation.finish()
+            }
+        }
+        for await _ in readiness { break }
+        surface.onRuntimeReady = nil
+    }
+
+    private func waitForAppliedTerminalGrid(
+        _ surface: TerminalSurface,
+        columns: Int,
+        rows: Int
+    ) async {
+        await waitForGhosttyState(surface) {
+            guard let frame = surface.mobileRenderGridFrame(
+                stateSeq: 0,
+                scrollbackLines: 0,
+                includeTheme: false
+            )?.frame else { return false }
+            return frame.columns == columns && frame.rows == rows
+        }
+    }
+
+    private func waitForTerminalText(
+        _ surface: TerminalSurface,
+        condition: @escaping @MainActor (String) -> Bool
+    ) async {
+        await waitForGhosttyState(surface) {
+            guard let text = try? readFullTerminalText(surface) else { return false }
+            return condition(text)
+        }
+    }
+
+    private func waitForGhosttyState(
+        _ surface: TerminalSurface,
+        condition: @escaping @MainActor () -> Bool
+    ) async {
+        if condition() { return }
+
+        let releaseTicks = GhosttyApp.retainTickNotifications()
+        let releaseFrames = GhosttyNSView.retainRenderedFrameNotifications()
+        defer {
+            releaseFrames()
+            releaseTicks()
+        }
+        let (events, continuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let center = NotificationCenter.default
+        let tokens = [
+            center.addObserver(forName: .ghosttyDidTick, object: nil, queue: .main) { _ in
+                continuation.yield()
+            },
+            center.addObserver(forName: .ghosttyDidRenderFrame, object: nil, queue: .main) { _ in
+                continuation.yield()
+            },
+            center.addObserver(
+                forName: .terminalSurfaceDidBecomeReady,
+                object: surface,
+                queue: .main
+            ) { _ in
+                continuation.yield()
+            },
+        ]
+        defer {
+            for token in tokens { center.removeObserver(token) }
+            continuation.finish()
+        }
+
+        if condition() { return }
+        GhosttyApp.shared.scheduleTick()
+        for await _ in events where !condition() {}
+    }
+
+    private func readTerminalText(
+        _ surface: TerminalSurface,
+        pointTag: ghostty_point_tag_e
+    ) throws -> String {
+        let runtimeSurface = try #require(surface.surface)
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(
+                tag: pointTag,
+                coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+                x: 0,
+                y: 0
+            ),
+            bottom_right: ghostty_point_s(
+                tag: pointTag,
+                coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+                x: 0,
+                y: 0
+            ),
+            rectangle: false
+        )
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(runtimeSurface, selection, &text) else { return "" }
+        defer { ghostty_surface_free_text(runtimeSurface, &text) }
+        guard let pointer = text.text, text.text_len > 0 else { return "" }
+        return String(decoding: Data(bytes: pointer, count: Int(text.text_len)), as: UTF8.self)
+    }
+
+    private func readFullTerminalText(_ surface: TerminalSurface) throws -> String {
+        let snapshot = TerminalController.TerminalTextRawSnapshot(
+            viewport: nil,
+            screen: try readTerminalText(surface, pointTag: GHOSTTY_POINT_SCREEN),
+            history: try readTerminalText(surface, pointTag: GHOSTTY_POINT_SURFACE),
+            active: try readTerminalText(surface, pointTag: GHOSTTY_POINT_ACTIVE)
+        )
+        switch TerminalController.terminalTextPayload(
+            from: snapshot,
+            includeScrollback: true,
+            lineLimit: nil
+        ) {
+        case .success(let payload):
+            return payload.text
+        case .failure(let error):
+            Issue.record("failed to read terminal history: \(error.message)")
+            return ""
+        }
+    }
+
+    private struct HostedTerminal {
+        let surface: TerminalSurface
+        let window: NSWindow
     }
 
     private struct Fixture {
