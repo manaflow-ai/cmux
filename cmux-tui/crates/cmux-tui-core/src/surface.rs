@@ -1006,7 +1006,10 @@ impl Surface {
                                             term.vt_write(&delta);
                                         }
                                         applied_color_overrides = colors.clone();
-                                    } else if term.color_overrides() != applied_color_overrides {
+                                    } else if !terminal_color_overrides_match_applied(
+                                        term.color_overrides(),
+                                        &applied_color_overrides,
+                                    ) {
                                         // An unflagged Output that changed colors
                                         // violated the producer's iff contract.
                                         break 'host_stream;
@@ -2411,13 +2414,33 @@ impl PtySurface {
 
 fn terminal_color_override_full_state(next: &TerminalColorOverrides) -> Vec<u8> {
     let mut output = b"\x1b[0 q".to_vec();
-    output.extend_from_slice(&terminal_color_override_delta(&Default::default(), next));
+    output.extend_from_slice(&terminal_color_override_delta_impl(&Default::default(), next, false));
     output
+}
+
+fn terminal_color_overrides_match_applied(
+    mut observed: TerminalColorOverrides,
+    applied: &TerminalColorOverrides,
+) -> bool {
+    // Version 1 has no cursor metadata. Its cursor state is carried only by
+    // ordinary VT output, so it must not trip the sparse-color iff contract.
+    if applied.cursor_visual.is_none() {
+        observed.cursor_visual = None;
+    }
+    observed == *applied
 }
 
 fn terminal_color_override_delta(
     previous: &TerminalColorOverrides,
     next: &TerminalColorOverrides,
+) -> Vec<u8> {
+    terminal_color_override_delta_impl(previous, next, true)
+}
+
+fn terminal_color_override_delta_impl(
+    previous: &TerminalColorOverrides,
+    next: &TerminalColorOverrides,
+    reset_absent_cursor: bool,
 ) -> Vec<u8> {
     fn dynamic_color(output: &mut Vec<u8>, set_code: u16, reset_code: u16, color: Option<Rgb>) {
         match color {
@@ -2442,7 +2465,9 @@ fn terminal_color_override_delta(
     if previous.cursor != next.cursor {
         dynamic_color(&mut output, 12, 112, next.cursor);
     }
-    if previous.cursor_visual != next.cursor_visual {
+    if previous.cursor_visual != next.cursor_visual
+        || (reset_absent_cursor && next.cursor_visual.is_none())
+    {
         let value = match next.cursor_visual {
             None => 0,
             Some((CursorShape::Block | CursorShape::BlockHollow, true)) => 1,
@@ -2719,6 +2744,58 @@ mod tests {
             terminal_color_override_full_state(&TerminalColorOverrides::default()),
             b"\x1b[0 q"
         );
+    }
+
+    #[test]
+    fn legacy_v1_live_colors_reset_an_unflagged_cursor_override() {
+        let mut terminal = Terminal::new(10, 2, 0, Callbacks::default()).unwrap();
+        terminal.set_default_cursor(Some(CursorShape::Bar), Some(false));
+        let applied = crate::terminal_host_runtime::decode_terminal_color_overrides(&[
+            1, 0, 0, 0, 0, 0, 0, 0,
+        ])
+        .unwrap();
+
+        // Version 1 carries cursor changes only in ordinary VT output. They
+        // must not look like an undeclared sparse-color mutation.
+        terminal.vt_write(b"\x1b[3 q");
+        assert_eq!(terminal.effective_cursor_visual().unwrap(), (CursorShape::Underline, true));
+        assert!(terminal_color_overrides_match_applied(terminal.color_overrides(), &applied));
+
+        // A later coupled v1 color frame has no cursor pair. Match the browser
+        // fallback by resetting the receiver cursor after applying the color.
+        let next = crate::terminal_host_runtime::decode_terminal_color_overrides(&[
+            1, 0, 1, 0, 0, 0, 0, 0, 1, 2, 3,
+        ])
+        .unwrap();
+        terminal.vt_write(b"\x1b]10;#010203\x07");
+        let delta = terminal_color_override_delta(&applied, &next);
+        assert!(delta.ends_with(b"\x1b[0 q"));
+        terminal.vt_write(&delta);
+        assert_eq!(
+            terminal.effective_cursor_visual().unwrap(),
+            (CursorShape::Bar, false),
+            "legacy v1 absence resets the receiving frontend's cursor default"
+        );
+        assert!(terminal_color_overrides_match_applied(terminal.color_overrides(), &next));
+    }
+
+    #[test]
+    fn legacy_v1_applied_state_ignores_only_cursor_metadata() {
+        let applied = TerminalColorOverrides {
+            foreground: Some(Rgb { r: 1, g: 2, b: 3 }),
+            ..Default::default()
+        };
+        let observed = TerminalColorOverrides {
+            foreground: applied.foreground,
+            cursor_visual: Some((CursorShape::Block, true)),
+            ..Default::default()
+        };
+
+        assert!(terminal_color_overrides_match_applied(observed.clone(), &applied));
+
+        let mut mismatched = observed;
+        mismatched.background = Some(Rgb { r: 4, g: 5, b: 6 });
+        assert!(!terminal_color_overrides_match_applied(mismatched, &applied));
     }
 
     #[test]
