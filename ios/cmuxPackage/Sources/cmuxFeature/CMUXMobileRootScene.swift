@@ -141,6 +141,15 @@ public struct CMUXMobileRootScene: View {
 
     private static func openPairedMacStore() -> (any MobilePairedMacStoring)? {
         do {
+            #if DEBUG
+            if UITestConfig.mockDataEnabled {
+                let databaseURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(
+                        "cmux-uitest-paired-macs-\(UUID().uuidString).sqlite3"
+                    )
+                return try MobilePairedMacStore(databaseURL: databaseURL)
+            }
+            #endif
             return try MobilePairedMacStore()
         } catch {
             mobileRootSceneLog.error(
@@ -285,7 +294,9 @@ public struct CMUXMobileRootScene: View {
     private var content: some View {
         #if os(iOS)
         #if DEBUG
-        if UITestConfig.workspaceListLayoutPreviewEnabled {
+        if UITestConfig.taskComposerPreviewEnabled {
+            TaskComposerAccessibilityPreviewView()
+        } else if UITestConfig.workspaceListLayoutPreviewEnabled {
             WorkspaceListLayoutPreviewView()
         } else if let recoveryStress = MobileRecoveryStressConfiguration.parse(arguments: ProcessInfo.processInfo.arguments) {
             MobileRecoveryStressView(configuration: recoveryStress)
@@ -351,7 +362,8 @@ public struct CMUXMobileRootScene: View {
             diagnosticLog: diagnosticLog,
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,
-            draftStore: draftStore
+            draftStore: draftStore,
+            taskTemplateStore: UserDefaultsMobileTaskTemplateStore(defaults: .standard)
         )
     }
 }

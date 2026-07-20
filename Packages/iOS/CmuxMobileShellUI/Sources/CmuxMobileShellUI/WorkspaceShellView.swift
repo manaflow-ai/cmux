@@ -26,6 +26,7 @@ struct WorkspaceShellView: View {
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
     @State var workspaceActionToast: WorkspaceActionToastContent?
+    @State private var isTaskComposerPresented = false
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
     var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
@@ -34,7 +35,7 @@ struct WorkspaceShellView: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     #endif
 
-    private var usesCompactStack: Bool {
+    var usesCompactStack: Bool {
         #if os(iOS)
         MobileWorkspaceShellLayoutPolicy.usesCompactStack(
             horizontalSizeClass: horizontalSizeClass,
@@ -100,6 +101,14 @@ struct WorkspaceShellView: View {
         .onAppear {
             consumeDeeplinkNavigationRequestIfNeeded()
         }
+        #if os(iOS)
+        .sheet(isPresented: $isTaskComposerPresented) {
+            TaskComposerSheet(
+                store: store,
+                submitTaskComposer: submitTaskComposerFromShell
+            )
+        }
+        #endif
         .accessibilityIdentifier("MobileWorkspaceShell")
     }
 
@@ -151,6 +160,11 @@ struct WorkspaceShellView: View {
                 initialConnectionTimedOut: initialConnectionTimedOut,
                 retryInitialConnection: retryInitialConnection
             )
+            #if os(iOS)
+            .overlay(alignment: .bottomTrailing) {
+                taskComposerButtonOverlay
+            }
+            #endif
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(
                     for: workspaceID,
@@ -258,6 +272,11 @@ struct WorkspaceShellView: View {
                 initialConnectionTimedOut: initialConnectionTimedOut,
                 retryInitialConnection: retryInitialConnection
             )
+            #if os(iOS)
+            .overlay(alignment: .bottomTrailing) {
+                taskComposerButtonOverlay
+            }
+            #endif
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
             workspaceDestination(
@@ -271,6 +290,19 @@ struct WorkspaceShellView: View {
             hasPresentedSplitDetail = true
         }
     }
+
+    #if os(iOS)
+    @ViewBuilder
+    private var taskComposerButtonOverlay: some View {
+        if displaySettings.taskComposerEnabled {
+            TaskComposerButton {
+                isTaskComposerPresented = true
+            }
+            .padding(.trailing, 20)
+            .padding(.bottom, 6)
+        }
+    }
+    #endif
 
     /// Apply (and clear) a pending deep-link navigation intent. On the compact
     /// stack this pushes the workspace; on the split layout the store's
@@ -429,7 +461,7 @@ struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
         }
 
         // The pushed workspace detail hosts surfaces with their own pan/scroll
-        // gesture recognizers — the terminal's full-bounds scroll-mechanics
+        // gesture recognizers: the terminal's full-bounds scroll-mechanics
         // `UIScrollView` and the browser's `WKWebView` scroll view. Taking over
         // the navigation controller's `interactivePopGestureRecognizer` delegate
         // (above, so the custom back button can re-enable the swipe) drops

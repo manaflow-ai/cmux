@@ -29,7 +29,7 @@ extension WorkspaceShellView {
         guard case let .failure(failure) = result else { return }
         withAnimation(.snappy(duration: 0.2)) {
             workspaceActionToast = WorkspaceActionToastContent(
-                message: workspaceActionFailureMessage(action: action, failure: failure)
+                message: Self.workspaceActionFailureMessage(action: action, failure: failure)
             )
         }
     }
@@ -40,7 +40,7 @@ extension WorkspaceShellView {
         }
     }
 
-    private func workspaceActionFailureMessage(
+    static func workspaceActionFailureMessage(
         action: WorkspaceActionToastAction,
         failure: MobileWorkspaceMutationFailure
     ) -> String {
@@ -54,7 +54,7 @@ extension WorkspaceShellView {
         )
     }
 
-    private func workspaceActionFailureActionText(_ action: WorkspaceActionToastAction) -> String {
+    private static func workspaceActionFailureActionText(_ action: WorkspaceActionToastAction) -> String {
         switch action {
         case .createWorkspace:
             return L10n.string("mobile.workspaceAction.failure.action.createWorkspace", defaultValue: "create workspace")
@@ -89,7 +89,7 @@ extension WorkspaceShellView {
         }
     }
 
-    private func workspaceActionFailureReasonText(_ failure: MobileWorkspaceMutationFailure) -> String {
+    private static func workspaceActionFailureReasonText(_ failure: MobileWorkspaceMutationFailure) -> String {
         switch failure {
         case let .notConnected(hostDisplayName):
             if let hostDisplayName = trimmedWorkspaceActionHostDisplayName(hostDisplayName) {
@@ -161,6 +161,21 @@ extension WorkspaceShellView {
                 "mobile.workspaceAction.failure.reason.rejected.generic",
                 defaultValue: "was rejected by your Mac"
             )
+        case .invalidWorkingDirectory:
+            return L10n.string(
+                "mobile.workspaceAction.failure.reason.invalidWorkingDirectory",
+                defaultValue: "the working directory isn't available on your Mac; choose another directory"
+            )
+        case .persistenceUnavailable:
+            return L10n.string(
+                "mobile.workspaceAction.failure.reason.persistence",
+                defaultValue: "your Mac could not safely reserve the request"
+            )
+        case .alreadyCompleted:
+            return L10n.string(
+                "mobile.workspaceAction.failure.reason.alreadyCompleted",
+                defaultValue: "your Mac already accepted the request; refresh workspaces before trying again"
+            )
         case let .unsupported(hostDisplayName):
             if let hostDisplayName = trimmedWorkspaceActionHostDisplayName(hostDisplayName) {
                 return String.localizedStringWithFormat(
@@ -178,7 +193,7 @@ extension WorkspaceShellView {
         }
     }
 
-    private func trimmedWorkspaceActionHostDisplayName(_ hostDisplayName: String?) -> String? {
+    private static func trimmedWorkspaceActionHostDisplayName(_ hostDisplayName: String?) -> String? {
         guard let hostDisplayName = hostDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !hostDisplayName.isEmpty else {
             return nil
