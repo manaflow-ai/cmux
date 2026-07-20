@@ -193,6 +193,8 @@ pub struct VtStateResult {
 pub struct Tree {
     #[serde(default)]
     pub workspace_revision: u64,
+    #[serde(default)]
+    pub pane_revision: Option<u64>,
     pub workspaces: Vec<Workspace>,
 }
 
@@ -241,6 +243,8 @@ pub struct Pane {
     pub name: Option<String>,
     #[serde(default)]
     pub active_tab: usize,
+    #[serde(default)]
+    pub focused_at: u64,
     #[serde(default)]
     pub tabs: Vec<Tab>,
     #[serde(default)]
@@ -1160,7 +1164,19 @@ mod tests {
         .unwrap();
 
         assert_eq!(tree.workspace_revision, 0);
+        assert_eq!(tree.pane_revision, None);
         assert_eq!(tree.workspaces[0].key, "");
+    }
+
+    #[test]
+    fn tree_preserves_optional_pane_revision() {
+        let tree: Tree = serde_json::from_value(serde_json::json!({
+            "pane_revision": 7,
+            "workspaces": [],
+        }))
+        .unwrap();
+
+        assert_eq!(tree.pane_revision, Some(7));
     }
 
     #[test]

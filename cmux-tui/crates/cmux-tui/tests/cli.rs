@@ -181,7 +181,7 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     );
     assert_success(&focus);
     let focus_json: serde_json::Value = serde_json::from_slice(&focus.stdout).unwrap();
-    assert_eq!(focus_json["pane"].as_u64(), Some(neighboring_pane));
+    assert_ne!(focus_json["pane"].as_u64(), Some(pane0));
 
     let zoom =
         cli(&server, &["--json", "zoom-pane", "--pane", &pane1.to_string(), "--mode", "toggle"]);

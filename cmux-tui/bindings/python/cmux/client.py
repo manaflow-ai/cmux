@@ -160,6 +160,7 @@ class Pane:
     active_tab: int
     tabs: List[Tab]
     dead: bool = False
+    focused_at: int = 0
 
 
 @dataclass(frozen=True)
@@ -185,6 +186,7 @@ class Workspace:
 class Tree:
     workspaces: List[Workspace]
     workspace_revision: int = 0
+    pane_revision: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -750,6 +752,9 @@ def _parse_tree(data: Dict[str, Any]) -> Tree:
     return Tree(
         workspaces=[_parse_workspace(item) for item in data.get("workspaces", [])],
         workspace_revision=int(data.get("workspace_revision", 0)),
+        pane_revision=(
+            int(data["pane_revision"]) if data.get("pane_revision") is not None else None
+        ),
     )
 
 
@@ -810,6 +815,7 @@ def _parse_pane(value: Dict[str, Any]) -> Pane:
         active_tab=int(value.get("active_tab", 0)),
         tabs=[_parse_tab(item) for item in value.get("tabs", [])],
         dead=bool(value.get("dead", False)),
+        focused_at=int(value.get("focused_at", 0)),
     )
 
 

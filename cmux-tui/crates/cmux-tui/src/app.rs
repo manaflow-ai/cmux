@@ -16,9 +16,9 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserSource, BrowserStatus, MuxEvent, PairingChallenge, PaneId, Rect, SplitDir, SplitEdge,
-    SplitId, SurfaceId, SurfaceKind, WorkspaceId, exact_split_for_pane_edge, layout_screen,
-    split_sides, zellij_default_pane_layout,
+    BrowserSource, BrowserStatus, Direction, MuxEvent, PairingChallenge, PaneId, Rect, SplitDir,
+    SplitEdge, SplitId, SurfaceId, SurfaceKind, WorkspaceId, exact_split_for_pane_edge,
+    layout_screen, split_sides, zellij_default_pane_layout,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -2423,6 +2423,60 @@ struct DeferredInput {
     sidebar_focus_intent: bool,
 }
 
+#[derive(Default)]
+struct PaneFocusHistory {
+    next_sequence: u64,
+    recency: HashMap<PaneId, u64>,
+    baseline: HashMap<PaneId, u64>,
+    membership_revision: Option<u64>,
+    membership_initialized: bool,
+}
+
+impl PaneFocusHistory {
+    fn record(&mut self, pane: PaneId) {
+        self.next_sequence = self.next_sequence.saturating_add(1);
+        self.recency.insert(pane, self.next_sequence);
+    }
+
+    fn recency(&self, pane: PaneId) -> (bool, u64) {
+        self.recency
+            .get(&pane)
+            .copied()
+            .map(|sequence| (true, sequence))
+            .unwrap_or_else(|| (false, self.baseline.get(&pane).copied().unwrap_or_default()))
+    }
+
+    fn reconcile_membership(&mut self, tree: &TreeView) {
+        let live = tree
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .map(|pane| pane.id)
+            .collect::<HashSet<_>>();
+        self.recency.retain(|pane, _| live.contains(pane));
+        self.baseline.retain(|pane, _| live.contains(pane));
+        for pane in tree
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+        {
+            self.baseline.entry(pane.id).or_insert(pane.focused_at);
+        }
+        self.membership_revision = tree.pane_revision;
+        self.membership_initialized = true;
+    }
+
+    fn sync_membership(&mut self, tree: &TreeView) {
+        if !self.membership_initialized
+            || tree.pane_revision.is_some() && self.membership_revision != tree.pane_revision
+        {
+            self.reconcile_membership(tree);
+        }
+    }
+}
+
 pub struct App {
     pub session: OrderedSession,
     pub config: Config,
@@ -2434,6 +2488,7 @@ pub struct App {
     pub graphics_supported: bool,
     stdout_lock: Arc<Mutex<()>>,
     pub pane_areas: Vec<PaneArea>,
+    pane_focus_history: PaneFocusHistory,
     /// Terminal cells actually represented by the last rendered snapshot.
     /// Foreign-viewer padding outside these bounds is display-only.
     pub(crate) rendered_terminal_bounds: HashMap<SurfaceId, Rect>,
@@ -2772,6 +2827,7 @@ pub fn run(
         graphics_supported,
         stdout_lock: stdout_lock.clone(),
         pane_areas: Vec::new(),
+        pane_focus_history: PaneFocusHistory::default(),
         rendered_terminal_bounds: HashMap::new(),
         visible_size_surfaces: HashSet::new(),
         pending_size_releases: HashSet::new(),
@@ -3050,11 +3106,12 @@ impl App {
         let Some(workspace) = self.tree.workspaces.get_mut(workspace_index) else { return };
         workspace.active_screen = screen_index;
         let Some(screen) = workspace.screens.get_mut(screen_index) else { return };
-        let Some(pane) = screen.panes.get(pane_index) else { return };
-        screen.active_pane = pane.id;
+        let Some(pane_id) = screen.panes.get(pane_index).map(|pane| pane.id) else { return };
+        screen.active_pane = pane_id;
         if let Some(pane) = screen.panes.get_mut(pane_index) {
             pane.active_tab = tab_index;
         }
+        self.pane_focus_history.record(pane_id);
     }
 
     fn apply_session_cancellation(&mut self) {
@@ -3148,6 +3205,7 @@ impl App {
     }
 
     fn replace_tree(&mut self, mut tree: TreeView) {
+        let previous_active = self.active_pane();
         if self.session.remote {
             preserve_client_view(&self.tree, &mut tree);
         }
@@ -3174,12 +3232,23 @@ impl App {
         for surface in removed_browsers {
             self.browser_input.forget_surface(surface);
         }
+        self.pane_focus_history.sync_membership(&tree);
         self.tree = tree;
+        if self.active_pane() != previous_active
+            && let Some(active) = self.active_pane()
+        {
+            self.pane_focus_history.record(active);
+        }
         self.rebuild_tab_locations();
         self.reapply_mux_titles();
     }
 
     fn replace_authoritative_tree(&mut self, tree: TreeView, routing_generation: u64) {
+        if tree.pane_revision.is_none() {
+            self.pane_focus_history.reconcile_membership(&tree);
+        } else {
+            self.pane_focus_history.sync_membership(&tree);
+        }
         let live_surfaces = tree
             .workspaces
             .iter()
@@ -5055,10 +5124,10 @@ impl App {
             }
             Action::ToggleSidebarView => self.toggle_sidebar_view(),
             Action::FocusSidebar => self.toggle_sidebar_focus(),
-            Action::FocusLeft => self.move_focus(-1, 0),
-            Action::FocusRight => self.move_focus(1, 0),
-            Action::FocusUp => self.move_focus(0, -1),
-            Action::FocusDown => self.move_focus(0, 1),
+            Action::FocusLeft => self.move_focus(Direction::Left),
+            Action::FocusRight => self.move_focus(Direction::Right),
+            Action::FocusUp => self.move_focus(Direction::Up),
+            Action::FocusDown => self.move_focus(Direction::Down),
             Action::FocusNextPane => self.focus_next_pane(),
             Action::SwapPanePrev => self.swap_pane_by_order(-1),
             Action::SwapPaneNext => self.swap_pane_by_order(1),
@@ -5367,14 +5436,25 @@ impl App {
         Ok(())
     }
 
-    fn move_focus(&mut self, dx: i32, dy: i32) {
-        let Some(active) = self.active_pane() else { return };
-        // Re-derive the layout geometry from the frame's pane areas.
+    fn move_focus(&mut self, direction: Direction) {
+        let Some(screen) = self.tree.active_screen() else { return };
+        if screen.zoomed_pane.is_some() {
+            return;
+        }
+        let active = screen.active_pane;
+        let (dx, dy) = match direction {
+            Direction::Left => (-1, 0),
+            Direction::Right => (1, 0),
+            Direction::Up => (0, -1),
+            Direction::Down => (0, 1),
+        };
         let layout = cmux_tui_core::LayoutResult {
-            panes: self.pane_areas.iter().map(|a| (a.pane, a.rect)).collect(),
+            panes: self.pane_areas.iter().map(|area| (area.pane, area.rect)).collect(),
             ..Default::default()
         };
-        if let Some(next) = layout.neighbor(active, dx, dy) {
+        if let Some(next) =
+            layout.neighbor_by_recency(active, dx, dy, |pane| self.pane_focus_history.recency(pane))
+        {
             self.focus_pane_after_input(next);
         }
     }
@@ -6386,14 +6466,20 @@ impl App {
 
     fn focus_pane_after_input(&mut self, pane: PaneId) {
         if self.prepare_pty_input_before_mutation() {
-            if self.session.remote
+            let focused = if self.session.remote
                 && let Some(screen) = self.tree.active_workspace_mut_screen()
                 && screen.panes.iter().any(|candidate| candidate.id == pane)
             {
                 screen.active_pane = pane;
-            }
-            if !self.session.remote {
+                true
+            } else if !self.session.remote {
                 self.session.focus_pane(pane);
+                true
+            } else {
+                false
+            };
+            if focused {
+                self.pane_focus_history.record(pane);
             }
         }
     }
@@ -6424,17 +6510,23 @@ impl App {
     }
 
     fn select_screen_for_client(&mut self, index: Option<usize>, delta: Option<isize>) {
+        let mut selected = false;
         if self.session.remote
             && let Some(workspace) = self.tree.active_workspace_mut()
             && !workspace.screens.is_empty()
         {
             if let Some(index) = index.filter(|index| *index < workspace.screens.len()) {
                 workspace.active_screen = index;
+                selected = true;
             } else if let Some(delta) = delta {
                 workspace.active_screen = ((workspace.active_screen as isize + delta)
                     .rem_euclid(workspace.screens.len() as isize))
                     as usize;
+                selected = true;
             }
+        }
+        if selected && let Some(active) = self.active_pane() {
+            self.pane_focus_history.record(active);
         }
         if !self.session.remote {
             self.session.select_screen(index, delta);
@@ -6442,14 +6534,20 @@ impl App {
     }
 
     fn select_workspace_for_client(&mut self, index: Option<usize>, delta: Option<isize>) {
+        let mut selected = false;
         if self.session.remote && !self.tree.workspaces.is_empty() {
             if let Some(index) = index.filter(|index| *index < self.tree.workspaces.len()) {
                 self.tree.active_workspace = index;
+                selected = true;
             } else if let Some(delta) = delta {
                 self.tree.active_workspace = ((self.tree.active_workspace as isize + delta)
                     .rem_euclid(self.tree.workspaces.len() as isize))
                     as usize;
+                selected = true;
             }
+        }
+        if selected && let Some(active) = self.active_pane() {
+            self.pane_focus_history.record(active);
         }
         if !self.session.remote {
             self.session.select_workspace(index, delta);
@@ -7535,7 +7633,7 @@ mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag,
         ForwardMuxOutcome, MenuAction, MenuItem, MuxTitleIngress, OrderedSession, PaneArea,
-        PendingSessionMutation, PendingSessionMutationState, PtyFailureIngress,
+        PaneFocusHistory, PendingSessionMutation, PendingSessionMutationState, PtyFailureIngress,
         PtyMousePressResult, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
         SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
         SurfaceResizeOwnership, browser_content_size_for_rect, browser_hover_forward_allowed,
@@ -7551,8 +7649,8 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use cmux_tui_core::{
-        BrowserStatus, Mux, MuxEvent, Node, Rect, SplitDir, SurfaceId, SurfaceKind, SurfaceOptions,
-        layout_screen,
+        BrowserStatus, Direction, Mux, MuxEvent, Node, Rect, SplitDir, SurfaceId, SurfaceKind,
+        SurfaceOptions, layout_screen,
     };
     use crossterm::event::{
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -7601,6 +7699,178 @@ mod tests {
                 MenuItem::Action(MenuAction::CopyPaneId(pane)),
             ]
         );
+    }
+
+    #[test]
+    fn pane_focus_history_overlays_authoritative_recency() {
+        let mut history = PaneFocusHistory::default();
+        let mut tree = notify_tree(1, false);
+        tree.workspaces[0].screens[0].panes[0].focused_at = 8;
+        history.reconcile_membership(&tree);
+
+        assert_eq!(history.recency(2), (false, 8));
+        history.record(2);
+        assert_eq!(history.recency(2), (true, 1));
+        assert_eq!(history.recency(99), (false, 0));
+    }
+
+    #[test]
+    fn pane_focus_history_prunes_closed_panes() {
+        let mut history = PaneFocusHistory::default();
+        history.record(2);
+        history.record(99);
+
+        history.reconcile_membership(&notify_tree(1, false));
+
+        assert_eq!(history.recency(2), (true, 1));
+        assert_eq!(history.recency(99), (false, 0));
+    }
+
+    #[test]
+    fn pane_focus_history_freezes_remote_baseline_until_membership_changes() {
+        let mut history = PaneFocusHistory::default();
+        let mut initial = notify_tree(1, false);
+        initial.workspaces[0].screens[0].panes[0].focused_at = 8;
+        history.reconcile_membership(&initial);
+
+        let mut peer_refresh = initial.clone();
+        peer_refresh.workspaces[0].screens[0].panes[0].focused_at = 99;
+        history.sync_membership(&peer_refresh);
+
+        assert_eq!(history.recency(2), (false, 8));
+    }
+
+    #[test]
+    fn pane_focus_history_reconciles_exact_same_size_membership_changes() {
+        let mut history = PaneFocusHistory::default();
+        history.record(2);
+        history.reconcile_membership(&notify_tree(1, false));
+
+        let mut replacement = notify_tree(2, false);
+        let screen = &mut replacement.workspaces[0].screens[0];
+        screen.active_pane = 99;
+        screen.layout = Node::Leaf(99);
+        screen.panes[0].id = 99;
+        screen.panes[0].focused_at = 5;
+        replacement.pane_revision = Some(2);
+        history.sync_membership(&replacement);
+
+        assert_eq!(history.recency(2), (false, 0));
+        assert_eq!(history.recency(99), (false, 5));
+    }
+
+    #[test]
+    fn directional_focus_uses_client_history_and_visible_geometry() {
+        let mux = Mux::new("directional-focus-memory-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        let left = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(left, SplitDir::Right, Some((40, 30))).unwrap();
+        let top_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(top_right, SplitDir::Down, Some((40, 15))).unwrap();
+        let bottom_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        assert!(mux.focus_pane(left));
+
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 31));
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            app.handle(event).unwrap();
+        }
+        app.session.remote = true;
+
+        app.move_focus(Direction::Right);
+        assert_eq!(app.active_pane(), Some(bottom_right));
+        app.move_focus(Direction::Left);
+        assert_eq!(app.active_pane(), Some(left));
+        app.focus_pane_after_input(top_right);
+        app.move_focus(Direction::Left);
+        app.move_focus(Direction::Right);
+        assert_eq!(app.active_pane(), Some(top_right));
+
+        app.tree.active_workspace_mut_screen().unwrap().zoomed_pane = Some(top_right);
+        app.move_focus(Direction::Left);
+        assert_eq!(app.active_pane(), Some(top_right));
+
+        app.tree.active_workspace_mut_screen().unwrap().zoomed_pane = None;
+        app.focus_pane_after_input(left);
+        app.pane_areas.iter_mut().find(|area| area.pane == top_right).unwrap().content.height = 0;
+        app.move_focus(Direction::Right);
+        assert_eq!(app.active_pane(), Some(top_right));
+
+        app.focus_pane_after_input(left);
+        app.pane_areas.iter_mut().find(|area| area.pane == top_right).unwrap().rect.height = 0;
+        app.move_focus(Direction::Right);
+        assert_eq!(app.active_pane(), Some(bottom_right));
+        assert_eq!(Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane, left);
+        assert!(!app.session.has_pending_mutations());
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface);
+        }
+    }
+
+    #[test]
+    fn remote_screen_switch_records_the_new_active_pane() {
+        let mux = Mux::new("remote-screen-focus-memory-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        let workspace = Session::Local(mux.clone()).tree().active_workspace().unwrap().id;
+        mux.new_screen(Some(workspace), Some((80, 30))).unwrap();
+        let left = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(left, SplitDir::Right, Some((40, 30))).unwrap();
+        let top_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(top_right, SplitDir::Down, Some((40, 15))).unwrap();
+        let bottom_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.select_screen(Some(0), None);
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.session.remote = true;
+        app.select_screen_for_client(Some(1), None);
+        app.sync_layout((80, 31));
+
+        app.move_focus(Direction::Left);
+        assert_eq!(app.active_pane(), Some(left));
+        app.move_focus(Direction::Right);
+        assert_eq!(app.active_pane(), Some(bottom_right));
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface);
+        }
+    }
+
+    #[test]
+    fn remote_workspace_switch_records_the_new_active_pane() {
+        let mux = Mux::new("remote-workspace-focus-memory-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        let left = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(left, SplitDir::Right, Some((40, 30))).unwrap();
+        let top_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(top_right, SplitDir::Down, Some((40, 15))).unwrap();
+        let bottom_right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.select_workspace(Some(0), None);
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.session.remote = true;
+        app.select_workspace_for_client(Some(1), None);
+        app.sync_layout((80, 31));
+
+        app.move_focus(Direction::Left);
+        assert_eq!(app.active_pane(), Some(left));
+        app.move_focus(Direction::Right);
+        assert_eq!(app.active_pane(), Some(bottom_right));
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface);
+        }
     }
 
     #[test]
@@ -10969,6 +11239,7 @@ mod tests {
         }
         TreeView {
             workspace_revision: 0,
+            pane_revision: Some(1),
             active_workspace: 0,
             workspaces: vec![WorkspaceView {
                 id: 4,
@@ -10989,6 +11260,7 @@ mod tests {
                         name: None,
                         tabs,
                         active_tab: usize::from(active_surface != created_surface),
+                        focused_at: 0,
                     }],
                 }],
             }],
@@ -11104,6 +11376,7 @@ mod tests {
             graphics_supported: false,
             stdout_lock: Arc::new(Mutex::new(())),
             pane_areas: Vec::new(),
+            pane_focus_history: PaneFocusHistory::default(),
             rendered_terminal_bounds: HashMap::new(),
             visible_size_surfaces: HashSet::new(),
             pending_size_releases: HashSet::new(),
@@ -11165,6 +11438,7 @@ mod tests {
     fn notify_tree(surface: u64, unread: bool) -> TreeView {
         TreeView {
             workspace_revision: 0,
+            pane_revision: Some(1),
             active_workspace: 0,
             workspaces: vec![WorkspaceView {
                 id: 4,
@@ -11184,6 +11458,7 @@ mod tests {
                         short_id: "000002".to_string(),
                         name: None,
                         active_tab: 0,
+                        focused_at: 0,
                         tabs: vec![TabView {
                             surface,
                             short_id: "000001".to_string(),

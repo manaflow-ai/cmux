@@ -168,10 +168,14 @@ extension MobileHostIrohRuntime {
                     }
                     continue
                 }
-                guard state.accountID != nil
-                        || previousAccountID != nil
-                        || self.activeAccountID != nil
-                        || self.runtime != nil else { continue }
+                guard Self.shouldReconcileAuthObservation(
+                    accountID: state.accountID,
+                    previousAccountID: previousAccountID,
+                    activeAccountID: self.activeAccountID,
+                    hasRuntime: self.runtime != nil,
+                    transitionInFlight: self.transitionTask != nil,
+                    preparedSignOutNeedsPersistence: self.preparedSignOut?.wasPersisted == false
+                ) else { continue }
                 self.scheduleReconcile(
                     eraseAccountState: (state.accountID == nil
                         && (previousAccountID != nil
@@ -185,6 +189,27 @@ extension MobileHostIrohRuntime {
                 )
             }
         }
+    }
+
+    static func shouldReconcileAuthObservation(
+        accountID: String?,
+        previousAccountID: String?,
+        activeAccountID: String?,
+        hasRuntime: Bool,
+        transitionInFlight: Bool,
+        preparedSignOutNeedsPersistence: Bool
+    ) -> Bool {
+        let hasRelevantState = accountID != nil
+            || previousAccountID != nil
+            || activeAccountID != nil
+            || hasRuntime
+        guard hasRelevantState else { return false }
+        if preparedSignOutNeedsPersistence { return true }
+        if accountID != previousAccountID { return true }
+        if let activeAccountID, activeAccountID != accountID { return true }
+        guard let accountID else { return hasRuntime }
+        guard !transitionInFlight else { return false }
+        return activeAccountID != accountID || !hasRuntime
     }
 
     private func releaseSignOutIntentAfterPreparation() {

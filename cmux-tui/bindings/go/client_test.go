@@ -34,11 +34,18 @@ func TestResizeResponsePreservesReservationIdentity(t *testing.T) {
 
 func TestWorkspaceRegistryTypesDecode(t *testing.T) {
 	var tree Tree
-	if err := json.Unmarshal([]byte(`{"workspace_revision":4,"workspaces":[{"id":1,"key":"stable","name":"one","active":true,"screens":[]}]}`), &tree); err != nil {
+	if err := json.Unmarshal([]byte(`{"workspace_revision":4,"pane_revision":7,"workspaces":[{"id":1,"key":"stable","name":"one","active":true,"screens":[]}]}`), &tree); err != nil {
 		t.Fatal(err)
 	}
-	if tree.WorkspaceRevision != 4 || tree.Workspaces[0].Key != "stable" {
+	if tree.WorkspaceRevision != 4 || tree.PaneRevision == nil || *tree.PaneRevision != 7 || tree.Workspaces[0].Key != "stable" {
 		t.Fatalf("tree = %#v", tree)
+	}
+	var legacyTree Tree
+	if err := json.Unmarshal([]byte(`{"workspaces":[]}`), &legacyTree); err != nil {
+		t.Fatal(err)
+	}
+	if legacyTree.PaneRevision != nil {
+		t.Fatalf("legacy pane revision = %v, want nil", legacyTree.PaneRevision)
 	}
 
 	var placement WorkspacePlacement

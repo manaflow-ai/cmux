@@ -395,6 +395,8 @@ pub struct Pane {
     pub tabs: Vec<SurfaceId>,
     pub active_tab: usize,
     pub active_at: u64,
+    /// Monotonic sequence updated only when this pane receives focus.
+    pub focused_at: u64,
 }
 
 impl Pane {
@@ -445,6 +447,10 @@ pub struct State {
     /// Monotonic version of the ordered workspace registry. Pane, screen, and
     /// tab-only mutations do not advance this counter.
     pub workspace_revision: u64,
+    /// Monotonic version of the live pane-ID set. Focus, layout, tab, screen,
+    /// and workspace selection changes do not advance this counter.
+    pub pane_revision: u64,
+    pub(crate) focus_sequence: u64,
     pub active_workspace: usize,
     pub panes: HashMap<PaneId, Pane>,
     pub surfaces: HashMap<SurfaceId, Arc<Surface>>,
@@ -452,6 +458,28 @@ pub struct State {
 }
 
 impl State {
+    pub(crate) fn next_focus_sequence(&mut self) -> u64 {
+        self.focus_sequence = self.focus_sequence.saturating_add(1);
+        self.focus_sequence
+    }
+
+    pub(crate) fn insert_pane(&mut self, pane: Pane) {
+        let id = pane.id;
+        let replaced = self.panes.insert(id, pane);
+        debug_assert!(replaced.is_none(), "pane {id} was inserted twice");
+        if replaced.is_none() {
+            self.pane_revision = self.pane_revision.saturating_add(1);
+        }
+    }
+
+    pub(crate) fn remove_pane(&mut self, pane: PaneId) -> Option<Pane> {
+        let removed = self.panes.remove(&pane);
+        if removed.is_some() {
+            self.pane_revision = self.pane_revision.saturating_add(1);
+        }
+        removed
+    }
+
     pub(crate) fn push_workspace(&mut self, workspace: Workspace) {
         let index = self.workspaces.len();
         debug_assert!(!self.workspace_index_by_id.contains_key(&workspace.id));

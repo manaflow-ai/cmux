@@ -9,8 +9,12 @@ import type {
   RenderAttachEvent,
   RenderDeltaEvent,
   RenderStateEvent,
+  Tree,
   TreeDeltaEvent,
 } from "../src/browser.js";
+
+const treeWithPaneRevision: Tree = { pane_revision: 7, workspaces: [] };
+void treeWithPaneRevision;
 
 const requests = [
   { cmd: "identify" },

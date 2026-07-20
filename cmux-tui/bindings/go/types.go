@@ -52,6 +52,7 @@ func (r *ResizeSurfaceResult) UnmarshalJSON(data []byte) error {
 
 type Tree struct {
 	WorkspaceRevision uint64      `json:"workspace_revision"`
+	PaneRevision      *uint64     `json:"pane_revision"`
 	Workspaces        []Workspace `json:"workspaces"`
 }
 
@@ -76,6 +77,7 @@ type Pane struct {
 	ID        uint64  `json:"id"`
 	Name      *string `json:"name"`
 	ActiveTab uint    `json:"active_tab"`
+	FocusedAt uint64  `json:"focused_at,omitempty"`
 	Tabs      []Tab   `json:"tabs"`
 	Dead      bool    `json:"dead"`
 }
