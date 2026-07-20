@@ -65,6 +65,32 @@ final class cmuxUITests: XCTestCase {
 
         let agentsScene = element("MobileOnboardingAgentsScene")
         XCTAssertTrue(agentsScene.waitForExistence(timeout: 8))
+        let header = element("MobileOnboardingHeader")
+        let progress = element("MobileOnboardingProgressIndicator")
+        let footer = element("MobileOnboardingFooter")
+        let pageViewport = element("MobileOnboardingPageViewport")
+        XCTAssertTrue(header.waitForExistence(timeout: 4))
+        XCTAssertTrue(progress.waitForExistence(timeout: 4))
+        XCTAssertTrue(footer.waitForExistence(timeout: 4))
+        XCTAssertTrue(pageViewport.waitForExistence(timeout: 4))
+
+        let initialHeaderFrame = header.frame
+        let initialProgressFrame = progress.frame
+        let initialFooterFrame = footer.frame
+
+        func assertStableChrome(includeFooter: Bool = true) {
+            XCTAssertEqual(header.frame.minX, initialHeaderFrame.minX, accuracy: 0.5)
+            XCTAssertEqual(header.frame.minY, initialHeaderFrame.minY, accuracy: 0.5)
+            XCTAssertEqual(header.frame.width, initialHeaderFrame.width, accuracy: 0.5)
+            XCTAssertEqual(header.frame.height, initialHeaderFrame.height, accuracy: 0.5)
+            XCTAssertEqual(progress.frame.midX, initialProgressFrame.midX, accuracy: 0.5)
+            XCTAssertEqual(progress.frame.midY, initialProgressFrame.midY, accuracy: 0.5)
+            if includeFooter {
+                XCTAssertEqual(footer.frame.minY, initialFooterFrame.minY, accuracy: 0.5)
+                XCTAssertEqual(footer.frame.maxY, initialFooterFrame.maxY, accuracy: 0.5)
+            }
+        }
+
         capture("onboarding-01-agents")
 
         let primaryButton = app.buttons["MobileOnboardingPrimaryButton"]
@@ -82,7 +108,19 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.buttons["MobileOnboardingBackButton"].exists)
         XCTAssertTrue(app.buttons["MobileOnboardingSkipButton"].exists)
         XCTAssertTrue(primaryButton.exists)
+        assertStableChrome()
         capture("onboarding-02-reserved")
+
+        let backButton = app.buttons["MobileOnboardingBackButton"]
+        backButton.tap()
+        XCTAssertTrue(agentsScene.waitForExistence(timeout: 4))
+        XCTAssertTrue(reservedScene.waitForNonExistence(timeout: 2))
+        assertStableChrome()
+
+        primaryButton.tap()
+        XCTAssertTrue(reservedScene.waitForExistence(timeout: 4))
+        XCTAssertTrue(agentsScene.waitForNonExistence(timeout: 2))
+        assertStableChrome()
 
         primaryButton.tap()
 
@@ -96,6 +134,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Looking for your Mac…"].exists)
         XCTAssertFalse(app.buttons["Scan Mac QR"].exists)
         XCTAssertFalse(app.buttons["Use QR Code Instead"].exists)
+        assertStableChrome(includeFooter: false)
         capture("onboarding-03-connect")
 
         // Drop only the launch-domain override. The application-domain value
