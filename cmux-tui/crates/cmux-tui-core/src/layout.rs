@@ -103,7 +103,7 @@ pub fn directional_neighbor_by_recency<R: Ord>(
         .filter_map(|(order, (id, rect))| {
             direction
                 .score(cur, rect)
-                .filter(|score| score.distance == 0)
+                .filter(|score| score.distance == 0 && score.overlap > 0)
                 .map(|_| (recency(id), order, id))
         })
         .max_by(|(a_recency, a_order, _), (b_recency, b_order, _)| {
@@ -818,6 +818,14 @@ mod tests {
         let panes = vec![(1, r(10, 0, 10, 10)), (2, r(0, 0, 5, 10))];
 
         assert_eq!(directional_neighbor_by_recency(&panes, 1, -1, 0, |_| 1), None);
+    }
+
+    #[test]
+    fn directional_focus_by_recency_excludes_zero_overlap_at_shared_axis() {
+        let panes = vec![(1, r(0, 0, 40, 10)), (2, r(40, 0, 40, 10)), (3, r(40, 10, 40, 20))];
+        let recency = |pane| if pane == 3 { 9 } else { 4 };
+
+        assert_eq!(directional_neighbor_by_recency(&panes, 1, 1, 0, recency), Some(2));
     }
 
     #[test]
