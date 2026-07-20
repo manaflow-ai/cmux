@@ -472,3 +472,14 @@ final class RemoteTmuxViewConnection {
 
     private func quoted(_ v: String) -> String { RemoteTmuxHost.shellSingleQuoted(v) }
 }
+
+extension Duration {
+    /// Seconds as a `Double`, for the timeout parameters that predate `Duration`
+    /// (``RemoteTmuxViewConnection/awaitCommandBarrier(timeout:)``,
+    /// ``RemoteTmuxControlConnection/queryWithTimeout(_:timeout:reconnectOnTimeout:)``).
+    /// Keeps a caller's deadline intact instead of re-hardcoding one at the boundary.
+    var asSeconds: Double {
+        let (seconds, attoseconds) = components
+        return Double(seconds) + Double(attoseconds) / 1e18
+    }
+}
