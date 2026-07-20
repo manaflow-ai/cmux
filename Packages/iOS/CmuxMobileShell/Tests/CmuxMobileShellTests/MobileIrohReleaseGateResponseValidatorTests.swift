@@ -97,6 +97,31 @@ struct MobileIrohReleaseGateResponseValidatorTests {
     }
 
     @Test
+    func artifactContinuityAcceptsTheCanonicalMacOSTemporaryDirectoryAlias() throws {
+        let scan = try ChatWireCoding().encode(TerminalArtifactScanResponse(artifacts: [
+            TerminalArtifactReference(
+                path: "/private/tmp/cmux-iroh-gate-test.bin",
+                kind: .binary,
+                displayName: "cmux-iroh-gate-test.bin",
+                size: 12
+            ),
+        ]))
+
+        #expect(MobileIrohReleaseGateResponseValidator.artifactPath(
+            scan,
+            expectedPath: "/tmp/cmux-iroh-gate-test.bin"
+        ))
+        #expect(!MobileIrohReleaseGateResponseValidator.artifactPath(
+            scan,
+            expectedPath: "/tmp/cmux-iroh-gate-other.bin"
+        ))
+        #expect(!MobileIrohReleaseGateResponseValidator.artifactPath(
+            scan,
+            expectedPath: "/var/tmp/cmux-iroh-gate-test.bin"
+        ))
+    }
+
+    @Test
     func notificationReconcileRejectsNegativeUnreadCount() throws {
         let valid = try JSONSerialization.data(withJSONObject: [
             "handled_ids": [],
