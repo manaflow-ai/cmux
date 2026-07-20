@@ -207,6 +207,103 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
         )
     }
 
+    func testWorkspaceRowEdgeDragReachesBothEndsWithoutPrematureJump() {
+        let app = XCUIApplication()
+        let token = UUID().uuidString
+        let socketPath = "/tmp/cmux-ui-sidebar-edge-drag-\(token).sock"
+        defer {
+            app.terminate()
+            try? FileManager.default.removeItem(atPath: socketPath)
+        }
+
+        configureLaunch(app)
+        app.launchArguments += ["-socketControlMode", "allowAll", "-NSAppSleepDisabled", "YES"]
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_TAG"] = "ui-sidebar-edge-\(token.prefix(8))"
+
+        launchAndEnsureRunning(app)
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0), "Expected a main window")
+        XCTAssertTrue(
+            pollUntil(timeout: 10.0) { self.sendSocketLine("ping", to: socketPath) == "PONG" },
+            "Expected the isolated control socket to become ready"
+        )
+
+        let workspaceCount = 64
+        for index in 2...workspaceCount {
+            let reply = sendSocketLine("new_workspace sidebar-edge-\(index)", to: socketPath)
+            XCTAssertTrue(
+                reply?.hasPrefix("OK ") == true,
+                "Expected workspace \(index) creation to succeed; reply=\(reply ?? "nil")"
+            )
+        }
+        XCTAssertTrue(
+            pollUntil(timeout: 12.0) {
+                self.workspaceIDs(from: self.sendSocketLine("list_workspaces", to: socketPath)).count == workspaceCount
+            },
+            "Expected \(workspaceCount) workspaces"
+        )
+
+        app.activate()
+        let sidebar = app.descendants(matching: .any)["Sidebar"].firstMatch
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 5.0), "Expected the workspace sidebar to exist")
+        let table = sidebar.descendants(matching: .table).firstMatch
+        XCTAssertTrue(table.waitForExistence(timeout: 5.0), "Expected the sidebar workspace table to exist")
+        XCTAssertGreaterThan(table.frame.height, 120, "Expected a usable sidebar table viewport")
+
+        app.typeKey("1", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForWorkspaceRowHittable(index: 1, count: workspaceCount, app: app, timeout: 8.0),
+            "Expected the sidebar to start at the first workspace"
+        )
+
+        let middleSource = workspaceRow(index: 2, count: workspaceCount, app: app)
+        XCTAssertTrue(middleSource.isHittable, "Expected a visible row for the non-edge drag")
+        middleSource.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click(
+            forDuration: 0.25,
+            thenDragTo: table.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)),
+            withVelocity: .slow,
+            thenHoldForDuration: 0.75
+        )
+        XCTAssertTrue(
+            waitForWorkspaceRowHittable(index: 1, count: workspaceCount, app: app, timeout: 4.0),
+            "A drag toward the viewport middle must not jump the sidebar away from the top"
+        )
+        XCTAssertFalse(
+            workspaceRow(index: workspaceCount, count: workspaceCount, app: app).isHittable,
+            "A non-edge drag must not jump prematurely to the last workspace"
+        )
+
+        let downwardSource = workspaceRow(index: 2, count: workspaceCount, app: app)
+        XCTAssertTrue(downwardSource.isHittable, "Expected a visible row for downward edge drag")
+        downwardSource.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click(
+            forDuration: 0.25,
+            thenDragTo: table.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.995)),
+            withVelocity: .fast,
+            thenHoldForDuration: 5.0
+        )
+        XCTAssertTrue(
+            waitForWorkspaceRowHittable(index: workspaceCount, count: workspaceCount, app: app, timeout: 8.0),
+            "Holding a row at the bottom edge must reach the final workspace"
+        )
+
+        let upwardSource = workspaceRow(index: workspaceCount, count: workspaceCount, app: app)
+        XCTAssertTrue(upwardSource.isHittable, "Expected a visible row for upward edge drag")
+        upwardSource.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click(
+            forDuration: 0.25,
+            thenDragTo: table.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.005)),
+            withVelocity: .fast,
+            thenHoldForDuration: 5.0
+        )
+        XCTAssertTrue(
+            waitForWorkspaceRowHittable(index: 1, count: workspaceCount, app: app, timeout: 8.0),
+            "Holding a row at the top edge must reach the first workspace"
+        )
+    }
+
     private func configureLaunch(_ app: XCUIApplication) {
         app.launchArguments += ["-newWorkspacePlacement", "end"]
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
