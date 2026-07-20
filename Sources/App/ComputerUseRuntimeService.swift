@@ -16,14 +16,16 @@ final class ComputerUseRuntimeService {
     let applicationName: String
 
     private let bundledHelperAppURL: URL?
+    private let helperBundleIdentifier: String?
     private let transport: SocketTransport
     private var installedHelperURL: URL?
     private var installationTask: Task<URL?, Never>?
     private var cachedStatus = ComputerUsePermissionStatus.missing
-    private var runningHelperApplication: NSRunningApplication?
     private var helperTerminationTask: Task<Void, Never>?
-    private var monitoredHelperProcessIdentifier: pid_t?
-    private lazy var helperSupervisor = ComputerUseHelperSupervisor { [weak self] in
+    private lazy var helperSupervisor = ComputerUseHelperSupervisor(
+        helperAppURL: paths.installedHelperAppURL,
+        helperBundleIdentifier: helperBundleIdentifier
+    ) { [weak self] in
         guard let self else { return }
         await self.startIfNeeded()
     }
@@ -39,9 +41,11 @@ final class ComputerUseRuntimeService {
             .appendingPathComponent("Contents/Library/\(Self.helperAppName).app", isDirectory: true)
         if FileManager.default.fileExists(atPath: nestedURL.path) {
             bundledHelperAppURL = nestedURL
+            helperBundleIdentifier = Bundle(url: nestedURL)?.bundleIdentifier
             applicationName = Self.displayName(for: nestedURL)
         } else {
             bundledHelperAppURL = nil
+            helperBundleIdentifier = nil
             applicationName = Self.helperAppName
         }
     }
@@ -152,9 +156,10 @@ final class ComputerUseRuntimeService {
 
     private func startIfNeeded() async {
         guard let helperURL = await ensureStandaloneHelperInstalled() else { return }
+        beginHelperMonitoring()
         if await Self.isDaemonListening(paths: paths, transport: transport) {
             if let application = Self.runningHelperApplication(at: helperURL) {
-                await monitorHelper(application)
+                recordHelperApplication(application)
                 return
             }
 
@@ -179,6 +184,7 @@ final class ComputerUseRuntimeService {
     }
 
     private func launchHelper(at helperURL: URL) async {
+        beginHelperMonitoring()
         let launch = ComputerUseHelperLaunchConfiguration(paths: paths)
         try? FileManager.default.createDirectory(
             at: paths.runtimeDirectoryURL,
@@ -203,15 +209,18 @@ final class ComputerUseRuntimeService {
             }
         }
         guard let application else { return }
-        await monitorHelper(application)
+        recordHelperApplication(application)
+        if application.isTerminated {
+            await helperSupervisor.helperDidTerminate(
+                bundleURL: application.bundleURL,
+                bundleIdentifier: application.bundleIdentifier,
+                processIdentifier: application.processIdentifier
+            )
+        }
     }
 
-    private func monitorHelper(_ application: NSRunningApplication) async {
-        cancelHelperMonitoring()
-        let processIdentifier = application.processIdentifier
-        runningHelperApplication = application
-        monitoredHelperProcessIdentifier = processIdentifier
-
+    private func beginHelperMonitoring() {
+        guard helperTerminationTask == nil else { return }
         let notifications = NSWorkspace.shared.notificationCenter.notifications(
             named: NSWorkspace.didTerminateApplicationNotification
         )
@@ -220,32 +229,31 @@ final class ComputerUseRuntimeService {
                 guard !Task.isCancelled else { return }
                 guard
                     let terminatedApplication = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
-                        as? NSRunningApplication,
-                    terminatedApplication.processIdentifier == processIdentifier
+                        as? NSRunningApplication
                 else {
                     continue
                 }
-                await self?.monitoredHelperDidTerminate(processIdentifier: processIdentifier)
-                return
+                guard let self else { return }
+                await helperSupervisor.helperDidTerminate(
+                    bundleURL: terminatedApplication.bundleURL,
+                    bundleIdentifier: terminatedApplication.bundleIdentifier,
+                    processIdentifier: terminatedApplication.processIdentifier
+                )
             }
-        }
-
-        if application.isTerminated {
-            await monitoredHelperDidTerminate(processIdentifier: processIdentifier)
         }
     }
 
-    private func monitoredHelperDidTerminate(processIdentifier: pid_t) async {
-        guard monitoredHelperProcessIdentifier == processIdentifier else { return }
-        cancelHelperMonitoring()
-        await helperSupervisor.helperDidTerminate()
+    private func recordHelperApplication(_ application: NSRunningApplication) {
+        helperSupervisor.helperDidLaunch(
+            bundleURL: application.bundleURL,
+            bundleIdentifier: application.bundleIdentifier,
+            processIdentifier: application.processIdentifier
+        )
     }
 
     private func cancelHelperMonitoring() {
         helperTerminationTask?.cancel()
         helperTerminationTask = nil
-        monitoredHelperProcessIdentifier = nil
-        runningHelperApplication = nil
     }
 
     private func openSystemSettings(_ deepLink: String) {

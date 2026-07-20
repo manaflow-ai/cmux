@@ -299,11 +299,18 @@ struct ComputerUseUXTests {
         )
         #expect(restartCount == 1)
 
+        await supervisor.helperDidTerminate(
+            bundleURL: URL(fileURLWithPath: "/Applications/CuaDriver.app"),
+            bundleIdentifier: "com.trycua.driver",
+            processIdentifier: 303
+        )
+        #expect(restartCount == 1, "another computer-use bundle must not enter the cmux restart path")
+
         supervisor.setEnabled(false)
         await supervisor.helperDidTerminate(
             bundleURL: helperURL,
             bundleIdentifier: "com.cmuxterm.app.debug.test.computer-use",
-            processIdentifier: 303
+            processIdentifier: 404
         )
         #expect(restartCount == 1, "an intentional disabled state must not self-relaunch")
     }
