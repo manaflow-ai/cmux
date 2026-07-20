@@ -229,46 +229,50 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.tabBars.buttons["Notifications"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayToday"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayYesterday"].exists)
-        XCTAssertTrue(app.staticTexts["Build Mac · Unavailable"].exists)
+        XCTAssertTrue(app.staticTexts["Build Mac"].exists)
 
         let approvalTitle = app.staticTexts["Codex needs approval"]
         let approvalWorkspace = app.staticTexts["cmux iOS"]
-        let approvalSubtitle = app.staticTexts["Notification feed"]
-        let approvalWorkspaceLabel = app.descendants(matching: .any)[
-            "MobileNotificationFeedWorkspaceLabel-studio-codex-approval"
+        let approvalBody = app.staticTexts[
+            "The feed is ready to open in the iOS app. Review the navigation and approve the final interaction pass."
         ]
-        let approvalContextLabel = app.descendants(matching: .any)[
-            "MobileNotificationFeedContextLabel-studio-codex-approval"
-        ]
-        let approvalDestinationLabel = app.descendants(matching: .any)[
-            "MobileNotificationFeedDestinationLabel-studio-codex-approval"
-        ]
+        let approvalRow = app.descendants(matching: .any)["MobileNotificationFeedRow-studio-codex-approval"]
         XCTAssertTrue(approvalTitle.waitForExistence(timeout: 3))
         XCTAssertTrue(approvalWorkspace.waitForExistence(timeout: 3))
-        XCTAssertTrue(approvalSubtitle.waitForExistence(timeout: 3))
-        XCTAssertTrue(approvalWorkspaceLabel.waitForExistence(timeout: 3))
-        XCTAssertTrue(approvalContextLabel.waitForExistence(timeout: 3))
-        XCTAssertTrue(approvalDestinationLabel.waitForExistence(timeout: 3))
+        XCTAssertTrue(approvalBody.waitForExistence(timeout: 3))
+        XCTAssertTrue(approvalRow.waitForExistence(timeout: 3))
+        let approvalComputer = approvalRow.staticTexts["Studio"]
+        XCTAssertTrue(approvalComputer.waitForExistence(timeout: 3))
+        XCTAssertFalse(app.staticTexts["Notification feed"].exists)
+        XCTAssertFalse(app.staticTexts["Context"].exists)
+        XCTAssertFalse(app.staticTexts["Opens in"].exists)
         XCTAssertLessThanOrEqual(approvalTitle.frame.maxY, approvalWorkspace.frame.minY)
         XCTAssertLessThanOrEqual(approvalWorkspace.frame.minY - approvalTitle.frame.maxY, 6)
-        XCTAssertEqual(approvalWorkspaceLabel.frame.midY, approvalWorkspace.frame.midY, accuracy: 1)
-        XCTAssertEqual(approvalContextLabel.frame.midY, approvalSubtitle.frame.midY, accuracy: 1)
-        XCTAssertLessThan(approvalWorkspace.frame.maxY, approvalSubtitle.frame.minY)
-        XCTAssertGreaterThanOrEqual(approvalWorkspace.frame.height, approvalSubtitle.frame.height)
+        XCTAssertEqual(approvalWorkspace.frame.midY, approvalComputer.frame.midY, accuracy: 2)
+        XCTAssertLessThanOrEqual(approvalWorkspace.frame.maxY, approvalBody.frame.minY)
+        XCTAssertGreaterThanOrEqual(approvalWorkspace.frame.height, approvalComputer.frame.height)
 
-        let approvalRow = app.descendants(matching: .any)["MobileNotificationFeedRow-studio-codex-approval"]
-        XCTAssertTrue(approvalRow.waitForExistence(timeout: 3))
         XCTAssertLessThanOrEqual(approvalRow.frame.height, 135)
         let approvalValue = try XCTUnwrap(approvalRow.value as? String)
         let workspaceRange = try XCTUnwrap(approvalValue.range(of: "cmux iOS"))
-        let subtitleRange = try XCTUnwrap(approvalValue.range(of: "Notification feed"))
         let bodyRange = try XCTUnwrap(approvalValue.range(of: "The feed is ready"))
+        let computerRange = try XCTUnwrap(approvalValue.range(of: "Studio"))
         XCTAssertTrue(approvalValue.contains("Workspace: cmux iOS"))
-        XCTAssertTrue(approvalValue.contains("Context: Notification feed"))
-        XCTAssertTrue(approvalValue.contains("Pane: Codex"))
         XCTAssertTrue(approvalValue.contains("Computer: Studio"))
-        XCTAssertLessThan(workspaceRange.lowerBound, subtitleRange.lowerBound)
+        XCTAssertFalse(approvalValue.contains("Context:"))
+        XCTAssertFalse(approvalValue.contains("Pane:"))
+        XCTAssertFalse(approvalValue.contains("Notification feed"))
         XCTAssertLessThan(workspaceRange.lowerBound, bodyRange.lowerBound)
+        XCTAssertLessThan(bodyRange.lowerBound, computerRange.lowerBound)
+
+        let unavailableRow = app.descendants(matching: .any)[
+            "MobileNotificationFeedRow-build-mac-input-needed"
+        ]
+        XCTAssertTrue(unavailableRow.waitForExistence(timeout: 3))
+        let unavailableValue = try XCTUnwrap(unavailableRow.value as? String)
+        XCTAssertTrue(unavailableValue.contains("Workspace: Cloud Builder"))
+        XCTAssertTrue(unavailableValue.contains("Computer: Build Mac · Unavailable"))
+        XCTAssertFalse(unavailableValue.contains("Pane:"))
 
         let unreadFilter = app.descendants(matching: .any)["MobileNotificationFeedFilterUnread"]
         XCTAssertTrue(unreadFilter.waitForExistence(timeout: 3))

@@ -2915,8 +2915,8 @@
     "mobile.notificationFeed.openHint": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Opens the workspace and terminal for this notification." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "この通知のワークスペースとターミナルを開きます。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Opens this notification's workspace." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この通知のワークスペースを開きます。" } }
       }
     },
     "mobile.notificationFeed.preview.approval.body": {
@@ -3094,6 +3094,34 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Try Again" } },
         "ja": { "stringUnit": { "state": "translated", "value": "再試行" } }
+      }
+    },
+    "mobile.notificationFeed.row.computer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Computer" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コンピュータ" } }
+      }
+    },
+    "mobile.notificationFeed.row.fieldFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%1$@: %2$@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%1$@：%2$@" } }
+      }
+    },
+    "mobile.notificationFeed.row.unknownWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明なワークスペース" } }
+      }
+    },
+    "mobile.notificationFeed.row.workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース" } }
       }
     },
     "mobile.notificationFeed.title": {

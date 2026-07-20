@@ -6,7 +6,7 @@ public struct MobileNotificationFeedListItem: Decodable, Equatable, Sendable {
     public let id: String
     /// The Mac-local workspace identifier that owns the notification.
     public let workspaceID: String
-    /// The Mac-local terminal surface identifier, when the notification targets one.
+    /// The Mac-local pane or terminal-surface identifier, when the notification targets one.
     public let surfaceID: String?
     /// The notification's primary title.
     public let title: String
@@ -20,9 +20,9 @@ public struct MobileNotificationFeedListItem: Decodable, Equatable, Sendable {
     public let isRead: Bool
     /// Whether a terminal that moved may open in its current workspace.
     public let retargetsToLiveSurfaceOwner: Bool
-    /// The workspace label captured by the Mac, when available.
+    /// The current destination workspace label resolved by the Mac, when available.
     public let workspaceTitle: String?
-    /// The terminal surface label captured by the Mac, when available.
+    /// The current destination pane label resolved by the Mac, when available.
     public let surfaceTitle: String?
 
     private enum CodingKeys: String, CodingKey {

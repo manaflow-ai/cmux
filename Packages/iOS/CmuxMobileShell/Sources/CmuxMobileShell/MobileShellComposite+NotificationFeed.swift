@@ -135,7 +135,7 @@ extension MobileShellComposite {
         }
     }
 
-    /// Opens a feed item in its workspace and terminal, then marks it read.
+    /// Opens a feed item in its current destination workspace and pane, then marks it read.
     /// - Parameter item: The immutable feed item selected by the user.
     public func openNotificationFeedItem(_ item: MobileNotificationFeedItem) async {
         if item.macDeviceID != normalizedForegroundNotificationFeedMacID() {

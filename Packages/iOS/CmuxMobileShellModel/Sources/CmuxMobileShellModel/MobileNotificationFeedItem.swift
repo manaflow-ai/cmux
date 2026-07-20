@@ -12,7 +12,7 @@ public struct MobileNotificationFeedItem: Identifiable, Equatable, Sendable {
     public let macDisplayName: String
     /// The workspace identifier to send back to the owning Mac.
     public let remoteWorkspaceID: String
-    /// The terminal surface identifier to select, when present.
+    /// The target pane or terminal-surface identifier to select, when present.
     public let remoteSurfaceID: String?
     /// The notification's primary title.
     public let title: String
@@ -26,9 +26,9 @@ public struct MobileNotificationFeedItem: Identifiable, Equatable, Sendable {
     public let isRead: Bool
     /// Whether the target may follow its terminal to a different live workspace.
     public let retargetsToLiveSurfaceOwner: Bool
-    /// The workspace's captured display label, when available.
+    /// The current destination workspace's display label, when available.
     public let workspaceTitle: String?
-    /// The terminal surface's captured display label, when available.
+    /// The current destination pane's display label, when available.
     public let surfaceTitle: String?
     /// The current reachability of the owning Mac.
     public let connectionStatus: MobileMacConnectionStatus
@@ -39,15 +39,15 @@ public struct MobileNotificationFeedItem: Identifiable, Equatable, Sendable {
     ///   - notificationID: The notification identifier within that Mac.
     ///   - macDisplayName: The owning Mac's user-facing name.
     ///   - remoteWorkspaceID: The Mac-local workspace identifier.
-    ///   - remoteSurfaceID: The Mac-local terminal surface identifier, when present.
+    ///   - remoteSurfaceID: The Mac-local target pane or terminal-surface identifier, when present.
     ///   - title: The notification's primary title.
     ///   - subtitle: The notification's optional secondary title.
     ///   - body: The notification body.
     ///   - createdAt: When the Mac created the notification.
     ///   - isRead: Whether the notification has been read on the Mac.
     ///   - retargetsToLiveSurfaceOwner: Whether a moved terminal may resolve in its live workspace.
-    ///   - workspaceTitle: The workspace label captured by the Mac, when present.
-    ///   - surfaceTitle: The terminal surface label captured by the Mac, when present.
+    ///   - workspaceTitle: The current destination workspace label, when present.
+    ///   - surfaceTitle: The current destination pane label, when present.
     ///   - connectionStatus: The current reachability of the owning Mac.
     public init(
         macDeviceID: String,
