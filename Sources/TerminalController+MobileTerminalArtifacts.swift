@@ -505,6 +505,7 @@ private struct TerminalArtifactReadContext: Sendable {
             + " snapDir=\(snapshotScope.canonicalDirectoryListPath(for: requestedPath) != nil)"
             + " liveFile=\(scope.canonicalPath(for: requestedPath) != nil)"
             + " liveDir=\(scope.canonicalDirectoryListPath(for: requestedPath) != nil)"
+            + " textSample=\(terminalText.prefix(280).unicodeScalars.map { $0.escaped(asASCII: true) }.joined())"
     }
 
     func authorizedDirectoryList<T>(
