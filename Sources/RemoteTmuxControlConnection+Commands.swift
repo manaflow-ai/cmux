@@ -221,9 +221,10 @@ extension RemoteTmuxControlConnection {
     /// a SIGWINCH by moving the CLIENT size, which made tmux re-round an odd split
     /// and hand a stacked pane a different row count, which grew a pane again and
     /// re-fired the kick — an unbounded loop (23k kicks in one fuzz iteration).
-    /// `capture-pane` and `display-message` are reads: no client size moves, tmux
-    /// re-rounds nothing, so this can fire on EVERY genuine grow with no loop and
-    /// no need to ration it.
+    /// `capture-pane` and `display-message` are reads: no client size moves and
+    /// tmux re-rounds nothing. Every genuine grow therefore requests this repair;
+    /// grows observed while a seed is in flight coalesce into one follow-up so a
+    /// slow control channel cannot accumulate repaint transactions without bound.
     ///
     /// No `-S`: the seed's scrollback history is already in the surface, and
     /// re-emitting it would stack a second copy into the mirror's scrollback. The
@@ -231,7 +232,15 @@ extension RemoteTmuxControlConnection {
     /// home+clear+rows (see the `.capturePane` result), so this REPLACES the
     /// visible screen rather than appending, and the `.paneState` seed that follows
     /// restores the cursor and scroll region on top.
-    func repaintPaneVisibleScreen(paneId: Int) {
+    @discardableResult
+    func repaintPaneVisibleScreen(paneId: Int) -> UUID? {
+        guard pendingPaneVisibleRepaintSeedIDs[paneId] == nil else {
+            deferredPaneVisibleRepaints.insert(paneId)
+            return nil
+        }
+        let gatesReconnectReady = pendingPaneSeeds[paneId]?.contains {
+            pendingReconnectSeedIDs.contains($0.id)
+        } == true
         let seedID = beginPaneSeed(paneId: paneId, clearScrollback: false)
         guard sendBatchInternal(
             [
@@ -246,8 +255,11 @@ extension RemoteTmuxControlConnection {
             ]
         ) else {
             cancelPaneSeed(paneId: paneId, seedID: seedID)
-            return
+            return nil
         }
+        pendingPaneVisibleRepaintSeedIDs[paneId] = seedID
+        if gatesReconnectReady { pendingReconnectSeedIDs.insert(seedID) }
+        return seedID
     }
 
     /// Builds the atomic pane-output cursor reset accepted by tmux's command parser.

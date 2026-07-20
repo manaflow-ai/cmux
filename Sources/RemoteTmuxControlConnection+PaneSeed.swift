@@ -24,7 +24,7 @@ extension RemoteTmuxControlConnection {
               let index = seeds.firstIndex(where: { $0.id == seedID }) else { return }
         seeds.remove(at: index)
         pendingPaneSeeds[paneId] = seeds.isEmpty ? nil : seeds
-        resolveReconnectSeed(seedID)
+        completePaneSeedLifecycle(paneId: paneId, seedID: seedID)
     }
 
     func appendPaneSeedPrefix(paneId: Int, seedID: UUID, data: Data) {
@@ -70,7 +70,7 @@ extension RemoteTmuxControlConnection {
         guard var seeds = pendingPaneSeeds[paneId], seeds.first?.id == seedID else { return }
         let completed = seeds.removeFirst()
         pendingPaneSeeds[paneId] = seeds.isEmpty ? nil : seeds
-        defer { resolveReconnectSeed(seedID) }
+        defer { completePaneSeedLifecycle(paneId: paneId, seedID: seedID) }
         guard completed.isCaptureInstalled else {
             emitBufferedPaneOutput(completed, paneId: paneId)
             return
@@ -116,7 +116,7 @@ extension RemoteTmuxControlConnection {
         }
         let failed = seeds.removeFirst()
         pendingPaneSeeds[paneId] = seeds.isEmpty ? nil : seeds
-        defer { resolveReconnectSeed(seedID) }
+        defer { completePaneSeedLifecycle(paneId: paneId, seedID: seedID) }
         switch kind {
         case .paneState where failed.isCaptureInstalled:
             observers.emitPaneSeed(
@@ -137,6 +137,8 @@ extension RemoteTmuxControlConnection {
 
     func discardPendingPaneSeeds() {
         pendingPaneSeeds.removeAll(keepingCapacity: false)
+        pendingPaneVisibleRepaintSeedIDs.removeAll(keepingCapacity: false)
+        deferredPaneVisibleRepaints.removeAll(keepingCapacity: false)
         pendingReconnectSeedIDs.removeAll(keepingCapacity: false)
     }
 
@@ -145,12 +147,40 @@ extension RemoteTmuxControlConnection {
             .filter { !livePanes.contains($0.key) }
             .flatMap { $0.value.map(\.id) }
         pendingPaneSeeds = pendingPaneSeeds.filter { livePanes.contains($0.key) }
+        pendingPaneVisibleRepaintSeedIDs = pendingPaneVisibleRepaintSeedIDs.filter {
+            livePanes.contains($0.key)
+        }
+        deferredPaneVisibleRepaints.formIntersection(livePanes)
         for seedID in removedSeedIDs { resolveReconnectSeed(seedID) }
     }
 
     func discardPendingPaneSeeds(paneId: Int) {
         let removedSeedIDs = pendingPaneSeeds.removeValue(forKey: paneId)?.map(\.id) ?? []
+        pendingPaneVisibleRepaintSeedIDs[paneId] = nil
+        deferredPaneVisibleRepaints.remove(paneId)
         for seedID in removedSeedIDs { resolveReconnectSeed(seedID) }
+    }
+
+    private func completePaneSeedLifecycle(paneId: Int, seedID: UUID) {
+        let gatesReconnectReady = pendingReconnectSeedIDs.contains(seedID)
+        let completedVisibleRepaint = pendingPaneVisibleRepaintSeedIDs[paneId] == seedID
+        if completedVisibleRepaint { pendingPaneVisibleRepaintSeedIDs[paneId] = nil }
+        let followUpSeedID = completedVisibleRepaint
+            ? startDeferredPaneVisibleRepaintIfNeeded(paneId: paneId)
+            : nil
+        if gatesReconnectReady,
+           connectionState == .connected,
+           let followUpSeedID
+        {
+            pendingReconnectSeedIDs.insert(followUpSeedID)
+        }
+        resolveReconnectSeed(seedID)
+    }
+
+    private func startDeferredPaneVisibleRepaintIfNeeded(paneId: Int) -> UUID? {
+        guard deferredPaneVisibleRepaints.remove(paneId) != nil else { return nil }
+        guard connectionState == .connected else { return nil }
+        return repaintPaneVisibleScreen(paneId: paneId)
     }
 
     func resolveReconnectSeed(_ seedID: UUID) {

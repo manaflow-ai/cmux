@@ -58,6 +58,11 @@ final class RemoteTmuxControlConnection {
     var totalOutputBytes = 0
     /// Per-pane capture/state transactions owning the snapshot-to-live cutover.
     var pendingPaneSeeds: [Int: [RemoteTmuxPendingPaneSeed]] = [:]
+    /// The one queued or in-flight visible repaint seed allowed per pane.
+    var pendingPaneVisibleRepaintSeedIDs: [Int: UUID] = [:]
+    /// Panes that grew while a visible repaint seed was already in flight. One
+    /// deferred repaint per pane bounds churn while preserving the latest repair.
+    var deferredPaneVisibleRepaints: Set<Int> = []
     /// Reconnect seeds that must finish before consumers can resume resize work.
     var pendingReconnectSeedIDs: Set<UUID> = []
     /// Per-pane header-strip labels: the pane's EXPANDED `pane-border-format`
