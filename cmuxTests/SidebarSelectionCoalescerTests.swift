@@ -159,3 +159,65 @@ struct SidebarSelectionCoalescerTests {
         #expect(applied == ["a"])
     }
 }
+
+@Suite
+struct SidebarWorkspaceSelectionInteractionTests {
+    @Test
+    func pressPaintsImmediatelyButDoesNotActivateUntilCompletedClick() {
+        var interaction = SidebarWorkspaceSelectionInteraction<String, Int>()
+
+        interaction.mouseDown(on: "workspace-a", context: 7)
+
+        #expect(interaction.phase == .pressed(id: "workspace-a", context: 7))
+
+        let activation = interaction.completedClick(on: "workspace-a", fallbackContext: 99)
+
+        #expect(activation == .init(id: "workspace-a", context: 7))
+        #expect(interaction.phase == .activating(id: "workspace-a", context: 7))
+    }
+
+    @Test
+    func dragThresholdRollsBackPressAndSuppressesActivation() {
+        var interaction = SidebarWorkspaceSelectionInteraction<String, Int>()
+        interaction.mouseDown(on: "workspace-a", context: 7)
+
+        #expect(interaction.dragDidBegin(on: "workspace-a"))
+        #expect(interaction.phase == .dragging(id: "workspace-a", context: 7))
+        #expect(interaction.completedClick(on: "workspace-a", fallbackContext: 99) == nil)
+
+        interaction.dragDidEnd()
+
+        #expect(interaction.phase == .idle)
+    }
+
+    @Test
+    func trackingEndCancelsACompletedNeitherClickNorDrag() {
+        var interaction = SidebarWorkspaceSelectionInteraction<String, Int>()
+        interaction.mouseDown(on: "workspace-a", context: 7)
+
+        #expect(interaction.trackingDidEnd())
+        #expect(interaction.phase == .idle)
+    }
+
+    @Test
+    func onlyMatchingAuthoritativeSelectionReconcilesActivation() {
+        var interaction = SidebarWorkspaceSelectionInteraction<String, Int>()
+        interaction.mouseDown(on: "workspace-a", context: 7)
+        _ = interaction.completedClick(on: "workspace-a", fallbackContext: 99)
+
+        #expect(!interaction.authoritativeSelectionDidApply(id: "workspace-b"))
+        #expect(interaction.phase == .activating(id: "workspace-a", context: 7))
+        #expect(interaction.authoritativeSelectionDidApply(id: "workspace-a"))
+        #expect(interaction.phase == .idle)
+    }
+
+    @Test
+    func directCompletedClickStillUsesTheSharedActivationLifecycle() {
+        var interaction = SidebarWorkspaceSelectionInteraction<String, Int>()
+
+        let activation = interaction.completedClick(on: "workspace-a", fallbackContext: 99)
+
+        #expect(activation == .init(id: "workspace-a", context: 99))
+        #expect(interaction.phase == .activating(id: "workspace-a", context: 99))
+    }
+}
