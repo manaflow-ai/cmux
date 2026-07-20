@@ -108,6 +108,9 @@ extension TerminalController {
             return TerminalArtifactWire.result(stat)
         } catch TerminalArtifactReadContext.Error.forbidden {
             debugLogMobileTerminalArtifactDenial(op: "stat", path: context.requestedPath)
+            #if DEBUG
+            cmuxDebugLog("mobile.terminal.artifact.stat.deny \(context.authorizationDiagnostics())")
+            #endif
             return mobileTerminalArtifactError(.forbidden, path: context.requestedPath)
         } catch ArtifactByteReader.Error.fileNotFound {
             return mobileTerminalArtifactError(.fileNotFound, path: context.requestedPath)
@@ -473,6 +476,35 @@ private struct TerminalArtifactReadContext: Sendable {
             throw Error.forbidden
         }
         return try operation(ArtifactByteReader(), canonicalPath)
+    }
+
+    /// Explains why a stat authorization denied, for the DEBUG denial log.
+    /// Reports input shape (text size, scan-path count) and which
+    /// canonicalization branches matched, never path contents.
+    func authorizationDiagnostics() -> String {
+        guard let requestedPath else { return "path=nil" }
+        let resolver = ChatArtifactScope.FoundationResolver()
+        let snapshotScope = ChatArtifactScope(
+            referencedPaths: scanAuthorizedPaths,
+            directoryAccessMode: directoryAccessMode,
+            resolver: resolver
+        )
+        let scope = TerminalArtifactScope(
+            terminalText: terminalText,
+            workingDirectory: workingDirectory,
+            resolver: resolver,
+            directoryAccessMode: directoryAccessMode
+        )
+        let detected = TerminalArtifactPathDetector().paths(in: terminalText)
+        return "textChars=\(terminalText.count)"
+            + " detected=\(detected.count)"
+            + " scanPaths=\(scanAuthorizedPaths.count)"
+            + " cwdSet=\(workingDirectory != nil)"
+            + " mode=\(directoryAccessMode.rawValue)"
+            + " snapFile=\(snapshotScope.canonicalFilePath(for: requestedPath) != nil)"
+            + " snapDir=\(snapshotScope.canonicalDirectoryListPath(for: requestedPath) != nil)"
+            + " liveFile=\(scope.canonicalPath(for: requestedPath) != nil)"
+            + " liveDir=\(scope.canonicalDirectoryListPath(for: requestedPath) != nil)"
     }
 
     func authorizedDirectoryList<T>(
