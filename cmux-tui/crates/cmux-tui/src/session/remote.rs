@@ -1902,6 +1902,111 @@ mod tests {
         assert!(surface.dirty.load(Ordering::Acquire));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn reused_render_state_observes_complete_special_color_reset() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let surface = Arc::new(RemoteSurface {
+            id: 7,
+            kind: SurfaceKind::Pty,
+            term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
+            mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            dirty: AtomicBool::new(false),
+            reported_size: Mutex::new(None),
+            browser: Mutex::new(RemoteBrowserState::default()),
+        });
+        session.surfaces.lock().unwrap().insert(7, surface.clone());
+
+        session.handle_line(json!({
+            "event": "vt-state",
+            "surface": 7,
+            "cols": 12,
+            "rows": 4,
+            "data": base64::engine::general_purpose::STANDARD.encode(b"prompt"),
+            "colors": {
+                "fg": "#fdfff1",
+                "bg": "#272822",
+                "cursor": "#c0c1b5",
+                "cursor_style": "bar",
+                "cursor_blink": true,
+                "palette": {},
+            },
+        }));
+
+        let mut render = RenderState::new().unwrap();
+        {
+            let mut terminal = surface.term.lock().unwrap();
+            render.update(&mut terminal).unwrap();
+            let frame = render.build_frame().unwrap();
+            assert_eq!(frame.default_colors.0, Rgb { r: 0x27, g: 0x28, b: 0x22 });
+        }
+
+        session.handle_line(json!({
+            "event": "output",
+            "surface": 7,
+            "data": base64::engine::general_purpose::STANDARD
+                .encode(
+                    b"\x1b]4;1;#112233\x1b\\\x1b]10;#eeeeee\x1b\\\x1b]11;#171b2e\x1b\\\x1b]12;#ffee00\x1b\\"
+                ),
+            "colors": {
+                "fg": "#eeeeee",
+                "bg": "#171b2e",
+                "cursor": "#ffee00",
+                "cursor_style": "bar",
+                "cursor_blink": true,
+                "palette": {"1": "#112233"},
+            },
+        }));
+        {
+            let mut terminal = surface.term.lock().unwrap();
+            render.update(&mut terminal).unwrap();
+            let frame = render.build_frame().unwrap();
+            assert_eq!(frame.default_colors.0, Rgb { r: 0x17, g: 0x1b, b: 0x2e });
+        }
+
+        session.handle_line(json!({
+            "event": "output",
+            "surface": 7,
+            "data": base64::engine::general_purpose::STANDARD
+                .encode(b"\x1b]104\x1b\\\x1b]110\x1b\\\x1b]111\x1b\\\x1b]112\x1b\\"),
+            "colors": {
+                "fg": "#fdfff1",
+                "bg": "#272822",
+                "cursor": "#c0c1b5",
+                "cursor_style": "bar",
+                "cursor_blink": true,
+                "palette": {},
+            },
+        }));
+        {
+            let mut terminal = surface.term.lock().unwrap();
+            assert_eq!(
+                terminal.effective_colors(),
+                (
+                    Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }),
+                    Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }),
+                    Some(Rgb { r: 0xc0, g: 0xc1, b: 0xb5 }),
+                )
+            );
+            let overrides = terminal.color_overrides();
+            assert_eq!(overrides.foreground, None);
+            assert_eq!(overrides.background, None);
+            assert_eq!(overrides.cursor, None);
+            assert_eq!(overrides.palette[1], None);
+            render.update(&mut terminal).unwrap();
+            let frame = render.build_frame().unwrap();
+            assert_eq!(
+                frame.default_colors,
+                (Rgb { r: 0x27, g: 0x28, b: 0x22 }, Rgb { r: 0xfd, g: 0xff, b: 0xf1 },)
+            );
+            assert_eq!(frame.cursor_color, Some(Rgb { r: 0xc0, g: 0xc1, b: 0xb5 }));
+            let cell = &frame.styled_row(0).unwrap()[0];
+            assert_eq!(cell.fg, ColorSpec::Default);
+            assert_eq!(cell.bg, ColorSpec::Default);
+        }
+    }
+
     #[test]
     fn resize_replay_replaces_mirror_with_server_truth_without_duplication() {
         let mut server = Terminal::new(12, 4, 100, Callbacks::default()).unwrap();
