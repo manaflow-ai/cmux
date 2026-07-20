@@ -110,7 +110,11 @@ public final class SidebarDragAutoScrollController {
         currentPlan(for: scrollView)
     }
 
-    private func apply(plan: SidebarAutoScrollPlan, to scrollView: NSScrollView) -> Bool {
+    /// Applies one constrained auto-scroll tick. Internal so the package tests
+    /// can prove that repeated ticks reach both real clip-view bounds without
+    /// stopping early or translating beyond an endpoint.
+    @discardableResult
+    func apply(plan: SidebarAutoScrollPlan, to scrollView: NSScrollView) -> Bool {
         guard scrollView.documentView != nil else { return false }
         let clipView = scrollView.contentView
         let directionMultiplier: CGFloat = (plan.direction == .down) ? 1 : -1
