@@ -279,7 +279,7 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsPreviewLines")
                 }
 
-                Section(L10n.string("mobile.settings.notifications", defaultValue: "Notifications")) {
+                Section(L10n.string("mobile.settings.notifications", defaultValue: "Push Alerts")) {
                     Button {
                         Task {
                             if notificationsEnabled {
@@ -292,8 +292,8 @@ struct MobileSettingsView: View {
                     } label: {
                         Label(
                             notificationsEnabled
-                                ? L10n.string("mobile.notifications.disable", defaultValue: "Turn Off Agent Notifications")
-                                : L10n.string("mobile.notifications.enable", defaultValue: "Notify Me About Agents"),
+                                ? L10n.string("mobile.notifications.disable", defaultValue: "Turn Off Push Alerts")
+                                : L10n.string("mobile.notifications.enable", defaultValue: "Notify Me When Agents Need Me"),
                             systemImage: notificationsEnabled ? "bell.slash" : "bell"
                         )
                     }

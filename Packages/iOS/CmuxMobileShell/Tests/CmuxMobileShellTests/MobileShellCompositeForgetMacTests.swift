@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobilePairedMac
+import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
 import Testing
@@ -357,6 +358,11 @@ import Testing
             forgottenMacStore: InMemoryPairedMacForgottenStore()
         )
         await store.loadPairedMacs()
+        #expect(store.applyNotificationFeedSnapshot(
+            try Self.notificationResponse(revision: 5, id: "mac-a-notification"),
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac"
+        ))
         store.setWorkspaceStatesForTesting([
             "mac-a": MacWorkspaceState(
                 macDeviceID: "mac-a",
@@ -378,6 +384,47 @@ import Testing
         #expect(store.pairedMacs.map(\.macDeviceID) == ["mac-a", "mac-b"])
         #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-a", "mac-b"])
         #expect(store.workspaces.map(\.rpcWorkspaceID.rawValue) == ["mac-a-workspace"])
+        #expect(store.notificationFeedSnapshotsByMac["mac-a"]?.revision == 5)
+        #expect(store.notificationFeedKnownRevisionsByMac["mac-a"] == 5)
+        #expect(store.notificationFeedSuccessfulMacIDs.contains("mac-a"))
+        #expect(store.notificationFeedItems.map(\.notificationID) == ["mac-a-notification"])
+    }
+
+    @Test func successfulForgetRemovesNotificationFeedSnapshot() async throws {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: false
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            forgottenMacStore: InMemoryPairedMacForgottenStore()
+        )
+        await store.loadPairedMacs()
+        #expect(store.applyNotificationFeedSnapshot(
+            try Self.notificationResponse(revision: 5, id: "mac-a-notification"),
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac"
+        ))
+
+        await store.forgetMac(macDeviceID: "mac-a")
+
+        #expect(store.notificationFeedSnapshotsByMac["mac-a"] == nil)
+        #expect(store.notificationFeedKnownRevisionsByMac["mac-a"] == nil)
+        #expect(!store.notificationFeedSuccessfulMacIDs.contains("mac-a"))
+        #expect(store.notificationFeedItems.isEmpty)
     }
 
     @Test func failedForgetAfterTeamSwitchDoesNotRestoreOldWorkspaceSnapshot() async throws {
@@ -471,5 +518,14 @@ import Testing
             customColor: customColor,
             customIcon: customIcon
         )
+    }
+
+    private static func notificationResponse(
+        revision: Int,
+        id: String
+    ) throws -> MobileNotificationFeedListResponse {
+        try MobileNotificationFeedListResponse.decode(Data(
+            #"{"revision":\#(revision),"notifications":[{"id":"\#(id)","workspace_id":"workspace","title":"Title","body":"Body","created_at":100,"is_read":false}]}"#.utf8
+        ))
     }
 }
