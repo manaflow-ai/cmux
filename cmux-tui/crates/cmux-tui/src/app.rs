@@ -2437,12 +2437,12 @@ impl PaneFocusHistory {
         self.recency.insert(pane, self.next_sequence);
     }
 
-    fn recency(&self, pane: PaneId, authoritative: u64) -> (bool, u64) {
+    fn recency(&self, pane: PaneId) -> (bool, u64) {
         self.recency
             .get(&pane)
             .copied()
             .map(|sequence| (true, sequence))
-            .unwrap_or_else(|| (false, self.baseline.get(&pane).copied().unwrap_or(authoritative)))
+            .unwrap_or_else(|| (false, self.baseline.get(&pane).copied().unwrap_or_default()))
     }
 
     fn retain_present(&mut self, tree: &TreeView) {
@@ -5458,15 +5458,9 @@ impl App {
             panes: self.pane_areas.iter().map(|area| (area.pane, area.rect)).collect(),
             ..Default::default()
         };
-        if let Some(next) = layout.neighbor_by_recency(active, dx, dy, |pane| {
-            let authoritative = screen
-                .panes
-                .iter()
-                .find(|candidate| candidate.id == pane)
-                .map(|pane| pane.focused_at)
-                .unwrap_or_default();
-            self.pane_focus_history.recency(pane, authoritative)
-        }) {
+        if let Some(next) =
+            layout.neighbor_by_recency(active, dx, dy, |pane| self.pane_focus_history.recency(pane))
+        {
             self.focus_pane_after_input(next);
         }
     }
@@ -7716,10 +7710,14 @@ mod tests {
     #[test]
     fn pane_focus_history_overlays_authoritative_recency() {
         let mut history = PaneFocusHistory::default();
-        assert_eq!(history.recency(1, 8), (false, 8));
+        let mut tree = notify_tree(1, false);
+        tree.workspaces[0].screens[0].panes[0].focused_at = 8;
+        history.retain_present(&tree);
+
+        assert_eq!(history.recency(2), (false, 8));
         history.record(2);
-        assert_eq!(history.recency(2, 99), (true, 1));
-        assert_eq!(history.recency(3, 12), (false, 12));
+        assert_eq!(history.recency(2), (true, 1));
+        assert_eq!(history.recency(99), (false, 0));
     }
 
     #[test]
@@ -7730,8 +7728,8 @@ mod tests {
 
         history.retain_present(&notify_tree(1, false));
 
-        assert_eq!(history.recency(2, 0), (true, 1));
-        assert_eq!(history.recency(99, 7), (false, 7));
+        assert_eq!(history.recency(2), (true, 1));
+        assert_eq!(history.recency(99), (false, 0));
     }
 
     #[test]
@@ -7745,7 +7743,7 @@ mod tests {
         peer_refresh.workspaces[0].screens[0].panes[0].focused_at = 99;
         history.retain_present(&peer_refresh);
 
-        assert_eq!(history.recency(2, 99), (false, 8));
+        assert_eq!(history.recency(2), (false, 8));
     }
 
     #[test]
