@@ -67,7 +67,19 @@ enum MobileIrohReleaseGateResponseValidator {
         ) else {
             return false
         }
-        return response.artifacts.contains { $0.path == expectedPath }
+        let expectedIdentity = releaseGateArtifactPathIdentity(expectedPath)
+        return response.artifacts.contains {
+            releaseGateArtifactPathIdentity($0.path) == expectedIdentity
+        }
+    }
+
+    private static func releaseGateArtifactPathIdentity(_ path: String) -> String {
+        let standardized = (path as NSString).standardizingPath
+        let canonicalMacOSTemporaryPrefix = "/private/tmp/"
+        guard standardized.hasPrefix(canonicalMacOSTemporaryPrefix) else {
+            return standardized
+        }
+        return "/tmp/" + standardized.dropFirst(canonicalMacOSTemporaryPrefix.count)
     }
 
     static func artifactLaneDescriptor(_ data: Data) -> ChatArtifactLaneDescriptor? {
