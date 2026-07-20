@@ -22,7 +22,7 @@ struct RemoteShellPromptRelayTests {
 
         #expect(output.contains(
             #"rpc surface.report_git_branch {"workspace_id":"11111111-1111-1111-1111-111111111111","branch":"feature/mosh-prompt","surface_id":"22222222-2222-2222-2222-222222222222"}"#
-        ), output)
+        ), Comment(rawValue: output))
     }
 
     @Test("remote bash prompt reports Git metadata through the relay")
@@ -38,7 +38,7 @@ struct RemoteShellPromptRelayTests {
 
         #expect(output.contains(
             #"rpc surface.report_git_branch {"workspace_id":"11111111-1111-1111-1111-111111111111","branch":"feature/mosh-prompt","surface_id":"22222222-2222-2222-2222-222222222222"}"#
-        ), output)
+        ), Comment(rawValue: output))
     }
 
     @Test("remote tmux zsh prompt reports shell state through the workspace relay")
@@ -54,7 +54,7 @@ struct RemoteShellPromptRelayTests {
 
         #expect(output.contains(
             #"rpc surface.report_shell_state {"workspace_id":"11111111-1111-1111-1111-111111111111","state":"prompt"}"#
-        ), output)
+        ), Comment(rawValue: output))
     }
 
     @Test("remote tmux bash prompt reports shell state through the workspace relay")
@@ -70,7 +70,7 @@ struct RemoteShellPromptRelayTests {
 
         #expect(output.contains(
             #"rpc surface.report_shell_state {"workspace_id":"11111111-1111-1111-1111-111111111111","state":"prompt"}"#
-        ), output)
+        ), Comment(rawValue: output))
     }
 
     private func runPrompt(
