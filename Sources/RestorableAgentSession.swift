@@ -763,6 +763,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     var kind: RestorableAgentKind
     var sessionId: String
     var workingDirectory: String?
+    var transcriptPath: String? = nil
     var launchCommand: AgentLaunchCommandSnapshot?
     var registration: CmuxVaultAgentRegistration? = nil
     /// Last hook-observed permission mode; re-applied as `--permission-mode` on
@@ -1094,6 +1095,7 @@ struct RestorableAgentSessionIndex: Sendable {
             fileManager: fileManager
         )
         let codexCwdLookup = CodexSessionCwdLookupCache(fileManager: fileManager)
+        let codexResumeVerifier = CodexSessionResumeVerifier()
         let builtInKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
         let hookKinds: [(kind: RestorableAgentKind, registration: CmuxVaultAgentRegistration?)] =
             RestorableAgentKind.allCases.map { (kind: $0, registration: nil) }
@@ -1136,8 +1138,10 @@ struct RestorableAgentSessionIndex: Sendable {
                       hookRecordIsRestorable(
                           effectiveRecord,
                           kind: kind,
+                          homeDirectory: homeDirectory,
                           fileManager: fileManager,
-                          claudeTranscriptLookup: claudeTranscriptLookup
+                          claudeTranscriptLookup: claudeTranscriptLookup,
+                          codexResumeVerifier: codexResumeVerifier
                       ) else {
                     continue
                 }
@@ -1153,6 +1157,7 @@ struct RestorableAgentSessionIndex: Sendable {
                         lookup: claudeTranscriptLookup,
                         codexCwdLookup: codexCwdLookup
                     ),
+                    transcriptPath: effectiveRecord.transcriptPath,
                     launchCommand: effectiveRecord.launchCommand,
                     registration: registration,
                     permissionMode: effectiveRecord.lastPermissionMode
@@ -1362,26 +1367,24 @@ struct RestorableAgentSessionIndex: Sendable {
     private static func hookRecordIsRestorable(
         _ record: RestorableAgentHookSessionRecord,
         kind: RestorableAgentKind,
+        homeDirectory: String,
         fileManager: FileManager,
-        claudeTranscriptLookup: ClaudeTranscriptLookupCache
+        claudeTranscriptLookup: ClaudeTranscriptLookupCache,
+        codexResumeVerifier: CodexSessionResumeVerifier
     ) -> Bool {
         if kind == .codex {
             guard record.isRestorable != false else { return false }
             guard normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else { return false }
-            let launchSource = normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased()
-            if record.isRestorable == true
-                || launchSource == "default"
-                || (record.launchCommand?.arguments.isEmpty == false
-                    && (launchSource == nil || ["environment", "process"].contains(launchSource))
-                    && !(launchSource == "environment" && normalizedNonEmptyValue(record.launchCommand?.environment?["CODEX_HOME"]) == nil && (normalizedNonEmptyValue(record.launchCommand?.environment?["ANTHROPIC_BASE_URL"]) != nil || normalizedNonEmptyValue(record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) != nil)))
-                || normalizedNonEmptyValue(record.launchCommand?.environment?["CODEX_HOME"]) != nil {
-                return true
-            }
-            guard let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) else { return false }
-            return regularNonEmptyFileExists(
-                atPath: (transcriptPath as NSString).expandingTildeInPath,
+            let codexHome = normalizedNonEmptyValue(record.launchCommand?.environment?["CODEX_HOME"])
+                ?? URL(fileURLWithPath: homeDirectory, isDirectory: true)
+                    .appendingPathComponent(".codex", isDirectory: true)
+                    .path
+            return codexResumeVerifier.evidence(
+                sessionId: record.sessionId,
+                transcriptPath: record.transcriptPath,
+                codexHome: codexHome,
                 fileManager: fileManager
-            )
+            ) != nil
         }
         guard kind == .claude else {
             return record.isRestorable != false

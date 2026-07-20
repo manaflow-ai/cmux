@@ -15,18 +15,22 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
         defer { try? fm.removeItem(at: root) }
         let repo = root.appendingPathComponent("cmuxterm-hq", isDirectory: true)
         let worktree = repo.appendingPathComponent("worktrees/task-shift-tab-submit-actions", isDirectory: true)
-        let transcript = root.appendingPathComponent("codex-transcript.jsonl", isDirectory: false)
+        let goodId = "019ef2bd-e6a3-7272-978e-bb375a60ad81"
+        let transcript = root.appendingPathComponent(
+            "rollout-2026-07-16T19-29-41-\(goodId).jsonl",
+            isDirectory: false
+        )
         try fm.createDirectory(at: worktree, withIntermediateDirectories: true)
-        try #"{"type":"event_msg","payload":{"type":"task_complete"}}"#
+        try #"{"type":"session_meta","payload":{"id":"\#(goodId)"}}"#
             .write(to: transcript, atomically: true, encoding: .utf8)
 
         let ws = UUID()
         let panel = UUID()
-        let goodId = "019ef2bd-e6a3-7272-978e-bb375a60ad81"
         let weakId = "019ef6d3-572d-76e3-b5f0-adc4144085fc"
         let missingSourceId = "019ef7f5-c049-7728-82f6-15995b83c40f"
         let nilLaunchId = "019ef91a-6d3d-70e9-bc8b-9a944db28384"
         let weakEnvironmentArgvId = "019ef9f2-5b17-7240-8799-860d1673f7ac"
+        let ephemeralReviewId = "019f6dbc-5095-74f3-8035-ab8cdf772bb7"
         try writeHookStore(
             root: root,
             sessions: [
@@ -89,6 +93,17 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
                         "source": "environment",
                     ]
                 ),
+                ephemeralReviewId: codexHookRecord(
+                    sessionId: ephemeralReviewId, workspaceId: ws, panelId: panel, cwd: worktree.path,
+                    transcriptPath: nil, updatedAt: 70,
+                    launchCommand: [
+                        "launcher": "codex",
+                        "arguments": [],
+                        "workingDirectory": worktree.path,
+                        "capturedAt": 70,
+                        "source": "default",
+                    ]
+                ),
             ]
         )
 
@@ -98,9 +113,10 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
         )
         XCTAssertEqual(snapshot.sessionId, goodId)
         XCTAssertEqual(snapshot.workingDirectory, repo.path)
+        XCTAssertEqual(snapshot.transcriptPath, transcript.path)
     }
 
-    func testCodexLegacyArgvRecordWithoutSourceIsRestorable() throws {
+    func testCodexLegacyArgvRecordWithoutProviderEvidenceIsNotRestorable() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
             .appendingPathComponent("cmux-codex-legacy-argv-restore-\(UUID().uuidString)", isDirectory: true)
@@ -128,12 +144,10 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
             ]
         )
 
-        let snapshot = try XCTUnwrap(
+        XCTAssertNil(
             RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
                 .snapshot(workspaceId: ws, panelId: panel)
         )
-        XCTAssertEqual(snapshot.sessionId, sessionId)
-        XCTAssertEqual(snapshot.workingDirectory, repo.path)
     }
 
     func testCodexDefaultLaunchRecordIsRestorable() throws {
@@ -147,12 +161,15 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
         let ws = UUID()
         let panel = UUID()
         let sessionId = "019efa74-df8b-71ac-a8ec-a9535e8fdcd5"
+        let transcript = root.appendingPathComponent("rollout-2026-07-16T19-29-41-\(sessionId).jsonl")
+        try #"{"type":"session_meta","payload":{"id":"\#(sessionId)"}}"#
+            .write(to: transcript, atomically: true, encoding: .utf8)
         try writeHookStore(
             root: root,
             sessions: [
                 sessionId: codexHookRecord(
                     sessionId: sessionId, workspaceId: ws, panelId: panel, cwd: repo.path,
-                    transcriptPath: nil, updatedAt: 10,
+                    transcriptPath: transcript.path, updatedAt: 10,
                     launchCommand: [
                         "launcher": "codex",
                         "arguments": [],
