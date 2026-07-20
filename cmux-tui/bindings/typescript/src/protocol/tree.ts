@@ -42,6 +42,7 @@ export interface LivePane {
   id: Id;
   name: string | null;
   active_tab: number;
+  focused_at?: number;
   tabs: Tab[];
 }
 
@@ -79,5 +80,7 @@ export interface Workspace {
 export interface Tree {
   /** Ordered-registry revision. Absent without the `workspace-registry-v1` capability. */
   workspace_revision?: number;
+  /** Live pane-membership revision. Absent on older servers. */
+  pane_revision?: number;
   workspaces: Workspace[];
 }

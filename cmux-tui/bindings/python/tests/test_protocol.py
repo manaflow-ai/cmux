@@ -89,10 +89,13 @@ class ProtocolTests(unittest.TestCase):
     def test_workspace_registry_fields_and_placements(self) -> None:
         tree = _parse_tree({
             "workspace_revision": 4,
+            "pane_revision": 7,
             "workspaces": [{"id": 1, "key": "stable", "name": "one", "active": True, "screens": []}],
         })
         self.assertEqual(tree.workspace_revision, 4)
+        self.assertEqual(tree.pane_revision, 7)
         self.assertEqual(tree.workspaces[0].key, "stable")
+        self.assertIsNone(_parse_tree({"workspaces": []}).pane_revision)
 
         client = CmuxClient.__new__(CmuxClient)
         client._protocol = 7
