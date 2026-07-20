@@ -96,6 +96,26 @@ cmux_attach_socket_path() {
   printf '/tmp/cmux-debug-%s.sock' "$(cmux_attach__slug "$1")"
 }
 
+# Remove a stale socket only for one validated tagged-build identity. Callers
+# must first prove the exact tagged app process has exited. Refuse regular files
+# and symlinks so this cleanup cannot delete an unrelated path substituted at
+# the tag's predictable socket location.
+cmux_attach_remove_stale_socket() {
+  local tag="$1" sock
+  cmux_attach_validate_dev_tag "$tag" || return 1
+  sock="$(cmux_attach_socket_path "$tag")"
+  if [[ -L "$sock" ]]; then
+    echo "error: refusing to remove symlink at tagged socket path: $sock" >&2
+    return 1
+  fi
+  if [[ -e "$sock" ]] && [[ ! -S "$sock" ]]; then
+    echo "error: refusing to remove non-socket at tagged socket path: $sock" >&2
+    return 1
+  fi
+  [[ -S "$sock" ]] || return 0
+  rm -f -- "$sock"
+}
+
 # The locally-built tagged macOS Debug .app bundle path (cloud/local reloads both
 # download/install here). Both the DerivedData dir AND the .app basename use the
 # sanitized slug, matching reload.sh (`APP_NAME="cmux DEV ${TAG_SLUG}"`); the raw
@@ -138,7 +158,7 @@ cmux_attach_mac_socket_ready() {
 # 0 if the Mac is ready to mint a usable target-specific ticket, 1 otherwise.
 # Never force-kills a running app by default.
 cmux_attach_ensure_mac() {
-  local tag="$1" repo_root="${2:-}" target="${3:?attach target is required}" sock app slug _i
+  local tag="$1" repo_root="${2:-}" target="${3:?attach target is required}" sock app slug mint_attempts _i
   sock="$(cmux_attach_socket_path "$tag")"
   app="$(cmux_attach_mac_app_path "$tag")"
   slug="$(cmux_attach__slug "$tag")"
@@ -179,7 +199,21 @@ cmux_attach_ensure_mac() {
   # binds /tmp/cmux-debug-<slug>.sock without extra env.
   open -g "$app" >/dev/null 2>&1 || open "$app" >/dev/null 2>&1 || true
   for _i in $(seq 1 60); do
-    [[ -S "$sock" ]] && return 0
+    if [[ -S "$sock" ]]; then
+      if [[ -z "$repo_root" ]]; then
+        return 0
+      fi
+      mint_attempts="${CMUX_ATTACH_MINT_MAX_ATTEMPTS:-20}"
+      if [[ -n "$(cmux_attach_mint_url "$tag" 60 "$repo_root" "$target" "$mint_attempts")" ]]; then
+        return 0
+      fi
+      if [[ "$target" == "physical_device" ]]; then
+        echo "warning: tagged Mac app for '$tag' launched, but no trusted Iroh ticket became ready." >&2
+      else
+        echo "warning: tagged Mac app for '$tag' launched, but its iOS pairing ticket did not become ready." >&2
+      fi
+      return 1
+    fi
     sleep 0.2
   done
   echo "warning: tagged Mac socket $sock did not appear after launch; auto-pair unavailable (signing in only)." >&2
@@ -194,7 +228,7 @@ cmux_attach_ensure_mac() {
 # Tailscale TCP cannot carry the phone's Stack credential, so fail closed here
 # instead of launching an app that must reject the ticket as untrusted.
 cmux_attach_mint_url() {
-  local tag="$1" ttl="$2" repo_root="$3" target="$4" max="${5:-20}" sock slug payload url node_status _i
+  local tag="$1" ttl="$2" repo_root="$3" target="$4" max="${5:-20}" sock slug payload url node_status saw_no_iroh=0 _i
   case "$target" in
     simulator_injection|physical_device) ;;
     *) echo "error: invalid attach target '$target'" >&2; return 1 ;;
@@ -227,21 +261,23 @@ if (typeof payload.attach_url === "string") process.stdout.write(payload.attach_
 NODE
       )" || node_status=$?
       if [[ "$node_status" -eq 2 ]]; then
-        # The Mac returned a structurally valid target-specific ticket, so a
-        # missing Iroh route is a permanent compatibility result for this
-        # launch. Retrying cannot change an already-published route set and
-        # only delays the actionable error.
-        return 2
+        # The legacy listener can publish Tailscale before asynchronous Iroh
+        # broker registration finishes. Remember that the Mac is reachable,
+        # but keep polling for the encrypted route until the readiness window
+        # closes.
+        saw_no_iroh=1
       fi
       if [[ -n "$url" ]]; then
         printf '%s' "$url"
         return 0
       fi
     fi
-    # Empty output, an RPC failure, or malformed output is transient. Keep
-    # polling for the bounded readiness window, while a valid no-Iroh ticket
-    # above returns immediately as a typed compatibility result.
+    # Empty output, malformed output, and a valid ticket that has not gained an
+    # Iroh route yet are all transient during startup. Poll to the deadline.
     sleep 0.5
   done
+  if [[ "$saw_no_iroh" -eq 1 ]]; then
+    return 2
+  fi
   return 1
 }

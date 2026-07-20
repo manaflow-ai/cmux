@@ -1607,17 +1607,26 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             setChromeHidden(false)
         }
         let cell = scrollCell(at: gesture.location(in: self))
-        delegate?.ghosttySurfaceView(self, didTapAtCol: cell.col, row: cell.row)
-        // A tap inside the composer band is excluded by the gesture recognizer
-        // (`gestureRecognizer(_:shouldReceive:)`), so any tap reaching here is a
-        // deliberate terminal tap. Only a reveal-from-hide with the composer still
-        // presented re-focuses the composer; every other terminal tap focuses the
-        // terminal proxy as before.
-        if wasHidden, composerActive {
-            delegate?.ghosttySurfaceViewDidRequestComposerFocus(self)
-            focusMountedComposerField()
-        } else {
-            focusInput()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let disposition = await self.delegate?.ghosttySurfaceView(
+                self,
+                didTapAtCol: cell.col,
+                row: cell.row
+            ) ?? .focusTerminal
+            guard disposition.shouldFocusTerminal else { return }
+
+            // A tap inside the composer band is excluded by the gesture recognizer
+            // (`gestureRecognizer(_:shouldReceive:)`), so any tap reaching here is a
+            // deliberate terminal tap. Only a reveal-from-hide with the composer still
+            // presented re-focuses the composer; every other terminal tap focuses the
+            // terminal proxy as before. Artifact taps never enter this focus path.
+            if wasHidden, self.composerActive {
+                self.delegate?.ghosttySurfaceViewDidRequestComposerFocus(self)
+                self.focusMountedComposerField()
+            } else {
+                self.focusInput()
+            }
         }
     }
 

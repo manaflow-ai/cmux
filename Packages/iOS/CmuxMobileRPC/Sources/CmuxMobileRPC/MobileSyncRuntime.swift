@@ -42,6 +42,8 @@ public protocol MobileSyncRuntime: Sendable {
     /// Optional source for one independent, sequence-aware terminal lane per
     /// mounted surface. A nil provider preserves control/event delivery.
     var terminalLaneProvider: MobileTerminalLaneProvider? { get }
+    /// Optional source for low-priority raw artifact bytes on an admitted Iroh peer.
+    var artifactLaneProvider: MobileArtifactLaneProvider? { get }
     /// Bounded deadline, in nanoseconds, for the render-grid liveness
     /// watchdog's subscription probe (an idempotent `mobile.events.subscribe`
     /// re-assert). A healthy idle terminal legitimately pushes no events, so
@@ -54,6 +56,7 @@ public protocol MobileSyncRuntime: Sendable {
 public extension MobileSyncRuntime {
     var independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? { nil }
     var terminalLaneProvider: MobileTerminalLaneProvider? { nil }
+    var artifactLaneProvider: MobileArtifactLaneProvider? { nil }
 
     /// Returns a cached Stack access token for best-effort status probes.
     var stackAccessTokenForStatusProvider: @Sendable () async -> String? {

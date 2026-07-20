@@ -2,6 +2,27 @@ internal import CMUXMobileCore
 import Foundation
 
 extension MobileCoreRPCSession {
+    /// Negotiates the optional event lane at most once for a subscription ID.
+    /// Re-assertions are control-channel liveness probes, so they only reuse an
+    /// already-active reader and never spend their deadline reopening a sidecar.
+    func prepareIndependentServerEvents(
+        forSubscriptionStreamID streamID: String,
+        timeoutNanoseconds: UInt64
+    ) async -> Bool {
+        let normalizedStreamID = streamID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedStreamID.isEmpty,
+           independentEventSubscriptionStreamIDs.contains(normalizedStreamID) {
+            return independentEventReader != nil
+        }
+        let prepared = await prepareIndependentServerEvents(
+            timeoutNanoseconds: timeoutNanoseconds
+        )
+        if !normalizedStreamID.isEmpty {
+            independentEventSubscriptionStreamIDs.insert(normalizedStreamID)
+        }
+        return prepared
+    }
+
     /// Prepares one independently framed server-event reader when the active
     /// route supports it. Concurrent callers coalesce onto the same provider.
     func prepareIndependentServerEvents(

@@ -22,6 +22,8 @@ public final class MobileDisplaySettings {
     private nonisolated(unsafe) let defaults: UserDefaults
     private static let wrapWorkspaceTitlesKey = "cmux.mobile.wrapWorkspaceTitles"
     private static let showAltScreenNoticeKey = "cmux.mobile.showAltScreenNotice"
+    private static let showMissingFilesKey = "cmux.mobile.showMissingFiles"
+    private static let terminalFilesChipEnabledKey = "cmux.mobile.terminalFilesChipEnabled"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     private static let profilePictureLeftShiftKey = "cmux.mobile.debug.profilePictureLeftShift"
@@ -56,6 +58,22 @@ public final class MobileDisplaySettings {
     /// this writes through to the injected ``UserDefaults``.
     public var showAltScreenNotice: Bool {
         didSet { defaults.set(showAltScreenNotice, forKey: Self.showAltScreenNoticeKey) }
+    }
+
+    /// Whether artifact galleries include paths that no longer exist on the
+    /// connected Mac. Defaults to `false`. Mutating this writes through to the
+    /// injected ``UserDefaults``.
+    public var showMissingFiles: Bool {
+        didSet { defaults.set(showMissingFiles, forKey: Self.showMissingFilesKey) }
+    }
+
+    /// Whether the beta terminal files chip and its count scan are enabled.
+    /// Defaults to `false`. Mutating this writes through to the injected
+    /// ``UserDefaults``.
+    public var terminalFilesChipEnabled: Bool {
+        didSet {
+            defaults.set(terminalFilesChipEnabled, forKey: Self.terminalFilesChipEnabledKey)
+        }
     }
 
     /// How many lines a workspace row's activity preview shows (1 or 2).
@@ -103,11 +121,14 @@ public final class MobileDisplaySettings {
     /// - Parameter defaults: The store backing the persisted preferences.
     ///   Defaults to `.standard`; tests pass a scoped suite. Stored properties
     ///   are initialized from `defaults`; absent keys read as their default
-    ///   (single-line titles, two preview lines) without a write.
+    ///   (single-line titles, hidden missing files, two preview lines) without
+    ///   a write.
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.wrapWorkspaceTitles = defaults.bool(forKey: Self.wrapWorkspaceTitlesKey)
         self.showAltScreenNotice = defaults.object(forKey: Self.showAltScreenNoticeKey) as? Bool ?? true
+        self.showMissingFiles = defaults.bool(forKey: Self.showMissingFilesKey)
+        self.terminalFilesChipEnabled = defaults.bool(forKey: Self.terminalFilesChipEnabledKey)
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int
         self.workspacePreviewLineCount = Self.clampedWorkspacePreviewLineCount(
             storedPreviewLines ?? Self.defaultWorkspacePreviewLineCount

@@ -1497,6 +1497,7 @@
       "flagName": "Drapeau",
       "flagDesc": "Descriptif",
       "flagNameVal": "Définir le titre de l'espace de travail",
+      "flagCommand": "Exécuter le texte de la commande une seule fois dans le terminal distant initial après le démarrage du shell",
       "flagPort": "Port SSH (22 par défaut)",
       "flagIdentity": "Chemin d'accès au fichier d'identité",
       "flagSshOption": "Passez des options SSH arbitraires (par exemple -o StrictHostKeyChecking=no)",
