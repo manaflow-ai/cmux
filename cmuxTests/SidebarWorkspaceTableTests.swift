@@ -150,6 +150,41 @@ struct SidebarWorkspaceTableTests {
 #if DEBUG
     @Test
     @MainActor
+    func tableApplyCoalescesAndMutatesOnlyAfterTheCurrentCallbackReturns() {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let first = makeRowConfiguration()
+        let second = makeRowConfiguration()
+        let actions = makeTableActions()
+
+        controller.apply(
+            rows: [first],
+            actions: actions,
+            workspaceIds: [first.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        controller.apply(
+            rows: [first, second],
+            actions: actions,
+            workspaceIds: [first.workspaceId, second.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+
+        #expect(
+            container.tableView.numberOfRows == 0,
+            "Representable updates must not mutate NSTableView before the originating callback returns."
+        )
+        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
+        #expect(
+            container.tableView.numberOfRows == 2,
+            "The deferred boundary must coalesce repeated inputs and apply the newest table snapshot."
+        )
+    }
+
+    @Test
+    @MainActor
     func equivalentCellConfigurationDoesNotRenderAgain() {
         let cell = SidebarWorkspaceTableCellView()
         let workspaceId = UUID()
