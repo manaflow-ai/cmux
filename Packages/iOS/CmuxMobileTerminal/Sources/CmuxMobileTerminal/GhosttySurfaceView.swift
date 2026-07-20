@@ -1933,7 +1933,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             resetVisibleArtifactCountTracking()
             startDisplayLink()
+            delegate?.ghosttySurfaceView(self, didChangeWindowAttachment: true)
         } else {
+            delegate?.ghosttySurfaceView(self, didChangeWindowAttachment: false)
             prepareForReuseAfterDetach()
         }
     }

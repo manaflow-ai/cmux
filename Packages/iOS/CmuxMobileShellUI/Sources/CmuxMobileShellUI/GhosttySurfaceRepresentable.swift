@@ -245,6 +245,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.surfaceView = surfaceView
             surfaceView.artifactFilesEnabled = artifactFilesEnabled
             updateArtifactChip(count: artifactCountNeedsRefresh ? 0 : visibleArtifactCount)
+            guard surfaceView.window != nil else { return }
+            startMountedTasks(surfaceView: surfaceView)
+        }
+
+        private func startMountedTasks(surfaceView: GhosttySurfaceView) {
+            guard outputTask == nil else { return }
             guard let store else { return }
             let surfaceID = surfaceID
             viewportReportScheduler = TerminalViewportReportScheduler(
@@ -396,19 +402,37 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
         }
 
-        func detach() {
+        private func stopMountedTasks() {
             outputTask?.cancel()
             outputTask = nil
             verifiedReplayState.invalidate()
             liveFontTask?.cancel()
             liveFontTask = nil
+            viewportReportScheduler?.cancel()
+            viewportReportScheduler = nil
+            activeViewportPolicy = .natural
+        }
+
+        func detach() {
+            stopMountedTasks()
             themeApplicationScheduler.cancel()
             artifactCountTask?.cancel()
             artifactCountTask = nil
             artifactCountTaskRequest = nil
             artifactCountState.reset()
-            viewportReportScheduler?.cancel()
-            viewportReportScheduler = nil
+            surfaceView = nil
+        }
+
+        func ghosttySurfaceView(
+            _ surfaceView: GhosttySurfaceView,
+            didChangeWindowAttachment isAttached: Bool
+        ) {
+            guard self.surfaceView === surfaceView else { return }
+            if isAttached {
+                startMountedTasks(surfaceView: surfaceView)
+            } else {
+                stopMountedTasks()
+            }
         }
 
         private func applyVerifiedRenderGrid(

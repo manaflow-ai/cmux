@@ -7094,12 +7094,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return bytes
     }
 
+    @discardableResult
     private func registerTerminalOutput(
         surfaceID: String,
         continuation: AsyncStream<MobileTerminalOutputChunk>.Continuation
-    ) {
+    ) -> UUID {
+        let streamToken = UUID()
         terminalByteContinuationsBySurfaceID[surfaceID] = continuation
-        terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
+        terminalOutputStreamTokensBySurfaceID[surfaceID] = streamToken
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
@@ -7115,9 +7117,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #endif
         requestColdAttachTerminalReplay(surfaceID: surfaceID)
         ensureTerminalLane(surfaceID: surfaceID)
+        return streamToken
     }
 
-    private func unregisterTerminalOutput(surfaceID: String) {
+    private func unregisterTerminalOutput(surfaceID: String, streamToken: UUID) {
+        guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else { return }
         terminalLaneOutputReadySurfaceIDs.remove(surfaceID)
         if let terminalLaneCoordinator {
             Task { await terminalLaneCoordinator.deactivate(surfaceID: surfaceID) }
@@ -7175,10 +7179,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// - Returns: An `AsyncStream` of output byte chunks.
     public func terminalOutputStream(surfaceID: String) -> AsyncStream<MobileTerminalOutputChunk> {
         AsyncStream { continuation in
-            registerTerminalOutput(surfaceID: surfaceID, continuation: continuation)
+            let streamToken = registerTerminalOutput(
+                surfaceID: surfaceID,
+                continuation: continuation
+            )
             continuation.onTermination = { [weak self] _ in
                 Task { @MainActor in
-                    self?.unregisterTerminalOutput(surfaceID: surfaceID)
+                    self?.unregisterTerminalOutput(
+                        surfaceID: surfaceID,
+                        streamToken: streamToken
+                    )
                 }
             }
         }
