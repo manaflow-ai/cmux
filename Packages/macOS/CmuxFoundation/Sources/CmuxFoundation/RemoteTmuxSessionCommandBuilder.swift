@@ -54,7 +54,7 @@ public struct RemoteTmuxSessionCommandBuilder: Sendable {
             sessionName,
             shellCommand,
         ])
-        .map(Self.shellQuoted)
+        .map(\.remoteCommandShellQuoted)
         .joined(separator: " ")
     }
 
@@ -105,9 +105,5 @@ public struct RemoteTmuxSessionCommandBuilder: Sendable {
         surfaceEnvironmentKeys.map { key in
             "\"$cmux_tmux\" set-environment -t \"$cmux_session_target\" -u \(key) >/dev/null || exit $?"
         }
-    }
-
-    private static func shellQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }

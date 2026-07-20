@@ -7,13 +7,7 @@ internal import Foundation
 /// for its terminal while SSH continues to carry daemon and relay traffic.
 public struct WorkspaceRemoteTerminalProfile: Codable, Equatable, Sendable {
     /// The program family launched in the remote terminal.
-    public enum Kind: String, Codable, Sendable {
-        /// Start the account's interactive login shell.
-        case shell
-
-        /// Create or attach to a named tmux session in the terminal.
-        case tmux
-    }
+    public typealias Kind = WorkspaceRemoteTerminalProfileKind
 
     /// The default session used by `cmux mosh-tmux`.
     public static let defaultTmuxSessionName = "main"
@@ -44,11 +38,11 @@ public struct WorkspaceRemoteTerminalProfile: Codable, Equatable, Sendable {
     public init?(kind: Kind, tmuxSessionName: String? = nil) {
         switch kind {
         case .shell:
-            guard Self.normalizedSessionName(tmuxSessionName) == nil else { return nil }
+            guard tmuxSessionName.normalizedRemoteTmuxSessionName == nil else { return nil }
             self.init(validatedKind: .shell, tmuxSessionName: nil)
         case .tmux:
             let candidate = tmuxSessionName ?? Self.defaultTmuxSessionName
-            guard let sessionName = Self.validatedSessionName(candidate) else { return nil }
+            guard let sessionName = candidate.validatedRemoteTmuxSessionName else { return nil }
             self.init(validatedKind: .tmux, tmuxSessionName: sessionName)
         }
     }
@@ -63,7 +57,7 @@ public struct WorkspaceRemoteTerminalProfile: Codable, Equatable, Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         if rawKind?.isEmpty != false {
-            guard Self.normalizedSessionName(tmuxSessionName) == nil else { return nil }
+            guard tmuxSessionName.normalizedRemoteTmuxSessionName == nil else { return nil }
             self = .shell
             return
         }
@@ -118,9 +112,18 @@ public struct WorkspaceRemoteTerminalProfile: Codable, Equatable, Sendable {
         kind = validatedKind
         self.tmuxSessionName = tmuxSessionName
     }
+}
 
-    private static func validatedSessionName(_ value: String) -> String? {
-        guard let normalized = normalizedSessionName(value),
+private extension Optional where Wrapped == String {
+    var normalizedRemoteTmuxSessionName: String? {
+        let normalized = self?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized?.isEmpty == false ? normalized : nil
+    }
+}
+
+private extension String {
+    var validatedRemoteTmuxSessionName: String? {
+        guard let normalized = Optional(self).normalizedRemoteTmuxSessionName,
               normalized.utf8.count <= 128,
               !normalized.unicodeScalars.contains(where: { scalar in
                   switch scalar.properties.generalCategory {
@@ -131,10 +134,5 @@ public struct WorkspaceRemoteTerminalProfile: Codable, Equatable, Sendable {
                   }
               }) else { return nil }
         return normalized
-    }
-
-    private static func normalizedSessionName(_ value: String?) -> String? {
-        let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalized?.isEmpty == false ? normalized : nil
     }
 }

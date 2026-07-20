@@ -40,7 +40,7 @@ public struct RemoteExecutableCommandBuilder: Sendable {
     /// - Returns: A command suitable for an OpenSSH remote-command string.
     public func remoteShellCommand(arguments: [String]) -> String {
         remoteCommandArguments(arguments: arguments)
-            .map(Self.shellQuoted)
+            .map(\.remoteCommandShellQuoted)
             .joined(separator: " ")
     }
 
@@ -57,7 +57,7 @@ public struct RemoteExecutableCommandBuilder: Sendable {
             executableName,
             notFoundSentinel,
         ]
-        .map(Self.shellQuoted)
+        .map(\.remoteCommandShellQuoted)
         .joined(separator: " ")
     }
 
@@ -75,7 +75,7 @@ public struct RemoteExecutableCommandBuilder: Sendable {
             executableName,
             notFoundSentinel,
         ]
-        .map(Self.shellQuoted)
+        .map(\.remoteCommandShellQuoted)
         .joined(separator: " ")
     }
 
@@ -102,8 +102,11 @@ public struct RemoteExecutableCommandBuilder: Sendable {
         "eval \"$(/usr/libexec/path_helper -s 2>/dev/null)\"; " +
         "if command -v \"$cmux_executable_name\" >/dev/null 2>&1; then " +
         "cmux_executable_path=\"$(command -v \"$cmux_executable_name\")\"; fi; fi; "
+}
 
-    static func shellQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+extension String {
+    /// This string encoded as one POSIX shell argument.
+    var remoteCommandShellQuoted: String {
+        "'" + replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }

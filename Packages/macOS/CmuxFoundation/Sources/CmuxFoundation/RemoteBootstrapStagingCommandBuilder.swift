@@ -43,21 +43,21 @@ public struct RemoteBootstrapStagingCommandBuilder: Sendable {
             "-c",
             remoteInstallShellScript,
         ])
-        .map(Self.shellQuoted)
+        .map(\.remoteCommandShellQuoted)
         .joined(separator: " ")
         let sshPrefix = installerSSHArguments
-            .map(Self.shellQuoted)
+            .map(\.remoteCommandShellQuoted)
             .joined(separator: " ")
         return [
             "cmux_workspace_id=\"${CMUX_WORKSPACE_ID:-}\"",
             "cmux_surface_id=\"${CMUX_SURFACE_ID:-}\"",
-            "cmux_remote_bootstrap_b64=\(Self.shellQuoted(encodedBootstrapScript))",
+            "cmux_remote_bootstrap_b64=\(encodedBootstrapScript.remoteCommandShellQuoted)",
             "cmux_remote_bootstrap=\"$(printf %s \"$cmux_remote_bootstrap_b64\" | base64 -d 2>/dev/null || printf %s \"$cmux_remote_bootstrap_b64\" | base64 -D 2>/dev/null)\"",
             "cmux_sed_escape() { printf '%s' \"$1\" | sed 's/[\\/&\\\\]/\\\\&/g'; }",
             "cmux_workspace_id_escaped=\"$(cmux_sed_escape \"$cmux_workspace_id\")\"",
             "cmux_surface_id_escaped=\"$(cmux_sed_escape \"$cmux_surface_id\")\"",
             "cmux_remote_bootstrap=\"$(printf '%s' \"$cmux_remote_bootstrap\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_workspace_id_escaped/g; s/__CMUX_SURFACE_ID__/$cmux_surface_id_escaped/g\")\"",
-            "printf '%s' \"$cmux_remote_bootstrap\" | command \(sshPrefix) -T \(Self.shellQuoted(destination)) \(Self.shellQuoted(installCommand))",
+            "printf '%s' \"$cmux_remote_bootstrap\" | command \(sshPrefix) -T \(destination.remoteCommandShellQuoted) \(installCommand.remoteCommandShellQuoted)",
             "cmux_remote_install_status=$?",
             "unset cmux_remote_bootstrap cmux_remote_bootstrap_b64 cmux_workspace_id cmux_surface_id cmux_workspace_id_escaped cmux_surface_id_escaped",
             "(exit \"$cmux_remote_install_status\")",
@@ -83,9 +83,5 @@ public struct RemoteBootstrapStagingCommandBuilder: Sendable {
             "cat > \"$cmux_bootstrap_path\"",
             "chmod 700 \"$cmux_bootstrap_path\" >/dev/null 2>&1 || true",
         ].joined(separator: "\n")
-    }
-
-    private static func shellQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }

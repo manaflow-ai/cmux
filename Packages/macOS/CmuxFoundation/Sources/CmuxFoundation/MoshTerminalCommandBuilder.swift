@@ -87,10 +87,10 @@ public struct MoshTerminalCommandBuilder: Sendable {
             destination,
             remoteCapabilityCommand,
         ])
-            .map(RemoteExecutableCommandBuilder.shellQuoted)
+            .map(\.remoteCommandShellQuoted)
             .joined(separator: " ")
         let moshSSHCommand = sessionSSHArguments
-            .map(RemoteExecutableCommandBuilder.shellQuoted)
+            .map(\.remoteCommandShellQuoted)
             .joined(separator: " ")
         let moshArguments = ([
             "--experimental-remote-ip=remote",
@@ -99,14 +99,14 @@ public struct MoshTerminalCommandBuilder: Sendable {
             "--",
             destination,
         ] + remoteCommandArguments)
-            .map(RemoteExecutableCommandBuilder.shellQuoted)
+            .map(\.remoteCommandShellQuoted)
             .joined(separator: " ")
         var script = [
-            "cmux_mosh_fallback() { exec /bin/sh -c \(RemoteExecutableCommandBuilder.shellQuoted(sshFallbackCommand)); }",
+            "cmux_mosh_fallback() { exec /bin/sh -c \(sshFallbackCommand.remoteCommandShellQuoted); }",
             "cmux_mosh=\"$(\(localMoshResolver.resolutionProbeShellCommand) 2>/dev/null)\"",
             "cmux_mosh_resolve_status=$?",
             "if [ \"$cmux_mosh_resolve_status\" -ne 0 ] || [ -z \"$cmux_mosh\" ]; then",
-            "  printf '%s\\n' \(RemoteExecutableCommandBuilder.shellQuoted(localMoshMissingMessage)) >&2",
+            "  printf '%s\\n' \(localMoshMissingMessage.remoteCommandShellQuoted) >&2",
             "  cmux_mosh_fallback",
             "fi",
             "unset cmux_mosh_resolve_status",
@@ -114,7 +114,7 @@ public struct MoshTerminalCommandBuilder: Sendable {
             "case \"$cmux_mosh_help\" in",
             "  *--experimental-remote-ip=*) ;;",
             "  *)",
-            "    printf '%s\\n' \(RemoteExecutableCommandBuilder.shellQuoted(localMoshUnsupportedMessage)) >&2",
+            "    printf '%s\\n' \(localMoshUnsupportedMessage.remoteCommandShellQuoted) >&2",
             "    cmux_mosh_fallback",
             "    ;;",
             "esac",
@@ -122,11 +122,11 @@ public struct MoshTerminalCommandBuilder: Sendable {
             capabilityProbe,
             "cmux_mosh_probe_status=$?",
             "if [ \"$cmux_mosh_probe_status\" -eq 127 ]; then",
-            "  printf '%s\\n' \(RemoteExecutableCommandBuilder.shellQuoted(remoteMoshMissingMessage)) >&2",
+            "  printf '%s\\n' \(remoteMoshMissingMessage.remoteCommandShellQuoted) >&2",
             "  cmux_mosh_fallback",
             "fi",
             "if [ \"$cmux_mosh_probe_status\" -ne 0 ]; then",
-            "  printf '%s\\n' \(RemoteExecutableCommandBuilder.shellQuoted(remoteMoshProbeFailedMessage)) >&2",
+            "  printf '%s\\n' \(remoteMoshProbeFailedMessage.remoteCommandShellQuoted) >&2",
             "  cmux_mosh_fallback",
             "fi",
             "unset cmux_mosh_probe_status",
@@ -138,7 +138,7 @@ public struct MoshTerminalCommandBuilder: Sendable {
                 preparationShellScript,
                 "cmux_mosh_prepare_status=$?",
                 "if [ \"$cmux_mosh_prepare_status\" -ne 0 ]; then",
-                "  printf '%s\\n' \(RemoteExecutableCommandBuilder.shellQuoted(remoteMoshProbeFailedMessage)) >&2",
+                "  printf '%s\\n' \(remoteMoshProbeFailedMessage.remoteCommandShellQuoted) >&2",
                 "  cmux_mosh_fallback",
                 "fi",
                 "unset cmux_mosh_prepare_status cmux_remote_install_status",
@@ -150,6 +150,6 @@ public struct MoshTerminalCommandBuilder: Sendable {
             script.append(managementReadyShellScript)
         }
         script.append("exec \"$cmux_mosh\" \(moshArguments)")
-        return "/bin/sh -c \(RemoteExecutableCommandBuilder.shellQuoted(script.joined(separator: "\n")))"
+        return "/bin/sh -c \(script.joined(separator: "\n").remoteCommandShellQuoted)"
     }
 }
