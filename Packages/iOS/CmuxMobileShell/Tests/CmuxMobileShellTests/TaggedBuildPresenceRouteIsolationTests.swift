@@ -140,17 +140,7 @@ import Testing
             )]],
             blockedTeams: []
         )
-        let transportFactory = RouteRecordingTransportFactory(
-            router: LivenessHostRouter(),
-            box: TransportBox(),
-            failingPorts: [51_001]
-        )
         let store = MobileShellComposite(
-            runtime: LivenessTestRuntime(
-                transportFactory: transportFactory,
-                now: Date.init,
-                supportedRouteKinds: [.tailscale]
-            ),
             isSignedIn: true,
             pairedMacStore: pairedStore,
             buildCompatibilityPolicy: .official,
@@ -187,7 +177,6 @@ import Testing
             scope: accountScope
         )
         await store.pushedRouteSyncTask?.value
-        await store.recoveryTask?.value
 
         #expect(try await storedInstanceTag(in: pairedStore) == "default")
         #expect(await pairedStore.currentUpsertCount() == 1)
