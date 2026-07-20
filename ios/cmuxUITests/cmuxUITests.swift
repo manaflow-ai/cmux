@@ -142,8 +142,8 @@ final class cmuxUITests: XCTestCase {
 
         // Exercise rapid opposite-direction flicks while live 80 ms row
         // updates continue. XCUITest waits for UI quiescence between public
-        // swipe calls; the pan-end/deceleration ordering regression lives in
-        // WorkspaceListScrollUpdateTests.
+        // swipe calls; WorkspaceListScrollUpdateTests separately asserts that
+        // the coordinator leaves the pan lifecycle entirely to UIKit.
         table.swipeUp(velocity: .fast)
         table.swipeDown(velocity: .fast)
         for _ in 0..<4 where !firstRow.isHittable {
