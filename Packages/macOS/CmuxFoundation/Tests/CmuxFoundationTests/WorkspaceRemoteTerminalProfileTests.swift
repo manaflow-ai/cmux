@@ -57,6 +57,17 @@ struct WorkspaceRemoteTerminalProfileTests {
         ) == nil)
     }
 
+    @Test(
+        "tmux target separators are rejected before tmux normalizes them",
+        arguments: ["feature.v2", "feature:v2"]
+    )
+    func rejectsTmuxTargetSeparators(_ sessionName: String) {
+        #expect(WorkspaceRemoteTerminalProfile(
+            kind: .tmux,
+            tmuxSessionName: sessionName
+        ) == nil)
+    }
+
     @Test("profile persistence round-trips the typed tmux intent")
     func codableRoundTrip() throws {
         let original = try #require(WorkspaceRemoteTerminalProfile(
