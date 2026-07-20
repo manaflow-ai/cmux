@@ -27,6 +27,22 @@ private final class WorkspaceListInteractionTestPanGestureRecognizer: UIPanGestu
 
 @MainActor
 @Suite struct WorkspaceListScrollUpdateTests {
+    @Test func coordinatorLeavesPanLifecycleToUIKit() {
+        let initial = configuration(workspaceIDs: ["workspace-1"])
+        let interaction = WorkspaceListInteractionTestState()
+        let coordinator = coordinator(configuration: initial, interaction: interaction)
+        let tableView = WorkspaceListUITableView(
+            frame: CGRect(x: 0, y: 0, width: 390, height: 844)
+        )
+
+        coordinator.attach(to: tableView)
+
+        #expect(
+            !coordinator.responds(to: NSSelectorFromString("scrollPanGestureStateChanged:")),
+            "UITableView must own pan interruption and deceleration without a coordinator target."
+        )
+    }
+
     @Test func liveSnapshotWaitsForDirectionReversalToFinish() {
         let initial = configuration(workspaceIDs: ["workspace-1"])
         let interaction = WorkspaceListInteractionTestState()
