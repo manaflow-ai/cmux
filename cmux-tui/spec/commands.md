@@ -36,7 +36,7 @@ Common CLI exit codes for every mapping are `0` success, `1` command error, `2` 
 `Tree`:
 
 ```text
-object{workspace_revision?:uint64,workspaces:array<Workspace>}
+object{workspace_revision?:uint64,pane_revision?:uint64,workspaces:array<Workspace>}
 ```
 
 `Workspace`:
@@ -48,6 +48,10 @@ object{id:Id,key?:string,name:string,active:boolean,screens:array<Screen>}
 `workspace_revision` and `Workspace.key` are present on servers advertising
 `workspace-registry-v1`. They are omitted by older servers, so clients must
 treat a missing revision as `0` and a missing key as unavailable.
+
+`pane_revision` changes only when the live pane-ID set changes. Renderers can
+use it to invalidate pane-membership caches without scanning unchanged trees.
+Older servers omit it, so clients must treat it as unavailable.
 
 `Screen`:
 

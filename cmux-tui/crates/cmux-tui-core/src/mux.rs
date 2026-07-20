@@ -566,6 +566,7 @@ impl Mux {
                 workspace_index_by_id: HashMap::new(),
                 workspace_id_by_key: HashMap::new(),
                 workspace_revision: 0,
+                pane_revision: 0,
                 focus_sequence: 0,
                 active_workspace: 0,
                 panes: HashMap::new(),
@@ -1968,7 +1969,7 @@ impl Mux {
         let delta = {
             let mut state = self.state.lock().unwrap();
             let name = name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
-            state.panes.insert(pane_id, pane);
+            state.insert_pane(pane);
             stamp_pane_focus(self, &mut state, pane_id);
             state.push_workspace(Workspace {
                 id: ws_id,
@@ -2099,7 +2100,7 @@ impl Mux {
                 let mut state = self.state.lock().unwrap();
                 let workspace_name =
                     name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
-                state.panes.insert(pane_id, pane);
+                state.insert_pane(pane);
                 stamp_pane_focus(self, &mut state, pane_id);
                 state.push_workspace(Workspace {
                     id: ws_id,
@@ -2282,7 +2283,7 @@ impl Mux {
                     ws.active_screen = ws.screens.len() - 1;
                     let workspace = ws.id;
                     let index = ws.screens.len() - 1;
-                    state.panes.insert(pane_id, pane);
+                    state.insert_pane(pane);
                     stamp_pane_focus(self, &mut state, pane_id);
                     let entity = crate::server::tree_entity_json(
                         &state,
@@ -2515,7 +2516,7 @@ impl Mux {
             } else {
                 let (pane_id, pane) = self.make_pane(surface.id);
                 let screen_id = self.next_id();
-                state.panes.insert(pane_id, pane);
+                state.insert_pane(pane);
                 stamp_pane_focus(self, &mut state, pane_id);
                 state.workspaces[wi].screens.push(Screen {
                     id: screen_id,
@@ -2602,7 +2603,7 @@ impl Mux {
             let delta = {
                 let mut state = self.state.lock().unwrap();
                 let name = format!("{}", state.workspaces.len() + 1);
-                state.panes.insert(pane_id, pane);
+                state.insert_pane(pane);
                 stamp_pane_focus(self, &mut state, pane_id);
                 state.push_workspace(Workspace {
                     id: ws_id,
@@ -2755,7 +2756,7 @@ impl Mux {
             } else {
                 let (pane_id, pane) = self.make_pane(surface.id);
                 let screen_id = self.next_id();
-                state.panes.insert(pane_id, pane);
+                state.insert_pane(pane);
                 stamp_pane_focus(self, &mut state, pane_id);
                 state.workspaces[wi].screens.push(Screen {
                     id: screen_id,
@@ -2925,17 +2926,14 @@ impl Mux {
                 }
             }
             if done {
-                state.panes.insert(
-                    pane_id,
-                    Pane {
-                        id: pane_id,
-                        name: None,
-                        tabs: vec![surface.id],
-                        active_tab: 0,
-                        active_at,
-                        focused_at: 0,
-                    },
-                );
+                state.insert_pane(Pane {
+                    id: pane_id,
+                    name: None,
+                    tabs: vec![surface.id],
+                    active_tab: 0,
+                    active_at,
+                    focused_at: 0,
+                });
                 stamp_pane_focus(self, &mut state, pane_id);
                 let entity = crate::server::tree_entity_json(
                     &state,
@@ -3028,17 +3026,14 @@ impl Mux {
                 }
             }
             if let Some(screen) = changed_screen {
-                state.panes.insert(
-                    pane_id,
-                    Pane {
-                        id: pane_id,
-                        name: None,
-                        tabs: vec![surface.id],
-                        active_tab: 0,
-                        active_at,
-                        focused_at: 0,
-                    },
-                );
+                state.insert_pane(Pane {
+                    id: pane_id,
+                    name: None,
+                    tabs: vec![surface.id],
+                    active_tab: 0,
+                    active_at,
+                    focused_at: 0,
+                });
                 stamp_pane_focus(self, &mut state, pane_id);
                 Self::rebuild_split_screen_index(&mut state);
                 let entity = crate::server::tree_entity_json(
@@ -3320,7 +3315,7 @@ impl Mux {
             }
             let mut removed = Vec::new();
             for pane_id in pane_ids {
-                if let Some(pane) = state.panes.remove(&pane_id) {
+                if let Some(pane) = state.remove_pane(pane_id) {
                     for surface in pane.tabs {
                         if let Some(surface) = state.surfaces.remove(&surface) {
                             removed.push(surface);
@@ -3781,8 +3776,8 @@ impl Mux {
         let notifications = self.surface_notifications();
         let delta = {
             let mut state = self.state.lock().unwrap();
-            for (pane_id, pane) in panes {
-                state.panes.insert(pane_id, pane);
+            for (_, pane) in panes {
+                state.insert_pane(pane);
             }
             stamp_pane_focus(self, &mut state, active_pane);
             let screen = Screen {
@@ -4432,7 +4427,7 @@ fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Ar
     }
 
     // Last tab gone: the pane collapses out of its screen.
-    state.panes.remove(&pane_id);
+    state.remove_pane(pane_id);
     let Some((wi, si)) = state.screen_of(pane_id) else {
         return (removed, false);
     };
@@ -4500,7 +4495,7 @@ fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Ar
 }
 
 fn collapse_empty_pane(mux: &Mux, state: &mut State, pane_id: PaneId) {
-    state.panes.remove(&pane_id);
+    state.remove_pane(pane_id);
     let Some((wi, si)) = state.screen_of(pane_id) else {
         return;
     };
@@ -5211,6 +5206,7 @@ mod tests {
                 1,
             )]),
             workspace_revision: 1,
+            pane_revision: 3,
             focus_sequence: 3,
             active_workspace: 0,
             panes: HashMap::from([
@@ -6152,6 +6148,7 @@ mod tests {
         let pane = mux.with_state(|s| s.pane_of(s1.id).unwrap());
         let s2 = mux.new_tab(Some(pane), None, None).unwrap();
         let s3 = mux.new_tab(Some(pane), None, None).unwrap();
+        let pane_revision = mux.with_state(|s| s.pane_revision);
 
         assert!(mux.move_tab(s3.id, pane, 0));
         mux.with_state(|s| {
@@ -6165,6 +6162,7 @@ mod tests {
             let pane = &s.panes[&pane];
             assert_eq!(pane.tabs, vec![s1.id, s2.id, s3.id]);
             assert_eq!(pane.active_tab, 2);
+            assert_eq!(s.pane_revision, pane_revision);
         });
     }
 
@@ -6218,6 +6216,7 @@ mod tests {
         let s2 = mux.split(p1, SplitDir::Right, None).unwrap();
         let p2 = mux.with_state(|s| s.pane_of(s2.id).unwrap());
         let original_count = mux.surface_count();
+        let pane_revision = mux.with_state(|s| s.pane_revision);
 
         assert!(mux.move_tab(s1.id, p2, 0));
         mux.with_state(|s| {
@@ -6229,6 +6228,7 @@ mod tests {
             let mut ids = Vec::new();
             s.workspaces[0].screens[0].root.pane_ids(&mut ids);
             assert_eq!(ids, vec![p2]);
+            assert_eq!(s.pane_revision, pane_revision + 1);
         });
         assert_eq!(mux.surface_count(), original_count);
     }

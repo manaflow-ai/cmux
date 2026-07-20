@@ -1962,6 +1962,7 @@ fn workspaces_json(
     let short_ids = tree_short_ids(state);
     json!({
         "workspace_revision": state.workspace_revision,
+        "pane_revision": state.pane_revision,
         "workspaces": state.workspaces.iter().enumerate().map(|(index, workspace)| {
             workspace_json(state, workspace, index, &short_ids, notifications)
         }).collect::<Vec<_>>(),

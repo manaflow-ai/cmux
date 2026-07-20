@@ -17,8 +17,8 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use cmux_tui_core::{
     BrowserSource, BrowserStatus, Direction, MuxEvent, PairingChallenge, PaneId, Rect, SplitDir,
-    SplitEdge, SplitId, SurfaceId, SurfaceKind, TreeDelta, TreeDeltaKind, WorkspaceId,
-    exact_split_for_pane_edge, layout_screen, split_sides, zellij_default_pane_layout,
+    SplitEdge, SplitId, SurfaceId, SurfaceKind, WorkspaceId, exact_split_for_pane_edge,
+    layout_screen, split_sides, zellij_default_pane_layout,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -2428,7 +2428,7 @@ struct PaneFocusHistory {
     next_sequence: u64,
     recency: HashMap<PaneId, u64>,
     baseline: HashMap<PaneId, u64>,
-    membership: HashSet<PaneId>,
+    membership_revision: Option<u64>,
     membership_initialized: bool,
 }
 
@@ -2454,9 +2454,6 @@ impl PaneFocusHistory {
             .flat_map(|screen| screen.panes.iter())
             .map(|pane| pane.id)
             .collect::<HashSet<_>>();
-        if self.membership == live {
-            return;
-        }
         self.recency.retain(|pane, _| live.contains(pane));
         self.baseline.retain(|pane, _| live.contains(pane));
         for pane in tree
@@ -2467,71 +2464,15 @@ impl PaneFocusHistory {
         {
             self.baseline.entry(pane.id).or_insert(pane.focused_at);
         }
-        self.membership = live;
+        self.membership_revision = tree.pane_revision;
         self.membership_initialized = true;
     }
 
-    fn ensure_membership(&mut self, tree: &TreeView) {
-        if !self.membership_initialized {
+    fn sync_membership(&mut self, tree: &TreeView) {
+        if !self.membership_initialized
+            || tree.pane_revision.is_some() && self.membership_revision != tree.pane_revision
+        {
             self.reconcile_membership(tree);
-        }
-    }
-
-    fn apply_tree_delta(&mut self, delta: &TreeDelta) {
-        let added = matches!(
-            delta.kind,
-            TreeDeltaKind::WorkspaceAdded | TreeDeltaKind::ScreenAdded | TreeDeltaKind::PaneAdded
-        );
-        let removed = matches!(
-            delta.kind,
-            TreeDeltaKind::WorkspaceClosed
-                | TreeDeltaKind::ScreenClosed
-                | TreeDeltaKind::PaneClosed
-        );
-        if !added && !removed {
-            return;
-        }
-        if matches!(delta.kind, TreeDeltaKind::PaneAdded | TreeDeltaKind::PaneClosed) {
-            if let Some(pane) = delta.pane {
-                let focused_at = delta
-                    .entity
-                    .get("focused_at")
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or_default();
-                self.apply_membership_change(pane, focused_at, added);
-            }
-            return;
-        }
-        visit_entity_panes(&delta.entity, &mut |pane, focused_at| {
-            self.apply_membership_change(pane, focused_at, added);
-        });
-    }
-
-    fn apply_membership_change(&mut self, pane: PaneId, focused_at: u64, added: bool) {
-        if added {
-            self.membership.insert(pane);
-            self.baseline.entry(pane).or_insert(focused_at);
-        } else {
-            self.membership.remove(&pane);
-            self.recency.remove(&pane);
-            self.baseline.remove(&pane);
-        }
-    }
-}
-
-fn visit_entity_panes(value: &serde_json::Value, visit: &mut impl FnMut(PaneId, u64)) {
-    if let Some(panes) = value.get("panes").and_then(serde_json::Value::as_array) {
-        for pane in panes {
-            if let Some(id) = pane.get("id").and_then(serde_json::Value::as_u64) {
-                let focused_at =
-                    pane.get("focused_at").and_then(serde_json::Value::as_u64).unwrap_or_default();
-                visit(id, focused_at);
-            }
-        }
-    }
-    if let Some(screens) = value.get("screens").and_then(serde_json::Value::as_array) {
-        for screen in screens {
-            visit_entity_panes(screen, visit);
         }
     }
 }
@@ -3291,7 +3232,7 @@ impl App {
         for surface in removed_browsers {
             self.browser_input.forget_surface(surface);
         }
-        self.pane_focus_history.ensure_membership(&tree);
+        self.pane_focus_history.sync_membership(&tree);
         self.tree = tree;
         if self.active_pane() != previous_active
             && let Some(active) = self.active_pane()
@@ -3303,6 +3244,11 @@ impl App {
     }
 
     fn replace_authoritative_tree(&mut self, tree: TreeView, routing_generation: u64) {
+        if tree.pane_revision.is_none() {
+            self.pane_focus_history.reconcile_membership(&tree);
+        } else {
+            self.pane_focus_history.sync_membership(&tree);
+        }
         let live_surfaces = tree
             .workspaces
             .iter()
@@ -3873,9 +3819,6 @@ impl App {
             }
             _ => {}
         }
-        if let AppEvent::Mux(MuxEvent::TreeDelta(delta)) = &event {
-            self.pane_focus_history.apply_tree_delta(delta);
-        }
         if matches!(
             &event,
             AppEvent::Mux(
@@ -3930,7 +3873,6 @@ impl App {
                 match result {
                     Ok(tree) => {
                         let empty = tree.workspaces.is_empty();
-                        self.pane_focus_history.reconcile_membership(&tree);
                         self.replace_authoritative_tree(tree, routing_generation);
                         self.session.refresh_clients_background();
                         if empty {
@@ -7708,7 +7650,7 @@ mod tests {
 
     use cmux_tui_core::{
         BrowserStatus, Direction, Mux, MuxEvent, Node, Rect, SplitDir, SurfaceId, SurfaceKind,
-        SurfaceOptions, TreeDelta, TreeDeltaKind, layout_screen,
+        SurfaceOptions, layout_screen,
     };
     use crossterm::event::{
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -7793,7 +7735,7 @@ mod tests {
 
         let mut peer_refresh = initial.clone();
         peer_refresh.workspaces[0].screens[0].panes[0].focused_at = 99;
-        history.reconcile_membership(&peer_refresh);
+        history.sync_membership(&peer_refresh);
 
         assert_eq!(history.recency(2), (false, 8));
     }
@@ -7810,46 +7752,11 @@ mod tests {
         screen.layout = Node::Leaf(99);
         screen.panes[0].id = 99;
         screen.panes[0].focused_at = 5;
-        history.reconcile_membership(&replacement);
+        replacement.pane_revision = Some(2);
+        history.sync_membership(&replacement);
 
         assert_eq!(history.recency(2), (false, 0));
         assert_eq!(history.recency(99), (false, 5));
-    }
-
-    #[test]
-    fn pane_focus_history_applies_workspace_lifecycle_deltas_incrementally() {
-        let mut history = PaneFocusHistory::default();
-        history.reconcile_membership(&notify_tree(1, false));
-        history.record(2);
-        let entity = serde_json::json!({
-            "screens": [{
-                "panes": [{"id": 99, "focused_at": 5}]
-            }]
-        });
-        history.apply_tree_delta(&TreeDelta {
-            kind: TreeDeltaKind::WorkspaceAdded,
-            workspace: 10,
-            screen: None,
-            pane: None,
-            surface: None,
-            index: Some(1),
-            entity: entity.clone(),
-            workspace_revision: Some(2),
-        });
-        assert_eq!(history.recency(99), (false, 5));
-
-        history.apply_tree_delta(&TreeDelta {
-            kind: TreeDeltaKind::WorkspaceClosed,
-            workspace: 10,
-            screen: None,
-            pane: None,
-            surface: None,
-            index: Some(1),
-            entity,
-            workspace_revision: Some(3),
-        });
-        assert_eq!(history.recency(2), (true, 1));
-        assert_eq!(history.recency(99), (false, 0));
     }
 
     #[test]
@@ -11332,6 +11239,7 @@ mod tests {
         }
         TreeView {
             workspace_revision: 0,
+            pane_revision: Some(1),
             active_workspace: 0,
             workspaces: vec![WorkspaceView {
                 id: 4,
@@ -11530,6 +11438,7 @@ mod tests {
     fn notify_tree(surface: u64, unread: bool) -> TreeView {
         TreeView {
             workspace_revision: 0,
+            pane_revision: Some(1),
             active_workspace: 0,
             workspaces: vec![WorkspaceView {
                 id: 4,

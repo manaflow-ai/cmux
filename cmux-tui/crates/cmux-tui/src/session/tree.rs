@@ -14,6 +14,7 @@ pub struct TreeView {
     pub workspaces: Vec<WorkspaceView>,
     #[allow(dead_code)]
     pub workspace_revision: u64,
+    pub pane_revision: Option<u64>,
     pub active_workspace: usize,
 }
 
@@ -213,6 +214,7 @@ pub fn tree_from_state_with_notifications(
     };
     TreeView {
         workspace_revision: state.workspace_revision,
+        pane_revision: Some(state.pane_revision),
         active_workspace: state.active_workspace,
         workspaces: state
             .workspaces
@@ -360,6 +362,7 @@ pub fn parse_tree(data: &Value) -> TreeView {
             .get("workspace_revision")
             .and_then(Value::as_u64)
             .unwrap_or_default(),
+        pane_revision: data.get("pane_revision").and_then(Value::as_u64),
         ..TreeView::default()
     };
     let Some(workspaces) = data.get("workspaces").and_then(|v| v.as_array()) else {
@@ -449,5 +452,14 @@ mod tests {
         .unwrap();
 
         assert_eq!(pane.focused_at, 42);
+    }
+
+    #[test]
+    fn tree_parser_defaults_and_preserves_pane_revision() {
+        assert_eq!(parse_tree(&json!({"workspaces": []})).pane_revision, None);
+        assert_eq!(
+            parse_tree(&json!({"pane_revision": 7, "workspaces": []})).pane_revision,
+            Some(7)
+        );
     }
 }
