@@ -91,6 +91,25 @@ final class cmuxUITests: XCTestCase {
             }
         }
 
+        func assertPageVisible(
+            _ page: XCUIElement,
+            timeout: TimeInterval = 4,
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) {
+            XCTAssertTrue(page.waitForExistence(timeout: timeout), file: file, line: line)
+            XCTAssertTrue(page.frame.intersects(app.frame), file: file, line: line)
+        }
+
+        func assertPageNotVisible(
+            _ page: XCUIElement,
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) {
+            guard page.exists else { return }
+            XCTAssertFalse(page.frame.intersects(app.frame), file: file, line: line)
+        }
+
         capture("onboarding-01-agents")
 
         let primaryButton = app.buttons["MobileOnboardingPrimaryButton"]
@@ -98,8 +117,8 @@ final class cmuxUITests: XCTestCase {
         primaryButton.tap()
 
         let reservedScene = element("MobileOnboardingReservedScene")
-        XCTAssertTrue(reservedScene.waitForExistence(timeout: 4))
-        XCTAssertTrue(agentsScene.waitForNonExistence(timeout: 2))
+        assertPageVisible(reservedScene)
+        assertPageNotVisible(agentsScene)
         XCTAssertFalse(element("MobileOnboardingHandoffPreview").exists)
         XCTAssertFalse(app.staticTexts["Answer agents from your phone"].exists)
         XCTAssertFalse(app.staticTexts[
@@ -113,20 +132,20 @@ final class cmuxUITests: XCTestCase {
 
         let backButton = app.buttons["MobileOnboardingBackButton"]
         backButton.tap()
-        XCTAssertTrue(agentsScene.waitForExistence(timeout: 4))
-        XCTAssertTrue(reservedScene.waitForNonExistence(timeout: 2))
+        assertPageVisible(agentsScene)
+        assertPageNotVisible(reservedScene)
         assertStableChrome()
 
         primaryButton.tap()
-        XCTAssertTrue(reservedScene.waitForExistence(timeout: 4))
-        XCTAssertTrue(agentsScene.waitForNonExistence(timeout: 2))
+        assertPageVisible(reservedScene)
+        assertPageNotVisible(agentsScene)
         assertStableChrome()
 
         primaryButton.tap()
 
         let connectScene = element("MobileOnboardingConnectScene")
-        XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
-        XCTAssertTrue(reservedScene.waitForNonExistence(timeout: 2))
+        assertPageVisible(connectScene)
+        assertPageNotVisible(reservedScene)
         XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].exists)
         XCTAssertTrue(app.staticTexts[
             "Keep cmux open on your Mac and sign in with the same account. cmux finds it and connects securely."
@@ -146,9 +165,9 @@ final class cmuxUITests: XCTestCase {
         app.launchEnvironment["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK"] = "1"
         app.launch()
 
-        XCTAssertTrue(connectScene.waitForExistence(timeout: 8))
-        XCTAssertFalse(element("MobileOnboardingAgentsScene").exists)
-        XCTAssertFalse(element("MobileOnboardingReservedScene").exists)
+        assertPageVisible(connectScene, timeout: 8)
+        assertPageNotVisible(element("MobileOnboardingAgentsScene"))
+        assertPageNotVisible(element("MobileOnboardingReservedScene"))
         XCTAssertTrue(app.buttons["Check Again"].exists)
         XCTAssertTrue(app.buttons["Use QR Code Instead"].exists)
         capture("onboarding-04-resumed-connect")

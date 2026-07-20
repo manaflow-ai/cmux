@@ -16,9 +16,7 @@ struct OnboardingFlowView: View {
     let onComplete: () -> Void
 
     @State private var stage: OnboardingStage
-    @State private var transitionDirection = OnboardingTransitionDirection.forward
     @Environment(\.analytics) private var analytics
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
         initialStage: OnboardingStage,
@@ -51,10 +49,10 @@ struct OnboardingFlowView: View {
             onPrimary: handlePrimary,
             onSecondary: startFallbackPairing,
             pageContent: OnboardingPageViewport(
-                stage: stage,
-                transitionDirection: transitionDirection,
-                pageContent: page
-            )
+                stage: stage
+            ) { pageStage in
+                page(for: pageStage)
+            }
         )
         .interactiveDismissDisabled()
         .onAppear { captureSceneViewed() }
@@ -72,11 +70,11 @@ struct OnboardingFlowView: View {
     }
 
     @ViewBuilder
-    private var page: some View {
-        if stage == .connect && !isAuthenticated {
+    private func page(for pageStage: OnboardingStage) -> some View {
+        if pageStage == .connect && !isAuthenticated {
             OnboardingSignInBridgeView()
         } else {
-            switch stage {
+            switch pageStage {
             case .agents:
                 OnboardingAgentsView()
             case .reserved:
@@ -124,14 +122,7 @@ struct OnboardingFlowView: View {
 
     private func navigate(to destination: OnboardingStage) {
         guard destination != stage else { return }
-
-        withAnimation(reduceMotion ? nil : .smooth(duration: 0.32)) {
-            transitionDirection = OnboardingTransitionDirection(
-                from: stage,
-                to: destination
-            )
-            stage = destination
-        }
+        stage = destination
     }
 
     private func skip() {
