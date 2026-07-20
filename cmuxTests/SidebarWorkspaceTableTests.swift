@@ -255,6 +255,7 @@ struct SidebarWorkspaceTableTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
+        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
         container.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
         var computations = 0
