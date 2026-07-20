@@ -515,9 +515,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// A user drag misaligns one contiguous span (single-digit moves); past
     /// this, the per-move array rescans trend quadratic and the reload path
     /// is both cheaper and visually equivalent for bulk permutations.
-    static let maxAnimatedReorderMoves = 32
+    private static let maxAnimatedReorderMoves = 32
 
-    static func multisetEqual(
+    private static func multisetEqual(
         _ a: [SidebarWorkspaceRenderItemID],
         _ b: [SidebarWorkspaceRenderItemID]
     ) -> Bool {
