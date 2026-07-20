@@ -16,6 +16,7 @@ struct OnboardingFlowView: View {
     let onComplete: () -> Void
 
     @State private var stage: OnboardingStage
+    @State private var transitionDirection = OnboardingTransitionDirection.forward
     @Environment(\.analytics) private var analytics
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -42,13 +43,21 @@ struct OnboardingFlowView: View {
     }
 
     var body: some View {
-        scene
-            .animation(reduceMotion ? nil : .snappy(duration: 0.24), value: stage)
-            .interactiveDismissDisabled()
-            .onAppear { captureSceneViewed() }
-            .onChange(of: stage) { _, _ in captureSceneViewed() }
-            .onChange(of: isAuthenticated) { _, _ in captureSceneViewed() }
-            .onChange(of: connectionPhase) { _, _ in captureSceneViewed() }
+        ZStack {
+            scene
+                .id(stage)
+                .transition(sceneTransition)
+        }
+        .clipped()
+        .interactiveDismissDisabled()
+        .onAppear { captureSceneViewed() }
+        .onChange(of: stage) { _, _ in captureSceneViewed() }
+        .onChange(of: isAuthenticated) { _, _ in captureSceneViewed() }
+        .onChange(of: connectionPhase) { _, _ in captureSceneViewed() }
+    }
+
+    private var sceneTransition: AnyTransition {
+        reduceMotion ? .identity : .push(from: transitionDirection.pushEdge)
     }
 
     @ViewBuilder
@@ -80,16 +89,28 @@ struct OnboardingFlowView: View {
     }
 
     private func showAgents() {
-        stage = .agents
+        navigate(to: .agents)
     }
 
     private func showReserved() {
-        stage = .reserved
+        navigate(to: .reserved)
     }
 
     private func showConnection() {
         onReachedConnection()
-        stage = .connect
+        navigate(to: .connect)
+    }
+
+    private func navigate(to destination: OnboardingStage) {
+        guard destination != stage else { return }
+
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.32)) {
+            transitionDirection = OnboardingTransitionDirection(
+                from: stage,
+                to: destination
+            )
+            stage = destination
+        }
     }
 
     private func skip() {
