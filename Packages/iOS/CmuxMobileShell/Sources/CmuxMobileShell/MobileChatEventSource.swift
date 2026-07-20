@@ -20,6 +20,8 @@ public actor MobileChatEventSource: ChatEventSource {
     public nonisolated let supportsTerminalArtifactList: Bool
     /// Whether the connected Mac supports session-wide artifact gallery pages.
     public nonisolated let supportsArtifactGallery: Bool
+    /// Whether raw artifact bytes may use a peer-bound Iroh application lane.
+    public nonisolated let supportsArtifactLane: Bool
 
     /// Creates the adapter.
     ///
@@ -29,13 +31,15 @@ public actor MobileChatEventSource: ChatEventSource {
         supportsArtifacts: Bool = false,
         supportsArtifactGallery: Bool = false,
         supportsArtifactFolders: Bool = false,
-        supportsTerminalArtifactList: Bool = false
+        supportsTerminalArtifactList: Bool = false,
+        supportsArtifactLane: Bool = false
     ) {
         self.client = client
         self.supportsArtifacts = supportsArtifacts
         self.supportsArtifactGallery = supportsArtifactGallery
         self.supportsArtifactFolders = supportsArtifactFolders
         self.supportsTerminalArtifactList = supportsTerminalArtifactList
+        self.supportsArtifactLane = supportsArtifactLane
     }
 
     /// Lists chat-capable agent sessions the Mac knows about.
@@ -355,12 +359,81 @@ public actor MobileChatEventSource: ChatEventSource {
             let request = try MobileCoreRPCClient.requestData(method: method, params: params)
             let result = try await client.sendRequest(request)
             return try coding.decode(T.self, from: result)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw Self.artifactError(from: error)
         }
     }
 
     func fetchArtifactChunks(
+        method: String,
+        stringParams: [String: String],
+        collectsData: Bool,
+        progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?,
+        onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
+    ) async throws -> Data {
+        if supportsArtifactLane {
+            let descriptor: ChatArtifactLaneDescriptor
+            let connection: any MobileArtifactLaneConnection
+            do {
+                var descriptorParams: [String: Any] = stringParams
+                descriptorParams["transport"] = "iroh_artifact_v1"
+                descriptor = try await artifactCall(
+                    method: method,
+                    params: descriptorParams
+                )
+                guard descriptor.totalSize >= 0 else {
+                    throw MobileArtifactLaneFetchError.invalidDescriptor
+                }
+                connection = try await client.openArtifactLane(
+                    resourceID: descriptor.resourceID,
+                    offset: 0
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // Descriptor mint/open failed before any lane byte was exposed.
+                // Preserve compatibility by using the existing RPC path.
+                return try await fetchArtifactChunksOverRPC(
+                    method: method,
+                    stringParams: stringParams,
+                    collectsData: collectsData,
+                    progress: progress,
+                    onChunk: onChunk
+                )
+            }
+            do {
+                return try await MobileArtifactLaneFetchLoop().run(
+                    descriptor: descriptor,
+                    connection: connection,
+                    collectsData: collectsData,
+                    progress: progress,
+                    onChunk: onChunk
+                )
+            } catch MobileArtifactLaneFetchError.failedBeforeFirstByte {
+                // No consumer-visible bytes were delivered, so the legacy
+                // authorized RPC can safely restart from offset zero.
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch MobileArtifactLaneFetchError.failedAfterFirstByte {
+                // Once the lane exposed bytes, mixing in an RPC restart could
+                // splice two file versions into one preview.
+                throw ChatArtifactError.macUnreachable
+            } catch MobileArtifactLaneFetchError.invalidDescriptor {
+                throw ChatArtifactError.macUnreachable
+            }
+        }
+        return try await fetchArtifactChunksOverRPC(
+            method: method,
+            stringParams: stringParams,
+            collectsData: collectsData,
+            progress: progress,
+            onChunk: onChunk
+        )
+    }
+
+    private func fetchArtifactChunksOverRPC(
         method: String,
         stringParams: [String: String],
         collectsData: Bool,
@@ -387,6 +460,7 @@ public actor MobileChatEventSource: ChatEventSource {
         }
         switch connectionError {
         case .invalidResponse, .connectionClosed, .requestTimedOut,
+             .transportWriteTimedOut,
              .insecureManualRoute, .attachTicketExpired,
              .authorizationFailed, .accountMismatch:
             return .macUnreachable

@@ -173,6 +173,7 @@ final class KindRecordingTransportFactory: CmxByteTransportFactory, @unchecked S
     private let failingKinds: Set<CmxAttachTransportKind>
     private let lock = NSLock()
     private var kinds: [CmxAttachTransportKind] = []
+    private var authorizationModes: [CmxTransportAuthorizationMode] = []
 
     init(
         router: LivenessHostRouter,
@@ -186,6 +187,22 @@ final class KindRecordingTransportFactory: CmxByteTransportFactory, @unchecked S
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
         lock.withLock { kinds.append(route.kind) }
+        return try makeRecordedTransport(for: route)
+    }
+
+    func makeTransport(
+        for request: CmxByteTransportRequest
+    ) throws -> any CmxByteTransport {
+        lock.withLock {
+            kinds.append(request.route.kind)
+            authorizationModes.append(request.authorizationMode)
+        }
+        return try makeRecordedTransport(for: request.route)
+    }
+
+    private func makeRecordedTransport(
+        for route: CmxAttachRoute
+    ) throws -> any CmxByteTransport {
         if failingKinds.contains(route.kind) {
             throw RouteRecordingTransportError.routeFailed
         }
@@ -196,5 +213,9 @@ final class KindRecordingTransportFactory: CmxByteTransportFactory, @unchecked S
 
     func attemptedKinds() -> [CmxAttachTransportKind] {
         lock.withLock { kinds }
+    }
+
+    func attemptedAuthorizationModes() -> [CmxTransportAuthorizationMode] {
+        lock.withLock { authorizationModes }
     }
 }

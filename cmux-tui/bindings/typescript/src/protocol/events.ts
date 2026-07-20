@@ -67,18 +67,31 @@ export interface WorkspaceAddedEvent {
   event: "workspace-added";
   workspace: Id;
   index: number;
+  /** Absent when the server does not advertise `workspace-registry-v1`. */
+  workspace_revision?: number;
   entity: Workspace;
 }
 export interface WorkspaceClosedEvent {
   event: "workspace-closed";
   workspace: Id;
   index: number;
+  /** Absent when the server does not advertise `workspace-registry-v1`. */
+  workspace_revision?: number;
   entity: Workspace;
 }
 export interface WorkspaceRenamedEvent {
   event: "workspace-renamed";
   workspace: Id;
+  /** Absent when the server does not advertise `workspace-registry-v1`. */
+  workspace_revision?: number;
   entity: Workspace;
+}
+export interface WorkspaceMovedEvent {
+  event: "workspace-moved";
+  workspace: Id;
+  index: number;
+  workspace_revision: number;
+  entity: Workspace & { key: string };
 }
 export interface ScreenAddedEvent {
   event: "screen-added";
@@ -148,6 +161,7 @@ export type TreeDeltaEvent =
   | WorkspaceAddedEvent
   | WorkspaceClosedEvent
   | WorkspaceRenamedEvent
+  | WorkspaceMovedEvent
   | ScreenAddedEvent
   | ScreenClosedEvent
   | ScreenRenamedEvent
@@ -164,6 +178,8 @@ export interface TerminalColors {
   cursor: ColorHex | null;
   selection_bg: ColorHex | null;
   selection_fg: ColorHex | null;
+  /** Protocol v7 sparse OSC 4 overrides keyed by palette index. Older servers omit this field. */
+  palette?: Record<string, ColorHex>;
   /** Protocol v6 additive extension. Older servers omit this field. */
   cursor_style?: "block" | "underline" | "bar" | null;
   /** Protocol v6 additive extension. Older servers omit this field. */
@@ -189,6 +205,8 @@ interface ResizedEventBase {
   surface: Id;
   cols: number;
   rows: number;
+  /** Protocol v7 fresh color snapshot for the replacement replay. Older servers omit it. */
+  colors?: TerminalColors;
 }
 
 /** A replacement replay using the protocol-v7 field or protocol-v6 compatibility field. */
@@ -341,7 +359,8 @@ export type KnownRenderAttachEvent =
   | RenderStateEvent
   | RenderDeltaEvent
   | ScrollChangedEvent
-  | DetachedEvent;
+  | DetachedEvent
+  | OverflowEvent;
 
 /** Render attachment events, including unknown future event names. */
 export type RenderAttachEvent = KnownRenderAttachEvent | UnknownEvent;

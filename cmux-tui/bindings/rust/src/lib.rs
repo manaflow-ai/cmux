@@ -16,6 +16,7 @@ pub enum CmuxError {
     Connection(String),
     Timeout(String),
     ProtocolVersion(String),
+    InvalidArgument(String),
 }
 
 impl fmt::Display for CmuxError {
@@ -25,7 +26,8 @@ impl fmt::Display for CmuxError {
             Self::Decode(message)
             | Self::Connection(message)
             | Self::Timeout(message)
-            | Self::ProtocolVersion(message) => write!(f, "{message}"),
+            | Self::ProtocolVersion(message)
+            | Self::InvalidArgument(message) => write!(f, "{message}"),
         }
     }
 }
@@ -92,8 +94,87 @@ pub struct IdentifyResult {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct IdentifyDetails {
+    pub app: String,
+    pub version: String,
+    pub build_commit: Option<String>,
+    pub ghostty_commit: Option<String>,
+    pub protocol: u32,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+    pub session: String,
+    pub pid: u32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct SurfaceResult {
     pub surface: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkspacePlacement {
+    pub workspace: u64,
+    pub key: String,
+    pub index: usize,
+    pub workspace_revision: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TerminalPlacement {
+    pub surface: u64,
+    pub pane: u64,
+    pub screen: u64,
+    pub workspace: u64,
+    pub key: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkspaceMutation {
+    pub workspace: u64,
+    pub key: String,
+    pub workspace_revision: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CreateWorkspaceOptions<'a> {
+    pub name: Option<&'a str>,
+    pub key: Option<&'a str>,
+    pub expected_revision: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CreateTerminalOptions<'a> {
+    pub workspace: Option<u64>,
+    pub key: Option<&'a str>,
+    pub argv: Option<&'a [String]>,
+    pub command: Option<&'a str>,
+    pub cwd: Option<&'a str>,
+    pub name: Option<&'a str>,
+    pub cols: Option<u16>,
+    pub rows: Option<u16>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WorkspaceSelectorOptions<'a> {
+    pub workspace: Option<u64>,
+    pub key: Option<&'a str>,
+    pub expected_revision: Option<u64>,
+}
+
+fn validate_workspace_selector(workspace: Option<u64>, key: Option<&str>) -> Result<()> {
+    if workspace.is_none() && key.is_none_or(|key| key.trim().is_empty()) {
+        return Err(CmuxError::InvalidArgument("workspace or key is required".to_string()));
+    }
+    if key.is_some_and(|key| key.trim().is_empty()) {
+        return Err(CmuxError::InvalidArgument("workspace key cannot be empty".to_string()));
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AttachSurfaceOptions {
+    pub cols: Option<u16>,
+    pub rows: Option<u16>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -110,12 +191,18 @@ pub struct VtStateResult {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Tree {
+    #[serde(default)]
+    pub workspace_revision: u64,
+    #[serde(default)]
+    pub pane_revision: Option<u64>,
     pub workspaces: Vec<Workspace>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Workspace {
     pub id: u64,
+    #[serde(default)]
+    pub key: String,
     pub name: String,
     pub active: bool,
     pub screens: Vec<Screen>,
@@ -137,7 +224,17 @@ pub enum Layout {
     #[serde(rename = "leaf")]
     Leaf { pane: u64 },
     #[serde(rename = "split")]
-    Split { dir: String, ratio: f32, a: Box<Layout>, b: Box<Layout> },
+    Split {
+        /// Stable split id, present on protocol v8 and newer servers.
+        #[serde(default)]
+        split: Option<u64>,
+        dir: String,
+        ratio: f32,
+        a: Box<Layout>,
+        b: Box<Layout>,
+    },
+    #[serde(rename = "stack")]
+    Stack { panes: Vec<u64>, expanded: u64 },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -146,6 +243,8 @@ pub struct Pane {
     pub name: Option<String>,
     #[serde(default)]
     pub active_tab: usize,
+    #[serde(default)]
+    pub focused_at: u64,
     #[serde(default)]
     pub tabs: Vec<Tab>,
     #[serde(default)]
@@ -272,12 +371,13 @@ pub struct CmuxClient {
     conn: JsonLineConnection,
     next_id: u64,
     protocol: Option<u32>,
+    capabilities: Vec<String>,
 }
 
 impl CmuxClient {
     pub fn connect(config: ClientConfig) -> Result<Self> {
         let conn = JsonLineConnection::connect(&config.socket_path, config.timeout)?;
-        Ok(Self { config, conn, next_id: 1, protocol: None })
+        Ok(Self { config, conn, next_id: 1, protocol: None, capabilities: Vec::new() })
     }
 
     pub fn send_raw(&mut self, mut request: Map<String, Value>) -> Result<Value> {
@@ -325,8 +425,23 @@ impl CmuxClient {
     }
 
     pub fn identify(&mut self) -> Result<IdentifyResult> {
-        let result: IdentifyResult = self.request("identify", Map::new())?;
+        let details: IdentifyDetails = self.request("identify", Map::new())?;
+        self.protocol = Some(details.protocol);
+        self.capabilities.clone_from(&details.capabilities);
+        Ok(IdentifyResult {
+            app: details.app,
+            version: details.version,
+            protocol: details.protocol,
+            session: details.session,
+            pid: details.pid,
+        })
+    }
+
+    /// Identify the server with optional immutable build revisions.
+    pub fn identify_details(&mut self) -> Result<IdentifyDetails> {
+        let result: IdentifyDetails = self.request("identify", Map::new())?;
         self.protocol = Some(result.protocol);
+        self.capabilities.clone_from(&result.capabilities);
         Ok(result)
     }
 
@@ -393,6 +508,36 @@ impl CmuxClient {
         self.request("new-workspace", params)
     }
 
+    pub fn create_workspace(
+        &mut self,
+        options: CreateWorkspaceOptions<'_>,
+    ) -> Result<WorkspacePlacement> {
+        self.require_capability("workspace-registry-v1", "workspace registry")?;
+        let mut params = Map::new();
+        insert_opt(&mut params, "name", options.name);
+        insert_opt(&mut params, "key", options.key);
+        insert_opt(&mut params, "expected_revision", options.expected_revision);
+        self.request("create-workspace", params)
+    }
+
+    pub fn create_terminal(
+        &mut self,
+        options: CreateTerminalOptions<'_>,
+    ) -> Result<TerminalPlacement> {
+        validate_workspace_selector(options.workspace, options.key)?;
+        self.require_capability("workspace-registry-v1", "workspace registry")?;
+        let mut params = Map::new();
+        insert_opt(&mut params, "workspace", options.workspace);
+        insert_opt(&mut params, "key", options.key);
+        insert_opt(&mut params, "argv", options.argv);
+        insert_opt(&mut params, "command", options.command);
+        insert_opt(&mut params, "cwd", options.cwd);
+        insert_opt(&mut params, "name", options.name);
+        insert_opt(&mut params, "cols", options.cols);
+        insert_opt(&mut params, "rows", options.rows);
+        self.request("create-terminal", params)
+    }
+
     pub fn new_screen(
         &mut self,
         workspace: Option<u64>,
@@ -404,6 +549,20 @@ impl CmuxClient {
         insert_opt(&mut params, "cols", cols);
         insert_opt(&mut params, "rows", rows);
         self.request("new-screen", params)
+    }
+
+    pub fn new_pane(
+        &mut self,
+        pane: u64,
+        cols: Option<u16>,
+        rows: Option<u16>,
+    ) -> Result<SurfaceResult> {
+        self.require_protocol(9, "new-pane")?;
+        let mut params = Map::new();
+        params.insert("pane".to_string(), Value::from(pane));
+        insert_opt(&mut params, "cols", cols);
+        insert_opt(&mut params, "rows", rows);
+        self.request("new-pane", params)
     }
 
     pub fn split(
@@ -427,6 +586,14 @@ impl CmuxClient {
         params.insert("dir".to_string(), Value::from(dir));
         params.insert("ratio".to_string(), Value::from(ratio));
         self.request::<Empty>("set-ratio", params).map(|_| ())
+    }
+
+    pub fn set_split_ratio(&mut self, split: u64, ratio: f32) -> Result<()> {
+        self.require_protocol(8, "set-split-ratio")?;
+        let mut params = Map::new();
+        params.insert("split".to_string(), Value::from(split));
+        params.insert("ratio".to_string(), Value::from(ratio));
+        self.request::<Empty>("set-split-ratio", params).map(|_| ())
     }
 
     pub fn set_default_colors(&mut self, fg: Option<&str>, bg: Option<&str>) -> Result<()> {
@@ -458,6 +625,19 @@ impl CmuxClient {
         self.request::<Empty>("close-workspace", params).map(|_| ())
     }
 
+    pub fn close_workspace_registry(
+        &mut self,
+        options: WorkspaceSelectorOptions<'_>,
+    ) -> Result<WorkspaceMutation> {
+        validate_workspace_selector(options.workspace, options.key)?;
+        self.require_capability("workspace-registry-v1", "workspace registry")?;
+        let mut params = Map::new();
+        insert_opt(&mut params, "workspace", options.workspace);
+        insert_opt(&mut params, "key", options.key);
+        insert_opt(&mut params, "expected_revision", options.expected_revision);
+        self.request("close-workspace", params)
+    }
+
     pub fn rename_pane(&mut self, pane: u64, name: &str) -> Result<()> {
         let mut params = Map::new();
         params.insert("pane".to_string(), Value::from(pane));
@@ -485,6 +665,21 @@ impl CmuxClient {
         self.request::<Empty>("rename-workspace", params).map(|_| ())
     }
 
+    pub fn rename_workspace_registry(
+        &mut self,
+        options: WorkspaceSelectorOptions<'_>,
+        name: &str,
+    ) -> Result<WorkspaceMutation> {
+        validate_workspace_selector(options.workspace, options.key)?;
+        self.require_capability("workspace-registry-v1", "workspace registry")?;
+        let mut params = Map::new();
+        insert_opt(&mut params, "workspace", options.workspace);
+        insert_opt(&mut params, "key", options.key);
+        insert_opt(&mut params, "expected_revision", options.expected_revision);
+        params.insert("name".to_string(), Value::from(name));
+        self.request("rename-workspace", params)
+    }
+
     pub fn resize_surface(
         &mut self,
         surface: u64,
@@ -495,6 +690,10 @@ impl CmuxClient {
         params.insert("cols".to_string(), Value::from(cols));
         params.insert("rows".to_string(), Value::from(rows));
         self.request("resize-surface", params)
+    }
+
+    pub fn release_surface_size(&mut self, surface: u64) -> Result<()> {
+        self.request::<Empty>("release-surface-size", surface_params(surface)).map(|_| ())
     }
 
     pub fn focus_pane(&mut self, pane: u64) -> Result<()> {
@@ -544,6 +743,21 @@ impl CmuxClient {
         self.request::<Empty>("move-workspace", params).map(|_| ())
     }
 
+    pub fn move_workspace_registry(
+        &mut self,
+        options: WorkspaceSelectorOptions<'_>,
+        index: usize,
+    ) -> Result<WorkspaceMutation> {
+        validate_workspace_selector(options.workspace, options.key)?;
+        self.require_capability("workspace-registry-v1", "workspace registry")?;
+        let mut params = Map::new();
+        insert_opt(&mut params, "workspace", options.workspace);
+        insert_opt(&mut params, "key", options.key);
+        insert_opt(&mut params, "expected_revision", options.expected_revision);
+        params.insert("index".to_string(), Value::from(index));
+        self.request("move-workspace", params)
+    }
+
     pub fn scroll_surface(&mut self, surface: u64, delta: isize) -> Result<()> {
         let mut params = surface_params(surface);
         params.insert("delta".to_string(), Value::from(delta));
@@ -555,16 +769,62 @@ impl CmuxClient {
     }
 
     pub fn attach_surface(&mut self, surface: u64) -> Result<CmuxStream> {
+        self.attach_surface_with_options(surface, AttachSurfaceOptions::default())
+    }
+
+    pub fn attach_surface_with_options(
+        &mut self,
+        surface: u64,
+        options: AttachSurfaceOptions,
+    ) -> Result<CmuxStream> {
+        if options.cols.is_some() != options.rows.is_some() {
+            return Err(CmuxError::InvalidArgument(
+                "attach-surface cols and rows must be supplied together".to_string(),
+            ));
+        }
         let protocol = match self.protocol {
             Some(protocol) => protocol,
             None => self.identify()?.protocol,
         };
-        if protocol > 7 || (protocol > 5 && !self.config.allow_protocol_v6_attach) {
+        if protocol > 5 && !self.config.allow_protocol_v6_attach {
             return Err(CmuxError::ProtocolVersion(format!(
                 "unsupported attach protocol {protocol}"
             )));
         }
-        self.open_stream("attach-surface", surface_params(surface))
+        if (options.cols.is_some() || options.rows.is_some())
+            && !self.capabilities.iter().any(|value| value == "attach-initial-size")
+        {
+            return Err(CmuxError::ProtocolVersion(
+                "initial attach sizing is not supported by this server".to_string(),
+            ));
+        }
+        let mut params = surface_params(surface);
+        insert_opt(&mut params, "cols", options.cols);
+        insert_opt(&mut params, "rows", options.rows);
+        self.open_stream("attach-surface", params)
+    }
+
+    fn require_capability(&mut self, capability: &str, feature: &str) -> Result<()> {
+        if self.protocol.is_none() {
+            self.identify()?;
+        }
+        if self.capabilities.iter().any(|value| value == capability) {
+            return Ok(());
+        }
+        Err(CmuxError::ProtocolVersion(format!("{feature} is not supported by this server")))
+    }
+
+    fn require_protocol(&mut self, minimum: u32, feature: &str) -> Result<()> {
+        let protocol = match self.protocol {
+            Some(protocol) => protocol,
+            None => self.identify()?.protocol,
+        };
+        if protocol < minimum {
+            return Err(CmuxError::ProtocolVersion(format!(
+                "{feature} requires protocol {minimum}; server uses protocol {protocol}"
+            )));
+        }
+        Ok(())
     }
 
     fn open_stream(&mut self, cmd: &str, mut params: Map<String, Value>) -> Result<CmuxStream> {
@@ -794,6 +1054,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn identify_preserves_legacy_shape_and_exposes_optional_details() {
+        let wire = serde_json::json!({
+            "app": "cmux-tui",
+            "version": "0.1.2",
+            "build_commit": "cmux-sha",
+            "ghostty_commit": "ghostty-sha",
+            "protocol": 7,
+            "session": "main",
+            "pid": 42,
+        });
+        let legacy: IdentifyResult = serde_json::from_value(wire.clone()).unwrap();
+        let IdentifyResult { app, version, protocol, session, pid } = legacy;
+        assert_eq!(
+            (app.as_str(), version.as_str(), protocol, session.as_str(), pid),
+            ("cmux-tui", "0.1.2", 7, "main", 42)
+        );
+
+        let details: IdentifyDetails = serde_json::from_value(wire).unwrap();
+        assert_eq!(details.build_commit.as_deref(), Some("cmux-sha"));
+        assert_eq!(details.ghostty_commit.as_deref(), Some("ghostty-sha"));
+    }
+
+    #[test]
     fn title_changed_decodes_authoritative_title() {
         let event = parse_event(serde_json::json!({
             "event": "title-changed",
@@ -866,6 +1149,160 @@ mod tests {
             serde_json::from_value(serde_json::json!({"accepted": true, "reservation_id": 41}))
                 .unwrap();
         assert_eq!(reserved.reservation_id, Some(41));
+    }
+
+    #[test]
+    fn legacy_tree_defaults_additive_workspace_registry_fields() {
+        let tree: Tree = serde_json::from_value(serde_json::json!({
+            "workspaces": [{
+                "id": 1,
+                "name": "one",
+                "active": true,
+                "screens": [],
+            }],
+        }))
+        .unwrap();
+
+        assert_eq!(tree.workspace_revision, 0);
+        assert_eq!(tree.pane_revision, None);
+        assert_eq!(tree.workspaces[0].key, "");
+    }
+
+    #[test]
+    fn tree_preserves_optional_pane_revision() {
+        let tree: Tree = serde_json::from_value(serde_json::json!({
+            "pane_revision": 7,
+            "workspaces": [],
+        }))
+        .unwrap();
+
+        assert_eq!(tree.pane_revision, Some(7));
+    }
+
+    #[test]
+    fn workspace_registry_placements_decode() {
+        let workspace: WorkspacePlacement = serde_json::from_value(serde_json::json!({
+            "workspace": 1,
+            "key": "stable-key",
+            "index": 0,
+            "workspace_revision": 4,
+        }))
+        .unwrap();
+        assert_eq!(workspace.workspace_revision, 4);
+
+        let terminal: TerminalPlacement = serde_json::from_value(serde_json::json!({
+            "surface": 5,
+            "pane": 4,
+            "screen": 3,
+            "workspace": 1,
+            "key": "stable-key",
+        }))
+        .unwrap();
+        assert_eq!(terminal.key, "stable-key");
+
+        let mutation: WorkspaceMutation = serde_json::from_value(serde_json::json!({
+            "workspace": 1,
+            "key": "stable-key",
+            "workspace_revision": 5,
+        }))
+        .unwrap();
+        assert_eq!(mutation.workspace_revision, 5);
+    }
+
+    #[test]
+    fn workspace_registry_selectors_reject_missing_and_empty_keys_locally() {
+        assert!(matches!(
+            validate_workspace_selector(None, None),
+            Err(CmuxError::InvalidArgument(message)) if message == "workspace or key is required"
+        ));
+        assert!(matches!(
+            validate_workspace_selector(None, Some("  ")),
+            Err(CmuxError::InvalidArgument(message)) if message == "workspace or key is required"
+        ));
+        validate_workspace_selector(Some(1), None).unwrap();
+        validate_workspace_selector(None, Some("stable")).unwrap();
+    }
+
+    #[test]
+    fn attach_surface_rejects_partial_initial_size_locally() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(5),
+            capabilities: Vec::new(),
+        };
+        assert!(matches!(
+            client.attach_surface_with_options(
+                1,
+                AttachSurfaceOptions { cols: Some(80), rows: None },
+            ),
+            Err(CmuxError::InvalidArgument(message))
+                if message == "attach-surface cols and rows must be supplied together"
+        ));
+    }
+
+    #[test]
+    fn stack_layout_decodes_protocol_v9_shape() {
+        let layout: Layout = serde_json::from_value(serde_json::json!({
+            "type": "stack",
+            "panes": [1, 2, 3],
+            "expanded": 2,
+        }))
+        .unwrap();
+        assert!(matches!(
+            layout,
+            Layout::Stack { panes, expanded } if panes == vec![1, 2, 3] && expanded == 2
+        ));
+    }
+
+    #[test]
+    fn set_split_ratio_requires_protocol_eight() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(7),
+            capabilities: Vec::new(),
+        };
+        let error = client.require_protocol(8, "set-split-ratio").unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "set-split-ratio requires protocol 8; server uses protocol 7"
+        );
+    }
+
+    #[test]
+    fn set_split_ratio_accepts_newer_additive_protocols() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(9),
+            capabilities: Vec::new(),
+        };
+        client.require_protocol(8, "set-split-ratio").unwrap();
+    }
+
+    #[test]
+    fn new_pane_requires_protocol_nine() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(8),
+            capabilities: Vec::new(),
+        };
+        let error = client.require_protocol(9, "new-pane").unwrap_err();
+        assert_eq!(error.to_string(), "new-pane requires protocol 9; server uses protocol 8");
     }
 
     #[test]
