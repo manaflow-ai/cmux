@@ -81,7 +81,7 @@ enum RemoteTmuxViewReconciler {
         // last one linked until a placeholder/new window exists. The live layer
         // also guarantees a placeholder, but the pure policy must not depend on
         // that being accurate (a nil/stale placeholder must still be safe).
-        let wouldEmptyView = toLink.isEmpty && actualWindowIds.subtracting(unlinkable).isEmpty
+        let wouldEmptyView = toLink.isEmpty && actualWindowIds.isSubset(of: unlinkable)
         if wouldEmptyView, let keepAlive = unlinkable.min() {
             unlinkable.remove(keepAlive)
         }
@@ -96,15 +96,19 @@ enum RemoteTmuxViewReconciler {
     /// parseable `N`) sort after all numeric ones, by string, so any (desired,
     /// actual) pair still yields exactly one output order.
     static func sortedByNumericId(_ ids: Set<String>) -> [String] {
-        ids.sorted { a, b in
-            switch (RemoteTmuxMultiplexReconciler.numericWindowId(a),
-                    RemoteTmuxMultiplexReconciler.numericWindowId(b)) {
-            case let (na?, nb?): return na != nb ? na < nb : a < b
-            case (.some, .none): return true
-            case (.none, .some): return false
-            case (.none, .none): return a < b
+        // Parse each id once rather than on every comparison: `sorted` runs
+        // O(N log N) comparisons, so parsing inside the closure re-parses the same
+        // string repeatedly for a view carrying many workspaces.
+        ids.map { (id: $0, numeric: RemoteTmuxMultiplexReconciler.numericWindowId($0)) }
+            .sorted { a, b in
+                switch (a.numeric, b.numeric) {
+                case let (na?, nb?): return na != nb ? na < nb : a.id < b.id
+                case (.some, .none): return true
+                case (.none, .some): return false
+                case (.none, .none): return a.id < b.id
+                }
             }
-        }
+            .map(\.id)
     }
 
     /// Whether the view currently holds nothing but its placeholder (and/or
@@ -114,10 +118,9 @@ enum RemoteTmuxViewReconciler {
         actualWindowIds: Set<String>,
         placeholderWindowId: String?
     ) -> Bool {
-        var nonPlaceholder = actualWindowIds
-        if let placeholderWindowId {
-            nonPlaceholder.remove(placeholderWindowId)
-        }
-        return nonPlaceholder.isEmpty
+        // Size check only — no need to copy the set just to drop one element.
+        guard let placeholderWindowId else { return actualWindowIds.isEmpty }
+        return actualWindowIds.isEmpty
+            || (actualWindowIds.count == 1 && actualWindowIds.contains(placeholderWindowId))
     }
 }
