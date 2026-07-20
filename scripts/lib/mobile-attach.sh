@@ -228,7 +228,9 @@ cmux_attach_ensure_mac() {
 # Tailscale TCP cannot carry the phone's Stack credential, so fail closed here
 # instead of launching an app that must reject the ticket as untrusted.
 cmux_attach_mint_url() {
-  local tag="$1" ttl="$2" repo_root="$3" target="$4" max="${5:-20}" sock slug payload url node_status saw_no_iroh=0 _i
+  local tag="$1" ttl="$2" repo_root="$3" target="$4" max="${5:-20}"
+  local sock slug payload cli_output url node_status cli_status _i
+  local last_reason="route_not_ready" saw_no_iroh=0
   case "$target" in
     simulator_injection|physical_device) ;;
     *) echo "error: invalid attach target '$target'" >&2; return 1 ;;
@@ -240,12 +242,22 @@ cmux_attach_mint_url() {
   slug="$(cmux_attach__slug "$tag")"
   for _i in $(seq 1 "$max"); do
     if [[ ! -S "$sock" ]]; then
+      last_reason="control_socket_unavailable"
       sleep 0.5
       continue
     fi
-    payload="$(CMUX_TAG="$slug" "$repo_root/scripts/cmux-debug-cli.sh" rpc mobile.attach_ticket.create \
-      "{\"ttl_seconds\":${ttl},\"scope\":\"mac\",\"target\":\"${target}\"}" 2>/dev/null || true)"
-    if [[ -n "$payload" ]]; then
+    cli_status=0
+    cli_output="$(CMUX_TAG="$slug" "$repo_root/scripts/cmux-debug-cli.sh" rpc mobile.attach_ticket.create \
+      "{\"ttl_seconds\":${ttl},\"scope\":\"mac\",\"target\":\"${target}\"}" 2>&1)" || cli_status=$?
+    if [[ "$cli_status" -ne 0 ]]; then
+      case "$cli_output" in
+        *"Mobile host routes are not available yet"*) last_reason="host_routes_unavailable" ;;
+        *"Requested mobile host route is not available"*) last_reason="requested_route_unavailable" ;;
+        *"Selected mobile host routes cannot be represented"*) last_reason="route_representation_unavailable" ;;
+        *) last_reason="attach_rpc_unavailable" ;;
+      esac
+    elif [[ -n "$cli_output" ]]; then
+      payload="$cli_output"
       node_status=0
       url="$(
         PAYLOAD="$payload" ATTACH_TARGET="$target" node --input-type=module <<'NODE' 2>/dev/null
@@ -266,16 +278,24 @@ NODE
         # but keep polling for the encrypted route until the readiness window
         # closes.
         saw_no_iroh=1
+        last_reason="iroh_route_unavailable"
+      elif [[ "$node_status" -ne 0 ]]; then
+        last_reason="malformed_response"
+      elif [[ -z "$url" ]]; then
+        last_reason="ticket_url_missing"
       fi
       if [[ -n "$url" ]]; then
         printf '%s' "$url"
         return 0
       fi
+    else
+      last_reason="empty_response"
     fi
     # Empty output, malformed output, and a valid ticket that has not gained an
     # Iroh route yet are all transient during startup. Poll to the deadline.
     sleep 0.5
   done
+  printf 'warning: attach readiness exhausted: %s\n' "$last_reason" >&2
   if [[ "$saw_no_iroh" -eq 1 ]]; then
     return 2
   fi
