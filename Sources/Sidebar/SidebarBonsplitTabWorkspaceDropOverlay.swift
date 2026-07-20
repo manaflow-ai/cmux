@@ -295,6 +295,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
         if isRequestingWorkspaceDropTargets,
            targets.isEmpty,
            BonsplitTabDragPayload.transfer(from: sender.draggingPasteboard) != nil {
+            updateAutoscroll()
             setDropIndicator(nil)
 #if DEBUG
             dlog("sidebar.workspaceDropOverlay.\(phase) accepted=1 pendingTargets=1")

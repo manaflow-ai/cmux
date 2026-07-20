@@ -10427,7 +10427,7 @@ struct VerticalTabsSidebar: View, Equatable {
     @Binding var sidebarRenderWorkerClient: RenderWorkerClient?
     @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State var pointerInteractionMonitor = SidebarPointerInteractionMonitor()
-    @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
+    @State var dragAutoScrollController = SidebarDragAutoScrollController()
     @State private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore(
         initialSidebarFontSize: GhosttyConfig.load().sidebarFontSize
@@ -13140,12 +13140,12 @@ struct VerticalTabsSidebar: View, Equatable {
         targets: [SidebarWorkspaceReorderDropOverlay.Target],
         renderContext: WorkspaceListRenderContext
     ) -> Bool {
+        dragAutoScrollController.updateFromDragLocation()
         guard activateSidebarWorkspaceDragIfNeeded(),
               let plan = workspaceReorderPlan(point: point, targets: targets, renderContext: renderContext) else {
             dragState.clearDropIndicator()
             return false
         }
-        dragAutoScrollController.updateFromDragLocation()
         guard dragState.dropIndicator != plan.indicator ||
                 dragState.dropIndicatorScope != plan.indicatorScope else {
             return true

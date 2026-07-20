@@ -116,12 +116,9 @@ final class SidebarWorkspaceReorderDropView: NSView {
 
     private func update(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard accepts(sender), let updateDrag else { return [] }
-        guard !targets.isEmpty else {
-            clearDropIndicator?()
-            return .move
-        }
         let point = dropPoint(from: sender)
-        return updateDrag(point, targets) ? .move : []
+        let accepted = updateDrag(point, targets)
+        return accepted || targets.isEmpty ? .move : []
     }
 
     func dropPoint(from sender: NSDraggingInfo) -> CGPoint {
