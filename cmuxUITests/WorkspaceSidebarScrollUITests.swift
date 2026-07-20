@@ -207,6 +207,111 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
         )
     }
 
+    func testNotificationReorderKeepsWorkspaceRowsContiguous() {
+        let app = XCUIApplication()
+        let token = UUID().uuidString
+        let socketPath = "/tmp/cmux-ui-sidebar-notification-reorder-\(token).sock"
+        defer {
+            app.terminate()
+            try? FileManager.default.removeItem(atPath: socketPath)
+        }
+
+        configureLaunch(app)
+        app.launchArguments += [
+            "-socketControlMode", "allowAll",
+            "-NSAppSleepDisabled", "YES",
+            "-workspaceAutoReorderOnNotification", "YES",
+            "-sidebarShowNotificationMessage", "YES",
+            "-sidebarNotificationMessageLineLimit", "12",
+        ]
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_TAG"] = "ui-sidebar-notif-\(token.prefix(8))"
+
+        launchAndEnsureRunning(app)
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0), "Expected a main window")
+        XCTAssertTrue(
+            pollUntil(timeout: 10.0) { self.sendSocketLine("ping", to: socketPath) == "PONG" },
+            "Expected the isolated control socket to become ready"
+        )
+
+        let workspaceCount = 5
+        for index in 2...workspaceCount {
+            let reply = sendSocketLine("new_workspace notification-geometry-\(index)", to: socketPath)
+            XCTAssertTrue(
+                reply?.hasPrefix("OK ") == true,
+                "Expected workspace \(index) creation to succeed; reply=\(reply ?? "nil")"
+            )
+        }
+
+        var initialOrder: [UUID] = []
+        XCTAssertTrue(
+            pollUntil(timeout: 12.0) {
+                initialOrder = self.workspaceIDs(from: self.sendSocketLine("list_workspaces", to: socketPath))
+                return initialOrder.count == workspaceCount
+            },
+            "Expected \(workspaceCount) workspaces"
+        )
+        guard initialOrder.indices.contains(3) else { return }
+        let targetId = initialOrder[3]
+        XCTAssertEqual(sendSocketLine("select_workspace \(initialOrder[0].uuidString)", to: socketPath), "OK")
+
+        var targetSurfaceId: UUID?
+        XCTAssertTrue(
+            pollUntil(timeout: 8.0) {
+                targetSurfaceId = self.workspaceIDs(
+                    from: self.sendSocketLine("list_surfaces \(targetId.uuidString)", to: socketPath)
+                ).first
+                return targetSurfaceId != nil
+            },
+            "Expected the notification target workspace to have a surface"
+        )
+        guard let targetSurfaceId else { return }
+
+        app.activate()
+        let sidebar = app.descendants(matching: .any)["Sidebar"].firstMatch
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 5.0), "Expected the workspace sidebar to exist")
+        let targetRow = workspaceRow(workspaceId: targetId, app: app)
+        XCTAssertTrue(targetRow.waitForExistence(timeout: 5.0), "Expected the notification target row to exist")
+        XCTAssertTrue(targetRow.isHittable, "Expected the notification target row to be visible before reordering")
+        let initialTargetFrame = targetRow.frame
+
+        let body = Array(
+            repeating: "notification-driven reordering must keep every sidebar row contiguous",
+            count: 10
+        ).joined(separator: " ")
+        XCTAssertEqual(
+            sendSocketLine(
+                "notify_target \(targetId.uuidString) \(targetSurfaceId.uuidString) Geometry|ui-test|\(body)",
+                to: socketPath,
+                responseTimeout: 6.0
+            ),
+            "OK"
+        )
+
+        var finalFrames: [CGRect] = []
+        XCTAssertTrue(
+            pollUntil(timeout: 12.0) {
+                let order = self.workspaceIDs(from: self.sendSocketLine("list_workspaces", to: socketPath))
+                guard order.count == workspaceCount, order.first == targetId else { return false }
+                let rows = order.map { self.workspaceRow(workspaceId: $0, app: app) }
+                guard rows.allSatisfy({ $0.exists && $0.isHittable && $0.frame.height > 0 }) else { return false }
+                let frames = rows.map(\.frame)
+                guard frames[0].height > initialTargetFrame.height + 20 else { return false }
+                guard zip(frames, frames.dropFirst()).allSatisfy({ upper, lower in
+                    abs(upper.maxY - lower.minY) <= 1.0
+                }) else { return false }
+                finalFrames = frames
+                return true
+            },
+            "A notification-driven height-changing reorder must move the target to the top without row gaps or overlap"
+        )
+        XCTAssertEqual(finalFrames.count, workspaceCount)
+    }
+
     func testWorkspaceRowEdgeDragReachesBothEndsWithoutPrematureJump() {
         let app = XCUIApplication()
         let token = UUID().uuidString
@@ -342,6 +447,10 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
         return app.descendants(matching: .other)
             .matching(NSPredicate(format: "label ENDSWITH %@", position))
             .firstMatch
+    }
+
+    private func workspaceRow(workspaceId: UUID, app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .other)["sidebarWorkspace.\(workspaceId.uuidString)"].firstMatch
     }
 
     private func workspaceIDs(from listWorkspacesReply: String?) -> [UUID] {
