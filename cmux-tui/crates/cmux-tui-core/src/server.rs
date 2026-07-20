@@ -488,6 +488,22 @@ enum Command {
         fg: Option<String>,
         #[serde(default)]
         bg: Option<String>,
+        #[serde(default)]
+        cursor: Option<String>,
+        #[serde(default)]
+        selection_bg: Option<String>,
+        #[serde(default)]
+        selection_fg: Option<String>,
+        #[serde(default)]
+        cursor_style: Option<String>,
+        #[serde(default)]
+        cursor_blink: Option<bool>,
+        #[serde(default)]
+        palette: Option<BTreeMap<String, String>>,
+        /// Complete frontend configuration replaces absent optional values;
+        /// legacy CLI calls retain their historical sparse-overlay behavior.
+        #[serde(default)]
+        complete: bool,
     },
     /// Close one tab.
     CloseSurface {
@@ -3688,18 +3704,63 @@ fn handle_command(
                 "generation": generation,
             }))
         }
-        Command::SetDefaultColors { fg, bg } => {
+        Command::SetDefaultColors {
+            fg,
+            bg,
+            cursor,
+            selection_bg,
+            selection_fg,
+            cursor_style,
+            cursor_blink,
+            palette,
+            complete,
+        } => {
             let current = mux.default_colors();
+            let base = if complete { DefaultColors::default() } else { current };
+            let palette = match palette {
+                Some(entries) => {
+                    let mut palette = [None; 256];
+                    for (index, value) in entries {
+                        let index = index
+                            .parse::<u8>()
+                            .map_err(|_| anyhow::anyhow!("invalid palette index {index}"))?;
+                        palette[index as usize] = Some(parse_hex_color(&value)?);
+                    }
+                    palette
+                }
+                None => base.palette,
+            };
             let colors = DefaultColors {
                 fg: match fg {
                     Some(value) => Some(parse_hex_color(&value)?),
-                    None => current.fg,
+                    None => base.fg,
                 },
                 bg: match bg {
                     Some(value) => Some(parse_hex_color(&value)?),
-                    None => current.bg,
+                    None => base.bg,
                 },
-                ..current
+                cursor: match cursor {
+                    Some(value) => Some(parse_hex_color(&value)?),
+                    None => base.cursor,
+                },
+                selection_bg: match selection_bg {
+                    Some(value) => Some(parse_hex_color(&value)?),
+                    None => base.selection_bg,
+                },
+                selection_fg: match selection_fg {
+                    Some(value) => Some(parse_hex_color(&value)?),
+                    None => base.selection_fg,
+                },
+                cursor_style: match cursor_style.as_deref() {
+                    Some("block") => Some(ghostty_vt::CursorShape::Block),
+                    Some("underline") => Some(ghostty_vt::CursorShape::Underline),
+                    Some("bar") => Some(ghostty_vt::CursorShape::Bar),
+                    Some(value) => anyhow::bail!("invalid cursor style {value}"),
+                    None => base.cursor_style,
+                },
+                cursor_blink: cursor_blink.or(base.cursor_blink),
+                palette,
+                ..base
             };
             mux.set_default_colors(colors);
             Ok(json!({}))

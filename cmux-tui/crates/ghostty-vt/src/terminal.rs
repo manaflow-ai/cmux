@@ -36,7 +36,8 @@ pub struct TerminalColorOverrides {
     pub cursor: Option<Rgb>,
     /// Host-resolved cursor shape/blink for the active screen. Version 2
     /// process-host snapshots always populate this; `None` represents a
-    /// decoded legacy version 1 frame.
+    /// decoded legacy version 1 frame whose raw VT cursor state must be
+    /// preserved (the value is unknown, not a reset request).
     pub cursor_visual: Option<(CursorShape, bool)>,
     pub palette: [Option<Rgb>; 256],
 }
@@ -1214,8 +1215,18 @@ impl Terminal {
 
     /// Feed VT-encoded bytes (pty output) into the terminal.
     pub fn vt_write(&mut self, data: &[u8]) {
+        let _ = self.vt_write_with_normalized(data);
+    }
+
+    /// Feed VT-encoded bytes and return the exact byte stream accepted by
+    /// Ghostty. Standalone 8-bit OSC/ST controls are returned in their 7-bit
+    /// forms, while UTF-8 continuation bytes remain unchanged across calls.
+    ///
+    /// Process hosts should publish this returned stream so every frontend
+    /// parses the same bytes as the authoritative terminal.
+    pub fn vt_write_with_normalized<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
         if data.is_empty() {
-            return;
+            return Cow::Borrowed(data);
         }
         if self.mouse_mode_scan.feed(data) {
             self.mouse_mode_revision = self.mouse_mode_revision.wrapping_add(1);
@@ -1224,7 +1235,8 @@ impl Terminal {
         self.cursor_override.write(&normalized);
         self.palette_override.write(&normalized);
         self.color_overrides.write(&normalized);
-        unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) }
+        unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
+        normalized
     }
 
     /// Whether the current cursor style/blink came from an active DECSCUSR
@@ -1286,6 +1298,32 @@ impl Terminal {
         }
     }
 
+    /// Replace all host-provided default color channels. Unlike
+    /// [`Self::set_default_colors`], `None` clears an earlier embedder value.
+    pub fn replace_default_colors(
+        &mut self,
+        fg: Option<Rgb>,
+        bg: Option<Rgb>,
+        cursor: Option<Rgb>,
+    ) {
+        let fg = fg.map(|color| sys::GhosttyColorRgb { r: color.r, g: color.g, b: color.b });
+        let bg = bg.map(|color| sys::GhosttyColorRgb { r: color.r, g: color.g, b: color.b });
+        let cursor =
+            cursor.map(|color| sys::GhosttyColorRgb { r: color.r, g: color.g, b: color.b });
+        unsafe {
+            for (option, color) in [
+                (sys::GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND, fg.as_ref()),
+                (sys::GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND, bg.as_ref()),
+                (sys::GHOSTTY_TERMINAL_OPT_COLOR_CURSOR, cursor.as_ref()),
+            ] {
+                let pointer = color
+                    .map(|color| color as *const sys::GhosttyColorRgb as *const c_void)
+                    .unwrap_or(ptr::null());
+                sys::ghostty_terminal_set(self.raw, option, pointer);
+            }
+        }
+    }
+
     /// Set selected entries in the host-provided default palette.
     ///
     /// Unspecified entries use Ghostty's built-in palette. Active OSC 4
@@ -1335,6 +1373,36 @@ impl Terminal {
         }
     }
 
+    /// Replace both embedder cursor defaults. `None` clears an earlier value
+    /// and restores Ghostty's built-in default for that channel.
+    pub fn replace_default_cursor(&mut self, style: Option<CursorShape>, blink: Option<bool>) {
+        let style = style.map(|style| match style {
+            CursorShape::Bar => sys::GHOSTTY_TERMINAL_CURSOR_STYLE_BAR,
+            CursorShape::Underline => sys::GHOSTTY_TERMINAL_CURSOR_STYLE_UNDERLINE,
+            CursorShape::Block | CursorShape::BlockHollow => {
+                sys::GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK
+            }
+        });
+        unsafe {
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE,
+                style
+                    .as_ref()
+                    .map(|style| style as *const sys::GhosttyTerminalCursorStyle as *const c_void)
+                    .unwrap_or(ptr::null()),
+            );
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_BLINK,
+                blink
+                    .as_ref()
+                    .map(|blink| blink as *const bool as *const c_void)
+                    .unwrap_or(ptr::null()),
+            );
+        }
+    }
+
     /// Effective foreground, background, and cursor colors.
     ///
     /// Each value includes any active OSC 10/11/12 override and is `None`
@@ -1361,6 +1429,13 @@ impl Terminal {
         };
         let blinking: bool = self.get(sys::GHOSTTY_TERMINAL_DATA_CURSOR_BLINKING)?;
         Ok((shape, blinking))
+    }
+
+    /// Opaque semantic cursor activity token. Compare only for inequality;
+    /// it advances for DECSCUSR, mode 12, active-screen changes, RIS, and
+    /// embedder cursor-default setters even when the resolved pair is equal.
+    pub fn cursor_activity(&self) -> Result<u64> {
+        self.get(sys::GHOSTTY_TERMINAL_DATA_CURSOR_ACTIVITY)
     }
 
     /// Dynamic state for process-separated renderers. Application-authored

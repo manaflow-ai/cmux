@@ -70,6 +70,10 @@ pub struct TerminalHostRecord {
     /// workspace registry owns placement in the stacked follow-up.
     #[serde(default)]
     pub workspace_key: String,
+    /// Additive control capability. Missing/false records belong to legacy
+    /// hosts and must never receive the unknown SetDefaults message.
+    #[serde(default)]
+    pub supports_set_defaults: bool,
 }
 
 impl std::fmt::Debug for TerminalHostRecord {
@@ -83,6 +87,7 @@ impl std::fmt::Debug for TerminalHostRecord {
             .field("host_pid", &self.host_pid)
             .field("host_start_nonce", &self.host_start_nonce)
             .field("workspace_key", &self.workspace_key)
+            .field("supports_set_defaults", &self.supports_set_defaults)
             .finish()
     }
 }
@@ -155,8 +160,9 @@ impl std::fmt::Debug for RendererGrant {
 /// each flagged RGB in that order, the atomic cursor style/blink pair when
 /// flagged, then palette_count repetitions of index:u8 + RGB. RGB and palette
 /// fields remain sparse theme overrides. Version 2 producers populate the
-/// host-resolved cursor visual; an absent visual is the version 1 fallback and
-/// resets the receiving renderer's cursor default.
+/// host-resolved cursor visual. An absent visual is the version 1 fallback:
+/// the cursor state is unknown and the receiving renderer must preserve its
+/// current raw-VT/default cursor rather than infer a reset.
 pub fn encode_terminal_color_overrides(colors: &TerminalColorOverrides) -> Vec<u8> {
     let cursor_visual =
         colors.cursor_visual.expect("terminal-host Colors v2 requires a resolved cursor visual");
@@ -427,8 +433,13 @@ mod unix {
         flags |= (colors.cursor.is_some() as u8) << 2;
         flags |= (colors.cursor_style.is_some() as u8) << 3;
         flags |= (colors.cursor_blink.is_some() as u8) << 4;
+        flags |= (colors.selection_bg.is_some() as u8) << 5;
+        flags |= (colors.selection_fg.is_some() as u8) << 6;
         output.push(flags);
-        for color in [colors.fg, colors.bg, colors.cursor].into_iter().flatten() {
+        for color in [colors.fg, colors.bg, colors.cursor, colors.selection_bg, colors.selection_fg]
+            .into_iter()
+            .flatten()
+        {
             output.extend_from_slice(&[color.r, color.g, color.b]);
         }
         if let Some(style) = colors.cursor_style {
@@ -453,12 +464,14 @@ mod unix {
 
     fn decode_default_colors(decoder: &mut PayloadDecoder<'_>) -> anyhow::Result<DefaultColors> {
         let flags = decoder.u8()?;
-        if flags & !0b1_1111 != 0 {
+        if flags & !0b111_1111 != 0 {
             anyhow::bail!("terminal-host default-color flags are out of range");
         }
         let fg = if flags & 1 != 0 { Some(decoder.rgb()?) } else { None };
         let bg = if flags & 2 != 0 { Some(decoder.rgb()?) } else { None };
         let cursor = if flags & 4 != 0 { Some(decoder.rgb()?) } else { None };
+        let selection_bg = if flags & 32 != 0 { Some(decoder.rgb()?) } else { None };
+        let selection_fg = if flags & 64 != 0 { Some(decoder.rgb()?) } else { None };
         let cursor_style = if flags & 8 != 0 {
             Some(match decoder.u8()? {
                 1 => CursorShape::Block,
@@ -495,12 +508,25 @@ mod unix {
             fg,
             bg,
             cursor,
-            selection_bg: None,
-            selection_fg: None,
+            selection_bg,
+            selection_fg,
             cursor_style,
             cursor_blink,
             palette,
         })
+    }
+
+    fn encode_default_colors_payload(colors: DefaultColors) -> Vec<u8> {
+        let mut payload = Vec::new();
+        encode_default_colors(&mut payload, colors);
+        payload
+    }
+
+    fn decode_default_colors_payload(payload: &[u8]) -> anyhow::Result<DefaultColors> {
+        let mut decoder = PayloadDecoder::new(payload);
+        let colors = decode_default_colors(&mut decoder)?;
+        decoder.finish()?;
+        Ok(colors)
     }
 
     pub(crate) struct CapabilityResponses {
@@ -556,6 +582,17 @@ mod unix {
                 let _ = writer.shutdown(std::net::Shutdown::Both);
             }
             result
+        }
+
+        /// Update the authoritative parser defaults on a feature-advertising
+        /// host. Legacy records deliberately skip the unknown control while
+        /// the disposable frontend still updates its local defaults.
+        pub fn send_default_colors(&self, colors: DefaultColors) -> std::io::Result<bool> {
+            if !self.record.supports_set_defaults {
+                return Ok(false);
+            }
+            self.send(MessageKind::SetDefaults, &encode_default_colors_payload(colors))?;
+            Ok(true)
         }
 
         pub fn send_viewer_size(&self, cols: u16, rows: u16) -> std::io::Result<()> {
@@ -916,7 +953,10 @@ mod unix {
             anyhow::bail!("terminal-host owner token is zero");
         }
         if record.record_version == 1 {
-            if record.host_pid != 0 || !record.host_start_nonce.is_empty() {
+            if record.host_pid != 0
+                || !record.host_start_nonce.is_empty()
+                || record.supports_set_defaults
+            {
                 anyhow::bail!("legacy terminal-host record has unexpected liveness fields");
             }
         } else {
@@ -1440,6 +1480,22 @@ mod unix {
             self.broadcast_frames([first, Frame::new(MessageKind::Colors, colors)]);
         }
 
+        fn set_default_colors(&self, colors: DefaultColors) {
+            let mut term = self.term.lock().unwrap();
+            term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
+            term.set_default_palette(&colors.palette);
+            term.replace_default_cursor(colors.cursor_style, colors.cursor_blink);
+            let resolved = term.color_overrides();
+            // An empty coupled Output is an ordered state transition already
+            // understood by every v2 consumer; no standalone Colors frame can
+            // split or bypass the live-stream stager.
+            self.broadcast_with_colors(
+                MessageKind::Output,
+                Vec::new(),
+                encode_terminal_color_overrides(&resolved),
+            );
+        }
+
         fn remove_client(&self, client: u64) {
             self.taps.lock().unwrap().remove(&client);
             let _ = mutate_viewer_sizes(
@@ -1916,6 +1972,7 @@ mod unix {
             host_pid: std::process::id(),
             host_start_nonce: encode_hex(start_nonce.as_bytes()),
             workspace_key: String::new(),
+            supports_set_defaults: true,
         };
         let lease =
             HostLivenessLease::acquire(liveness_path(Path::new(&launch.record_path), &record))?;
@@ -2031,13 +2088,13 @@ mod unix {
             })),
         };
         let mut term = Terminal::new(launch.cols, launch.rows, launch.scrollback, callbacks)?;
-        term.set_default_colors(
+        term.replace_default_colors(
             launch.default_colors.fg,
             launch.default_colors.bg,
             launch.default_colors.cursor,
         );
         term.set_default_palette(&launch.default_colors.palette);
-        term.set_default_cursor(
+        term.replace_default_cursor(
             launch.default_colors.cursor_style,
             launch.default_colors.cursor_blink,
         );
@@ -2093,7 +2150,10 @@ mod unix {
                 let bytes = &buffer[..count];
                 let (title, pwd) = {
                     let mut term = reader_host.term.lock().unwrap();
-                    term.vt_write(bytes);
+                    let cursor_activity = term
+                        .cursor_activity()
+                        .expect("valid host terminals expose cursor activity");
+                    let bytes = term.vt_write_with_normalized(bytes).into_owned();
                     let title = title_changed
                         .swap(false, Ordering::AcqRel)
                         .then(|| term.title().unwrap_or_default());
@@ -2102,15 +2162,19 @@ mod unix {
                     // publishing before releasing it, replay + live output is
                     // an atomic handoff with neither gaps nor duplicates.
                     let colors = term.color_overrides();
-                    if colors != last_colors {
+                    let cursor_changed = term
+                        .cursor_activity()
+                        .expect("valid host terminals expose cursor activity")
+                        != cursor_activity;
+                    if colors != last_colors || cursor_changed {
                         reader_host.broadcast_with_colors(
                             MessageKind::Output,
-                            bytes.to_vec(),
+                            bytes,
                             encode_terminal_color_overrides(&colors),
                         );
                         last_colors = colors;
                     } else {
-                        reader_host.broadcast(MessageKind::Output, bytes.to_vec());
+                        reader_host.broadcast(MessageKind::Output, bytes);
                     }
                     (title, pwd)
                 };
@@ -2349,6 +2413,15 @@ mod unix {
                             break;
                         }
                         command_host.request_termination();
+                    }
+                    MessageKind::SetDefaults => {
+                        if !granted_rights.contains(CapabilityRights::MINT_CAPABILITY) {
+                            break;
+                        }
+                        let Ok(colors) = decode_default_colors_payload(&frame.payload) else {
+                            break;
+                        };
+                        command_host.set_default_colors(colors);
                     }
                     MessageKind::MintCapability => {
                         if !granted_rights.contains(CapabilityRights::MINT_CAPABILITY) {
@@ -2712,6 +2785,7 @@ mod unix {
                 host_pid: std::process::id(),
                 host_start_nonce: encode_hex(nonce.as_bytes()),
                 workspace_key: String::new(),
+                supports_set_defaults: true,
             };
             let record_path = record.record_path(&root);
             let lease = HostLivenessLease::acquire(liveness_path(&record_path, &record)).unwrap();
@@ -2725,6 +2799,8 @@ mod unix {
                 fg: Some(Rgb { r: 1, g: 2, b: 3 }),
                 bg: Some(Rgb { r: 4, g: 5, b: 6 }),
                 cursor: Some(Rgb { r: 7, g: 8, b: 9 }),
+                selection_bg: Some(Rgb { r: 16, g: 17, b: 18 }),
+                selection_fg: Some(Rgb { r: 19, g: 20, b: 21 }),
                 cursor_style: Some(CursorShape::Bar),
                 cursor_blink: Some(false),
                 ..Default::default()
@@ -2748,6 +2824,12 @@ mod unix {
             assert_eq!(decoded.default_colors, default_colors);
             assert_eq!(decoded.command, launch.command);
             assert_eq!(decoded.extra_env, launch.extra_env);
+            assert_eq!(
+                decode_default_colors_payload(&encode_default_colors_payload(default_colors))
+                    .unwrap(),
+                default_colors,
+                "live SetDefaults must preserve the complete frontend defaults"
+            );
         }
 
         #[test]
@@ -2812,6 +2894,7 @@ mod unix {
                 format!("/tmp/cmux-th-{}/{terminal_id}.sock", fs::metadata(root).unwrap().uid());
             legacy.host_pid = 0;
             legacy.host_start_nonce.clear();
+            legacy.supports_set_defaults = false;
             let legacy_path = legacy.record_path(root);
             write_record(&legacy_path, &legacy).unwrap();
 

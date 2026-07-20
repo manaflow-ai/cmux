@@ -560,6 +560,207 @@ fn exit_follows_all_final_pty_bytes_on_the_live_stream() {
 }
 
 #[test]
+fn c1_output_is_normalized_once_before_host_and_frontend_mirrors_observe_it() {
+    let harness = RecoveryHarness::start("c1-normalized-output");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": [
+                "/bin/sh",
+                "-c",
+                concat!(
+                    "sleep 1; ",
+                    "printf '\\302'; sleep 0.1; ",
+                    "printf '\\235UTF8-continued '; sleep 0.1; ",
+                    "printf '\\2354;9;#090909'; sleep 0.1; ",
+                    "printf '\\234VISIBLE'; sleep 30",
+                ),
+            ],
+            "new_workspace": true,
+            "name": "c1-normalized-output",
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let mut renderer = connect_host_detailed(
+        &record.endpoint,
+        &record.terminal_id,
+        &record.owner_token,
+        ClientRole::Admin,
+        CapabilityRights::ADMIN,
+    )
+    .unwrap();
+    renderer.stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+
+    let mut output = Vec::new();
+    let mut awaiting_colors = false;
+    let mut saw_palette = false;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline
+        && (!contains_bytes(&output, b"VISIBLE") || awaiting_colors || !saw_palette)
+    {
+        let frame = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD)
+            .expect("read normalized terminal-host frame")
+            .expect("terminal host closed before normalized output");
+        assert_eq!(frame.request_id, 0);
+        assert_eq!(frame.sequence, renderer.next_sequence);
+        renderer.next_sequence = renderer.next_sequence.wrapping_add(1);
+        match frame.kind {
+            MessageKind::Output => {
+                assert!(!awaiting_colors, "Output split a coupled color transition");
+                output.extend_from_slice(&frame.payload);
+                awaiting_colors = match frame.flags {
+                    0 => false,
+                    FLAG_COLORS_FOLLOW => true,
+                    flags => panic!("unexpected Output flags {flags:#x}"),
+                };
+            }
+            MessageKind::Colors => {
+                assert!(awaiting_colors, "unpaired Colors frame");
+                assert_eq!(frame.flags, 0);
+                let colors = decode_terminal_color_overrides(&frame.payload).unwrap();
+                saw_palette |= colors.palette[9] == Some(Rgb { r: 9, g: 9, b: 9 });
+                awaiting_colors = false;
+            }
+            MessageKind::Exit => panic!("terminal exited before C1 verification"),
+            _ => assert!(!awaiting_colors, "metadata split a coupled color transition"),
+        }
+    }
+
+    let expected = b"\xc2\x9dUTF8-continued \x1b]4;9;#090909\x1b\\VISIBLE";
+    assert!(contains_bytes(&output, expected), "host emitted divergent C1 bytes: {output:?}");
+    assert!(!contains_bytes(&output, b"\x9d4;9;#090909"));
+    assert!(!contains_bytes(&output, b"\x9cVISIBLE"));
+    assert!(saw_palette, "normalized OSC did not publish its sparse palette state");
+
+    let screen = wait_for_screen(&harness.socket, surface, "VISIBLE");
+    assert!(screen.contains("VISIBLE"));
+    let state = attach_state(&harness.socket, surface);
+    assert_eq!(state["colors"]["palette"]["9"], "#090909");
+
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 2, "cmd": "close-surface", "surface": surface}),
+    );
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
+fn existing_host_defaults_survive_output_resize_and_renderer_reconnects() {
+    let harness = RecoveryHarness::start("live-default-update");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": ["/bin/cat"],
+            "new_workspace": true,
+            "cols": 80,
+            "rows": 24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    assert!(record.supports_set_defaults);
+    let builtin_cursor = ghostty_vt::Terminal::new(1, 1, 0, ghostty_vt::Callbacks::default())
+        .unwrap()
+        .effective_cursor_visual()
+        .unwrap();
+
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 2,
+            "cmd": "set-default-colors",
+            "complete": true,
+            "fg": "#010203",
+            "bg": "#040506",
+            "cursor": "#070809",
+            "selection_bg": "#101112",
+            "selection_fg": "#131415",
+            "cursor_style": "bar",
+            "cursor_blink": false,
+            "palette": {"9": "#161718", "255": "#191a1b"},
+        }),
+    );
+    let state = wait_for_cursor_visual(&harness.socket, surface, "bar", false);
+    assert_eq!(state["colors"]["fg"], "#010203");
+    assert_eq!(state["colors"]["bg"], "#040506");
+    assert_eq!(state["colors"]["cursor"], "#070809");
+    assert_eq!(state["colors"]["selection_bg"], "#101112");
+    assert_eq!(state["colors"]["selection_fg"], "#131415");
+    wait_for_host_cursor_snapshot(&record, ghostty_vt::CursorShape::Bar, false);
+
+    let marker = format!("defaults-after-output-{}", std::process::id());
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 3, "cmd": "send", "surface": surface, "text": format!("{marker}\n")}),
+    );
+    assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
+    wait_for_host_cursor_snapshot(&record, ghostty_vt::CursorShape::Bar, false);
+
+    let resized = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 4,
+            "cmd": "resize-surface",
+            "surface": surface,
+            "cols": 101,
+            "rows": 37,
+        }),
+    );
+    assert_eq!(resized["accepted"], true);
+    wait_for_host_size(&harness.host_root(), 101, 37);
+    wait_for_vt_size(&harness.socket, surface, 101, 37);
+    wait_for_host_cursor_snapshot(&record, ghostty_vt::CursorShape::Bar, false);
+
+    // Complete replacement must also clear prior explicit embedder defaults;
+    // sparse setters intentionally cannot represent this transition.
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 5,
+            "cmd": "set-default-colors",
+            "complete": true,
+            "palette": {},
+        }),
+    );
+    let builtin_style = match builtin_cursor.0 {
+        ghostty_vt::CursorShape::Bar => "bar",
+        ghostty_vt::CursorShape::Underline => "underline",
+        ghostty_vt::CursorShape::Block | ghostty_vt::CursorShape::BlockHollow => "block",
+    };
+    let reset_state =
+        wait_for_cursor_visual(&harness.socket, surface, builtin_style, builtin_cursor.1);
+    for channel in ["fg", "bg", "cursor", "selection_bg", "selection_fg"] {
+        assert!(reset_state["colors"][channel].is_null(), "{channel} default did not clear");
+    }
+    wait_for_host_cursor_snapshot(&record, builtin_cursor.0, builtin_cursor.1);
+
+    let resized = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 6,
+            "cmd": "resize-surface",
+            "surface": surface,
+            "cols": 99,
+            "rows": 35,
+        }),
+    );
+    assert_eq!(resized["accepted"], true);
+    wait_for_host_size(&harness.host_root(), 99, 35);
+    wait_for_host_cursor_snapshot(&record, builtin_cursor.0, builtin_cursor.1);
+
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 7, "cmd": "close-surface", "surface": surface}),
+    );
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
 fn mint_capability_fences_prior_admin_input_before_renderer_input() {
     let harness = RecoveryHarness::start("mint-input-barrier");
     let prior_fragments = (0..32).map(|index| format!("a{index:02}")).collect::<Vec<_>>();
@@ -1335,11 +1536,18 @@ fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
     let created = request(
         &harness.socket,
         serde_json::json!({
-            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
+            "id":1,"cmd":"run","argv":[
+                "/bin/sh", "-c",
+                "stty raw -echo; printf 'CURSOR-ACTIVITY-READY'; exec /bin/cat"
+            ],"new_workspace":true,
             "cols":80,"rows":24,
         }),
     );
     let surface = created["surface"].as_u64().unwrap();
+    assert!(
+        wait_for_screen(&harness.socket, surface, "CURSOR-ACTIVITY-READY")
+            .contains("CURSOR-ACTIVITY-READY")
+    );
     let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
 
     let disconnected = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
@@ -1365,6 +1573,7 @@ fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
         CapabilityRights::RENDERER,
     )
     .unwrap();
+    let default_cursor_colors = renderer.colors.clone();
     let hybrid_cursor = TerminalColorOverrides {
         cursor_visual: Some((ghostty_vt::CursorShape::Bar, false)),
         ..Default::default()
@@ -1387,6 +1596,22 @@ fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
         ..Default::default()
     };
     write_frame(&mut renderer.stream, &Frame::new(MessageKind::Input, b"\x1b[3 q\n".to_vec()))
+        .unwrap();
+    renderer.wait_for_colors(&cursor_colors);
+
+    write_frame(
+        &mut renderer.stream,
+        &Frame::new(MessageKind::Input, b"\x1b[?1049h\x1b[?1049l".to_vec()),
+    )
+    .unwrap();
+    renderer.wait_for_colors(&cursor_colors);
+
+    for sequence in [b"\x1b[0 q".as_slice(), b"\x1b[0 q", b"\x1bc", b"\x1bc"] {
+        write_frame(&mut renderer.stream, &Frame::new(MessageKind::Input, sequence.to_vec()))
+            .unwrap();
+        renderer.wait_for_colors(&default_cursor_colors);
+    }
+    write_frame(&mut renderer.stream, &Frame::new(MessageKind::Input, b"\x1b[3 q".to_vec()))
         .unwrap();
     renderer.wait_for_colors(&cursor_colors);
 
@@ -1970,25 +2195,55 @@ fn wait_for_cursor_visual(
 ) -> serde_json::Value {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        let stream = transport::connect(path).unwrap();
-        let mut writer = stream.try_clone_box().unwrap();
-        let mut reader = BufReader::new(stream);
-        writeln!(
-            writer,
-            "{}",
-            serde_json::json!({"id": 9001, "cmd": "attach-surface", "surface": surface})
-        )
-        .unwrap();
-        let mut line = String::new();
-        reader.read_line(&mut line).unwrap();
-        let state: serde_json::Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(state["event"], "vt-state", "unexpected cursor probe: {state}");
+        let state = attach_state(path, surface);
         if state["colors"]["cursor_style"].as_str() == Some(style)
             && state["colors"]["cursor_blink"].as_bool() == Some(blink)
         {
             return state;
         }
-        assert!(Instant::now() < deadline, "daemon mirror did not apply {style} cursor");
+        assert!(
+            Instant::now() < deadline,
+            "daemon mirror did not apply {style}/{blink} cursor: {state}"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
+fn attach_state(path: &Path, surface: u64) -> serde_json::Value {
+    let stream = transport::connect(path).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    writeln!(
+        writer,
+        "{}",
+        serde_json::json!({"id": 9001, "cmd": "attach-surface", "surface": surface})
+    )
+    .unwrap();
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    let state: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(state["event"], "vt-state", "unexpected attach probe: {state}");
+    state
+}
+
+fn wait_for_host_cursor_snapshot(
+    record: &cmux_tui_core::terminal_host_runtime::TerminalHostRecord,
+    style: ghostty_vt::CursorShape,
+    blink: bool,
+) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Ok(connection) = connect_host_detailed(
+            &record.endpoint,
+            &record.terminal_id,
+            &record.owner_token,
+            ClientRole::Admin,
+            CapabilityRights::ADMIN,
+        ) && connection.colors.cursor_visual == Some((style, blink))
+        {
+            return;
+        }
+        assert!(Instant::now() < deadline, "host snapshot did not apply {style:?}/{blink}");
         std::thread::sleep(Duration::from_millis(25));
     }
 }

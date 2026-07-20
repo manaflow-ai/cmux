@@ -117,6 +117,34 @@ fn default_colors_answer_osc_queries() {
 }
 
 #[test]
+fn replace_defaults_can_clear_prior_embedder_colors_and_cursor() {
+    let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+    let initial_colors = term.effective_colors();
+    let initial_cursor = term.effective_cursor_visual().unwrap();
+
+    term.replace_default_colors(
+        Some(Rgb { r: 1, g: 2, b: 3 }),
+        Some(Rgb { r: 4, g: 5, b: 6 }),
+        Some(Rgb { r: 7, g: 8, b: 9 }),
+    );
+    term.replace_default_cursor(Some(CursorShape::Bar), Some(false));
+    assert_eq!(
+        term.effective_colors(),
+        (
+            Some(Rgb { r: 1, g: 2, b: 3 }),
+            Some(Rgb { r: 4, g: 5, b: 6 }),
+            Some(Rgb { r: 7, g: 8, b: 9 })
+        )
+    );
+    assert_eq!(term.effective_cursor_visual().unwrap(), (CursorShape::Bar, false));
+
+    term.replace_default_colors(None, None, None);
+    term.replace_default_cursor(None, None);
+    assert_eq!(term.effective_colors(), initial_colors);
+    assert_eq!(term.effective_cursor_visual().unwrap(), initial_cursor);
+}
+
+#[test]
 fn ghostty_config_colors_and_palette_defaults_use_engine_parsers() {
     assert_eq!(ghostty_vt::parse_color("ForestGreen"), Some(Rgb { r: 0x22, g: 0x8b, b: 0x22 }));
     assert_eq!(
@@ -226,6 +254,27 @@ fn effective_cursor_visual_follows_active_screen_and_mode_12() {
     term.vt_write(b"\x1b[?12l");
     assert_eq!(term.effective_cursor_visual().unwrap(), (CursorShape::Bar, false));
     assert_eq!(term.color_overrides().cursor_visual, Some((CursorShape::Bar, false)));
+}
+
+#[test]
+fn cursor_activity_advances_for_same_pair_screen_roundtrips_and_resets() {
+    let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+    let initial_visual = term.effective_cursor_visual().unwrap();
+
+    let before_screen = term.cursor_activity().unwrap();
+    term.vt_write(b"\x1b[?1049h\x1b[?1049l");
+    assert_eq!(term.effective_cursor_visual().unwrap(), initial_visual);
+    assert_ne!(term.cursor_activity().unwrap(), before_screen);
+
+    let before_reset = term.cursor_activity().unwrap();
+    term.vt_write(b"\x1b[0 q");
+    assert_eq!(term.effective_cursor_visual().unwrap(), initial_visual);
+    assert_ne!(term.cursor_activity().unwrap(), before_reset);
+
+    let before_ris = term.cursor_activity().unwrap();
+    term.vt_write(b"\x1bc");
+    assert_eq!(term.effective_cursor_visual().unwrap(), initial_visual);
+    assert_ne!(term.cursor_activity().unwrap(), before_ris);
 }
 
 #[test]
@@ -590,6 +639,21 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     );
     state.update(&mut term).unwrap();
     assert_eq!(state.palette_color(4), Rgb { r: 1, g: 2, b: 3 });
+}
+
+#[test]
+fn vt_write_returns_the_exact_normalized_stream_across_split_utf8_and_c1_controls() {
+    let mut term = Terminal::new(80, 2, 0, Callbacks::default()).unwrap();
+    let chunks: &[&[u8]] =
+        &[b"\xc2", b"\x9dUTF8-continued ", b"\x9d4;9;#090909", b"\x9c", b"VISIBLE"];
+    let mut emitted = Vec::new();
+    for chunk in chunks {
+        emitted.extend_from_slice(term.vt_write_with_normalized(chunk).as_ref());
+    }
+
+    assert_eq!(emitted, b"\xc2\x9dUTF8-continued \x1b]4;9;#090909\x1b\\VISIBLE");
+    assert!(term.palette_overridden(9));
+    assert!(term.viewport_text().unwrap().contains("VISIBLE"));
 }
 
 #[test]

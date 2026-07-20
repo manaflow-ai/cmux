@@ -993,15 +993,43 @@ impl RemoteSession {
     }
 
     pub fn set_default_colors(&self, colors: DefaultColors) -> anyhow::Result<()> {
-        if colors.fg.is_none() && colors.bg.is_none() {
-            return Ok(());
-        }
-        let mut cmd = json!({"cmd": "set-default-colors"});
+        let palette = colors
+            .palette
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, color)| {
+                color.map(|color| (index.to_string(), Value::String(hex_color(color))))
+            })
+            .collect::<serde_json::Map<String, Value>>();
+        let mut cmd = json!({
+            "cmd": "set-default-colors",
+            "complete": true,
+            "palette": palette,
+        });
         if let Some(fg) = colors.fg {
             cmd["fg"] = json!(hex_color(fg));
         }
         if let Some(bg) = colors.bg {
             cmd["bg"] = json!(hex_color(bg));
+        }
+        if let Some(cursor) = colors.cursor {
+            cmd["cursor"] = json!(hex_color(cursor));
+        }
+        if let Some(selection_bg) = colors.selection_bg {
+            cmd["selection_bg"] = json!(hex_color(selection_bg));
+        }
+        if let Some(selection_fg) = colors.selection_fg {
+            cmd["selection_fg"] = json!(hex_color(selection_fg));
+        }
+        if let Some(cursor_style) = colors.cursor_style {
+            cmd["cursor_style"] = json!(match cursor_style {
+                CursorShape::Block | CursorShape::BlockHollow => "block",
+                CursorShape::Underline => "underline",
+                CursorShape::Bar => "bar",
+            });
+        }
+        if let Some(cursor_blink) = colors.cursor_blink {
+            cmd["cursor_blink"] = json!(cursor_blink);
         }
         self.request(cmd).map(|_| ())
     }
@@ -1304,8 +1332,26 @@ fn parse_terminal_colors(value: &Value) -> Option<RemoteTerminalColors> {
 }
 
 fn apply_terminal_colors(terminal: &mut Terminal, colors: &RemoteTerminalColors) {
-    terminal.set_default_colors(colors.fg, colors.bg, colors.cursor);
+    // Colors and vt-state carry the complete resolved special-color tuple.
+    // Replace (rather than sparsely merge) it so a later null clears an
+    // earlier frontend default just as it does on the authoritative surface.
+    terminal.replace_default_colors(colors.fg, colors.bg, colors.cursor);
     terminal.set_default_cursor(colors.cursor_style, colors.cursor_blink);
+    if let (Some(style), Some(blink)) = (colors.cursor_style, colors.cursor_blink) {
+        // Resolved v2 cursor metadata is authoritative for the active screen.
+        // Reset an application-authored DECSCUSR first, then apply the exact
+        // source pair. Legacy v1 events omit the pair and leave raw VT cursor
+        // state untouched.
+        let value = match (style, blink) {
+            (CursorShape::Block | CursorShape::BlockHollow, true) => 1,
+            (CursorShape::Block | CursorShape::BlockHollow, false) => 2,
+            (CursorShape::Underline, true) => 3,
+            (CursorShape::Underline, false) => 4,
+            (CursorShape::Bar, true) => 5,
+            (CursorShape::Bar, false) => 6,
+        };
+        terminal.vt_write(format!("\x1b[0 q\x1b[{value} q").as_bytes());
+    }
 
     // Replay intentionally omits application-authored palette OSCs so each
     // frontend can retain its own defaults. Reapply only the sparse OSC 4
@@ -1391,6 +1437,64 @@ mod tests {
     #[test]
     fn protocol_9_identity_is_accepted() {
         validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 9})).unwrap();
+    }
+
+    #[test]
+    fn resolved_cursor_colors_force_the_active_screen_across_alt_screen_modes() {
+        for mode in [47, 1047, 1049] {
+            let mut terminal = Terminal::new(12, 3, 100, Callbacks::default()).unwrap();
+            terminal.vt_write(b"\x1b[5 q");
+            terminal.vt_write(format!("\x1b[?{mode}h\x1b[4 q").as_bytes());
+            assert_eq!(
+                terminal.effective_cursor_visual().unwrap(),
+                (CursorShape::Underline, false)
+            );
+
+            let colors = RemoteTerminalColors {
+                fg: None,
+                bg: None,
+                cursor: None,
+                cursor_style: Some(CursorShape::Bar),
+                cursor_blink: Some(false),
+                palette: [None; 256],
+            };
+            apply_terminal_colors(&mut terminal, &colors);
+            assert_eq!(
+                terminal.effective_cursor_visual().unwrap(),
+                (CursorShape::Bar, false),
+                "resolved cursor did not replace the active screen for mode {mode}"
+            );
+
+            terminal.vt_write(format!("\x1b[?{mode}l").as_bytes());
+            let primary_colors = RemoteTerminalColors {
+                cursor_style: Some(CursorShape::Underline),
+                cursor_blink: Some(true),
+                ..colors
+            };
+            apply_terminal_colors(&mut terminal, &primary_colors);
+            assert_eq!(
+                terminal.effective_cursor_visual().unwrap(),
+                (CursorShape::Underline, true),
+                "resolved cursor did not replace the restored primary screen for mode {mode}"
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_cursor_absence_preserves_raw_decscusr_and_mode_12() {
+        let mut terminal = Terminal::new(12, 3, 100, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b[3 q\x1b[?12l");
+        let legacy = RemoteTerminalColors {
+            fg: None,
+            bg: None,
+            cursor: None,
+            cursor_style: None,
+            cursor_blink: None,
+            palette: [None; 256],
+        };
+
+        apply_terminal_colors(&mut terminal, &legacy);
+        assert_eq!(terminal.effective_cursor_visual().unwrap(), (CursorShape::Underline, false));
     }
 
     #[cfg(unix)]
@@ -1775,6 +1879,11 @@ mod tests {
         });
         {
             let mut terminal = surface.term.lock().unwrap();
+            terminal.replace_default_colors(
+                Some(Rgb { r: 0xaa, g: 0xbb, b: 0xcc }),
+                Some(Rgb { r: 0x11, g: 0x22, b: 0x33 }),
+                Some(Rgb { r: 0xdd, g: 0xee, b: 0xff }),
+            );
             terminal.vt_write(b"\x1b]4;1;rgb:ff/35/62\x1b\\");
         }
         session.surfaces.lock().unwrap().insert(7, surface.clone());
@@ -1782,13 +1891,11 @@ mod tests {
         session.handle_line(json!({
             "event": "colors-changed",
             "surface": 7,
-            "fg": "#eeeeee",
-            "bg": "#101010",
-            "cursor": "#eeeeee",
             "palette": {"196": "#010203"},
         }));
 
         let terminal = surface.term.lock().unwrap();
+        assert_eq!(terminal.effective_colors(), (None, None, None));
         let palette = terminal.color_overrides().palette;
         assert_eq!(palette[1], None);
         assert_eq!(palette[196], Some(Rgb { r: 1, g: 2, b: 3 }));

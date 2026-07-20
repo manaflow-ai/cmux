@@ -55,6 +55,9 @@ pub enum MessageKind {
     Terminate = 104,
     /// Admin request: little-endian rights:u32 + ttl_ms:u32.
     MintCapability = 105,
+    /// Admin request: complete encoded Ghostty frontend defaults. New hosts
+    /// advertise support in their durable discovery record.
+    SetDefaults = 106,
 }
 
 impl TryFrom<u16> for MessageKind {
@@ -84,6 +87,7 @@ impl TryFrom<u16> for MessageKind {
             103 => Ok(Self::ReleaseViewer),
             104 => Ok(Self::Terminate),
             105 => Ok(Self::MintCapability),
+            106 => Ok(Self::SetDefaults),
             other => Err(ProtocolError::UnknownMessageKind(other)),
         }
     }
@@ -106,13 +110,15 @@ pub struct Frame {
     /// duplicate must disconnect and take a new Snapshot; continuing would
     /// silently corrupt its terminal mirror.
     ///
-    /// When Output changes application-authored colors it carries
-    /// [`FLAG_COLORS_FOLLOW`], and its full-state Colors frame is exactly the
-    /// next sequence. Resized always carries that flag and likewise has its
-    /// complete Colors state exactly next. Producers publish each pair
-    /// atomically; consumers stage the first frame and expose only the paired
-    /// state. Snapshot keeps flags zero: its same-boundary Colors frame is a
-    /// mandatory bootstrap rule rather than a live-stream transition.
+    /// When Output changes application-authored colors, observes cursor-
+    /// semantic activity that must be replayed even when the resolved pair is
+    /// unchanged, or orders a SetDefaults transition, it carries
+    /// [`FLAG_COLORS_FOLLOW`]; its full-state Colors frame is exactly the next
+    /// sequence. Resized always carries that flag and likewise has its complete
+    /// Colors state exactly next. Producers publish each pair atomically;
+    /// consumers stage the first frame and expose only the paired state.
+    /// Snapshot keeps flags zero: its same-boundary Colors frame is a mandatory
+    /// bootstrap rule rather than a live-stream transition.
     /// ClientHello/HostHello may negotiate [`FLAG_VIEWER_SIZE_ACKS`]. Unknown
     /// flags, flags on Colors or other message kinds, an unflagged Resized, and
     /// a flagged live frame not followed by Colors are protocol errors.

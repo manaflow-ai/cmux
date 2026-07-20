@@ -5,6 +5,7 @@
 //! browser-aware frontends should branch on [`SurfaceKind`] before using
 //! VT operations.
 
+use std::borrow::Cow;
 use std::io::{Read, Write};
 use std::mem::size_of;
 use std::ops::Deref;
@@ -574,8 +575,9 @@ pub struct PtySurface {
     taps: Mutex<Vec<AttachTap>>,
     /// A PTY color mutation awaiting bounded attach-stream fan-out.
     attach_colors_pending: AtomicBool,
-    /// A terminal reset requires reapplying equal palette values because byte
-    /// frontends reset their local palette while Ghostty preserves overrides.
+    /// A reset or cursor-semantic transition requires reapplying equal state:
+    /// byte frontends may reset palettes or switch per-screen cursor storage
+    /// even when the final effective values compare equal.
     attach_colors_force_pending: AtomicBool,
     /// Last effective color state emitted to attach streams. This suppresses
     /// repeated OSC sets that advance Ghostty's revision without changing the
@@ -744,9 +746,9 @@ impl Surface {
         let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
         if let Some(mux) = mux.upgrade() {
             let colors = mux.default_colors();
-            term.set_default_colors(colors.fg, colors.bg, colors.cursor);
+            term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
             term.set_default_palette(&colors.palette);
-            term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
+            term.replace_default_cursor(colors.cursor_style, colors.cursor_blink);
         }
         let mut mouse_encoders = MouseEncoders::new()?;
         mouse_encoders.sync_from_terminal(&term);
@@ -802,13 +804,24 @@ impl Surface {
                         let before = terminal_scroll_position(&term);
                         let color_revision = term.color_revision();
                         let color_reapply_revision = term.color_reapply_revision();
-                        term.vt_write(&buf[..n]);
+                        let cursor_activity = term
+                            .cursor_activity()
+                            .expect("valid local terminals expose cursor activity");
+                        let normalized = term.vt_write_with_normalized(&buf[..n]);
+                        let cursor_changed = term
+                            .cursor_activity()
+                            .expect("valid local terminals expose cursor activity")
+                            != cursor_activity;
                         pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                         let after = terminal_scroll_position(&term);
-                        let has_attach_taps = pty.broadcast_attach_output(&buf[..n]);
-                        if has_attach_taps && term.color_revision() != color_revision {
+                        let has_attach_taps = pty.broadcast_attach_output(normalized.as_ref());
+                        if has_attach_taps
+                            && (term.color_revision() != color_revision || cursor_changed)
+                        {
                             pty.attach_colors_pending.store(true, Ordering::Release);
-                            if term.color_reapply_revision() != color_reapply_revision {
+                            if term.color_reapply_revision() != color_reapply_revision
+                                || cursor_changed
+                            {
                                 pty.attach_colors_force_pending.store(true, Ordering::Release);
                             }
                         }
@@ -871,6 +884,8 @@ impl Surface {
         mut attachment: crate::terminal_host_runtime::HostAttachment,
         terminate_on_error: bool,
     ) -> anyhow::Result<Arc<Surface>> {
+        let initial_defaults = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+        attachment.send_default_colors(initial_defaults)?;
         let mut reader = attachment.take_reader()?;
         if let Ok(delay_ms) = std::env::var("CMUX_TUI_TEST_HOSTED_SPAWN_FAIL_AFTER_CONNECT")
             && let Ok(delay_ms) = delay_ms.parse::<u64>()
@@ -892,9 +907,9 @@ impl Surface {
         let mut term = Terminal::new(snapshot.cols, snapshot.rows, opts.scrollback, callbacks)?;
         if let Some(mux) = mux.upgrade() {
             let colors = mux.default_colors();
-            term.set_default_colors(colors.fg, colors.bg, colors.cursor);
+            term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
             term.set_default_palette(&colors.palette);
-            term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
+            term.replace_default_cursor(colors.cursor_style, colors.cursor_blink);
         }
         term.vt_write(&snapshot.replay);
         let initial_color_delta = terminal_color_override_full_state(&snapshot.colors);
@@ -996,7 +1011,11 @@ impl Surface {
                                 let generation = {
                                     let mut term = pty.term.lock().unwrap();
                                     let before = terminal_scroll_position(&term);
-                                    term.vt_write(&output);
+                                    let normalized = term.vt_write_with_normalized(&output);
+                                    let output = match normalized {
+                                        Cow::Borrowed(_) => output,
+                                        Cow::Owned(normalized) => normalized,
+                                    };
                                     if let Some(colors) = colors.as_ref() {
                                         let delta = terminal_color_override_delta(
                                             &applied_color_overrides,
@@ -1083,13 +1102,13 @@ impl Surface {
                                 else {
                                     break;
                                 };
-                                replacement.set_default_colors(
+                                replacement.replace_default_colors(
                                     defaults.fg,
                                     defaults.bg,
                                     defaults.cursor,
                                 );
                                 replacement.set_default_palette(&defaults.palette);
-                                replacement.set_default_cursor(
+                                replacement.replace_default_cursor(
                                     defaults.cursor_style,
                                     defaults.cursor_blink,
                                 );
@@ -1227,29 +1246,19 @@ impl Surface {
                             | Err(_) => {}
                         }
 
-                        let mut replacement =
-                            match crate::terminal_host_runtime::adopt_terminal_host(
-                                record,
-                                record_path,
-                            ) {
-                                Ok(replacement) if replacement.identity() == identity => {
-                                    replacement
-                                }
-                                Ok(_) | Err(_) => {
-                                    std::thread::sleep(retry_delay);
-                                    retry_delay = (retry_delay * 2).min(Duration::from_secs(1));
-                                    continue;
-                                }
-                            };
-                        let replacement_snapshot = replacement.snapshot.clone();
-                        let replacement_capabilities = replacement.capability_responses();
-                        let replacement_reader = match replacement.take_reader() {
-                            Ok(reader) => reader,
-                            Err(_) => {
+                        let replacement = match crate::terminal_host_runtime::adopt_terminal_host(
+                            record,
+                            record_path,
+                        ) {
+                            Ok(replacement) if replacement.identity() == identity => replacement,
+                            Ok(_) | Err(_) => {
                                 std::thread::sleep(retry_delay);
+                                retry_delay = (retry_delay * 2).min(Duration::from_secs(1));
                                 continue;
                             }
                         };
+                        let replacement_snapshot = replacement.snapshot.clone();
+                        let replacement_capabilities = replacement.capability_responses();
                         let installed = {
                             let mut runtime = pty.runtime.lock().unwrap();
                             if pty.owner_detaching.load(Ordering::Acquire) {
@@ -1264,8 +1273,15 @@ impl Surface {
                                 | PtyRuntime::ExitedHosted
                                 | PtyRuntime::Local { .. } => return,
                             };
-                            if let Some((cols, rows)) = viewer_size
-                                && replacement.send_viewer_size(cols, rows).is_err()
+                            let defaults =
+                                mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+                            if (if let Some((cols, rows)) = viewer_size {
+                                replacement.send_viewer_size(cols, rows).map(|_| ())
+                            } else {
+                                Ok(())
+                            })
+                            .and_then(|()| replacement.send_default_colors(defaults).map(|_| ()))
+                            .is_err()
                             {
                                 false
                             } else {
@@ -1280,6 +1296,16 @@ impl Surface {
                             std::thread::sleep(retry_delay);
                             continue;
                         }
+
+                        let replacement_reader = {
+                            let mut runtime = pty.runtime.lock().unwrap();
+                            let PtyRuntime::Hosted(replacement) = &mut *runtime else { return };
+                            replacement.take_reader().ok()
+                        };
+                        let Some(replacement_reader) = replacement_reader else {
+                            std::thread::sleep(retry_delay);
+                            continue;
+                        };
 
                         let defaults =
                             mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
@@ -1298,14 +1324,14 @@ impl Surface {
                             std::thread::sleep(retry_delay);
                             continue;
                         };
-                        replacement_term.set_default_colors(
+                        replacement_term.replace_default_colors(
                             defaults.fg,
                             defaults.bg,
                             defaults.cursor,
                         );
                         replacement_term.set_default_palette(&defaults.palette);
                         replacement_term
-                            .set_default_cursor(defaults.cursor_style, defaults.cursor_blink);
+                            .replace_default_cursor(defaults.cursor_style, defaults.cursor_blink);
                         replacement_term.vt_write(&replacement_snapshot.replay);
                         let color_delta =
                             terminal_color_override_full_state(&replacement_snapshot.colors);
@@ -1399,9 +1425,9 @@ impl Surface {
         let mut term = Terminal::new(cols, rows, opts.scrollback, callbacks)?;
         if let Some(mux) = mux.upgrade() {
             let colors = mux.default_colors();
-            term.set_default_colors(colors.fg, colors.bg, colors.cursor);
+            term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
             term.set_default_palette(&colors.palette);
-            term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
+            term.replace_default_cursor(colors.cursor_style, colors.cursor_blink);
         }
         let mut mouse_encoders = MouseEncoders::new()?;
         mouse_encoders.sync_from_terminal(&term);
@@ -1467,9 +1493,9 @@ impl Surface {
         let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
         if let Some(mux) = mux.upgrade() {
             let colors = mux.default_colors();
-            term.set_default_colors(colors.fg, colors.bg, colors.cursor);
+            term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
             term.set_default_palette(&colors.palette);
-            term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
+            term.replace_default_cursor(colors.cursor_style, colors.cursor_blink);
         }
         let mut mouse_encoders = MouseEncoders::new()?;
         mouse_encoders.sync_from_terminal(&term);
@@ -1735,10 +1761,18 @@ impl Surface {
 
     pub fn set_default_colors(&self, colors: DefaultColors) {
         if let Some(pty) = self.as_pty() {
+            #[cfg(unix)]
+            if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap() {
+                // The local mirror updates immediately below. A v2 durable
+                // host also receives the same complete defaults so later
+                // output, resize snapshots, and reconnects cannot restore the
+                // launch-time theme. Legacy hosts are feature-gated by record.
+                let _ = host.send_default_colors(colors);
+            }
             let mut term = pty.term.lock().unwrap();
-            term.set_default_colors(colors.fg, colors.bg, colors.cursor);
+            term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
             term.set_default_palette(&colors.palette);
-            term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
+            term.replace_default_cursor(colors.cursor_style, colors.cursor_blink);
             let live_colors = TerminalColors::from_pty_output(&term, colors);
             let colors = pty.terminal_colors_locked(&mut term, colors);
             pty.attach_colors_pending.store(false, Ordering::Release);
@@ -2297,13 +2331,15 @@ impl PtySurface {
             }
         }
 
-        let colors = TerminalColors::from_pty_output(term, defaults);
+        let live_colors = TerminalColors::from_pty_output(term, defaults);
         let mut last = self.last_attach_colors.lock().unwrap();
-        if !force && last.as_deref() == Some(&colors) {
+        if !force && last.as_deref() == Some(&live_colors) {
             return false;
         }
-        *last = Some(Box::new(colors));
+        *last = Some(Box::new(live_colors));
         drop(last);
+        let colors =
+            if force { TerminalColors::from_terminal(term, defaults) } else { live_colors };
         self.broadcast_attach_frame(AttachFrame::ColorsChanged(Arc::new(colors)));
         true
     }
@@ -2413,7 +2449,7 @@ impl PtySurface {
 }
 
 fn terminal_color_override_full_state(next: &TerminalColorOverrides) -> Vec<u8> {
-    let mut output = b"\x1b[0 q".to_vec();
+    let mut output = if next.cursor_visual.is_some() { b"\x1b[0 q".to_vec() } else { Vec::new() };
     output.extend_from_slice(&terminal_color_override_delta(&Default::default(), next));
     output
 }
@@ -2458,11 +2494,9 @@ fn terminal_color_override_delta(
         dynamic_color(&mut output, 12, 112, next.cursor);
     }
     // Version 1 has no cursor metadata, so absence means unknown/preserve for
-    // live deltas. Version 2 requires a resolved pair and therefore still
-    // applies every authoritative cursor change exactly.
-    if previous.cursor_visual != next.cursor_visual
-        && let Some(cursor_visual) = next.cursor_visual
-    {
+    // live deltas. Every v2 pair is force-applied even when byte-identical:
+    // cursor activity may have switched/reset per-screen storage in between.
+    if let Some(cursor_visual) = next.cursor_visual {
         let value = match cursor_visual {
             (CursorShape::Block | CursorShape::BlockHollow, true) => 1,
             (CursorShape::Block | CursorShape::BlockHollow, false) => 2,
@@ -2703,6 +2737,43 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn local_same_pair_alt_screen_roundtrip_forces_resolved_cursor_colors() {
+        let mux = Mux::new_for_test("local-cursor-activity", SurfaceOptions::default());
+        let options = SurfaceOptions {
+            command: Some(vec![
+                "/bin/sh".into(),
+                "-c".into(),
+                "sleep 0.2; printf '\\033[?1049h\\033[?1049l'; sleep 0.2".into(),
+            ]),
+            ..SurfaceOptions::default()
+        };
+        let surface = Surface::spawn(1, options, Arc::downgrade(&mux)).unwrap();
+        let attach = surface.attach_stream().unwrap();
+        let expected = (attach.colors.cursor_style, attach.colors.cursor_blink);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut output = Vec::new();
+        let colors = loop {
+            assert!(Instant::now() < deadline, "local cursor activity was not published");
+            match attach.stream.recv_timeout(Duration::from_millis(250)).unwrap() {
+                AttachFrame::Output(bytes) => output.extend_from_slice(&bytes),
+                AttachFrame::ColorsChanged(colors) => break colors,
+                AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. } => {}
+                AttachFrame::OutputWithColors { .. } => {
+                    panic!("local PTYs must use ordered Output then ColorsChanged")
+                }
+            }
+        };
+
+        assert!(
+            output.windows(16).any(|window| window == b"\x1b[?1049h\x1b[?1049l"),
+            "same-chunk alt-screen roundtrip was not mirrored"
+        );
+        assert_eq!((colors.cursor_style, colors.cursor_blink), expected);
+        assert!(colors.cursor_style.is_some() && colors.cursor_blink.is_some());
+    }
+
     #[test]
     fn terminal_color_override_delta_sets_and_resets_sparse_state() {
         let mut colors = TerminalColorOverrides {
@@ -2732,10 +2803,24 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(terminal_color_override_full_state(&colors), b"\x1b[0 q\x1b[5 q");
-        assert_eq!(
-            terminal_color_override_full_state(&TerminalColorOverrides::default()),
-            b"\x1b[0 q"
-        );
+        assert_eq!(terminal_color_override_full_state(&TerminalColorOverrides::default()), b"");
+    }
+
+    #[test]
+    fn legacy_v1_full_state_preserves_cursor_from_portable_replay() {
+        let mut terminal = Terminal::new(10, 2, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b[3 q\x1b[?12l");
+        let mut legacy = crate::terminal_host_runtime::decode_terminal_color_overrides(&[
+            1, 0, 0, 0, 0, 0, 0, 0,
+        ])
+        .unwrap();
+        legacy.palette[9] = Some(Rgb { r: 9, g: 9, b: 9 });
+
+        let metadata = terminal_color_override_full_state(&legacy);
+        assert!(!metadata.windows(5).any(|window| window == b"\x1b[0 q"));
+        terminal.vt_write(&metadata);
+        assert_eq!(terminal.effective_cursor_visual().unwrap(), (CursorShape::Underline, false));
+        assert_eq!(terminal.color_overrides().palette[9], Some(Rgb { r: 9, g: 9, b: 9 }));
     }
 
     #[test]
@@ -2814,6 +2899,11 @@ mod tests {
             assert_eq!(terminal_color_override_delta(&previous, &next), expected);
             previous = next;
         }
+        assert_eq!(
+            terminal_color_override_delta(&previous, &previous),
+            b"\x1b[6 q",
+            "same-pair v2 metadata must force cursor reapplication"
+        );
         assert_eq!(
             terminal_color_override_delta(&previous, &TerminalColorOverrides::default()),
             b""
