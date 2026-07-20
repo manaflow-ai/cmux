@@ -545,6 +545,38 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(selectedPath.label, "/Users/ui/mobile-root")
     }
 
+    /// Regression: scrolling a full directory page must not trap SwiftUI's
+    /// lazy layout on the main thread or make the picker impossible to dismiss.
+    @MainActor
+    func testTaskComposerDirectoryBrowserScrollsAndRemainsResponsive() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_DIRECTORY_SCROLL_STRESS": "1",
+        ])
+        defer { app.terminate() }
+
+        let directory = app.buttons["MobileTaskComposerDirectory"]
+        XCTAssertTrue(directory.waitForExistence(timeout: 8))
+        tap(directory, in: app)
+
+        let firstFolder = app.buttons["folder-00"]
+        let lastFolder = app.buttons["folder-49"]
+        let parentFolder = app.buttons["MobileTaskDirectoryBrowseParent"]
+        XCTAssertTrue(firstFolder.waitForExistence(timeout: 8))
+        XCTAssertTrue(parentFolder.isHittable)
+
+        for _ in 0..<8 where !lastFolder.isHittable {
+            app.swipeUp(velocity: .fast)
+        }
+        XCTAssertTrue(lastFolder.isHittable)
+        XCTAssertTrue(parentFolder.isHittable)
+
+        let cancel = app.buttons["Cancel"]
+        XCTAssertTrue(cancel.isHittable)
+        tap(cancel, in: app)
+        XCTAssertFalse(cancel.waitForExistence(timeout: 3))
+    }
+
     /// A failed append must leave page 1 interactive, and retry must request
     /// the exact failed page without replacing the successful snapshot.
     @MainActor

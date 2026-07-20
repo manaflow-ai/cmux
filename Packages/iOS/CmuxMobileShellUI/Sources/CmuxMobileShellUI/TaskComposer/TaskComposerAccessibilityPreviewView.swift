@@ -20,6 +20,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
     private let failsFirstSubmission: Bool
     private let presentsTemplateForm: Bool
     private let presentsDirectoryPicker: Bool
+    private let presentsDirectoryScrollStress: Bool
     private let holdsSubmissionInPreparation: Bool
     @State private var directoryPaginationRecoveryPreview: TaskComposerDirectoryPaginationRecoveryPreview?
 
@@ -38,6 +39,9 @@ public struct TaskComposerAccessibilityPreviewView: View {
         let presentsDirectoryPaginationRecovery = environment[
             "CMUX_UITEST_TASK_DIRECTORY_PAGINATION_RECOVERY_PREVIEW"
         ] == "1"
+        let presentsDirectoryScrollStress = environment[
+            "CMUX_UITEST_TASK_DIRECTORY_SCROLL_STRESS"
+        ] == "1"
         self.store = CMUXMobileShellStore(
             isSignedIn: true,
             taskTemplateStore: TaskComposerAccessibilityTemplateStore()
@@ -54,6 +58,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
         self.presentsDirectoryPicker = environment[
             "CMUX_UITEST_TASK_DIRECTORY_PICKER_PREVIEW"
         ] == "1" || presentsDirectoryPaginationRecovery
+        self.presentsDirectoryScrollStress = presentsDirectoryScrollStress
         self.holdsSubmissionInPreparation = environment[
             "CMUX_UITEST_TASK_COMPOSER_HOLD_PREPARATION"
         ] == "1"
@@ -130,6 +135,12 @@ public struct TaskComposerAccessibilityPreviewView: View {
                                 }
                             }
                             return .success(())
+                        },
+                        searchTaskDirectories: { _, query in
+                            await Self.searchPreviewDirectories(query)
+                        },
+                        listTaskDirectories: { _, path, offset in
+                            await listDirectoriesForPreview(path, offset)
                         }
                     )
                     .overlay(alignment: .top) {
@@ -258,6 +269,9 @@ public struct TaskComposerAccessibilityPreviewView: View {
         _ requestedPath: String,
         _ offset: Int
     ) async -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure> {
+        if presentsDirectoryScrollStress {
+            return Self.listScrollStressDirectories(requestedPath, offset)
+        }
         if let directoryPaginationRecoveryPreview {
             return await directoryPaginationRecoveryPreview.listDirectories(
                 requestedPath,
@@ -265,6 +279,40 @@ public struct TaskComposerAccessibilityPreviewView: View {
             )
         }
         return await Self.listPreviewDirectories(requestedPath, offset)
+    }
+
+    private static func listScrollStressDirectories(
+        _ requestedPath: String,
+        _ offset: Int
+    ) -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure> {
+        guard requestedPath == "~" || requestedPath == "/Users/ui",
+              offset == 0 else {
+            return .failure(.rejected)
+        }
+        let entries = (0..<50).compactMap { index in
+            let name = String(format: "folder-%02d", index)
+            return MobileTaskDirectoryListEntry(
+                name: name,
+                path: "/Users/ui/\(name)",
+                isHidden: false,
+                isPackage: false,
+                isSymbolicLink: false,
+                isReadable: true
+            )
+        }
+        guard entries.count == 50,
+              let response = MobileTaskDirectoryListResponse(
+                  currentPath: "/Users/ui",
+                  parentPath: "/Users",
+                  entries: entries,
+                  offset: 0,
+                  limit: 50,
+                  totalCount: entries.count,
+                  nextOffset: nil
+              ) else {
+            return .failure(.rejected)
+        }
+        return .success(response)
     }
 }
 

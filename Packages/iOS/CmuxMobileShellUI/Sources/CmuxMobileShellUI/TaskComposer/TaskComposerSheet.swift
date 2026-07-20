@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobilePairedMac
+import CmuxMobileRPC
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -36,6 +37,15 @@ struct TaskComposerSheet: View {
         _ spec: MobileWorkspaceCreateSpec,
         _ willStartCreate: @escaping @MainActor () -> Void
     ) async -> Result<Void, MobileWorkspaceMutationFailure>
+    private let searchTaskDirectories: (@MainActor (
+        _ macDeviceID: String,
+        _ query: String
+    ) async -> Result<MobileTaskDirectorySearchResponse, MobileTaskDirectorySearchFailure>)?
+    private let listTaskDirectories: (@MainActor (
+        _ macDeviceID: String,
+        _ path: String,
+        _ offset: Int
+    ) async -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure>)?
 
     init(
         store: CMUXMobileShellStore,
@@ -44,11 +54,22 @@ struct TaskComposerSheet: View {
             _ macDeviceID: String,
             _ spec: MobileWorkspaceCreateSpec,
             _ willStartCreate: @escaping @MainActor () -> Void
-        ) async -> Result<Void, MobileWorkspaceMutationFailure>)? = nil
+        ) async -> Result<Void, MobileWorkspaceMutationFailure>)? = nil,
+        searchTaskDirectories: (@MainActor (
+            _ macDeviceID: String,
+            _ query: String
+        ) async -> Result<MobileTaskDirectorySearchResponse, MobileTaskDirectorySearchFailure>)? = nil,
+        listTaskDirectories: (@MainActor (
+            _ macDeviceID: String,
+            _ path: String,
+            _ offset: Int
+        ) async -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure>)? = nil
     ) {
         self.store = store
         self.availableMachines = availableMachines
         self.sessionGeneration = store.currentSessionGeneration
+        self.searchTaskDirectories = searchTaskDirectories
+        self.listTaskDirectories = listTaskDirectories
         self.submitTaskComposer = submitTaskComposer ?? { macDeviceID, spec, willStartCreate in
             await store.submitTaskComposer(
                 macDeviceID: macDeviceID,
@@ -243,13 +264,19 @@ struct TaskComposerSheet: View {
                     selectedPath: directory,
                     select: selectDirectory,
                     searchMac: { query in
-                        await store.searchTaskDirectories(
+                        if let searchTaskDirectories {
+                            return await searchTaskDirectories(selectedMacDeviceID, query)
+                        }
+                        return await store.searchTaskDirectories(
                             macDeviceID: selectedMacDeviceID,
                             query: query
                         )
                     },
                     listMac: { path, offset in
-                        await store.listTaskDirectories(
+                        if let listTaskDirectories {
+                            return await listTaskDirectories(selectedMacDeviceID, path, offset)
+                        }
+                        return await store.listTaskDirectories(
                             macDeviceID: selectedMacDeviceID,
                             path: path,
                             offset: offset
