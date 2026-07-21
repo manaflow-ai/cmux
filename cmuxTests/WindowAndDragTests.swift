@@ -3270,6 +3270,62 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(window.miniaturizeInvocationCount, 0)
     }
 
+    func testWorkspaceFloatingDockMinimizeDestinationDefaultsAndOptions() throws {
+        let suiteName = "WorkspaceFloatingDockMinimizeDestinationTests"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(WorkspaceFloatingDockMinimizeDestination.allCases.count, 4)
+        XCTAssertEqual(
+            WorkspaceFloatingDockMinimizeDebugSettings.currentDestination(defaults: defaults),
+            .bottomShelf
+        )
+
+        defaults.set(
+            WorkspaceFloatingDockMinimizeDestination.leftRail.rawValue,
+            forKey: WorkspaceFloatingDockMinimizeDebugSettings.destinationKey
+        )
+        XCTAssertEqual(
+            WorkspaceFloatingDockMinimizeDebugSettings.currentDestination(defaults: defaults),
+            .leftRail
+        )
+    }
+
+    func testWorkspaceFloatingDockMinimizedShelfLayoutAnchorsToWorkspaceWindow() throws {
+        let parent = CGRect(x: 100, y: 100, width: 1_000, height: 700)
+
+        XCTAssertEqual(
+            try XCTUnwrap(WorkspaceFloatingDockMinimizedShelfLayout.frame(
+                parentFrame: parent,
+                itemCount: 2,
+                destination: .bottomShelf
+            )),
+            CGRect(x: 426, y: 124, width: 348, height: 48)
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(WorkspaceFloatingDockMinimizedShelfLayout.frame(
+                parentFrame: parent,
+                itemCount: 2,
+                destination: .topTray
+            )),
+            CGRect(x: 426, y: 700, width: 348, height: 48)
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(WorkspaceFloatingDockMinimizedShelfLayout.frame(
+                parentFrame: parent,
+                itemCount: 2,
+                destination: .leftRail
+            )),
+            CGRect(x: 120, y: 404, width: 196, height: 92)
+        )
+        XCTAssertNil(WorkspaceFloatingDockMinimizedShelfLayout.frame(
+            parentFrame: parent,
+            itemCount: 2,
+            destination: .paletteOnly
+        ))
+    }
+
     func testWorkspaceFloatingDockSeedsNativeNoteSurface() throws {
         let url = try temporaryTextFile(contents: "", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }

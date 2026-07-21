@@ -5,12 +5,16 @@ import AppKit
 final class WorkspaceFloatingDockPresenter {
     private weak var parentWindow: NSWindow?
     private weak var tabManager: TabManager?
+    private let minimizedShelfController: WorkspaceFloatingDockMinimizedShelfController
     private var controllers: [UUID: WorkspaceFloatingDockWindowController] = [:]
     private var lastActiveDockId: UUID?
 
     init(parentWindow: NSWindow, tabManager: TabManager) {
         self.parentWindow = parentWindow
         self.tabManager = tabManager
+        self.minimizedShelfController = WorkspaceFloatingDockMinimizedShelfController(
+            parentWindow: parentWindow
+        )
     }
 
     func refresh(
@@ -83,11 +87,32 @@ final class WorkspaceFloatingDockPresenter {
                 controller.show(focus: focusDockId == dock.id)
             }
         }
+
+        let minimizedItems = selectedWorkspace?.floatingDocks
+            .filter { !$0.isPresented }
+            .map { WorkspaceFloatingDockMinimizedShelfItem(id: $0.id, title: $0.title) } ?? []
+        minimizedShelfController.update(
+            items: minimizedItems,
+            destination: WorkspaceFloatingDockMinimizeDebugSettings.currentDestination()
+        ) { [weak self, weak selectedWorkspace] dockId in
+            guard let self,
+                  let tabManager = self.tabManager,
+                  let workspace = selectedWorkspace,
+                  let dock = workspace.floatingDock(id: dockId) else { return }
+            _ = AppDelegate.shared?.setWorkspaceFloatingDockPresented(
+                dock,
+                in: workspace,
+                tabManager: tabManager,
+                presented: true,
+                focus: true
+            )
+        }
     }
 
     func teardown() {
         controllers.values.forEach { $0.teardown() }
         controllers.removeAll()
+        minimizedShelfController.teardown()
     }
 
     func beginScreenConfigurationChange() {

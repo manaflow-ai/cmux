@@ -2013,6 +2013,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE36230000000000000001 /* WorkspaceFinderDirectoryResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE36230000000000000002 /* WorkspaceFinderDirectoryResolver.swift */; };
 		F10A00000000000000000005 /* WorkspaceFloatingDock.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10B00000000000000000005 /* WorkspaceFloatingDock.swift */; };
 		F10A00000000000000000006 /* WorkspaceFloatingDockContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10B00000000000000000006 /* WorkspaceFloatingDockContentView.swift */; };
+		F10A0000000000000000000A /* WorkspaceFloatingDockMinimizedShelf.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10B0000000000000000000A /* WorkspaceFloatingDockMinimizedShelf.swift */; };
 		F10A00000000000000000007 /* WorkspaceFloatingDockPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10B00000000000000000007 /* WorkspaceFloatingDockPresenter.swift */; };
 		F10C00000000000000000007 /* WorkspaceFloatingDockScreenPlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10C00000000000000000008 /* WorkspaceFloatingDockScreenPlacement.swift */; };
 		F10C00000000000000000003 /* WorkspaceFloatingDockScreenPlacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10C00000000000000000004 /* WorkspaceFloatingDockScreenPlacementTests.swift */; };
@@ -4072,6 +4073,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE36230000000000000002 /* WorkspaceFinderDirectoryResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFinderDirectoryResolver.swift; sourceTree = "<group>"; };
 		F10B00000000000000000005 /* WorkspaceFloatingDock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFloatingDock.swift; sourceTree = "<group>"; };
 		F10B00000000000000000006 /* WorkspaceFloatingDockContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFloatingDockContentView.swift; sourceTree = "<group>"; };
+		F10B0000000000000000000A /* WorkspaceFloatingDockMinimizedShelf.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFloatingDockMinimizedShelf.swift; sourceTree = "<group>"; };
 		F10B00000000000000000007 /* WorkspaceFloatingDockPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFloatingDockPresenter.swift; sourceTree = "<group>"; };
 		F10C00000000000000000008 /* WorkspaceFloatingDockScreenPlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFloatingDockScreenPlacement.swift; sourceTree = "<group>"; };
 		F10C00000000000000000004 /* WorkspaceFloatingDockScreenPlacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFloatingDockScreenPlacementTests.swift; sourceTree = "<group>"; };
@@ -5650,6 +5652,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F10B00000000000000000007 /* WorkspaceFloatingDockPresenter.swift */,
 				F10C00000000000000000008 /* WorkspaceFloatingDockScreenPlacement.swift */,
 				F10B00000000000000000008 /* WorkspaceFloatingDockWindowController.swift */,
+				F10B0000000000000000000A /* WorkspaceFloatingDockMinimizedShelf.swift */,
 				F10B00000000000000000009 /* TerminalController+ControlWorkspaceFloatingDockContext.swift */,
 				D6212D0C00000000000000D4 /* TerminalController+WindowDockBrowserRouting.swift */,
 				DCDC1000000000000000C011 /* DockSplitStore+SurfaceTransfer.swift */,
@@ -8068,6 +8071,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE36230000000000000001 /* WorkspaceFinderDirectoryResolver.swift in Sources */,
 				F10A00000000000000000005 /* WorkspaceFloatingDock.swift in Sources */,
 				F10A00000000000000000006 /* WorkspaceFloatingDockContentView.swift in Sources */,
+				F10A0000000000000000000A /* WorkspaceFloatingDockMinimizedShelf.swift in Sources */,
 				F10A00000000000000000007 /* WorkspaceFloatingDockPresenter.swift in Sources */,
 				F10C00000000000000000007 /* WorkspaceFloatingDockScreenPlacement.swift in Sources */,
 				F10A00000000000000000008 /* WorkspaceFloatingDockWindowController.swift in Sources */,
