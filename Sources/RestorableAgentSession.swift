@@ -1016,6 +1016,12 @@ struct RestorableAgentSessionIndex: Sendable {
     func liveAgentProcessFingerprint() -> Set<String> {
         Set(entriesByPanel.map { key, entry in
             let processIDs = entry.agentProcessIDs.isEmpty ? entry.processIDs : entry.agentProcessIDs
+            let processIdentities = entry.agentProcessIdentities
+                .sorted { $0.key < $1.key }
+                .map { processID, identity in
+                    "\(processID):\(identity.startSeconds):\(identity.startMicroseconds)"
+                }
+                .joined(separator: ",")
             let liveness: String
             switch entry.processLiveness {
             case .running:
@@ -1031,7 +1037,8 @@ struct RestorableAgentSessionIndex: Sendable {
                 entry.snapshot.kind.rawValue,
                 entry.snapshot.sessionId,
                 liveness,
-                processIDs.sorted().map(String.init).joined(separator: ",")
+                processIDs.sorted().map(String.init).joined(separator: ","),
+                processIdentities
             ].joined(separator: "|")
         })
     }
@@ -1179,17 +1186,34 @@ struct RestorableAgentSessionIndex: Sendable {
                 let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
                 let panelKindKey = PanelKindKey(panelKey: key, kind: kind)
                 let panelIDKindKey = PanelIDKindKey(panelId: panelId, kind: kind)
-                let observedProcessIdentity = effectiveRecord.pid.flatMap(processIdentityProvider)
+                let recordedProcessIdentity: AgentPIDProcessIdentity? = {
+                    guard let processID = effectiveRecord.pid,
+                          processID > 0,
+                          processID <= Int(Int32.max),
+                          let startSeconds = effectiveRecord.pidStartSeconds,
+                          let startMicroseconds = effectiveRecord.pidStartMicroseconds,
+                          startSeconds >= 0,
+                          startMicroseconds >= 0,
+                          startMicroseconds < 1_000_000 else {
+                        return nil
+                    }
+                    return AgentPIDProcessIdentity(
+                        pid: pid_t(processID),
+                        startSeconds: startSeconds,
+                        startMicroseconds: startMicroseconds
+                    )
+                }()
+                let currentProcessIdentity = effectiveRecord.pid.flatMap(processIdentityProvider)
                 let processObservation = RestorableAgentProcessObservation(
                     recordedProcessID: effectiveRecord.pid
                 ) { pid in
                     scopedProcessMatch(
                         for: snapshot,
-                        recordUpdatedAt: effectiveRecord.updatedAt,
                         workspaceId: workspaceId,
                         panelId: panelId,
                         processID: pid,
-                        processIdentity: observedProcessIdentity,
+                        recordedProcessIdentity: recordedProcessIdentity,
+                        currentProcessIdentity: currentProcessIdentity,
                         processArgumentsProvider: processArgumentsProvider,
                         processPresenceProvider: processPresenceProvider,
                         validator: cachedAgentProcessValidator
@@ -1198,9 +1222,9 @@ struct RestorableAgentSessionIndex: Sendable {
                 let liveProcessID = processObservation.processID
                 let liveProcessIdentities: [Int: AgentPIDProcessIdentity]
                 if let liveProcessID,
-                   let observedProcessIdentity,
-                   Int(observedProcessIdentity.pid) == liveProcessID {
-                    liveProcessIdentities = [liveProcessID: observedProcessIdentity]
+                   let recordedProcessIdentity,
+                   Int(recordedProcessIdentity.pid) == liveProcessID {
+                    liveProcessIdentities = [liveProcessID: recordedProcessIdentity]
                 } else {
                     liveProcessIdentities = [:]
                 }
@@ -2204,30 +2228,30 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private static func scopedProcessMatch(
         for snapshot: SessionRestorableAgentSnapshot,
-        recordUpdatedAt: TimeInterval,
         workspaceId: UUID,
         panelId: UUID,
         processID: Int,
-        processIdentity: AgentPIDProcessIdentity?,
+        recordedProcessIdentity: AgentPIDProcessIdentity?,
+        currentProcessIdentity: AgentPIDProcessIdentity?,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments?,
         processPresenceProvider: (Int) -> PIDPresence,
         validator: CachedAgentProcessIdentityValidator
     ) -> RestorableAgentProcessMatch {
+        guard let recordedProcessIdentity,
+              Int(recordedProcessIdentity.pid) == processID else {
+            return processPresenceProvider(processID) == .absent ? .mismatches : .unknown
+        }
+        guard let currentProcessIdentity,
+              Int(currentProcessIdentity.pid) == processID else {
+            return processPresenceProvider(processID) == .absent ? .mismatches : .unknown
+        }
+        guard currentProcessIdentity == recordedProcessIdentity else {
+            return .mismatches
+        }
         guard let process = processArgumentsProvider(processID) else {
             // A present process may be temporarily uninspectable. Only ESRCH-grade
             // absence proves that the recorded generation exited.
             return processPresenceProvider(processID) == .absent ? .mismatches : .unknown
-        }
-        guard let processIdentity,
-              Int(processIdentity.pid) == processID else {
-            return .unknown
-        }
-        // A process that emitted this hook record necessarily started first. A later
-        // process start is deterministic evidence that the saved PID was reused.
-        let processStartedAt = TimeInterval(processIdentity.startSeconds) +
-            TimeInterval(processIdentity.startMicroseconds) / 1_000_000
-        guard recordUpdatedAt >= processStartedAt else {
-            return .mismatches
         }
         guard process.matchesCMUXScope(workspaceId: workspaceId, surfaceId: panelId) else {
             return .mismatches

@@ -17,8 +17,10 @@ struct RestorableAgentProcessGenerationTests {
         fileManager: FileManager,
         workspaceID: UUID,
         panelID: UUID,
+        sessionID: String,
         processID: Int,
         updatedAt: TimeInterval,
+        storeURL: URL,
         previousHookStateDirectory: String?
     )
 
@@ -97,6 +99,7 @@ struct RestorableAgentProcessGenerationTests {
             startSeconds: Int64(fixture.updatedAt - 1),
             startMicroseconds: 0
         )
+        try writeStoredProcessIdentity(originalIdentity, to: fixture)
         let reusedIndex = loadRunningFixture(
             fixture,
             processArguments: processArguments,
@@ -154,11 +157,13 @@ struct RestorableAgentProcessGenerationTests {
             startMicroseconds: 0
         )
         let processArguments = codexProcessArguments(for: fixture)
+        try writeStoredProcessIdentity(firstIdentity, to: fixture)
         let firstIndex = loadRunningFixture(
             fixture,
             processArguments: processArguments,
             processIdentity: firstIdentity
         )
+        try writeStoredProcessIdentity(secondIdentity, to: fixture)
         let secondIndex = loadRunningFixture(
             fixture,
             processArguments: processArguments,
@@ -224,6 +229,26 @@ struct RestorableAgentProcessGenerationTests {
         )
     }
 
+    private func writeStoredProcessIdentity(
+        _ identity: AgentPIDProcessIdentity,
+        to fixture: Fixture
+    ) throws {
+        var store = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: fixture.storeURL)) as? [String: Any]
+        )
+        var sessions = try #require(store["sessions"] as? [String: Any])
+        var record = try #require(sessions[fixture.sessionID] as? [String: Any])
+        record["pidStartSeconds"] = identity.startSeconds
+        record["pidStartMicroseconds"] = identity.startMicroseconds
+        sessions[fixture.sessionID] = record
+        store["sessions"] = sessions
+        let data = try JSONSerialization.data(
+            withJSONObject: store,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try data.write(to: fixture.storeURL, options: .atomic)
+    }
+
     private func makeFixture(prefix: String) throws -> Fixture {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -270,8 +295,10 @@ struct RestorableAgentProcessGenerationTests {
             fileManager: fileManager,
             workspaceID: workspaceID,
             panelID: panelID,
+            sessionID: sessionID,
             processID: processID,
             updatedAt: updatedAt,
+            storeURL: storeURL,
             previousHookStateDirectory: previousHookStateDirectory
         )
     }

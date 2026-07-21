@@ -467,6 +467,8 @@ struct SurfaceResumeExitedAgentLivenessTests {
             "surfaceId": panelID.uuidString,
             "cwd": "/tmp/repo",
             "pid": 987_654_321,
+            "pidStartSeconds": 1_777_777_700,
+            "pidStartMicroseconds": 0,
             "isRestorable": true,
             "updatedAt": 1_777_777_777,
             "launchCommand": [

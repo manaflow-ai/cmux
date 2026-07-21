@@ -41,10 +41,25 @@ extension Workspace {
         panelId: UUID,
         currentProcessIdentity: (Int) -> AgentPIDProcessIdentity?
     ) -> Set<AgentPIDProcessIdentity> {
+        confirmedRuntimeAgentProcessIdentities(
+            kind: agent.kind,
+            sessionId: agent.sessionId,
+            panelId: panelId,
+            currentProcessIdentity: currentProcessIdentity
+        )
+    }
+
+    /// Returns exact-session runtime identities that still match their recorded process generation.
+    func confirmedRuntimeAgentProcessIdentities(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        panelId: UUID,
+        currentProcessIdentity: (Int) -> AgentPIDProcessIdentity?
+    ) -> Set<AgentPIDProcessIdentity> {
         // Claude's `claude_code` key identifies only a panel, not a session, so it
         // cannot prove that a live process supersedes this cached session generation.
-        guard agent.kind != .claude else { return [] }
-        let key = "\(agent.kind.rawValue).\(agent.sessionId)"
+        guard kind != .claude else { return [] }
+        let key = "\(kind.rawValue).\(sessionId)"
         guard agentPIDKeysByPanelId[panelId]?.contains(key) == true,
               let pid = agentPIDs[key],
               pid > 0,

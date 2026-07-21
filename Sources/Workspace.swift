@@ -537,6 +537,38 @@ extension Workspace {
                 ? sessionRestorePolicy.restorableTmuxStartCommand(terminalPanel.surface.debugTmuxStartCommand())
                 : nil
             let agentWasRunning: Bool? = {
+                if resumeBinding?.isAgentHookBinding == true {
+                    guard let bindingKindValue = Self.normalizedResumeBindingValue(resumeBinding?.kind),
+                          let bindingKind = RestorableAgentKind(rawValue: bindingKindValue),
+                          let bindingSessionId = Self.normalizedResumeBindingValue(resumeBinding?.checkpointId) else {
+                        return false
+                    }
+                    let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
+                        kind: bindingKind,
+                        sessionId: bindingSessionId,
+                        panelId: panelId,
+                        currentProcessIdentity: currentAgentProcessIdentity
+                    )
+                    if !confirmedRuntimeProcessIdentities.isEmpty {
+                        return true
+                    }
+                    guard let effectiveRestorableAgent,
+                          effectiveRestorableAgent.kind == bindingKind,
+                          effectiveRestorableAgent.sessionId == bindingSessionId,
+                          let restorableAgentObservation,
+                          restorableAgentObservation.snapshot.kind == bindingKind,
+                          restorableAgentObservation.snapshot.sessionId == bindingSessionId else {
+                        return false
+                    }
+                    return restorableAgentObservation.processLiveness
+                        .wasRunning(
+                            fallingBackTo: panelShellActivityStates[panelId],
+                            recordedProcessIdentities: restorableAgentObservation.agentProcessIdentities,
+                            confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
+                            currentProcessIdentity: currentAgentProcessIdentity,
+                            processPresence: agentProcessPresence
+                        ) ?? false
+                }
                 guard let effectiveRestorableAgent else { return nil }
                 let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
                     for: effectiveRestorableAgent,
