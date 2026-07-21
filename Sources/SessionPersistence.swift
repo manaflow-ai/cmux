@@ -259,17 +259,9 @@ enum SurfaceResumeApprovalPolicy: String, Codable, CaseIterable, Sendable {
 
 struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
-        case name
-        case kind
-        case command
-        case cwd
-        case checkpointId
-        case source
-        case environment
-        case autoResume
-        case approvalPolicy
-        case approvalRecordId
-        case updatedAt
+        case name, kind, command, cwd, checkpointId, source
+        case environment, autoResume, approvalPolicy, approvalRecordId
+        case launchFlavor, updatedAt
     }
 
     var name: String?
@@ -282,6 +274,9 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     var autoResume: Bool?
     var approvalPolicy: SurfaceResumeApprovalPolicy?
     var approvalRecordId: String?
+    var launchFlavor: SurfaceResumeLaunchFlavor
+    /// Whether decoding observed a legacy binding without an execution location.
+    private(set) var wasDecodedWithoutLaunchFlavor = false
     var updatedAt: TimeInterval
 
     init(
@@ -295,6 +290,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         autoResume: Bool? = nil,
         approvalPolicy: SurfaceResumeApprovalPolicy? = nil,
         approvalRecordId: String? = nil,
+        launchFlavor: SurfaceResumeLaunchFlavor = .local,
         updatedAt: TimeInterval = Date().timeIntervalSince1970
     ) {
         let normalizedCwd = Self.normalized(cwd)
@@ -314,11 +310,13 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         self.autoResume = autoResume
         self.approvalPolicy = approvalPolicy
         self.approvalRecordId = Self.normalized(approvalRecordId)
+        self.launchFlavor = launchFlavor
         self.updatedAt = updatedAt
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedLaunchFlavor = try container.decodeIfPresent(SurfaceResumeLaunchFlavor.self, forKey: .launchFlavor)
         self.init(
             name: try container.decodeIfPresent(String.self, forKey: .name),
             kind: try container.decodeIfPresent(String.self, forKey: .kind),
@@ -330,9 +328,11 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             autoResume: try container.decodeIfPresent(Bool.self, forKey: .autoResume),
             approvalPolicy: try container.decodeIfPresent(SurfaceResumeApprovalPolicy.self, forKey: .approvalPolicy),
             approvalRecordId: try container.decodeIfPresent(String.self, forKey: .approvalRecordId),
+            launchFlavor: decodedLaunchFlavor ?? .local,
             updatedAt: try container.decodeIfPresent(TimeInterval.self, forKey: .updatedAt)
                 ?? Date().timeIntervalSince1970
         )
+        wasDecodedWithoutLaunchFlavor = decodedLaunchFlavor == nil
     }
 
     var isProcessDetected: Bool {
@@ -374,10 +374,10 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             autoResume: autoResume,
             approvalPolicy: approvalPolicy,
             approvalRecordId: approvalRecordId,
+            launchFlavor: launchFlavor,
             updatedAt: updatedAt
         )
     }
-
     static let maxInlineStartupInputBytes = SessionRestorableAgentSnapshot.maxInlineStartupInputBytes
 
     var startupInput: String? {
@@ -1742,6 +1742,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// legacy or externally-created snapshots can leave it nil.
     var workspaceId: UUID? = nil
     var stableId: UUID? = nil
+    var taskCreateOperationID: UUID? = nil
     var processTitle: String
     var customTitle: String?
     /// Provenance of `customTitle`; absent provenance restores as user-set for compatibility.
@@ -1769,8 +1770,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
     var remote: SessionRemoteWorkspaceSnapshot?
-    /// User-defined per-workspace environment variables (issue #5995). Optional
-    /// with a `nil` default so manifests written before this field decode cleanly.
+    /// Optional so manifests written before this field decode cleanly.
     var environment: [String: String]? = nil
     /// Manual task-status override raw values and the persisted checklist. Optional-with-nil-default
     /// (the `groupId` back-compat pattern); bridging to/from live `WorkspaceTodoState` lives in `SessionPersistence+Todos.swift`.
