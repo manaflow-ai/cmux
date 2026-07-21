@@ -7,7 +7,10 @@ extension BrowserPanel {
         to targetURL: URL,
         recordTypedNavigation: Bool
     ) -> BrowserAutomationNavigationTicket {
-        let ticket = automationNavigationCoordinator.begin(instanceID: webViewInstanceID)
+        let ticket = automationNavigationCoordinator.begin(
+            instanceID: webViewInstanceID,
+            targetURL: targetURL
+        )
         navigate(
             to: targetURL,
             recordTypedNavigation: recordTypedNavigation,
@@ -26,7 +29,10 @@ extension BrowserPanel {
         targetURL: URL
     )? {
         guard let targetURL = automationReloadTargetURL() else { return nil }
-        let ticket = automationNavigationCoordinator.begin(instanceID: webViewInstanceID)
+        let ticket = automationNavigationCoordinator.begin(
+            instanceID: webViewInstanceID,
+            targetURL: targetURL
+        )
         let navigationStarted: (WKNavigation?) -> Void = { [weak self] navigation in
             self?.automationNavigationCoordinator.didStart(
                 ticket,

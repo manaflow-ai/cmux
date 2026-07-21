@@ -21,6 +21,7 @@ import WebKit
     var shouldBlockInsecureHTTPSubframeDownload: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     var handleDroppedFileNavigation: (([URL]) -> Bool)?
+    var prepareForPolicyNavigationReplacement: ((WKWebView, URL) -> Void)?
     var currentRestoreAttemptID: (() -> UUID?)?
     var terminalPolicyCancellationReporter: ((WKNavigationAction, WKWebView) -> () -> Void)?
     var didRenderPDFDocument: ((URL, Bool) -> Void)?
@@ -338,6 +339,9 @@ import WebKit
            browserShouldRouteExternalNavigation(url) {
             clearAttemptedRequest(discardPendingBypasses: true)
             let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+            if case .browserFallback(let fallbackURL) = browserExternalNavigationAction(for: url) {
+                prepareForPolicyNavigationReplacement?(webView, fallbackURL)
+            }
             browserHandleExternalNavigation(
                 url,
                 source: "navDelegate",

@@ -96,11 +96,16 @@ struct BrowserAutomationNavigationCoordinatorTests {
         let instanceID = UUID()
         let originalNavigation = NSObject()
         let replacementNavigation = NSObject()
+        let originalURL = URL(string: "https://example.com/launch")!
+        let fallbackURL = URL(string: "https://example.com/fallback")!
         coordinator.bind(to: instanceID)
-        let ticket = coordinator.begin(instanceID: instanceID)
+        let ticket = coordinator.begin(instanceID: instanceID, targetURL: originalURL)
         coordinator.didStart(ticket, navigationID: ObjectIdentifier(originalNavigation))
 
-        #expect(coordinator.prepareForNavigationReplacement(instanceID: instanceID))
+        #expect(coordinator.prepareForNavigationReplacement(
+            instanceID: instanceID,
+            targetURL: fallbackURL
+        ))
         coordinator.didCancel(
             instanceID: instanceID,
             navigationID: ObjectIdentifier(originalNavigation)
@@ -113,6 +118,21 @@ struct BrowserAutomationNavigationCoordinatorTests {
             instanceID: instanceID,
             navigationID: ObjectIdentifier(replacementNavigation)
         )
+
+        #expect(await coordinator.wait(for: ticket) == .committed)
+    }
+
+    @Test("An authoritative same-document URL change completes the transaction")
+    func sameDocumentURLChangeCompletes() async {
+        let coordinator = BrowserAutomationNavigationCoordinator()
+        let instanceID = UUID()
+        let navigation = NSObject()
+        let targetURL = URL(string: "https://example.com/page#section")!
+        coordinator.bind(to: instanceID)
+        let ticket = coordinator.begin(instanceID: instanceID, targetURL: targetURL)
+        coordinator.didStart(ticket, navigationID: ObjectIdentifier(navigation))
+
+        coordinator.didReachSameDocumentURL(instanceID: instanceID, url: targetURL)
 
         #expect(await coordinator.wait(for: ticket) == .committed)
     }

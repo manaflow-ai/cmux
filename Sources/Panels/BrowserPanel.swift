@@ -4068,7 +4068,10 @@ final class BrowserPanel: Panel, ObservableObject {
             let restoreAttemptID = self.currentDiscardRestoreAttemptID
             let automationInstanceID = self.webViewInstanceID
             let replacesAutomationNavigation = self.automationNavigationCoordinator
-                .prepareForNavigationReplacement(instanceID: automationInstanceID)
+                .prepareForNavigationReplacement(
+                    instanceID: automationInstanceID,
+                    targetURL: request.url
+                )
             self.presentInsecureHTTPAlert(
                 for: request,
                 intent: intent,
@@ -4078,16 +4081,16 @@ final class BrowserPanel: Panel, ObservableObject {
                     self?.noteDiscardedWebViewRestoreNavigationTerminallyCancelled(restoreAttemptID: restoreAttemptID)
                 },
                 onNavigationStarted: replacesAutomationNavigation ? { [weak self] navigation in
-                    guard let self else { return }
-                    if let navigation {
-                        self.automationNavigationCoordinator.didStart(
-                            instanceID: automationInstanceID,
-                            navigationID: ObjectIdentifier(navigation)
-                        )
-                    } else {
-                        self.automationNavigationCoordinator.didNotStart(instanceID: automationInstanceID)
-                    }
+                    guard navigation == nil else { return }
+                    self?.automationNavigationCoordinator.didNotStart(instanceID: automationInstanceID)
                 } : nil
+            )
+        }
+        navDelegate.prepareForPolicyNavigationReplacement = { [weak self] webView, targetURL in
+            guard let self, self.isCurrentWebView(webView) else { return }
+            self.automationNavigationCoordinator.prepareForNavigationReplacement(
+                instanceID: self.webViewInstanceID,
+                targetURL: targetURL
             )
         }
         navDelegate.currentRestoreAttemptID = { [weak self] in self?.currentDiscardRestoreAttemptID }
@@ -4941,8 +4944,13 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
                 guard !self.isMainFrameProvisionalNavigationActive else { return }
+                let displayURL = Self.remoteProxyDisplayURL(for: observedURL) ?? observedURL
+                self.automationNavigationCoordinator.didReachSameDocumentURL(
+                    instanceID: observedWebViewInstanceID,
+                    url: displayURL
+                )
                 self.designModeController.webViewURLDidChange(to: observedURL)
-                self.currentURL = Self.remoteProxyDisplayURL(for: observedURL)
+                self.currentURL = displayURL
                 self.refreshBackgroundAppearance()
                 GlobalSearchCoordinator.shared.captureBrowserPanel(self)
             }
@@ -6004,15 +6012,33 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func requestNavigation(_ request: URLRequest, intent: BrowserInsecureHTTPNavigationIntent) {
-        guard let url = request.url else { return }
+        let automationInstanceID = webViewInstanceID
+        let navigationStarted: (WKNavigation?) -> Void = { [weak self] navigation in
+            guard navigation == nil else { return }
+            self?.automationNavigationCoordinator.didNotStart(instanceID: automationInstanceID)
+        }
+        guard let url = request.url else {
+            navigationStarted(nil)
+            return
+        }
         if shouldBlockInsecureHTTPNavigation(to: url) {
-            presentInsecureHTTPAlert(for: request, intent: intent, recordTypedNavigation: false)
+            presentInsecureHTTPAlert(
+                for: request,
+                intent: intent,
+                recordTypedNavigation: false,
+                onNavigationStarted: navigationStarted
+            )
             return
         }
         switch intent {
         case .currentTab:
-            navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: false)
+            navigateWithoutInsecureHTTPPrompt(
+                request: request,
+                recordTypedNavigation: false,
+                onNavigationStarted: navigationStarted
+            )
         case .newTab:
+            navigationStarted(nil)
             openLinkInNewTab(request: request)
         }
     }

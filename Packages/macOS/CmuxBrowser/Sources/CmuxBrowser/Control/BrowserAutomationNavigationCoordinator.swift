@@ -15,6 +15,8 @@ public final class BrowserAutomationNavigationCoordinator {
     private var observedInstanceID: UUID?
     private var activeTicket: BrowserAutomationNavigationTicket?
     private var activeNavigationID: ObjectIdentifier?
+    private var activeNavigationBeganProvisionally = false
+    private var activeTargetURL: URL?
     private var terminalOutcome: (
         ticket: BrowserAutomationNavigationTicket,
         outcome: BrowserAutomationNavigationOutcome
@@ -52,7 +54,10 @@ public final class BrowserAutomationNavigationCoordinator {
     }
 
     /// Begins a transaction for the currently bound WebView instance.
-    public func begin(instanceID: UUID) -> BrowserAutomationNavigationTicket {
+    public func begin(
+        instanceID: UUID,
+        targetURL: URL? = nil
+    ) -> BrowserAutomationNavigationTicket {
         if let activeTicket {
             finish(activeTicket, with: .superseded)
         }
@@ -67,6 +72,8 @@ public final class BrowserAutomationNavigationCoordinator {
         }
         activeTicket = ticket
         activeNavigationID = nil
+        activeNavigationBeganProvisionally = false
+        activeTargetURL = targetURL
         return ticket
     }
 
@@ -83,22 +90,33 @@ public final class BrowserAutomationNavigationCoordinator {
         activeNavigationID = navigationID
     }
 
-    /// Associates a deferred or policy-replacement load with the active transaction.
+    /// Records a provisional delegate start, binding a deferred or replacement load when needed.
     public func didStart(instanceID: UUID, navigationID: ObjectIdentifier?) {
         guard let navigationID,
               let activeTicket,
-              activeTicket.instanceID == instanceID,
-              activeNavigationID == nil else {
+              activeTicket.instanceID == instanceID else {
             return
         }
-        activeNavigationID = navigationID
+        if activeNavigationID == nil {
+            activeNavigationID = navigationID
+        }
+        if activeNavigationID == navigationID {
+            activeNavigationBeganProvisionally = true
+        }
     }
 
     /// Releases the current navigation identity while a policy flow waits to start its replacement.
     @discardableResult
-    public func prepareForNavigationReplacement(instanceID: UUID) -> Bool {
+    public func prepareForNavigationReplacement(
+        instanceID: UUID,
+        targetURL: URL? = nil
+    ) -> Bool {
         guard let activeTicket, activeTicket.instanceID == instanceID else { return false }
         activeNavigationID = nil
+        activeNavigationBeganProvisionally = false
+        if let targetURL {
+            activeTargetURL = targetURL
+        }
         return true
     }
 
@@ -116,6 +134,22 @@ public final class BrowserAutomationNavigationCoordinator {
             return
         }
         finish(activeTicket, with: .notStarted)
+    }
+
+    /// Completes the active transaction when WebKit changes to its target URL without a document commit.
+    ///
+    /// The owning WebView must call this only for an authoritative URL change outside a provisional
+    /// main-frame load, which is WebKit's observable signal for a same-document navigation.
+    public func didReachSameDocumentURL(instanceID: UUID, url: URL?) {
+        guard let url,
+              let activeTicket,
+              activeTicket.instanceID == instanceID,
+              activeNavigationID != nil,
+              !activeNavigationBeganProvisionally,
+              activeTargetURL == url else {
+            return
+        }
+        finish(activeTicket, with: .committed)
     }
 
     /// Records a commit only when it belongs to the exact active navigation.
@@ -224,6 +258,8 @@ public final class BrowserAutomationNavigationCoordinator {
         guard activeTicket == ticket else { return }
         activeTicket = nil
         activeNavigationID = nil
+        activeNavigationBeganProvisionally = false
+        activeTargetURL = nil
         terminalOutcome = (ticket, outcome)
         if let waiter, waiter.transactionID == ticket.transactionID {
             self.waiter = nil
