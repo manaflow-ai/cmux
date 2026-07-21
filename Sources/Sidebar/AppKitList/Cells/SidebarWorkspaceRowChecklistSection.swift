@@ -92,6 +92,10 @@ final class SidebarRowChecklistSection: NSView {
                 activePopoverDismissContext?()
             }
             activePopoverDismissContext = nil
+            // Fresh scroll position per workspace (legacy rows are distinct
+            // SwiftUI views, so offsets never carry across workspaces).
+            scrollView.contentView.scroll(to: .zero)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
         }
 
         let snapshot = model.snapshot
@@ -622,6 +626,12 @@ final class SidebarRowChecklistItemLine: NSView {
         isEditing: Bool,
         actions: SidebarAppKitRowActions
     ) {
+        if self.item?.id != item.id {
+            // Pooled-line reuse: never carry a hover-revealed remove button
+            // to a different item (the tracking area re-derives on the next
+            // pointer move).
+            removeButton.isHidden = true
+        }
         self.item = item
         self.model = model
         self.actions = actions
@@ -1018,12 +1028,17 @@ final class SidebarRowChecklistAddRow: NSView {
         )
         field.setAccessibilityLabel(field.placeholderString ?? "")
         field.setAccessibilityIdentifier("SidebarChecklistAddItemField")
+        // Capture the closures at field-creation time: this pooled row's
+        // stored onCommit/onCancel are replaced when the cell is reused for
+        // another workspace, and the OLD editor's teardown-triggered
+        // focus-loss commit must go to the workspace that armed it.
+        guard let commit = onCommit, let cancel = onCancel else { return }
         let bridge = SidebarRowChecklistFieldBridge(
-            onCommit: { [weak self] text in
-                self?.onCommit?(text)
+            onCommit: { text in
+                commit(text)
             },
-            onCancel: { [weak self] in
-                self?.onCancel?()
+            onCancel: {
+                cancel()
             }
         )
         field.delegate = bridge
@@ -1265,12 +1280,17 @@ final class SidebarRowChecklistAttachmentButton: NSControl {
         let iconSize = iconView.image?.size ?? .zero
         let chevronSize = chevronView.image?.size ?? .zero
         var width = iconSize.width + (chevronSize.width > 0 ? chevronSize.width + 2 : 0)
+        var height = max(iconSize.height, chevronSize.height)
         if !countLabel.isHidden {
-            width += 2 + ceil(countLabel.sidebarNaturalCellSize.width)
+            let countSize = countLabel.sidebarNaturalCellSize
+            width += 2 + ceil(countSize.width)
+            // The count uses the magnified item font, which can exceed the
+            // un-magnified icon slot at large accessibility magnifications.
+            height = max(height, ceil(countSize.height))
         }
         return NSSize(
             width: max(width, iconPointSize + 8),
-            height: max(iconSize.height, iconPointSize + 8)
+            height: max(height, iconPointSize + 8)
         )
     }
 
