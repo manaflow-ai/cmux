@@ -193,6 +193,44 @@ struct RecoverableWindowlessMainWindowRoutingTests {
         #expect(app.recoverableMainWindowRoute(windowId: windowId)?.tabManager === manager)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
     }
+
+    @Test("Stale duplicate cannot close a windowless recoverable owner")
+    func staleDuplicateCannotCloseWindowlessRecoverableOwner() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let manager = TabManager()
+        let windowId = app.registerMainWindowContextForTesting(tabManager: manager)
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        let staleDuplicate = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        staleDuplicate.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            staleDuplicate.orderOut(nil)
+        }
+
+        TerminalController.shared.setActiveTabManager(manager)
+        #expect(!app.toggleSidebarInActiveMainWindow())
+        #expect(app.recoverableMainWindowRoute(windowId: windowId)?.window == nil)
+
+        #expect(!app.commitMainWindowClose(staleDuplicate))
+        #expect(app.tabManagerFor(windowId: windowId) === manager)
+        #expect(app.recoverableMainWindowRoute(windowId: windowId)?.tabManager === manager)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
+    }
 }
 
 @MainActor
