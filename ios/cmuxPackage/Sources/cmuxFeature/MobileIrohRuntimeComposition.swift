@@ -600,13 +600,27 @@ public final class MobileIrohRuntimeComposition:
             .appLifecycleChanged,
             a: DiagnosticAppLifecyclePhase.inactive.rawValue
         ))
-        if previousLaunchDiagnosticReport == nil {
-            previousLaunchDiagnosticReport = .some(diagnosticArchive?.load())
-        }
+        persistDiagnosticsSnapshot()
+    }
+
+    /// Reads the previous launch's archive (once) and replaces it with the
+    /// current ring, off the main actor: backgrounding must not spend the
+    /// suspension window on filesystem work.
+    private func persistDiagnosticsSnapshot() {
         guard let diagnosticLog, let diagnosticArchive else { return }
-        Task {
+        let needsPreviousLoad = previousLaunchDiagnosticReport == nil
+        Task.detached(priority: .utility) { [weak self] in
+            let previous = needsPreviousLoad ? diagnosticArchive.load() : nil
+            if needsPreviousLoad {
+                await self?.cachePreviousLaunchReport(previous)
+            }
             diagnosticArchive.save(await diagnosticLog.snapshot())
         }
+    }
+
+    private func cachePreviousLaunchReport(_ report: DiagnosticReport?) {
+        guard previousLaunchDiagnosticReport == nil else { return }
+        previousLaunchDiagnosticReport = .some(report)
     }
 
     public func didEnterBackground() {
@@ -616,20 +630,11 @@ public final class MobileIrohRuntimeComposition:
         ))
         guard signOutPhase.allowsLifecycle else { return }
         sceneTransitionTask?.cancel()
-        // Cache the previous launch's archived report before the save below
-        // replaces it on disk.
-        if previousLaunchDiagnosticReport == nil {
-            previousLaunchDiagnosticReport = .some(diagnosticArchive?.load())
-        }
+        // Archive the diagnostic ring so a later relaunch keeps the events
+        // around a drop exportable.
+        persistDiagnosticsSnapshot()
         let runtime = runtime
-        let diagnosticLog = diagnosticLog
-        let diagnosticArchive = diagnosticArchive
         sceneTransitionTask = Task {
-            // Archive the diagnostic ring while backgrounded so a later
-            // relaunch keeps the events around a drop exportable.
-            if let diagnosticLog, let diagnosticArchive {
-                diagnosticArchive.save(await diagnosticLog.snapshot())
-            }
             await runtime?.didEnterBackground()
         }
     }
@@ -743,6 +748,8 @@ public final class MobileIrohRuntimeComposition:
         selectedPathObservationTask = nil
         activeAccountID = nil
         brokerCooldown.clear()
+        diagnosticArchive?.clear()
+        previousLaunchDiagnosticReport = .some(nil)
         let fallbackBindingID = lastKnownBindingID
         let preparation: CmxIrohClientSignOutPreparation
         if let previousRuntime {
@@ -1176,6 +1183,8 @@ public final class MobileIrohRuntimeComposition:
             activeAccountID = nil
             if shouldErase {
                 brokerCooldown.clear()
+                diagnosticArchive?.clear()
+                previousLaunchDiagnosticReport = .some(nil)
             }
             await lanPeerDiscovery?.stop()
             if let previousRuntime {

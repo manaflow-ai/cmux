@@ -45,11 +45,16 @@ public struct MobileDebugLog: Sendable {
     }
 
     /// Turns durable file logging on or off for the shared sink and persists
-    /// the choice for the next launch. Returns whether the sink accepted it.
+    /// the choice for the next launch. Returns whether the sink accepted it;
+    /// a failed enable is not persisted, so the toggle cannot claim to be
+    /// recording when no file could be opened.
     @discardableResult
     public func setFileLogging(enabled: Bool) async -> Bool {
-        UserDefaults.standard.set(enabled, forKey: Self.verboseLogDefaultsKey)
-        return await sink.setFileLogging(enabled: enabled)
+        let accepted = await sink.setFileLogging(enabled: enabled)
+        if accepted {
+            UserDefaults.standard.set(enabled, forKey: Self.verboseLogDefaultsKey)
+        }
+        return accepted
     }
 
     /// File location for the durable iOS debug log.

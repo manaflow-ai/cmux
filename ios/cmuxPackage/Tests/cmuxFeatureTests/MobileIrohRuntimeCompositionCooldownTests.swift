@@ -139,6 +139,73 @@ struct MobileIrohRuntimeCompositionCooldownTests {
         #expect(await fixture.broker.bootstrapRequestCount() >= 1)
         #expect(await fixture.broker.relayTokenRequestCount() == 0)
     }
+
+    @Test
+    func activeRuntimeRateLimitFloorsPolicyRefreshAndDiscovery() async throws {
+        let fixture = try await MobileIrohCooldownFixture.makeSuccessfulBootstrap()
+        await settleActivation(fixture) {
+            fixture.composition.runtime != nil
+        }
+        #expect(fixture.composition.runtime != nil)
+
+        let requestCountBeforeRateLimit = await fixture.broker.totalRequestCount()
+        let bootstrapCountBeforeRateLimit = await fixture.broker.bootstrapRequestCount()
+        await fixture.broker.setRelayBootstrapRateLimit(retryAfterSeconds: 600)
+
+        await fixture.composition.refreshIrohSettings()
+        let requestCountAtFloor = await fixture.broker.totalRequestCount()
+        let bootstrapCountAtFloor = await fixture.broker.bootstrapRequestCount()
+        #expect(requestCountAtFloor == requestCountBeforeRateLimit + 1)
+        #expect(bootstrapCountAtFloor == bootstrapCountBeforeRateLimit + 1)
+
+        // This is the field loop: settings refresh and discovery can both
+        // re-enter the broker while the already-active runtime reconnects.
+        // The first 429 owns the whole account-scoped request floor.
+        await fixture.composition.refreshIrohSettings()
+        await fixture.composition.prepareForConnection()
+        _ = await fixture.composition.discoverLiveMacs()
+        _ = await fixture.composition.discoverLiveMacs()
+        await fixture.composition.refreshIrohSettings()
+
+        #expect(await fixture.broker.totalRequestCount() == requestCountAtFloor)
+        #expect(await fixture.broker.bootstrapRequestCount() == bootstrapCountAtFloor)
+    }
+
+    @Test
+    func activeRuntimeRateLimitSurvivesCompositionRecreation() async throws {
+        let fixture = try await MobileIrohCooldownFixture.makeSuccessfulBootstrap()
+        await settleActivation(fixture) {
+            fixture.composition.runtime != nil
+        }
+        #expect(fixture.composition.runtime != nil)
+
+        await fixture.broker.setRelayBootstrapRateLimit(retryAfterSeconds: 600)
+        await fixture.composition.refreshIrohSettings()
+        let requestCountAtFloor = await fixture.broker.totalRequestCount()
+        let diagnosticCountAtFloor = (await fixture.diagnosticLog.snapshot()).events.count
+
+        // Rebuild the process-owned composition over the same injected
+        // UserDefaults domain and repositories. A persisted floor must be
+        // restored before the replacement can perform any broker work.
+        let recreated = fixture.recreatingComposition()
+        await settleActivation(recreated) {
+            if recreated.composition.runtime != nil { return true }
+            if await recreated.broker.totalRequestCount() > requestCountAtFloor { return true }
+            let events = (await recreated.diagnosticLog.snapshot()).events
+            return events.dropFirst(diagnosticCountAtFloor).contains {
+                $0.code == .endpointFailed
+            }
+        }
+
+        #expect(await recreated.broker.totalRequestCount() == requestCountAtFloor)
+        do {
+            _ = try await recreated.composition.transport(for: recreated.request)
+            Issue.record("Expected the recreated composition to restore the broker cooldown")
+        } catch {
+            #expect((error as? any CmxRetryAfterProviding)?.retryAfterSeconds ?? 0 > 0)
+        }
+        #expect(await recreated.broker.totalRequestCount() == requestCountAtFloor)
+    }
 }
 
 private enum MobileIrohCooldownTestError: Error {
@@ -186,6 +253,7 @@ private struct MobileIrohCooldownFixture {
     /// coordinator); the fixture must retain it or every reconcile silently
     /// no-ops against a deallocated coordinator.
     let auth: AuthCoordinator
+    private let compositionFactory: @MainActor () -> MobileIrohRuntimeComposition
 
     static func make(
         registrationError: any Error
@@ -254,37 +322,48 @@ private struct MobileIrohCooldownFixture {
         let clock = MobileIrohCooldownTestClock(now)
         let diagnosticLog = DiagnosticLog(capacity: 64, role: .mobileClient)
         let stableDeviceID = deviceID
-        let composition = MobileIrohRuntimeComposition(
-            appInstances: appInstances,
-            identities: identities,
-            brokerCredentials: CmxIrohBrokerCredentialRepository(
-                secureStore: credentialStore,
-                installState: installState
-            ),
-            pendingRevocations: CmxIrohPendingRevocationOutbox(
-                secureStore: MobileIrohCooldownCredentialStore()
-            ),
-            offlinePolicies: CmxIrohClientOfflinePolicyCache(
-                secureStore: MobileIrohCooldownCredentialStore()
-            ),
-            relayPolicyCache: CmxIrohRelayPolicyCache(
-                secureStore: MobileIrohCooldownCredentialStore()
-            ),
-            relayPreferenceStore: CmxIrohRelayPreferenceStore(
-                secureStore: MobileIrohCooldownCredentialStore()
-            ),
-            customRelayCredentials: CmxIrohCustomRelayCredentialStore(
-                secureStore: MobileIrohCooldownCredentialStore()
-            ),
-            relayPolicyTrustRoot: try relayPolicy?.trustRoot(),
-            endpointFactory: MobileIrohCooldownEndpointFactory(identity: endpointID),
-            brokerFactory: { _ in broker },
-            deviceID: { stableDeviceID },
-            tag: tag,
-            now: { clock.now() },
-            diagnosticLog: diagnosticLog,
-            debugDefaults: defaults
+        let brokerCredentials = CmxIrohBrokerCredentialRepository(
+            secureStore: credentialStore,
+            installState: installState
         )
+        let pendingRevocations = CmxIrohPendingRevocationOutbox(
+            secureStore: MobileIrohCooldownCredentialStore()
+        )
+        let offlinePolicies = CmxIrohClientOfflinePolicyCache(
+            secureStore: MobileIrohCooldownCredentialStore()
+        )
+        let relayPolicyCache = CmxIrohRelayPolicyCache(
+            secureStore: MobileIrohCooldownCredentialStore()
+        )
+        let relayPreferenceStore = CmxIrohRelayPreferenceStore(
+            secureStore: MobileIrohCooldownCredentialStore()
+        )
+        let customRelayCredentials = CmxIrohCustomRelayCredentialStore(
+            secureStore: MobileIrohCooldownCredentialStore()
+        )
+        let relayPolicyTrustRoot = try relayPolicy?.trustRoot()
+        let endpointFactory = MobileIrohCooldownEndpointFactory(identity: endpointID)
+        let compositionFactory: @MainActor () -> MobileIrohRuntimeComposition = {
+            MobileIrohRuntimeComposition(
+                appInstances: appInstances,
+                identities: identities,
+                brokerCredentials: brokerCredentials,
+                pendingRevocations: pendingRevocations,
+                offlinePolicies: offlinePolicies,
+                relayPolicyCache: relayPolicyCache,
+                relayPreferenceStore: relayPreferenceStore,
+                customRelayCredentials: customRelayCredentials,
+                relayPolicyTrustRoot: relayPolicyTrustRoot,
+                endpointFactory: endpointFactory,
+                brokerFactory: { _ in broker },
+                deviceID: { stableDeviceID },
+                tag: tag,
+                now: { clock.now() },
+                diagnosticLog: diagnosticLog,
+                debugDefaults: defaults
+            )
+        }
+        let composition = compositionFactory()
         let authClient = MobileIrohCooldownAuthClient(
             user: CMUXAuthUser(
                 id: accountID,
@@ -332,7 +411,22 @@ private struct MobileIrohCooldownFixture {
             clock: clock,
             request: try request(),
             diagnosticLog: diagnosticLog,
-            auth: auth
+            auth: auth,
+            compositionFactory: compositionFactory
+        )
+    }
+
+    func recreatingComposition() -> Self {
+        let recreated = compositionFactory()
+        recreated.configure(auth: auth)
+        return Self(
+            composition: recreated,
+            broker: broker,
+            clock: clock,
+            request: request,
+            diagnosticLog: diagnosticLog,
+            auth: auth,
+            compositionFactory: compositionFactory
         )
     }
 
@@ -515,6 +609,7 @@ private actor MobileIrohCooldownBroker:
     private let registration: CmxIrohRegistrationResponse
     private let discoveryResponse: CmxIrohDiscoveryResponse
     private let bootstrap: CmxIrohRelayBootstrapResponse?
+    private var relayBootstrapRetryAfterSeconds: Int?
     private var totalRequests = 0
     private var bootstrapRequests = 0
     private var relayTokenRequests = 0
@@ -529,6 +624,10 @@ private actor MobileIrohCooldownBroker:
         self.registration = registration
         discoveryResponse = discovery
         self.bootstrap = bootstrap
+    }
+
+    func setRelayBootstrapRateLimit(retryAfterSeconds: Int) {
+        relayBootstrapRetryAfterSeconds = retryAfterSeconds
     }
 
     func register(
@@ -574,6 +673,12 @@ private actor MobileIrohCooldownBroker:
     ) throws -> CmxIrohRelayBootstrapResponse {
         totalRequests += 1
         bootstrapRequests += 1
+        if let relayBootstrapRetryAfterSeconds {
+            throw CmxIrohTrustBrokerClientError.rateLimited(
+                code: nil,
+                retryAfterSeconds: relayBootstrapRetryAfterSeconds
+            )
+        }
         guard let bootstrap else { throw MobileIrohCooldownTestError.unavailable }
         return bootstrap
     }

@@ -29,7 +29,10 @@ final class MobileIrohSettingsModel {
 
     func setVerboseLog(_ enabled: Bool) async {
         verboseLogEnabled = enabled
-        await MobileDebugLog.shared.setFileLogging(enabled: enabled)
+        let accepted = await MobileDebugLog.shared.setFileLogging(enabled: enabled)
+        if !accepted {
+            verboseLogEnabled = false
+        }
     }
 
     init(controller: any CmxIrohSettingsControlling) {
