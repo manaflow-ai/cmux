@@ -48,7 +48,7 @@ struct KimiRestorableAgentTests {
                         "surfaceId": panelID.uuidString,
                         "cwd": workingDirectory.path,
                         "isRestorable": true,
-                        "updatedAt": Date.now.timeIntervalSince1970,
+                        "updatedAt": 1_750_000_000.0,
                     ],
                 ],
             ],

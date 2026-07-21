@@ -47,6 +47,26 @@ struct KimiAgentResumeTests {
         )
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "kimi",
+                    "--add-dir", "/tmp/extra-a",
+                    "--add-dir", "/tmp/extra-b",
+                    "--skills-dir", "/tmp/skills-a",
+                    "--skills-dir", "/tmp/skills-b",
+                    "initial prompt should not become another directory",
+                ],
+                launcher: "kimi",
+                fallbackKind: "kimi"
+            ) == [
+                "kimi",
+                "--add-dir", "/tmp/extra-a",
+                "--add-dir", "/tmp/extra-b",
+                "--skills-dir", "/tmp/skills-a",
+                "--skills-dir", "/tmp/skills-b",
+            ]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
                 ["kimi", "--print", "--prompt", "one shot"],
                 launcher: "kimi",
                 fallbackKind: "kimi"
