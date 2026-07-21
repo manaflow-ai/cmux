@@ -80,6 +80,7 @@ extension TerminalController: ControlSurfaceContext {
     ) -> ControlSurfaceResumeBinding? {
         guard let binding else { return nil }
         let effective = SurfaceResumeApprovalStore.applyingStoredApproval(to: binding)
+        let remoteContext = effective.launchFlavor.remoteContext
         return ControlSurfaceResumeBinding(
             name: effective.name,
             kind: effective.kind,
@@ -91,6 +92,10 @@ extension TerminalController: ControlSurfaceContext {
             autoResume: effective.allowsAutomaticResume,
             approvalPolicyRawValue: effective.approvalPolicy?.rawValue,
             approvalRecordID: effective.approvalRecordId,
+            executionLocationRawValue: effective.launchFlavor.executionLocationRawValue,
+            remoteWorkspaceID: remoteContext?.workspaceID,
+            remoteSurfaceID: remoteContext?.surfaceID,
+            remotePTYSessionID: remoteContext?.persistentPTYSessionID,
             updatedAt: effective.updatedAt
         )
     }
