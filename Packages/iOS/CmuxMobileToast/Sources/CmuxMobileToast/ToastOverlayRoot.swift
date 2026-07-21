@@ -164,13 +164,13 @@ private struct ToastPresentationView: View {
             .onChanged { value in
                 if !isDragging {
                     isDragging = true
-                    center.beginInteraction()
+                    center.beginInteraction(for: toast.id)
                 }
                 dragOffset = damped(value.translation.height)
             }
             .onEnded { value in
                 isDragging = false
-                center.endInteraction()
+                center.endInteraction(for: toast.id)
                 let travel = value.translation.height * dismissSign
                 let projected = value.predictedEndTranslation.height * dismissSign
                 if projected > 56 || travel > 48 {

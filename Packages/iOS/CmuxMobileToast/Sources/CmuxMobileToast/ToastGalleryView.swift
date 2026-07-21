@@ -100,11 +100,16 @@ public struct ToastGalleryView: View {
         guard ProcessInfo.processInfo.environment["CMUX_TOAST_GALLERY_AUTORUN"] == "1" else { return }
         #if os(iOS)
         let clock = ContinuousClock()
-        func pause(_ seconds: Double) async {
-            try? await clock.sleep(for: .seconds(seconds))
+        func pause(_ seconds: Double) async throws {
+            try await clock.sleep(for: .seconds(seconds))
         }
-        await pause(2)
-        await recordPassthroughProbe(pause: pause)
+        do {
+            try await pause(2)
+            try await recordPassthroughProbe(pause: pause)
+        } catch {
+            // Cancelled (view left); don't start the demo from a dead task.
+            return
+        }
         #endif
         ToastDemo.run(on: toasts)
     }
@@ -115,7 +120,7 @@ public struct ToastGalleryView: View {
     /// toast the overlay must return nil everywhere (UIKit then routes the
     /// touch to the app's window below); with a toast visible, the card region
     /// must resolve to a live view while the rest still falls through.
-    private func recordPassthroughProbe(pause: (Double) async -> Void) async {
+    private func recordPassthroughProbe(pause: (Double) async throws -> Void) async throws {
         var lines: [String] = []
         defer {
             let url = URL.documentsDirectory.appending(path: "toast-probe.txt")
@@ -135,7 +140,7 @@ public struct ToastGalleryView: View {
             : "FAIL empty overlay captured touch: \(type(of: empty!))")
 
         toasts.present(.info("Passthrough probe", coalescingKey: "probe"))
-        await pause(0.8)
+        try await pause(0.8)
         lines.append("presented=\(String(describing: toasts.presented?.toast.message)) safeTop=\(overlay.safeAreaInsets.top)")
         var hitAny = false
         for y in stride(from: 4, through: 120, by: 8) {
@@ -153,7 +158,7 @@ public struct ToastGalleryView: View {
             ? "PASS area beside visible toast still passes through"
             : "FAIL area beside toast captured: \(type(of: besideToast!))")
         toasts.dismissAll()
-        await pause(0.8)
+        try await pause(0.8)
     }
     #endif
 }

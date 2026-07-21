@@ -151,16 +151,36 @@ struct ToastCenterTests {
 
     @Test func interactionHoldPausesAutoDismiss() async {
         let (center, clock) = makeCenter()
-        center.present(.success("done"))
+        let toast = Toast.success("done")
+        center.present(toast)
         await yieldUntil { clock.sleeperCount == 1 }
 
-        center.beginInteraction()
+        center.beginInteraction(for: toast.id)
         #expect(center.autoDismissTask == nil)
         clock.advance(by: .seconds(30))
         #expect(center.presented != nil)
 
-        center.endInteraction()
+        center.endInteraction(for: toast.id)
         await yieldUntil { clock.sleeperCount == 1 }
+        clock.advance(by: .seconds(3.6))
+        await center.autoDismissTask?.value
+        #expect(center.presented == nil)
+    }
+
+    @Test func staleInteractionFromDepartedToastIsIgnored() async {
+        let (center, clock) = makeCenter()
+        let first = Toast.success("first")
+        center.present(first)
+        center.dismissCurrent()
+        let second = Toast.success("second")
+        center.present(second)
+        await yieldUntil { clock.sleeperCount == 1 }
+
+        // A straggling gesture from the departed toast must not pause or
+        // resume the visible toast's dwell.
+        center.beginInteraction(for: first.id)
+        #expect(center.autoDismissTask != nil)
+        center.endInteraction(for: first.id)
         clock.advance(by: .seconds(3.6))
         await center.autoDismissTask?.value
         #expect(center.presented == nil)

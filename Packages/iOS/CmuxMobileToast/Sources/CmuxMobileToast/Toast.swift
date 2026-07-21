@@ -48,21 +48,22 @@ public struct Toast: Identifiable, Equatable, Sendable {
     }
 
     public private(set) var id: UUID
-    public var style: Style
-    public var title: String?
-    public var message: String
+    public let style: Style
+    public let title: String?
+    public let message: String
     /// SF Symbol name overriding the style's default icon. `nil` uses the
     /// style default (`info` has none, so plain info toasts read as a quiet
     /// text capsule).
-    public var systemImage: String?
-    public var placement: Placement
-    public var autoDismiss: AutoDismiss
-    public var action: Action?
+    public let systemImage: String?
+    public let placement: Placement
+    public let autoDismiss: AutoDismiss
+    public let action: Action?
     /// Toasts with equal keys coalesce: presenting one whose key matches the
     /// visible toast refreshes its content in place and re-bumps it instead of
-    /// queueing a duplicate behind it. Defaults to style + title + message, so
-    /// identical notices never stack.
-    public var coalescingKey: String
+    /// queueing a duplicate behind it. Defaults to style + title + message
+    /// (joined on a separator no UI string contains), so identical notices
+    /// never stack.
+    public let coalescingKey: String
 
     public init(
         style: Style,
@@ -82,7 +83,8 @@ public struct Toast: Identifiable, Equatable, Sendable {
         self.placement = placement
         self.autoDismiss = autoDismiss ?? Self.defaultAutoDismiss(for: style, hasAction: action != nil)
         self.action = action
-        self.coalescingKey = coalescingKey ?? "\(style.rawValue)|\(title ?? "")|\(message)"
+        self.coalescingKey = coalescingKey
+            ?? [style.rawValue, title ?? "\u{0}", message].joined(separator: "\u{1F}")
     }
 
     public static func == (lhs: Toast, rhs: Toast) -> Bool {
@@ -120,6 +122,8 @@ public struct Toast: Identifiable, Equatable, Sendable {
 }
 
 public extension Toast {
+    /// A neutral, ambient notice ("Copied", "Agent finished"). No icon by
+    /// default, so plain info toasts read as a quiet text capsule.
     static func info(
         _ message: String,
         title: String? = nil,
@@ -136,6 +140,7 @@ public extension Toast {
         )
     }
 
+    /// Confirms a completed operation with a green check and success haptic.
     static func success(
         _ message: String,
         title: String? = nil,
@@ -152,6 +157,7 @@ public extension Toast {
         )
     }
 
+    /// A degraded-but-working notice with an orange badge and warning haptic.
     static func warning(
         _ message: String,
         title: String? = nil,
@@ -168,6 +174,8 @@ public extension Toast {
         )
     }
 
+    /// A failed operation: red badge, error haptic, and the longest default
+    /// dwell so the reason can be read (pair with a `title` naming the action).
     static func failure(
         _ message: String,
         title: String? = nil,

@@ -148,18 +148,22 @@ public final class ToastCenter {
     }
 
     /// The user started touching the toast; auto-dismiss holds until every
-    /// balanced ``endInteraction()`` lands.
-    public func beginInteraction() {
+    /// balanced ``endInteraction(for:)`` lands. Scoped to the presented
+    /// toast's id so a straggling gesture from a departing toast can never
+    /// hold (or resume) its successor's dwell.
+    public func beginInteraction(for toastID: Toast.ID) {
+        guard presented?.toast.id == toastID else { return }
         interactionHolds += 1
         cancelAutoDismiss()
     }
 
-    /// Balances ``beginInteraction()``. When the last hold releases, the full
-    /// dwell restarts (forgiving: touching a toast means the user is reading it).
-    public func endInteraction() {
-        guard interactionHolds > 0 else { return }
+    /// Balances ``beginInteraction(for:)``. When the last hold releases, the
+    /// full dwell restarts (forgiving: touching a toast means the user is
+    /// reading it).
+    public func endInteraction(for toastID: Toast.ID) {
+        guard presented?.toast.id == toastID, interactionHolds > 0 else { return }
         interactionHolds -= 1
-        if interactionHolds == 0, presented != nil {
+        if interactionHolds == 0 {
             restartAutoDismiss()
         }
     }

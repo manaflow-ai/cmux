@@ -111,7 +111,7 @@ public struct ChatScreen: View {
         // conversation store: a newer error replaces and re-bumps the visible
         // one instead of queueing stale errors. With the flag off, the store
         // state stays put and drives the legacy inline banner.
-        .onChange(of: store.lastErrorDescription) { _, error in
+        .onChange(of: store.lastErrorDescription, initial: true) { _, error in
             guard toasts.isEnabled, let error else { return }
             toasts.present(.failure(
                 error,

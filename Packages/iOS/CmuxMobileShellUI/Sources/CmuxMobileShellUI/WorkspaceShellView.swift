@@ -315,7 +315,9 @@ struct WorkspaceShellView: View {
             )
         }
         #endif
-        .onChange(of: store.connectionState) { _, state in
+        // `initial: true` primes `hasHeldConnection` when the view mounts
+        // already connected, so the first genuine reconnect still toasts.
+        .onChange(of: store.connectionState, initial: true) { _, state in
             guard state == .connected else { return }
             if hasHeldConnection {
                 toasts.present(.success(
