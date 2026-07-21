@@ -39,18 +39,30 @@ extension MobileChatEventSource {
         )
     }
 
+    /// Reads metadata for a file referenced by one terminal surface.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: Workspace containing the terminal.
+    ///   - surfaceID: Terminal surface authorizing the file reference.
+    ///   - path: Absolute Mac host path.
+    ///   - visibleOnly: Whether authorization should inspect only the rendered viewport.
     public func terminalArtifactStat(
         workspaceID: String,
         surfaceID: String,
-        path: String
+        path: String,
+        visibleOnly: Bool = false
     ) async throws -> ChatArtifactStat {
-        try await artifactCall(
+        var params: [String: Any] = [
+            "workspace_id": workspaceID,
+            "surface_id": surfaceID,
+            "path": path,
+        ]
+        if visibleOnly {
+            params["visible_only"] = true
+        }
+        return try await artifactCall(
             method: "mobile.terminal.artifact.stat",
-            params: [
-                "workspace_id": workspaceID,
-                "surface_id": surfaceID,
-                "path": path,
-            ]
+            params: params
         )
     }
 

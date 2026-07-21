@@ -95,7 +95,12 @@ extension TerminalController {
     }
 
     func v2MobileTerminalArtifactStat(params: [String: Any]) async -> V2CallResult {
-        let resolution = await mobileTerminalArtifactContext(params: params, requiresPath: true)
+        let visibleOnly = v2Bool(params, "visible_only") ?? false
+        let resolution = await mobileTerminalArtifactContext(
+            params: params,
+            requiresPath: true,
+            includeScrollback: !visibleOnly
+        )
         guard case .success(let context) = resolution else {
             return resolution.failureResult
         }

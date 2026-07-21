@@ -267,32 +267,32 @@ extension GhosttySurfaceRepresentable.Coordinator {
                     columns: snapshot.columns
                 ) {
                     let folderTapEnabled = terminalFolderTapEnabled
-                    let decision: TerminalFolderTapPolicy.Decision
                     if !folderTapEnabled,
                        !folderTapStatsInFlight.insert(path).inserted {
-                        decision = .focusTerminal
-                    } else {
-                        defer {
-                            if !folderTapEnabled {
-                                folderTapStatsInFlight.remove(path)
-                            }
+                        // Duplicates coalesce onto the pending classification.
+                        return .ignored
+                    }
+                    defer {
+                        if !folderTapEnabled {
+                            folderTapStatsInFlight.remove(path)
                         }
+                    }
 
-                        decision = await TerminalFolderTapPolicy(
-                            folderTapEnabled: folderTapEnabled
-                        ).decision(
-                            for: path
-                        ) { [weak self] path in
-                            guard let self,
-                                  let source = self.store?.makeChatEventSource() else {
-                                throw CancellationError()
-                            }
-                            return try await source.terminalArtifactStat(
-                                workspaceID: self.workspaceID,
-                                surfaceID: self.surfaceID,
-                                path: path
-                            ).kind
+                    let decision = await TerminalFolderTapPolicy(
+                        folderTapEnabled: folderTapEnabled
+                    ).decision(
+                        for: path
+                    ) { [weak self] path in
+                        guard let self,
+                              let source = self.store?.makeChatEventSource() else {
+                            throw CancellationError()
                         }
+                        return try await source.terminalArtifactStat(
+                            workspaceID: self.workspaceID,
+                            surfaceID: self.surfaceID,
+                            path: path,
+                            visibleOnly: true
+                        ).kind
                     }
                     guard decision == .openArtifact else {
                         // Forward only against revalidated content; stale coordinates
@@ -305,8 +305,11 @@ extension GhosttySurfaceRepresentable.Coordinator {
                               currentSnapshot.columns == snapshot.columns else {
                             return .focusTerminal
                         }
-                        await store?.clickTerminal(surfaceID: surfaceID, col: col, row: row)
-                        return self.surfaceView === surfaceView ? .focusTerminal : .ignored
+                        Task { @MainActor [weak self, surfaceID = self.surfaceID, col, row] in
+                            guard let self else { return }
+                            await self.store?.clickTerminal(surfaceID: surfaceID, col: col, row: row)
+                        }
+                        return .focusTerminal
                     }
                     guard self.surfaceView === surfaceView else {
                         return .ignored
