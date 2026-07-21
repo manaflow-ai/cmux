@@ -1,0 +1,6 @@
+Sources/RemoteTmuxControlConnection+Sizing.swift:sendPerWindowRedrawKick
+Sources/RemoteTmuxControlConnection+Sizing.swift:sendSessionRedrawKick
+Sources/RemoteTmuxControlConnection+Sizing.swift:setClientSize
+Sources/RemoteTmuxControlConnection+Sizing.swift:setWindowSize
+Sources/RemoteTmuxSSHTransport.swift:killSessions
+Sources/RemoteTmuxWindowMirror.swift:establishPaneKeyFocusWhenMounted
