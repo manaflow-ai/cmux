@@ -475,9 +475,10 @@ socket verbs (all funnel through the same mutation entry points).
 Agent policy: the checklist and manual status pins belong to the user.
 Coding agents must not create, edit, complete, remove, or replace checklist
 items, and must not `set`/`cycle` the status, unless the user explicitly
-asks them to manage workspace todos. The status lane already tracks agent
-activity automatically through inference; agents should keep their own
-plans in their internal task tracking.
+asks them to manage that surface — a request to manage checklist items or
+a request to manage manual status pins. The status lane already tracks
+agent activity automatically through inference; agents should keep their
+own plans in their internal task tracking.
 
 Item schema (wire and `todo list --json` shape):
 
