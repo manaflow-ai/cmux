@@ -802,7 +802,7 @@ struct TaskComposerDirectoryPickerView: View {
         case .rejected, .cancelled:
             L10n.string(
                 "mobile.taskComposer.directoryPicker.browse.failure.generic",
-                defaultValue: "The Mac could not list this folder. Try again."
+                defaultValue: "The Mac could not list this folder. If this is a protected folder such as Downloads, allow cmux access in Mac System Settings › Privacy & Security › Files & Folders, then retry."
             )
         }
     }

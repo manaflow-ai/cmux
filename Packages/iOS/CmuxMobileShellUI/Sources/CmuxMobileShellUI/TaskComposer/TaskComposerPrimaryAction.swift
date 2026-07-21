@@ -72,6 +72,8 @@ struct TaskComposerPrimaryAction: View {
                     HStack(spacing: 10) {
                         if isSubmitting {
                             ProgressView()
+                                .controlSize(.small)
+                                .frame(width: 28, height: 28)
                         } else if let templateIcon {
                             TaskTemplateIcon(value: templateIcon, size: 18)
                                 .frame(width: 28, height: 28)

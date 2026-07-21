@@ -135,8 +135,8 @@ extension TaskComposerSheet {
     }
 
     /// The directory the composer pre-fills: the template default, then the
-    /// last successful directory for the selected Mac, an open directory on
-    /// that Mac, then home.
+    /// active or most recently used terminal directory on the selected Mac,
+    /// the last successful task directory for that Mac, then home.
     static func suggestedDirectory(
         template: MobileTaskTemplate?,
         macDeviceID: String,
@@ -147,13 +147,13 @@ extension TaskComposerSheet {
            !defaultDirectory.isEmpty {
             return defaultDirectory
         }
-        if let lastDirectory = templateStore?.lastDirectory(macDeviceID: macDeviceID)?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !lastDirectory.isEmpty {
-            return lastDirectory
-        }
         if let openDirectory = openDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
            !openDirectory.isEmpty {
             return openDirectory
+        }
+        if let lastDirectory = templateStore?.lastDirectory(macDeviceID: macDeviceID)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !lastDirectory.isEmpty {
+            return lastDirectory
         }
         return "~"
     }
