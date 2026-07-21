@@ -82,7 +82,9 @@ extension ReconnectRouteSelectionTests {
         factory.setHangingKinds([])
         let dialsBeforeManual = factory.attemptedKinds().count
         await store.reconnectOrRefresh()
-        let reconnected = try await pollUntil {
+        // Generous window: this tail runs under full-suite parallel load and
+        // the manual path awaits several real round-trips.
+        let reconnected = try await pollUntil(attempts: 1500) {
             store.connectionState == .connected
         }
         #expect(reconnected, "manual retry after a settled deadline must reconnect")

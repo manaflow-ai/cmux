@@ -1178,6 +1178,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         suppressNextConnectionOutageEdge = true
         clearAutomaticReconnectBackoff()
+        // The state-sync mirror caches workspace/terminal titles, directories,
+        // and notification previews from the previous account's Macs; it must
+        // not survive an account boundary or leak into the next session's
+        // projections.
+        resetStateSyncForAccountBoundary()
         lastPresenceReconnectEvidence = nil
         connectionRecoveryOwner.cancel()
         applyConnectionRecoveryOwnerState()

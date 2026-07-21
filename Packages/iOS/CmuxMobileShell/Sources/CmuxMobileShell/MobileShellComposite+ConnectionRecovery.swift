@@ -819,6 +819,15 @@ extension MobileShellComposite {
         timeoutNanoseconds: UInt64? = nil
     ) async -> Bool {
         guard let client = remoteClient else { return false }
+        // While state sync v2 owns the list, do not build/serialize/send the
+        // legacy full list at all (the Computers screen refreshes through here
+        // every 10s; paying the full-list cost and discarding it defeats the
+        // delta protocol). The cursor fetch is both the liveness probe and the
+        // authoritative refresh, AWAITED so pull-to-refresh cannot report done
+        // before state applied, with the caller's probe timeout honored.
+        if stateSyncActive {
+            return await performStateSyncFetch(client: client, timeoutNanoseconds: timeoutNanoseconds)
+        }
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "mobile.workspace.list",
@@ -830,18 +839,6 @@ extension MobileShellComposite {
             )
             let response = try MobileSyncWorkspaceListResponse.decode(data)
             guard remoteClient === client, connectionState == .connected else { return false }
-            if stateSyncActive {
-                // The round-trip above already proved liveness. While state
-                // sync v2 owns the list, applying this legacy full response
-                // would overwrite mirror-projected state with a snapshot the
-                // next delta then contradicts; re-base the mirror through its
-                // cursor instead (the fetch also refreshes the Mac-side store
-                // from truth). AWAITED, because pull-to-refresh and the
-                // Computers screen use this path's return as "refresh done":
-                // the spinner must not end before authoritative state applied,
-                // and a failed fetch must not report success.
-                return await performStateSyncFetch(client: client)
-            }
             applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
             syncSelectedTerminalForWorkspace()
             return true

@@ -91,8 +91,11 @@ extension MobileShellComposite {
     /// supersede this gesture's task mid-flight; in that case the replacement
     /// is the authoritative fetch and the gesture follows it (bounded) rather
     /// than reporting a superseded cancel as failure.
-    func performStateSyncFetch(client: MobileCoreRPCClient) async -> Bool {
-        var task = scheduleStateSyncFetch(client: client)
+    func performStateSyncFetch(
+        client: MobileCoreRPCClient,
+        timeoutNanoseconds: UInt64? = nil
+    ) async -> Bool {
+        var task = scheduleStateSyncFetch(client: client, timeoutNanoseconds: timeoutNanoseconds)
         for _ in 0..<5 {
             let applied = await task.value
             if applied { return true }
@@ -104,6 +107,18 @@ extension MobileShellComposite {
         return false
     }
 
+    /// Account-boundary teardown: wipes mirrored records (titles,
+    /// directories, notification previews from the previous account's Macs),
+    /// deactivates v2, and invalidates any in-flight fetch so its completion
+    /// cannot write into the next account's session.
+    func resetStateSyncForAccountBoundary() {
+        stateSyncFetchTask?.cancel()
+        stateSyncFetchTask = nil
+        stateSyncFetchGeneration = UUID()
+        stateSyncActive = false
+        stateSyncMirror.reset()
+    }
+
     /// Repairs the mirror with a cursor fetch when the current client is v2.
     private func scheduleStateSyncRepairIfActive() {
         guard stateSyncActive, let client = remoteClient else { return }
@@ -113,7 +128,10 @@ extension MobileShellComposite {
     /// Single-flight, restart-on-newest cursor fetch (negotiation and gap
     /// repair share it, mirroring ``workspaceListRefreshTask`` semantics).
     @discardableResult
-    private func scheduleStateSyncFetch(client: MobileCoreRPCClient) -> Task<Bool, Never> {
+    private func scheduleStateSyncFetch(
+        client: MobileCoreRPCClient,
+        timeoutNanoseconds: UInt64? = nil
+    ) -> Task<Bool, Never> {
         stateSyncFetchTask?.cancel()
         let generation = UUID()
         stateSyncFetchGeneration = generation
@@ -126,7 +144,11 @@ extension MobileShellComposite {
                     self.stateSyncFetchTask = nil
                 }
             }
-            return await self?.runStateSyncFetch(client: client, generation: generation) ?? false
+            return await self?.runStateSyncFetch(
+                client: client,
+                generation: generation,
+                timeoutNanoseconds: timeoutNanoseconds
+            ) ?? false
         }
         stateSyncFetchTask = task
         return task
@@ -135,7 +157,8 @@ extension MobileShellComposite {
     @discardableResult
     private func runStateSyncFetch(
         client: MobileCoreRPCClient,
-        generation: UUID
+        generation: UUID,
+        timeoutNanoseconds: UInt64? = nil
     ) async -> Bool {
         // Currency check BEFORE the send, not only after: a negotiation task
         // scheduled for a listener generation that has since been replaced
@@ -157,10 +180,20 @@ extension MobileShellComposite {
             )
             let data = try await client.sendRequest(
                 request,
-                timeoutNanoseconds: runtime?.rpcRequestTimeoutNanoseconds
+                timeoutNanoseconds: timeoutNanoseconds ?? runtime?.rpcRequestTimeoutNanoseconds
             )
             guard remoteClient === client, connectionState == .connected, !Task.isCancelled else { return false }
             let response = try JSONDecoder().decode(MobileSyncFetchResponse.self, from: data)
+            // The response shape tolerates missing sections for forward
+            // compatibility, but v2 must never become authoritative on a
+            // partial answer: projecting an empty workspace mirror would
+            // clear a valid list. Both requested collections must be present.
+            guard response.workspaces != nil, response.groups != nil else {
+                guard !Task.isCancelled, stateSyncFetchGeneration == generation else { return false }
+                mobileStateSyncLog.error("state sync fetch returned a partial response; staying on legacy")
+                fallBackToLegacyListAfterFetchFailure(client: client)
+                return false
+            }
             let result = stateSyncMirror.apply(response: response)
             stateSyncActive = true
             switch result {
