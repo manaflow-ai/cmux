@@ -57,10 +57,33 @@ if ! nc -z 127.0.0.1 "$PORT" 2>/dev/null; then
   exit 1
 fi
 
+# A session for the mirror to attach to, on the server both transports reach.
+#
+# It has to be the server a plain login shell resolves to, because cmux splits the work:
+# one-shot commands like the `has-session` check before an attach ride ssh, while the
+# control stream rides et. Putting the session on a private TMUX_TMPDIR isolates it from
+# the ssh side, so the attach fails with "can't find session" even though the session
+# exists. A real et host has both transports landing on the same default server, so the
+# harness matches that.
+SESSION="${CMUX_ET_SESSION:-etmirror}"
+OWNED="$DIR/owned-sessions"
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+  # Never adopt a session this harness did not create: teardown kills what it owns, and a
+  # developer's own session of the same name must survive.
+  grep -qxF "$SESSION" "$OWNED" 2>/dev/null \
+    || { echo "tmux session '$SESSION' already exists and is not ours; set CMUX_ET_SESSION" >&2; exit 1; }
+else
+  tmux new-session -d -s "$SESSION" -c "$HOME" 2>>"$DIR/logs/start.out" \
+    || { echo "could not create tmux session $SESSION" >&2; exit 1; }
+  echo "$SESSION" >>"$OWNED"
+fi
+SOCKET="$(tmux display-message -p -t "$SESSION" '#{socket_path}' 2>/dev/null)"
+
 cat <<INFO
 name:       $NAME
 port:       $PORT
 state:      $DIR
 tmux tmpdir:$DIR/tmux
+session:    $SESSION (socket $SOCKET)
 client:     et -p $PORT --macserver -c '<command>' $USER@127.0.0.1
 INFO

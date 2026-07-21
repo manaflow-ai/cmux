@@ -54,17 +54,20 @@ protocol RemoteTmuxTransport: Sendable {
 implementation wraps a persistent-session transport. For ET that is:
 
 ```
-et --command 'exec <tmux resolver> -CC attach-session -t <session>' [--port N] <user>@<host>
+et --command 'exec tmux -CC attach-session -t <session>' [--port N] <user>@<host>
 ```
 
 Four details are load-bearing for any such transport:
 
 - **Run the command, do not open a shell.** ET's `--command` runs one command and exits.
   Prefix it with `exec` so the remote process tree does not keep a shell parent around.
-- **The remote command still needs the tmux resolver.** A non-login remote shell often has
-  a minimal `PATH`, which is why `RemoteTmuxHost.tmuxRemoteCommand` wraps `tmux` in a
-  resolver script. That is a property of the remote shell, not of ssh, so it applies here
-  identically.
+- **The command has to fit on one line, so et does not get the tmux resolver.** ET does not
+  exec the command: it types it into a login shell and appends `; exit`. That shell reads from
+  a pty in canonical mode, which delivers at most `MAX_CANON` (1024 on macOS) bytes per line,
+  and ssh's `PATH` resolver is about 1113 bytes. The line never completes, so the shell runs
+  nothing, the stream stays silent, and the attach dies on a timeout with nothing to explain
+  it. Plain `tmux` is both short enough and correct here, because a login shell already has
+  the user's full `PATH` — ssh is the opposite case, a non-login shell with a minimal one.
 - **The port is per-transport and per-host.** Keep it configurable instead of assuming
   ssh's 22.
 - **Never pass a flag that kills other sessions.** ET's `-x` / `--kill-other-sessions`
