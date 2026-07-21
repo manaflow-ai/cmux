@@ -28,7 +28,10 @@ cd "$(dirname "$0")/.." || exit 1
 SCOPE=(Sources/RemoteTmux*.swift Sources/RemoteTmuxController+*.swift)
 
 # Primitives that make a wait time-based rather than event-based.
-PATTERN='Task\.sleep|Thread\.sleep|usleep\(|DispatchQueue\.[A-Za-z.]*asyncAfter|DispatchSourceTimer|Timer\.scheduledTimer|ContinuousClock\(\)\.sleep'
+# `\.asyncAfter\(` rather than a `DispatchQueue.…` prefix: the receiver can be any expression
+# (`DispatchQueue.global(qos: .background)`, a stored queue), and every one of them is a
+# time-based wait. Matching the call, not the queue, closes that gap.
+PATTERN='Task\.sleep|Thread\.sleep|usleep\(|\.asyncAfter\(|DispatchSourceTimer|Timer\.scheduledTimer|ContinuousClock\(\)\.sleep'
 
 # Waits that predate this guard, recorded so it blocks NEW ones without pretending the
 # existing ones are all fine. Several are worth revisiting — the sizing debounces in

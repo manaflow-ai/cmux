@@ -340,7 +340,7 @@ import Testing
     ///
     /// Long session names are the realistic way to cross the line, so the bound is checked
     /// against one rather than only the short names the other tests use.
-    @Test func etCommandFitsWhatALoginShellCanRead() {
+    @Test func etCommandFitsWhatALoginShellCanRead() throws {
         let maxCanon = 1024
         for session in ["s", "work session", String(repeating: "session-", count: 24)] {
             let argv = RemoteTmuxETTransportProfile(port: 2039).controlStreamArgv(
@@ -348,8 +348,8 @@ import Testing
                 sessionName: session,
                 createIfMissing: false
             )
-            let command = try? #require(argv.first(where: { $0.hasPrefix("exec ") }))
-            let byteCount = (command ?? "").utf8.count
+            let command = try #require(argv.first(where: { $0.hasPrefix("exec ") }))
+            let byteCount = command.utf8.count
             #expect(
                 byteCount < maxCanon,
                 Comment(
