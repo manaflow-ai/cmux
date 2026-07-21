@@ -3586,9 +3586,7 @@ final class Workspace: Identifiable, ObservableObject {
         _ terminalPanel: TerminalPanel,
         allowTextBoxFocusDefault: Bool = true
     ) {
-        if let fontSizeLineage = terminalPanel.surface.fontSizeLineageSnapshot() {
-            lastTerminalConfigInheritanceFontSizeLineage = fontSizeLineage
-        }
+        lastTerminalConfigInheritanceFontSizeLineage = terminalPanel.surface.fontSizeLineageSnapshot()
         // Record the workspace env this freshly-created panel inherited, so a later
         // respawn (which reuses this panel even after a move to another workspace)
         // can drop it and re-apply the current workspace's env instead of leaking
@@ -6532,11 +6530,9 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Panel Operations
 
-    private func rememberTerminalConfigInheritanceSource(_ terminalPanel: TerminalPanel) {
+    func rememberTerminalConfigInheritanceSource(_ terminalPanel: TerminalPanel) {
         lastTerminalConfigInheritancePanelId = terminalPanel.id
-        if let lineage = terminalPanel.surface.fontSizeLineageSnapshot() {
-            lastTerminalConfigInheritanceFontSizeLineage = lineage
-        }
+        lastTerminalConfigInheritanceFontSizeLineage = terminalPanel.surface.fontSizeLineageSnapshot()
     }
 
     func lastRememberedTerminalPanelForConfigInheritance() -> TerminalPanel? {

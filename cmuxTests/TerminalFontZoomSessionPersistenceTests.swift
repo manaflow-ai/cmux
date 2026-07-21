@@ -125,6 +125,34 @@ struct TerminalFontZoomSessionPersistenceTests {
         )
     }
 
+    @Test("remembering an unzoomed source clears an earlier explicit fallback")
+    func unzoomedSourceClearsExplicitWorkspaceFallback() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let snapshot = try snapshotBySettingTerminalFontSize(
+            5.5,
+            panelID: panelID,
+            in: workspace.sessionSnapshot(includeScrollback: false)
+        )
+        let restoredWorkspace = Workspace()
+        _ = restoredWorkspace.restoreSessionSnapshot(snapshot)
+        #expect(
+            restoredWorkspace.lastRememberedTerminalFontSizeLineageForConfigInheritance()?
+                .isExplicitOverride == true
+        )
+
+        let unzoomedPanel = TerminalPanel(
+            workspaceId: restoredWorkspace.id,
+            configTemplate: nil,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        restoredWorkspace.rememberTerminalConfigInheritanceSource(unzoomedPanel)
+
+        #expect(
+            restoredWorkspace.lastRememberedTerminalFontSizeLineageForConfigInheritance() == nil
+        )
+    }
+
     private func snapshotBySettingTerminalFontSize(
         _ fontSize: Double,
         panelID: UUID,
