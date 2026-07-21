@@ -132,7 +132,7 @@ struct RemoteInitialCommandBootstrapFailureTests {
     }
 
     @Test
-    func unsupportedShellDoesNotRunOrConsumeCommand() throws {
+    func unsupportedShellRunsAndConsumesCommandOnlyOnce() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-remote-initial-command-unsupported-shell-\(UUID().uuidString)")
@@ -171,17 +171,12 @@ struct RemoteInitialCommandBootstrapFailureTests {
         let unsupported = try runShell(script, environment: unsupportedEnvironment)
         #expect(unsupported.status == 0, Comment(rawValue: unsupported.stderr))
         #expect(try String(contentsOf: invocations, encoding: .utf8) == "1\n-i\n")
-        #expect(!fileManager.fileExists(atPath: output.path))
-        #expect(try initialCommandMarkerCount(home: home) == 0)
-        let warning = String(
-            localized: "cli.ssh.initialCommand.unsupportedShell",
-            defaultValue: "[cmux] Initial command was not run because cmux does not support initial commands for this remote login shell. Reconnect with a supported shell to retry it."
-        )
-        #expect(unsupported.stderr.contains(warning), Comment(rawValue: unsupported.stderr))
+        #expect(try String(contentsOf: output, encoding: .utf8) == "must wait\n")
+        #expect(try initialCommandMarkerCount(home: home) == 1)
 
-        let supportedEnvironment = unsupportedEnvironment.merging(["SHELL": "/bin/sh"]) { _, new in new }
-        let retry = try runShell(script, environment: supportedEnvironment)
+        let retry = try runShell(script, environment: unsupportedEnvironment)
         #expect(retry.status == 0, Comment(rawValue: retry.stderr))
+        let supportedEnvironment = unsupportedEnvironment.merging(["SHELL": "/bin/sh"]) { _, new in new }
         let reattach = try runShell(script, environment: supportedEnvironment)
         #expect(reattach.status == 0, Comment(rawValue: reattach.stderr))
 

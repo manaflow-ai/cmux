@@ -14215,7 +14215,23 @@ class TerminalController {
         if hasViewportReportFields, v2String(params, "client_id") == nil || v2Int(params, "viewport_columns") == nil || v2Int(params, "viewport_rows") == nil {
             return .err(code: "invalid_params", message: "Invalid mobile viewport report", data: nil)
         }
-        _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel, reason: "mobile.terminal.replay")
+        let expectedViewport = applyMobileViewportReport(
+            params: params,
+            terminalPanel: terminalPanel,
+            reason: "mobile.terminal.replay"
+        )
+        if hasViewportReportFields, expectedViewport == nil {
+            #if DEBUG
+            cmuxDebugLog(
+                "mobile.terminal.replay VIEWPORT_PENDING surface=\(surfaceId.uuidString.prefix(8)) expected=unavailable"
+            )
+            #endif
+            return .err(
+                code: "viewport_transition",
+                message: "Terminal viewport is still resizing",
+                data: nil
+            )
+        }
         let state = MobileTerminalByteTee.shared.replayState(surfaceID: surfaceId)
         let seq = state?.seq ?? 0
         let renderGrid = mobileTerminalRenderGridFrame(
@@ -14223,6 +14239,32 @@ class TerminalController {
             surfaceID: surfaceId,
             seq: seq
         )
+        if let expectedViewport,
+           let renderGrid,
+           !MobileTerminalReplayViewportFence.accepts(
+               capturedColumns: renderGrid.columns,
+               capturedRows: renderGrid.rows,
+               expectedColumns: expectedViewport.columns,
+               expectedRows: expectedViewport.rows
+           ) {
+            #if DEBUG
+            cmuxDebugLog(
+                "mobile.terminal.replay VIEWPORT_PENDING surface=\(surfaceId.uuidString.prefix(8)) " +
+                "expected=\(expectedViewport.columns)x\(expectedViewport.rows) " +
+                "captured=\(renderGrid.columns)x\(renderGrid.rows)"
+            )
+            #endif
+            return .err(
+                code: "viewport_transition",
+                message: "Terminal viewport is still resizing",
+                data: [
+                    "expected_columns": expectedViewport.columns,
+                    "expected_rows": expectedViewport.rows,
+                    "captured_columns": renderGrid.columns,
+                    "captured_rows": renderGrid.rows,
+                ]
+            )
+        }
         #if DEBUG
         cmuxDebugLog("mobile.terminal.replay surface=\(surfaceId.uuidString.prefix(8)) renderGrid=\(renderGrid != nil) seq=\(seq) hasState=\(state != nil)")
         #endif
@@ -14237,6 +14279,44 @@ class TerminalController {
             payload["rows"] = renderGrid.rows
             payload["render_grid"] = renderGridObject
         } else {
+            if let expectedViewport {
+                guard let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
+                    reason: "mobileTerminalReplay.viewportFence"
+                ) else {
+                    return .err(
+                        code: "viewport_transition",
+                        message: "Terminal viewport is still resizing",
+                        data: nil
+                    )
+                }
+                let size = ghostty_surface_size(surface)
+                let capturedColumns = max(Int(size.columns), 1)
+                let capturedRows = max(Int(size.rows), 1)
+                guard MobileTerminalReplayViewportFence.accepts(
+                    capturedColumns: capturedColumns,
+                    capturedRows: capturedRows,
+                    expectedColumns: expectedViewport.columns,
+                    expectedRows: expectedViewport.rows
+                ) else {
+                    #if DEBUG
+                    cmuxDebugLog(
+                        "mobile.terminal.replay VIEWPORT_PENDING surface=\(surfaceId.uuidString.prefix(8)) " +
+                        "expected=\(expectedViewport.columns)x\(expectedViewport.rows) " +
+                        "captured=\(capturedColumns)x\(capturedRows) fallback=1"
+                    )
+                    #endif
+                    return .err(
+                        code: "viewport_transition",
+                        message: "Terminal viewport is still resizing",
+                        data: [
+                            "expected_columns": expectedViewport.columns,
+                            "expected_rows": expectedViewport.rows,
+                            "captured_columns": capturedColumns,
+                            "captured_rows": capturedRows,
+                        ]
+                    )
+                }
+            }
             let snapshotData = readTerminalTextFromVTExportForSnapshot(
                 terminalPanel: terminalPanel,
                 bindingAction: "write_active_file:copy,vt",
@@ -14315,6 +14395,11 @@ class TerminalController {
             payload["columns"] = max(Int(size.columns), 1)
             payload["rows"] = max(Int(size.rows), 1)
         }
+        let renderFloor = MobileTerminalByteTee.shared.currentRenderCaptureIdentity(
+            surfaceID: surfaceId
+        )
+        payload["render_epoch"] = renderFloor.epoch
+        payload["render_revision_floor"] = renderFloor.revision
         return .ok(payload)
     }
 
