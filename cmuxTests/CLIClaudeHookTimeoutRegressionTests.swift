@@ -91,6 +91,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
         let capturedStdin = root.appendingPathComponent("hook-stdin.json", isDirectory: false)
         let capturedArguments = root.appendingPathComponent("hook-args.txt", isDirectory: false)
         let capturedPID = root.appendingPathComponent("hook-pid.txt", isDirectory: false)
+        let deliveryRelease = root.appendingPathComponent("hook-release", isDirectory: false)
         let deliveryDone = root.appendingPathComponent("hook-done.txt", isDirectory: false)
         let watchdogPIDFile = root.appendingPathComponent("watchdog-pid.txt", isDirectory: false)
         let socketPath = makeCodexHookSocketPath("claude")
@@ -109,7 +110,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
             "printf '%s\\n' \"$*\" > \"$CMUX_TEST_ARGS\"",
             "printf '%s\\n' \"${CMUX_CLAUDE_PID:-}\" > \"$CMUX_TEST_PID\"",
             "cat > \"$CMUX_TEST_STDIN\"",
-            "/bin/sleep 2",
+            "while [ ! -e \"$CMUX_TEST_RELEASE\" ]; do /bin/sleep 0.01; done",
             "printf done > \"$CMUX_TEST_DONE\"",
         ])
         try makeCodexHookExecutableShellFile(at: fakeClaude, lines: [
@@ -139,6 +140,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
             "CMUX_TEST_STDIN": capturedStdin.path,
             "CMUX_TEST_ARGS": capturedArguments.path,
             "CMUX_TEST_PID": capturedPID.path,
+            "CMUX_TEST_RELEASE": deliveryRelease.path,
             "CMUX_TEST_DONE": deliveryDone.path,
             "CMUX_TEST_WATCHDOG_PID": watchdogPIDFile.path,
         ]
@@ -234,12 +236,12 @@ struct CLIClaudeHookTimeoutRegressionTests {
             arguments: ["-c", promptCommand],
             environment: hookEnvironment,
             standardInput: payload,
-            timeout: 0.75
+            timeout: 5
         )
 
-        #expect(!hookRun.timedOut, Comment(rawValue: hookRun.stderr))
         #expect(hookRun.status == 0, Comment(rawValue: hookRun.stderr))
         #expect(hookRun.stdout == "{}\n")
+        #expect(!fileManager.fileExists(atPath: deliveryDone.path))
         #expect(waitForFile(capturedStdin, containing: payload, timeout: 1))
         #expect(
             waitForFile(
@@ -250,6 +252,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
         )
         #expect(waitForFile(capturedPID, containing: "8535", timeout: 1))
         #expect(waitForFile(watchdogPIDFile, containing: "\n", timeout: 1))
+        try Data().write(to: deliveryRelease)
         #expect(waitForFile(deliveryDone, containing: "done", timeout: 3))
         let watchdogPID = try #require(
             Int32(String(contentsOf: watchdogPIDFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines))
