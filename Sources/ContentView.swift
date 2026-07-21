@@ -11704,6 +11704,11 @@ struct VerticalTabsSidebar: View, Equatable {
                     editingChecklistItemIds[tabId] = nil
                 }
             },
+            onEndChecklistItemEdit: { [tabId = tab.id] itemId in
+                if editingChecklistItemIds[tabId] == itemId {
+                    editingChecklistItemIds[tabId] = nil
+                }
+            },
             applyTodoStatus: { [tab] status in
                 WorkspaceTodoActions.applyStatusOverride(status, to: [tab])
             },

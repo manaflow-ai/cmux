@@ -153,7 +153,11 @@ final class SidebarRowChecklistItemLine: NSView {
             return
         }
         guard editField == nil || editingItemId != item.id else {
+            // Retained editor: keep the draft but follow the row's current
+            // presentation (palette flips with selection; fonts with scale).
             editField?.font = .systemFont(ofSize: 11 * model.fontScale)
+            editField?.textColor = primary
+            editField?.caretColor = primary
             return
         }
         editField?.removeFromSuperview()
@@ -185,14 +189,16 @@ final class SidebarRowChecklistItemLine: NSView {
         let bridge = SidebarRowChecklistFieldBridge(
             onCommit: { text in
                 // Enter (or focus loss) commits trimmed text; empty keeps the
-                // old text (legacy `commitItemEdit`).
-                editActions.onBeginChecklistItemEdit(nil)
+                // old text (legacy `commitItemEdit`). Ends only THIS item's
+                // session: a torn-down editor's focus-loss commit must not
+                // clear an edit the user just started on another item.
+                editActions.onEndChecklistItemEdit(editedItemId)
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return }
                 editActions.checklistEditItem(editedItemId, trimmed)
             },
             onCancel: {
-                editActions.onBeginChecklistItemEdit(nil)
+                editActions.onEndChecklistItemEdit(editedItemId)
             }
         )
         field.delegate = bridge

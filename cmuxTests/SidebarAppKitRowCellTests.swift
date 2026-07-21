@@ -191,6 +191,7 @@ struct SidebarAppKitRowCellTests {
             checklistOpenAttachments: { _, _ in },
             onChecklistPopoverPresentedChange: { _ in },
             onBeginChecklistItemEdit: { _ in },
+            onEndChecklistItemEdit: { _ in },
             applyTodoStatus: { _ in },
             hideTodoStatus: {},
             commitRename: { _ in }

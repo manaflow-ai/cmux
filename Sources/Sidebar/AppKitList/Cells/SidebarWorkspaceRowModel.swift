@@ -93,6 +93,10 @@ struct SidebarAppKitRowActions {
     let onChecklistPopoverPresentedChange: (Bool) -> Void
     /// Container write for `editingChecklistItemId` (`nil` ends editing).
     let onBeginChecklistItemEdit: (UUID?) -> Void
+    /// Ends the edit session for ONE item — a no-op when the container has
+    /// already moved on to another item (an old editor's teardown commit
+    /// must not clear a newly selected item's session).
+    let onEndChecklistItemEdit: (UUID) -> Void
     /// Applies a manual status override to this row's workspace (`nil`
     /// returns the status to automatic).
     let applyTodoStatus: (WorkspaceTaskStatus?) -> Void

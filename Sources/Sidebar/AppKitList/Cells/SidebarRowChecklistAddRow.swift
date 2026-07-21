@@ -76,6 +76,12 @@ final class SidebarRowChecklistAddRow: NSView {
             // must never keep the previous workspace's draft or bridge.
             if addField == nil || armToken != lastArmToken || workspaceId != lastArmWorkspaceId {
                 rearmField()
+            } else if let addField {
+                // Retained editor (survives non-empty focus loss): keep the
+                // draft but follow the row's current presentation.
+                addField.font = .systemFont(ofSize: 11 * model.fontScale)
+                addField.textColor = primary
+                addField.caretColor = primary
             }
         } else {
             teardownField()
