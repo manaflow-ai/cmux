@@ -174,6 +174,14 @@ final class KindRecordingTransportFactory: CmxByteTransportFactory, @unchecked S
     private let lock = NSLock()
     private var kinds: [CmxAttachTransportKind] = []
     private var authorizationModes: [CmxTransportAuthorizationMode] = []
+    private var hangingKinds: Set<CmxAttachTransportKind> = []
+
+    /// Route kinds whose transports park forever in `connect()` from now on.
+    /// Models an Iroh dial that neither completes nor fails (relay DNS churn,
+    /// hole-punch stall) so tests can prove recovery attempts stay bounded.
+    func setHangingKinds(_ kinds: Set<CmxAttachTransportKind>) {
+        lock.withLock { hangingKinds = kinds }
+    }
 
     init(
         router: LivenessHostRouter,
@@ -206,6 +214,9 @@ final class KindRecordingTransportFactory: CmxByteTransportFactory, @unchecked S
         if failingKinds.contains(route.kind) {
             throw RouteRecordingTransportError.routeFailed
         }
+        if lock.withLock({ hangingKinds.contains(route.kind) }) {
+            return HangingConnectTransport()
+        }
         let transport = LivenessTransport(router: router)
         box.set(transport)
         return transport
@@ -217,5 +228,32 @@ final class KindRecordingTransportFactory: CmxByteTransportFactory, @unchecked S
 
     func attemptedAuthorizationModes() -> [CmxTransportAuthorizationMode] {
         lock.withLock { authorizationModes }
+    }
+}
+
+/// A transport whose `connect()` parks forever, ignoring cancellation the way
+/// a wedged FFI dial does. Reads/sends are unreachable because connect never
+/// returns.
+actor HangingConnectTransport: CmxByteTransport {
+    private var parked: [CheckedContinuation<Void, Never>] = []
+
+    func connect() async throws {
+        await withCheckedContinuation { continuation in
+            parked.append(continuation)
+        }
+    }
+
+    func receive() async throws -> Data? { nil }
+
+    func send(_ data: Data) async throws {
+        throw MobileShellConnectionError.connectionClosed
+    }
+
+    func close() async {
+        let waiters = parked
+        parked = []
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 }
