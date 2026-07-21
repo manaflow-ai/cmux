@@ -2,21 +2,6 @@ import Testing
 @testable import CmuxMobileSupport
 
 @Suite struct UITestConfigTests {
-    @Test(arguments: ["comfortable", "compact"])
-    func transcriptDensityAcceptsSupportedLaunchValues(value: String) {
-        let config = UITestEnvironmentConfig(environment: [
-            "CMUX_UITEST_TRANSCRIPT_DENSITY": " \(value.uppercased()) ",
-        ])
-        #expect(config.transcriptDensity == value)
-    }
-
-    @Test func transcriptDensityRejectsUnsupportedLaunchValue() {
-        let config = UITestEnvironmentConfig(environment: [
-            "CMUX_UITEST_TRANSCRIPT_DENSITY": "dense",
-        ])
-        #expect(config.transcriptDensity == nil)
-    }
-
     @Test func explicitDisableWinsOverTestHost() {
         let env = [
             "CMUX_UITEST_MOCK_DATA": "0",
@@ -141,5 +126,71 @@ import Testing
         #expect(UITestConfig.workspaceDetailRefreshingTerminalMenuPreviewEnabled(
             from: ["CMUX_UITEST_WORKSPACE_DETAIL_REFRESHING_TERMINAL_MENU": "0"]
         ) == false)
+    }
+
+    @Test func notificationFeedPreviewFlagIsDebugOnly() {
+        let env = ["CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1"]
+        #if DEBUG
+        #expect(UITestConfig.notificationFeedPreviewEnabled(from: env) == true)
+        #else
+        #expect(UITestConfig.notificationFeedPreviewEnabled(from: env) == false)
+        #endif
+    }
+
+    @Test func notificationFeedPreviewFlagRequiresOne() {
+        #expect(UITestConfig.notificationFeedPreviewEnabled(from: [:]) == false)
+        #expect(UITestConfig.notificationFeedPreviewEnabled(
+            from: ["CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "0"]
+        ) == false)
+    }
+
+    @Test func taskComposerPreviewFlagIsDebugOnly() {
+        let env = ["CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1"]
+        #if DEBUG
+        #expect(UITestConfig.taskComposerPreviewEnabled(from: env))
+        #else
+        #expect(!UITestConfig.taskComposerPreviewEnabled(from: env))
+        #endif
+    }
+
+    @Test func taskComposerPreviewFlagRequiresOne() {
+        #expect(!UITestConfig.taskComposerPreviewEnabled(from: [:]))
+        #expect(!UITestConfig.taskComposerPreviewEnabled(from: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "0",
+        ]))
+    }
+
+    @Test func agentChatPreviewFlagIsDebugOnly() {
+        let env = ["CMUX_UITEST_AGENT_CHAT_PREVIEW": "1"]
+        let config = UITestEnvironmentConfig(environment: env)
+        #if DEBUG
+        #expect(config.agentChatPreviewEnabled == true)
+        #else
+        #expect(config.agentChatPreviewEnabled == false)
+        #endif
+    }
+
+    @Test func agentChatPreviewFlagRequiresOne() {
+        #expect(UITestEnvironmentConfig(environment: [:]).agentChatPreviewEnabled == false)
+        #expect(UITestEnvironmentConfig(
+            environment: ["CMUX_UITEST_AGENT_CHAT_PREVIEW": "0"]
+        ).agentChatPreviewEnabled == false)
+    }
+
+    @Test func agentChatInlinePreviewFlagIsDebugOnly() {
+        let env = ["CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW": "1"]
+        let config = UITestEnvironmentConfig(environment: env)
+        #if DEBUG
+        #expect(config.agentChatInlinePreviewEnabled == true)
+        #else
+        #expect(config.agentChatInlinePreviewEnabled == false)
+        #endif
+    }
+
+    @Test func agentChatInlinePreviewFlagRequiresOne() {
+        #expect(UITestEnvironmentConfig(environment: [:]).agentChatInlinePreviewEnabled == false)
+        #expect(UITestEnvironmentConfig(
+            environment: ["CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW": "0"]
+        ).agentChatInlinePreviewEnabled == false)
     }
 }

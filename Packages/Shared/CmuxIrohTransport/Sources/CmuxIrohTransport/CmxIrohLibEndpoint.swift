@@ -15,6 +15,7 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
     private var closing = false
     private var closed = false
     private var reachedOnline = false
+    private var observedAddressSnapshot: EndpointAddr?
     private var terminalHealthEvent: CmxIrohEndpointHealthEvent?
     private var observers: [
         UUID: AsyncStream<CmxIrohEndpointHealthEvent>.Continuation
@@ -42,8 +43,8 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         // rescan, not an observable event. `watchAddr` is the authoritative
         // output for route changes after Iroh's native network monitor runs.
         addressWatch = driver.watchAddr(
-            callback: CmxIrohLibAddressChangeCallback { [weak self] in
-                await self?.recordHealthEvent(.networkChanged)
+            callback: CmxIrohLibAddressChangeCallback { [weak self] address in
+                await self?.recordAddressSnapshot(address)
             }
         )
         let driver = driver
@@ -64,7 +65,7 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
     }
 
     func address() -> CmxIrohEndpointAddress {
-        let address = driver.addr()
+        let address = observedAddressSnapshot ?? driver.addr()
         let now = Date()
         let expiresAt = now.addingTimeInterval(CmxIrohPathHint.maximumPrivateHintTTL)
         var hints: [CmxIrohPathHint] = []
@@ -99,7 +100,7 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
     func localDirectAddresses() -> [String] {
         transportVerificationMode == .relayOnly
             ? []
-            : driver.addr().directAddresses()
+            : (observedAddressSnapshot ?? driver.addr()).directAddresses()
     }
 
     func connect(
@@ -202,6 +203,9 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
             if reachedOnline {
                 continuation.yield(.online)
             }
+            if observedAddressSnapshot != nil {
+                continuation.yield(.networkChanged)
+            }
             continuation.onTermination = { [weak self] _ in
                 Task { await self?.removeObserver(observerID) }
             }
@@ -289,6 +293,18 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
             reachedOnline = true
         }
         for continuation in observers.values { continuation.yield(event) }
+    }
+
+    func recordAddressSnapshot(_ address: EndpointAddr) {
+        guard !closing, !closed,
+              let identity = try? CmxIrohLibIdentity.peerIdentity(address.id()),
+              identity == peerIdentity else {
+            return
+        }
+        observedAddressSnapshot = address
+        for continuation in observers.values {
+            continuation.yield(.networkChanged)
+        }
     }
 
     private func removeObserver(_ id: UUID) {

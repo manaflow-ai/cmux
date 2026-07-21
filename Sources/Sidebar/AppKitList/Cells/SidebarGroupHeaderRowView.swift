@@ -17,8 +17,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private let chevronButton = SidebarHeaderGlyphButton()
     private let iconImageView = NSImageView()
     private let nameField = NSTextField(labelWithString: "")
-    private let unreadBadgeView = NSView()
-    private let unreadBadgeLabel = NSTextField(labelWithString: "")
+    // Direct-draw badge (shared with workspace rows): NSTextField's
+    // intrinsic insets shift single digits off the circle's optical center.
+    private let unreadBadgeView = SidebarRowUnreadBadgeView()
+    private var unreadBadgeFont: NSFont = .systemFont(ofSize: 10, weight: .semibold)
     private let plusButton = SidebarHeaderGlyphButton()
     private let topDropIndicator = NSView()
     private let bottomDropIndicator = NSView()
@@ -71,10 +73,6 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         nameField.cell?.truncatesLastVisibleLine = true
         addSubview(nameField)
 
-        unreadBadgeView.wantsLayer = true
-        unreadBadgeLabel.alignment = .center
-        unreadBadgeLabel.textColor = .white
-        unreadBadgeView.addSubview(unreadBadgeLabel)
         addSubview(unreadBadgeView)
 
         plusButton.onClick = { [weak self] in self?.actions?.onTapPlus() }
@@ -116,6 +114,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     }
 
     private func applyModel(_ model: SidebarGroupHeaderRowModel) {
+        // Legacy parity: no implicit layer actions on content/color changes.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
         let percent = model.globalFontMagnificationPercent
 
@@ -159,12 +161,16 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         let showsBadge = model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
         if showsBadge {
-            unreadBadgeLabel.stringValue = "\(model.anchorUnreadCount)"
-            unreadBadgeLabel.font = .systemFont(
+            unreadBadgeFont = .systemFont(
                 ofSize: GlobalFontMagnification.scaledSize(metrics.unreadFontSize, percent: percent),
                 weight: .semibold
             )
-            unreadBadgeView.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+            unreadBadgeView.configure(
+                count: model.anchorUnreadCount,
+                fillColor: .controlAccentColor,
+                textColor: .white,
+                font: unreadBadgeFont
+            )
             unreadBadgeView.setAccessibilityLabel(String.localizedStringWithFormat(
                 String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),
                 model.anchorUnreadCount
@@ -208,6 +214,44 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         plusButton.setRevealed(isPointerHovering && !contextMenuVisible && !showsHint)
     }
 
+    /// Authoritative hover enforcement: the controller sweeps visible cells
+    /// so hover-revealed chrome cannot strand on rows the pointer left
+    /// (row-index/id races during churn made per-transition repaints miss).
+    func enforcePointerHovering(_ hovering: Bool) {
+        guard isPointerHovering != hovering else { return }
+        isPointerHovering = hovering
+        updatePlusVisibility()
+    }
+
+    /// Optimistic press treatment: paints the anchor-active header visuals
+    /// instantly (group clicks focus the anchor workspace); the next
+    /// authoritative configure reconciles.
+    func showOptimisticAnchorActive() {
+        guard let model, !model.isAnchorActive else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        backgroundView.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
+        CATransaction.commit()
+        nameField.textColor = .labelColor
+    }
+
+    /// Inverse of the press treatment: previewing a different row must peel a
+    /// pending header's optimistic anchor-active visuals. The authoritative
+    /// apply reconfigures only rows whose model changed, and a replaced
+    /// preview never changes this header's model — without an explicit clear
+    /// the painted treatment would linger indefinitely.
+    func clearOptimisticAnchorActive() {
+        guard let model, !model.isAnchorActive else { return }
+        applyModel(model)
+    }
+
+    /// True when a press at this view should not repaint selection (chevron
+    /// toggles collapse, plus creates a workspace — neither selects).
+    func selectionPreviewShouldIgnore(_ hitView: NSView) -> Bool {
+        hitView === chevronButton || hitView.isDescendant(of: chevronButton)
+            || hitView === plusButton || hitView.isDescendant(of: plusButton)
+    }
+
     // MARK: Layout
 
     /// Deterministic row height; must stay in lockstep with `layout()`.
@@ -226,6 +270,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     override func layout() {
         super.layout()
         guard let model else { return }
+        // No implicit actions during manual layout (legacy parity —
+        // geometry snaps, never interpolates).
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
         let outerPad = SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
         let bgFrame = NSRect(x: outerPad, y: 0, width: bounds.width - outerPad * 2, height: bounds.height)
@@ -253,7 +302,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
         var badgeSize = NSSize.zero
         if !unreadBadgeView.isHidden {
-            let textSize = unreadBadgeLabel.intrinsicContentSize
+            let textSize = NSString(string: "\(model.anchorUnreadCount)")
+                .size(withAttributes: [.font: unreadBadgeFont])
             badgeSize = NSSize(
                 width: ceil(textSize.width) + metrics.unreadHorizontalPadding * 2,
                 height: ceil(textSize.height) + metrics.unreadVerticalPadding * 2
@@ -279,11 +329,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 width: badgeSize.width,
                 height: badgeSize.height
             )
-            unreadBadgeView.layer?.cornerRadius = badgeSize.height / 2
-            unreadBadgeLabel.frame = unreadBadgeView.bounds.insetBy(
-                dx: metrics.unreadHorizontalPadding,
-                dy: metrics.unreadVerticalPadding
-            )
+            unreadBadgeView.needsDisplay = true
         }
 
         let indicatorX: CGFloat = 8
@@ -584,7 +630,7 @@ final class SidebarShortcutHintPillView: NSVisualEffectView {
 
     func fittingPillSize() -> NSSize {
         guard !isHidden else { return .zero }
-        let textSize = label.intrinsicContentSize
+        let textSize = label.sidebarNaturalCellSize
         return NSSize(width: ceil(textSize.width) + 12, height: ceil(textSize.height) + 4)
     }
 

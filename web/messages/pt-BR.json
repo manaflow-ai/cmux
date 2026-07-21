@@ -745,6 +745,9 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "Para alternar entre redes, use cmux mosh-tmux. Ele abre um terminal Mosh totalmente integrado conectado a uma sessão tmux nomeada; não substitui o espelhamento nativo de workspaces, abas e divisões oferecido pelo modo de controle tmux via SSH."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Primeiros Passos",
@@ -1494,10 +1497,16 @@
       "flagName": "Bandeira",
       "flagDesc": "Descrição",
       "flagNameVal": "Defina o título do espaço de trabalho",
+      "flagCommand": "Execute o texto do comando uma vez no terminal remoto inicial após iniciar o shell",
       "flagPort": "Porta SSH (padrão 22)",
       "flagIdentity": "Caminho para o arquivo de identidade",
       "flagSshOption": "Passe opções SSH arbitrárias (por exemplo, -o StrictHostKeyChecking=no)",
+      "flagTransport": "Transporte do terminal interativo: ssh (padrão) ou mosh",
       "flagNoFocus": "Crie o espaço de trabalho sem mudar para ele",
+      "moshTitle": "Transporte de terminal Mosh",
+      "moshDesc": "Use cmux ssh user@remote --transport mosh quando o terminal interativo precisar sobreviver a trocas de Wi-Fi, VPN ou hotspot e a suspensão ou reativação. O Mosh transporta apenas o PTY do terminal; o SSH continua gerenciando metadados remotos, configuração e controle do serviço cmux, proxy do navegador, uploads e reconexões.",
+      "moshFallback": "O cmux requer Mosh 1.4 ou mais recente localmente e verifica o mosh-server remoto antes de iniciar. Se o cliente estiver ausente ou for incompatível, se o servidor estiver ausente ou se a verificação remota falhar, o cmux explica o motivo e continua por SSH.",
+      "moshTmux": "Crie um workspace Mosh que cria ou conecta uma sessão tmux nomeada (padrão: main). O perfil tmux persiste após reconexão e restauração da sessão do app. É um terminal tmux com roaming, não o espelho nativo de cmux ssh-tmux. --session <name> escolhe a sessão; as demais opções correspondem a cmux mosh. Sem Mosh, o mesmo perfil roda por SSH.",
       "deepLinksTitle": "Links diretos SSH",
       "deepLinksDesc": "Use links diretos SSH do cmux quando um site ou ferramenta quiser oferecer um botão Abrir no cmux. O link abre o cmux, mostra um prompt de confirmação e executa o comando cmux ssh equivalente após a confirmação do usuário.",
       "deepLinksWebFallbackDesc": "Use o URL substituto cmux.com para botões de sites. Ele abre o link nativo e mostra o download caso o cmux não esteja instalado.",

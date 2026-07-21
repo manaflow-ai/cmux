@@ -1,15 +1,19 @@
+import CmuxFoundation
 import Foundation
 
 enum RemoteInteractiveShellBootstrapBuilder {
     static func script(
         remoteRelayPort: Int,
         shellFeatures: String,
+        initialCommand: String? = nil,
         terminfoSource: String? = nil,
         bundledZshIntegration: String? = nil,
         bundledBashIntegration: String? = nil,
-        bundledFishIntegration: String? = nil
+        bundledFishIntegration: String? = nil,
+        terminalProfile: WorkspaceRemoteTerminalProfile = .shell
     ) -> String {
         let shellStateDir = shellStateDirForRemoteRelayPort(remoteRelayPort)
+        let initialCommandBootstrap = RemoteInitialCommandBootstrap(command: initialCommand)
         let commonShellExportLines = commonShellLines(
             remoteRelayPort: remoteRelayPort,
             shellStateDir: shellStateDir,
@@ -24,6 +28,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
         bashShellLines.append(
             #"if [ "${CMUX_SHELL_INTEGRATION:-1}" != "0" ] && [ -r "${CMUX_SHELL_INTEGRATION_DIR}/cmux-bash-integration.bash" ]; then . "${CMUX_SHELL_INTEGRATION_DIR}/cmux-bash-integration.bash"; fi"#
         )
+        bashShellLines.append(contentsOf: initialCommandBootstrap.posixInteractiveShellLines)
         let zshBootstrap = RemoteRelayZshBootstrap(shellStateDir: shellStateDir)
         let relayWarmupLines = relayWarmupLines(remoteRelayPort: remoteRelayPort)
 
@@ -32,6 +37,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "cmux_shell_dir=\"\(shellStateDir)\"",
             "mkdir -p \"$cmux_shell_dir\"",
         ]
+        outerLines.append(contentsOf: initialCommandBootstrap.preparationLines)
         if let bundledZshIntegration {
             outerLines += [
                 "cat > \"$cmux_shell_dir/cmux-zsh-integration.zsh\" <<'CMUXCMUXZSH'",
@@ -76,7 +82,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "CMUXZSHRC",
             "    cat > \"$cmux_shell_dir/.zlogin\" <<'CMUXZSHLOGIN'",
         ]
-        outerLines.append(contentsOf: zshBootstrap.zshLoginLines)
+        outerLines.append(contentsOf: zshBootstrap.zshLoginLines + initialCommandBootstrap.posixInteractiveShellLines)
         outerLines += [
             "CMUXZSHLOGIN",
             "    chmod 600 \"$cmux_shell_dir/.zshenv\" \"$cmux_shell_dir/.zprofile\" \"$cmux_shell_dir/.zshrc\" \"$cmux_shell_dir/.zlogin\" >/dev/null 2>&1 || true",
@@ -85,7 +91,12 @@ enum RemoteInteractiveShellBootstrapBuilder {
         outerLines += [
             "    export CMUX_REAL_ZDOTDIR=\"${ZDOTDIR:-$HOME}\"",
             "    export ZDOTDIR=\"$cmux_shell_dir\"",
-            "    exec \"$CMUX_LOGIN_SHELL\" -il",
+            terminalLaunchLine(
+                profile: terminalProfile,
+                indentation: "    ",
+                directShellCommand: "exec \"$CMUX_LOGIN_SHELL\" -il",
+                tmuxShellCommand: "export CMUX_REAL_ZDOTDIR=\"${CMUX_REAL_ZDOTDIR:-${ZDOTDIR:-$HOME}}\"; export ZDOTDIR=\"\(shellStateDir)\"; exec \"${SHELL:-/bin/zsh}\" -il"
+            ),
             "    ;;",
             "  bash)",
             "    cat > \"$cmux_shell_dir/.bashrc\" <<'CMUXBASHRC'",
@@ -106,26 +117,63 @@ enum RemoteInteractiveShellBootstrapBuilder {
         ]
         outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
         outerLines += [
-            "    exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i",
+            terminalLaunchLine(
+                profile: terminalProfile,
+                indentation: "    ",
+                directShellCommand: "exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i",
+                tmuxShellCommand: "exec \"${SHELL:-/bin/bash}\" --rcfile \"\(shellStateDir)/.bashrc\" -i"
+            ),
             "    ;;",
             "  fish)",
         ]
         outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
+        var fishInitCommands = ["source \"$CMUX_FISH_INTEGRATION_FILE\""]
+        if let initialCommand = initialCommandBootstrap.fishInteractiveShellCommand {
+            fishInitCommands.append(initialCommand)
+        }
+        let fishInitCommand = shellQuote(fishInitCommands.joined(separator: "; "))
         outerLines += [
             "    export CMUX_FISH_INTEGRATION_FILE=\"$cmux_shell_dir/fish/config.fish\"",
             "    export CMUX_FISH_USER_CONFIG_ALREADY_LOADED=1",
-            "    exec \"$CMUX_LOGIN_SHELL\" -il --init-command 'source \"$CMUX_FISH_INTEGRATION_FILE\"'",
+            terminalLaunchLine(
+                profile: terminalProfile,
+                indentation: "    ",
+                directShellCommand: "exec \"$CMUX_LOGIN_SHELL\" -il --init-command \(fishInitCommand)",
+                tmuxShellCommand: "export CMUX_FISH_INTEGRATION_FILE=\"\(shellStateDir)/fish/config.fish\"; export CMUX_FISH_USER_CONFIG_ALREADY_LOADED=1; exec \"${SHELL:-/bin/fish}\" -il --init-command \(fishInitCommand)"
+            ),
             "    ;;",
             "  *)",
         ]
         outerLines.append(contentsOf: relayWarmupLines)
+        outerLines.append(contentsOf: initialCommandBootstrap.fallbackShellLines)
         outerLines += [
-            "exec \"$CMUX_LOGIN_SHELL\" -i",
+            terminalLaunchLine(
+                profile: terminalProfile,
+                indentation: "",
+                directShellCommand: "exec \"$CMUX_LOGIN_SHELL\" -i",
+                tmuxShellCommand: "exec \"${SHELL:-/bin/sh}\" -i"
+            ),
             ";;",
             "esac",
         ]
 
         return outerLines.joined(separator: "\n")
+    }
+
+    private static func terminalLaunchLine(
+        profile: WorkspaceRemoteTerminalProfile,
+        indentation: String,
+        directShellCommand: String,
+        tmuxShellCommand: String
+    ) -> String {
+        guard let sessionName = profile.tmuxSessionName else {
+            return indentation + directShellCommand
+        }
+        let command = RemoteTmuxSessionCommandBuilder(
+            sessionName: sessionName,
+            shellCommand: tmuxShellCommand
+        ).remoteShellCommand
+        return indentation + "exec " + command
     }
 
     static func shellFeatures(

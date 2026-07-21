@@ -745,6 +745,9 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "Verwende cmux mosh-tmux für Roaming zwischen Netzwerken. Es öffnet ein vollständig integriertes Mosh-Terminal, das an eine benannte tmux-Sitzung angehängt ist; die native Spiegelung von Workspaces, Tabs und Teilungen durch den SSH-tmux-Steuermodus wird dadurch nicht ersetzt."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Erste Schritte",
@@ -1494,10 +1497,16 @@
       "flagName": "Flagge",
       "flagDesc": "Beschreibung",
       "flagNameVal": "Legen Sie den Titel des Arbeitsbereichs fest",
+      "flagCommand": "Befehlstext nach dem Shell-Start einmal im ersten Remote-Terminal ausführen",
       "flagPort": "SSH-Port (Standard 22)",
       "flagIdentity": "Pfad zur Identitätsdatei",
       "flagSshOption": "Übergeben Sie beliebige SSH-Optionen (z. B. -o StrictHostKeyChecking=no)",
+      "flagTransport": "Interaktiver Terminaltransport: ssh (Standard) oder mosh",
       "flagNoFocus": "Erstellen Sie den Arbeitsbereich, ohne dorthin zu wechseln",
+      "moshTitle": "Mosh-Terminaltransport",
+      "moshDesc": "Verwenden Sie cmux ssh user@remote --transport mosh, wenn das interaktive Terminal Wechsel zwischen WLAN, VPN und Hotspot sowie Ruhezustand und Aufwachen überstehen soll. Mosh überträgt nur das Terminal-PTY; SSH verwaltet weiterhin Remote-Metadaten, Einrichtung und Steuerung des cmux-Dienstes, Browser-Proxying, Uploads und Wiederverbindungen.",
+      "moshFallback": "cmux benötigt lokal Mosh 1.4 oder neuer und prüft vor dem Start den entfernten mosh-server. Wenn der Client fehlt oder inkompatibel ist, der Server fehlt oder die Remote-Prüfung fehlschlägt, erklärt cmux den Grund und setzt die Verbindung über SSH fort.",
+      "moshTmux": "Erstellt einen Mosh-Workspace, der eine benannte tmux-Sitzung erstellt oder anhängt (Standard: main). Das tmux-Profil bleibt bei Wiederverbindung und App-Sitzungswiederherstellung erhalten. Dies ist ein roamingfähiges tmux-Terminal, nicht der native Mirror von cmux ssh-tmux. --session <name> wählt die Sitzung; alle übrigen Optionen entsprechen cmux mosh. Ohne Mosh läuft dasselbe Profil über SSH.",
       "deepLinksTitle": "SSH-Deep-Links",
       "deepLinksDesc": "Verwenden Sie cmux-SSH-Deep-Links, wenn eine Website oder ein Tool eine Schaltfläche „In cmux öffnen“ anbieten möchte. Der Link öffnet cmux, zeigt eine Bestätigungsaufforderung an und führt dann den entsprechenden cmux-ssh-Befehl aus, nachdem der Benutzer dies bestätigt hat.",
       "deepLinksWebFallbackDesc": "Verwenden Sie die Fallback-URL cmux.com für Website-Schaltflächen. Es öffnet den nativen Link und zeigt den Download an, wenn cmux nicht installiert ist.",

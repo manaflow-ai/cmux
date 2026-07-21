@@ -13,11 +13,16 @@ let package = Package(
             name: "CmuxMobileShell",
             targets: ["CmuxMobileShell"]
         ),
+        .library(
+            name: "CmuxMobileShellReleaseGateSupport",
+            targets: ["CmuxMobileShellReleaseGateSupport"]
+        ),
     ],
     dependencies: [
         .package(path: "../../Shared/CmuxAgentReplica"),
         .package(path: "../../Shared/CmuxAgentSync"),
         .package(path: "../../Shared/CmuxAgentWire"),
+        .package(path: "../../Shared/CmuxAgentChat"),
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../CmuxMobileDiagnostics"),
         .package(path: "../CmuxMobilePairedMac"),
@@ -34,6 +39,7 @@ let package = Package(
                 "CmuxAgentReplica",
                 "CmuxAgentSync",
                 "CmuxAgentWire",
+                "CmuxAgentChat",
                 "CmuxMobileDiagnostics",
                 "CmuxMobilePairedMac",
                 "CmuxMobileRPC",
@@ -47,11 +53,28 @@ let package = Package(
                 .enableUpcomingFeature("InternalImportsByDefault"),
             ]
         ),
+        .target(
+            name: "CmuxMobileShellReleaseGateSupport",
+            dependencies: [
+                "CmuxMobileShell",
+                "CMUXMobileCore",
+                "CmuxAgentChat",
+                "CmuxMobileRPC",
+                "CmuxMobileShellModel",
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
         .testTarget(
             name: "CmuxMobileShellTests",
             dependencies: [
                 "CmuxMobileShell",
+                "CmuxMobileShellReleaseGateSupport",
                 "CMUXMobileCore",
+                "CmuxAgentChat",
                 "CmuxAgentReplica",
                 "CmuxMobilePairedMac",
                 "CmuxMobileRPC",

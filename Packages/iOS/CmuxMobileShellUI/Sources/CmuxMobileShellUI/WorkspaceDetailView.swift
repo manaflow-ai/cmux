@@ -1,3 +1,5 @@
+import CmuxAgentChat
+import CmuxAgentChatUI
 import CmuxAgentGUIUI
 import CmuxMobileBrowser
 import CmuxMobileDiagnostics
@@ -54,6 +56,11 @@ struct WorkspaceDetailView: View {
     @State var transcriptBottomChromeHeight = GhosttySurfaceView.persistentBottomToolbarHeight
     @State var transcriptBottomEdgeElementContainers: [UIView] = []
     @State var transcriptActivityDetails: TranscriptActivityDetails?
+    @State var terminalArtifactFilesContext: TerminalArtifactContext?
+    @State var selectedTerminalArtifact: TerminalArtifactSelection?
+    @State var terminalArtifactThumbnailCache = ChatArtifactThumbnailCache()
+    @State var visibleArtifactCount = 0
+    @State var artifactGalleryRefreshSignal = TerminalArtifactGalleryRefreshSignal.initial
     #endif
     var body: some View {
         let content = Group { detailSurfaceContent }
@@ -64,7 +71,14 @@ struct WorkspaceDetailView: View {
             .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
             .toolbar { workspaceDetailToolbar }
             .onChange(of: selectedTerminalID) { _, _ in
+                visibleArtifactCount = 0
                 syncTerminalPickerRows(includeTitleChanges: true)
+            }
+            .onChange(of: store.supportsTerminalArtifacts) { _, _ in
+                visibleArtifactCount = 0
+            }
+            .onChange(of: store.supportsChatArtifactGallery) { _, _ in
+                visibleArtifactCount = 0
             }
             .onChange(of: guiModeSelected) { _, isSelected in
                 if isSelected {
@@ -91,6 +105,18 @@ struct WorkspaceDetailView: View {
             .sheet(item: $transcriptActivityDetails) { details in
                 TranscriptActivityTimelineView(details: details, terminalTheme: store.activeTerminalTheme)
                     .presentationDetents([.medium, .large])
+            }
+            .navigationDestination(isPresented: terminalArtifactIsPresented) {
+                if let selectedTerminalArtifact {
+                    ChatArtifactDetailView(
+                        path: selectedTerminalArtifact.path,
+                        scope: selectedTerminalArtifact.usesSessionAuthorization ? .chat : .terminal
+                    ) {
+                        self.selectedTerminalArtifact = nil
+                    } loader: {
+                        artifactLoader(for: selectedTerminalArtifact)
+                    }
+                }
             }
             .workspaceRenameDialog(
                 isPresented: $isRenamePresented,
@@ -316,6 +342,84 @@ struct WorkspaceDetailView: View {
         terminalPickerToolbarButton
     }
     #if os(iOS)
+    var terminalFilesChipEnabled: Bool {
+        displaySettings.terminalFilesChipEnabled
+    }
+
+    private var terminalArtifactIsPresented: Binding<Bool> {
+        Binding(
+            get: { selectedTerminalArtifact != nil },
+            set: { isPresented in
+                if !isPresented { selectedTerminalArtifact = nil }
+            }
+        )
+    }
+
+    func terminalArtifactLoader(workspaceID: String, surfaceID: String) -> ChatArtifactLoader {
+        guard let source = store.makeChatEventSource() else {
+            return .unsupported(cache: terminalArtifactThumbnailCache)
+        }
+        return ChatArtifactLoader(
+            terminalWorkspaceID: workspaceID,
+            terminalSurfaceID: surfaceID,
+            supportsArtifacts: store.supportsTerminalArtifacts,
+            supportsDirectoryBrowsing: store.supportsTerminalArtifactList,
+            cache: terminalArtifactThumbnailCache,
+            stat: { path in
+                try await source.terminalArtifactStat(workspaceID: workspaceID, surfaceID: surfaceID, path: path)
+            },
+            fetch: { path, progress in
+                try await source.terminalArtifactFetch(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path,
+                    progress: progress
+                )
+            },
+            stream: { path, onChunk in
+                try await source.terminalArtifactFetch(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path,
+                    onChunk: onChunk
+                )
+            },
+            thumbnail: { path, maxDimension in
+                try await source.terminalArtifactThumbnail(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path,
+                    maxDimension: maxDimension
+                )
+            },
+            list: { path in
+                try await source.terminalArtifactList(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path
+                )
+            }
+        )
+    }
+
+    private func artifactLoader(for selection: TerminalArtifactSelection) -> ChatArtifactLoader {
+        guard let sessionID = selection.sessionID else {
+            return terminalArtifactLoader(
+                workspaceID: selection.workspaceID,
+                surfaceID: selection.surfaceID
+            )
+        }
+        guard store.supportsChatArtifacts,
+              let source = store.makeChatEventSource() else {
+            return .unsupported(cache: terminalArtifactThumbnailCache)
+        }
+        return ChatArtifactLoader(
+            source: source,
+            sessionID: sessionID,
+            cache: terminalArtifactThumbnailCache
+        )
+    }
+
     /// Leading back-button island; iOS 26 supplies toolbar glass.
     @ViewBuilder
     private var workspaceBackToolbarButton: some View {

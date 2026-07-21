@@ -211,6 +211,61 @@ struct CmxIrohRelayCredentialCoordinatorTests {
     }
 
     @Test
+    func requiredInitialCredentialWaitsThroughTransientMintFailure() async throws {
+        let fixture = try RelayCoordinatorFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.identity)
+        let supervisor = try await fixture.activeSupervisor(endpoint: endpoint)
+        let broker = TestRelayTokenBroker(steps: [
+            .failure,
+            .response(try fixture.response()),
+        ])
+        let clock = TestRelayClock(now: fixture.now)
+        var clockEvents = clock.events().makeAsyncIterator()
+        let completions = TestRelayActivationCompletionRecorder()
+        let installs = TestRelayCredentialInstallRecorder()
+        let coordinator = CmxIrohRelayCredentialCoordinator(
+            supervisor: supervisor,
+            broker: broker,
+            managedRelayURLs: Set(fixture.relayURLs),
+            clock: clock,
+            jitter: { _, refreshAfter in refreshAfter },
+            retrySchedule: CmxIrohRetrySchedule(
+                initialDelay: 1,
+                maximumDelay: 1,
+                jitterFraction: 0
+            ),
+            retryJitter: { 0 },
+            credentialDidInstall: { response in
+                await installs.record(response)
+            }
+        )
+        let activation = Task {
+            try await coordinator.activate(
+                bindingID: fixture.bindingID,
+                endpointIdentity: fixture.identity,
+                waitForInitialCredential: true
+            )
+            await completions.record()
+        }
+
+        guard case let .sleep(deadline) = await clockEvents.next() else {
+            Issue.record("Expected the initial relay retry sleep")
+            return
+        }
+        for _ in 0 ..< 20 { await Task.yield() }
+        #expect(deadline == fixture.now.addingTimeInterval(1))
+        #expect(await completions.count() == 0)
+
+        clock.advance(to: deadline)
+        try await activation.value
+        await installs.waitForCount(1)
+        #expect(await completions.count() == 1)
+        #expect(await broker.observedEndpointIDs() == [fixture.identity, fixture.identity])
+        #expect(await endpoint.observedRelayUpdates().count == 1)
+        await coordinator.deactivate()
+    }
+
+    @Test
     func rateLimitRetryNeverPrecedesValidatedServerFloor() async throws {
         let fixture = try RelayCoordinatorFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.identity)
@@ -237,6 +292,18 @@ struct CmxIrohRelayCredentialCoordinatorTests {
         await coordinator.deactivate()
     }
 
+}
+
+private actor TestRelayActivationCompletionRecorder {
+    private var completionCount = 0
+
+    func record() {
+        completionCount += 1
+    }
+
+    func count() -> Int {
+        completionCount
+    }
 }
 
 private actor TestRelayCredentialInstallRecorder {
@@ -299,16 +366,24 @@ actor TestRelayTokenBroker: CmxIrohRelayTokenServing {
 
     private var steps: [Step]
     private var endpointIDs: [CmxIrohPeerIdentity] = []
+    private var issueCount = 0
+    private let issueHook: (@Sendable (_ count: Int) async -> Void)?
 
-    init(steps: [Step]) {
+    init(
+        steps: [Step],
+        issueHook: (@Sendable (_ count: Int) async -> Void)? = nil
+    ) {
         self.steps = steps
+        self.issueHook = issueHook
     }
 
     func issueRelayToken(
         bindingID _: String,
         endpointID: CmxIrohPeerIdentity
-    ) throws -> CmxIrohRelayTokenResponse {
+    ) async throws -> CmxIrohRelayTokenResponse {
         endpointIDs.append(endpointID)
+        issueCount += 1
+        await issueHook?(issueCount)
         guard !steps.isEmpty else { throw TestRelayCoordinatorError.noResponse }
         switch steps.removeFirst() {
         case let .response(response):
@@ -380,6 +455,10 @@ final class TestRelayClock: CmxIrohRelayClock, @unchecked Sendable {
         for sleeper in pending {
             sleeper.resume()
         }
+    }
+
+    func setNowWithoutResuming(_ date: Date) {
+        lock.withLock { currentDate = date }
     }
 
     func events() -> AsyncStream<Event> {

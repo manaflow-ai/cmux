@@ -3,6 +3,7 @@ import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
+import Observation
 import Testing
 @testable import CmuxMobileShell
 
@@ -14,6 +15,97 @@ import Testing
 /// doubles.
 @MainActor
 @Suite struct MobileShellCompositePreviewTests {
+    @Test func identicalForegroundStateDoesNotInvalidateWorkspaceList() async {
+        let store = MobileShellComposite.preview()
+        let workspace = MobileWorkspacePreview(
+            id: "workspace-stable",
+            name: "Stable",
+            terminals: [MobileTerminalPreview(id: "terminal-stable", name: "stable")]
+        )
+        store.replaceForegroundWorkspaceState([workspace])
+        let topologyVersion = store.workspaceTopologyVersion
+
+        await confirmation("identical workspace state stays quiet", expectedCount: 0) {
+            didChange in
+            withObservationTracking {
+                _ = store.workspaces
+                _ = store.workspaceGroups
+                _ = store.workspaceTopologyVersion
+            } onChange: {
+                didChange()
+            }
+
+            store.replaceForegroundWorkspaceState([workspace])
+        }
+
+        #expect(store.workspaceTopologyVersion == topologyVersion)
+    }
+
+    @Test func remoteRefreshPreservesOnlyForegroundViewportFit() throws {
+        let store = MobileShellComposite.preview()
+        let foregroundFit = MobileTerminalViewportFit(
+            effective: MobileTerminalViewportSize(columns: 80, rows: 24),
+            client: MobileTerminalViewportSize(columns: 100, rows: 30),
+            isCurrentClientLimiting: true
+        )
+        let secondaryFit = MobileTerminalViewportFit(
+            effective: MobileTerminalViewportSize(columns: 40, rows: 12),
+            client: nil,
+            isCurrentClientLimiting: false
+        )
+        store.setWorkspaceStatesForTesting([
+            "mac-a": MacWorkspaceState(
+                macDeviceID: "mac-a",
+                workspaces: [MobileWorkspacePreview(
+                    id: "shared",
+                    macDeviceID: "mac-a",
+                    name: "Foreground",
+                    terminals: [MobileTerminalPreview(
+                        id: "terminal-shared",
+                        name: "old",
+                        viewportFit: foregroundFit
+                    )]
+                )],
+                status: .connected
+            ),
+            "mac-b": MacWorkspaceState(
+                macDeviceID: "mac-b",
+                workspaces: [MobileWorkspacePreview(
+                    id: "shared",
+                    macDeviceID: "mac-b",
+                    name: "Secondary",
+                    terminals: [MobileTerminalPreview(
+                        id: "terminal-shared",
+                        name: "other",
+                        viewportFit: secondaryFit
+                    )]
+                )],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: "mac-a")
+        let response = try MobileSyncWorkspaceListResponse.decode(Data(#"""
+        {
+          "workspaces": [{
+            "id": "shared",
+            "title": "Refreshed",
+            "is_selected": true,
+            "terminals": [
+              {"id": "terminal-shared", "title": "updated", "is_focused": true},
+              {"id": "terminal-new", "title": "new", "is_focused": false}
+            ]
+          }],
+          "groups": []
+        }
+        """#.utf8))
+
+        store.applyRemoteWorkspaceList(response)
+
+        let refreshed = try #require(store.workspaces.first { $0.macDeviceID == "mac-a" })
+        #expect(refreshed.name == "Refreshed")
+        #expect(refreshed.terminals.first?.viewportFit == foregroundFit)
+        #expect(refreshed.terminals.last?.viewportFit == nil)
+    }
+
     @Test func startsAtSignInWithoutConnection() {
         let store = MobileShellComposite.preview()
 
@@ -63,6 +155,38 @@ import Testing
         #expect(store.connectedHostName.isEmpty)
         #expect(store.selectedWorkspace?.name == "cmux")
         #expect(store.workspaceGroups.isEmpty)
+    }
+
+    @Test func networkChangeKeepsLegacyNoStoreConnectionAvailable() throws {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: CmxMobileDefaults.defaultHostPort
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-main",
+            macDeviceID: "legacy-mac",
+            macDisplayName: "Legacy Mac",
+            routes: [route],
+            expiresAt: Date(timeIntervalSince1970: 86_400)
+        )
+        store.remoteClient = MobileCoreRPCClient(
+            runtime: PairingDeadlineRuntime(),
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+
+        store.recoverMobileConnection(trigger: .networkChange)
+
+        #expect(store.connectionState == .connected)
+        #expect(store.macConnectionStatus == .reconnecting)
+        #expect(!store.connectionRecoveryFailed)
     }
 
     @Test func currentTeamDidChangeKeepsForegroundWorkspacesLive() {
@@ -162,6 +286,31 @@ import Testing
         for _ in 0..<10 { await Task.yield() }
 
         #expect(await pairedStore.didStartLoad(teamID: "team-b"))
+    }
+
+    @Test func repeatedTeamChangeCancelsOwnedReconnectTask() async throws {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [:],
+            blockedTeams: []
+        )
+        await pairedStore.gateBackupCancellation(call: 1)
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            forgottenMacStore: InMemoryPairedMacForgottenStore()
+        )
+
+        store.currentTeamDidChange()
+        await pairedStore.waitUntilBackupCancellationStarted(call: 1)
+        store.currentTeamDidChange()
+        await pairedStore.waitUntilBackupCancellationStarted(call: 2)
+        await pairedStore.releaseBackupCancellation(call: 1)
+
+        #expect(try await pollUntil {
+            await pairedStore.backupCancellationWasCancelled(call: 1) != nil
+        })
+        #expect(await pairedStore.backupCancellationWasCancelled(call: 1) == true)
     }
 
     @Test func createWorkspaceSelectsNewWorkspaceAndTerminal() {

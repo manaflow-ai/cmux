@@ -50,6 +50,12 @@ public protocol CmxIrohConnection: Sendable {
     /// enforcement for the complete connection lifetime.
     func waitUntilClosed() async
 
+    /// Returns whether this connection already has a terminal close reason.
+    ///
+    /// Callers use this nonblocking snapshot to reject a cached connection
+    /// before its asynchronous closure watcher has been scheduled.
+    func isClosed() async -> Bool
+
     /// Closes the complete connection and all child streams.
     ///
     /// - Parameters:

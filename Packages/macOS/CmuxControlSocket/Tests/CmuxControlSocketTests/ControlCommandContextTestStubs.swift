@@ -482,6 +482,14 @@ extension ControlSurfaceContext {
         -> ControlSurfaceReportTTYResolution { .workspaceNotFound }
     func controlSurfaceReportPWD(workspaceID: UUID, requestedSurfaceID: UUID?, path: String)
         -> ControlSurfaceReportPWDResolution { .workspaceNotFound }
+    func controlSurfaceReportGitBranch(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?,
+        branch: String,
+        isDirty: Bool?
+    ) -> ControlSurfaceReportGitBranchResolution { .workspaceNotFound }
+    func controlSurfaceClearGitBranch(workspaceID: UUID, requestedSurfaceID: UUID?)
+        -> ControlSurfaceReportGitBranchResolution { .workspaceNotFound }
 
     func controlSurfaceReportShellState(
         workspaceID: UUID,

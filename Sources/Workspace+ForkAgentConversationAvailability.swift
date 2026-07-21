@@ -69,7 +69,8 @@ extension Workspace {
         forPanelId panelId: UUID
     ) -> (
         availability: WorkspaceForkAgentConversationAvailability,
-        snapshot: SessionRestorableAgentSnapshot?
+        snapshot: SessionRestorableAgentSnapshot?,
+        validationFallbackSnapshot: SessionRestorableAgentSnapshot?
     ) {
         forkAgentConversationContextMenuOpenSelection(
             forPanelId: panelId,
@@ -82,47 +83,102 @@ extension Workspace {
         liveAgentIndex: SharedLiveAgentIndex
     ) -> (
         availability: WorkspaceForkAgentConversationAvailability,
-        snapshot: SessionRestorableAgentSnapshot?
+        snapshot: SessionRestorableAgentSnapshot?,
+        validationFallbackSnapshot: SessionRestorableAgentSnapshot?
     ) {
-        guard panels[panelId] is TerminalPanel else { return (.notTerminalPanel, nil) }
+        guard panels[panelId] is TerminalPanel else { return (.notTerminalPanel, nil, nil) }
 
-        if allowsAgentContinuation(forPanelId: panelId),
-           let restoredSnapshot = restoredAgentSnapshotForContinuation(panelId: panelId) {
+        let isRemoteContext = isRemoteTerminalSurface(panelId)
+        if !allowsAgentContinuation(forPanelId: panelId) {
+            if let observation = liveAgentIndex.index?.entry(workspaceId: id, panelId: panelId) {
+                reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
+            }
+            if !allowsAgentContinuation(forPanelId: panelId) {
+                guard liveAgentIndex.prepareForkAvailabilityProbe(
+                    workspaceId: id,
+                    panelId: panelId,
+                    isRemoteContext: isRemoteContext
+                ) else {
+                    return (.agentIndexRefreshing, nil, nil)
+                }
+                if let observation = liveAgentIndex.index?.entry(workspaceId: id, panelId: panelId) {
+                    reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
+                }
+            }
+            guard allowsAgentContinuation(forPanelId: panelId) else {
+                return (.noAgentSnapshot, nil, nil)
+            }
+        }
+        let restoredSnapshot = restoredAgentSnapshotForContinuation(panelId: panelId)
+        let liveAvailabilitySnapshot = liveAgentIndex.snapshotForForkAvailability(
+            workspaceId: id,
+            panelId: panelId,
+            isRemoteContext: isRemoteContext
+        )
+        let liveCandidateSnapshot = liveAgentIndex.snapshotForForkConversationCandidate(
+            workspaceId: id,
+            panelId: panelId
+        )
+        if liveAvailabilitySnapshot == nil, liveCandidateSnapshot != nil {
+            if liveAgentIndex.forkSupportProbeRejected(
+                workspaceId: id,
+                panelId: panelId,
+                isRemoteContext: isRemoteContext
+            ) {
+                return (.unsupported, nil, nil)
+            }
+            guard liveAgentIndex.prepareForkAvailabilityProbe(
+                workspaceId: id,
+                panelId: panelId,
+                isRemoteContext: isRemoteContext
+            ) else {
+                return (.agentIndexRefreshing, nil, nil)
+            }
+            return (.agentIndexRefreshing, nil, nil)
+        }
+        if let snapshotSource = ContentView.commandPaletteForkAvailabilitySnapshotSource(
+            liveIndexSnapshot: liveAvailabilitySnapshot,
+            fallbackSnapshot: restoredSnapshot,
+            isRemoteTerminal: isRemoteContext
+        ) {
             switch ContentView.commandPaletteSnapshotForkAvailability(
-                restoredSnapshot,
-                isRemoteTerminal: isRemoteTerminalSurface(panelId)
+                snapshotSource.snapshot,
+                isRemoteTerminal: isRemoteContext
             ) {
             case .supportedWithoutProbe:
-                return (.available, restoredSnapshot)
+                return (.available, snapshotSource.snapshot, nil)
             case .unsupported:
-                return (.unsupported, nil)
+                return (.unsupported, nil, nil)
             case .requiresProbe:
-                let isRemoteContext = isRemoteTerminalSurface(panelId)
                 guard liveAgentIndex.prepareForkAvailabilityProbe(
                     workspaceId: id,
                     panelId: panelId,
                     isRemoteContext: isRemoteContext,
-                    fallbackSnapshot: restoredSnapshot
+                    fallbackSnapshot: snapshotSource.validationFallbackSnapshot
                 ) else {
-                    return (.agentIndexRefreshing, nil)
+                    return (.agentIndexRefreshing, nil, nil)
                 }
                 if liveAgentIndex.forkSupportProbeAccepted(
                     workspaceId: id,
                     panelId: panelId,
                     isRemoteContext: isRemoteContext,
-                    fallbackSnapshot: restoredSnapshot
+                    fallbackSnapshot: snapshotSource.validationFallbackSnapshot
                 ) {
-                    return (.available, restoredSnapshot)
+                    return (
+                        .available,
+                        snapshotSource.snapshot,
+                        snapshotSource.validationFallbackSnapshot
+                    )
                 }
                 if liveAgentIndex.forkSupportProbeRejected(
                     workspaceId: id,
                     panelId: panelId,
                     isRemoteContext: isRemoteContext,
-                    fallbackSnapshot: restoredSnapshot
+                    fallbackSnapshot: snapshotSource.validationFallbackSnapshot
                 ) {
-                    return (.unsupported, nil)
+                    return (.unsupported, nil, nil)
                 }
-                return (.agentIndexRefreshing, nil)
+                return (.agentIndexRefreshing, nil, nil)
             }
         }
 
@@ -131,7 +187,7 @@ extension Workspace {
             panelId: panelId,
             isRemoteContext: isRemoteTerminalSurface(panelId)
         ) else {
-            return (.agentIndexRefreshing, nil)
+            return (.agentIndexRefreshing, nil, nil)
         }
         guard let verifiedSnapshot = liveAgentIndex.snapshotForForkAvailability(
             workspaceId: id,
@@ -143,15 +199,15 @@ extension Workspace {
                 panelId: panelId,
                 isRemoteContext: isRemoteTerminalSurface(panelId)
             ) {
-                return (.unsupported, nil)
+                return (.unsupported, nil, nil)
             }
-            return (.noAgentSnapshot, nil)
+            return (.noAgentSnapshot, nil, nil)
         }
         if let observation = liveAgentIndex.index?.entry(workspaceId: id, panelId: panelId) {
             reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
         }
         guard allowsAgentContinuation(forPanelId: panelId) else {
-            return (.noAgentSnapshot, nil)
+            return (.noAgentSnapshot, nil, nil)
         }
 
         switch ContentView.commandPaletteSnapshotForkAvailability(
@@ -159,30 +215,34 @@ extension Workspace {
             isRemoteTerminal: isRemoteTerminalSurface(panelId)
         ) {
         case .supportedWithoutProbe, .requiresProbe:
-            return (.available, verifiedSnapshot)
+            return (.available, verifiedSnapshot, nil)
         case .unsupported:
-            return (.unsupported, nil)
+            return (.unsupported, nil, nil)
         }
     }
 
     private func forkAgentConversationContextMenuCandidateSnapshot(
         forPanelId panelId: UUID
     ) -> SessionRestorableAgentSnapshot? {
-        if let snapshot = restoredAgentSnapshotForContinuation(panelId: panelId) {
-            return snapshot
-        }
-        guard let snapshot = SharedLiveAgentIndex.shared.snapshotForForkConversationCandidate(
-            workspaceId: id,
-            panelId: panelId
-        ) else {
-            return nil
-        }
-        if let observation = SharedLiveAgentIndex.shared.index?.entry(
+        guard allowsAgentContinuation(forPanelId: panelId) else { return nil }
+        if let snapshot = SharedLiveAgentIndex.shared.snapshotForForkConversationCandidate(
             workspaceId: id,
             panelId: panelId
         ) {
+            if let observation = SharedLiveAgentIndex.shared.index?.entry(
+                workspaceId: id,
+                panelId: panelId
+            ) {
+                reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
+            }
+            return snapshot
+        }
+        if let snapshot = restoredAgentSnapshotForContinuation(panelId: panelId) {
+            return snapshot
+        }
+        if let observation = SharedLiveAgentIndex.shared.index?.entry(workspaceId: id, panelId: panelId) {
             reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
         }
-        return allowsAgentContinuation(forPanelId: panelId) ? snapshot : nil
+        return nil
     }
 }

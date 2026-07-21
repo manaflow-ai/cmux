@@ -96,8 +96,11 @@ extension MobileHostIrohRuntime {
               let refreshToken,
               !refreshToken.isEmpty else { return }
         do {
+            guard let brokerBaseURL = AuthEnvironment.irohBrokerBaseURL else {
+                throw CmxIrohTrustBrokerClientError.invalidBaseURL
+            }
             let broker = try CmxIrohTrustBrokerClient(
-                baseURL: AuthEnvironment.vmAPIBaseURL,
+                baseURL: brokerBaseURL,
                 tokenSource: CmxIrohBrokerTokenSource(
                     accessToken: { accessToken },
                     refreshToken: { refreshToken }
@@ -165,10 +168,14 @@ extension MobileHostIrohRuntime {
                     }
                     continue
                 }
-                guard state.accountID != nil
-                        || previousAccountID != nil
-                        || self.activeAccountID != nil
-                        || self.runtime != nil else { continue }
+                guard Self.shouldReconcileAuthObservation(
+                    accountID: state.accountID,
+                    previousAccountID: previousAccountID,
+                    activeAccountID: self.activeAccountID,
+                    hasRuntime: self.runtime != nil,
+                    transitionInFlight: self.transitionTask != nil,
+                    preparedSignOutNeedsPersistence: self.preparedSignOut?.wasPersisted == false
+                ) else { continue }
                 self.scheduleReconcile(
                     eraseAccountState: (state.accountID == nil
                         && (previousAccountID != nil
@@ -182,6 +189,27 @@ extension MobileHostIrohRuntime {
                 )
             }
         }
+    }
+
+    static func shouldReconcileAuthObservation(
+        accountID: String?,
+        previousAccountID: String?,
+        activeAccountID: String?,
+        hasRuntime: Bool,
+        transitionInFlight: Bool,
+        preparedSignOutNeedsPersistence: Bool
+    ) -> Bool {
+        let hasRelevantState = accountID != nil
+            || previousAccountID != nil
+            || activeAccountID != nil
+            || hasRuntime
+        guard hasRelevantState else { return false }
+        if preparedSignOutNeedsPersistence { return true }
+        if accountID != previousAccountID { return true }
+        if let activeAccountID, activeAccountID != accountID { return true }
+        guard let accountID else { return hasRuntime }
+        guard !transitionInFlight else { return false }
+        return activeAccountID != accountID || !hasRuntime
     }
 
     private func releaseSignOutIntentAfterPreparation() {
@@ -218,6 +246,10 @@ extension MobileHostIrohRuntime {
             scheduleReconcile(eraseAccountState: true)
             return
         }
+        // Network-path observations are freshness hints, not ownership
+        // transitions. The in-flight activation already observes endpoint
+        // changes and replays one pending registration refresh after startup.
+        guard transitionTask == nil else { return }
         if runtime != nil {
             let revision = lifecycleRevision
             Task { @MainActor [weak self] in
@@ -225,11 +257,33 @@ extension MobileHostIrohRuntime {
                       self.desiredActive,
                       self.runtime != nil,
                       revision == self.lifecycleRevision else { return }
-                await self.lanPublisher.permissionMayHaveChanged()
+                await self.synchronizeLANPublicationWithSettings()
             }
             return
         }
         scheduleReconcile(eraseAccountState: false)
+    }
+
+    /// Applies the legacy-listener setting only to account-private Bonjour
+    /// publication. The authenticated Iroh endpoint and broker binding remain
+    /// active regardless, while enabling the listener later can publish the
+    /// already-validated runtime without restarting it.
+    func synchronizeLANPublicationWithSettings() async {
+        guard MobileHostService.isListeningEnabled else {
+            await lanPublisher.stop()
+            return
+        }
+        guard desiredActive,
+              let runtime,
+              let context = await runtime.lanAdvertisementContext() else {
+            await lanPublisher.stop()
+            return
+        }
+        await lanPublisher.activate(
+            rendezvous: context.rendezvous,
+            binding: context.binding,
+            directAddresses: { await runtime.localDirectAddresses() }
+        )
     }
 
     /// Stops the endpoint and durably quarantines its binding before auth clears tokens.
@@ -249,6 +303,7 @@ extension MobileHostIrohRuntime {
                 "Iroh binding quarantine persistence failed; account state retained"
             )
         }
+        await diagnosticLog.clear()
     }
 
     func prepareWithoutRuntime() async -> CmxIrohHostSignOutPreparation {
@@ -378,30 +433,10 @@ extension MobileHostIrohRuntime {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier
     ) -> String {
-        if let raw = environment["CMUX_TAG"],
-           let normalized = safeTag(raw) {
-            return normalized
-        }
-        if bundleIdentifier == "com.cmuxterm.app.nightly" { return "nightly" }
-        #if DEBUG
-        return "dev"
-        #else
-        return "stable"
-        #endif
-    }
-
-    static func safeTag(_ raw: String) -> String? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let normalized = String(trimmed.prefix(64)).lowercased().map { character in
-            character.isASCII && (character.isLetter || character.isNumber)
-                ? character
-                : "-"
-        }
-        let value = String(normalized)
-            .split(separator: "-", omittingEmptySubsequences: true)
-            .joined(separator: "-")
-        return value.isEmpty ? nil : value
+        MobileHostIdentity.instanceTag(
+            environment: environment,
+            bundleIdentifier: bundleIdentifier
+        )
     }
 }
 

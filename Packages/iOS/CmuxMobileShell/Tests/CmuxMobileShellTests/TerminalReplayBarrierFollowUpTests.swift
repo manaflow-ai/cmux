@@ -197,3 +197,57 @@ import Testing
     let deliveredAfterCap = try #require(await iterator.next())
     #expect(String(data: deliveredAfterCap.data, encoding: .utf8)?.hasPrefix("drop-") == true)
 }
+
+@MainActor
+@Test func verifiedReplayDroppedOutputCapDoesNotBypassPartialGrid() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "verified-render-grid"
+    store.terminalOutputTransport = .renderGrid
+    store.supportedHostCapabilities = [
+        "terminal.render_grid.v1",
+        MobileShellComposite.terminalVerifiedReplayCapability,
+        "terminal.replay.v1",
+    ]
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+
+    _ = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
+    let dropCap = Int(MobileShellComposite.maxTerminalReplayBarrierDroppedOutputBeforeFailOpen)
+    for revision in 1..<dropCap {
+        var partial = try renderGridFrame(
+            surfaceID: surfaceID,
+            seq: UInt64(revision),
+            text: "dropped-partial-\(revision)",
+            full: false
+        )
+        partial.renderEpoch = "verified-epoch"
+        partial.renderRevision = UInt64(revision)
+        #expect(!store.deliverTerminalRenderGrid(partial, surfaceID: surfaceID))
+    }
+
+    var capPartial = try renderGridFrame(
+        surfaceID: surfaceID,
+        seq: UInt64(dropCap),
+        text: "cap-partial-must-stay-hidden",
+        full: false
+    )
+    capPartial.renderEpoch = "verified-epoch"
+    capPartial.renderRevision = UInt64(dropCap)
+    #expect(!store.deliverTerminalRenderGrid(capPartial, surfaceID: surfaceID))
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
+
+    var full = try renderGridFrame(
+        surfaceID: surfaceID,
+        seq: UInt64(dropCap + 1),
+        text: "authoritative-full-after-cap",
+        full: true
+    )
+    full.renderEpoch = "verified-epoch"
+    full.renderRevision = UInt64(dropCap + 1)
+    #expect(store.deliverTerminalRenderGrid(full, surfaceID: surfaceID))
+
+    let delivered = try #require(await iterator.next())
+    #expect(delivered.sourceRenderGridFrame?.full == true)
+    #expect(delivered.sourceRenderGridFrame?.rowSpans.first?.text == "authoritative-full-after-cap")
+    #expect(delivered.requiresVerifiedReplay)
+}
