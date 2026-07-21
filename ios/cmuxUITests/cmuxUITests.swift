@@ -3035,6 +3035,8 @@ final class cmuxUITests: XCTestCase {
         }
         let app = launchApp(mockData: true, environment: [
             "CMUX_UITEST_ADD_DEVICE_PORT": String(portText.dropLast()),
+        ], launchArguments: [
+            "-cmux.mobile.taskComposerEnabled", "YES",
         ])
         let pairingForm = app.otherElements["MobileAddDeviceForm"]
         XCTAssertTrue(pairingForm.waitForExistence(timeout: 8))
