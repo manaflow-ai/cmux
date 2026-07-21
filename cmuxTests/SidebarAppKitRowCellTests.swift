@@ -8,14 +8,17 @@ import Testing
 @Suite
 @MainActor
 struct SidebarAppKitRowCellTests {
-    private static func makeSnapshot(title: String = "Workspace") -> SidebarWorkspaceSnapshotBuilder.Snapshot {
+    private static func makeSnapshot(
+        title: String = "Workspace",
+        customDescription: String? = nil
+    ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
                 settings: SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!),
                 showsAgentActivity: false
             ),
             title: title,
-            customDescription: nil,
+            customDescription: customDescription,
             isPinned: false,
             customColorHex: nil,
             remoteWorkspaceSidebarText: nil,
@@ -52,14 +55,16 @@ struct SidebarAppKitRowCellTests {
         workspaceId: UUID = UUID(),
         isActive: Bool = false,
         canClose: Bool = true,
-        settings: SidebarTabItemSettingsSnapshot? = nil
+        settings: SidebarTabItemSettingsSnapshot? = nil,
+        title: String = "Workspace",
+        customDescription: String? = nil
     ) -> SidebarWorkspaceRowModel {
         let resolvedSettings = settings
             ?? SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!)
         return SidebarWorkspaceRowModel(
             workspaceId: workspaceId,
             index: 0,
-            snapshot: makeSnapshot(),
+            snapshot: makeSnapshot(title: title, customDescription: customDescription),
             settings: resolvedSettings,
             isActive: isActive,
             isMultiSelected: false,
@@ -141,10 +146,14 @@ struct SidebarAppKitRowCellTests {
         UserDefaults(suiteName: "SidebarAppKitRowCellTests.\(UUID().uuidString)")!
     }
 
-    private static func makeActions(model: SidebarWorkspaceRowModel) -> SidebarAppKitRowActions {
+    private static func makeActions(
+        model: SidebarWorkspaceRowModel,
+        tab: Workspace? = nil,
+        tabManager: TabManager? = nil
+    ) -> SidebarAppKitRowActions {
         let commands = SidebarWorkspaceRowCommands(
-            tab: Workspace(),
-            tabManager: nil,
+            tab: tab ?? Workspace(),
+            tabManager: tabManager,
             notificationStore: nil,
             index: model.index,
             contextMenuWorkspaceIds: [model.workspaceId],
@@ -178,7 +187,8 @@ struct SidebarAppKitRowCellTests {
     }
 
     private static func makeRowConfiguration(
-        model: SidebarWorkspaceRowModel
+        model: SidebarWorkspaceRowModel,
+        actions: SidebarAppKitRowActions? = nil
     ) -> SidebarWorkspaceTableRowConfiguration {
 #if DEBUG
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
@@ -194,7 +204,7 @@ struct SidebarAppKitRowCellTests {
 #endif
         return SidebarWorkspaceTableRowConfiguration(
             workspaceRowModel: model,
-            actions: makeActions(model: model),
+            actions: actions ?? makeActions(model: model),
             groupId: nil,
             isPinned: false,
             environment: environment
@@ -307,7 +317,7 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func controllerPaintsOnPressAndRestoresCancelledTracking() throws {
+    func controllerCommitsSelectionOnPressAndKeepsItAfterTrackingEnds() throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let window = NSWindow(
@@ -318,9 +328,21 @@ struct SidebarAppKitRowCellTests {
         )
         window.contentView = container
 
-        let activeModel = Self.makeModel(isActive: true)
-        let pressedModel = Self.makeModel(isActive: false)
-        let rows = [activeModel, pressedModel].map(Self.makeRowConfiguration)
+        let manager = TabManager()
+        let activeWorkspace = try #require(manager.tabs.first)
+        let pressedWorkspace = manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let activeModel = Self.makeModel(workspaceId: activeWorkspace.id, isActive: true)
+        let pressedModel = Self.makeModel(workspaceId: pressedWorkspace.id, isActive: false)
+        let rows = [
+            Self.makeRowConfiguration(
+                model: activeModel,
+                actions: Self.makeActions(model: activeModel, tab: activeWorkspace, tabManager: manager)
+            ),
+            Self.makeRowConfiguration(
+                model: pressedModel,
+                actions: Self.makeActions(model: pressedModel, tab: pressedWorkspace, tabManager: manager)
+            ),
+        ]
         controller.apply(
             rows: rows,
             actions: Self.makeTableActions(),
@@ -346,6 +368,7 @@ struct SidebarAppKitRowCellTests {
 
         controller.pointerMouseDown(row: 1, modifiers: [], hitView: nil)
 
+        #expect(manager.selectedTabId == pressedWorkspace.id)
         #expect(activePaint.last == false)
         #expect(pressedPaint.last == true)
         #expect(activeCell.currentModelForMeasurement?.isActive == true)
@@ -353,8 +376,44 @@ struct SidebarAppKitRowCellTests {
 
         controller.pointerTrackingDidEnd()
 
-        #expect(activePaint.last == true)
-        #expect(pressedPaint.last == false)
+        #expect(manager.selectedTabId == pressedWorkspace.id)
+        #expect(activePaint.last == false)
+        #expect(pressedPaint.last == true)
+    }
+
+    @Test
+    func containerWidthChangeRemeasuresVisibleRowsDuringLayout() throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+
+        let model = Self.makeModel(
+            title: "Resize probe",
+            customDescription: "This deliberately long workspace description fits on one line when wide and wraps when the sidebar becomes narrow."
+        )
+        controller.apply(
+            rows: [Self.makeRowConfiguration(model: model)],
+            actions: Self.makeTableActions(),
+            workspaceIds: [model.workspaceId],
+            selectedWorkspaceId: model.workspaceId,
+            selectedScrollTargetWorkspaceId: model.workspaceId
+        )
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        let wideHeight = container.tableView.rect(ofRow: 0).height
+
+        window.setContentSize(NSSize(width: 180, height: 240))
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        let narrowHeight = container.tableView.rect(ofRow: 0).height
+
+        #expect(narrowHeight > wideHeight)
     }
 
     @Test

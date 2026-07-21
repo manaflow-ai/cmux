@@ -367,6 +367,38 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
         #expect(explicitGroupId == nil)
     }
 
+    @Test func UnpinnedGroupedChildDroppedAbovePinnedRowsUsesTopPointerSlot() throws {
+        let fixture = pinnedBoundaryFixture()
+
+        let plan = try require(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 2, y: 1))
+        ))
+
+        guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
+            Issue.record("Expected local reorder plan")
+            return
+        }
+        expectEqual(targetIndex, 0)
+        expectTrue(usesTopLevelRows)
+        #expect(explicitGroupId == nil)
+    }
+
+    @Test func UnpinnedGroupedChildDroppedAboveSecondPinnedRowUsesSecondPointerSlot() throws {
+        let fixture = pinnedBoundaryFixture()
+
+        let plan = try require(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 2, y: 41))
+        ))
+
+        guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
+            Issue.record("Expected local reorder plan")
+            return
+        }
+        expectEqual(targetIndex, 1)
+        expectTrue(usesTopLevelRows)
+        #expect(explicitGroupId == nil)
+    }
+
     @Test func RootSelfDropDoesNotInventIndicator() {
         let fixture = reorderFixture()
 
@@ -740,6 +772,54 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
         }
     }
 
+    private struct PinnedBoundaryFixture {
+        let firstPinned = UUID()
+        let secondPinned = UUID()
+        let thirdPinned = UUID()
+        let groupAnchor = UUID()
+        let draggedChild = UUID()
+        let unpinnedRoot = UUID()
+        let groupId = UUID()
+
+        func request(point: CGPoint) -> SidebarWorkspaceReorderDropRequest {
+            let rows: [(UUID, UUID?, Bool)] = [
+                (firstPinned, nil, false),
+                (secondPinned, nil, false),
+                (thirdPinned, nil, false),
+                (groupAnchor, groupId, true),
+                (draggedChild, groupId, false),
+                (unpinnedRoot, nil, false),
+            ]
+            return SidebarWorkspaceReorderDropRequest(
+                point: point,
+                draggedWorkspaceId: draggedChild,
+                workspaces: [
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: firstPinned, isPinned: true, groupId: nil),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: secondPinned, isPinned: true, groupId: nil),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: thirdPinned, isPinned: true, groupId: nil),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: groupAnchor, isPinned: false, groupId: groupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: draggedChild, isPinned: false, groupId: groupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: unpinnedRoot, isPinned: false, groupId: nil),
+                ],
+                groups: [
+                    SidebarWorkspaceReorderGroupSnapshot(
+                        id: groupId,
+                        anchorWorkspaceId: groupAnchor,
+                        isPinned: false
+                    ),
+                ],
+                targets: rows.enumerated().map { index, row in
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: row.0,
+                        groupId: row.1,
+                        isGroupHeader: row.2,
+                        frame: CGRect(x: 0, y: CGFloat(index * 40), width: 180, height: 32)
+                    )
+                }
+            )
+        }
+    }
+
     private struct MultiChildReorderFixture {
         let rootBefore = UUID()
         let anchor = UUID()
@@ -860,6 +940,10 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
 
     private func reorderFixture() -> ReorderFixture {
         ReorderFixture()
+    }
+
+    private func pinnedBoundaryFixture() -> PinnedBoundaryFixture {
+        PinnedBoundaryFixture()
     }
 
     private func multiChildReorderFixture() -> MultiChildReorderFixture {
