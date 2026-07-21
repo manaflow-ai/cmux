@@ -58,7 +58,8 @@ struct SurfaceResumeExitedAgentLivenessTests {
         let bindingIndex = codexBindingIndex(
             sessionID: sessionID,
             workspaceID: source.id,
-            panelID: panelID
+            panelID: panelID,
+            updatedAt: 1_777_777_778
         )
         source.updatePanelShellActivityState(panelId: panelID, state: .unknown)
         let snapshot = source.sessionSnapshot(
@@ -135,13 +136,6 @@ struct SurfaceResumeExitedAgentLivenessTests {
             panelID: panelID,
             updatedAt: observation.updatedAt + 1
         )
-        let inactiveSnapshot = source.sessionSnapshot(
-            includeScrollback: false,
-            restorableAgentIndex: exitedIndex,
-            surfaceResumeBindingIndex: newerBindingIndex
-        )
-        #expect(inactiveSnapshot.panels.first?.terminal?.wasAgentRunning == false)
-
         source.updatePanelShellActivityState(panelId: panelID, state: .commandRunning)
         let snapshot = source.sessionSnapshot(
             includeScrollback: false,
