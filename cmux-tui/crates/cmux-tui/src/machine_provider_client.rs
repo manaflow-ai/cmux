@@ -1,0 +1,1077 @@
+//! Synchronous client for the versioned machine-provider Unix protocol.
+//!
+//! This module intentionally has no `App` or CLI integration yet. It owns the
+//! security and framing boundary between a provider daemon and cmux's existing
+//! `RemoteTransport` abstraction, so later runtime wiring does not need to know
+//! how provider requests, events, authentication, or one-use stream tickets are
+//! represented on the wire.
+
+#![allow(dead_code)]
+
+#[cfg(unix)]
+use std::collections::{BTreeMap, HashMap};
+#[cfg(unix)]
+use std::fmt;
+#[cfg(unix)]
+use std::io::{self, BufRead, BufReader, Write};
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
+#[cfg(unix)]
+use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+#[cfg(unix)]
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError};
+#[cfg(unix)]
+use std::sync::{Arc, Mutex, Weak};
+#[cfg(unix)]
+use std::time::Duration;
+
+#[cfg(unix)]
+use cmux_tui_machine_protocol::{
+    ActionValue, BearerToken, ClientDescriptor, CloseMachineParams, CloseMachineResult,
+    CreateMachineParams, CreateMachineResult, CreateWorkspaceParams, CreateWorkspaceResult,
+    EventEnvelope, HelloParams, HelloResult, InvokeActionParams, InvokeActionResult, OpaqueId,
+    OpenMachineParams, OpenMachineResult, Protocol, ProviderError, ProviderEvent, ProviderRequest,
+    ProviderResponse, RequestEnvelope, ResponseEnvelope, SelectScopeParams, SelectScopeResult,
+    SnapshotParams, SnapshotResult, TransportDescriptor, TransportHandshake,
+    TransportHandshakeResult, TransportRole, Version, WorkspaceCreateMode,
+};
+#[cfg(unix)]
+use serde::Serialize;
+#[cfg(unix)]
+use serde::de::DeserializeOwned;
+#[cfg(unix)]
+use serde_json::Value;
+
+#[cfg(unix)]
+use crate::session::{RemoteMessageReader, RemoteMessageWriter, RemoteTransport};
+
+/// Provider control frames are metadata, not terminal or browser payloads.
+#[cfg(unix)]
+const MAX_CONTROL_FRAME_BYTES: usize = 1024 * 1024;
+/// Remote session frames can include encoded browser frames and scrollback.
+#[cfg(unix)]
+const MAX_TRANSPORT_FRAME_BYTES: usize = 64 * 1024 * 1024;
+#[cfg(unix)]
+const PROVIDER_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(unix)]
+const PROVIDER_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+#[cfg(unix)]
+const PROVIDER_EVENT_QUEUE_CAPACITY: usize = 64;
+
+#[cfg(unix)]
+#[derive(Debug)]
+pub(crate) enum ProviderClientError {
+    Io(io::Error),
+    Json(serde_json::Error),
+    Provider(ProviderError),
+    FrameTooLarge { limit: usize },
+    Disconnected,
+    Timeout,
+    NotAuthenticated,
+    AlreadyAuthenticated,
+    Protocol(String),
+    StatePoisoned(&'static str),
+    TransportRejected,
+}
+
+#[cfg(unix)]
+impl fmt::Display for ProviderClientError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Io(error) => write!(formatter, "machine provider I/O failed: {error}"),
+            Self::Json(error) => write!(formatter, "machine provider sent invalid JSON: {error}"),
+            Self::Provider(error) => write!(
+                formatter,
+                "machine provider rejected the request ({}): {}",
+                error.code.as_str(),
+                error.message
+            ),
+            Self::FrameTooLarge { limit } => {
+                write!(formatter, "machine provider frame exceeds the {limit}-byte limit")
+            }
+            Self::Disconnected => formatter.write_str("machine provider disconnected"),
+            Self::Timeout => formatter.write_str("machine provider did not respond"),
+            Self::NotAuthenticated => {
+                formatter.write_str("machine provider has not been authenticated")
+            }
+            Self::AlreadyAuthenticated => {
+                formatter.write_str("machine provider authentication was already attempted")
+            }
+            Self::Protocol(message) => {
+                write!(formatter, "machine provider protocol error: {message}")
+            }
+            Self::StatePoisoned(name) => {
+                write!(formatter, "machine provider {name} state is poisoned")
+            }
+            Self::TransportRejected => {
+                formatter.write_str("machine provider rejected the transport ticket")
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+impl std::error::Error for ProviderClientError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            Self::Json(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(unix)]
+impl From<io::Error> for ProviderClientError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
+#[cfg(unix)]
+impl From<serde_json::Error> for ProviderClientError {
+    fn from(error: serde_json::Error) -> Self {
+        Self::Json(error)
+    }
+}
+
+#[cfg(unix)]
+type ProviderResult<T> = Result<T, ProviderClientError>;
+
+#[cfg(unix)]
+#[derive(Debug, Clone)]
+enum ReaderFailure {
+    Disconnected,
+    FrameTooLarge { limit: usize },
+    InvalidFrame(String),
+    Io(String),
+}
+
+#[cfg(unix)]
+impl From<ReaderFailure> for ProviderClientError {
+    fn from(failure: ReaderFailure) -> Self {
+        match failure {
+            ReaderFailure::Disconnected => Self::Disconnected,
+            ReaderFailure::FrameTooLarge { limit } => Self::FrameTooLarge { limit },
+            ReaderFailure::InvalidFrame(message) => Self::Protocol(message),
+            ReaderFailure::Io(message) => Self::Io(io::Error::other(message)),
+        }
+    }
+}
+
+#[cfg(unix)]
+type PendingResponse = Result<Vec<u8>, ReaderFailure>;
+
+#[cfg(unix)]
+struct ProviderClientInner {
+    writer: Mutex<UnixStream>,
+    pending: Mutex<HashMap<String, Sender<PendingResponse>>>,
+    event_subscribers: Mutex<Vec<SyncSender<ProviderEvent>>>,
+    snapshot_subscribers: Mutex<Vec<SyncSender<u64>>>,
+    next_request_id: AtomicU64,
+    live: AtomicBool,
+    hello_started: AtomicBool,
+    authenticated: AtomicBool,
+    token: Mutex<Option<BearerToken>>,
+}
+
+#[cfg(unix)]
+impl ProviderClientInner {
+    fn cancel_pending(&self, failure: ReaderFailure) {
+        let Ok(mut pending) = self.pending.lock() else {
+            return;
+        };
+        for (_, response) in pending.drain() {
+            let _ = response.send(Err(failure.clone()));
+        }
+    }
+
+    fn mark_disconnected(&self, failure: ReaderFailure) {
+        self.live.store(false, Ordering::Release);
+        self.cancel_pending(failure);
+    }
+
+    fn publish_snapshot_revision(&self, revision: u64) {
+        let Ok(mut subscribers) = self.snapshot_subscribers.lock() else {
+            return;
+        };
+        subscribers.retain(|subscriber| match subscriber.try_send(revision) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => false,
+        });
+    }
+
+    fn publish_event(&self, event: ProviderEvent) {
+        let Ok(mut subscribers) = self.event_subscribers.lock() else {
+            return;
+        };
+        subscribers.retain(|subscriber| match subscriber.try_send(event.clone()) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => false,
+        });
+    }
+}
+
+/// One authenticated connection to a machine provider.
+///
+/// The bearer token is retained privately only because every separately
+/// authorized transport socket requires it. It is never returned, formatted,
+/// logged, or included in control requests after the one-shot `hello` call.
+#[cfg(unix)]
+pub(crate) struct ProviderClient {
+    socket_path: PathBuf,
+    inner: Arc<ProviderClientInner>,
+}
+
+#[cfg(unix)]
+impl ProviderClient {
+    pub(crate) fn connect(socket_path: impl AsRef<Path>) -> ProviderResult<Self> {
+        let socket_path = socket_path.as_ref().to_path_buf();
+        let writer = UnixStream::connect(&socket_path)?;
+        writer.set_write_timeout(Some(PROVIDER_WRITE_TIMEOUT))?;
+        let reader = writer.try_clone()?;
+        let inner = Arc::new(ProviderClientInner {
+            writer: Mutex::new(writer),
+            pending: Mutex::new(HashMap::new()),
+            event_subscribers: Mutex::new(Vec::new()),
+            snapshot_subscribers: Mutex::new(Vec::new()),
+            next_request_id: AtomicU64::new(1),
+            live: AtomicBool::new(true),
+            hello_started: AtomicBool::new(false),
+            authenticated: AtomicBool::new(false),
+            token: Mutex::new(None),
+        });
+        let weak = Arc::downgrade(&inner);
+        std::thread::Builder::new()
+            .name("machine-provider-reader".to_string())
+            .spawn(move || control_reader_loop(reader, weak))?;
+        Ok(Self { socket_path, inner })
+    }
+
+    pub(crate) fn connect_authenticated(
+        socket_path: impl AsRef<Path>,
+        token: BearerToken,
+        client: ClientDescriptor,
+    ) -> ProviderResult<(Self, HelloResult)> {
+        let provider = Self::connect(socket_path)?;
+        let hello = provider.hello(token, client)?;
+        Ok((provider, hello))
+    }
+
+    /// Authenticate this control socket exactly once.
+    pub(crate) fn hello(
+        &self,
+        token: BearerToken,
+        client: ClientDescriptor,
+    ) -> ProviderResult<HelloResult> {
+        if self
+            .inner
+            .hello_started
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Err(ProviderClientError::AlreadyAuthenticated);
+        }
+
+        // Keep the original private and move only a temporary clone into the
+        // one hello frame. Failed authentication is not retried implicitly.
+        let result = self.request_unchecked(ProviderRequest::Hello(HelloParams {
+            token: token.clone(),
+            client,
+        }));
+        match result {
+            Ok(hello) => {
+                *self
+                    .inner
+                    .token
+                    .lock()
+                    .map_err(|_| ProviderClientError::StatePoisoned("credential"))? = Some(token);
+                self.inner.authenticated.store(true, Ordering::Release);
+                Ok(hello)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    pub(crate) fn snapshot(&self, known_revision: Option<u64>) -> ProviderResult<SnapshotResult> {
+        self.request(ProviderRequest::Snapshot(SnapshotParams { known_revision }))
+    }
+
+    pub(crate) fn select_scope(&self, scope_id: OpaqueId) -> ProviderResult<SelectScopeResult> {
+        self.request(ProviderRequest::SelectScope(SelectScopeParams { scope_id }))
+    }
+
+    pub(crate) fn create_machine(
+        &self,
+        scope_id: OpaqueId,
+        mutation_id: OpaqueId,
+    ) -> ProviderResult<CreateMachineResult> {
+        self.request(ProviderRequest::CreateMachine(CreateMachineParams { scope_id, mutation_id }))
+    }
+
+    pub(crate) fn open_machine(&self, machine_id: OpaqueId) -> ProviderResult<OpenMachineResult> {
+        self.request(ProviderRequest::OpenMachine(OpenMachineParams { machine_id }))
+    }
+
+    pub(crate) fn create_workspace(
+        &self,
+        machine_id: OpaqueId,
+        mode: WorkspaceCreateMode,
+        mutation_id: OpaqueId,
+    ) -> ProviderResult<CreateWorkspaceResult> {
+        self.request(ProviderRequest::CreateWorkspace(CreateWorkspaceParams {
+            machine_id,
+            mode,
+            mutation_id,
+        }))
+    }
+
+    pub(crate) fn invoke_action(
+        &self,
+        action_id: OpaqueId,
+        values: BTreeMap<String, ActionValue>,
+        mutation_id: OpaqueId,
+    ) -> ProviderResult<InvokeActionResult> {
+        self.request(ProviderRequest::InvokeAction(InvokeActionParams {
+            action_id,
+            values,
+            mutation_id,
+        }))
+    }
+
+    pub(crate) fn close_machine(
+        &self,
+        connection_id: OpaqueId,
+    ) -> ProviderResult<CloseMachineResult> {
+        self.request(ProviderRequest::CloseMachine(CloseMachineParams { connection_id }))
+    }
+
+    /// Subscribe to revision invalidations. Receivers are removed after drop.
+    pub(crate) fn subscribe_snapshot_changes(&self) -> ProviderResult<Receiver<u64>> {
+        self.ensure_live()?;
+        let (sender, receiver) = mpsc::sync_channel(1);
+        self.inner
+            .snapshot_subscribers
+            .lock()
+            .map_err(|_| ProviderClientError::StatePoisoned("subscriber"))?
+            .push(sender);
+        Ok(receiver)
+    }
+
+    /// Subscribe to every provider event, including notices and remote
+    /// connection closures. Receivers are removed after drop.
+    pub(crate) fn subscribe_events(&self) -> ProviderResult<Receiver<ProviderEvent>> {
+        self.ensure_live()?;
+        let (sender, receiver) = mpsc::sync_channel(PROVIDER_EVENT_QUEUE_CAPACITY);
+        self.inner
+            .event_subscribers
+            .lock()
+            .map_err(|_| ProviderClientError::StatePoisoned("subscriber"))?
+            .push(sender);
+        Ok(receiver)
+    }
+
+    /// Consume a provider-issued, one-use ticket into cmux's normal remote
+    /// session transport. This function deliberately makes one connection and
+    /// one handshake attempt. Callers cannot retry because the descriptor is
+    /// moved in and the ticket is never returned from an error.
+    pub(crate) fn consume_transport(
+        &self,
+        descriptor: TransportDescriptor,
+    ) -> ProviderResult<RemoteTransport> {
+        self.ensure_authenticated()?;
+        let provider_token = self
+            .inner
+            .token
+            .lock()
+            .map_err(|_| ProviderClientError::StatePoisoned("credential"))?
+            .clone()
+            .ok_or(ProviderClientError::NotAuthenticated)?;
+        let TransportDescriptor::ProviderStream { ticket, expires_at: _ } = descriptor;
+
+        let mut writer = UnixStream::connect(&self.socket_path)?;
+        writer.set_write_timeout(Some(PROVIDER_WRITE_TIMEOUT))?;
+        let reader_stream = writer.try_clone()?;
+        reader_stream.set_read_timeout(Some(PROVIDER_REQUEST_TIMEOUT))?;
+        let mut reader = BufReader::new(reader_stream);
+        let handshake = TransportHandshake {
+            protocol: Protocol,
+            version: Version,
+            role: TransportRole::Transport,
+            token: provider_token,
+            ticket,
+        };
+        write_json_frame(&mut writer, &handshake, MAX_CONTROL_FRAME_BYTES)?;
+
+        let response = read_bounded_frame(&mut reader, MAX_CONTROL_FRAME_BYTES)
+            .map_err(ProviderClientError::from)?
+            .ok_or(ProviderClientError::Disconnected)?;
+        let result: TransportHandshakeResult = serde_json::from_slice(&response)?;
+        if !result.accepted {
+            let _ = writer.shutdown(std::net::Shutdown::Both);
+            return Err(ProviderClientError::TransportRejected);
+        }
+
+        reader.get_ref().set_read_timeout(None)?;
+        writer.set_write_timeout(Some(PROVIDER_WRITE_TIMEOUT))?;
+        Ok(RemoteTransport::new(
+            Box::new(BoundedRemoteReader { inner: reader }),
+            Box::new(BoundedRemoteWriter { inner: writer }),
+        ))
+    }
+
+    fn request<T>(&self, request: ProviderRequest) -> ProviderResult<T>
+    where
+        T: DeserializeOwned,
+    {
+        self.ensure_authenticated()?;
+        self.request_unchecked(request)
+    }
+
+    fn request_unchecked<T>(&self, request: ProviderRequest) -> ProviderResult<T>
+    where
+        T: DeserializeOwned,
+    {
+        self.ensure_live()?;
+        let sequence = self.inner.next_request_id.fetch_add(1, Ordering::Relaxed);
+        let id = OpaqueId::new(format!("cmux-{sequence}"))
+            .map_err(|error| ProviderClientError::Protocol(error.to_string()))?;
+        let id_key = id.as_str().to_string();
+        let envelope = RequestEnvelope::new(id.clone(), request);
+        let (sender, receiver) = mpsc::channel();
+        {
+            let mut pending = self
+                .inner
+                .pending
+                .lock()
+                .map_err(|_| ProviderClientError::StatePoisoned("pending-request"))?;
+            if pending.insert(id_key.clone(), sender).is_some() {
+                return Err(ProviderClientError::Protocol(
+                    "request identifier wrapped while still in use".to_string(),
+                ));
+            }
+        }
+
+        let write_result = self
+            .inner
+            .writer
+            .lock()
+            .map_err(|_| ProviderClientError::StatePoisoned("writer"))
+            .and_then(|mut writer| {
+                write_json_frame(&mut *writer, &envelope, MAX_CONTROL_FRAME_BYTES)
+            });
+        if let Err(error) = write_result {
+            self.remove_pending(&id_key);
+            self.inner.mark_disconnected(ReaderFailure::Disconnected);
+            return Err(error);
+        }
+
+        let frame = match receiver.recv_timeout(PROVIDER_REQUEST_TIMEOUT) {
+            Ok(Ok(frame)) => frame,
+            Ok(Err(failure)) => return Err(failure.into()),
+            Err(RecvTimeoutError::Timeout) => {
+                self.remove_pending(&id_key);
+                return Err(ProviderClientError::Timeout);
+            }
+            Err(RecvTimeoutError::Disconnected) => return Err(ProviderClientError::Disconnected),
+        };
+        let response: ResponseEnvelope<T> = serde_json::from_slice(&frame)?;
+        if response.id != id {
+            return Err(ProviderClientError::Protocol(
+                "response identifier did not match its request".to_string(),
+            ));
+        }
+        match response.response {
+            ProviderResponse::Success(result) => Ok(result),
+            ProviderResponse::Failure(error) => Err(ProviderClientError::Provider(error)),
+        }
+    }
+
+    fn remove_pending(&self, id: &str) {
+        if let Ok(mut pending) = self.inner.pending.lock() {
+            pending.remove(id);
+        }
+    }
+
+    fn ensure_live(&self) -> ProviderResult<()> {
+        if self.inner.live.load(Ordering::Acquire) {
+            Ok(())
+        } else {
+            Err(ProviderClientError::Disconnected)
+        }
+    }
+
+    fn ensure_authenticated(&self) -> ProviderResult<()> {
+        self.ensure_live()?;
+        if self.inner.authenticated.load(Ordering::Acquire) {
+            Ok(())
+        } else {
+            Err(ProviderClientError::NotAuthenticated)
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for ProviderClient {
+    fn drop(&mut self) {
+        self.inner.live.store(false, Ordering::Release);
+        self.inner.cancel_pending(ReaderFailure::Disconnected);
+        if let Ok(writer) = self.inner.writer.lock() {
+            let _ = writer.shutdown(std::net::Shutdown::Both);
+        }
+        if let Ok(mut token) = self.inner.token.lock() {
+            *token = None;
+        }
+    }
+}
+
+#[cfg(unix)]
+fn control_reader_loop(stream: UnixStream, inner: Weak<ProviderClientInner>) {
+    let mut reader = BufReader::new(stream);
+    let failure = loop {
+        let frame = match read_bounded_frame(&mut reader, MAX_CONTROL_FRAME_BYTES) {
+            Ok(Some(frame)) => frame,
+            Ok(None) => break ReaderFailure::Disconnected,
+            Err(failure) => break failure.into(),
+        };
+        let Some(inner) = inner.upgrade() else {
+            return;
+        };
+        if let Err(failure) = dispatch_control_frame(&inner, frame) {
+            break failure;
+        }
+    };
+    if let Some(inner) = inner.upgrade() {
+        inner.mark_disconnected(failure);
+    }
+}
+
+#[cfg(unix)]
+fn dispatch_control_frame(
+    inner: &ProviderClientInner,
+    frame: Vec<u8>,
+) -> Result<(), ReaderFailure> {
+    let value: Value = serde_json::from_slice(&frame)
+        .map_err(|error| ReaderFailure::InvalidFrame(error.to_string()))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| ReaderFailure::InvalidFrame("top-level frame is not an object".into()))?;
+    let has_event = object.contains_key("event");
+    let has_id = object.contains_key("id");
+    match (has_event, has_id) {
+        (true, true) => {
+            Err(ReaderFailure::InvalidFrame("frame is both an event and a response".to_string()))
+        }
+        (true, false) => {
+            let event: EventEnvelope = serde_json::from_value(value)
+                .map_err(|error| ReaderFailure::InvalidFrame(error.to_string()))?;
+            if let ProviderEvent::SnapshotChanged(change) = &event.event {
+                inner.publish_snapshot_revision(change.revision);
+            }
+            inner.publish_event(event.event);
+            Ok(())
+        }
+        (false, true) => {
+            let id = object
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ReaderFailure::InvalidFrame("response id is not a string".into()))?;
+            OpaqueId::new(id.to_string())
+                .map_err(|error| ReaderFailure::InvalidFrame(error.to_string()))?;
+            let response = inner
+                .pending
+                .lock()
+                .map_err(|_| ReaderFailure::InvalidFrame("pending state is poisoned".into()))?
+                .remove(id);
+            if let Some(response) = response {
+                let _ = response.send(Ok(frame));
+            }
+            Ok(())
+        }
+        (false, false) => {
+            Err(ReaderFailure::InvalidFrame("frame is neither an event nor a response".to_string()))
+        }
+    }
+}
+
+#[cfg(unix)]
+#[derive(Debug)]
+enum FrameReadFailure {
+    Io(io::Error),
+    TooLarge { limit: usize },
+    Truncated,
+}
+
+#[cfg(unix)]
+impl From<FrameReadFailure> for ReaderFailure {
+    fn from(failure: FrameReadFailure) -> Self {
+        match failure {
+            FrameReadFailure::Io(error) => ReaderFailure::Io(error.to_string()),
+            FrameReadFailure::TooLarge { limit } => ReaderFailure::FrameTooLarge { limit },
+            FrameReadFailure::Truncated => {
+                ReaderFailure::InvalidFrame("unterminated JSON-lines frame".to_string())
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+impl From<FrameReadFailure> for ProviderClientError {
+    fn from(failure: FrameReadFailure) -> Self {
+        ReaderFailure::from(failure).into()
+    }
+}
+
+#[cfg(unix)]
+fn read_bounded_frame<R: BufRead>(
+    reader: &mut R,
+    limit: usize,
+) -> Result<Option<Vec<u8>>, FrameReadFailure> {
+    let mut frame = Vec::new();
+    loop {
+        let available = reader.fill_buf().map_err(FrameReadFailure::Io)?;
+        if available.is_empty() {
+            return if frame.is_empty() { Ok(None) } else { Err(FrameReadFailure::Truncated) };
+        }
+
+        if let Some(newline) = available.iter().position(|byte| *byte == b'\n') {
+            if frame.len().saturating_add(newline) > limit {
+                return Err(FrameReadFailure::TooLarge { limit });
+            }
+            frame.extend_from_slice(&available[..newline]);
+            reader.consume(newline + 1);
+            if frame.last() == Some(&b'\r') {
+                frame.pop();
+            }
+            return Ok(Some(frame));
+        }
+
+        if frame.len().saturating_add(available.len()) > limit {
+            return Err(FrameReadFailure::TooLarge { limit });
+        }
+        let consumed = available.len();
+        frame.extend_from_slice(available);
+        reader.consume(consumed);
+    }
+}
+
+#[cfg(unix)]
+fn write_json_frame<W: Write, T: Serialize>(
+    writer: &mut W,
+    value: &T,
+    limit: usize,
+) -> ProviderResult<()> {
+    let mut encoded = serde_json::to_vec(value)?;
+    if encoded.len() > limit {
+        encoded.fill(0);
+        return Err(ProviderClientError::FrameTooLarge { limit });
+    }
+    let result = writer
+        .write_all(&encoded)
+        .and_then(|()| writer.write_all(b"\n"))
+        .and_then(|()| writer.flush());
+    // Frames can contain credentials. Clear the reusable allocation before it
+    // is freed so normal allocator reuse does not expose their serialized form.
+    encoded.fill(0);
+    result.map_err(ProviderClientError::Io)
+}
+
+#[cfg(unix)]
+struct BoundedRemoteReader {
+    inner: BufReader<UnixStream>,
+}
+
+#[cfg(unix)]
+impl RemoteMessageReader for BoundedRemoteReader {
+    fn receive(&mut self) -> io::Result<Option<String>> {
+        let frame = read_bounded_frame(&mut self.inner, MAX_TRANSPORT_FRAME_BYTES)
+            .map_err(frame_read_io_error)?;
+        frame
+            .map(|bytes| {
+                String::from_utf8(bytes)
+                    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+            })
+            .transpose()
+    }
+}
+
+#[cfg(unix)]
+struct BoundedRemoteWriter {
+    inner: UnixStream,
+}
+
+#[cfg(unix)]
+impl RemoteMessageWriter for BoundedRemoteWriter {
+    fn send(&mut self, message: &str) -> io::Result<()> {
+        if message.len() > MAX_TRANSPORT_FRAME_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("remote frame exceeds the {MAX_TRANSPORT_FRAME_BYTES}-byte limit"),
+            ));
+        }
+        if message.bytes().any(|byte| byte == b'\n' || byte == b'\r') {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "remote message contains a JSON-lines delimiter",
+            ));
+        }
+        self.inner.write_all(message.as_bytes())?;
+        self.inner.write_all(b"\n")?;
+        self.inner.flush()
+    }
+
+    fn close(&mut self) -> io::Result<()> {
+        self.inner.shutdown(std::net::Shutdown::Both)
+    }
+}
+
+#[cfg(unix)]
+fn frame_read_io_error(failure: FrameReadFailure) -> io::Error {
+    match failure {
+        FrameReadFailure::Io(error) => error,
+        FrameReadFailure::TooLarge { limit } => io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("remote frame exceeds the {limit}-byte limit"),
+        ),
+        FrameReadFailure::Truncated => {
+            io::Error::new(io::ErrorKind::UnexpectedEof, "unterminated JSON-lines frame")
+        }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::os::unix::net::{UnixListener, UnixStream};
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+    use std::sync::{Arc, mpsc};
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    use cmux_tui_machine_protocol::{
+        ConnectionClosedEvent, EventEnvelope, HelloResult, NoticeLevel, OpenMachineResult,
+        ProviderErrorCode, ProviderNotice, ResponseEnvelope, SnapshotChangedEvent,
+        TransportDescriptor, TransportHandshake,
+    };
+
+    use super::*;
+
+    static NEXT_SOCKET_ID: AtomicU64 = AtomicU64::new(1);
+
+    struct TestSocket {
+        path: PathBuf,
+        listener: UnixListener,
+    }
+
+    impl TestSocket {
+        fn bind() -> Self {
+            let id = NEXT_SOCKET_ID.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir()
+                .join(format!("cmux-machine-provider-client-{}-{id}.sock", std::process::id()));
+            let _ = std::fs::remove_file(&path);
+            let listener = UnixListener::bind(&path).expect("bind fake provider socket");
+            Self { path, listener }
+        }
+
+        fn listener(&self) -> UnixListener {
+            self.listener.try_clone().expect("clone fake provider listener")
+        }
+    }
+
+    impl Drop for TestSocket {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    fn id(value: &str) -> OpaqueId {
+        OpaqueId::new(value).expect("valid test id")
+    }
+
+    fn token(value: &str) -> BearerToken {
+        BearerToken::new(value).expect("valid test token")
+    }
+
+    fn client_descriptor() -> ClientDescriptor {
+        ClientDescriptor {
+            name: "cmux-test".to_string(),
+            version: "0.1.0".to_string(),
+            supported_versions: vec![1],
+        }
+    }
+
+    fn read_test_frame<T: DeserializeOwned>(reader: &mut BufReader<UnixStream>) -> T {
+        let frame = read_bounded_frame(reader, MAX_CONTROL_FRAME_BYTES)
+            .expect("read fake provider frame")
+            .expect("fake provider peer disconnected");
+        serde_json::from_slice(&frame).expect("decode fake provider frame")
+    }
+
+    fn write_test_frame<T: Serialize>(stream: &mut UnixStream, frame: &T) {
+        write_json_frame(stream, frame, MAX_CONTROL_FRAME_BYTES)
+            .expect("write fake provider frame");
+    }
+
+    fn accept_hello(
+        stream: &mut UnixStream,
+        reader: &mut BufReader<UnixStream>,
+        expected_token: &str,
+    ) {
+        let request: RequestEnvelope = read_test_frame(reader);
+        let ProviderRequest::Hello(params) = request.request else {
+            panic!("first request was not hello");
+        };
+        assert_eq!(params.token.expose(), expected_token);
+        assert_eq!(params.client, client_descriptor());
+        write_test_frame(
+            stream,
+            &ResponseEnvelope::success(
+                request.id,
+                HelloResult {
+                    provider_id: id("fake-provider"),
+                    provider_name: "Fake Provider".to_string(),
+                    negotiated_version: Version,
+                },
+            ),
+        );
+    }
+
+    #[test]
+    fn authenticates_once_and_delivers_general_and_snapshot_events() {
+        let socket = TestSocket::bind();
+        let listener = socket.listener();
+        let (send_event, receive_event) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept control socket");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
+            accept_hello(&mut stream, &mut reader, "provider-secret");
+            receive_event.recv().expect("wait for subscriber");
+            write_test_frame(
+                &mut stream,
+                &EventEnvelope::new(ProviderEvent::SnapshotChanged(SnapshotChangedEvent {
+                    revision: 42,
+                })),
+            );
+            write_test_frame(
+                &mut stream,
+                &EventEnvelope::new(ProviderEvent::Notice(ProviderNotice {
+                    level: NoticeLevel::Warning,
+                    message: "trial has one day remaining".to_string(),
+                })),
+            );
+            write_test_frame(
+                &mut stream,
+                &EventEnvelope::new(ProviderEvent::ConnectionClosed(ConnectionClosedEvent {
+                    connection_id: id("connection-1"),
+                    machine_id: id("machine-1"),
+                    reason: "machine suspended".to_string(),
+                })),
+            );
+        });
+
+        let (provider, hello) = ProviderClient::connect_authenticated(
+            &socket.path,
+            token("provider-secret"),
+            client_descriptor(),
+        )
+        .expect("authenticate provider");
+        assert_eq!(hello.provider_id, id("fake-provider"));
+        assert!(format!("{:?}", token("provider-secret")).contains("[redacted]"));
+        assert!(matches!(
+            provider.hello(token("do-not-replay"), client_descriptor()),
+            Err(ProviderClientError::AlreadyAuthenticated)
+        ));
+
+        let events = provider.subscribe_events().expect("subscribe to all events");
+        let revisions =
+            provider.subscribe_snapshot_changes().expect("subscribe to snapshot changes");
+        send_event.send(()).expect("trigger provider event");
+        let event = events.recv_timeout(Duration::from_secs(2)).expect("receive provider event");
+        assert!(matches!(
+            event,
+            ProviderEvent::SnapshotChanged(SnapshotChangedEvent { revision: 42 })
+        ));
+        let event = events.recv_timeout(Duration::from_secs(2)).expect("receive provider notice");
+        assert!(matches!(
+            event,
+            ProviderEvent::Notice(ProviderNotice {
+                level: NoticeLevel::Warning,
+                ref message,
+            }) if message == "trial has one day remaining"
+        ));
+        let event =
+            events.recv_timeout(Duration::from_secs(2)).expect("receive connection closure");
+        assert!(matches!(
+            event,
+            ProviderEvent::ConnectionClosed(ConnectionClosedEvent {
+                ref connection_id,
+                ref machine_id,
+                ref reason,
+            }) if connection_id == &id("connection-1")
+                && machine_id == &id("machine-1")
+                && reason == "machine suspended"
+        ));
+        assert_eq!(revisions.recv_timeout(Duration::from_secs(2)).expect("receive revision"), 42);
+        drop(provider);
+        server.join().expect("join fake provider");
+    }
+
+    #[test]
+    fn preserves_typed_provider_errors() {
+        let socket = TestSocket::bind();
+        let listener = socket.listener();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept control socket");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
+            accept_hello(&mut stream, &mut reader, "provider-secret");
+            let request: RequestEnvelope = read_test_frame(&mut reader);
+            assert!(matches!(request.request, ProviderRequest::Snapshot(_)));
+            write_test_frame(
+                &mut stream,
+                &ResponseEnvelope::<SnapshotResult>::failure(
+                    request.id,
+                    ProviderError {
+                        code: ProviderErrorCode::PermissionDenied,
+                        message: "team access was revoked".to_string(),
+                        retryable: false,
+                    },
+                ),
+            );
+        });
+
+        let (provider, _) = ProviderClient::connect_authenticated(
+            &socket.path,
+            token("provider-secret"),
+            client_descriptor(),
+        )
+        .expect("authenticate provider");
+        let error = provider.snapshot(None).expect_err("snapshot should be rejected");
+        let ProviderClientError::Provider(error) = error else {
+            panic!("expected typed provider error, got {error:?}");
+        };
+        assert_eq!(error.code, ProviderErrorCode::PermissionDenied);
+        assert_eq!(error.message, "team access was revoked");
+        assert!(!error.retryable);
+        drop(provider);
+        server.join().expect("join fake provider");
+    }
+
+    #[test]
+    fn rejects_oversized_control_frame_without_waiting_for_timeout() {
+        let socket = TestSocket::bind();
+        let listener = socket.listener();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept control socket");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
+            accept_hello(&mut stream, &mut reader, "provider-secret");
+            let request: RequestEnvelope = read_test_frame(&mut reader);
+            assert!(matches!(request.request, ProviderRequest::Snapshot(_)));
+            stream
+                .write_all(&vec![b'x'; MAX_CONTROL_FRAME_BYTES + 1])
+                .expect("write oversized frame");
+            stream.write_all(b"\n").expect("finish oversized frame");
+            stream.flush().expect("flush oversized frame");
+        });
+
+        let (provider, _) = ProviderClient::connect_authenticated(
+            &socket.path,
+            token("provider-secret"),
+            client_descriptor(),
+        )
+        .expect("authenticate provider");
+        let started = Instant::now();
+        let error = provider.snapshot(None).expect_err("oversized response must fail");
+        assert!(matches!(
+            error,
+            ProviderClientError::FrameTooLarge { limit: MAX_CONTROL_FRAME_BYTES }
+        ));
+        assert!(started.elapsed() < Duration::from_secs(2));
+        drop(provider);
+        server.join().expect("join fake provider");
+    }
+
+    #[test]
+    fn consumes_transport_ticket_in_exactly_one_handshake() {
+        let socket = TestSocket::bind();
+        let listener = socket.listener();
+        let handshakes = Arc::new(AtomicUsize::new(0));
+        let server_handshakes = handshakes.clone();
+        let server = thread::spawn(move || {
+            let (mut control, _) = listener.accept().expect("accept control socket");
+            let mut control_reader =
+                BufReader::new(control.try_clone().expect("clone control socket"));
+            accept_hello(&mut control, &mut control_reader, "provider-secret");
+
+            let request: RequestEnvelope = read_test_frame(&mut control_reader);
+            let ProviderRequest::OpenMachine(params) = request.request else {
+                panic!("expected open_machine request");
+            };
+            assert_eq!(params.machine_id, id("machine-1"));
+            write_test_frame(
+                &mut control,
+                &ResponseEnvelope::success(
+                    request.id,
+                    OpenMachineResult {
+                        connection_id: id("connection-1"),
+                        transport: TransportDescriptor::ProviderStream {
+                            ticket: token("one-use-ticket"),
+                            expires_at: "2026-07-21T12:00:00Z".to_string(),
+                        },
+                    },
+                ),
+            );
+
+            let (mut transport, _) = listener.accept().expect("accept transport socket");
+            let mut transport_reader =
+                BufReader::new(transport.try_clone().expect("clone transport socket"));
+            let handshake: TransportHandshake = read_test_frame(&mut transport_reader);
+            server_handshakes.fetch_add(1, Ordering::Relaxed);
+            assert_eq!(handshake.role, TransportRole::Transport);
+            assert_eq!(handshake.token.expose(), "provider-secret");
+            assert_eq!(handshake.ticket.expose(), "one-use-ticket");
+            write_test_frame(&mut transport, &TransportHandshakeResult { accepted: true });
+        });
+
+        let (provider, _) = ProviderClient::connect_authenticated(
+            &socket.path,
+            token("provider-secret"),
+            client_descriptor(),
+        )
+        .expect("authenticate provider");
+        let opened = provider.open_machine(id("machine-1")).expect("open machine");
+        let transport =
+            provider.consume_transport(opened.transport).expect("consume one-use transport ticket");
+        drop(transport);
+        drop(provider);
+        server.join().expect("join fake provider");
+        assert_eq!(handshakes.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn cancels_pending_request_when_provider_reaches_eof() {
+        let socket = TestSocket::bind();
+        let listener = socket.listener();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept control socket");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
+            accept_hello(&mut stream, &mut reader, "provider-secret");
+            let request: RequestEnvelope = read_test_frame(&mut reader);
+            assert!(matches!(request.request, ProviderRequest::Snapshot(_)));
+            // Dropping the stream produces EOF while the request is pending.
+        });
+
+        let (provider, _) = ProviderClient::connect_authenticated(
+            &socket.path,
+            token("provider-secret"),
+            client_descriptor(),
+        )
+        .expect("authenticate provider");
+        let started = Instant::now();
+        let error = provider.snapshot(None).expect_err("EOF must cancel the request");
+        assert!(matches!(error, ProviderClientError::Disconnected));
+        assert!(started.elapsed() < Duration::from_secs(2));
+        drop(provider);
+        server.join().expect("join fake provider");
+    }
+}
