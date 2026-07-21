@@ -30,34 +30,12 @@ public enum SocketPathMarkerFiles {
         directory: URL?,
         baseDebugBundleIdentifier: String = defaultBaseDebugBundleIdentifier
     ) -> [String] {
-        paths(
+        socketPathMarkerPaths(
             bundleIdentifier: bundleIdentifier,
             environment: environment,
             directories: directory.map { [$0] } ?? [],
             baseDebugBundleIdentifier: baseDebugBundleIdentifier
         )
-    }
-
-    /// Resolves build-variant marker paths across app-owned discovery directories.
-    static func paths(
-        bundleIdentifier: String?,
-        environment: [String: String],
-        directories: [URL],
-        baseDebugBundleIdentifier: String = defaultBaseDebugBundleIdentifier
-    ) -> [String] {
-        let variant = variant(
-            bundleIdentifier: bundleIdentifier,
-            environment: environment,
-            baseDebugBundleIdentifier: baseDebugBundleIdentifier
-        )
-        var candidates = directories.compactMap { directory in
-            markerFileURL(
-                fileName: variant.markerFileName,
-                directory: directory
-            )?.path
-        }
-        candidates.append(variant.tmpPath)
-        return dedupe(candidates)
     }
 
     public static func variant(
@@ -146,13 +124,28 @@ public enum SocketPathMarkerFiles {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
+}
 
-    private static func dedupe(_ values: [String]) -> [String] {
-        var seen = Set<String>()
-        var ordered: [String] = []
-        for value in values where seen.insert(value).inserted {
-            ordered.append(value)
-        }
-        return ordered
+/// Resolves build-variant marker paths across app-owned discovery directories.
+func socketPathMarkerPaths(
+    bundleIdentifier: String?,
+    environment: [String: String],
+    directories: [URL],
+    baseDebugBundleIdentifier: String = SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier
+) -> [String] {
+    let variant = SocketPathMarkerFiles.variant(
+        bundleIdentifier: bundleIdentifier,
+        environment: environment,
+        baseDebugBundleIdentifier: baseDebugBundleIdentifier
+    )
+    var candidates = directories.compactMap { directory in
+        SocketPathMarkerFiles.markerFileURL(
+            fileName: variant.markerFileName,
+            directory: directory
+        )?.path
     }
+    candidates.append(variant.tmpPath)
+
+    var seen = Set<String>()
+    return candidates.filter { seen.insert($0).inserted }
 }

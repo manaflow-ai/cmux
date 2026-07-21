@@ -34,14 +34,13 @@ public extension SocketControlSettings {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) -> [String] {
-        let directories = [
-            stableSocketDirectoryURL(fileManager: fileManager),
-            CmuxStateDirectory.legacyApplicationSupportURL(fileManager: fileManager),
-        ].compactMap { $0 }
-        return SocketPathMarkerFiles.paths(
+        socketPathMarkerPaths(
             bundleIdentifier: bundleIdentifier,
             environment: environment,
-            directories: directories,
+            directories: [
+                stableSocketDirectoryURL(fileManager: fileManager),
+                CmuxStateDirectory.legacyApplicationSupportURL(fileManager: fileManager),
+            ].compactMap { $0 },
             baseDebugBundleIdentifier: baseDebugBundleIdentifier
         )
     }
