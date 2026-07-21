@@ -83,6 +83,41 @@ public final class BrowserAutomationNavigationCoordinator {
         activeNavigationID = navigationID
     }
 
+    /// Associates a deferred or policy-replacement load with the active transaction.
+    public func didStart(instanceID: UUID, navigationID: ObjectIdentifier?) {
+        guard let navigationID,
+              let activeTicket,
+              activeTicket.instanceID == instanceID,
+              activeNavigationID == nil else {
+            return
+        }
+        activeNavigationID = navigationID
+    }
+
+    /// Releases the current navigation identity while a policy flow waits to start its replacement.
+    @discardableResult
+    public func prepareForNavigationReplacement(instanceID: UUID) -> Bool {
+        guard let activeTicket, activeTicket.instanceID == instanceID else { return false }
+        activeNavigationID = nil
+        return true
+    }
+
+    /// Completes a reload that has no document and therefore requires no WebKit navigation.
+    public func didCompleteWithoutNavigation(_ ticket: BrowserAutomationNavigationTicket) {
+        guard activeTicket == ticket, activeNavigationID == nil else { return }
+        finish(ticket, with: .committed)
+    }
+
+    /// Terminates a deferred replacement when policy resolution starts no navigation.
+    public func didNotStart(instanceID: UUID) {
+        guard let activeTicket,
+              activeTicket.instanceID == instanceID,
+              activeNavigationID == nil else {
+            return
+        }
+        finish(activeTicket, with: .notStarted)
+    }
+
     /// Records a commit only when it belongs to the exact active navigation.
     public func didCommit(instanceID: UUID, navigationID: ObjectIdentifier?) {
         finishMatching(instanceID: instanceID, navigationID: navigationID, with: .committed)

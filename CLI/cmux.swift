@@ -13353,7 +13353,10 @@ struct CMUXCLI {
                 guard !url.isEmpty else {
                     throw CLIError(message: "browser <surface> open requires a URL")
                 }
-                let payload = try client.sendV2(method: "browser.navigate", params: ["surface_id": sid, "url": url])
+                let payload = try sendBrowserAutomationRequest(
+                    method: "browser.navigate",
+                    params: ["surface_id": sid, "url": url]
+                )
                 output(payload, fallback: "OK")
                 return
             }

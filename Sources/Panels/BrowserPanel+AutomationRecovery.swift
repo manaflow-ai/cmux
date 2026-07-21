@@ -50,7 +50,13 @@ extension BrowserPanel {
         case .disabled:
             navigationStarted(nil)
         case nil:
-            navigationStarted(reload())
+            if let navigation = reload() {
+                navigationStarted(navigation)
+            } else if !webView.isLoading,
+                      !isMainFrameProvisionalNavigationActive,
+                      !hasPendingRemoteNavigation {
+                automationNavigationCoordinator.didCompleteWithoutNavigation(ticket)
+            }
         }
         return (ticket, targetURL)
     }

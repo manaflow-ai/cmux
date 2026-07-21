@@ -90,6 +90,45 @@ struct BrowserAutomationNavigationCoordinatorTests {
         #expect(await coordinator.wait(for: ticket) == .committed)
     }
 
+    @Test("A policy replacement hands the transaction to the new navigation")
+    func policyReplacementHandsOffNavigationIdentity() async {
+        let coordinator = BrowserAutomationNavigationCoordinator()
+        let instanceID = UUID()
+        let originalNavigation = NSObject()
+        let replacementNavigation = NSObject()
+        coordinator.bind(to: instanceID)
+        let ticket = coordinator.begin(instanceID: instanceID)
+        coordinator.didStart(ticket, navigationID: ObjectIdentifier(originalNavigation))
+
+        #expect(coordinator.prepareForNavigationReplacement(instanceID: instanceID))
+        coordinator.didCancel(
+            instanceID: instanceID,
+            navigationID: ObjectIdentifier(originalNavigation)
+        )
+        coordinator.didStart(
+            instanceID: instanceID,
+            navigationID: ObjectIdentifier(replacementNavigation)
+        )
+        coordinator.didCommit(
+            instanceID: instanceID,
+            navigationID: ObjectIdentifier(replacementNavigation)
+        )
+
+        #expect(await coordinator.wait(for: ticket) == .committed)
+    }
+
+    @Test("A URL-less reload can complete without starting WebKit navigation")
+    func reloadWithoutNavigationCompletes() async {
+        let coordinator = BrowserAutomationNavigationCoordinator()
+        let instanceID = UUID()
+        coordinator.bind(to: instanceID)
+        let ticket = coordinator.begin(instanceID: instanceID)
+
+        coordinator.didCompleteWithoutNavigation(ticket)
+
+        #expect(await coordinator.wait(for: ticket) == .committed)
+    }
+
     @Test("A load that returns no navigation terminates as not started")
     func missingNavigationIsNotStarted() async {
         let coordinator = BrowserAutomationNavigationCoordinator()

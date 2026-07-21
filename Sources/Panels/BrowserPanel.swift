@@ -3771,6 +3771,10 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 (webView as? CmuxWebView)?.diffViewerNavigationDidStart(navigation)
+                self.automationNavigationCoordinator.didStart(
+                    instanceID: boundWebViewInstanceID,
+                    navigationID: navigation.map { ObjectIdentifier($0) }
+                )
                 self.isMainFrameProvisionalNavigationActive = true
                 self.refreshBackgroundAppearance()
                 self.applyMuteState(to: webView, reason: "navigationStart")
@@ -4062,6 +4066,9 @@ final class BrowserPanel: Panel, ObservableObject {
         navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] request, intent in
             guard let self else { return }
             let restoreAttemptID = self.currentDiscardRestoreAttemptID
+            let automationInstanceID = self.webViewInstanceID
+            let replacesAutomationNavigation = self.automationNavigationCoordinator
+                .prepareForNavigationReplacement(instanceID: automationInstanceID)
             self.presentInsecureHTTPAlert(
                 for: request,
                 intent: intent,
@@ -4069,7 +4076,18 @@ final class BrowserPanel: Panel, ObservableObject {
                 onResolution: { [weak self] resolution in
                     guard resolution.isTerminalPolicyCancellation else { return }
                     self?.noteDiscardedWebViewRestoreNavigationTerminallyCancelled(restoreAttemptID: restoreAttemptID)
-                }
+                },
+                onNavigationStarted: replacesAutomationNavigation ? { [weak self] navigation in
+                    guard let self else { return }
+                    if let navigation {
+                        self.automationNavigationCoordinator.didStart(
+                            instanceID: automationInstanceID,
+                            navigationID: ObjectIdentifier(navigation)
+                        )
+                    } else {
+                        self.automationNavigationCoordinator.didNotStart(instanceID: automationInstanceID)
+                    }
+                } : nil
             )
         }
         navDelegate.currentRestoreAttemptID = { [weak self] in self?.currentDiscardRestoreAttemptID }
