@@ -3773,7 +3773,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 (webView as? CmuxWebView)?.diffViewerNavigationDidStart(navigation)
                 self.automationNavigationCoordinator.didStart(
                     instanceID: boundWebViewInstanceID,
-                    navigationID: navigation.map { ObjectIdentifier($0) }
+                    navigationID: navigation.map { ObjectIdentifier($0) },
+                    targetURL: Self.remoteProxyDisplayURL(for: self.navigationDelegate?.lastAttemptedURL)
+                        ?? self.navigationDelegate?.lastAttemptedURL
                 )
                 self.isMainFrameProvisionalNavigationActive = true
                 self.refreshBackgroundAppearance()

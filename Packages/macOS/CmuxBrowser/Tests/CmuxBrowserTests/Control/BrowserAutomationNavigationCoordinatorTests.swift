@@ -112,7 +112,8 @@ struct BrowserAutomationNavigationCoordinatorTests {
         )
         coordinator.didStart(
             instanceID: instanceID,
-            navigationID: ObjectIdentifier(replacementNavigation)
+            navigationID: ObjectIdentifier(replacementNavigation),
+            targetURL: fallbackURL
         )
         coordinator.didCommit(
             instanceID: instanceID,
@@ -120,6 +121,23 @@ struct BrowserAutomationNavigationCoordinatorTests {
         )
 
         #expect(await coordinator.wait(for: ticket) == .committed)
+    }
+
+    @Test("An unrelated deferred navigation supersedes the transaction")
+    func unrelatedDeferredNavigationSupersedes() async {
+        let coordinator = BrowserAutomationNavigationCoordinator()
+        let instanceID = UUID()
+        let expectedURL = URL(string: "https://example.com/expected")!
+        coordinator.bind(to: instanceID)
+        let ticket = coordinator.begin(instanceID: instanceID, targetURL: expectedURL)
+
+        coordinator.didStart(
+            instanceID: instanceID,
+            navigationID: ObjectIdentifier(NSObject()),
+            targetURL: URL(string: "https://example.com/unrelated")!
+        )
+
+        #expect(await coordinator.wait(for: ticket) == .superseded)
     }
 
     @Test("An authoritative same-document URL change completes the transaction")

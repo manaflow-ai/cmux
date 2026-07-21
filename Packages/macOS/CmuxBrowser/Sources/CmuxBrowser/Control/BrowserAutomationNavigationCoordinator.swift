@@ -91,13 +91,21 @@ public final class BrowserAutomationNavigationCoordinator {
     }
 
     /// Records a provisional delegate start, binding a deferred or replacement load when needed.
-    public func didStart(instanceID: UUID, navigationID: ObjectIdentifier?) {
+    public func didStart(
+        instanceID: UUID,
+        navigationID: ObjectIdentifier?,
+        targetURL: URL? = nil
+    ) {
         guard let navigationID,
               let activeTicket,
               activeTicket.instanceID == instanceID else {
             return
         }
         if activeNavigationID == nil {
+            if let activeTargetURL, targetURL != activeTargetURL {
+                finish(activeTicket, with: .superseded)
+                return
+            }
             activeNavigationID = navigationID
         }
         if activeNavigationID == navigationID {
