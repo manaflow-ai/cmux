@@ -55,20 +55,20 @@ import UIKit
         #expect(navigation.contentScrollView(for: .bottom) === tableView)
     }
 
-    /// Reverse handoff: a transient replacement takes the registration over
-    /// and clears it when it departs. The surviving table must reclaim the
-    /// registration on its next layout pass instead of trusting its cache.
-    @Test func survivingTableRestoresRegistrationAfterReplacementDeparts() throws {
+    /// While two live tables coexist (SwiftUI transition overlap), the later
+    /// one must not steal the registration: ownership would otherwise become
+    /// layout-order dependent and thrash on every pass.
+    @Test func coexistingTablesDoNotStealRegistrationFromEachOther() throws {
         guard #available(iOS 26.0, *) else { return }
         let fixture = Fixture()
-        let replacement = WorkspaceListUITableView(frame: .zero, style: .plain)
-        fixture.content.view.addSubview(replacement)
-        replacement.layoutIfNeeded()
-        #expect(fixture.content.contentScrollView(for: .top) === replacement)
+        let second = WorkspaceListUITableView(frame: .zero, style: .plain)
 
-        replacement.removeFromSuperview()
-        #expect(fixture.content.contentScrollView(for: .top) == nil)
+        fixture.content.view.addSubview(second)
+        second.layoutIfNeeded()
+        #expect(fixture.content.contentScrollView(for: .top) === fixture.tableView)
 
+        second.setNeedsLayout()
+        second.layoutIfNeeded()
         fixture.tableView.setNeedsLayout()
         fixture.tableView.layoutIfNeeded()
 
@@ -76,16 +76,23 @@ import UIKit
         #expect(fixture.navigation.contentScrollView(for: .bottom) === fixture.tableView)
     }
 
-    @Test func departingTableDoesNotClobberReplacementRegistration() throws {
+    /// When the owning table departs it clears the edges, and the surviving
+    /// table reclaims them on its next layout pass.
+    @Test func survivingTableReclaimsRegistrationAfterOwnerDeparts() throws {
         guard #available(iOS 26.0, *) else { return }
         let fixture = Fixture()
-        let replacement = WorkspaceListUITableView(frame: .zero, style: .plain)
+        let second = WorkspaceListUITableView(frame: .zero, style: .plain)
+        fixture.content.view.addSubview(second)
+        second.layoutIfNeeded()
 
-        fixture.content.view.addSubview(replacement)
-        replacement.layoutIfNeeded()
         fixture.tableView.removeFromSuperview()
+        #expect(fixture.content.contentScrollView(for: .top) == nil)
 
-        #expect(fixture.content.contentScrollView(for: .top) === replacement)
+        second.setNeedsLayout()
+        second.layoutIfNeeded()
+
+        #expect(fixture.content.contentScrollView(for: .top) === second)
+        #expect(fixture.navigation.contentScrollView(for: .bottom) === second)
     }
 
     /// Table hosted under `UITabBarController > UINavigationController >

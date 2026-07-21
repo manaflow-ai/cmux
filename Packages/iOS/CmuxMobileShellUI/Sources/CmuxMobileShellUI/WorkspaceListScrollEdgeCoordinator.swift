@@ -16,12 +16,19 @@ final class WorkspaceListScrollEdgeCoordinator {
     private weak var navigationContentController: UIViewController?
     private weak var tabContentController: UIViewController?
 
-    /// Re-resolves the bar-owning controllers for `scrollView` and registers
-    /// it with them. Called on every layout pass: the controller chain can
-    /// assemble incrementally (navigation controller before tab controller)
-    /// or reparent without the window changing, so a one-shot registration
-    /// would strand a partially registered edge. The identity guard makes the
-    /// repeated call a no-op (a few pointer hops) when nothing changed.
+    /// Re-resolves the bar-owning controllers for `scrollView` and claims any
+    /// edge whose registration is vacant. Called on every layout pass: the
+    /// controller chain can assemble incrementally (navigation controller
+    /// before tab controller) or reparent without the window changing, so a
+    /// one-shot registration would strand a partially registered edge.
+    ///
+    /// Ownership arbitration: an edge is claimed only when its current
+    /// registration is nil or held by a detached scroll view. A different
+    /// LIVE table keeps its registration, so coexisting tables (SwiftUI
+    /// transition overlap) never steal from each other; when the owner
+    /// departs it clears the edge and the survivor reclaims on its next
+    /// layout pass. When nothing changed this is a no-op costing a short
+    /// parent walk and two getter comparisons.
     func registerIfNeeded(for scrollView: UIScrollView) {
         guard #available(iOS 26.0, *) else { return }
         guard scrollView.window != nil else { return }
@@ -32,49 +39,56 @@ final class WorkspaceListScrollEdgeCoordinator {
             hosting: scrollView, inParentOfKind: UITabBarController.self
         )
         guard navigationContent != nil || tabContent != nil else { return }
-        // Compare the controllers' EFFECTIVE registration, not just cached
-        // identities: a transient replacement table can take a registration
-        // over and then clear it on departure, leaving this surviving table's
-        // cache claiming ownership it no longer holds. Re-registering on the
-        // next layout pass makes the handoff self-healing in both directions.
-        let topIsCurrent = navigationContent.map {
-            $0.contentScrollView(for: .top) === scrollView
-        } ?? true
-        let bottomIsCurrent = tabContent.map {
-            $0.contentScrollView(for: .bottom) === scrollView
-        } ?? true
-        guard navigationContent !== navigationContentController
-            || tabContent !== tabContentController
-            || scrollView !== registeredScrollView
-            || !topIsCurrent
-            || !bottomIsCurrent
-        else { return }
-        unregister()
+
+        if navigationContent !== navigationContentController
+            || scrollView !== registeredScrollView {
+            clearEdgeIfOwned(on: navigationContentController, edge: .top)
+        }
+        if tabContent !== tabContentController || scrollView !== registeredScrollView {
+            clearEdgeIfOwned(on: tabContentController, edge: .bottom)
+        }
         registeredScrollView = scrollView
         navigationContentController = navigationContent
         tabContentController = tabContent
-        navigationContent?.setContentScrollView(scrollView, for: .top)
-        tabContent?.setContentScrollView(scrollView, for: .bottom)
+
+        if let navigationContent,
+           Self.canClaim(current: navigationContent.contentScrollView(for: .top),
+                         claimant: scrollView) {
+            navigationContent.setContentScrollView(scrollView, for: .top)
+        }
+        if let tabContent,
+           Self.canClaim(current: tabContent.contentScrollView(for: .bottom),
+                         claimant: scrollView) {
+            tabContent.setContentScrollView(scrollView, for: .bottom)
+        }
     }
 
-    /// Clears this coordinator's registrations. A registration already taken
-    /// over by a replacement table (same controller, different scroll view)
-    /// is left intact.
+    /// Clears this coordinator's registrations. A registration held by
+    /// another table (same controller, different scroll view) is left intact.
     func unregister() {
         guard #available(iOS 26.0, *) else { return }
-        if let controller = navigationContentController,
-           let scrollView = registeredScrollView,
-           controller.contentScrollView(for: .top) === scrollView {
-            controller.setContentScrollView(nil, for: .top)
-        }
-        if let controller = tabContentController,
-           let scrollView = registeredScrollView,
-           controller.contentScrollView(for: .bottom) === scrollView {
-            controller.setContentScrollView(nil, for: .bottom)
-        }
+        clearEdgeIfOwned(on: navigationContentController, edge: .top)
+        clearEdgeIfOwned(on: tabContentController, edge: .bottom)
         navigationContentController = nil
         tabContentController = nil
         registeredScrollView = nil
+    }
+
+    private func clearEdgeIfOwned(on controller: UIViewController?, edge: NSDirectionalRectEdge) {
+        guard let controller,
+              let scrollView = registeredScrollView,
+              controller.contentScrollView(for: edge) === scrollView else { return }
+        controller.setContentScrollView(nil, for: edge)
+    }
+
+    /// Vacant (nil) and stale (holder departed its window without clearing,
+    /// e.g. deallocated mid-transition) registrations are claimable. An edge
+    /// already held by the claimant needs no re-set, and a different live
+    /// scroll view keeps ownership.
+    private static func canClaim(current: UIScrollView?, claimant: UIScrollView) -> Bool {
+        guard let current else { return true }
+        if current === claimant { return false }
+        return current.window == nil
     }
 
     /// The last view controller on `view`'s parent chain before the first
