@@ -76,13 +76,12 @@ public struct ArtifactByteReader: Sendable {
 
     /// Generates a JPEG thumbnail for an already-authorized image path.
     public func thumbnail(path: String, maxDimension: Int) throws -> ChatArtifactThumbnail {
+        let opened = try openVerifiedRegularFile(path: path)
+        try? opened.handle.close()
         guard kind(path: path, isDirectory: false) == .image else {
             throw Error.unsupportedMedia
         }
         let url = URL(fileURLWithPath: path)
-        guard FileManager.default.fileExists(atPath: path) else {
-            throw Error.fileNotFound
-        }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
             throw Error.unsupportedMedia
         }
@@ -161,6 +160,7 @@ public struct ArtifactByteReader: Sendable {
         isRegularFile: Bool?
     ) -> ChatArtifactKind {
         if isDirectory { return .directory }
+        if isRegularFile == false { return .binary }
         let fileExtension = URL(fileURLWithPath: path).pathExtension
         let type = fileExtension.isEmpty ? nil : UTType(filenameExtension: fileExtension)
         guard let type, !type.isDynamic else {

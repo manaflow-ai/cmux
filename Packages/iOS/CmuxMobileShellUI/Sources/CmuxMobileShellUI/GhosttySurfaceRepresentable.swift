@@ -182,7 +182,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var artifactCountState = TerminalArtifactChipCountState()
         var artifactCountNeedsRefresh: Bool
         var freshestLocalArtifactCount = 0
-        /// Taps must apply in user order: every tap invalidates older pending work.
+        /// Taps must apply in user order, and stopping the live mount invalidates pending work.
         /// Same-path taps intentionally classify independently so the newest coordinates
         /// win; human tap rate and the two-second deadline bound concurrent stats.
         var tapGeneration: UInt64 = 0
@@ -415,6 +415,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         }
 
         private func stopMountedTasks() {
+            tapGeneration &+= 1
             outputStartContinuation?.finish()
             outputStartContinuation = nil
             preparedViewportReportsByReportID.removeAll()
