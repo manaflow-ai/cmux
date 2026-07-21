@@ -302,6 +302,7 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
             return .resolved(floatingDockMutationPayload(dock: dock, workspace: workspace, tabManager: tabManager))
         case .close(let selector):
             guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
+            let needsNoteFlush = dock.store.needsAutosavingNoteFlush
             let payload = floatingDockMutationPayload(dock: dock, workspace: workspace, tabManager: tabManager)
             guard AppDelegate.shared?.closeWorkspaceFloatingDock(
                 dock,
@@ -309,16 +310,29 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
                 tabManager: tabManager,
                 policy: .force
             ) == true else { return .operationFailed("close cancelled") }
+            if needsNoteFlush {
+                return .pending(floatingDockPendingPayload(payload))
+            }
             return .resolved(payload)
         case .closeAll:
             guard let appDelegate = AppDelegate.shared else {
                 return .operationFailed("Failed to close floating Docks")
             }
+            let requestedCount = workspace.floatingDocks.count
+            let needsNoteFlush = workspace.floatingDocks.contains { $0.store.needsAutosavingNoteFlush }
             guard let closedCount = appDelegate.closeAllWorkspaceFloatingDocks(
                 in: workspace,
                 tabManager: tabManager,
                 policy: .force
             ) else { return .operationFailed("close cancelled") }
+            if needsNoteFlush {
+                return .pending(.object([
+                    "workspace_id": .string(workspace.id.uuidString),
+                    "closed_count": .int(0),
+                    "requested_count": .int(Int64(requestedCount)),
+                    "status": .string("pending"),
+                ]))
+            }
             return .resolved(.object([
                 "workspace_id": .string(workspace.id.uuidString),
                 "closed_count": .int(Int64(closedCount)),
@@ -455,6 +469,12 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
     ) -> JSONValue {
         let index = workspace.floatingDocks.firstIndex(where: { $0.id == dock.id }) ?? 0
         return floatingDockPayload(dock: dock, index: index, workspace: workspace, tabManager: tabManager)
+    }
+
+    private func floatingDockPendingPayload(_ payload: JSONValue) -> JSONValue {
+        guard case .object(var fields) = payload else { return payload }
+        fields["status"] = .string("pending")
+        return .object(fields)
     }
 
     private func floatingDockPayload(

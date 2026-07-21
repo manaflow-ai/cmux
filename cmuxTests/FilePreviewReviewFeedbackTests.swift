@@ -189,7 +189,10 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         await panel.loadTextContent().value
         panel.updateTextContent("latest editor contents")
 
-        let flushTask = Task { @MainActor in
+        let firstFlushTask = Task { @MainActor in
+            await panel.flushPendingAutosave()
+        }
+        let secondFlushTask = Task { @MainActor in
             await panel.flushPendingAutosave()
         }
         await gate.waitUntilSaveStarts()
@@ -198,10 +201,16 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         // proves lifecycle persistence suspends the UI instead of blocking it.
         XCTAssertTrue(panel.isSaving)
         XCTAssertTrue(panel.isDirty)
+        let savesWhilePending = await gate.saveCount()
+        XCTAssertEqual(savesWhilePending, 1)
 
         await gate.finishSave()
-        let didFlush = await flushTask.value
-        XCTAssertTrue(didFlush)
+        let firstDidFlush = await firstFlushTask.value
+        let secondDidFlush = await secondFlushTask.value
+        XCTAssertTrue(firstDidFlush)
+        XCTAssertTrue(secondDidFlush)
+        let totalSaves = await gate.saveCount()
+        XCTAssertEqual(totalSaves, 1)
         XCTAssertFalse(panel.isSaving)
         XCTAssertFalse(panel.isDirty)
     }
@@ -722,10 +731,12 @@ private actor FilePreviewAutosaveProbe {
 
 private actor FilePreviewAutosaveGate {
     private var saveStarted = false
+    private var saves = 0
     private var saveStartWaiters: [CheckedContinuation<Void, Never>] = []
     private var saveContinuation: CheckedContinuation<FilePreviewTextSaver.Result, Never>?
 
     func save() async -> FilePreviewTextSaver.Result {
+        saves += 1
         saveStarted = true
         let waiters = saveStartWaiters
         saveStartWaiters.removeAll()
@@ -745,6 +756,10 @@ private actor FilePreviewAutosaveGate {
     func finishSave() {
         saveContinuation?.resume(returning: .saved)
         saveContinuation = nil
+    }
+
+    func saveCount() -> Int {
+        saves
     }
 }
 

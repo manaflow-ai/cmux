@@ -171,6 +171,16 @@ enum WorkspaceFloatingDockNoteOwnerRegistry {
         owner(forKey: key)?.bindManagedNotePanel(panel)
     }
 
+    static func unregister(_ panel: FilePreviewPanel) {
+        let key = canonicalPath(panel.filePath)
+        let live = livePanels(forKey: key).filter { $0 !== panel }
+        if live.isEmpty {
+            panels.removeValue(forKey: key)
+        } else {
+            panels[key] = live.map(WeakPanel.init)
+        }
+    }
+
     static func panels(for dock: WorkspaceFloatingDock) -> [FilePreviewPanel] {
         livePanels(forKey: canonicalPath(dock.noteFilePath))
     }

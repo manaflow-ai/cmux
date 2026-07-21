@@ -460,6 +460,13 @@ extension TerminalController {
                 forTabId: windowDock.workspaceId,
                 surfaceId: surfaceId
             )
+            if windowDock.isAutosaveClosePending(panelId: surfaceId) {
+                return .pending(
+                    windowID: dockResultWindowId(for: windowDock, tabManager: tabManager),
+                    workspaceID: windowDock.workspaceId,
+                    surfaceID: surfaceId
+                )
+            }
             return .closed(
                 windowID: dockResultWindowId(for: windowDock, tabManager: tabManager),
                 workspaceID: windowDock.workspaceId,
@@ -468,6 +475,13 @@ extension TerminalController {
         } else if ws.containsDockPanel(surfaceId) {
             guard ws.closeDockPanelAndClearNotifications(surfaceId, force: true) else {
                 return .closeFailed(surfaceId)
+            }
+            if ws.isDockAutosaveClosePending(panelId: surfaceId) {
+                return .pending(
+                    windowID: v2ResolveWindowId(tabManager: tabManager),
+                    workspaceID: ws.id,
+                    surfaceID: surfaceId
+                )
             }
             return .closed(
                 windowID: v2ResolveWindowId(tabManager: tabManager),
@@ -484,6 +498,13 @@ extension TerminalController {
         // Socket API must be non-interactive: bypass close-confirmation gating.
         guard controlCloseSurfaceRecordingHistory(in: ws, surfaceId: surfaceId, force: true) else {
             return .closeFailed(surfaceId)
+        }
+        if ws.isAutosaveClosePending(panelId: surfaceId) {
+            return .pending(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: ws.id,
+                surfaceID: surfaceId
+            )
         }
         return .closed(
             windowID: v2ResolveWindowId(tabManager: tabManager),

@@ -253,22 +253,26 @@ extension AppDelegate {
         if !needsNoteFlush,
            policy == .confirmInteractive,
            !dock.store.confirmCloseAllPanels() { return false }
+        if !needsNoteFlush {
+            guard workspace.finalizeFloatingDockClose(id: dock.id) else { return false }
+            refreshWorkspaceFloatingDocks(for: tabManager)
+            return true
+        }
         guard workspace.pendingFloatingDockCloseIds.insert(dock.id).inserted else { return true }
-        Task { @MainActor [weak self, weak workspace, weak tabManager] in
-            guard let self, let workspace, let tabManager else { return }
+        Task { @MainActor [weak self, weak workspace, tabManager] in
+            guard let workspace else { return }
+            defer { workspace.pendingFloatingDockCloseIds.remove(dock.id) }
+            guard let self else { return }
             if needsNoteFlush {
                 guard await dock.store.flushPendingAutosavingNotes() else {
-                    workspace.pendingFloatingDockCloseIds.remove(dock.id)
                     NSSound.beep()
                     return
                 }
                 guard policy == .force || dock.store.confirmCloseAllPanels() else {
-                    workspace.pendingFloatingDockCloseIds.remove(dock.id)
                     return
                 }
             }
-            let closed = await workspace.closeFloatingDock(id: dock.id)
-            workspace.pendingFloatingDockCloseIds.remove(dock.id)
+            let closed = workspace.finalizeFloatingDockClose(id: dock.id)
             guard closed else { return }
             self.refreshWorkspaceFloatingDocks(for: tabManager)
         }
@@ -289,16 +293,22 @@ extension AppDelegate {
                in: docks.map(\.store),
                confirmationManager: tabManager
            ) { return nil }
+        if !needsNoteFlush {
+            let closedCount = workspace.finalizeAllFloatingDockCloses()
+            refreshWorkspaceFloatingDocks(for: tabManager)
+            return closedCount
+        }
         guard !workspace.isPendingCloseAllFloatingDocks else {
             return docks.count
         }
         workspace.isPendingCloseAllFloatingDocks = true
-        Task { @MainActor [weak self, weak workspace, weak tabManager] in
-            guard let self, let workspace, let tabManager else { return }
+        Task { @MainActor [weak self, weak workspace, tabManager] in
+            guard let workspace else { return }
+            defer { workspace.isPendingCloseAllFloatingDocks = false }
+            guard let self else { return }
             if needsNoteFlush {
                 for dock in docks {
                     guard await dock.store.flushPendingAutosavingNotes() else {
-                        workspace.isPendingCloseAllFloatingDocks = false
                         NSSound.beep()
                         return
                     }
@@ -308,13 +318,10 @@ extension AppDelegate {
                        in: docks.map(\.store),
                        confirmationManager: tabManager
                    ) {
-                    workspace.isPendingCloseAllFloatingDocks = false
                     return
                 }
             }
-            let closedCount = await workspace.closeAllFloatingDocks()
-            workspace.isPendingCloseAllFloatingDocks = false
-            guard closedCount != nil else { return }
+            _ = workspace.finalizeAllFloatingDockCloses()
             self.refreshWorkspaceFloatingDocks(for: tabManager)
         }
         return docks.count

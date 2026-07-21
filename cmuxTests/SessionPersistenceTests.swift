@@ -789,6 +789,44 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
     }
 
+    @MainActor
+    func testClosingFloatingDockUnregistersItsRetainedNotePanel() async throws {
+        let noteURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-note-owner-\(UUID().uuidString)")
+            .appendingPathExtension("md")
+        defer { try? FileManager.default.removeItem(at: noteURL) }
+        let firstDock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "First owner",
+            frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+            isPresented: false,
+            noteFilePath: noteURL.path,
+            initialContent: .note,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        let retainedPanel = try XCTUnwrap(firstDock.notePanel)
+        await retainedPanel.loadTextContent().value
+        firstDock.close()
+
+        let replacementDock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Replacement owner",
+            frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+            isPresented: false,
+            noteFilePath: noteURL.path,
+            initialContent: nil,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        defer { replacementDock.close() }
+
+        retainedPanel.updateTextContent("must not bind to replacement")
+        XCTAssertEqual(replacementDock.noteTextSnapshot, "")
+    }
+
     func testFloatingDockNoteStorageDoesNotTraverseSymbolicLinks() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-floating-note-gc-root-\(UUID().uuidString)", isDirectory: true)

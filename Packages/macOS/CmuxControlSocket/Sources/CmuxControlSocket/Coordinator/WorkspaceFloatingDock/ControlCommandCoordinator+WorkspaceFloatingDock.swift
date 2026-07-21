@@ -296,6 +296,8 @@ extension ControlCommandCoordinator {
             )
         case .operationFailed:
             return .err(code: "internal_error", message: "The floating Dock operation failed", data: nil)
+        case .pending(let payload):
+            return .ok(payload)
         case .resolved(let payload):
             return .ok(payload)
         }

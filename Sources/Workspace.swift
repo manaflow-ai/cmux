@@ -8575,8 +8575,14 @@ final class Workspace: Identifiable, ObservableObject {
 
     func requestCloseTab(_ tabId: TabID, force: Bool) -> Bool {
         if force { forceCloseTabIds.insert(tabId) }
-        let closed = bonsplitController.closeTab(tabId); if force && !closed { forceCloseTabIds.remove(tabId) }
-        return closed
+        let closed = bonsplitController.closeTab(tabId)
+        let pending = pendingAutosaveCloseTabIds.contains(tabId)
+        if force && !closed && !pending { forceCloseTabIds.remove(tabId) }
+        return closed || pending
+    }
+
+    func isAutosaveClosePending(panelId: UUID) -> Bool {
+        surfaceIdFromPanelId(panelId).map(pendingAutosaveCloseTabIds.contains) ?? false
     }
 
     private func applyInitialSplitDividerPosition(_ position: CGFloat?, sourcePaneId: PaneID, newPaneId: PaneID) {

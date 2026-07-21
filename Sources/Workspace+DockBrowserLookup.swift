@@ -38,6 +38,10 @@ extension Workspace {
         return true
     }
 
+    func isDockAutosaveClosePending(panelId: UUID) -> Bool {
+        _dockSplit?.isAutosaveClosePending(panelId: panelId) ?? false
+    }
+
     func openDockBrowserLinkInNewTab(panel: BrowserPanel, seed: BrowserNewTabNavigationSeed) -> Bool {
         guard let dock = _dockSplit, let paneId = dock.paneId(forPanelId: panel.id) else { return false }
         return dock.newSurface(
@@ -131,8 +135,13 @@ extension DockSplitStore {
         guard let tabId = surfaceId(forPanelId: panelId) else { return false }
         if force { forceCloseDockTabIds.insert(tabId) }
         let closed = bonsplitController.closeTab(tabId)
-        if force && !closed { forceCloseDockTabIds.remove(tabId) }
-        return closed
+        let pending = pendingAutosaveCloseDockTabIds.contains(tabId)
+        if force && !closed && !pending { forceCloseDockTabIds.remove(tabId) }
+        return closed || pending
+    }
+
+    func isAutosaveClosePending(panelId: UUID) -> Bool {
+        surfaceId(forPanelId: panelId).map(pendingAutosaveCloseDockTabIds.contains) ?? false
     }
 
     func applyRemoteProxyEndpointUpdate(_ endpoint: BrowserProxyEndpoint?) {

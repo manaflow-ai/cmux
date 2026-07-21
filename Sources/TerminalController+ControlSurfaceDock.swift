@@ -438,6 +438,13 @@ extension TerminalController {
             forTabId: windowDock.workspaceId,
             surfaceId: surfaceId
         )
+        if windowDock.isAutosaveClosePending(panelId: surfaceId) {
+            return .pending(
+                windowID: dockResultWindowId(for: windowDock, tabManager: tabManager),
+                workspaceID: windowDock.workspaceId,
+                surfaceID: surfaceId
+            )
+        }
         return .closed(
             windowID: dockResultWindowId(for: windowDock, tabManager: tabManager),
             workspaceID: windowDock.workspaceId,

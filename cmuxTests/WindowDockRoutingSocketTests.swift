@@ -572,10 +572,35 @@ struct WindowDockRoutingSocketTests {
                 "workspace_id": workspace.id.uuidString,
                 "float": dock.id.uuidString,
             ])
+            let pendingResult = try #require(response["result"] as? [String: Any])
+            #expect(pendingResult["status"] as? String == "pending")
             await waitForFloatingDockClose(dock.id, in: workspace)
 
             #expect(response["ok"] as? Bool == true)
             #expect(workspace.floatingDock(id: dock.id) == nil)
+        }
+    }
+
+    @Test("Floating Dock surface close reports pending while its note saves")
+    @MainActor
+    func floatingDockSurfaceCloseReportsPendingNoteSave() async throws {
+        try await withSocketAppContext { _, workspace, _ in
+            let dock = try #require(workspace.createFloatingDock(initialContent: .note))
+            let note = try #require(dock.notePanel)
+            await note.loadTextContent().value
+            note.updateTextContent("persist before surface close")
+
+            let result = try v2Result(method: "surface.close", params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": note.id.uuidString,
+            ])
+
+            #expect(result["status"] as? String == "pending")
+            let deadline = ContinuousClock.now + .seconds(2)
+            while dock.store.containsPanel(note.id), ContinuousClock.now < deadline {
+                await Task.yield()
+            }
+            #expect(!dock.store.containsPanel(note.id))
         }
     }
 

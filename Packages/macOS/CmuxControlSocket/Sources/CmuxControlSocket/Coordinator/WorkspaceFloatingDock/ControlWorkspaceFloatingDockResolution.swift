@@ -12,5 +12,8 @@ public enum ControlWorkspaceFloatingDockResolution: Sendable, Equatable {
     case invalidDirection(String)
     case invalidColor(String)
     case operationFailed(String)
+    /// The close was accepted and is waiting for note persistence. Callers can
+    /// poll `workspace.float.list`; the payload identifies the requested Dock.
+    case pending(JSONValue)
     case resolved(JSONValue)
 }

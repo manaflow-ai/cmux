@@ -98,6 +98,21 @@ struct ControlCommandCoordinatorWorkspaceFloatingDockTests {
         #expect(context.lastAction == .closeAll)
     }
 
+    @Test func closePendingReturnsAcceptedPayload() {
+        let (coordinator, context) = makeCoordinator()
+        let payload: JSONValue = .object([
+            "float_id": .string(UUID().uuidString),
+            "status": .string("pending"),
+        ])
+        context.resolution = .pending(payload)
+
+        let result = coordinator.handle(request("workspace.float.close", [
+            "float": .string("float:1"),
+        ]))
+
+        #expect(result == .ok(payload))
+    }
+
     @Test func createRejectsPartialFrameBeforeMutation() {
         let (coordinator, context) = makeCoordinator()
         let result = coordinator.handle(request("workspace.float.create", ["width": .int(500)]))

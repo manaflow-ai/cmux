@@ -216,6 +216,11 @@ extension Workspace {
             NSSound.beep()
             return false
         }
+        return finalizeFloatingDockClose(id: id)
+    }
+
+    func finalizeFloatingDockClose(id: UUID) -> Bool {
+        guard let index = floatingDocks.firstIndex(where: { $0.id == id }) else { return false }
         let dock = floatingDocks.remove(at: index)
         dock.close()
         return true
@@ -229,6 +234,10 @@ extension Workspace {
                 return nil
             }
         }
+        return finalizeAllFloatingDockCloses()
+    }
+
+    func finalizeAllFloatingDockCloses() -> Int {
         let docks = floatingDocks
         floatingDocks.removeAll(keepingCapacity: true)
         docks.forEach { $0.close() }

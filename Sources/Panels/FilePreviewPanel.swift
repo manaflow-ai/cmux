@@ -1031,6 +1031,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var autosaveRequested = false
     private var autosaveFlushRequested = false
     private var autosaveDebounceTask: Task<Void, Never>?
+    private var autosaveLifecycleFlushTask: Task<Bool, Never>?
     var autosavedTextDidChange: ((String) -> Void)?
     weak var textView: NSTextView?
     let focusCoordinator: FilePreviewFocusCoordinator
@@ -1114,6 +1115,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     func close() {
+        WorkspaceFloatingDockNoteOwnerRegistry.unregister(self)
         if presentation.autosavesTextChanges {
             requestAutosave(immediate: true)
         }
@@ -1277,6 +1279,20 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     /// actor during filesystem work. A newer edit observed during the write is
     /// flushed in the next pass before this returns success.
     func flushPendingAutosave() async -> Bool {
+        if let autosaveLifecycleFlushTask {
+            return await autosaveLifecycleFlushTask.value
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return true }
+            return await self.performPendingAutosaveFlush()
+        }
+        autosaveLifecycleFlushTask = task
+        let result = await task.value
+        autosaveLifecycleFlushTask = nil
+        return result
+    }
+
+    private func performPendingAutosaveFlush() async -> Bool {
         guard presentation.autosavesTextChanges, previewMode == .text else { return true }
         while needsAutosaveFlush {
             autosaveDebounceTask?.cancel()
