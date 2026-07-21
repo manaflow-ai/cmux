@@ -138,6 +138,11 @@ final class RemoteTmuxControlConnection {
     /// Number of reconnect attempts since the last successful connect, driving the
     /// capped exponential backoff. Reset to 0 on a successful connect.
     private var reconnectAttemptCount = 0
+    /// Set when a reconnect stopped because the host wants interactive authentication
+    /// and a consumer was told. No retry is scheduled while this is true: the mirror is
+    /// deliberately parked (frozen, not ended) until ``resumeAfterInteractiveAuth()``
+    /// or ``stop()``.
+    private var awaitingInteractiveAuth = false
     /// stderr text captured for the in-flight spawn, inspected when a reconnect
     /// attempt's process exits to tell "session genuinely gone" from "host still
     /// unreachable". Reset at the start of each spawn.
@@ -494,6 +499,7 @@ final class RemoteTmuxControlConnection {
         // `%exit` or a session found gone on reconnect) notifies exit observers — so
         // detach / quit / window-close (preserve) and transport drops do not.
         connectionState = .ended
+        awaitingInteractiveAuth = false
         cancelScheduledWork()
         teardownProcessHandles()
     }
@@ -653,17 +659,43 @@ final class RemoteTmuxControlConnection {
             // stop or stderr overflow aborting this reconnect attempt).
             guard generation == processGeneration,
                   connectionState == .reconnecting else { return }
-            // Classify: a session/server found gone is a genuine end; anything else
-            // (host unreachable, refused) is transient — keep retrying with backoff.
-            let sessionGone = decoding.stderrIndicatesSessionGone(stderrBuffer)
-                || decoding.controlOutputIndicatesSessionGone(preControlOutputBuffer)
+            // Classify into three outcomes, not two. A session/server found gone is a
+            // genuine end. A host asking for interactive authentication is NOT
+            // transient: the reconnect runs `BatchMode=yes` on pipes with no tty, so
+            // no number of retries can ever satisfy a password / MFA / FIDO touch —
+            // retrying forever leaves the mirror frozen with nothing on screen to
+            // explain why. Everything else (unreachable, refused) stays transient.
+            let disposition = RemoteTmuxReconnectDisposition.classify(
+                stderr: stderrBuffer,
+                preControlOutput: preControlOutputBuffer,
+                decoding: decoding
+            )
             teardownProcessHandles()
-            if sessionGone {
+            if disposition == .sessionGone {
                 record("reconnect-session-gone")
                 connectionState = .ended
                 reconnectTask?.cancel()
                 reconnectTask = nil
                 observers.notifyExit()
+            } else if disposition == .authRequired {
+                // Stop the pointless retry loop and hand the user a login. The state
+                // stays `.reconnecting` (the mirror is frozen, not dead) so the
+                // session and every mirrored workspace survive the outage; a consumer
+                // runs the argv under a tty and calls `resumeAfterInteractiveAuth()`.
+                record("reconnect-auth-required")
+                reconnectTask?.cancel()
+                reconnectTask = nil
+                awaitingInteractiveAuth = true
+                let handled = observers.notifyAuthRequired(sshArgv: host.interactiveAuthInvocation())
+                if !handled {
+                    // Nobody is listening, so no login can arrive. Falling back to the
+                    // backoff loop is strictly better than freezing forever: the host
+                    // may become reachable without auth (a warm ControlMaster opened
+                    // elsewhere), and the retry keeps that recovery possible.
+                    record("reconnect-auth-required-unhandled")
+                    awaitingInteractiveAuth = false
+                    scheduleReconnectAttempt()
+                }
             } else {
                 scheduleReconnectAttempt()
             }
@@ -695,7 +727,24 @@ final class RemoteTmuxControlConnection {
         pendingPostAttachAction = nil
         teardownProcessHandles()
         reconnectAttemptCount = 0
+        awaitingInteractiveAuth = false
         connectionState = .reconnecting
+        scheduleReconnectAttempt()
+    }
+
+    /// Resumes reconnecting after the user completed an interactive login.
+    ///
+    /// Call this once the argv handed to `onAuthRequired` has exited successfully, so
+    /// the shared ControlMaster is open and a pipe-backed re-attach can now
+    /// authenticate over it. Retries start immediately (no backoff wait): the reason
+    /// the previous attempt failed is gone, so making the user wait out a stale
+    /// backoff would only look broken. Idempotent, and a no-op unless the connection
+    /// is actually parked, so a duplicate callback cannot spawn a second retry chain.
+    func resumeAfterInteractiveAuth() {
+        guard awaitingInteractiveAuth, connectionState == .reconnecting else { return }
+        record("resume-after-interactive-auth")
+        awaitingInteractiveAuth = false
+        reconnectAttemptCount = 0
         scheduleReconnectAttempt()
     }
 
