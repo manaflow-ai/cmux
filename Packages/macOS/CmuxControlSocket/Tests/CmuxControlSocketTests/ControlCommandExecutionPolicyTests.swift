@@ -153,6 +153,13 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forV1Command: "read_screen") == .socketWorker(mainThreadCallable: false))
     }
 
+    @Test func floatingNoteWritesRunOnTheWorkerAndAreNotMainThreadCallable() {
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "workspace.float.note.set")
+                == .socketWorker(mainThreadCallable: false)
+        )
+    }
+
     @Test func v1PingRunsOnTheWorkerAndIsMainThreadCallable() {
         // `ping` is the dispatcher's former hard-coded worker fast path; it is
         // a pure probe, so in-process main-thread callers may run it inline.

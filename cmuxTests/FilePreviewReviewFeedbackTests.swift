@@ -298,6 +298,31 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         }
     }
 
+    func testTextSaverPreservesSymbolicLinkDestination() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-preview-symlink-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let destination = root.appendingPathComponent("destination.txt")
+        let link = root.appendingPathComponent("link.txt")
+        try "before".write(to: destination, atomically: false, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: destination)
+
+        guard case .saved = FilePreviewTextSaver.saveSynchronously(
+            content: "after",
+            to: link,
+            encoding: .utf8
+        ) else {
+            XCTFail("Expected save through symbolic link to succeed")
+            return
+        }
+
+        let values = try link.resourceValues(forKeys: [.isSymbolicLinkKey])
+        XCTAssertEqual(values.isSymbolicLink, true)
+        XCTAssertEqual(try String(contentsOf: destination, encoding: .utf8), "after")
+    }
+
     func testFocusCoordinatorKeepsPendingFocusUntilEndpointHasWindow() {
         let textView = FilePreviewReviewFocusTestView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
         let coordinator = FilePreviewFocusCoordinator(preferredIntent: .textEditor)

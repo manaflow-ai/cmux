@@ -15,6 +15,10 @@ import Testing
 /// See https://github.com/manaflow-ai/cmux/issues/7142.
 @Suite("Window Dock socket routing", .serialized)
 struct WindowDockRoutingSocketTests {
+    private static let socketWorkerQueue = DispatchQueue(
+        label: "com.cmux.tests.floating-note-socket-worker"
+    )
+
     @MainActor
     private func v2Envelope(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
         let request: [String: Any] = [
@@ -36,6 +40,28 @@ struct WindowDockRoutingSocketTests {
             Issue.record("Expected \(method) to succeed: \(envelope)")
         }
         return try #require(envelope["result"] as? [String: Any])
+    }
+
+    @MainActor
+    private func v2EnvelopeOnSocketWorker(
+        method: String,
+        params: [String: Any] = [:]
+    ) async throws -> [String: Any] {
+        let request: [String: Any] = [
+            "id": method,
+            "method": method,
+            "params": params,
+        ]
+        let requestData = try JSONSerialization.data(withJSONObject: request)
+        let requestLine = try #require(String(data: requestData, encoding: .utf8))
+        let controller = TerminalController.shared
+        let raw = await withCheckedContinuation { continuation in
+            Self.socketWorkerQueue.async {
+                continuation.resume(returning: controller.handleSocketLine(requestLine))
+            }
+        }
+        let responseData = try #require(raw.data(using: .utf8))
+        return try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
     }
 
     @MainActor
@@ -148,8 +174,8 @@ struct WindowDockRoutingSocketTests {
 
     @Test("Floating Dock note writes finish before success and report persistence failures")
     @MainActor
-    func floatingDockNoteWritesAreAcknowledgedAfterPersistence() throws {
-        try withSocketAppContext { _, workspace, _ in
+    func floatingDockNoteWritesAreAcknowledgedAfterPersistence() async throws {
+        try await withSocketAppContext { _, workspace, _ in
             let root = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-floating-note-write-\(UUID().uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -169,7 +195,7 @@ struct WindowDockRoutingSocketTests {
             )
             workspace.floatingDocks.append(dock)
 
-            let first = try v2Envelope(method: "workspace.float.note.set", params: [
+            let first = try await v2EnvelopeOnSocketWorker(method: "workspace.float.note.set", params: [
                 "workspace_id": workspace.id.uuidString,
                 "float": dock.id.uuidString,
                 "text": "first",
@@ -177,7 +203,7 @@ struct WindowDockRoutingSocketTests {
             #expect(first["ok"] as? Bool == true)
             #expect(try String(contentsOf: noteURL, encoding: .utf8) == "first")
 
-            let second = try v2Envelope(method: "workspace.float.note.set", params: [
+            let second = try await v2EnvelopeOnSocketWorker(method: "workspace.float.note.set", params: [
                 "workspace_id": workspace.id.uuidString,
                 "float": dock.id.uuidString,
                 "text": "second",
@@ -199,13 +225,47 @@ struct WindowDockRoutingSocketTests {
                 remoteBrowserSettingsProvider: { .local }
             )
             workspace.floatingDocks.append(blockedDock)
-            let failed = try v2Envelope(method: "workspace.float.note.set", params: [
+            let failed = try await v2EnvelopeOnSocketWorker(method: "workspace.float.note.set", params: [
                 "workspace_id": workspace.id.uuidString,
                 "float": blockedDock.id.uuidString,
                 "text": "must not be acknowledged",
             ])
             #expect(failed["ok"] as? Bool == false)
             #expect(blockedDock.noteTextSnapshot.isEmpty)
+        }
+    }
+
+
+    @Test("Floating Dock palette surface commands stay in the Dock container")
+    @MainActor
+    func floatingDockPaletteSurfaceCommandsStayInDock() throws {
+        try withSocketAppContext { manager, workspace, _ in
+            let dock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: "Palette target",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                isPresented: false,
+                noteFilePath: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("cmux-palette-note-\(UUID().uuidString).md").path,
+                initialContent: nil,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            workspace.floatingDocks.append(dock)
+            let mainPanelCount = workspace.panels.count
+
+            #expect(dock.store.performSurfaceCommand(.create(kind: .terminal, focusAddressBar: false)))
+            #expect(dock.store.panels.count == 1)
+            #expect(workspace.panels.count == mainPanelCount)
+
+            #expect(dock.store.performSurfaceCommand(.split(kind: .terminal, direction: .right)))
+            #expect(dock.store.panels.count == 2)
+            #expect(workspace.panels.count == mainPanelCount)
+
+            #expect(dock.store.performSurfaceCommand(.closeFocused))
+            #expect(dock.store.panels.count == 1)
+            #expect(manager.selectedWorkspace === workspace)
         }
     }
 
