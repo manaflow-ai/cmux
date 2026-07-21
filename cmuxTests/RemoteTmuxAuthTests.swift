@@ -167,7 +167,12 @@ import Testing
         let remoteCommand = args[dashDash + 2]
         #expect(!remoteCommand.contains("\n"))
         #expect(remoteCommand.contains("/opt/homebrew/bin"))
-        #expect(remoteCommand.hasSuffix("'cmux-remote-tmux' '-CC' 'attach-session' '-t' 'work session'"))
+        // The resolver is shared across remote executables, so its argv carries the
+        // executable name and not-found sentinel before the forwarded arguments. Pin both
+        // halves: the command goes through the resolver, and what it forwards is the tmux
+        // attach for this session.
+        #expect(remoteCommand.contains("'cmux-remote-executable' 'tmux'"))
+        #expect(remoteCommand.hasSuffix("'-CC' 'attach-session' '-t' 'work session'"))
     }
 
     @Test func controlArgsAppendPortAndIdentity() {
