@@ -305,12 +305,18 @@ final class RemoteTmuxControlConnection {
     static let altScreenEnterSequence = Data("\u{1b}[?1049h".utf8)
     static let altScreenExitSequence = Data("\u{1b}[?1049l".utf8)
 
+    /// How this connection is carried, derived from the host's transport unless a caller
+    /// overrides it (which tests do, to assert argv without spawning anything).
+    let transportProfile: RemoteTmuxTransportProfile
+
     init(
         host: RemoteTmuxHost,
         sessionName: String,
         createIfMissing: Bool = false,
-        pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes
+        pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes,
+        transportProfile: RemoteTmuxTransportProfile? = nil
     ) {
+        self.transportProfile = transportProfile ?? host.transport.profile(port: host.transportPort)
         self.host = host
         self.sessionName = sessionName
         self.createIfMissing = createIfMissing
@@ -399,11 +405,25 @@ final class RemoteTmuxControlConnection {
         enterReceived = false
 
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: RemoteTmuxHost.defaultSSHExecutablePath())
-        proc.arguments = host.controlModeArguments(
+        let transportExecutable = transportProfile.executablePath()
+        let transportArgv = transportProfile.controlStreamArgv(
+            host: host,
             sessionName: sessionName,
             createIfMissing: createIfMissing
         )
+        if transportProfile.requiresPseudoTerminal {
+            // A terminal client will not talk over pipes: measured against et 6.2.11, it
+            // emits nothing at all and aborts at session end, which reads as "the host
+            // produced no output" rather than "this was spawned without a tty". Give it one.
+            record("transport-pty")
+            proc.executableURL = URL(fileURLWithPath: RemoteTmuxPseudoTerminal.allocatorPath)
+            proc.arguments = RemoteTmuxPseudoTerminal.wrap(
+                executable: transportExecutable, arguments: transportArgv
+            )
+        } else {
+            proc.executableURL = URL(fileURLWithPath: transportExecutable)
+            proc.arguments = transportArgv
+        }
         let inPipe = Pipe(), outPipe = Pipe(), errPipe = Pipe()
         proc.standardInput = inPipe
         proc.standardOutput = outPipe
@@ -675,9 +695,23 @@ final class RemoteTmuxControlConnection {
         case .ended:
             return
         case .connecting, .connected:
-            // The control stream died without `%exit` — a transport loss. Keep the
-            // mirror frozen and reconnect.
-            beginReconnecting()
+            // The control stream died without `%exit`. What that means depends on who owns
+            // reconnection: for ssh it is a transport loss cmux recovers from, but a
+            // transport that reconnects internally does not end for a network drop, so its
+            // exit is the session genuinely ending.
+            switch RemoteTmuxStreamEndDisposition.forStreamEnd(
+                reconnectsInternally: transportProfile.reconnectsInternally
+            ) {
+            case .reconnect:
+                // Keep the mirror frozen and reconnect.
+                beginReconnecting()
+            case .sessionOver:
+                record("stream-end-session-over")
+                connectionState = .ended
+                cancelScheduledWork()
+                teardownProcessHandles()
+                observers.notifyExit()
+            }
         case .reconnecting:
             // A reconnect attempt's process exited before reaching control mode
             // (a successful attach would have moved us to `.connected` via `.enter`).
