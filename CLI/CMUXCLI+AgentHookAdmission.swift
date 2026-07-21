@@ -36,7 +36,17 @@ extension CMUXCLI {
         agentName: String,
         pidEnvironmentVariable: String
     ) -> String {
-        let runner = "payload=\"$1\"; shift; \"$@\" <\"$payload\" >/dev/null 2>&1 & child=\"$!\"; ( sleep \(deferredHookLifetimeSeconds); kill \"$child\" 2>/dev/null || true ) & watchdog=\"$!\"; wait \"$child\" 2>/dev/null || true; kill \"$watchdog\" 2>/dev/null || true; rm -f \"$payload\""
+        let watchdog = [
+            "timer=\"\"",
+            "trap \"if [ -n \\\"\\$timer\\\" ]; then kill \\\"\\$timer\\\" 2>/dev/null || true; fi\" 0",
+            "trap \"exit 0\" 1 2 15",
+            "sleep \(deferredHookLifetimeSeconds) & timer=\"$!\"",
+            "wait \"$timer\" 2>/dev/null || exit 0",
+            "timer=\"\"",
+            "trap - 0 1 2 15",
+            "kill \"$child\" 2>/dev/null || true",
+        ].joined(separator: "; ")
+        let runner = "payload=\"$1\"; shift; \"$@\" <\"$payload\" >/dev/null 2>&1 & child=\"$!\"; ( \(watchdog) ) & watchdog=\"$!\"; wait \"$child\" 2>/dev/null || true; kill \"$watchdog\" 2>/dev/null || true; wait \"$watchdog\" 2>/dev/null || true; rm -f \"$payload\""
         let safeAgentName = agentName.replacingOccurrences(
             of: "[^A-Za-z0-9_-]", with: "-", options: .regularExpression
         )
