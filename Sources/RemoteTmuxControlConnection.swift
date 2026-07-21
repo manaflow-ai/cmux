@@ -684,6 +684,17 @@ final class RemoteTmuxControlConnection {
             // reconnection: for ssh it is a transport loss cmux recovers from, but a
             // transport that reconnects internally does not end for a network drop, so its
             // exit is the session genuinely ending.
+            // A transport that could not start will not start on the next try either, and
+            // retrying hides the reason: end-of-stream no longer implies the session is over, so
+            // without this the mirror waits out the attach timeout with nothing to explain it.
+            if RemoteTmuxSSHTransport.indicatesUnrecoverableTransportFailure(stderrBuffer) {
+                record("stream-end-unrecoverable")
+                connectionState = .ended
+                cancelScheduledWork()
+                teardownProcessHandles()
+                observers.notifyExit()
+                return
+            }
             switch RemoteTmuxStreamEndDisposition.forStreamEnd() {
             case .reconnect:
                 // Keep the mirror frozen and reconnect.
@@ -710,8 +721,12 @@ final class RemoteTmuxControlConnection {
             // (host unreachable, refused) is transient — keep retrying with backoff.
             let sessionGone = decoding.stderrIndicatesSessionGone(stderrBuffer)
                 || decoding.controlOutputIndicatesSessionGone(preControlOutputBuffer)
+            // Same rule on the retry path: a reconnect that failed because the transport cannot run
+            // is not transient, and looping on it burns the backoff forever.
+            let unrecoverable = RemoteTmuxSSHTransport.indicatesUnrecoverableTransportFailure(stderrBuffer)
             teardownProcessHandles()
-            if sessionGone {
+            if sessionGone || unrecoverable {
+                if unrecoverable { record("reconnect-unrecoverable") }
                 record("reconnect-session-gone")
                 connectionState = .ended
                 reconnectTask?.cancel()
