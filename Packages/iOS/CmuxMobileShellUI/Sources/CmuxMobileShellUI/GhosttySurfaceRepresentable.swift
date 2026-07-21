@@ -363,6 +363,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         }
 
         func detach() {
+            surfaceView = nil
             outputTask?.cancel()
             outputTask = nil
             liveFontTask?.cancel()

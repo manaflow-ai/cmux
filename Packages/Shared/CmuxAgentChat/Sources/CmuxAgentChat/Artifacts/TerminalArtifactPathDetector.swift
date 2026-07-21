@@ -10,8 +10,8 @@ public struct TerminalArtifactPathDetector: Sendable {
         case escape
         case escapeIntermediate
         case csi
-        case stringControl
-        case stringControlEscape
+        case stringControl(allowsBEL: Bool)
+        case stringControlEscape(allowsBEL: Bool)
     }
 
     /// A detected terminal path token.
@@ -68,9 +68,12 @@ public struct TerminalArtifactPathDetector: Sendable {
                 switch value {
                 case 0x1B:
                     state = .escape
-                case 0x90, 0x98, 0x9D, 0x9E, 0x9F:
-                    // C1 DCS, SOS, OSC, PM, and APC string controls.
-                    state = .stringControl
+                case 0x9D:
+                    // C1 OSC may end with BEL or ST.
+                    state = .stringControl(allowsBEL: true)
+                case 0x90, 0x98, 0x9E, 0x9F:
+                    // C1 DCS, SOS, PM, and APC end only with ST.
+                    state = .stringControl(allowsBEL: false)
                 case 0x9B:
                     state = .csi
                 case 0x9C:
@@ -84,9 +87,12 @@ public struct TerminalArtifactPathDetector: Sendable {
                 switch value {
                 case 0x5B: // CSI: ESC [ parameters/intermediates final-byte
                     state = .csi
-                case 0x50, 0x58, 0x5D, 0x5E, 0x5F:
-                    // DCS, SOS, OSC, PM, and APC: payload BEL-or-ST.
-                    state = .stringControl
+                case 0x5D:
+                    // OSC: payload terminated by BEL or ST.
+                    state = .stringControl(allowsBEL: true)
+                case 0x50, 0x58, 0x5E, 0x5F:
+                    // DCS, SOS, PM, and APC: payload terminated only by ST.
+                    state = .stringControl(allowsBEL: false)
                 case 0x20...0x2F:
                     state = .escapeIntermediate
                 case 0x30...0x7E:
@@ -113,18 +119,18 @@ public struct TerminalArtifactPathDetector: Sendable {
                     state = .text
                 }
 
-            case .stringControl:
-                if value == 0x07 || value == 0x9C {
+            case .stringControl(let allowsBEL):
+                if value == 0x9C || (allowsBEL && value == 0x07) {
                     state = .text
                 } else if value == 0x1B {
-                    state = .stringControlEscape
+                    state = .stringControlEscape(allowsBEL: allowsBEL)
                 }
 
-            case .stringControlEscape:
-                if value == 0x5C || value == 0x07 || value == 0x9C {
+            case .stringControlEscape(let allowsBEL):
+                if value == 0x5C || value == 0x9C || (allowsBEL && value == 0x07) {
                     state = .text
                 } else if value != 0x1B {
-                    state = .stringControl
+                    state = .stringControl(allowsBEL: allowsBEL)
                 }
             }
         }

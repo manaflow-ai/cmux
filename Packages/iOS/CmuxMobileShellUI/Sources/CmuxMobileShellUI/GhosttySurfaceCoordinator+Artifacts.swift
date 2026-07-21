@@ -296,6 +296,9 @@ extension GhosttySurfaceRepresentable.Coordinator {
                         // coordinates after an await could click stale TUI content.
                         return .focusTerminal
                     }
+                    guard self.surfaceView === surfaceView else {
+                        return .focusTerminal
+                    }
                     onArtifactPathTapped(path)
                     return .openedArtifact
                 }
