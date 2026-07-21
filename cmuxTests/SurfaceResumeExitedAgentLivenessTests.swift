@@ -83,6 +83,82 @@ struct SurfaceResumeExitedAgentLivenessTests {
         )
     }
 
+    @Test("Newer compatible agent binding supersedes cached exited generation")
+    @MainActor
+    func newerCompatibleAgentBindingSupersedesCachedExitedGeneration() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-newer-agent-binding-resume-\(UUID().uuidString)", isDirectory: true)
+        let hookStateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
+        let previousHookStateDirectory = getenv("CMUX_AGENT_HOOK_STATE_DIR").map { String(cString: $0) }
+        setenv("CMUX_AGENT_HOOK_STATE_DIR", hookStateDirectory.path, 1)
+        defer {
+            if let previousHookStateDirectory {
+                setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDirectory, 1)
+            } else {
+                unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
+            }
+            try? fileManager.removeItem(at: root)
+        }
+
+        let defaultsName = "cmux-newer-agent-binding-resume-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { source.teardownAllPanels() }
+        let panelID = try #require(source.focusedPanelId)
+        let sessionID = "codex-newer-agent-binding-session"
+        try writeCodexHookRecord(
+            sessionID: sessionID,
+            workspaceID: source.id,
+            panelID: panelID,
+            root: root,
+            fileManager: fileManager
+        )
+
+        let exitedIndex = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            processArgumentsProvider: { _ in nil },
+            processPresenceProvider: { _ in .absent }
+        )
+        let observation = try #require(exitedIndex.entry(workspaceId: source.id, panelId: panelID))
+        #expect(observation.processLiveness == .exited)
+
+        let newerBindingIndex = codexBindingIndex(
+            sessionID: sessionID,
+            workspaceID: source.id,
+            panelID: panelID,
+            updatedAt: observation.updatedAt + 1
+        )
+        let inactiveSnapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: exitedIndex,
+            surfaceResumeBindingIndex: newerBindingIndex
+        )
+        #expect(inactiveSnapshot.panels.first?.terminal?.wasAgentRunning == false)
+
+        source.updatePanelShellActivityState(panelId: panelID, state: .commandRunning)
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: exitedIndex,
+            surfaceResumeBindingIndex: newerBindingIndex
+        )
+        #expect(snapshot.panels.first?.terminal?.wasAgentRunning == true)
+
+        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelID = try #require(restored.focusedPanelId)
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+
+        #expect(restoredPanel.surface.debugInitialCommand() != nil)
+    }
+
     @Test("Cached running process is revalidated before surface resume")
     @MainActor
     func cachedRunningProcessIsRevalidatedBeforeSurfaceResume() throws {
@@ -236,7 +312,8 @@ struct SurfaceResumeExitedAgentLivenessTests {
     private func codexBindingIndex(
         sessionID: String,
         workspaceID: UUID,
-        panelID: UUID
+        panelID: UUID,
+        updatedAt: TimeInterval = 1_777_777_777
     ) -> SurfaceResumeBindingIndex {
         SurfaceResumeBindingIndex(bindingsByPanel: [
             SurfaceResumeBindingIndex.PanelKey(workspaceId: workspaceID, panelId: panelID):
@@ -248,7 +325,7 @@ struct SurfaceResumeExitedAgentLivenessTests {
                     checkpointId: sessionID,
                     source: "agent-hook",
                     autoResume: true,
-                    updatedAt: 1_777_777_777
+                    updatedAt: updatedAt
                 ),
         ])
     }

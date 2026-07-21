@@ -538,7 +538,21 @@ extension Workspace {
                 : nil
             let agentWasRunning: Bool? = {
                 guard effectiveRestorableAgent != nil else { return nil }
-                return (restorableAgentObservation?.processLiveness ?? .unknown)
+                let processLiveness: RestorableAgentProcessLiveness = {
+                    guard let restorableAgentObservation else { return .unknown }
+                    guard restorableAgentObservation.processLiveness == .exited,
+                          compatibleIndexedRestorableAgent != nil,
+                          let resumeBinding,
+                          resumeBinding.isAgentHookBinding,
+                          resumeBinding.updatedAt > restorableAgentObservation.updatedAt,
+                          panelShellActivityStates[panelId] == .commandRunning else {
+                        return restorableAgentObservation.processLiveness
+                    }
+                    // The binding belongs to a strictly newer compatible generation and
+                    // the shell confirms a command, so stale exit evidence no longer decides it.
+                    return .unknown
+                }()
+                return processLiveness
                     .wasRunning(
                         fallingBackTo: panelShellActivityStates[panelId],
                         recordedProcessIdentities: restorableAgentObservation?.agentProcessIdentities ?? [:],
