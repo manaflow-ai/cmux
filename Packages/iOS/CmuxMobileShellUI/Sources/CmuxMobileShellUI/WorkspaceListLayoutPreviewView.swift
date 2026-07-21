@@ -2,7 +2,40 @@
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import Observation
 import SwiftUI
+
+/// Owns the mutable rows and live-update stimulus for the DEBUG preview.
+@MainActor
+@Observable
+private final class WorkspaceListLayoutPreviewModel {
+    var workspaces: [MobileWorkspacePreview]
+    private let liveUpdatesEnabled: Bool
+
+    /// Creates a preview model with an optional continuous update feed.
+    init(workspaces: [MobileWorkspacePreview], liveUpdatesEnabled: Bool) {
+        self.workspaces = workspaces
+        self.liveUpdatesEnabled = liveUpdatesEnabled
+    }
+
+    /// Mutates rotating row payloads until the view-owned task is cancelled.
+    func runLiveUpdates() async {
+        guard liveUpdatesEnabled else { return }
+        var updateLane = 0
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(for: .milliseconds(80))
+            } catch {
+                return
+            }
+            for index in workspaces.indices where index % 10 == updateLane {
+                workspaces[index].hasUnread.toggle()
+                workspaces[index].previewAt = Date()
+            }
+            updateLane = (updateLane + 1) % 10
+        }
+    }
+}
 
 /// DEBUG-only workspace list fixture for simulator layout screenshots.
 ///
@@ -14,7 +47,7 @@ public struct WorkspaceListLayoutPreviewView: View {
     @State private var selectedWorkspaceID: MobileWorkspacePreview.ID?
     @State private var macSelection: WorkspaceMacSelection = .all
     @State private var refreshGeneration = 0
-    @State private var workspaces: [MobileWorkspacePreview]
+    @State private var model: WorkspaceListLayoutPreviewModel
     // Safety: DEBUG screenshot-only presenter is owned by this preview view and
     // only mutates its fired flag from the SwiftUI task that requests the banner.
     private let notificationPresenter = ScreenshotNotificationPresenter()
@@ -38,21 +71,27 @@ public struct WorkspaceListLayoutPreviewView: View {
             groups = []
         }
         self.reorderEnabled = reorderEnabled
-        _workspaces = State(
-            initialValue: reorderEnabled
-                ? initialWorkspaces.map { workspace in
-                    var workspace = workspace
-                    workspace.windowID = "preview-window"
-                    workspace.actionCapabilities.supportsMoveActions = true
-                    // Interactive fixture: light up every row affordance so
-                    // swipes, context menus, rename, and delete are
-                    // dogfoodable against local state without a paired Mac.
-                    workspace.actionCapabilities.supportsWorkspaceActions = true
-                    workspace.actionCapabilities.supportsReadStateActions = true
-                    workspace.actionCapabilities.supportsCloseActions = true
-                    return workspace
-                }
-                : initialWorkspaces
+        let fixtureWorkspaces = reorderEnabled
+            ? initialWorkspaces.map { workspace in
+                var workspace = workspace
+                workspace.windowID = "preview-window"
+                workspace.actionCapabilities.supportsMoveActions = true
+                // Interactive fixture: light up every row affordance so
+                // swipes, context menus, rename, and delete are
+                // dogfoodable against local state without a paired Mac.
+                workspace.actionCapabilities.supportsWorkspaceActions = true
+                workspace.actionCapabilities.supportsReadStateActions = true
+                workspace.actionCapabilities.supportsCloseActions = true
+                return workspace
+            }
+            : initialWorkspaces
+        _model = State(
+            initialValue: WorkspaceListLayoutPreviewModel(
+                workspaces: fixtureWorkspaces,
+                liveUpdatesEnabled: environment[
+                    "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_LIVE_UPDATES"
+                ] == "1"
+            )
         )
     }
 
@@ -171,7 +210,7 @@ public struct WorkspaceListLayoutPreviewView: View {
     }
 
     public var body: some View {
-        let workspacesBinding = $workspaces
+        let workspacesBinding = $model.workspaces
         let refreshGenerationBinding = $refreshGeneration
         Group {
             if UITestConfig.workspaceDetailCreateDelayedTerminalPreviewEnabled {
@@ -184,7 +223,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                 NavigationStack {
                     WorkspaceListSearchHost { searchText in
                         WorkspaceListView(
-                            workspaces: workspaces,
+                            workspaces: model.workspaces,
                             groups: groups,
                             selectedWorkspaceID: selectedWorkspaceID,
                             host: "Visual Mock Mac",
@@ -211,25 +250,25 @@ public struct WorkspaceListLayoutPreviewView: View {
                                 }
                             },
                             renameWorkspace: reorderEnabled ? { id, newName in
-                                if let index = workspaces.firstIndex(where: { $0.id == id }) {
-                                    workspaces[index].name = newName
+                                if let index = model.workspaces.firstIndex(where: { $0.id == id }) {
+                                    model.workspaces[index].name = newName
                                 }
                             } : nil,
                             setPinned: reorderEnabled ? { id, pinned in
-                                if let index = workspaces.firstIndex(where: { $0.id == id }) {
-                                    workspaces[index].isPinned = pinned
+                                if let index = model.workspaces.firstIndex(where: { $0.id == id }) {
+                                    model.workspaces[index].isPinned = pinned
                                 }
                             } : nil,
                             setUnread: reorderEnabled ? { id, unread in
-                                if let index = workspaces.firstIndex(where: { $0.id == id }) {
-                                    workspaces[index].hasUnread = unread
+                                if let index = model.workspaces.firstIndex(where: { $0.id == id }) {
+                                    model.workspaces[index].hasUnread = unread
                                 }
                             } : nil,
                             closeWorkspace: reorderEnabled ? { id in
-                                workspaces.removeAll { $0.id == id }
+                                model.workspaces.removeAll { $0.id == id }
                             } : nil,
                             moveWorkspace: reorderEnabled ? { id, groupID, beforeWorkspaceID, movesGroup in
-                                workspaces = workspaces.applyingWorkspaceMoveIntent(
+                                model.workspaces = model.workspaces.applyingWorkspaceMoveIntent(
                                     MobileWorkspaceMoveIntent(
                                         groupID: groupID,
                                         beforeWorkspaceID: beforeWorkspaceID,
@@ -245,7 +284,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                         .navigationDestination(item: $fixtureRoute) { route in
                             VStack(spacing: 12) {
                                 Text(
-                                    workspaces.first(where: { $0.id == route.id })?.name
+                                    model.workspaces.first(where: { $0.id == route.id })?.name
                                         ?? route.id.rawValue
                                 )
                                 .font(.title2)
@@ -277,6 +316,8 @@ public struct WorkspaceListLayoutPreviewView: View {
             if showNotificationBanner {
                 notificationPresenter.fire()
             }
+
+            await model.runLiveUpdates()
         }
     }
 }
