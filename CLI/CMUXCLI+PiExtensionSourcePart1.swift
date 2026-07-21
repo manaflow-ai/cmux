@@ -91,6 +91,40 @@ function normalizedLaunchArgv(): string[] {
   return [resolveExecutable("pi"), ...raw.slice(1)];
 }
 
+function detectedPiVersion(): string | null {
+  const testVersion = firstString(process.env.CMUX_TEST_PI_VERSION);
+  if (testVersion) return testVersion;
+  const script = process.argv.slice(0, 2).find((value) => looksLikePiScript(String(value)));
+  if (!script) return null;
+  let directory = path.dirname(path.resolve(String(script)));
+  for (let depth = 0; depth < 8; depth += 1) {
+    try {
+      const packageJSON = JSON.parse(fs.readFileSync(path.join(directory, "package.json"), "utf8"));
+      if (
+        packageJSON?.name === "@earendil-works/pi-coding-agent" ||
+        packageJSON?.name === "@mariozechner/pi-coding-agent"
+      ) {
+        return firstString(packageJSON.version);
+      }
+    } catch (_) {}
+    const parent = path.dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  return null;
+}
+
+function supportsAgentSettled(): boolean {
+  const version = detectedPiVersion();
+  if (!version) return true;
+  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(version);
+  if (!match) return true;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
+  return major > 0 || minor > 80 || (minor === 80 && patch >= 5);
+}
+
 function base64NulSeparated(values: string[]): string {
   const bytes: Buffer[] = [];
   for (const value of values) {
