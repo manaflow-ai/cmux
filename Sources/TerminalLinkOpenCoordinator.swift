@@ -34,11 +34,14 @@ struct TerminalLinkOpenCoordinator {
         let container = containerResolver(request.sourceWorkspaceId, request.sourcePanelId)
         var normalizedOpenURLString = request.rawValue
 
-        let sourceIsRemote = request.sourcePanelId.map {
-            container?.terminalLinkIsRemoteTerminal($0) ?? false
-        } ?? false
+        let canResolveLocalFilePath: Bool
+        if let sourcePanelId = request.sourcePanelId, let container {
+            canResolveLocalFilePath = !container.terminalLinkIsRemoteTerminal(sourcePanelId)
+        } else {
+            canResolveLocalFilePath = false
+        }
         if !trimmed.isEmpty,
-           !sourceIsRemote,
+           canResolveLocalFilePath,
            let resolvedPath = TerminalPathResolver().resolveOpenURLFilePath(
                trimmed,
                cwd: resolvedWorkingDirectory(request: request, container: container)

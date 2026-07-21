@@ -18,9 +18,10 @@ struct BrowserRightSidePaneResolver {
 
         let layout = controller.layoutSnapshot()
         let paneFrameById = Dictionary(uniqueKeysWithValues: layout.panes.map { ($0.paneId, $0.frame) })
-        let sourceFrame = paneFrameById[sourcePaneId]
-        let sourceCenterY = sourceFrame.map { $0.y + ($0.height * 0.5) } ?? 0
-        let sourceRightX = sourceFrame.map { $0.x + $0.width } ?? 0
+        guard let sourceFrame = paneFrameById[sourcePaneId] else { return nil }
+        let sourceCenterY = sourceFrame.y + (sourceFrame.height * 0.5)
+        let sourceRightX = sourceFrame.x + sourceFrame.width
+        let paneById = Dictionary(uniqueKeysWithValues: controller.allPaneIds.map { ($0.id, $0) })
 
         for crumb in path {
             guard crumb.split.orientation == "horizontal", crumb.sourceIsFirst else { continue }
@@ -44,7 +45,7 @@ struct BrowserRightSidePaneResolver {
             for candidate in sorted {
                 guard let candidateUUID = UUID(uuidString: candidate.id),
                       candidateUUID != sourcePane.id,
-                      let pane = controller.allPaneIds.first(where: { $0.id == candidateUUID }) else {
+                      let pane = paneById[candidateUUID] else {
                     continue
                 }
                 return pane
