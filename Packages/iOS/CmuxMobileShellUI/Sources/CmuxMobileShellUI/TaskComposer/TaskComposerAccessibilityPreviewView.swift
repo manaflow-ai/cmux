@@ -20,6 +20,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
     private let failsFirstSubmission: Bool
     private let presentsTemplateForm: Bool
     private let presentsDirectoryPicker: Bool
+    private let presentsDirectoryPermissionFailure: Bool
     private let presentsDirectoryScrollStress: Bool
     private let holdsSubmissionInPreparation: Bool
     @State private var directoryPaginationRecoveryPreview: TaskComposerDirectoryPaginationRecoveryPreview?
@@ -42,6 +43,9 @@ public struct TaskComposerAccessibilityPreviewView: View {
         let presentsDirectoryScrollStress = environment[
             "CMUX_UITEST_TASK_DIRECTORY_SCROLL_STRESS"
         ] == "1"
+        let presentsDirectoryPermissionFailure = environment[
+            "CMUX_UITEST_TASK_DIRECTORY_PERMISSION_FAILURE_PREVIEW"
+        ] == "1"
         self.store = CMUXMobileShellStore(
             isSignedIn: true,
             taskTemplateStore: TaskComposerAccessibilityTemplateStore()
@@ -57,7 +61,8 @@ public struct TaskComposerAccessibilityPreviewView: View {
         ] == "1"
         self.presentsDirectoryPicker = environment[
             "CMUX_UITEST_TASK_DIRECTORY_PICKER_PREVIEW"
-        ] == "1" || presentsDirectoryPaginationRecovery
+        ] == "1" || presentsDirectoryPaginationRecovery || presentsDirectoryPermissionFailure
+        self.presentsDirectoryPermissionFailure = presentsDirectoryPermissionFailure
         self.presentsDirectoryScrollStress = presentsDirectoryScrollStress
         self.holdsSubmissionInPreparation = environment[
             "CMUX_UITEST_TASK_COMPOSER_HOLD_PREPARATION"
@@ -269,6 +274,9 @@ public struct TaskComposerAccessibilityPreviewView: View {
         _ requestedPath: String,
         _ offset: Int
     ) async -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure> {
+        if presentsDirectoryPermissionFailure {
+            return .failure(.rejected)
+        }
         if presentsDirectoryScrollStress {
             return Self.listScrollStressDirectories(requestedPath, offset)
         }

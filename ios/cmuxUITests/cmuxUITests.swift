@@ -819,6 +819,25 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(selectedPath.label, "/Users/ui/mobile-root")
     }
 
+    /// An ambiguous list failure can still be caused by macOS Files and
+    /// Folders protection, so the recovery copy must point users at that
+    /// permission without claiming it is definitely the cause.
+    @MainActor
+    func testTaskComposerDirectoryFailureMentionsProtectedFolderPermission() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_DIRECTORY_PERMISSION_FAILURE_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.staticTexts["Couldn’t Open Folder"].waitForExistence(timeout: 8))
+        let permissionCopy = app.staticTexts.matching(NSPredicate(
+            format: "label == %@",
+            "The Mac could not list this folder. If this is a protected folder such as Downloads, allow cmux access in Mac System Settings › Privacy & Security › Files & Folders, then retry."
+        )).firstMatch
+        XCTAssertTrue(permissionCopy.waitForExistence(timeout: 3))
+    }
+
     /// Regression: scrolling a full directory page must not trap SwiftUI's
     /// lazy layout on the main thread or make the picker impossible to dismiss.
     @MainActor
@@ -1221,11 +1240,15 @@ final class cmuxUITests: XCTestCase {
         let create = app.buttons["MobileTaskComposerCreateButton"]
         XCTAssertTrue(create.waitForExistence(timeout: 3))
         XCTAssertEqual(create.label, "Start Claude")
+        let restingButtonFrame = create.frame
         tap(create, in: app)
 
         let startingPredicate = NSPredicate(format: "label == %@", "Preparing workspace…")
         expectation(for: startingPredicate, evaluatedWith: create)
         waitForExpectations(timeout: 3)
+
+        XCTAssertEqual(create.frame.height, restingButtonFrame.height, accuracy: 1)
+        XCTAssertEqual(create.frame.width, restingButtonFrame.width, accuracy: 1)
 
         let draftState = app.staticTexts["MobileTaskComposerSubmissionDraftState"]
         XCTAssertTrue(draftState.waitForExistence(timeout: 3))
