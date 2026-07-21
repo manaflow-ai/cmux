@@ -81,7 +81,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// connect hang on a slow timeout; this caps the visible "Restoring session…"
     /// window so a returning user is never stuck on it. The connect keeps trying
     /// in the background, so a later success still flips to the workspaces.
-    private static let storedMacReconnectRestoringDeadlineSeconds: Double = 6
+    private static let storedMacReconnectRestoringDeadlineSeconds: Double = 15
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     static let terminalVerifiedReplayCapability = "terminal.render_grid.verified_replay.v1"
@@ -1938,8 +1938,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 })
             )
         }
-        guard generation == storedMacReconnectGeneration,
-              await isScopeCurrent(scope) else {
+        guard generation == storedMacReconnectGeneration else {
+            return .superseded
+        }
+        guard await isScopeCurrent(scope) else {
+            finishStoredMacReconnectAttempt(generation: generation)
             return .superseded
         }
         candidates.append(contentsOf: zeroTouchCandidates)
@@ -2050,7 +2053,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         // A newer attempt may have started during the connect; it now owns the flags.
         guard generation == storedMacReconnectGeneration else { return .superseded }
-        guard await isScopeCurrent(scope) else { return .superseded }
+        guard await isScopeCurrent(scope) else {
+            finishStoredMacReconnectAttempt(generation: generation)
+            return .superseded
+        }
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = true
         if connectionState != .connected,
