@@ -114,7 +114,19 @@ extension MobileShellComposite {
         // outcome (a trailing follow-up sweep runs inside the same task). The
         // runner is cancelled only on client change or account teardown, where
         // false is the correct answer for this client's gesture.
-        await scheduleStateSyncFetch(client: client, timeoutNanoseconds: timeoutNanoseconds).value
+        //
+        // Each WAITER is bounded by its own deadline: a 3s liveness probe
+        // joining a slow 30s fetch must report within its contract, not the
+        // runner's. The runner itself is never cancelled by a waiter's
+        // deadline; it keeps converging in the background.
+        let task = scheduleStateSyncFetch(client: client, timeoutNanoseconds: timeoutNanoseconds)
+        guard let timeoutNanoseconds else {
+            return await task.value
+        }
+        let race = await Self.raceAgainstDeadline(nanoseconds: timeoutNanoseconds) {
+            await task.value
+        }
+        return race.value ?? false
     }
 
     /// Account-boundary teardown: wipes mirrored records (titles,

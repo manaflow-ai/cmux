@@ -1777,7 +1777,33 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )).didConnect
     }
 
+    /// Bounded stored-Mac reconnect: EVERY caller (recovery owner, startup
+    /// restore, team-scope restore, manual fallback) gets the per-attempt
+    /// deadline, so a cancellation-ignoring dial can wedge none of them. On
+    /// expiry the dial is abandoned into the bounded accounting and transient
+    /// backoff arms the automatic retry loop.
     func reconnectActiveMacOutcome(
+        stackUserID: String?,
+        refreshBackupBeforeDial: Bool = true
+    ) async -> StoredMacReconnectOutcome {
+        let deadline = runtime?.reconnectAttemptDeadlineNanoseconds ?? 30_000_000_000
+        let race = await Self.raceAgainstDeadline(nanoseconds: deadline) { [weak self] in
+            await self?.reconnectActiveMacOutcomeUnbounded(
+                stackUserID: stackUserID,
+                refreshBackupBeforeDial: refreshBackupBeforeDial
+            ) ?? .superseded
+        }
+        if let outcome = race.value { return outcome }
+        MobileDebugLog.anchormux("reconnect dial deadline expired; abandoning attempt")
+        registerAbandonedReconnectDial(race.abandoned)
+        if abandonedReconnectDialCount <= Self.maximumAbandonedReconnectDials,
+           let accountID = stackUserID ?? identityProvider?.currentUserID {
+            recordTransientAutomaticReconnectBackoff(accountID: accountID)
+        }
+        return .failed(.timedOut)
+    }
+
+    func reconnectActiveMacOutcomeUnbounded(
         stackUserID: String?,
         refreshBackupBeforeDial: Bool = true
     ) async -> StoredMacReconnectOutcome {

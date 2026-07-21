@@ -232,59 +232,16 @@ extension MobileShellComposite {
 
                 // Recovery uses authenticated local Iroh state first. A stuck
                 // account-backup fetch must not block a known EndpointID from
-                // dialing; normal launch reconnect still refreshes first.
-                //
-                // The redial runs under a hard deadline. An Iroh dial can hang
-                // far past any per-transport connect timeout (observed: relay
-                // DNS churn for 15+ minutes), and while this attempt is
-                // in-flight the recovery owner defers every other trigger, so
-                // one hung dial used to freeze the entire recovery machine
-                // with no failure, no backoff retry, and a permanent
-                // "Disconnected - Tap Reconnect" dead end
-                // (https://github.com/manaflow-ai/cmux/issues/8531). At the
-                // deadline the attempt is abandoned (generation guards make a
-                // late completion harmless: a late success just connects, a
-                // late failure finds the attempt already settled) and the
-                // transient backoff owner schedules the next automatic try.
-                let deadlineNanoseconds = self.runtime?.reconnectAttemptDeadlineNanoseconds
-                    ?? 30_000_000_000
-                let race = await Self.raceAgainstDeadline(
-                    nanoseconds: deadlineNanoseconds
-                ) { [weak self] in
-                    await self?.reconnectActiveMacOutcome(
-                        stackUserID: stackUserID,
-                        refreshBackupBeforeDial: false
-                    ) ?? .superseded
-                }
-                // Account for a wedged dial BEFORE any currency guard: a
-                // cancelled or superseded attempt whose race still hit the
-                // deadline would otherwise drop the only handle to a task
-                // that keeps retaining the client and transport, bypassing
-                // the abandoned-dial ceiling.
-                self.registerAbandonedReconnectDial(race.abandoned)
+                // dialing; normal launch reconnect still refreshes first. The
+                // per-attempt deadline and abandoned-dial accounting live
+                // inside reconnectActiveMacOutcome, shared by every caller
+                // (https://github.com/manaflow-ai/cmux/issues/8531).
+                let reconnectOutcome = await self.reconnectActiveMacOutcome(
+                    stackUserID: stackUserID,
+                    refreshBackupBeforeDial: false
+                )
                 guard !Task.isCancelled,
                       self.connectionRecoveryOwner.isCurrent(attempt) else { return }
-                guard let reconnectOutcome = race.value else {
-                    MobileDebugLog.anchormux(
-                        "connection.recovery redial deadline expired; abandoning attempt \(attempt.id.uuidString)"
-                    )
-                    guard self.failConnectionRecovery(attempt, failure: .timedOut) else { return }
-                    if self.connectionState == .connected {
-                        self.connectionState = .disconnected
-                        self.macConnectionStatus = .unavailable
-                        self.clearRemoteConnectionContext()
-                    }
-                    // Schedule the next automatic try only while the number of
-                    // still-wedged abandoned dials is bounded; each dial that
-                    // eventually resolves re-arms the retry itself. Manual,
-                    // foreground, and network-change triggers are never gated.
-                    if self.abandonedReconnectDialCount <= Self.maximumAbandonedReconnectDials,
-                       let accountID = stackUserID ?? self.identityProvider?.currentUserID {
-                        self.recordTransientAutomaticReconnectBackoff(accountID: accountID)
-                    }
-                    self.applyConnectionRecoveryOwnerState()
-                    return
-                }
                 guard self.settleConnectionRecovery(
                     attempt,
                     outcome: reconnectOutcome,
