@@ -1737,6 +1737,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )).didConnect
     }
 
+    /// Starts one user-requested retry and exposes its loading state before any await.
+    @discardableResult
+    public func retryActiveMacReconnect(
+        stackUserID: String?
+    ) async -> Bool {
+        guard !isReconnectingStoredMac else { return false }
+        isReconnectingStoredMac = true
+        didFinishStoredMacReconnectAttempt = false
+        return await reconnectActiveMacIfAvailable(stackUserID: stackUserID)
+    }
+
     func reconnectActiveMacOutcome(
         stackUserID: String?,
         refreshBackupBeforeDial: Bool = true

@@ -36,8 +36,6 @@ struct MobileSettingsView: View {
     @State private var notificationsEnabled = false
     @State private var showingHostPicker = false
     @State private var showingOnboarding = false
-    @State private var startsPairingAfterDismiss = false
-    @State private var isOnboardingRetryPending = false
     @State private var showingSetupHelp = false
     #if DEBUG
     @State private var showingChatDemo = false
@@ -383,8 +381,8 @@ struct MobileSettingsView: View {
                     isAuthenticated: true,
                     connectionPhase: OnboardingConnectionPhase.resolve(
                         isMacReady: store?.connectionState == .connected,
-                        isSearching: isOnboardingRetryPending || store?.isReconnectingStoredMac == true,
-                        didFinishSearch: isOnboardingRetryPending || store?.isReconnectingStoredMac == true
+                        isSearching: store?.isReconnectingStoredMac == true,
+                        didFinishSearch: store?.isReconnectingStoredMac == true
                             ? store?.didFinishStoredMacReconnectAttempt ?? false
                             : true
                     ),
@@ -392,9 +390,8 @@ struct MobileSettingsView: View {
                     onSkip: { showingOnboarding = false },
                     onRetryConnection: retryAutomaticConnection,
                     onStartFallbackPairing: {
-                        startsPairingAfterDismiss = true
                         showingOnboarding = false
-                        dismiss()
+                        startPairingScanner?()
                     },
                     onComplete: { showingOnboarding = false }
                 )
@@ -408,11 +405,6 @@ struct MobileSettingsView: View {
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
-        .onDisappear {
-            guard startsPairingAfterDismiss else { return }
-            startsPairingAfterDismiss = false
-            startPairingScanner?()
-        }
     }
 
     private static var crashReportingEnabled: Bool {
@@ -427,12 +419,10 @@ struct MobileSettingsView: View {
     }
 
     private func retryAutomaticConnection() {
-        guard let store, !isOnboardingRetryPending, !store.isReconnectingStoredMac else { return }
-        isOnboardingRetryPending = true
+        guard let store else { return }
         let stackUserID = authManager.currentUser?.id
         Task {
-            _ = await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
-            isOnboardingRetryPending = false
+            _ = await store.retryActiveMacReconnect(stackUserID: stackUserID)
         }
     }
 
