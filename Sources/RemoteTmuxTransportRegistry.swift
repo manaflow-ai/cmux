@@ -242,10 +242,17 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
     /// unusable on a standard Apple Silicon install.
     static let clientSearchDirectories = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
 
-    /// The first `et` that exists on PATH or in a known install directory.
+    /// Used when nothing is found, matching et's own documented install location.
     ///
-    /// Falls back to the bare name so the failure is `et` not being found rather than a wrong
-    /// absolute path, which is the more honest error and lets a PATH lookup at spawn time win.
+    /// NOT the bare name `et`: the control stream is spawned through `/usr/bin/script`, which
+    /// resolves its argument against the *app's* PATH, and a GUI app's PATH cannot be relied on.
+    /// Measured — `script -q /dev/null et --version` under a minimal PATH reports
+    /// `script: et: No such file or directory`, the stream ends immediately, and end-of-stream now
+    /// means reconnect, so the failure surfaces as a 60-second attach timeout with no error rather
+    /// than as "et not found".
+    static let defaultClientPath = "/usr/local/bin/et"
+
+    /// The first `et` that exists on PATH or in a known install directory.
     static func resolveClientExecutable(
         fileExists: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
         pathValue: String? = ProcessInfo.processInfo.environment["PATH"]
@@ -257,7 +264,7 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
             let candidate = URL(fileURLWithPath: trimmed).appendingPathComponent("et").path
             if fileExists(candidate) { return candidate }
         }
-        return "et"
+        return defaultClientPath
     }
 
     /// Longest line a remote login shell will accept, `MAX_CANON` on macOS.
