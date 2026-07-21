@@ -19,6 +19,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var appKitDropIndicatorIncludesRowTargets = false
     private var clipBoundsObserver: NSObjectProtocol?
     private var resizeDidEndObserver: NSObjectProtocol?
+    private lazy var mutationScheduler = SidebarWorkspaceTableMutationScheduler(
+        applyFlush: { [weak self] in self?.flushApply($0) },
+        viewportChangeFlush: { [weak self] in self?.flushViewportChange() }
+    )
     private let rowHeightCache = SidebarWorkspaceTableRowHeightCache()
     private let dropTargetGeometry = SidebarWorkspaceTableDropTargetGeometryGate()
 
@@ -131,7 +135,24 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         selectedWorkspaceId: UUID?,
         selectedScrollTargetWorkspaceId: UUID?
     ) {
+        mutationScheduler.stageApply(
+            SidebarWorkspaceTableApplyInput(
+                rows: nextRows,
+                actions: actions,
+                workspaceIds: nextWorkspaceIds,
+                selectedWorkspaceId: selectedWorkspaceId,
+                selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId
+            )
+        )
+    }
+
+    private func flushApply(_ input: SidebarWorkspaceTableApplyInput) {
         guard let containerView else { return }
+        let nextRows = input.rows
+        let actions = input.actions
+        let nextWorkspaceIds = input.workspaceIds
+        let selectedWorkspaceId = input.selectedWorkspaceId
+        let selectedScrollTargetWorkspaceId = input.selectedScrollTargetWorkspaceId
         // Authoritative render: reconciles any optimistic preview, so the
         // preview bailout stands down.
         applyGeneration &+= 1
@@ -625,6 +646,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func viewportDidChange() {
+        mutationScheduler.stageViewportChange()
+    }
+
+    private func flushViewportChange() {
         let width = currentColumnWidth()
 #if DEBUG
         if width != lastMeasuredWidth {

@@ -74,6 +74,22 @@ import Testing
         #expect(!MobileDisplaySettings(defaults: defaults).terminalFilesChipEnabled)
     }
 
+    @Test func taskComposerDefaultsToFalseWithoutAWrite() throws {
+        let defaults = try makeDefaults("taskComposerDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        #expect(!settings.taskComposerEnabled)
+        #expect(defaults.object(forKey: "cmux.mobile.taskComposerEnabled") == nil)
+    }
+
+    @Test func taskComposerPersistsAcrossInstances() throws {
+        let defaults = try makeDefaults("taskComposerPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.taskComposerEnabled = true
+        #expect(MobileDisplaySettings(defaults: defaults).taskComposerEnabled)
+        settings.taskComposerEnabled = false
+        #expect(!MobileDisplaySettings(defaults: defaults).taskComposerEnabled)
+    }
+
     @Test func previewLineCountPersistsAcrossInstances() throws {
         let defaults = try makeDefaults("persists")
         let settings = MobileDisplaySettings(defaults: defaults)
@@ -103,7 +119,45 @@ import Testing
         #expect(defaults.object(forKey: "cmux.mobile.debug.unreadIndicatorLeftShift.v2") == nil)
         #expect(defaults.object(forKey: "cmux.mobile.debug.profilePictureLeftShift") == nil)
         #expect(defaults.object(forKey: "cmux.mobile.debug.profilePictureSize") == nil)
+        #expect(settings.taskComposerShellIconVariant == .current)
+        #expect(defaults.object(forKey: "cmux.mobile.debug.taskComposerShellIconVariant.v1") == nil)
     }
+
+    @Test func shellIconExperimentsAreScopedToDebugBuilds() throws {
+        let defaults = try makeDefaults("shellIconBuildScope")
+        defaults.set(
+            TaskComposerShellIconVariant.medium86.rawValue,
+            forKey: "cmux.mobile.debug.taskComposerShellIconVariant.v1"
+        )
+
+        let settings = MobileDisplaySettings(defaults: defaults)
+        #if DEBUG
+        #expect(settings.taskComposerShellIconVariant == .medium86)
+        #expect(TaskComposerShellIconVariant.medium86.glyphScale == 0.86)
+        #else
+        #expect(settings.taskComposerShellIconVariant == .current)
+        let current = TaskComposerShellIconVariant.current
+        for variant in TaskComposerShellIconVariant.allCases {
+            #expect(variant.glyphScale == current.glyphScale)
+            #expect(variant.glyphWeight == current.glyphWeight)
+            #expect(variant.glyphOpacity == current.glyphOpacity)
+            #expect(variant.circleScale == current.circleScale)
+            #expect(variant.circleOpacityScale == current.circleOpacityScale)
+        }
+        #endif
+    }
+
+    #if DEBUG
+    @Test func shellIconVariantPersistsAndRejectsUnknownValues() throws {
+        let defaults = try makeDefaults("shellIconVariant")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.taskComposerShellIconVariant = .medium86
+        #expect(MobileDisplaySettings(defaults: defaults).taskComposerShellIconVariant == .medium86)
+
+        defaults.set("removed-variant", forKey: "cmux.mobile.debug.taskComposerShellIconVariant.v1")
+        #expect(MobileDisplaySettings(defaults: defaults).taskComposerShellIconVariant == .current)
+    }
+    #endif
 
     @Test func debugLayoutSettingsPersistAcrossInstances() throws {
         let defaults = try makeDefaults("debugLayoutPersists")

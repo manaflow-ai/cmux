@@ -8,6 +8,22 @@ final class cmuxUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    func testMockHostInstanceTagFollowsTargetBuildScope() {
+        XCTAssertEqual(
+            mockHostInstanceTag(
+                testBundleIdentifier: "dev.cmux.ios.spark"
+            ),
+            "spark"
+        )
+        XCTAssertEqual(
+            mockHostInstanceTag(
+                testBundleIdentifier: "dev.cmux.ios.uitests"
+            ),
+            "dev"
+        )
+        XCTAssertNotEqual(mockHostInstanceTag(), "uitests")
+    }
+
     @MainActor
     func testStackAuthEntryUsesStableIdentifiers() throws {
         let app = launchApp(mockData: false, clearAuth: true)
@@ -119,6 +135,1081 @@ final class cmuxUITests: XCTestCase {
         attachment.name = "workspace-mac-picker-computer-copy"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    @MainActor
+    func testWorkspaceListRapidDirectionChangesAndBoundariesRemainResponsive() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "60",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_LIVE_UPDATES": "1",
+        ])
+        defer { app.terminate() }
+
+        let table = app.tables["MobileWorkspaceList"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        let firstRow = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-0"
+        ]
+        let lastRow = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-59"
+        ]
+        XCTAssertTrue(firstRow.isHittable)
+
+        // Exercise rapid opposite-direction flicks while live 80 ms row
+        // updates continue. XCUITest waits for UI quiescence between public
+        // swipe calls; WorkspaceListScrollUpdateTests separately asserts that
+        // the coordinator leaves the pan lifecycle entirely to UIKit.
+        table.swipeUp(velocity: .fast)
+        table.swipeDown(velocity: .fast)
+        for _ in 0..<4 where !firstRow.isHittable {
+            table.swipeDown(velocity: .fast)
+        }
+        XCTAssertTrue(firstRow.isHittable)
+        XCTAssertEqual(app.state, .runningForeground)
+
+        // Exercise the real top boundary before traversing to the bottom.
+        table.swipeDown(velocity: .fast)
+        table.swipeUp(velocity: .fast)
+        XCTAssertFalse(firstRow.isHittable)
+        XCTAssertEqual(app.state, .runningForeground)
+
+        // Drive through the real bottom boundary, overscroll it, and prove
+        // that the table accepts the next opposite-direction gesture.
+        for _ in 0..<20 where !lastRow.isHittable {
+            table.swipeUp(velocity: .fast)
+        }
+        XCTAssertTrue(lastRow.isHittable)
+        table.swipeUp(velocity: .fast)
+        table.swipeDown(velocity: .fast)
+        XCTAssertFalse(lastRow.isHittable)
+        XCTAssertEqual(app.state, .runningForeground)
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "workspace-list-rapid-direction-changes-and-boundaries"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testWorkspaceSearchPreservesQueryAndPlacementAcrossRefresh() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let scroll = app.descendants(matching: .any)["MobileWorkspaceList"]
+        XCTAssertTrue(scroll.waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileWorkspaceListRefreshGeneration-0"]
+                .waitForExistence(timeout: 3)
+        )
+
+        let searchField = app.searchFields.firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 3))
+        XCTAssertTrue(focusTextInput(searchField, in: app))
+        searchField.typeText("Docs")
+
+        let docsRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-docs"]
+        let mainRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        XCTAssertTrue(docsRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(mainRow.waitForNonExistence(timeout: 3))
+
+        let searchKey = app.keyboards.buttons["Search"]
+        XCTAssertTrue(searchKey.waitForExistence(timeout: 3))
+        searchKey.tap()
+        if !waitForKeyboardDismissal(in: app), searchKey.exists {
+            searchKey.tap()
+        }
+        XCTAssertTrue(waitForKeyboardDismissal(in: app))
+
+        let beforeRefreshField = app.searchFields.firstMatch
+        XCTAssertEqual(beforeRefreshField.value as? String, "Docs")
+        guard let beforeRefreshFrame = waitForUsableFrame(of: beforeRefreshField, timeout: 3) else {
+            XCTFail("Search field had no usable frame before refresh")
+            return
+        }
+        XCTAssertLessThan(
+            beforeRefreshFrame.midY,
+            app.windows.firstMatch.frame.midY,
+            "Workspace search must remain in the navigation bar"
+        )
+
+        let refreshStart = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
+        let refreshEnd = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
+        refreshStart.press(forDuration: 0.01, thenDragTo: refreshEnd)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileWorkspaceListRefreshGeneration-1"]
+                .waitForExistence(timeout: 5),
+            "Pull-to-refresh did not replace the preview workspace snapshot"
+        )
+
+        let afterRefreshField = app.searchFields.firstMatch
+        XCTAssertTrue(afterRefreshField.waitForExistence(timeout: 3))
+        XCTAssertEqual(afterRefreshField.value as? String, "Docs")
+        XCTAssertTrue(docsRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(mainRow.waitForNonExistence(timeout: 3))
+        guard let afterRefreshFrame = waitForUsableFrame(of: afterRefreshField, timeout: 3) else {
+            XCTFail("Search field had no usable frame after refresh")
+            return
+        }
+
+        XCTAssertEqual(afterRefreshFrame.minX, beforeRefreshFrame.minX, accuracy: 2)
+        XCTAssertEqual(afterRefreshFrame.minY, beforeRefreshFrame.minY, accuracy: 2)
+        XCTAssertEqual(afterRefreshFrame.width, beforeRefreshFrame.width, accuracy: 2)
+        XCTAssertEqual(afterRefreshFrame.height, beforeRefreshFrame.height, accuracy: 2)
+    }
+
+    @MainActor
+    func testNotificationTabPreservesSharedRootToolbar() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeed"].waitForExistence(timeout: 8))
+
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        let computers = app.buttons["MobileWorkspaceDevicesButton"]
+        let picker = app.buttons["MobileWorkspaceMacPicker"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 3))
+        XCTAssertTrue(computers.waitForExistence(timeout: 3))
+        XCTAssertTrue(picker.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["All Computers"].exists)
+        let markAllRead = app.buttons["MobileNotificationFeedMarkAllRead"]
+        XCTAssertTrue(markAllRead.waitForExistence(timeout: 3))
+        XCTAssertLessThanOrEqual(markAllRead.frame.width, 60)
+        XCTAssertEqual(picker.frame.midX, app.frame.midX, accuracy: 2)
+        if app.frame.width >= 400 {
+            XCTAssertGreaterThanOrEqual(picker.frame.width, 120)
+        } else {
+            XCTAssertLessThanOrEqual(picker.frame.width, 100)
+        }
+    }
+
+    @MainActor
+    func testNotificationFeedPreviewSupportsTriageInteractions() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let feed = app.descendants(matching: .any)["MobileNotificationFeed"]
+        XCTAssertTrue(feed.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.tabBars.buttons["Notifications"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayToday"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayYesterday"].exists)
+        XCTAssertTrue(app.staticTexts["Build Mac"].exists)
+
+        let approvalTitle = app.staticTexts["Codex needs approval"]
+        let approvalWorkspace = app.staticTexts["cmux iOS"]
+        let approvalBody = app.staticTexts[
+            "The feed is ready to open in the iOS app. Review the navigation and approve the final interaction pass."
+        ]
+        let approvalRow = app.descendants(matching: .any)["MobileNotificationFeedRow-studio-codex-approval"]
+        XCTAssertTrue(approvalTitle.waitForExistence(timeout: 3))
+        XCTAssertTrue(approvalWorkspace.waitForExistence(timeout: 3))
+        XCTAssertTrue(approvalBody.waitForExistence(timeout: 3))
+        XCTAssertTrue(approvalRow.waitForExistence(timeout: 3))
+        let approvalComputer = approvalRow.staticTexts["Studio"]
+        XCTAssertTrue(approvalComputer.waitForExistence(timeout: 3))
+        XCTAssertFalse(app.staticTexts["Notification feed"].exists)
+        XCTAssertFalse(app.staticTexts["Context"].exists)
+        XCTAssertFalse(app.staticTexts["Opens in"].exists)
+        XCTAssertLessThanOrEqual(approvalTitle.frame.maxY, approvalWorkspace.frame.minY)
+        XCTAssertLessThanOrEqual(approvalWorkspace.frame.minY - approvalTitle.frame.maxY, 6)
+        XCTAssertEqual(approvalWorkspace.frame.midY, approvalComputer.frame.midY, accuracy: 2)
+        XCTAssertLessThanOrEqual(approvalWorkspace.frame.maxY, approvalBody.frame.minY)
+        XCTAssertGreaterThanOrEqual(approvalWorkspace.frame.height, approvalComputer.frame.height)
+
+        XCTAssertLessThanOrEqual(approvalRow.frame.height, 135)
+        let approvalValue = try XCTUnwrap(approvalRow.value as? String)
+        let workspaceRange = try XCTUnwrap(approvalValue.range(of: "cmux iOS"))
+        let bodyRange = try XCTUnwrap(approvalValue.range(of: "The feed is ready"))
+        let computerRange = try XCTUnwrap(approvalValue.range(of: "Studio"))
+        XCTAssertTrue(approvalValue.contains("Workspace: cmux iOS"))
+        XCTAssertTrue(approvalValue.contains("Computer: Studio"))
+        XCTAssertFalse(approvalValue.contains("Context:"))
+        XCTAssertFalse(approvalValue.contains("Pane:"))
+        XCTAssertFalse(approvalValue.contains("Notification feed"))
+        XCTAssertLessThan(workspaceRange.lowerBound, bodyRange.lowerBound)
+        XCTAssertLessThan(bodyRange.lowerBound, computerRange.lowerBound)
+
+        let unavailableRow = app.descendants(matching: .any)[
+            "MobileNotificationFeedRow-build-mac-input-needed"
+        ]
+        XCTAssertTrue(unavailableRow.waitForExistence(timeout: 3))
+        let unavailableValue = try XCTUnwrap(unavailableRow.value as? String)
+        XCTAssertTrue(unavailableValue.contains("Workspace: Cloud Builder"))
+        XCTAssertTrue(unavailableValue.contains("Computer: Build Mac · Unavailable"))
+        XCTAssertFalse(unavailableValue.contains("Pane:"))
+
+        let unreadFilter = app.descendants(matching: .any)["MobileNotificationFeedFilterUnread"]
+        XCTAssertTrue(unreadFilter.waitForExistence(timeout: 3))
+        unreadFilter.tap()
+
+        XCTAssertTrue(approvalRow.waitForExistence(timeout: 3))
+        approvalRow.swipeLeft()
+        let markRead = app.descendants(matching: .any)["MobileNotificationFeedMarkReadSwipe-studio-codex-approval"]
+        XCTAssertTrue(markRead.waitForExistence(timeout: 3))
+        markRead.tap()
+        XCTAssertTrue(approvalRow.waitForNonExistence(timeout: 3))
+
+        let allFilter = app.descendants(matching: .any)["MobileNotificationFeedFilterAll"]
+        XCTAssertTrue(allFilter.waitForExistence(timeout: 3))
+        allFilter.tap()
+
+        let completedRow = app.descendants(matching: .any)["MobileNotificationFeedRow-macbook-tests-passed"]
+        XCTAssertTrue(completedRow.waitForExistence(timeout: 3))
+        completedRow.tap()
+
+        let workspaceDestination = app.descendants(matching: .any)[
+            "MobileNotificationFeedPreviewWorkspaceDestination"
+        ]
+        XCTAssertTrue(workspaceDestination.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.navigationBars["Release"].waitForExistence(timeout: 3))
+
+        let systemBackButton = app.navigationBars.buttons.firstMatch
+        XCTAssertTrue(systemBackButton.waitForExistence(timeout: 3))
+        systemBackButton.tap()
+
+        let notificationsTab = app.tabBars.buttons["Notifications"]
+        XCTAssertTrue(feed.waitForExistence(timeout: 3))
+        XCTAssertTrue(notificationsTab.waitForExistence(timeout: 3))
+        XCTAssertTrue(notificationsTab.isSelected)
+        XCTAssertTrue(completedRow.waitForExistence(timeout: 3))
+
+        completedRow.press(forDuration: 1)
+        let markUnread = app.descendants(matching: .any)[
+            "MobileNotificationFeedMarkUnreadMenu-macbook-tests-passed"
+        ]
+        XCTAssertTrue(markUnread.waitForExistence(timeout: 3))
+        markUnread.tap()
+        XCTAssertTrue(completedRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(try XCTUnwrap(completedRow.value as? String).contains("Unread"))
+
+        completedRow.tap()
+        XCTAssertTrue(workspaceDestination.waitForExistence(timeout: 3))
+        let swipeStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+        let swipeEnd = app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+        swipeStart.press(forDuration: 0.05, thenDragTo: swipeEnd)
+
+        XCTAssertTrue(feed.waitForExistence(timeout: 3))
+        XCTAssertTrue(notificationsTab.waitForExistence(timeout: 3))
+        XCTAssertTrue(notificationsTab.isSelected)
+
+        let markAllRead = app.buttons["MobileNotificationFeedMarkAllRead"]
+        XCTAssertTrue(markAllRead.waitForExistence(timeout: 3))
+        markAllRead.tap()
+        XCTAssertTrue(markAllRead.waitForNonExistence(timeout: 3))
+
+        let workspacesTab = app.tabBars.buttons["Workspaces"]
+        XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
+        workspacesTab.tap()
+        XCTAssertTrue(app.staticTexts["Workspaces"].waitForExistence(timeout: 3))
+        app.tabBars.buttons["Notifications"].tap()
+        XCTAssertTrue(feed.waitForExistence(timeout: 3))
+    }
+
+    /// Regression: every task-composer action must remain discoverable through
+    /// the accessibility hierarchy, and its exposed activation frame must meet
+    /// Apple's 44-point minimum on both compact and regular-width layouts.
+    @MainActor
+    func testTaskComposerExposesPrimaryActionAndMinimumControlTargets() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
+
+        let create = app.buttons["MobileTaskComposerCreateButton"]
+        XCTAssertTrue(
+            create.waitForExistence(timeout: 4),
+            "The visible launch action must be present in the accessibility hierarchy"
+        )
+        XCTAssertEqual(create.label, "Start Claude")
+        XCTAssertGreaterThanOrEqual(
+            create.frame.height,
+            44,
+            "The launch action must expose at least a 44-point activation frame"
+        )
+
+        let agentMenu = app.buttons["MobileTaskComposerAgentMenu"]
+        XCTAssertTrue(agentMenu.waitForExistence(timeout: 2))
+        XCTAssertGreaterThanOrEqual(
+            agentMenu.frame.height,
+            44,
+            "The selected agent menu must expose at least a 44-point activation frame"
+        )
+        tap(agentMenu, in: app)
+        for name in ["Claude", "Codex", "OpenCode", "Shell"] {
+            let template = app.buttons[name]
+            XCTAssertTrue(
+                template.waitForExistence(timeout: 2),
+                "The \(name) template must be present in the accessibility hierarchy"
+            )
+        }
+        XCTAssertTrue(app.buttons["MobileTaskComposerEditTemplatesButton"].exists)
+        tapMenuItem(app.buttons["Claude"], in: app)
+
+        for identifier in [
+            "MobileTaskComposerMachineMenu",
+            "MobileTaskComposerDirectory",
+        ] {
+            let control = app.buttons[identifier]
+            XCTAssertTrue(control.waitForExistence(timeout: 2))
+            XCTAssertGreaterThanOrEqual(control.frame.height, 44)
+        }
+    }
+
+    /// The composer keeps the launch route visible while the prompt receives
+    /// focus, so the user can verify the agent, Mac, and folder while typing.
+    @MainActor
+    func testTaskComposerOpensFocusedWithPersonalizedLaunchAction() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        let machine = app.buttons["MobileTaskComposerMachineMenu"]
+        let directory = app.buttons["MobileTaskComposerDirectory"]
+        XCTAssertTrue(machine.exists)
+        XCTAssertTrue(directory.exists)
+        XCTAssertGreaterThanOrEqual(
+            prompt.frame.height,
+            100,
+            "The prompt must remain the dominant keyboard-up surface"
+        )
+        XCTAssertLessThanOrEqual(prompt.frame.maxY, machine.frame.minY)
+        XCTAssertLessThanOrEqual(prompt.frame.maxY, directory.frame.minY)
+        XCTAssertLessThanOrEqual(machine.frame.maxY, keyboard.frame.minY)
+        XCTAssertLessThanOrEqual(directory.frame.maxY, keyboard.frame.minY)
+        XCTAssertEqual(app.buttons["MobileTaskComposerCreateButton"].label, "Start Claude")
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "task-composer-prompt-first"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    /// Accessibility text sizes must preserve a useful prompt canvas instead
+    /// of allowing the persistent action to consume most of the visible sheet.
+    @MainActor
+    func testTaskComposerAccessibilityXXXLKeepsPrimaryActionCompact() throws {
+        let app = launchApp(
+            mockData: false,
+            environment: [
+                "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            ],
+            launchArguments: [
+                "-UIPreferredContentSizeCategoryName",
+                "UICTContentSizeCategoryAccessibilityXXXL",
+            ]
+        )
+        defer { app.terminate() }
+
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        let agentMenu = app.buttons["MobileTaskComposerAgentMenu"]
+        XCTAssertTrue(agentMenu.waitForExistence(timeout: 3))
+        XCTAssertLessThanOrEqual(
+            agentMenu.frame.height,
+            80,
+            "The selected agent control must stay compact at accessibility sizes"
+        )
+        let machine = app.buttons["MobileTaskComposerMachineMenu"]
+        let directory = app.buttons["MobileTaskComposerDirectory"]
+        XCTAssertTrue(machine.waitForExistence(timeout: 3))
+        XCTAssertTrue(directory.waitForExistence(timeout: 3))
+        XCTAssertGreaterThanOrEqual(
+            prompt.frame.minY,
+            app.navigationBars["New Task"].frame.maxY,
+            "Prompt focus must not scroll the prompt behind the navigation title"
+        )
+        XCTAssertLessThanOrEqual(prompt.frame.maxY, machine.frame.minY)
+        XCTAssertLessThanOrEqual(prompt.frame.maxY, directory.frame.minY)
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
+        let create = app.buttons["MobileTaskComposerCreateButton"]
+        XCTAssertTrue(create.waitForExistence(timeout: 3))
+        XCTAssertLessThanOrEqual(
+            create.frame.height,
+            80,
+            "The persistent action must not become a multi-line panel at Accessibility XXXL"
+        )
+        XCTAssertLessThanOrEqual(
+            create.frame.maxY,
+            keyboard.frame.minY,
+            "The primary action must remain fully visible above the keyboard"
+        )
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "task-composer-accessibility-xxxl"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    /// Agent templates need an instruction before launch, while the plain
+    /// shell remains a useful zero-prompt workspace shortcut.
+    @MainActor
+    func testTaskComposerRequiresAgentPromptButAllowsEmptyShell() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        let create = app.buttons["MobileTaskComposerCreateButton"]
+        XCTAssertTrue(create.waitForExistence(timeout: 3))
+        XCTAssertEqual(create.label, "Start Claude")
+        XCTAssertFalse(create.isEnabled)
+        XCTAssertEqual(
+            app.staticTexts["MobileTaskComposerActionCaption"].label,
+            "Add a prompt to put Claude to work."
+        )
+
+        selectTaskComposerAgent(named: "Shell", in: app)
+        let shellReady = NSPredicate(format: "label == %@ AND enabled == true", "Open Shell")
+        expectation(for: shellReady, evaluatedWith: create)
+        waitForExpectations(timeout: 3)
+        XCTAssertEqual(
+            app.staticTexts["MobileTaskComposerActionCaption"].label,
+            "New workspace on Preview Mac in ~."
+        )
+
+        selectTaskComposerAgent(named: "Claude", in: app)
+        let agentNeedsPrompt = NSPredicate(format: "label == %@ AND enabled == false", "Start Claude")
+        expectation(for: agentNeedsPrompt, evaluatedWith: create)
+        waitForExpectations(timeout: 3)
+
+        tap(prompt, in: app)
+        prompt.typeText("Fix the race")
+        let agentReady = NSPredicate(format: "label == %@ AND enabled == true", "Start Claude")
+        expectation(for: agentReady, evaluatedWith: create)
+        waitForExpectations(timeout: 3)
+        XCTAssertEqual(
+            app.staticTexts["MobileTaskComposerActionCaption"].label,
+            "New workspace on Preview Mac in ~."
+        )
+
+        let templates = [
+            (name: "Claude", action: "Start Claude"),
+            (name: "Codex", action: "Start Codex"),
+            (name: "OpenCode", action: "Start OpenCode"),
+            (name: "Shell", action: "Open Shell"),
+        ]
+        for template in templates {
+            selectTaskComposerAgent(named: template.name, in: app)
+            let selectedAction = NSPredicate(
+                format: "label == %@ AND enabled == true",
+                template.action
+            )
+            expectation(for: selectedAction, evaluatedWith: create)
+            waitForExpectations(timeout: 3)
+            XCTAssertEqual(
+                app.buttons["MobileTaskComposerAgentMenu"].value as? String,
+                template.name
+            )
+        }
+    }
+
+    /// Selecting another paired Mac must cross the production composer submit
+    /// boundary with that Mac's stable device identity.
+    @MainActor
+    func testTaskComposerSubmitsToSelectedPairedMac() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        let machineMenu = app.buttons["MobileTaskComposerMachineMenu"]
+        revealTaskComposerControl(machineMenu, in: app)
+        machineMenu.tap()
+        tapMenuItem(app.buttons["Backup Preview Mac"], in: app)
+        XCTAssertEqual(machineMenu.value as? String, "Backup Preview Mac")
+
+        try typeText("Route this task to the backup Mac", into: prompt, in: app)
+        tap(app.buttons["MobileTaskComposerCreateButton"], in: app)
+
+        let submittedMac = app.staticTexts["MobileTaskComposerSubmittedMacDeviceID"]
+        XCTAssertTrue(submittedMac.waitForExistence(timeout: 4))
+        XCTAssertEqual(submittedMac.label, "task-composer-backup-preview-mac")
+    }
+
+    /// The debug-only lab must expose every Shell treatment, apply the
+    /// selected variant immediately, and preserve it across an app relaunch.
+    @MainActor
+    func testShellIconLabSelectsAndPersistsVariant() throws {
+        var app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+        ])
+
+        func openShellIconLab(in app: XCUIApplication) {
+            let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+            XCTAssertTrue(settings.waitForExistence(timeout: 8))
+            tap(settings, in: app)
+
+            let link = app.descendants(matching: .any)["MobileSettingsShellIconLab"]
+            for _ in 0..<6 where !link.exists || !link.isHittable {
+                app.swipeUp(velocity: .slow)
+            }
+            XCTAssertTrue(link.waitForExistence(timeout: 4))
+            XCTAssertTrue(link.isHittable)
+            tap(link, in: app)
+            XCTAssertTrue(
+                app.descendants(matching: .any)["MobileShellIconLab"].waitForExistence(timeout: 4)
+            )
+        }
+
+        openShellIconLab(in: app)
+        XCTAssertTrue(app.buttons["MobileShellIconVariant-A"].exists)
+        XCTAssertTrue(app.buttons["MobileShellIconVariant-B"].exists)
+        XCTAssertTrue(app.buttons["MobileShellIconVariant-C"].exists)
+
+        let medium86 = app.buttons["MobileShellIconVariant-G"]
+        for _ in 0..<3 where !medium86.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(medium86.isHittable)
+        tap(medium86, in: app)
+        XCTAssertTrue(medium86.isSelected)
+
+        let selectedScreenshot = XCTAttachment(screenshot: app.screenshot())
+        selectedScreenshot.name = "shell-icon-lab-medium-86"
+        selectedScreenshot.lifetime = .keepAlways
+        add(selectedScreenshot)
+
+        app.terminate()
+        app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+        ])
+        openShellIconLab(in: app)
+        let persistedMedium86 = app.buttons["MobileShellIconVariant-G"]
+        for _ in 0..<3 where !persistedMedium86.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(persistedMedium86.isHittable)
+        XCTAssertTrue(persistedMedium86.isSelected)
+
+        let baseline = app.buttons["MobileShellIconVariant-A"]
+        for _ in 0..<4 where !baseline.isHittable {
+            app.swipeDown(velocity: .slow)
+        }
+        XCTAssertTrue(baseline.isHittable)
+        tap(baseline, in: app)
+        XCTAssertTrue(baseline.isSelected)
+        app.terminate()
+    }
+
+    /// The production composer must preserve each built-in template's exact
+    /// startup parameters when it crosses the submit boundary.
+    @MainActor
+    func testTaskComposerSubmitsEveryBuiltInTemplateWithExactWorkspaceSpec() throws {
+        let prompt = "Inspect the task composer"
+        let templates: [(name: String, action: String, command: String?, prompt: String?)] = [
+            ("Claude", "Start Claude", "claude -- \"$CMUX_TASK_PROMPT\"", prompt),
+            ("Codex", "Start Codex", "codex -- \"$CMUX_TASK_PROMPT\"", prompt),
+            ("OpenCode", "Start OpenCode", "opencode --prompt \"$CMUX_TASK_PROMPT\"", prompt),
+            ("Shell", "Open Shell", nil, nil),
+        ]
+
+        for template in templates {
+            let app = launchApp(mockData: false, environment: [
+                "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            ])
+            let promptField = app.textFields["MobileTaskComposerPrompt"]
+            XCTAssertTrue(promptField.waitForExistence(timeout: 8))
+            selectTaskComposerAgent(named: template.name, in: app)
+            if let templatePrompt = template.prompt {
+                try typeText(templatePrompt, into: promptField, in: app)
+            }
+
+            let create = app.buttons["MobileTaskComposerCreateButton"]
+            let ready = NSPredicate(format: "label == %@ AND enabled == true", template.action)
+            expectation(for: ready, evaluatedWith: create)
+            waitForExpectations(timeout: 4)
+            tap(create, in: app)
+
+            let submittedCommand = app.staticTexts["MobileTaskComposerSubmittedInitialCommand"]
+            XCTAssertTrue(submittedCommand.waitForExistence(timeout: 4))
+            XCTAssertEqual(submittedCommand.label, template.command ?? "<nil>")
+            XCTAssertEqual(
+                app.staticTexts["MobileTaskComposerSubmittedPrompt"].label,
+                template.prompt ?? "<nil>"
+            )
+            XCTAssertEqual(
+                app.staticTexts["MobileTaskComposerSubmittedWorkingDirectory"].label,
+                "~"
+            )
+            XCTAssertNotEqual(
+                app.staticTexts["MobileTaskComposerSubmittedOperationID"].label,
+                "<nil>"
+            )
+            app.terminate()
+        }
+    }
+
+    /// Folder search must rank an exact project root before descendants and
+    /// reflect the selected exact path from the production picker.
+    @MainActor
+    func testTaskComposerDirectorySearchOrdersAndSelectsRemoteFolder() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_DIRECTORY_PICKER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let search = app.searchFields["Search folders"]
+        XCTAssertTrue(search.waitForExistence(timeout: 8))
+        try typeText("mobile-root", into: search, in: app)
+        XCTAssertTrue(
+            app.staticTexts[
+                "Search checks indexed folders across mounted volumes. Browse to reach unindexed or restricted locations."
+            ].waitForExistence(timeout: 3)
+        )
+        let root = app.buttons["mobile-root"]
+        let sources = app.buttons["Sources"]
+        XCTAssertTrue(root.waitForExistence(timeout: 5))
+        XCTAssertTrue(sources.waitForExistence(timeout: 5))
+        XCTAssertLessThan(root.frame.minY, sources.frame.minY)
+        XCTAssertTrue((root.value as? String)?.contains("/Users/ui/mobile-root") == true)
+        XCTAssertTrue((root.value as? String)?.contains("On this Mac") == true)
+        XCTAssertTrue((sources.value as? String)?.contains("/Users/ui/mobile-root/Sources") == true)
+
+        tap(sources, in: app)
+        let selectedPath = app.staticTexts["MobileTaskComposerSelectedDirectory"]
+        XCTAssertTrue(selectedPath.waitForExistence(timeout: 4))
+        XCTAssertEqual(selectedPath.label, "/Users/ui/mobile-root/Sources")
+    }
+
+    /// Empty search is a real filesystem browser. Hidden folders, packages,
+    /// symlinked directories, root navigation, and current-folder selection
+    /// must all remain available instead of collapsing to recent suggestions.
+    @MainActor
+    func testTaskComposerDirectoryBrowserShowsEveryDirectoryKindAndSelectsCurrentFolder() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_DIRECTORY_PICKER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileTaskDirectoryBrowseCurrent"]
+                .waitForExistence(timeout: 8)
+        )
+        XCTAssertTrue(app.buttons["MobileTaskDirectoryBrowseComputer"].exists)
+        XCTAssertTrue(app.buttons[".hidden"].exists)
+        XCTAssertTrue(app.buttons["Projects.app"].exists)
+        XCTAssertTrue(app.buttons["mobile-link"].exists)
+
+        tap(app.buttons["mobile-root"], in: app)
+        XCTAssertTrue(app.buttons["Sources"].waitForExistence(timeout: 4))
+        tap(app.buttons["MobileTaskDirectoryBrowseUseCurrent"], in: app)
+
+        let selectedPath = app.staticTexts["MobileTaskComposerSelectedDirectory"]
+        XCTAssertTrue(selectedPath.waitForExistence(timeout: 4))
+        XCTAssertEqual(selectedPath.label, "/Users/ui/mobile-root")
+    }
+
+    /// Regression: scrolling a full directory page must not trap SwiftUI's
+    /// lazy layout on the main thread or make the picker impossible to dismiss.
+    @MainActor
+    func testTaskComposerDirectoryBrowserScrollsAndRemainsResponsive() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_DIRECTORY_SCROLL_STRESS": "1",
+        ])
+        defer { app.terminate() }
+
+        let directory = app.buttons["MobileTaskComposerDirectory"]
+        XCTAssertTrue(directory.waitForExistence(timeout: 8))
+        tap(directory, in: app)
+
+        let firstFolder = app.buttons["folder-00"]
+        let lastFolder = app.buttons["folder-49"]
+        let parentFolder = app.buttons["MobileTaskDirectoryBrowseParent"]
+        XCTAssertTrue(firstFolder.waitForExistence(timeout: 8))
+        XCTAssertTrue(parentFolder.isHittable)
+
+        for _ in 0..<8 where !lastFolder.isHittable {
+            app.swipeUp(velocity: .fast)
+        }
+        XCTAssertTrue(lastFolder.isHittable)
+        XCTAssertTrue(parentFolder.isHittable)
+
+        let cancel = app.buttons["MobileTaskDirectoryPickerCancel"]
+        XCTAssertTrue(cancel.isHittable)
+        tap(cancel, in: app)
+        XCTAssertFalse(cancel.waitForExistence(timeout: 3))
+    }
+
+    /// A failed append must leave page 1 interactive, and retry must request
+    /// the exact failed page without replacing the successful snapshot.
+    @MainActor
+    func testTaskComposerDirectoryPaginationRecoveryPreservesPageOneAndRetriesPageTwo() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_DIRECTORY_PAGINATION_RECOVERY_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let pageOneFolder = app.buttons["first-page-folder"]
+        let unreadableFolder = app.buttons["unreadable-page-one"]
+        XCTAssertTrue(pageOneFolder.waitForExistence(timeout: 8))
+        XCTAssertTrue(unreadableFolder.exists)
+        XCTAssertFalse(unreadableFolder.isEnabled)
+
+        let showMore = app.buttons["MobileTaskDirectoryBrowseMore"]
+        XCTAssertTrue(showMore.waitForExistence(timeout: 3))
+        XCTAssertTrue(showMore.isHittable)
+        let showMoreFrame = showMore.frame
+        XCTAssertGreaterThanOrEqual(showMoreFrame.height, 44)
+        tap(showMore, in: app)
+
+        let retry = app.buttons["TaskComposerDirectoryBrowseRetry"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 4))
+        XCTAssertTrue(pageOneFolder.exists)
+        XCTAssertTrue(unreadableFolder.exists)
+        XCTAssertFalse(unreadableFolder.isEnabled)
+        XCTAssertFalse(app.buttons["z-second-page-folder"].exists)
+
+        XCTAssertTrue(retry.isHittable)
+        let retryFrame = retry.frame
+        XCTAssertGreaterThanOrEqual(retryFrame.height, 44)
+        let hasAppendFailureTitle = app.staticTexts["Couldn’t Load More Folders"].exists
+        tap(retry, in: app)
+        XCTAssertTrue(app.buttons["z-second-page-folder"].waitForExistence(timeout: 4))
+        XCTAssertTrue(pageOneFolder.exists)
+        XCTAssertFalse(retry.waitForExistence(timeout: 1))
+        XCTAssertTrue(
+            hasAppendFailureTitle,
+            "Expected the page-2 failure title. Show More frame: \(showMoreFrame); Retry frame: \(retryFrame)"
+        )
+    }
+
+    /// The production editor must persist add, edit, and delete mutations in
+    /// one isolated composer session.
+    @MainActor
+    func testTaskComposerTemplateEditorAddsEditsAndDeletesTemplate() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
+        tap(app.buttons["MobileTaskComposerAgentMenu"], in: app)
+        tapMenuItem(app.buttons["MobileTaskComposerEditTemplatesButton"], in: app)
+        XCTAssertTrue(app.navigationBars["Task Templates"].waitForExistence(timeout: 4))
+        tap(app.buttons["Add Template"], in: app)
+        XCTAssertTrue(app.navigationBars["Add Template"].waitForExistence(timeout: 4))
+
+        let originalName = "Spark Custom"
+        let editedName = "Spark Review"
+        try typeText(originalName, into: app.textFields["Name"], in: app)
+        tap(app.buttons["Save"], in: app)
+
+        let originalRow = taskTemplateEditorRow(named: originalName, in: app)
+        XCTAssertTrue(originalRow.waitForExistence(timeout: 4))
+        tap(originalRow, in: app)
+        XCTAssertTrue(app.navigationBars["Edit Template"].waitForExistence(timeout: 4))
+        try replaceText(editedName, in: app.textFields["Name"], app: app)
+        tap(app.buttons["Save"], in: app)
+
+        let editedRow = taskTemplateEditorRow(named: editedName, in: app)
+        XCTAssertTrue(editedRow.waitForExistence(timeout: 4))
+        XCTAssertFalse(originalRow.exists)
+        editedRow.swipeLeft()
+        tap(app.buttons["Delete"], in: app)
+        XCTAssertFalse(editedRow.waitForExistence(timeout: 2))
+
+        tap(app.buttons["Done"], in: app)
+        XCTAssertFalse(app.buttons[editedName].exists)
+    }
+
+    /// Regression: the standalone preview must not inherit editable task state
+    /// from the app's production UserDefaults store.
+    @MainActor
+    func testTaskComposerPreviewIgnoresProductionTemplateDefaults() throws {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US",
+            "-cmux.mobile.taskTemplates.seeded.v3", "YES",
+            "-cmux.mobile.taskTemplates.v3", "invalid-production-template-data",
+        ]
+        app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = "0"
+        app.launchEnvironment["CMUX_UITEST_TASK_COMPOSER_PREVIEW"] = "1"
+        app.launch()
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
+        for name in ["Claude", "Codex", "OpenCode", "Shell"] {
+            XCTAssertTrue(
+                app.buttons[name].waitForExistence(timeout: 2),
+                "The deterministic preview must ignore production defaults and expose \(name)"
+            )
+        }
+    }
+
+    /// Regression: the template form's default-directory field must identify
+    /// itself as Directory instead of exposing only its "~" placeholder.
+    @MainActor
+    func testTaskTemplateDirectoryHasMeaningfulAccessibilityLabel() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_TEMPLATE_FORM_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            app.textFields["Directory"].waitForExistence(timeout: 8),
+            "The template directory field must expose the localized Directory label"
+        )
+    }
+
+    /// Regression: a failed submission must stay visible in the persistent
+    /// action area while the prompt keyboard remains presented.
+    @MainActor
+    func testTaskComposerFailureRemainsVisibleAboveKeyboard() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_FAILURE": "1",
+        ])
+        defer { app.terminate() }
+
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        tap(prompt, in: app)
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
+        prompt.typeText("Exercise failure recovery")
+        let create = app.buttons["MobileTaskComposerCreateButton"]
+        XCTAssertTrue(create.waitForExistence(timeout: 3))
+
+        tap(create, in: app)
+
+        let failure = app.staticTexts["MobileTaskComposerFailure"]
+        XCTAssertTrue(failure.waitForExistence(timeout: 3))
+        XCTAssertTrue(keyboard.exists, "Submission failure must not require dismissing the keyboard")
+        XCTAssertLessThanOrEqual(
+            failure.frame.maxY,
+            create.frame.minY,
+            "Failure guidance must remain in the persistent area immediately above Create"
+        )
+        XCTAssertLessThanOrEqual(
+            create.frame.maxY,
+            keyboard.frame.minY,
+            "The persistent failure and Create action must remain above the keyboard"
+        )
+    }
+
+    /// Regression: an ordinary remote failure must preserve the prompt and
+    /// retry identity, then clear its guidance before the successful retry.
+    @MainActor
+    func testTaskComposerRetriesOrdinaryFailureWithSameOperationID() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_FAIL_ONCE": "1",
+        ])
+        defer { app.terminate() }
+
+        let expectedPrompt = "Retry this exact task"
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        try typeText(expectedPrompt, into: prompt, in: app)
+
+        let create = app.buttons["MobileTaskComposerCreateButton"]
+        XCTAssertTrue(create.waitForExistence(timeout: 3))
+        tap(create, in: app)
+
+        let failure = app.staticTexts["MobileTaskComposerFailure"]
+        XCTAssertTrue(failure.waitForExistence(timeout: 3))
+        let retryReady = NSPredicate(format: "label == %@ AND enabled == true", "Try Again")
+        expectation(for: retryReady, evaluatedWith: create)
+        waitForExpectations(timeout: 3)
+        XCTAssertEqual(prompt.value as? String, expectedPrompt)
+
+        let firstOperationID = app.staticTexts["MobileTaskComposerSubmittedOperationID-1"]
+        let firstPrompt = app.staticTexts["MobileTaskComposerSubmittedPrompt-1"]
+        XCTAssertTrue(firstOperationID.waitForExistence(timeout: 3))
+        XCTAssertTrue(firstPrompt.waitForExistence(timeout: 3))
+        XCTAssertNotEqual(firstOperationID.label, "<nil>")
+        XCTAssertEqual(firstPrompt.label, expectedPrompt)
+
+        tap(create, in: app)
+
+        XCTAssertTrue(
+            failure.waitForNonExistence(timeout: 0.5),
+            "Retry must clear stale failure guidance before the request finishes"
+        )
+        XCTAssertTrue(prompt.exists, "The composer must remain presented while retrying")
+        XCTAssertEqual(prompt.value as? String, expectedPrompt)
+
+        let secondOperationID = app.staticTexts["MobileTaskComposerSubmittedOperationID-2"]
+        let secondPrompt = app.staticTexts["MobileTaskComposerSubmittedPrompt-2"]
+        XCTAssertTrue(secondOperationID.waitForExistence(timeout: 1))
+        XCTAssertTrue(secondPrompt.waitForExistence(timeout: 1))
+        XCTAssertEqual(secondOperationID.label, firstOperationID.label)
+        XCTAssertEqual(secondPrompt.label, expectedPrompt)
+
+        XCTAssertTrue(
+            prompt.waitForNonExistence(timeout: 4),
+            "The composer must dismiss after the retry succeeds"
+        )
+    }
+
+    /// Regression: the production composer must route a Claude task through
+    /// the connected host and select the exact workspace returned by that RPC.
+    @MainActor
+    func testTaskComposerCreatesAndSelectsConnectedWorkspace() async throws {
+        let server = try MobileSyncMockHostServer(
+            supportsManualAttachTicket: true,
+            workspaceCreateSelectsCreatedWorkspace: false
+        )
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedAppViaManualPairing(port: port)
+        defer { app.terminate() }
+
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        XCTAssertTrue(backButton.waitForExistence(timeout: 4))
+        tap(backButton, in: app)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+                .waitForExistence(timeout: 4)
+        )
+
+        let composerButton = app.buttons["MobileTaskComposerButton"]
+        XCTAssertTrue(composerButton.waitForExistence(timeout: 4))
+        tap(composerButton, in: app)
+
+        let promptText = "Connected Claude task \(UUID().uuidString)"
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            waitForKeyboardFocus(of: prompt, timeout: 3),
+            "Opening New Task from the production workspace must focus the prompt without an extra tap."
+        )
+        XCTAssertTrue(
+            waitForSoftwareKeyboardKeyPlane(in: app, minimumOverlap: 120, timeout: 3) != nil,
+            "Opening New Task must raise the software keyboard without an extra tap."
+        )
+        prompt.typeText(promptText)
+
+        tap(app.buttons["MobileTaskComposerDirectory"], in: app)
+        let directorySearch = app.searchFields["Search folders"]
+        XCTAssertTrue(directorySearch.waitForExistence(timeout: 4))
+        try typeText("cmux", into: directorySearch, in: app)
+        let projectDirectory = app.buttons.matching(
+            NSPredicate(format: "label == %@ AND value CONTAINS %@", "cmux", "~/cmux")
+        ).firstMatch
+        XCTAssertTrue(projectDirectory.waitForExistence(timeout: 4))
+        tap(projectDirectory, in: app)
+        let selectedDirectory = app.buttons["MobileTaskComposerDirectory"]
+        XCTAssertTrue(selectedDirectory.waitForExistence(timeout: 4))
+        XCTAssertEqual(selectedDirectory.value as? String, "~/cmux")
+
+        let create = app.buttons["MobileTaskComposerCreateButton"]
+        let ready = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@ AND enabled == true", "Start Claude"),
+            object: create
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 4), .completed)
+        tap(create, in: app)
+
+        XCTAssertTrue(
+            prompt.waitForNonExistence(timeout: 8),
+            "A successful connected create must dismiss the task composer"
+        )
+
+        guard let request = await server.waitForWorkspaceCreateRequest(timeout: 8) else {
+            XCTFail("The connected host never received workspace.create")
+            return
+        }
+        XCTAssertEqual(request.title, promptText)
+        XCTAssertEqual(request.workingDirectory, "~/cmux")
+        XCTAssertEqual(request.initialCommand, "claude -- \"$CMUX_TASK_PROMPT\"")
+        XCTAssertEqual(request.initialEnvironment, ["CMUX_TASK_PROMPT": promptText])
+        guard let operationID = request.operationID else {
+            XCTFail("workspace.create must carry an operation ID")
+            return
+        }
+        XCTAssertFalse(operationID.isEmpty)
+        XCTAssertNotNil(UUID(uuidString: operationID))
+
+        await assertHostSelection(
+            workspaceID: "workspace-3",
+            terminalID: "workspace-3-terminal-1",
+            server: server
+        )
+        let title = workspaceTitleElement(in: app)
+        let selectedTitle = XCTNSPredicateExpectation(
+            predicate: NSPredicate(
+                format: "label == %@ OR label BEGINSWITH %@",
+                promptText,
+                "\(promptText),"
+            ),
+            object: title
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [selectedTitle], timeout: 8),
+            .completed,
+            "The selected workspace must show the exact title returned by workspace.create"
+        )
+        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+
+        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+        XCTAssertTrue(terminalDropdown.waitForExistence(timeout: 4))
+        XCTAssertEqual(terminalDropdown.value as? String, "Terminal 1")
+        tap(terminalDropdown, in: app)
+        assertTerminalMenuItemExists("workspace-3-terminal-1", in: app)
+    }
+
+    /// Regression: preparation must durably save the exact retry identity
+    /// before routing starts, while Cancel remains available until the create
+    /// boundary is committed.
+    @MainActor
+    func testTaskComposerPersistsDraftAndAllowsCancelDuringPreparation() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_HOLD_PREPARATION": "1",
+        ])
+        defer { app.terminate() }
+
+        let prompt = app.textFields["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        prompt.typeText("Persist this task")
+        let create = app.buttons["MobileTaskComposerCreateButton"]
+        XCTAssertTrue(create.waitForExistence(timeout: 3))
+        XCTAssertEqual(create.label, "Start Claude")
+        tap(create, in: app)
+
+        let startingPredicate = NSPredicate(format: "label == %@", "Preparing workspace…")
+        expectation(for: startingPredicate, evaluatedWith: create)
+        waitForExpectations(timeout: 3)
+
+        let draftState = app.staticTexts["MobileTaskComposerSubmissionDraftState"]
+        XCTAssertTrue(draftState.waitForExistence(timeout: 3))
+        XCTAssertEqual(draftState.label, "persisted")
+        let cancel = app.buttons["Cancel"]
+        XCTAssertTrue(cancel.exists)
+        XCTAssertTrue(cancel.isEnabled, "Cancel must stay enabled before the create boundary")
+        if cancel.isEnabled {
+            cancel.tap()
+            XCTAssertFalse(
+                app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 2),
+                "Pre-boundary Cancel must dismiss the composer"
+            )
+        }
     }
 
     /// Regression: fast pinch-zoom must not hang the main thread (the
@@ -1883,6 +2974,51 @@ final class cmuxUITests: XCTestCase {
         return app
     }
 
+    @MainActor
+    private func launchConnectedAppViaManualPairing(port: UInt16) throws -> XCUIApplication {
+        let portText = String(port)
+        guard let finalPortDigit = portText.last else {
+            throw URLError(.badURL)
+        }
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_ADD_DEVICE_PORT": String(portText.dropLast()),
+        ])
+        let pairingForm = app.otherElements["MobileAddDeviceForm"]
+        XCTAssertTrue(pairingForm.waitForExistence(timeout: 8))
+
+        let hostField = app.textFields["MobileAddDeviceHostField"]
+        XCTAssertTrue(hostField.waitForExistence(timeout: 4))
+        hostField.tap()
+        hostField.typeText("127.0.0.1")
+
+        let portField = app.textFields["MobileAddDevicePortField"]
+        XCTAssertTrue(portField.waitForExistence(timeout: 4))
+        portField.tap()
+        portField.typeText(String(finalPortDigit))
+        XCTAssertEqual(hostField.value as? String, "127.0.0.1")
+        XCTAssertEqual(portField.value as? String, portText)
+
+        let pairButton = app.buttons["MobilePairButton"]
+        let pairReady = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "enabled == true"),
+            object: pairButton
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [pairReady], timeout: 4), .completed)
+        XCTAssertTrue(pairButton.isHittable)
+        pairButton.tap()
+
+        XCTAssertTrue(
+            pairingForm.waitForNonExistence(timeout: 20),
+            "Successful manual loopback pairing must dismiss the Add Computer sheet"
+        )
+
+        waitForWorkspaceShell(in: app)
+        try openSelectedWorkspaceIfNeeded(app)
+        assertTerminalRow(0, label: "$ cmux ios status", in: app)
+        assertTerminalRow(1, label: "Mobile Core: connected", in: app)
+        return app
+    }
+
     private func attachURL(port: UInt16) throws -> URL {
         let route = try CmxAttachRoute(
             id: "debug_loopback",
@@ -1894,6 +3030,7 @@ final class cmuxUITests: XCTestCase {
             terminalID: nil,
             macDeviceID: "ui-test-mac",
             macDisplayName: "UI Test Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
             routes: [route],
             expiresAt: Date(timeIntervalSinceNow: 60 * 60),
             authToken: "ui-test-ticket"
@@ -1993,10 +3130,12 @@ final class cmuxUITests: XCTestCase {
     private func launchApp(
         mockData: Bool,
         clearAuth: Bool = false,
-        environment: [String: String] = [:]
+        environment: [String: String] = [:],
+        launchArguments: [String] = []
     ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments += launchArguments
         app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = mockData ? "1" : "0"
         for (key, value) in environment {
             app.launchEnvironment[key] = value
@@ -2379,6 +3518,55 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(focusTextInput(element, in: app), "Expected text input to accept keyboard focus: \(element.debugDescription)")
         element.typeText(text)
         dismissKeyboard(in: app, preferAddDeviceAccessoryDoneButton: isAddDeviceField(element))
+    }
+
+    @MainActor
+    private func taskTemplateEditorRow(named name: String, in app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(
+            NSPredicate(
+                format: "label CONTAINS %@ AND label CONTAINS %@",
+                name,
+                "Plain shell"
+            )
+        ).firstMatch
+    }
+
+    @MainActor
+    private func selectTaskComposerAgent(
+        named name: String,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let menu = app.buttons["MobileTaskComposerAgentMenu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 4), file: file, line: line)
+        tap(menu, in: app, file: file, line: line)
+        tapMenuItem(app.buttons[name], in: app, file: file, line: line)
+    }
+
+    @MainActor
+    private func revealTaskComposerControl(
+        _ control: XCUIElement,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(control.waitForExistence(timeout: 4), file: file, line: line)
+        let hero = app.descendants(matching: .any)["MobileTaskComposerHero"]
+        for _ in 0..<3 where !control.isHittable {
+            if hero.exists, hero.isHittable {
+                hero.swipeUp(velocity: .slow)
+            } else {
+                app.coordinate(withNormalizedOffset: .zero)
+                    .withOffset(CGVector(dx: 200, dy: 360))
+                    .press(
+                        forDuration: 0.05,
+                        thenDragTo: app.coordinate(withNormalizedOffset: .zero)
+                            .withOffset(CGVector(dx: 200, dy: 160))
+                    )
+            }
+        }
+        XCTAssertTrue(control.isHittable, "Task composer control stayed behind the keyboard", file: file, line: line)
     }
 
     @MainActor
@@ -4072,6 +5260,14 @@ private enum MockColorBands {
 }
 
 private final class MobileSyncMockHostServer: @unchecked Sendable {
+    struct WorkspaceCreateRequest: Sendable {
+        let title: String?
+        let workingDirectory: String?
+        let initialCommand: String?
+        let initialEnvironment: [String: String]?
+        let operationID: String?
+    }
+
     private struct Workspace {
         var id: String
         var title: String
@@ -4090,10 +5286,14 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let listener: NWListener
     private let queue = DispatchQueue(label: "dev.cmux.ios-ui-tests.mobile-sync-server")
     private let createdWorkspaceTerminalDelay: TimeInterval?
+    private let supportsManualAttachTicket: Bool
+    private let workspaceCreateSelectsCreatedWorkspace: Bool
+    private let macInstanceTag: String
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
     private var connections: [NWConnection] = []
     private var selectedWorkspaceID = "workspace-main"
     private var selectedTerminalID = "terminal-build"
+    private var workspaceCreateRequests: [WorkspaceCreateRequest] = []
     private var replayCounts: [String: Int] = [:]
     private var streamOffset: UInt64 = 1
     private var workspaces: [Workspace] = [
@@ -4148,10 +5348,16 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     init(
         defaultTerminalLines: [String]? = nil,
         additionalMainTerminalCount: Int = 0,
-        createdWorkspaceTerminalDelay: TimeInterval? = nil
+        createdWorkspaceTerminalDelay: TimeInterval? = nil,
+        supportsManualAttachTicket: Bool = false,
+        workspaceCreateSelectsCreatedWorkspace: Bool = true,
+        macInstanceTag: String = mockHostInstanceTag()
     ) throws {
         listener = try NWListener(using: .tcp, on: .any)
         self.createdWorkspaceTerminalDelay = createdWorkspaceTerminalDelay
+        self.supportsManualAttachTicket = supportsManualAttachTicket
+        self.workspaceCreateSelectsCreatedWorkspace = workspaceCreateSelectsCreatedWorkspace
+        self.macInstanceTag = macInstanceTag
         appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
         // color-band render test so the bands stream on attach without a flaky
@@ -4229,6 +5435,27 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         return "\(selection.workspaceID)/\(selection.terminalID)"
     }
 
+    func waitForWorkspaceCreateRequest(
+        timeout: TimeInterval = 8
+    ) async -> WorkspaceCreateRequest? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let request = await latestWorkspaceCreateRequest() {
+                return request
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return await latestWorkspaceCreateRequest()
+    }
+
+    private func latestWorkspaceCreateRequest() async -> WorkspaceCreateRequest? {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(returning: self.workspaceCreateRequests.last)
+            }
+        }
+    }
+
     private func currentSelection() async -> (workspaceID: String, terminalID: String) {
         await withCheckedContinuation { continuation in
             queue.async {
@@ -4303,6 +5530,12 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     }
 
     private func receiveRequest(on connection: NWConnection, buffer: Data = Data()) {
+        var buffered = buffer
+        if let payload = Self.nextFrame(from: &buffered) {
+            respond(to: payload, on: connection, remainingBuffer: buffered)
+            return
+        }
+
         connection.receive(
             minimumIncompleteLength: 1,
             maximumLength: 64 * 1024
@@ -4311,7 +5544,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 return
             }
 
-            var nextBuffer = buffer
+            var nextBuffer = buffered
             if let data, !data.isEmpty {
                 nextBuffer.append(data)
             }
@@ -4360,13 +5593,27 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
 
         let id = request["id"] as? String ?? ""
         let params = request["params"] as? [String: Any] ?? [:]
+        if method == "mobile.attach_ticket.create", !supportsManualAttachTicket {
+            let envelope: [String: Any] = [
+                "id": id,
+                "ok": false,
+                "error": [
+                    "code": "method_not_found",
+                    "message": "Unknown method",
+                ],
+            ]
+            let responsePayload = try JSONSerialization.data(withJSONObject: envelope)
+            return Self.frame(responsePayload)
+        }
         let result: [String: Any]
 
         switch method {
+        case "mobile.attach_ticket.create":
+            result = try manualAttachTicketResult()
         case "mobile.workspace.list", "workspace.list":
             result = workspaceListResult()
         case "workspace.create":
-            result = createWorkspaceResult()
+            result = createWorkspaceResult(params: params)
         case "terminal.create":
             result = createTerminalResult(params: params)
         case "mobile.events.subscribe":
@@ -4394,52 +5641,94 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     }
 
     private func mobileHostStatusResult() -> [String: Any] {
-        [
+        let capabilities = [
+            "events.v1",
+            "notification.badge.v1",
+            "notification.dismiss.v1",
+            "notification.reconcile.v1",
+            "terminal.bytes.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+            "terminal.viewport.v1",
+            "workspace.actions.v1",
+            "workspace.task_create.v1",
+            "workspace.read_state.v1",
+            "workspace.close.v1",
+            "dogfood.v1",
+            "workspace.groups.v1",
+        ]
+        return [
+            "mac_device_id": "ui-test-mac",
+            "mac_display_name": "UI Test Mac",
+            "mac_instance_tag": macInstanceTag,
             "routes": [],
             "terminal_fidelity": "render_grid",
-            "capabilities": [
-                "events.v1",
-                "notification.badge.v1",
-                "notification.dismiss.v1",
-                "notification.reconcile.v1",
-                "terminal.bytes.v1",
-                "terminal.render_grid.v1",
-                "terminal.replay.v1",
-                "terminal.viewport.v1",
-                "workspace.actions.v1",
-                "workspace.read_state.v1",
-                "workspace.close.v1",
-                "dogfood.v1",
-                "workspace.groups.v1",
-            ],
+            "capabilities": capabilities,
         ]
     }
 
-    private func createWorkspaceResult() -> [String: Any] {
+    private func manualAttachTicketResult() throws -> [String: Any] {
+        guard let port = listener.port?.rawValue else {
+            throw serverError("Listener has no port.")
+        }
+        let route = try CmxAttachRoute(
+            id: "debug_loopback",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: Int(port))
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "ui-test-mac",
+            macDisplayName: "UI Test Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            routes: [route],
+            expiresAt: Date(timeIntervalSinceNow: 60 * 60),
+            authToken: "ui-test-ticket"
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return ["ticket": try JSONSerialization.jsonObject(with: encoder.encode(ticket))]
+    }
+
+    private func createWorkspaceResult(params: [String: Any]) -> [String: Any] {
+        let request = WorkspaceCreateRequest(
+            title: params["title"] as? String,
+            workingDirectory: params["working_directory"] as? String,
+            initialCommand: params["initial_command"] as? String,
+            initialEnvironment: params["initial_env"] as? [String: String],
+            operationID: params["operation_id"] as? String
+        )
+        workspaceCreateRequests.append(request)
         let nextIndex = workspaces.count + 1
         let workspaceID = "workspace-\(nextIndex)"
         let terminalID = "\(workspaceID)-terminal-1"
+        let title = request.title ?? "Workspace \(nextIndex)"
+        let workingDirectory = request.workingDirectory ?? "~/workspace-\(nextIndex)"
         let terminal = Terminal(
             id: terminalID,
             title: "Terminal 1",
-            currentDirectory: "~/workspace-\(nextIndex)",
+            currentDirectory: workingDirectory,
             lines: [
                 "$ cmux ios",
-                "workspace: Workspace \(nextIndex)",
+                "workspace: \(title)",
                 "terminal: Terminal 1",
             ]
         )
         let workspace = Workspace(
             id: workspaceID,
-            title: "Workspace \(nextIndex)",
-            currentDirectory: "~/workspace-\(nextIndex)",
+            title: title,
+            currentDirectory: workingDirectory,
             terminals: createdWorkspaceTerminalDelay == nil ? [terminal] : []
         )
         workspaces.append(workspace)
-        selectedWorkspaceID = workspaceID
-        if createdWorkspaceTerminalDelay == nil {
-            selectedTerminalID = terminalID
-        } else {
+        if workspaceCreateSelectsCreatedWorkspace {
+            selectedWorkspaceID = workspaceID
+            if createdWorkspaceTerminalDelay == nil {
+                selectedTerminalID = terminalID
+            }
+        }
+        if createdWorkspaceTerminalDelay != nil {
             scheduleCreatedWorkspaceTerminal(terminal, workspaceID: workspaceID)
         }
 
@@ -4672,6 +5961,25 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private func serverError(_ message: String) -> NSError {
         NSError(domain: "MobileSyncMockHostServer", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
     }
+}
+
+/// Maps the XCUITest bundle back to the target app's tagged DEBUG build scope.
+/// Tagged builds override the test bundle identifier with the app identifier;
+/// ordinary UI tests retain their reserved `uitests` identifier and map to the
+/// production policy's `dev` fallback.
+private func mockHostInstanceTag(
+    testBundleIdentifier: String? = Bundle(for: cmuxUITests.self).bundleIdentifier
+) -> String {
+    let runnerSuffix = ".xctrunner"
+    guard let testBundleIdentifier else { return "dev" }
+    let appBundleIdentifier = testBundleIdentifier.hasSuffix(runnerSuffix)
+        ? String(testBundleIdentifier.dropLast(runnerSuffix.count))
+        : testBundleIdentifier
+    guard appBundleIdentifier != "dev.cmux.ios.uitests" else { return "dev" }
+    return MobileIOSBuildScope.current(
+        infoDictionary: nil,
+        bundleIdentifier: appBundleIdentifier
+    )?.value ?? "dev"
 }
 
 private extension XCUIApplication {
