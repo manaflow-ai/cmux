@@ -267,6 +267,26 @@ struct WindowDockRoutingSocketTests {
         }
     }
 
+    @Test("Floating Dock socket close bypasses interactive dirty-note confirmation")
+    @MainActor
+    func floatingDockSocketCloseBypassesInteractiveConfirmation() async throws {
+        try await withSocketAppContext { _, workspace, _ in
+            let dock = try #require(workspace.createFloatingDock(initialContent: .note))
+            let note = try #require(dock.notePanel)
+            await note.loadTextContent().value
+            note.updateTextContent("dirty note")
+            #expect(note.isDirty)
+
+            let response = try v2Envelope(method: "workspace.float.close", params: [
+                "workspace_id": workspace.id.uuidString,
+                "float": dock.id.uuidString,
+            ])
+
+            #expect(response["ok"] as? Bool == true)
+            #expect(workspace.floatingDock(id: dock.id) == nil)
+        }
+    }
+
     @Test("Floating Dock note writer rejects stale autosave completions")
     func floatingDockNoteWriterRejectsStaleAutosaveCompletions() throws {
         let root = FileManager.default.temporaryDirectory

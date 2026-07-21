@@ -135,6 +135,57 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testRestoredFloatingNotePreviewSavesToItsOwnFile() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-restored-note-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dockNoteURL = root.appendingPathComponent("dock-note.md")
+        let movedNoteURL = root.appendingPathComponent("moved-note.md")
+        try "dock note".write(to: dockNoteURL, atomically: true, encoding: .utf8)
+        try "moved note".write(to: movedNoteURL, atomically: true, encoding: .utf8)
+
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Restore target",
+            frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+            isPresented: false,
+            noteFilePath: dockNoteURL.path,
+            initialContent: nil,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        defer { dock.close() }
+        let oldPanelID = UUID()
+        dock.restoreSessionContent(SessionFloatingDockContentSnapshot(
+            layout: .pane(SessionPaneLayoutSnapshot(
+                panelIds: [oldPanelID],
+                selectedPanelId: oldPanelID
+            )),
+            surfaces: [SessionFloatingDockSurfaceSnapshot(
+                id: oldPanelID,
+                kind: .note,
+                filePreview: SessionFilePreviewPanelSnapshot(
+                    filePath: movedNoteURL.path,
+                    noteTitle: "Moved note"
+                )
+            )],
+            focusedPanelId: oldPanelID
+        ))
+
+        let restoredNote = try XCTUnwrap(dock.store.panels.values
+            .compactMap { $0 as? FilePreviewPanel }
+            .first(where: { $0.filePath == movedNoteURL.path }))
+        await restoredNote.loadTextContent().value
+        restoredNote.updateTextContent("edited moved note")
+        await restoredNote.saveTextContent()?.value
+
+        XCTAssertEqual(try String(contentsOf: movedNoteURL, encoding: .utf8), "edited moved note")
+        XCTAssertEqual(try String(contentsOf: dockNoteURL, encoding: .utf8), "dock note")
+    }
+
+    @MainActor
     func testWorkspaceSessionSnapshotDefersAndFullyRestoresFloatingBrowser() throws {
         let url = try XCTUnwrap(URL(string: "https://example.com/restored"))
         let workspace = Workspace()
