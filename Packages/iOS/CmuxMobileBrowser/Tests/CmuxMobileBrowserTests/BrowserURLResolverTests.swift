@@ -78,6 +78,7 @@ import Testing
                 "https://example.com/path?x=1"
         )
         #expect(BrowserURLResolver.resolve("node.js tutorial")?.host == "duckduckgo.com")
+        #expect(BrowserURLResolver.resolve("node.js\ttutorial")?.host == "duckduckgo.com")
     }
 
     @Test func localhostWithPortDefaultsToHTTP() {
