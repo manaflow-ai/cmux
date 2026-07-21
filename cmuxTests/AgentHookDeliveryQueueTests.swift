@@ -32,7 +32,7 @@ struct AgentHookDeliveryQueueTests {
         let queue = AgentHookDeliveryQueue(
             maximumConcurrentDeliveries: 1,
             maximumResidentEvents: 1,
-            maximumIngressEvents: 1
+            maximumIngressEvents: 2
         ) { event in
             await probe.deliver(event)
         }
@@ -47,6 +47,44 @@ struct AgentHookDeliveryQueueTests {
         #expect(queue.enqueue(try makeEvent(payload: "after-capacity", surfaceID: "surface-c")))
         await probe.waitUntilCompleted(count: 3)
         #expect(await probe.completedPayloads().contains("after-capacity"))
+    }
+
+    @Test("Tool saturation cannot evict a later lifecycle event")
+    func toolIngressReservesLifecycleCapacityAndPreservesOrder() async throws {
+        let probe = AgentHookDeliveryTestProbe(blockedPayloads: ["session-start"])
+        let queue = AgentHookDeliveryQueue(
+            maximumConcurrentDeliveries: 1,
+            maximumResidentEvents: 1,
+            maximumIngressEvents: 2
+        ) { event in
+            await probe.deliver(event)
+        }
+
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "session-start",
+            payload: "session-start",
+            surfaceID: "surface-a"
+        )))
+        await probe.waitUntilStarted(count: 1)
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "pre-tool-use",
+            payload: "tool",
+            surfaceID: "surface-a"
+        )))
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "prompt-submit",
+            payload: "prompt",
+            surfaceID: "surface-a"
+        )))
+        #expect(!queue.enqueue(try makeEvent(
+            subcommand: "pre-tool-use",
+            payload: "tool-overflow",
+            surfaceID: "surface-a"
+        )))
+
+        await probe.release(payload: "session-start")
+        await probe.waitUntilCompleted(count: 3)
+        #expect(await probe.completedPayloads() == ["session-start", "tool", "prompt"])
     }
 
     @Test("Events in one delivery lane remain FIFO")
@@ -74,7 +112,7 @@ struct AgentHookDeliveryQueueTests {
         let queue = AgentHookDeliveryQueue(
             maximumConcurrentDeliveries: 4,
             maximumResidentEvents: 6,
-            maximumIngressEvents: 6
+            maximumIngressEvents: 7
         ) { event in
             await probe.deliver(event)
         }

@@ -4,7 +4,14 @@ import Foundation
 actor AgentHookDeliveryQueue {
     typealias Delivery = @Sendable (AgentHookDeliveryEvent) async -> Void
 
-    nonisolated private let admissionContinuation: AsyncStream<AgentHookDeliveryEvent>.Continuation
+    private enum AdmissionClass: Sendable {
+        case lifecycle
+        case replaceableTool
+    }
+
+    nonisolated private let lifecycleAdmissionContinuation: AsyncStream<AgentHookDeliveryEvent>.Continuation
+    nonisolated private let toolAdmissionContinuation: AsyncStream<AgentHookDeliveryEvent>.Continuation
+    nonisolated private let admissionOrderContinuation: AsyncStream<AdmissionClass>.Continuation
     private let capacityContinuation: AsyncStream<Void>.Continuation
     private let delivery: Delivery
     private let maximumConcurrentDeliveries: Int
@@ -20,6 +27,8 @@ actor AgentHookDeliveryQueue {
 
     /// Builds a queue whose defaults retain at most eight validated events:
     /// four actor-resident events and four events in synchronous ingress.
+    /// Ingress reserves one slot for replaceable tool activity and the rest for
+    /// lifecycle events so a tool burst cannot evict a state transition.
     /// The event validator's payload and environment limits therefore also
     /// place a finite byte bound on the complete accepted backlog.
     init(
@@ -30,17 +39,28 @@ actor AgentHookDeliveryQueue {
     ) {
         precondition(maximumConcurrentDeliveries > 0)
         precondition(maximumResidentEvents >= maximumConcurrentDeliveries)
-        precondition(maximumIngressEvents > 0)
+        precondition(maximumIngressEvents >= 2)
 
-        let admissionPair = AsyncStream.makeStream(
+        let toolIngressCapacity = 1
+        let lifecycleAdmissionPair = AsyncStream.makeStream(
             of: AgentHookDeliveryEvent.self,
+            bufferingPolicy: .bufferingOldest(maximumIngressEvents - toolIngressCapacity)
+        )
+        let toolAdmissionPair = AsyncStream.makeStream(
+            of: AgentHookDeliveryEvent.self,
+            bufferingPolicy: .bufferingOldest(toolIngressCapacity)
+        )
+        let admissionOrderPair = AsyncStream.makeStream(
+            of: AdmissionClass.self,
             bufferingPolicy: .bufferingOldest(maximumIngressEvents)
         )
         let capacityPair = AsyncStream.makeStream(
             of: Void.self,
             bufferingPolicy: .bufferingOldest(maximumResidentEvents)
         )
-        admissionContinuation = admissionPair.continuation
+        lifecycleAdmissionContinuation = lifecycleAdmissionPair.continuation
+        toolAdmissionContinuation = toolAdmissionPair.continuation
+        admissionOrderContinuation = admissionOrderPair.continuation
         capacityContinuation = capacityPair.continuation
         self.delivery = delivery
         self.maximumConcurrentDeliveries = maximumConcurrentDeliveries
@@ -50,27 +70,66 @@ actor AgentHookDeliveryQueue {
         }
 
         Task {
-            [weak self, admissionStream = admissionPair.stream, capacityStream = capacityPair.stream] in
-            var admissionIterator = admissionStream.makeAsyncIterator()
+            [
+                weak self,
+                lifecycleAdmissionStream = lifecycleAdmissionPair.stream,
+                toolAdmissionStream = toolAdmissionPair.stream,
+                admissionOrderStream = admissionOrderPair.stream,
+                capacityStream = capacityPair.stream,
+            ] in
+            var lifecycleAdmissionIterator = lifecycleAdmissionStream.makeAsyncIterator()
+            var toolAdmissionIterator = toolAdmissionStream.makeAsyncIterator()
+            var admissionOrderIterator = admissionOrderStream.makeAsyncIterator()
             for await _ in capacityStream {
+                guard let admissionClass = await admissionOrderIterator.next() else { return }
+                let event: AgentHookDeliveryEvent?
+                switch admissionClass {
+                case .lifecycle:
+                    event = await lifecycleAdmissionIterator.next()
+                case .replaceableTool:
+                    event = await toolAdmissionIterator.next()
+                }
                 // Reserve actor capacity before removing an event from bounded ingress.
-                guard let event = await admissionIterator.next(), let self else { return }
+                guard let event, let self else { return }
                 await self.accept(event)
             }
         }
     }
 
     deinit {
-        admissionContinuation.finish()
+        lifecycleAdmissionContinuation.finish()
+        toolAdmissionContinuation.finish()
+        admissionOrderContinuation.finish()
         capacityContinuation.finish()
     }
 
     /// Synchronously transfers ownership to bounded ingress. The socket can
     /// acknowledge immediately after this returns true; false fails open.
     nonisolated func enqueue(_ event: AgentHookDeliveryEvent) -> Bool {
-        switch admissionContinuation.yield(event) {
+        let admissionClass: AdmissionClass
+        let result: AsyncStream<AgentHookDeliveryEvent>.Continuation.YieldResult
+        if event.subcommand == "pre-tool-use" || event.subcommand == "post-tool-use" {
+            admissionClass = .replaceableTool
+            result = toolAdmissionContinuation.yield(event)
+        } else {
+            admissionClass = .lifecycle
+            result = lifecycleAdmissionContinuation.yield(event)
+        }
+        switch result {
         case .enqueued:
-            return true
+            switch admissionOrderContinuation.yield(admissionClass) {
+            case .enqueued:
+                return true
+            case .terminated:
+                return false
+            case .dropped:
+                // Class capacities sum to order capacity, and the consumer removes
+                // each order token before its event, so a live queue cannot overflow here.
+                assertionFailure("Agent hook admission order overflowed")
+                return false
+            @unknown default:
+                return false
+            }
         case .dropped, .terminated:
             return false
         @unknown default:
