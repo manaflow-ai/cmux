@@ -813,6 +813,27 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "安全なレポートを共有" } }
       }
     },
+    "mobile.iroh.diagnostics.shareVerboseLog" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Share Verbose Log" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "詳細ログを共有" } }
+      }
+    },
+    "mobile.iroh.diagnostics.verboseLog" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Verbose Connection Log" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "詳細な接続ログ" } }
+      }
+    },
+    "mobile.iroh.diagnostics.verboseLog.footer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Records detailed connection activity to a file on this device for troubleshooting. Terminal contents and credentials are never written." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "トラブルシューティングのため、接続の詳細な動作をこのデバイス上のファイルに記録します。ターミナルの内容や認証情報は書き込まれません。" } }
+      }
+    },
     "mobile.iroh.diagnostics.failure.none" : {
       "extractionState" : "manual",
       "localizations" : {

@@ -153,6 +153,8 @@ public final class MobileIrohRuntimeComposition:
     private var observedAccountID: String? { observedAuthState?.accountID }
     private var activeAccountID: String?
     private var brokerCooldown = CmxIrohBrokerCooldown()
+    private let diagnosticArchive = DiagnosticReportArchive.defaultArchive()
+    private var previousLaunchDiagnosticReport: DiagnosticReport??
     private var lastKnownBindingAccountID: String?
     private var lastKnownBindingTag: String?
     private var lastKnownBindingID: String?
@@ -589,11 +591,37 @@ public final class MobileIrohRuntimeComposition:
     }
 
     /// Preserves the endpoint when iOS backgrounds the scene.
+    /// Archives the diagnostic ring without touching the runtime. Called on
+    /// scene inactivation (the app switcher opening) so a force-quit that
+    /// never delivers a background transition still leaves the previous
+    /// launch's events exportable.
+    public func archiveDiagnostics() {
+        if previousLaunchDiagnosticReport == nil {
+            previousLaunchDiagnosticReport = .some(diagnosticArchive?.load())
+        }
+        guard let diagnosticLog, let diagnosticArchive else { return }
+        Task {
+            diagnosticArchive.save(await diagnosticLog.snapshot())
+        }
+    }
+
     public func didEnterBackground() {
         guard signOutPhase.allowsLifecycle else { return }
         sceneTransitionTask?.cancel()
+        // Cache the previous launch's archived report before the save below
+        // replaces it on disk.
+        if previousLaunchDiagnosticReport == nil {
+            previousLaunchDiagnosticReport = .some(diagnosticArchive?.load())
+        }
         let runtime = runtime
+        let diagnosticLog = diagnosticLog
+        let diagnosticArchive = diagnosticArchive
         sceneTransitionTask = Task {
+            // Archive the diagnostic ring while backgrounded so a later
+            // relaunch keeps the events around a drop exportable.
+            if let diagnosticLog, let diagnosticArchive {
+                diagnosticArchive.save(await diagnosticLog.snapshot())
+            }
             await runtime?.didEnterBackground()
         }
     }
@@ -2064,7 +2092,16 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
 
     public func clearIrohDiagnosticReport() async {
         await diagnosticLog?.clear()
+        diagnosticArchive?.clear()
+        previousLaunchDiagnosticReport = .some(nil)
         publishIrohSettingsUpdate()
+    }
+
+    public func irohPreviousLaunchDiagnosticReport() async -> DiagnosticReport? {
+        if let cached = previousLaunchDiagnosticReport { return cached }
+        let loaded = diagnosticArchive?.load()
+        previousLaunchDiagnosticReport = .some(loaded)
+        return loaded
     }
 
     private func observeRelayPolicyDiagnostics(
