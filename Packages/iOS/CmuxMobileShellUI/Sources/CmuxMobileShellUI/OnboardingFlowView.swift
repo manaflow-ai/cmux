@@ -64,9 +64,12 @@ struct OnboardingFlowView: View {
             captureSceneViewed()
             reachConnectionIfNeeded()
         }
-        .onChange(of: isAuthenticated) { _, _ in
+        .onChange(of: isAuthenticated) { _, isNowAuthenticated in
             guard stage == .connect else { return }
             captureSceneViewed()
+            if isNowAuthenticated {
+                onReachedConnection()
+            }
         }
     }
 
