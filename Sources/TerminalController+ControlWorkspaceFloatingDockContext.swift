@@ -19,7 +19,7 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
     private struct FloatingDockNoteReadTarget: Sendable {
         let workspaceID: UUID
         let dockID: UUID
-        let fileURL: URL
+        let loader: WorkspaceFloatingDockNoteLoader
         let snapshotGeneration: Int
     }
 
@@ -181,7 +181,7 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
                 return .ready(FloatingDockNoteReadTarget(
                     workspaceID: workspace.id,
                     dockID: dock.id,
-                    fileURL: URL(fileURLWithPath: dock.noteFilePath),
+                    loader: dock.noteLoader,
                     snapshotGeneration: dock.reserveNoteSnapshotRead()
                 ))
             }
@@ -192,7 +192,7 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
         }
 
         let loadedText: String
-        switch FilePreviewTextLoader.loadSynchronously(url: target.fileURL) {
+        switch target.loader.loadSynchronously() {
         case .loaded(let text, _):
             loadedText = text
         case .unavailable:

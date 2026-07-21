@@ -62,6 +62,53 @@ final class WorkspaceFloatingDockNoteWriter: @unchecked Sendable {
     }
 }
 
+/// Coalesces the initial persisted-note read across the background preload and
+/// concurrent socket callers. Disk I/O stays off the main actor, while every
+/// waiter observes the same completed result.
+final class WorkspaceFloatingDockNoteLoader: @unchecked Sendable {
+    private enum State {
+        case unloaded
+        case loading
+        case loaded(FilePreviewTextLoader.Result)
+    }
+
+    private let condition = NSCondition()
+    private var state: State = .unloaded
+    let fileURL: URL
+
+    init(fileURL: URL) {
+        self.fileURL = fileURL
+    }
+
+    func loadSynchronously() -> FilePreviewTextLoader.Result {
+        condition.lock()
+        while true {
+            switch state {
+            case .loaded(let result):
+                condition.unlock()
+                return result
+            case .loading:
+                condition.wait()
+            case .unloaded:
+                state = .loading
+                condition.unlock()
+                let result = FilePreviewTextLoader.loadSynchronously(url: fileURL)
+                condition.lock()
+                state = .loaded(result)
+                condition.broadcast()
+                condition.unlock()
+                return result
+            }
+        }
+    }
+
+    func load() async -> FilePreviewTextLoader.Result {
+        await Task.detached(priority: .userInitiated) { [self] in
+            loadSynchronously()
+        }.value
+    }
+}
+
 /// One window-like Bonsplit container owned by a workspace.
 @MainActor
 @Observable
@@ -84,6 +131,7 @@ final class WorkspaceFloatingDock: Identifiable {
     @ObservationIgnored private var noteTextGeneration = 0
     @ObservationIgnored private var noteSnapshotIsLoaded = false
     @ObservationIgnored let noteWriter: WorkspaceFloatingDockNoteWriter
+    @ObservationIgnored let noteLoader: WorkspaceFloatingDockNoteLoader
     @ObservationIgnored private(set) var initialContentWasCreated = true
 
     init(
@@ -113,10 +161,10 @@ final class WorkspaceFloatingDock: Identifiable {
         self.displaySnapshot = displaySnapshot
         self.configFrames = configFrames
         self.noteFilePath = noteFilePath
-        let noteWriter = WorkspaceFloatingDockNoteWriter(
-            fileURL: URL(fileURLWithPath: noteFilePath)
-        )
+        let noteFileURL = URL(fileURLWithPath: noteFilePath)
+        let noteWriter = WorkspaceFloatingDockNoteWriter(fileURL: noteFileURL)
         self.noteWriter = noteWriter
+        self.noteLoader = WorkspaceFloatingDockNoteLoader(fileURL: noteFileURL)
         self.store = DockSplitStore(
             workspaceId: workspaceId,
             scope: .workspace,
@@ -210,9 +258,7 @@ final class WorkspaceFloatingDock: Identifiable {
     }
 
     func reserveNoteSnapshotRead() -> Int {
-        noteTextGeneration += 1
-        noteSnapshotIsLoaded = true
-        return noteTextGeneration
+        noteTextGeneration
     }
 
     func applyLoadedNoteTextSnapshot(_ text: String, generation: Int) -> String {
@@ -239,15 +285,17 @@ final class WorkspaceFloatingDock: Identifiable {
     }
 
     private func loadPersistedNoteSnapshot() {
-        let path = noteFilePath
         let generation = noteTextGeneration
-        Task { [weak self, path, generation] in
-            let result = await FilePreviewTextLoader.load(url: URL(fileURLWithPath: path))
-            guard let self, self.noteTextGeneration == generation else { return }
-            if case .loaded(let text, _) = result {
-                self.noteTextSnapshot = text
+        let loader = noteLoader
+        Task { [weak self, loader, generation] in
+            let result = await loader.load()
+            guard let self else { return }
+            switch result {
+            case .loaded(let text, _):
+                _ = self.applyLoadedNoteTextSnapshot(text, generation: generation)
+            case .unavailable:
+                _ = self.applyLoadedNoteTextSnapshot("", generation: generation)
             }
-            self.noteSnapshotIsLoaded = true
         }
     }
 

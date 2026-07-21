@@ -446,9 +446,14 @@ enum WorkspaceFloatingDockNoteStorage {
 
     static func removeOrphanedFilesAfterSessionWrite(
         retaining retainedPaths: Set<String>,
-        sessionWriteIsSynchronous _: Bool,
+        sessionWriteIsSynchronous: Bool,
         rootDirectory: URL = rootDirectory()
     ) {
+        // Asynchronous saves capture retention before they enter the serial
+        // persistence queue. A note created in the meantime is authoritative
+        // live state but absent from that stale capture, so defer collection to
+        // termination, when the main actor is quiescent and the save is inline.
+        guard sessionWriteIsSynchronous else { return }
         removeOrphanedFiles(retaining: retainedPaths, rootDirectory: rootDirectory)
     }
 }
