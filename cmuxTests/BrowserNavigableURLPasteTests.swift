@@ -29,11 +29,9 @@ import Testing
         #expect(resolved.absoluteString == oauthURL)
     }
 
-    @Test func singleLineFieldWrappedOAuthURLNavigatesWithoutSearching() throws {
-        // AppKit's single-line field editor converts a pasted newline to a space
-        // before Return submits the live field value.
-        let fieldValue = oauthURL.replacingOccurrences(of: "&scope=", with: "& scope=")
-        let resolved = try #require(resolveBrowserNavigableURL(fieldValue))
+    @Test func tabWrappedOAuthURLNavigatesWithoutSearching() throws {
+        let wrapped = oauthURL.replacingOccurrences(of: "&scope=", with: "&\tscope=")
+        let resolved = try #require(resolveBrowserNavigableURL(wrapped))
 
         #expect(resolved.absoluteString == oauthURL)
     }

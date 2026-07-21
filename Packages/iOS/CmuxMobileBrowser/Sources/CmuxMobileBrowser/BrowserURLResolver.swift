@@ -74,18 +74,20 @@ public struct BrowserURLResolver: Sendable {
     }
 
     private func canonicalNavigationText(_ trimmed: String) -> String {
-        let compacted = trimmed.filter { !$0.isWhitespace }
-        guard compacted != trimmed, isWhitespaceCompactionSafe(compacted) else {
+        let compacted = trimmed.filter { !$0.isNewline && $0 != "\t" }
+        guard compacted != trimmed,
+              isWhitespaceCompactionSafe(compacted, original: trimmed) else {
             return trimmed
         }
         return compacted
     }
 
-    private func isWhitespaceCompactionSafe(_ compacted: String) -> Bool {
+    private func isWhitespaceCompactionSafe(_ compacted: String, original: String) -> Bool {
         guard !compacted.isEmpty else { return false }
         if isWebURL(compacted) {
             return true
         }
+        guard original.contains(where: \.isNewline) else { return false }
         return isSchemeLessHostWithStructure(compacted)
     }
 

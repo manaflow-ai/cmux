@@ -39,11 +39,30 @@ import Testing
         #expect(url?.absoluteString == oauthURL)
     }
 
-    @Test func singleLineFieldWrappedOAuthURLLoadsWithoutSearching() {
-        let fieldValue = oauthURL.replacingOccurrences(of: "&scope=", with: "& scope=")
-        let url = BrowserURLResolver.resolve(fieldValue)
+    @Test func tabWrappedOAuthURLLoadsWithoutRewriting() {
+        let wrapped = oauthURL.replacingOccurrences(of: "&scope=", with: "&\tscope=")
+        let url = BrowserURLResolver.resolve(wrapped)
 
         #expect(url?.absoluteString == oauthURL)
+    }
+
+    @Test func meaningfulSpacesArePreservedInNavigationOrSearch() throws {
+        let spacedURL = "https://example.com/search?q=hello world"
+        let spacedHost = "a b.com/path?x=1"
+        let resolvedURL = try #require(BrowserURLResolver.resolve(spacedURL))
+        let searchURL = try #require(BrowserURLResolver.resolve(spacedHost))
+
+        #expect(resolvedURL.host == "example.com")
+        #expect(
+            URLComponents(url: resolvedURL, resolvingAgainstBaseURL: false)?
+                .queryItems?.first?.value == "hello world"
+        )
+        #expect(searchURL.host == "duckduckgo.com")
+        #expect(
+            URLComponents(url: searchURL, resolvingAgainstBaseURL: false)?
+                .queryItems?.first?.value == spacedHost
+        )
+        #expect(BrowserURLResolver.resolve("go\texample.com/path")?.host == "duckduckgo.com")
     }
 
     @Test func surroundingWhitespaceDoesNotRewriteOAuthURL() {
@@ -75,6 +94,10 @@ import Testing
         #expect(BrowserURLResolver.resolve("localhost:3000")?.absoluteString == "http://localhost:3000")
         #expect(
             BrowserURLResolver.resolve("example.com/path?x=1")?.absoluteString ==
+                "https://example.com/path?x=1"
+        )
+        #expect(
+            BrowserURLResolver.resolve("example.\ncom/path?x=1")?.absoluteString ==
                 "https://example.com/path?x=1"
         )
         #expect(BrowserURLResolver.resolve("node.js tutorial")?.host == "duckduckgo.com")
@@ -110,6 +133,13 @@ import Testing
         let url = BrowserURLResolver.resolve("8.8.8.8")
         #expect(url?.scheme == "https")
         #expect(url?.host == "8.8.8.8")
+    }
+
+    @Test func deceptiveLoopbackPrefixDefaultsToHTTPS() {
+        let url = BrowserURLResolver.resolve("localhost.evil.com")
+
+        #expect(url?.scheme == "https")
+        #expect(url?.host == "localhost.evil.com")
     }
 
     @Test func bareIPv6LoopbackIsBracketedHTTP() {
