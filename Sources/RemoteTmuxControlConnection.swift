@@ -329,7 +329,8 @@ final class RemoteTmuxControlConnection {
         pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes,
         transportProfile: RemoteTmuxTransportProfile? = nil
     ) {
-        self.transportProfile = transportProfile ?? host.transport.profile(port: host.transportPort)
+        self.transportProfile = transportProfile
+            ?? host.transport.profile(port: host.transportPort, terminalPath: host.transportTerminalPath)
         self.host = host
         self.sessionName = sessionName
         self.createIfMissing = createIfMissing
