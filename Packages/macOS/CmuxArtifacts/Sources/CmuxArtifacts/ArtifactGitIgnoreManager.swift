@@ -1,0 +1,56 @@
+import Foundation
+
+/// Adds the local artifact store to Git's per-checkout exclude file.
+struct ArtifactGitIgnoreManager {
+    let fileManager: FileManager
+    static let ignoreEntry = ".cmux/artifacts/"
+
+    func ensureIgnored(projectRoot: URL) throws {
+        guard let repository = locateGitRepository(startingAt: projectRoot) else { return }
+        let ignoreEntry = relativeIgnoreEntry(
+            projectRoot: projectRoot,
+            worktreeRoot: repository.worktreeRoot
+        )
+        let infoDirectory = repository.gitDirectory.appendingPathComponent("info", isDirectory: true)
+        let excludeURL = infoDirectory.appendingPathComponent("exclude", isDirectory: false)
+        try fileManager.createDirectory(at: infoDirectory, withIntermediateDirectories: true)
+        let existing = (try? String(contentsOf: excludeURL, encoding: .utf8)) ?? ""
+        let lines = existing.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard !lines.contains(ignoreEntry) else { return }
+        var updated = existing
+        if !updated.isEmpty, !updated.hasSuffix("\n") { updated += "\n" }
+        updated += ignoreEntry + "\n"
+        try updated.write(to: excludeURL, atomically: true, encoding: .utf8)
+    }
+
+    private func locateGitRepository(startingAt projectRoot: URL) -> (worktreeRoot: URL, gitDirectory: URL)? {
+        for current in ArtifactAncestorDirectories(startingAt: projectRoot) {
+            if let gitDirectory = resolveGitDirectory(worktreeRoot: current) {
+                return (current, gitDirectory)
+            }
+        }
+        return nil
+    }
+
+    private func resolveGitDirectory(worktreeRoot: URL) -> URL? {
+        let dotGit = worktreeRoot.appendingPathComponent(".git", isDirectory: false)
+        var isDirectory: ObjCBool = false
+        if fileManager.fileExists(atPath: dotGit.path, isDirectory: &isDirectory), isDirectory.boolValue {
+            return dotGit
+        }
+        guard let contents = try? String(contentsOf: dotGit, encoding: .utf8),
+              contents.lowercased().hasPrefix("gitdir:") else { return nil }
+        let rawPath = contents.dropFirst("gitdir:".count).trimmingCharacters(in: .whitespacesAndNewlines)
+        let url = URL(fileURLWithPath: rawPath, relativeTo: worktreeRoot).standardizedFileURL
+        return fileManager.fileExists(atPath: url.path) ? url : nil
+    }
+
+    private func relativeIgnoreEntry(projectRoot: URL, worktreeRoot: URL) -> String {
+        let rootPath = worktreeRoot.standardizedFileURL.path
+        let projectPath = projectRoot.standardizedFileURL.path
+        guard projectPath != rootPath, projectPath.hasPrefix(rootPath + "/") else {
+            return Self.ignoreEntry
+        }
+        return String(projectPath.dropFirst(rootPath.count + 1)) + "/" + Self.ignoreEntry
+    }
+}
