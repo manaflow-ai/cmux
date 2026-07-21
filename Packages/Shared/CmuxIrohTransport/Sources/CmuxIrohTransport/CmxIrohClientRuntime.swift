@@ -77,6 +77,7 @@ public actor CmxIrohClientRuntime {
     let lanFallback: LANFallbackProvider?
     let customPrivateFallback: CustomPrivateFallbackProvider?
     let now: @Sendable () -> Date
+    let automaticRelayCredentialRefreshEnabled: Bool
     let handleBinding: BindingHandler
     let handleCachedBindings: CachedBindingsHandler
     let handleRelayCredential: RelayCredentialHandler
@@ -136,6 +137,7 @@ public actor CmxIrohClientRuntime {
         lanFallback: LANFallbackProvider? = nil,
         customPrivateFallback: CustomPrivateFallbackProvider? = nil,
         now: @escaping @Sendable () -> Date = { Date() },
+        automaticRelayCredentialRefreshEnabled: Bool = true,
         handleBinding: @escaping BindingHandler = { _, _ in true },
         handleCachedBindings: @escaping CachedBindingsHandler = { _, _ in },
         handleRelayCredential: @escaping RelayCredentialHandler = { _, _ in },
@@ -175,6 +177,7 @@ public actor CmxIrohClientRuntime {
         self.lanFallback = lanFallback
         self.customPrivateFallback = customPrivateFallback
         self.now = now
+        self.automaticRelayCredentialRefreshEnabled = automaticRelayCredentialRefreshEnabled
         self.handleBinding = handleBinding
         self.handleCachedBindings = handleCachedBindings
         self.handleRelayCredential = handleRelayCredential
@@ -186,6 +189,12 @@ public actor CmxIrohClientRuntime {
     /// Returns the current non-secret lifecycle snapshot.
     public func snapshot() -> CmxIrohClientRuntimeSnapshot {
         currentSnapshot
+    }
+
+    /// Returns the non-secret hard expiry of the relay credential currently
+    /// installed on the live endpoint.
+    public func relayCredentialExpiresAt() async -> Date? {
+        await relayCoordinator?.credentialExpiresAt()
     }
 
     /// Monotonic count of online broker snapshots verified by this runtime.

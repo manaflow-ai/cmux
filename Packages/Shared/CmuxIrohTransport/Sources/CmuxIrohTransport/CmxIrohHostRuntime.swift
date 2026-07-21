@@ -269,7 +269,8 @@ public actor CmxIrohHostRuntime {
                     try await relayCoordinator.activate(
                         bindingID: policy.binding.bindingID,
                         endpointIdentity: endpointID,
-                        bootstrap: policy.relayBootstrap
+                        bootstrap: policy.relayBootstrap,
+                        waitForInitialCredential: true
                     )
                 }
                 try requireCurrent(revision)
