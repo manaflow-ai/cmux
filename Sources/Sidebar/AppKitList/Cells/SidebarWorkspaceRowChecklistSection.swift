@@ -718,7 +718,17 @@ final class SidebarRowChecklistItemLine: NSView {
         editFieldBridge = bridge
         editField = field
         editingItemId = item.id
+        // Valid frame BEFORE the window attach (see the add row's comment):
+        // a zero-frame focus grab mis-sizes the field editor's dark box.
+        if let metrics = metrics(width: max(bounds.width, 100)) {
+            let fieldHeight = 11 * model.fontScale + 4
+            field.frame = NSRect(
+                x: metrics.checkbox.width + 4, y: 0,
+                width: metrics.textWidth, height: fieldHeight
+            )
+        }
         addSubview(field)
+        SidebarRowChecklistFieldBridge.clearFieldEditorBackground(field)
         needsLayout = true
     }
 
@@ -971,8 +981,24 @@ final class SidebarRowChecklistAddRow: NSView {
         field.delegate = bridge
         addFieldBridge = bridge
         addField = field
+        // Valid frame BEFORE the window attach: the focus grab installs the
+        // field editor immediately, and an editor set up against a zero
+        // frame draws an oversized dark box over the row.
+        field.frame = plannedFieldFrame()
         addSubview(field)
+        SidebarRowChecklistFieldBridge.clearFieldEditorBackground(field)
         needsLayout = true
+    }
+
+    private func plannedFieldFrame() -> NSRect {
+        guard let model else { return NSRect(x: 0, y: 0, width: 100, height: 17) }
+        let iconWidth = plusIconView.image?.size.width ?? 0
+        let fieldHeight = 11 * model.fontScale + 4
+        let fieldX = iconWidth + 4
+        return NSRect(
+            x: fieldX, y: max(0, (bounds.height - fieldHeight) / 2),
+            width: max(10, bounds.width - fieldX), height: fieldHeight
+        )
     }
 
     private func teardownField() {
@@ -1099,6 +1125,9 @@ final class SidebarRowChecklistGhostAddButton: NSControl {
 final class SidebarRowChecklistAttachmentButton: NSControl {
     private let iconView = NSImageView()
     private let countLabel = SidebarRowTextView(lines: 1)
+    /// The borderless-menu disclosure chevron SwiftUI's
+    /// `.menuStyle(.borderlessButton)` renders after the label.
+    private let chevronView = NSImageView()
     private var item: WorkspaceChecklistItem?
     private var actions: SidebarAppKitRowActions?
     private var iconPointSize: CGFloat = 9
@@ -1111,6 +1140,8 @@ final class SidebarRowChecklistAttachmentButton: NSControl {
         addSubview(iconView)
         countLabel.isHidden = true
         addSubview(countLabel)
+        chevronView.imageScaling = .scaleProportionallyDown
+        addSubview(chevronView)
         setAccessibilityRole(.button)
         setAccessibilityIdentifier("WorkspaceChecklistAttachmentMenu")
     }
@@ -1133,6 +1164,10 @@ final class SidebarRowChecklistAttachmentButton: NSControl {
             systemName: "paperclip", pointSize: iconPointSize, weight: nil
         )
         iconView.contentTintColor = color
+        chevronView.image = RenderableSystemSymbol.configuredAppKitImage(
+            systemName: "chevron.down", pointSize: iconPointSize * 0.65, weight: .semibold
+        )
+        chevronView.contentTintColor = color
         countLabel.isHidden = item.attachmentCount == 0
         if item.attachmentCount > 0 {
             countLabel.stringValue = "\(item.attachmentCount)"
@@ -1164,15 +1199,18 @@ final class SidebarRowChecklistAttachmentButton: NSControl {
         }
     }
 
-    /// Legacy label frame: `minWidth/minHeight = iconPointSize + 8`.
+    /// Legacy label frame: `minWidth/minHeight = iconPointSize + 8`, plus
+    /// the borderless-menu chevron after the label.
     func measuredSize() -> NSSize {
         let iconSize = iconView.image?.size ?? .zero
+        let chevronSize = chevronView.image?.size ?? .zero
         var width = iconSize.width
         if !countLabel.isHidden {
             width += 2 + ceil(countLabel.sidebarNaturalCellSize.width)
         }
+        width = max(width, iconPointSize + 8) + (chevronSize.width > 0 ? chevronSize.width + 2 : 0)
         return NSSize(
-            width: max(width, iconPointSize + 8),
+            width: width,
             height: max(iconSize.height, iconPointSize + 8)
         )
     }
@@ -1181,7 +1219,9 @@ final class SidebarRowChecklistAttachmentButton: NSControl {
         super.layout()
         let iconSize = iconView.image?.size ?? .zero
         let countSize = countLabel.isHidden ? NSSize.zero : countLabel.sidebarNaturalCellSize
-        let contentWidth = iconSize.width + (countLabel.isHidden ? 0 : 2 + ceil(countSize.width))
+        let chevronSize = chevronView.image?.size ?? .zero
+        let labelWidth = iconSize.width + (countLabel.isHidden ? 0 : 2 + ceil(countSize.width))
+        let contentWidth = labelWidth + (chevronSize.width > 0 ? chevronSize.width + 2 : 0)
         var x = (bounds.width - contentWidth) / 2
         iconView.frame = NSRect(
             x: x, y: (bounds.height - iconSize.height) / 2,
@@ -1193,7 +1233,12 @@ final class SidebarRowChecklistAttachmentButton: NSControl {
                 x: x, y: (bounds.height - countSize.height) / 2,
                 width: ceil(countSize.width), height: countSize.height
             )
+            x += ceil(countSize.width) + 2
         }
+        chevronView.frame = NSRect(
+            x: x, y: (bounds.height - chevronSize.height) / 2,
+            width: chevronSize.width, height: chevronSize.height
+        )
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -1294,5 +1339,13 @@ final class SidebarRowChecklistFieldBridge: NSObject, NSTextFieldDelegate {
         } else {
             onCommit(text)
         }
+    }
+
+    /// Legacy parity: the checklist fields draw no background — the focused
+    /// field editor otherwise paints a dark box over the (blue) row.
+    static func clearFieldEditorBackground(_ field: NSTextField) {
+        guard let editor = field.currentEditor() as? NSTextView else { return }
+        editor.drawsBackground = false
+        editor.enclosingScrollView?.drawsBackground = false
     }
 }
