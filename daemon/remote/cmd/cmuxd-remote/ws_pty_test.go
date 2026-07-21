@@ -487,7 +487,15 @@ func TestWebSocketPTYPersistentInteractiveBashChildSurvivesHangup(t *testing.T) 
 	defer conn.Close(websocket.StatusNormalClosure, "done")
 	sendAuthWithAttachment(t, ctx, conn, "interactive-token", sessionID, "same", 80, 24)
 	readReady(t, ctx, conn)
-	waitForBinaryContains(t, ctx, conn, "bash", 5*time.Second)
+	// Prove that the interactive Bash has started through an input/output
+	// handshake. Do not infer readiness from prompt text: PS1 is environment-
+	// specific and need not contain the word "bash".
+	const bashReadyMarker = "CMUX_INTERACTIVE_BASH_READY"
+	bashReadyCommand := `test -n "${BASH_VERSION:-}" && printf 'CMUX_INTERACTIVE_%s version=%s\n' BASH_READY "$BASH_VERSION"` + "\r"
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte(bashReadyCommand)); err != nil {
+		t.Fatalf("send interactive Bash readiness probe: %v", err)
+	}
+	waitForBinaryContains(t, ctx, conn, bashReadyMarker, 5*time.Second)
 
 	// The production bootstrap runs external programs before its final login
 	// shell. Agent runtimes may then restore SIGHUP's default disposition, so
