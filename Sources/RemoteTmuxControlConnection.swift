@@ -156,6 +156,9 @@ final class RemoteTmuxControlConnection {
     /// Periodic liveness probe for transports that reconnect internally (see
     /// ``checkLivenessAndRecoverIfStalled(completion:)``). Nil for ssh, which gets an EOF instead.
     private var livenessTask: Task<Void, Never>?
+    /// Whether a liveness probe is still waiting for its answer. The next probe's due time is the
+    /// previous one's deadline, so this is what turns "no answer" into a detected stall.
+    var livenessProbeOutstanding = false
     /// How often to ask a self-reconnecting transport whether it is still carrying the protocol.
     /// Long enough that an ordinary reconnect finishes untouched, short enough that a wedged
     /// mirror is not left silently frozen.
@@ -555,6 +558,7 @@ final class RemoteTmuxControlConnection {
         reconnectTask = nil
         livenessTask?.cancel()
         livenessTask = nil
+        livenessProbeOutstanding = false
         resetWindowListRequestCoalescing()
         cancelSizingFollowUps()
         pendingPostAttachAction = nil
