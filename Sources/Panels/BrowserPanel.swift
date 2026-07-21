@@ -3878,24 +3878,17 @@ final class BrowserPanel: Panel, ObservableObject {
                 }
             }
         }
-        navigationDelegate.didConvertProvisionalNavigationToDownload = { [weak self] webView, navigation in
-            MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                self.automationNavigationCoordinator.didBecomeDownload(
-                    instanceID: boundWebViewInstanceID,
-                    navigationID: navigation.map { ObjectIdentifier($0) }
-                )
-                self.isMainFrameProvisionalNavigationActive = false
-                self.refreshBackgroundAppearance()
-            }
-        }
-        navigationDelegate.didBecomeDownload = { [weak self] webView, isMainFrame, restoreAttemptID in
+        navigationDelegate.didBecomeDownload = { [weak self] webView, isMainFrame, url, restoreAttemptID in
             MainActor.assumeIsolated {
                 guard isMainFrame,
                       let self,
                       self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
                     return
                 }
+                self.automationNavigationCoordinator.didBecomeDownload(
+                    instanceID: boundWebViewInstanceID,
+                    url: Self.remoteProxyDisplayURL(for: url) ?? url
+                )
                 guard let restoreAttemptID,
                       restoreAttemptID == self.currentDiscardRestoreAttemptID else {
                     return
@@ -4101,8 +4094,11 @@ final class BrowserPanel: Panel, ObservableObject {
                     self?.noteDiscardedWebViewRestoreNavigationTerminallyCancelled(restoreAttemptID: restoreAttemptID)
                 },
                 onNavigationStarted: replacesAutomationNavigation ? { [weak self] navigation in
-                    guard navigation == nil else { return }
-                    self?.automationNavigationCoordinator.didNotStart(instanceID: automationInstanceID)
+                    self?.recordAutomationReplacementNavigationStart(
+                        navigation,
+                        instanceID: automationInstanceID,
+                        targetURL: request.url
+                    )
                 } : nil
             )
         }
@@ -6034,8 +6030,11 @@ final class BrowserPanel: Panel, ObservableObject {
     private func requestNavigation(_ request: URLRequest, intent: BrowserInsecureHTTPNavigationIntent) {
         let automationInstanceID = webViewInstanceID
         let navigationStarted: (WKNavigation?) -> Void = { [weak self] navigation in
-            guard navigation == nil else { return }
-            self?.automationNavigationCoordinator.didNotStart(instanceID: automationInstanceID)
+            self?.recordAutomationReplacementNavigationStart(
+                navigation,
+                instanceID: automationInstanceID,
+                targetURL: request.url
+            )
         }
         guard let url = request.url else {
             navigationStarted(nil)

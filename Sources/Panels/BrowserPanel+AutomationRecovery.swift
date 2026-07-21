@@ -3,6 +3,22 @@ import CmuxBrowser
 import WebKit
 
 extension BrowserPanel {
+    func recordAutomationReplacementNavigationStart(
+        _ navigation: WKNavigation?,
+        instanceID: UUID,
+        targetURL: URL?
+    ) {
+        guard let navigation else {
+            automationNavigationCoordinator.didNotStart(instanceID: instanceID)
+            return
+        }
+        automationNavigationCoordinator.didStart(
+            instanceID: instanceID,
+            navigationID: ObjectIdentifier(navigation),
+            targetURL: targetURL
+        )
+    }
+
     func beginAutomationNavigation(
         to targetURL: URL,
         recordTypedNavigation: Bool

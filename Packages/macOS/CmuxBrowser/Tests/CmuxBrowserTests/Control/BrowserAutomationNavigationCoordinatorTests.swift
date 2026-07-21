@@ -164,6 +164,32 @@ struct BrowserAutomationNavigationCoordinatorTests {
         #expect(await coordinator.wait(for: ticket) == .committed)
     }
 
+    @Test("A same-document policy replacement keeps its navigation identity")
+    func sameDocumentPolicyReplacementCompletes() async {
+        let coordinator = BrowserAutomationNavigationCoordinator()
+        let instanceID = UUID()
+        let originalNavigation = NSObject()
+        let replacementNavigation = NSObject()
+        let originalURL = URL(string: "https://example.com/page")!
+        let fallbackURL = URL(string: "https://example.com/page#fallback")!
+        coordinator.bind(to: instanceID)
+        let ticket = coordinator.begin(instanceID: instanceID, targetURL: originalURL)
+        coordinator.didStart(ticket, navigationID: ObjectIdentifier(originalNavigation))
+
+        #expect(coordinator.prepareForNavigationReplacement(
+            instanceID: instanceID,
+            targetURL: fallbackURL
+        ))
+        coordinator.didStart(
+            instanceID: instanceID,
+            navigationID: ObjectIdentifier(replacementNavigation),
+            targetURL: fallbackURL
+        )
+        coordinator.didReachSameDocumentURL(instanceID: instanceID, url: fallbackURL)
+
+        #expect(await coordinator.wait(for: ticket) == .committed)
+    }
+
     @Test("An unrelated deferred navigation supersedes the transaction")
     func unrelatedDeferredNavigationSupersedes() async {
         let coordinator = BrowserAutomationNavigationCoordinator()
@@ -206,10 +232,7 @@ struct BrowserAutomationNavigationCoordinatorTests {
         let ticket = coordinator.begin(instanceID: instanceID, targetURL: targetURL)
         coordinator.didStart(ticket, navigationID: ObjectIdentifier(navigation))
 
-        coordinator.didBecomeDownload(
-            instanceID: instanceID,
-            navigationID: ObjectIdentifier(navigation)
-        )
+        coordinator.didBecomeDownload(instanceID: instanceID, url: targetURL)
 
         #expect(await coordinator.wait(for: ticket) == .downloaded)
     }
@@ -219,13 +242,14 @@ struct BrowserAutomationNavigationCoordinatorTests {
         let coordinator = BrowserAutomationNavigationCoordinator(sleep: { _ in })
         let instanceID = UUID()
         let navigation = NSObject()
+        let targetURL = URL(string: "https://example.com/page")!
         coordinator.bind(to: instanceID)
-        let ticket = coordinator.begin(instanceID: instanceID)
+        let ticket = coordinator.begin(instanceID: instanceID, targetURL: targetURL)
         coordinator.didStart(ticket, navigationID: ObjectIdentifier(navigation))
 
         coordinator.didBecomeDownload(
             instanceID: instanceID,
-            navigationID: ObjectIdentifier(NSObject())
+            url: URL(string: "https://example.com/unrelated.zip")!
         )
 
         #expect(await coordinator.wait(for: ticket) == .timedOut)
