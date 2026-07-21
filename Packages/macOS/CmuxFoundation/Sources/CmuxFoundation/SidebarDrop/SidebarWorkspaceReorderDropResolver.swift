@@ -138,8 +138,30 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             return nil
         }
         guard candidate.isAmbiguous else { return candidate.groupId }
-        // Ambiguous group/root dividers use a coarse hierarchy lane: the left
-        // half of the sidebar means root, the right half means the group.
+        // Ambiguous group/root dividers (a group's last-member boundary)
+        // resolve toward where the drag already is when the caller supplies
+        // its current destination: a drag inside the group stays in it, a
+        // top-level drag stays out. This is what makes the last slot of a
+        // group easy to enter and leave — no pointer-lane precision needed.
+        switch request.stickyDestination {
+        case .group(let stickyGroupId):
+            guard stickyGroupId == candidate.groupId else { return nil }
+            // Stickiness holds through the boundary band, not forever: a
+            // pointer a full row past the group's last visible row has
+            // clearly left (otherwise a group at the end of the list could
+            // never be exited downward).
+            if context.target == nil, let previous = context.previousTarget,
+               request.point.y > previous.frame.maxY + max(previous.frame.height, 1) {
+                return nil
+            }
+            return candidate.groupId
+        case .topLevel:
+            return nil
+        case .none:
+            break
+        }
+        // Legacy lane fallback (indicator-line paths): the left half of the
+        // sidebar means root, the right half means the group.
         return request.point.x >= sidebarHorizontalMidpoint(targets: request.targets)
             ? candidate.groupId
             : nil

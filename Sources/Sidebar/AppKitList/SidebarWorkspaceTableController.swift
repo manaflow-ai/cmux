@@ -1174,9 +1174,18 @@ extension SidebarWorkspaceTableController: SidebarWorkspaceTableLocalReorderDele
 
     func localReorderResolvePlan(
         point: CGPoint,
-        targets: [SidebarWorkspaceReorderDropOverlayTarget]
+        targets: [SidebarWorkspaceReorderDropOverlayTarget],
+        stickyDestination: SidebarWorkspaceReorderStickyDestination
     ) -> SidebarWorkspaceReorderDropPlan? {
-        actions?.resolveWorkspaceReorderPlan(point, targets)
+        actions?.resolveWorkspaceReorderPlan(point, targets, stickyDestination)
+    }
+
+    /// Grows/restores the drop overlay's slop region around the sidebar for
+    /// a local drag, then rebuilds targets: the overlay's origin moved, so
+    /// every stored target frame is in stale coordinates until refreshed.
+    func localReorderSetOverlayExpanded(_ expanded: Bool) {
+        containerView?.setReorderOverlayExpanded(expanded)
+        updateDropTargets()
     }
 
     func localReorderCommit(plan: SidebarWorkspaceReorderDropPlan) -> Bool {

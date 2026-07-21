@@ -16,10 +16,12 @@ protocol SidebarWorkspaceTableLocalReorderDelegate: AnyObject {
     func localReorderSetCellsHidden(_ ids: Set<SidebarWorkspaceRenderItemID>)
     func localReorderResolvePlan(
         point: CGPoint,
-        targets: [SidebarWorkspaceReorderDropOverlayTarget]
+        targets: [SidebarWorkspaceReorderDropOverlayTarget],
+        stickyDestination: SidebarWorkspaceReorderStickyDestination
     ) -> SidebarWorkspaceReorderDropPlan?
     func localReorderCommit(plan: SidebarWorkspaceReorderDropPlan) -> Bool
     func localReorderUpdateAutoscroll()
+    func localReorderSetOverlayExpanded(_ expanded: Bool)
     func localReorderSessionDidEnd(flushDeferredApply: Bool)
 }
 
@@ -49,15 +51,25 @@ final class SidebarWorkspaceTableLocalReorderController {
         /// captured with this indent baked in, so indent previews offset
         /// relative to it.
         var baseGroupId: UUID?
+        /// The group the preview currently targets; feeds the resolver's
+        /// sticky boundary handling and the indent preview.
+        var destinationGroupId: UUID?
         var blockRowIds: [SidebarWorkspaceRenderItemID]
         var originalOrder: [SidebarWorkspaceRenderItemID]
         var grabOffsetY: CGFloat
         var blockHeight: CGFloat
         var lastPlan: SidebarWorkspaceReorderDropPlan?
         var lastPoint: CGPoint?
-        var destinationGroupId: UUID?
         var floatingView: SidebarWorkspaceReorderFloatingRowView?
         var hidDragImage = false
+
+        /// Boundary decisions bias toward where the drag already previews
+        /// (blocks always stay top-level).
+        var stickyDestination: SidebarWorkspaceReorderStickyDestination {
+            if isGroupBlock { return .topLevel }
+            if let destinationGroupId { return .group(destinationGroupId) }
+            return .topLevel
+        }
     }
 
     weak var delegate: SidebarWorkspaceTableLocalReorderDelegate?
@@ -93,6 +105,12 @@ final class SidebarWorkspaceTableLocalReorderController {
         guard let block = Self.blockRowIndices(rows: rows, draggedWorkspaceId: draggedWorkspaceId),
               !block.isEmpty else { return }
 
+        // Expand the drop overlay beyond the sidebar band before any
+        // geometry is captured: a cursor drifting slightly out of the narrow
+        // sidebar keeps the drag alive (and dropping there still commits)
+        // instead of snapping the preview away.
+        delegate.localReorderSetOverlayExpanded(true)
+
         let overlay = container.reorderDropView
         let table = container.tableView
         let blockRect = block.reduce(CGRect.null) { partial, row in
@@ -113,10 +131,12 @@ final class SidebarWorkspaceTableLocalReorderController {
             pointerY = blockRect.midY
         }
 
+        let baseGroupId = rows[block[0]].isGroupHeader ? nil : rows[block[0]].groupId
         var next = Session(
             draggedWorkspaceId: draggedWorkspaceId,
             isGroupBlock: rows[block[0]].isGroupHeader,
-            baseGroupId: rows[block[0]].isGroupHeader ? nil : rows[block[0]].groupId,
+            baseGroupId: baseGroupId,
+            destinationGroupId: baseGroupId,
             blockRowIds: block.map { rows[$0].id },
             originalOrder: rows.map(\.id),
             grabOffsetY: min(max(pointerY - blockRect.minY, 0), blockRect.height),
@@ -159,6 +179,33 @@ final class SidebarWorkspaceTableLocalReorderController {
         return true
     }
 
+    /// Slot decisions key off the FLOATING BLOCK's geometry, not the raw
+    /// cursor: the swap fires when the block's vertical center crosses a
+    /// neighbor's midpoint, wherever inside the row the user grabbed it. The
+    /// x clamps into the sidebar band so an overshooting cursor (the overlay
+    /// is expanded past the sidebar during local drags) hit-tests as if it
+    /// were still over the rows.
+    private func hitTestPoint(forPointer point: CGPoint) -> CGPoint {
+        guard let current = session,
+              let container = delegate?.localReorderContainerView else { return point }
+        let overlay = container.reorderDropView
+        let band = overlay.convert(container.scrollView.frame, from: container)
+        let top = floatingTop(forPointerY: point.y, blockHeight: current.blockHeight, band: band)
+        return CGPoint(
+            x: min(max(point.x, band.minX), band.maxX),
+            y: top + current.blockHeight / 2
+        )
+    }
+
+    /// The floating block's clamped top edge for a pointer position, kept in
+    /// one place so the visual and the hit test can never disagree.
+    private func floatingTop(forPointerY pointerY: CGFloat, blockHeight: CGFloat, band: CGRect) -> CGFloat {
+        let minY = band.minY
+        let maxY = max(minY, band.maxY - blockHeight)
+        guard let current = session else { return minY }
+        return min(max(pointerY - current.grabOffsetY, minY), maxY)
+    }
+
     /// Pointer left the sidebar: the preview restores to the original order
     /// (the item may be headed to another window) and the system drag image
     /// takes over as the visual.
@@ -171,7 +218,7 @@ final class SidebarWorkspaceTableLocalReorderController {
             animated: true
         )
         session?.lastPlan = nil
-        session?.destinationGroupId = nil
+        session?.destinationGroupId = current.baseGroupId
     }
 
     /// Drop landed on this sidebar: commit the previewed plan and settle the
@@ -182,7 +229,11 @@ final class SidebarWorkspaceTableLocalReorderController {
         targets: [SidebarWorkspaceReorderDropOverlayTarget]
     ) -> Bool {
         guard let current = session, case .dragging = phase, let delegate else { return false }
-        let plan = current.lastPlan ?? delegate.localReorderResolvePlan(point: point, targets: targets)
+        let plan = current.lastPlan ?? delegate.localReorderResolvePlan(
+            point: hitTestPoint(forPointer: point),
+            targets: targets,
+            stickyDestination: current.stickyDestination
+        )
         guard let plan else {
             cancelAndRestore()
             return true
@@ -268,7 +319,12 @@ final class SidebarWorkspaceTableLocalReorderController {
         targets: [SidebarWorkspaceReorderDropOverlayTarget]
     ) {
         guard let delegate, var current = session else { return }
-        guard let plan = delegate.localReorderResolvePlan(point: point, targets: targets) else {
+        let blockPoint = hitTestPoint(forPointer: point)
+        guard let plan = delegate.localReorderResolvePlan(
+            point: blockPoint,
+            targets: targets,
+            stickyDestination: current.stickyDestination
+        ) else {
             // A nil plan is the planner's no-op suppression: the drop would
             // land the block at its model position. Two very different zones
             // produce it, and conflating them oscillates (restore moves a
@@ -280,7 +336,7 @@ final class SidebarWorkspaceTableLocalReorderController {
             //   slot's dead zone (or an illegal one). Preview the original
             //   order and forget the plan so the drop restores; this is what
             //   lets a drag be returned exactly where it started.
-            if pointerIsInsideBlockPreviewFrame(pointerY: point.y) {
+            if pointerIsInsideBlockPreviewFrame(pointerY: blockPoint.y) {
                 return
             }
             current.lastPlan = nil
@@ -348,12 +404,17 @@ final class SidebarWorkspaceTableLocalReorderController {
     private func positionFloatingView(pointerY: CGFloat) {
         guard let current = session,
               let floating = current.floatingView,
-              let overlay = delegate?.localReorderContainerView?.reorderDropView else { return }
-        let minY = overlay.bounds.minY
-        let maxY = max(minY, overlay.bounds.maxY - current.blockHeight)
-        let top = min(max(pointerY - current.grabOffsetY, minY), maxY)
+              let container = delegate?.localReorderContainerView else { return }
+        // Clamp to the sidebar band (not the expanded overlay bounds) so the
+        // block never floats over the terminal or past the list edges.
+        let overlay = container.reorderDropView
+        let band = overlay.convert(container.scrollView.frame, from: container)
         var frame = floating.frame
-        frame.origin.y = top
+        frame.origin.y = floatingTop(
+            forPointerY: pointerY,
+            blockHeight: current.blockHeight,
+            band: band
+        )
         floating.frame = frame
     }
 
@@ -469,6 +530,7 @@ final class SidebarWorkspaceTableLocalReorderController {
         phase = .idle
         hiddenRowIds = []
         delegate?.localReorderSetCellsHidden([])
+        delegate?.localReorderSetOverlayExpanded(false)
         let pending = pendingApply
         pendingApply = nil
         delegate?.localReorderSessionDidEnd(flushDeferredApply: flushDeferredApply)
