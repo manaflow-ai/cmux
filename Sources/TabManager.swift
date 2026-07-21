@@ -2031,19 +2031,7 @@ class TabManager: ObservableObject {
                 snapshot: snapshot
             )))
         }
-        sidebarGitMetadataService.clearWorkspaceGitProbes(workspaceId: workspace.id)
-        pullRequestProbing.clearWorkspacePullRequestTracking(workspaceId: workspace.id)
-        sidebarMultiSelection.removeFromSelection(workspace.id)
-        invalidateFocusHistoryTarget(workspaceId: workspace.id, panelId: nil)
-
-        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
-        workspace.withClosedPanelHistorySuppressed {
-            workspace.teardownAllPanels()
-        }
-        workspace.teardownRemoteConnection()
-        unwireClosedBrowserTracking(for: workspace)
-        browserModel.removeClosedBrowserPanels(forWorkspaceId: workspace.id)
-        workspace.owningTabManager = nil
+        finalizeWorkspaceForRemoval(workspace)
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             tabs.remove(at: index)
@@ -2063,6 +2051,73 @@ class TabManager: ObservableObject {
             }
         }
         publishCmuxWorkspaceClosed(workspace)
+    }
+
+    /// Finalizes every workspace owned by a closing window without creating a
+    /// replacement workspace or recording per-workspace closed-item history.
+    func finalizeAllWorkspacesForWindowClose() {
+        let closingWorkspaces = Array(tabs)
+        panelTitleUpdateCoalescer.flushNow()
+
+        for workspace in closingWorkspaces {
+            finalizeWorkspaceForRemoval(workspace)
+        }
+
+        sidebarGitMetadataService.resetAllWorkspaceGitProbeTracking()
+        sidebarMultiSelection.replaceSelection(with: [])
+        pruneBackgroundWorkspaceLoads(existingIds: [])
+        pendingPanelTitleUpdates.removeAll()
+        pendingWorkspaceUnfocusTarget = nil
+        notificationDismissal.setPendingSelectionContext(nil)
+        notificationDismissal.setSuppressesFocusFlash(false)
+        workspaceCycleCooldownTask?.cancel()
+        workspaceCycleCooldownTask = nil
+        workspaceCycleGeneration &+= 1
+        isWorkspaceCycleHot = false
+        browserModel.clearRecentlyClosedBrowserPanels()
+
+        tabs.removeAll()
+        workspaceGroups.removeAll()
+        selectedTabId = nil
+        lastFocusedPanelByTab.removeAll()
+        focusHistoryNavigation.reset()
+        focusHistoryRevision &+= 1
+        // Invalidate every queued selection effect, including the one emitted
+        // by clearing `selectedTabId` above.
+        selectionSideEffectsGeneration &+= 1
+
+        // The window-close transaction is final even if SwiftUI retains this
+        // manager. Stop process-wide observations and periodic work that would
+        // otherwise keep reacting on behalf of a closed window.
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        observers.removeAll()
+        agentPIDSweepTimer?.cancel()
+        agentPIDSweepTimer = nil
+
+        for workspace in closingWorkspaces {
+            publishCmuxWorkspaceClosed(workspace)
+        }
+    }
+
+    /// Runs the shared per-workspace ownership cleanup before the manager
+    /// removes the workspace from its collection.
+    private func finalizeWorkspaceForRemoval(_ workspace: Workspace) {
+        sidebarGitMetadataService.clearWorkspaceGitProbes(workspaceId: workspace.id)
+        pullRequestProbing.clearWorkspacePullRequestTracking(workspaceId: workspace.id)
+        sidebarMultiSelection.removeFromSelection(workspace.id)
+        invalidateFocusHistoryTarget(workspaceId: workspace.id, panelId: nil)
+        lastFocusedPanelByTab.removeValue(forKey: workspace.id)
+
+        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+        workspace.withClosedPanelHistorySuppressed {
+            workspace.teardownAllPanels()
+        }
+        workspace.teardownRemoteConnection()
+        unwireClosedBrowserTracking(for: workspace)
+        browserModel.removeClosedBrowserPanels(forWorkspaceId: workspace.id)
+        workspace.owningTabManager = nil
     }
 
     /// Detach a workspace from this window without closing its panels.

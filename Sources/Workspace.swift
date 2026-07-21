@@ -7559,7 +7559,6 @@ final class Workspace: Identifiable, ObservableObject {
             requestTransferredRemoteCleanup: true,
             cleanupControllerSurfaceState: false
         )
-        GhosttyApp.terminalSurfaceRegistry.unregister(oldPanel.surface)
         oldPanel.removeOwnedSessionScrollbackReplayArtifact()
         oldPanel.surface.teardownSurface()
 

@@ -112,8 +112,9 @@ extension AppDelegate {
         let before = mainWindowRouteLedger.routesByWindowId.count
         mainWindowRouteLedger.routesByWindowId = mainWindowRouteLedger.routesByWindowId.filter { _, route in
             guard let manager = route.tabManager else { return false }
-            guard let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window) else { return false }
-            route.window = window
+            if let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window) {
+                route.window = window
+            }
             return tabManagerHasRegisteredTerminalSurface(manager)
         }
         let after = mainWindowRouteLedger.routesByWindowId.count
@@ -133,12 +134,11 @@ extension AppDelegate {
     }
 
     func rememberRecoverableMainWindowRoute(windowId: UUID, tabManager: TabManager, window: NSWindow?) {
-        guard let window = liveRecoverableMainWindow(windowId: windowId, cachedWindow: window) else { return }
         guard tabManagerHasRegisteredTerminalSurface(tabManager) else { return }
         mainWindowRouteLedger.routesByWindowId[windowId] = RecoverableMainWindowRoute(
             windowId: windowId,
             tabManager: tabManager,
-            window: window,
+            window: liveRecoverableMainWindow(windowId: windowId, cachedWindow: window),
             order: mainWindowRouteLedger.issueOrder()
         )
 #if DEBUG
@@ -147,8 +147,13 @@ extension AppDelegate {
     }
 
     func recoverableMainWindowRoute(windowId: UUID) -> RecoverableMainWindowRoute? {
-        guard recoverableMainWindowRouteSnapshot(windowId: windowId) != nil else { return nil }
-        return mainWindowRouteLedger.routesByWindowId[windowId]
+        // Keep the weak manager route alive while SwiftUI/AppKit replaces its
+        // NSWindow. Snapshot-based listing/focus APIs still require a live
+        // window, so this internal route cannot surface a ghost window.
+        guard let route = mainWindowRouteLedger.routesByWindowId[windowId],
+              let manager = route.tabManager,
+              tabManagerHasRegisteredTerminalSurface(manager) else { return nil }
+        return route
     }
 
     func recoverableMainWindowRoutes() -> [RecoverableMainWindowRoute] {
@@ -193,14 +198,17 @@ extension AppDelegate {
         if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
             return context.tabManager
         }
-        return recoverableMainWindowRouteSnapshot(windowId: windowId)?.tabManager
+        return recoverableMainWindowRoute(windowId: windowId)?.tabManager
     }
 
     func windowId(for tabManager: TabManager) -> UUID? {
         if let windowId = mainWindowContexts.values.first(where: { $0.tabManager === tabManager })?.windowId {
             return windowId
         }
-        return recoverableMainWindowRouteSnapshots().first(where: { $0.tabManager === tabManager })?.windowId
+        guard tabManagerHasRegisteredTerminalSurface(tabManager) else { return nil }
+        return sortedRecoverableMainWindowRoutes()
+            .first(where: { $0.tabManager === tabManager })?
+            .windowId
     }
 
     func mainWindowContainingWorkspace(_ workspaceId: UUID) -> NSWindow? {

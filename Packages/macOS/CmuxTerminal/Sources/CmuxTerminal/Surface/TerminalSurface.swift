@@ -294,7 +294,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Weak registry membership is cleared before `deinit`, so the model keeps
     /// this one-shot ownership bit to distinguish deinit-only cleanup from a
     /// later deinit following explicit teardown.
-    var ownsSurfaceRegistryRegistration = false
+    private var ownsSurfaceRegistryRegistration = false
 
     /// Bumped after every completed runtime clipboard read.
     public internal(set) var clipboardReadGeneration = 0

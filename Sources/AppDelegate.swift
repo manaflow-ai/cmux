@@ -5927,7 +5927,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func pruneWindowlessMainWindowContexts() {
         for context in Array(mainWindowContexts.values) where resolvedWindow(for: context) == nil {
-            commitMainWindowClose(context: context, window: nil)
+            discardOrphanedMainWindowContext(context)
         }
     }
 
@@ -6504,7 +6504,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func toggleSidebarInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
         func toggle(_ context: MainWindowContext) -> Bool {
             guard let window = resolvedWindow(for: context) else {
-                commitMainWindowClose(context: context, window: nil)
+                discardOrphanedMainWindowContext(context)
                 return false
             }
             setActiveMainWindow(window)
@@ -7286,7 +7286,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let livePreferredContext: MainWindowContext? = {
             guard let preferredContext else { return nil }
             guard resolvedWindow(for: preferredContext) != nil else {
-                commitMainWindowClose(context: preferredContext, window: nil)
+                discardOrphanedMainWindowContext(preferredContext)
                 return nil
             }
             return preferredContext
@@ -7717,7 +7717,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         guard let window = resolvedWindow(for: context) else {
-            commitMainWindowClose(context: context, window: nil)
+            discardOrphanedMainWindowContext(context)
             return false
         }
 #if DEBUG
@@ -8222,7 +8222,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 workingDirectory: workingDirectory
             )
             #endif
-            commitMainWindowClose(context: context, window: nil)
+            discardOrphanedMainWindowContext(context)
             return nil
         }
         setActiveMainWindow(window)
@@ -8274,7 +8274,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let activeManager = tabManager,
            let activeContext = mainWindowContext(for: activeManager),
            resolvedWindow(for: activeContext) == nil {
-            commitMainWindowClose(context: activeContext, window: nil)
+            discardOrphanedMainWindowContext(activeContext)
 #if DEBUG
             logWorkspaceCreationRouting(
                 phase: "choose",
@@ -16241,15 +16241,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         remoteTmuxController.handleWindowWorkspacesClosed(workspaceIds: closingWorkspaceIds)
 
         // A window close is authoritative ownership teardown, not a temporary
-        // routing loss. Retire every surface before removing the context so a
-        // late PTY exit cannot respawn a shell into an otherwise-live model.
-        for workspace in closingWorkspaces {
-            workspace.withClosedPanelHistorySuppressed {
-                workspace.teardownAllPanels()
-            }
-            workspace.teardownRemoteConnection()
-            workspace.owningTabManager = nil
-        }
+        // routing loss. Finalize manager-owned probes, focus/browser state,
+        // panels, and remote connections before removing the context so
+        // retained SwiftUI models cannot keep work alive or respawn a shell.
+        closingTabManager.finalizeAllWorkspacesForWindowClose()
 
         if let context {
             guard removeMainWindowContext(context, rememberRecoverableRoute: false) != nil else {
@@ -16270,7 +16265,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Avoid stale notifications that can no longer be opened once the owning window is gone.
         if let store = notificationStore {
             store.clearNotifications(forTabId: windowId)
-            for tab in closingTabManager.tabs {
+            for tab in closingWorkspaces {
                 store.clearNotifications(forTabId: tab.id)
             }
         }

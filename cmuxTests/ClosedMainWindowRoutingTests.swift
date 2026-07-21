@@ -161,7 +161,11 @@ struct ClosedMainWindowRoutingTests {
         #expect(app.listMainWindowSummaries().contains { $0.windowId == windowCId })
         #expect(app.focusMainWindow(windowId: windowCId))
     }
+}
 
+@MainActor
+@Suite("Recoverable windowless main window routing", .serialized)
+struct RecoverableWindowlessMainWindowRoutingTests {
     @Test("Transient windowless routing preserves the recoverable workspace")
     func transientWindowlessRoutingPreservesRecoverableWorkspace() throws {
         _ = NSApplication.shared
