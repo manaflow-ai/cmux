@@ -34,15 +34,23 @@ public extension SocketControlSettings {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) -> [String] {
-        socketPathMarkerPaths(
-            bundleIdentifier: bundleIdentifier,
-            environment: environment,
-            directories: [
-                stableSocketDirectoryURL(fileManager: fileManager),
-                CmuxStateDirectory.legacyApplicationSupportURL(fileManager: fileManager),
-            ].compactMap { $0 },
-            baseDebugBundleIdentifier: baseDebugBundleIdentifier
-        )
+        (
+            SocketPathMarkerFiles.paths(
+                bundleIdentifier: bundleIdentifier,
+                environment: environment,
+                directory: stableSocketDirectoryURL(fileManager: fileManager),
+                baseDebugBundleIdentifier: baseDebugBundleIdentifier
+            ) + SocketPathMarkerFiles.paths(
+                bundleIdentifier: bundleIdentifier,
+                environment: environment,
+                directory: CmuxStateDirectory.legacyApplicationSupportURL(fileManager: fileManager),
+                baseDebugBundleIdentifier: baseDebugBundleIdentifier
+            )
+        ).reduce(into: (seen: Set<String>(), paths: [String]())) { result, path in
+            if result.seen.insert(path).inserted {
+                result.paths.append(path)
+            }
+        }.paths
     }
 
     private static func writeSocketPathMarker(_ payload: Data, to filePath: String) {
