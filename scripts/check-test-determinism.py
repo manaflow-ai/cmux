@@ -879,6 +879,21 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/QualifiedRealClockInitializerTests.swift",
+            "let clock = Swift.ContinuousClock()\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/QualifiedRealClockParameterTests.swift",
+            "func verify(clock: Swift.SuspendingClock) async {\n"
+            "    try await clock.sleep(for: .milliseconds(300))\n"
+            "    #expect(widget.isRendered)\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/CapturedRealClockTests.swift",
             "func verify() async {\n"
             "    let clock = ContinuousClock()\n"
@@ -1227,6 +1242,23 @@ def _self_test() -> int:
             "try await clock\n"
             "    .sleep(until: deadline)\n"
             "#expect(await clockEvents.next() == expected)\n",
+        ),
+        # Member-chain receivers are not resolved from an unrelated bare local
+        # that happens to share their final property name.
+        (
+            "Packages/CmuxClock/Tests/MemberClockTests.swift",
+            "let clock = ContinuousClock()\n"
+            "let fixture = VirtualClockFixture()\n"
+            "try await fixture.clock.sleep(until: deadline)\n"
+            "#expect(await fixture.events.next() == expected)\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/WrappedMemberClockTests.swift",
+            "let clock = ContinuousClock()\n"
+            "let fixture = VirtualClockFixture()\n"
+            "try await fixture.clock\n"
+            "    .sleep(until: deadline)\n"
+            "#expect(await fixture.events.next() == expected)\n",
         ),
     ]
 
