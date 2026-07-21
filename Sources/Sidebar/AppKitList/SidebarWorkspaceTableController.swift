@@ -29,7 +29,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var windowResizeDidEndObserver: NSObjectProtocol?
     private let rowHeightCache = SidebarWorkspaceTableRowHeightCache()
     private let dropTargetGeometry = SidebarWorkspaceTableDropTargetGeometryGate()
-    private var pointerSelectionRowId: SidebarWorkspaceRenderItemID?
+    private struct PointerSelectionSession {
+        let rowId: SidebarWorkspaceRenderItemID
+        let defersPlainCollapse: Bool
+    }
+    private var pointerSelectionSession: PointerSelectionSession?
 
 #if DEBUG
     var reconfigurationProbe: (() -> Void)?
@@ -50,6 +54,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if let windowResizeDidEndObserver {
             NotificationCenter.default.removeObserver(windowResizeDidEndObserver)
         }
+        deferredWidthSettleTimer?.cancel()
     }
     func makeContainerView() -> SidebarWorkspaceTableContainerView {
         let container = SidebarWorkspaceTableContainerView()
@@ -333,43 +338,68 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         cmuxDebugLog("sidebar.table.click row=\(row) rows=\(rows.count)")
 #endif
         guard rows.indices.contains(row) else { return }
-        if pointerSelectionRowId == rows[row].id {
-            pointerSelectionRowId = nil
+        if pointerSelectionSession?.rowId == rows[row].id {
             return
         }
         // Accessibility and programmatic actions do not pass through the
         // table's mouseDown override. Preserve their existing click fallback.
         let modifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
         guard previewSelection(row: row, modifiers: modifiers) else { return }
-        commitSelection(row: row, modifiers: modifiers, coalescesPlainSelection: true)
+        commitSelection(row: row, modifiers: modifiers)
     }
 
-    /// Mouse-down is the selection event. Drag startup and cancelled tracking
-    /// do not roll it back, so the row under the pointer is also the row being
-    /// dragged or acted on.
+    /// Mouse-down is the selection event. A plain press on one member of an
+    /// existing multi-selection is the native AppKit exception: keep the group
+    /// intact until tracking resolves to a click or drag. An ordinary press
+    /// still paints immediately and enters the bounded selection coalescer.
     func pointerMouseDown(row: Int, modifiers: NSEvent.ModifierFlags) {
         guard rows.indices.contains(row) else { return }
+        let defersPlainCollapse = shouldDeferPlainSelectionCollapse(
+            row: row,
+            modifiers: modifiers
+        )
+        pointerSelectionSession = PointerSelectionSession(
+            rowId: rows[row].id,
+            defersPlainCollapse: defersPlainCollapse
+        )
+        if defersPlainCollapse {
+            // This press supersedes an older trailing plain-click request. If
+            // it becomes a drag, nothing may collapse the preserved group.
+            selectionCoalescer.cancel()
+            return
+        }
         guard previewSelection(row: row, modifiers: modifiers) else { return }
-        pointerSelectionRowId = rows[row].id
-        commitSelection(row: row, modifiers: modifiers, coalescesPlainSelection: false)
+        commitSelection(row: row, modifiers: modifiers)
     }
 
-    /// AppKit returns from mouse tracking for clicks, drags, and cancelled presses.
+    /// AppKit returns from mouse tracking for clicks, drags, and cancelled
+    /// presses. Drag startup clears the session first, so only a completed
+    /// non-drag press collapses a preserved multi-selection.
     func pointerTrackingDidEnd() {
-        pointerSelectionRowId = nil
+        guard let session = pointerSelectionSession else { return }
+        pointerSelectionSession = nil
+        guard session.defersPlainCollapse,
+              let row = rows.firstIndex(where: { $0.id == session.rowId }),
+              previewSelection(row: row, modifiers: []) else { return }
+        commitSelection(row: row, modifiers: [])
     }
 
-    private func commitSelection(
+    private func shouldDeferPlainSelectionCollapse(
         row: Int,
-        modifiers: NSEvent.ModifierFlags,
-        coalescesPlainSelection: Bool
-    ) {
+        modifiers: NSEvent.ModifierFlags
+    ) -> Bool {
+        guard !modifiers.contains(.command),
+              !modifiers.contains(.shift),
+              let rowActions = rows[row].appKitWorkspaceRowActions else { return false }
+        let selectedIds = rowActions.commands.readSelectedTabIds()
+        return selectedIds.count > 1 && selectedIds.contains(rows[row].workspaceId)
+    }
+
+    private func commitSelection(row: Int, modifiers: NSEvent.ModifierFlags) {
         guard rows.indices.contains(row) else { return }
         let extendsSelection = modifiers.contains(.command) || modifiers.contains(.shift)
         if extendsSelection {
             selectionCoalescer.flushNow()
-        } else if !coalescesPlainSelection {
-            selectionCoalescer.cancel()
         }
         let apply: @MainActor () -> Void
         if let actions = rows[row].appKitWorkspaceRowActions {
@@ -379,7 +409,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         } else {
             return
         }
-        if extendsSelection || !coalescesPlainSelection {
+        if extendsSelection {
             apply()
         } else {
             selectionCoalescer.request(apply)
@@ -404,7 +434,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // vanishes. A double-click is a rename gesture: drop the queued
         // selection before starting the edit.
         selectionCoalescer.cancel()
-        pointerSelectionRowId = nil
+        pointerSelectionSession = nil
         cell.beginInlineRename()
     }
 
@@ -465,6 +495,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // group. Headers are not row-draggable in the SwiftUI sidebar either.
         guard rows.indices.contains(row), !rows[row].isGroupHeader, let actions else { return nil }
         let workspaceId = rows[row].workspaceId
+        // A rapid plain press may still be the coalescer's trailing request.
+        // The drag snapshot must observe the row selection before it captures
+        // the dragged workspace set.
+        selectionCoalescer.flushNow()
+        pointerSelectionSession = nil
         actions.beginWorkspaceDrag(workspaceId)
         workspaceDragSessionDidBegin(rowId: rows[row].id)
         let item = NSPasteboardItem()
@@ -487,7 +522,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     func workspaceDragSessionDidBegin(rowId: SidebarWorkspaceRenderItemID? = nil) {
         _ = rowId
-        pointerSelectionRowId = nil
+        pointerSelectionSession = nil
         if dropTargetGeometry.setWorkspaceDragSessionActive(true, rows: rows) {
             positionAppKitDropIndicator()
         }
@@ -644,6 +679,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var lastMeasuredWidth: CGFloat = 0
     private var lastLiveMeasuredWidth: CGFloat = 0
     private var hasLiveMeasuredRows = false
+    private var deferredWidthSettleTimer: DispatchSourceTimer?
+    private var deferredWidthSettleGeneration: UInt = 0
 
     private func viewportWidthDidChange(_ width: CGFloat) {
         guard width > 0 else { return }
@@ -651,6 +688,39 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // have reflowed, returning to the starting width is itself a live tick.
         guard hasLiveMeasuredRows || floor(width) != floor(lastMeasuredWidth) else { return }
         performLiveWidthRemeasure(width: width)
+        let window = containerView?.window
+        let hasExplicitResizeCompletion = window?.inLiveResize == true
+            || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window)
+        if !hasExplicitResizeCompletion {
+            scheduleDeferredWidthSettle()
+        }
+    }
+
+    /// Programmatic frame changes and full-screen/layout transitions have no
+    /// AppKit "resize ended" callback. Debounce their full cache settle so
+    /// each width tick remains bounded to visible rows, then remeasure every
+    /// row once the width stops changing.
+    private func scheduleDeferredWidthSettle() {
+        deferredWidthSettleGeneration &+= 1
+        let generation = deferredWidthSettleGeneration
+        deferredWidthSettleTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + .milliseconds(100), leeway: .milliseconds(16))
+        timer.setEventHandler { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.deferredWidthSettleGeneration == generation else { return }
+                self.deferredWidthSettleTimer = nil
+                self.performWidthRemeasureNow()
+            }
+        }
+        deferredWidthSettleTimer = timer
+        timer.resume()
+    }
+
+    private func cancelDeferredWidthSettle() {
+        deferredWidthSettleGeneration &+= 1
+        deferredWidthSettleTimer?.cancel()
+        deferredWidthSettleTimer = nil
     }
 
     /// Legacy parity: rows re-wrap continuously while the divider or window
@@ -701,6 +771,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// Explicit resize-completion path: re-measures at the settled width
     /// immediately after either the sidebar divider or window resize ends.
     func performWidthRemeasureNow() {
+        cancelDeferredWidthSettle()
         let width = currentColumnWidth()
         guard width > 0 else { return }
         // A live partial pass leaves off-screen entries at the old width, so

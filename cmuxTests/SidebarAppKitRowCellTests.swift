@@ -53,7 +53,9 @@ struct SidebarAppKitRowCellTests {
 
     private static func makeModel(
         workspaceId: UUID = UUID(),
+        index: Int = 0,
         isActive: Bool = false,
+        isMultiSelected: Bool = false,
         canClose: Bool = true,
         settings: SidebarTabItemSettingsSnapshot? = nil,
         title: String = "Workspace",
@@ -63,11 +65,11 @@ struct SidebarAppKitRowCellTests {
             ?? SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!)
         return SidebarWorkspaceRowModel(
             workspaceId: workspaceId,
-            index: 0,
+            index: index,
             snapshot: makeSnapshot(title: title, customDescription: customDescription),
             settings: resolvedSettings,
             isActive: isActive,
-            isMultiSelected: false,
+            isMultiSelected: isMultiSelected,
             canCloseWorkspace: canClose,
             accessibilityWorkspaceCount: 1,
             unreadCount: 0,
@@ -149,7 +151,9 @@ struct SidebarAppKitRowCellTests {
     private static func makeActions(
         model: SidebarWorkspaceRowModel,
         tab: Workspace? = nil,
-        tabManager: TabManager? = nil
+        tabManager: TabManager? = nil,
+        readSelectedTabIds: @escaping () -> Set<UUID> = { [] },
+        writeSelectedTabIds: @escaping (Set<UUID>) -> Void = { _ in }
     ) -> SidebarAppKitRowActions {
         let commands = SidebarWorkspaceRowCommands(
             tab: tab ?? Workspace(),
@@ -163,8 +167,8 @@ struct SidebarAppKitRowCellTests {
             contextMenuPinState: nil,
             workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot(items: []),
             refreshSnapshot: {},
-            readSelectedTabIds: { [] },
-            writeSelectedTabIds: { _ in },
+            readSelectedTabIds: readSelectedTabIds,
+            writeSelectedTabIds: writeSelectedTabIds,
             readLastSelectionIndex: { nil },
             writeLastSelectionIndex: { _ in },
             setSelectionToTabs: {},
@@ -211,13 +215,15 @@ struct SidebarAppKitRowCellTests {
         )
     }
 
-    private static func makeTableActions() -> SidebarWorkspaceTableActions {
+    private static func makeTableActions(
+        beginWorkspaceDrag: @escaping (UUID) -> Void = { _ in }
+    ) -> SidebarWorkspaceTableActions {
         SidebarWorkspaceTableActions(
             attachScrollView: { _ in },
             closeWorkspace: { _ in },
             createWorkspaceAtEnd: {},
             createEmptyWorkspaceGroup: {},
-            beginWorkspaceDrag: { _ in },
+            beginWorkspaceDrag: beginWorkspaceDrag,
             endWorkspaceDrag: {},
             isValidWorkspaceDrag: { true },
             updateWorkspaceDrag: { _, _ in false },
@@ -382,6 +388,153 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func controllerPreservesMultiSelectionWhenPressBecomesDrag() throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+
+        let manager = TabManager()
+        let firstWorkspace = try #require(manager.tabs.first)
+        let secondWorkspace = manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.selectTab(firstWorkspace)
+        var selectedIds: Set<UUID> = [firstWorkspace.id, secondWorkspace.id]
+        let readSelection = { selectedIds }
+        let writeSelection = { selectedIds = $0 }
+        let firstModel = Self.makeModel(
+            workspaceId: firstWorkspace.id,
+            index: 0,
+            isActive: true,
+            isMultiSelected: true
+        )
+        let secondModel = Self.makeModel(
+            workspaceId: secondWorkspace.id,
+            index: 1,
+            isMultiSelected: true
+        )
+        let rows = [
+            Self.makeRowConfiguration(
+                model: firstModel,
+                actions: Self.makeActions(
+                    model: firstModel,
+                    tab: firstWorkspace,
+                    tabManager: manager,
+                    readSelectedTabIds: readSelection,
+                    writeSelectedTabIds: writeSelection
+                )
+            ),
+            Self.makeRowConfiguration(
+                model: secondModel,
+                actions: Self.makeActions(
+                    model: secondModel,
+                    tab: secondWorkspace,
+                    tabManager: manager,
+                    readSelectedTabIds: readSelection,
+                    writeSelectedTabIds: writeSelection
+                )
+            ),
+        ]
+        var draggedWorkspaceId: UUID?
+        controller.apply(
+            rows: rows,
+            actions: Self.makeTableActions { draggedWorkspaceId = $0 },
+            workspaceIds: [firstWorkspace.id, secondWorkspace.id],
+            selectedWorkspaceId: firstWorkspace.id,
+            selectedScrollTargetWorkspaceId: firstWorkspace.id
+        )
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        controller.pointerMouseDown(row: 1, modifiers: [])
+        #expect(selectedIds == [firstWorkspace.id, secondWorkspace.id])
+
+        let writer = controller.tableView(container.tableView, pasteboardWriterForRow: 1)
+
+        #expect(writer != nil)
+        #expect(draggedWorkspaceId == secondWorkspace.id)
+        #expect(selectedIds == [firstWorkspace.id, secondWorkspace.id])
+    }
+
+    @Test
+    func controllerCollapsesMultiSelectionWhenPressCompletesWithoutDrag() throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+
+        let manager = TabManager()
+        let firstWorkspace = try #require(manager.tabs.first)
+        let secondWorkspace = manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.selectTab(firstWorkspace)
+        var selectedIds: Set<UUID> = [firstWorkspace.id, secondWorkspace.id]
+        let readSelection = { selectedIds }
+        let writeSelection = { selectedIds = $0 }
+        let firstModel = Self.makeModel(
+            workspaceId: firstWorkspace.id,
+            index: 0,
+            isActive: true,
+            isMultiSelected: true
+        )
+        let secondModel = Self.makeModel(
+            workspaceId: secondWorkspace.id,
+            index: 1,
+            isMultiSelected: true
+        )
+        controller.apply(
+            rows: [
+                Self.makeRowConfiguration(
+                    model: firstModel,
+                    actions: Self.makeActions(
+                        model: firstModel,
+                        tab: firstWorkspace,
+                        tabManager: manager,
+                        readSelectedTabIds: readSelection,
+                        writeSelectedTabIds: writeSelection
+                    )
+                ),
+                Self.makeRowConfiguration(
+                    model: secondModel,
+                    actions: Self.makeActions(
+                        model: secondModel,
+                        tab: secondWorkspace,
+                        tabManager: manager,
+                        readSelectedTabIds: readSelection,
+                        writeSelectedTabIds: writeSelection
+                    )
+                ),
+            ],
+            actions: Self.makeTableActions(),
+            workspaceIds: [firstWorkspace.id, secondWorkspace.id],
+            selectedWorkspaceId: firstWorkspace.id,
+            selectedScrollTargetWorkspaceId: firstWorkspace.id
+        )
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        _ = try #require(
+            container.tableView.view(atColumn: 0, row: 1, makeIfNecessary: true)
+                as? SidebarWorkspaceRowTableCellView
+        )
+
+        controller.pointerMouseDown(row: 1, modifiers: [])
+        #expect(selectedIds == [firstWorkspace.id, secondWorkspace.id])
+
+        controller.pointerTrackingDidEnd()
+
+        #expect(selectedIds == [secondWorkspace.id])
+        #expect(manager.selectedTabId == secondWorkspace.id)
+    }
+
+    @Test
     func containerWidthChangeRemeasuresVisibleRowsDuringLayout() throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
@@ -421,6 +574,50 @@ struct SidebarAppKitRowCellTests {
         let restoredHeight = container.tableView.rect(ofRow: 0).height
 
         #expect(abs(restoredHeight - wideHeight) < 0.5)
+    }
+
+    @Test
+    func programmaticWidthChangeEventuallyRemeasuresOffscreenRows() {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 120),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+
+        let models = (0..<20).map { index in
+            Self.makeModel(
+                index: index,
+                title: "Resize probe \(index)",
+                customDescription: "This deliberately long workspace description fits on one line when wide and wraps when the sidebar becomes narrow."
+            )
+        }
+        controller.apply(
+            rows: models.map { Self.makeRowConfiguration(model: $0) },
+            actions: Self.makeTableActions(),
+            workspaceIds: models.map(\.workspaceId),
+            selectedWorkspaceId: models.first?.workspaceId,
+            selectedScrollTargetWorkspaceId: models.first?.workspaceId
+        )
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        let offscreenRow = models.count - 1
+        let wideHeight = container.tableView.rect(ofRow: offscreenRow).height
+
+        window.setContentSize(NSSize(width: 180, height: 120))
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        let heightBeforeSettle = container.tableView.rect(ofRow: offscreenRow).height
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.25))
+        container.tableView.layoutSubtreeIfNeeded()
+        let heightAfterSettle = container.tableView.rect(ofRow: offscreenRow).height
+
+        #expect(abs(heightBeforeSettle - wideHeight) < 0.5)
+        #expect(heightAfterSettle > wideHeight)
     }
 
     @Test

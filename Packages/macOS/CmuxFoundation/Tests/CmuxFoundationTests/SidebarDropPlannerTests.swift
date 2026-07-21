@@ -66,6 +66,43 @@ import Testing
         #expect(plan.targetPinnedState == true)
     }
 
+    @Test func pinnedWorkspaceDroppedAtFirstUnpinnedSlotProducesPinOnlyPlan() throws {
+        let firstPinned = UUID()
+        let draggedPinned = UUID()
+        let firstUnpinned = UUID()
+        let workspaces = [
+            SidebarWorkspaceReorderWorkspaceSnapshot(id: firstPinned, isPinned: true, groupId: nil),
+            SidebarWorkspaceReorderWorkspaceSnapshot(id: draggedPinned, isPinned: true, groupId: nil),
+            SidebarWorkspaceReorderWorkspaceSnapshot(id: firstUnpinned, isPinned: false, groupId: nil),
+        ]
+        let request = SidebarWorkspaceReorderDropRequest(
+            point: CGPoint(x: 2, y: 81),
+            draggedWorkspaceId: draggedPinned,
+            workspaces: workspaces,
+            groups: [],
+            targets: workspaces.enumerated().map { index, workspace in
+                SidebarWorkspaceReorderDropTarget(
+                    workspaceId: workspace.id,
+                    groupId: nil,
+                    isGroupHeader: false,
+                    frame: CGRect(x: 0, y: CGFloat(index * 40), width: 180, height: 32)
+                )
+            }
+        )
+
+        let plan = try #require(SidebarWorkspaceReorderDropResolver().plan(for: request))
+
+        #expect(plan.indicator == SidebarDropIndicator(tabId: firstUnpinned, edge: .top))
+        guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
+            Issue.record("Expected local reorder plan")
+            return
+        }
+        #expect(targetIndex == 1)
+        #expect(!usesTopLevelRows)
+        #expect(explicitGroupId == nil)
+        #expect(plan.targetPinnedState == false)
+    }
+
     private struct PinnedBoundaryFixture {
         let firstPinned = UUID()
         let secondPinned = UUID()

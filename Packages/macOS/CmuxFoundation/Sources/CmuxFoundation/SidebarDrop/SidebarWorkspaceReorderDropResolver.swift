@@ -330,6 +330,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         let promotesGroupedWorkspace = usesTopLevelRows &&
             draggedWorkspace.groupId != nil &&
             groupByAnchorId[draggedWorkspace.id] == nil
+        let changesPinState = destinationIsPinned != draggedIsEffectivelyPinned
         let plannedIndicator = SidebarDropPlanner().indicator(
             draggedTabId: request.draggedWorkspaceId,
             targetTabId: rootTarget.workspaceId,
@@ -338,7 +339,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             pointerY: rootTarget.pointerY,
             targetHeight: rootTarget.targetHeight,
             preserveTargetEdge: true,
-            suppressesNoOp: !promotesGroupedWorkspace
+            suppressesNoOp: !promotesGroupedWorkspace && !changesPinState
         )
         guard let indicator = plannedIndicator else {
             return nil
