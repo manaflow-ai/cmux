@@ -212,7 +212,7 @@ _CONTINUED_SLEEP_CALL = re.compile(r"^\s*[?!]?\s*\.sleep\s*\(")
 _LOCAL_SCOPE_HEADER = re.compile(
     r"^\s*"
     r"(?:(?:@\w+(?:\([^)]*\))?|[A-Za-z_]\w*(?:\([^)]*\))?)\s+)*"
-    r"(?:func\b|init\s*\(|def\b)"
+    r"(?:func\b|init[?!]?\s*\(|def\b)"
 )
 _CONDITIONAL_SCOPE_HEADER = re.compile(
     r"^\s*(?:}\s*else\s+)?(?:if|while|for)\b"
@@ -617,6 +617,20 @@ def _local_receiver_declarations(
     return declarations
 
 
+def _receiver_declaration_kind(
+    declaration: str, following_lines: Iterable[str]
+) -> bool:
+    """Classify a receiver declaration, including a continued initializer."""
+    probe = declaration
+    if probe.rstrip().endswith(("=", ":")):
+        continuation = next(
+            (line.strip() for line in following_lines if line.strip()),
+            "",
+        )
+        probe = f"{probe} {continuation}"
+    return bool(_REAL_CLOCK_TYPE.search(probe) or _REAL_CLOCK_INIT.search(probe))
+
+
 def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
     """Resolve a named receiver through Swift-like lexical brace scopes."""
     current = masked_lines[idx]
@@ -666,7 +680,7 @@ def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
     pending_function_saw_parameters = False
     pending_conditional: Optional[dict[str, bool]] = None
 
-    for candidate in prefix_lines:
+    for candidate_index, candidate in enumerate(prefix_lines):
         if _LOCAL_SCOPE_HEADER.search(candidate):
             pending_function = True
             pending_parameter = _annotated_receiver_kind(candidate, receiver)
@@ -728,9 +742,8 @@ def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
                     scopes.pop()
                     scope_kinds.pop()
             elif declaration is not None:
-                kind = bool(
-                    _REAL_CLOCK_TYPE.search(declaration)
-                    or _REAL_CLOCK_INIT.search(declaration)
+                kind = _receiver_declaration_kind(
+                    declaration, prefix_lines[candidate_index + 1 :]
                 )
                 if pending_conditional is not None:
                     pending_conditional[receiver] = kind
