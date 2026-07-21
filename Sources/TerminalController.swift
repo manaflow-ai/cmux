@@ -13556,7 +13556,7 @@ class TerminalController {
                       let tab = self.tabForSidebarMutation(id: scope.workspaceId) else {
                     return
                 }
-                let validSurfaceIds = Set(tab.panels.keys)
+                let validSurfaceIds = tab.controlReportingSurfaceIds
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
                 guard validSurfaceIds.contains(scope.panelId) else { return }
                 mutation(tab, scope.panelId)
@@ -13569,9 +13569,9 @@ class TerminalController {
                   let tab = self.resolveTabForReport(args) else {
                 return
             }
-            let validSurfaceIds = Set(tab.panels.keys)
+            let validSurfaceIds = tab.controlReportingSurfaceIds
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
-            guard let surfaceId = surfaceIdFromOptions ?? tab.focusedPanelId else { return }
+            guard let surfaceId = surfaceIdFromOptions ?? tab.controlReportingFocusedSurfaceId else { return }
             guard validSurfaceIds.contains(surfaceId) else { return }
             mutation(tab, surfaceId)
         }

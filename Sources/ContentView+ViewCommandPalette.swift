@@ -52,7 +52,8 @@ extension ContentView {
                     defaultValue: "New Browser Floating Window"
                 )),
                 subtitle: constant(String(localized: "command.workspace.subtitle", defaultValue: "Workspace")),
-                keywords: ["browser", "web", "floating", "dock", "workspace", "window"]
+                keywords: ["browser", "web", "floating", "dock", "workspace", "window"],
+                when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
             ),
             CommandPaletteCommandContribution(
                 commandId: "palette.minimizeFloatingWindow",

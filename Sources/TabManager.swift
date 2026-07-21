@@ -5603,6 +5603,7 @@ extension TabManager {
             hasher.combine(workspace.panelPullRequests.count)
             hasher.combine(workspace.panelGitBranches.count)
             hasher.combine(workspace.surfaceListeningPorts.count); workspace.combineTodoStateIntoSessionAutosaveFingerprint(into: &hasher)
+            workspace.combineFloatingDocksIntoSessionAutosaveFingerprint(into: &hasher)
             hasher.combine(notificationStore?.hasManualUnread(forTabId: workspace.id) ?? false)
             hasher.combine(notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false)
             Self.hashNotifications(

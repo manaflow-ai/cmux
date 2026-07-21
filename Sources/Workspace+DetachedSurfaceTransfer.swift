@@ -81,5 +81,48 @@ extension Workspace {
                 remoteCleanupConfiguration: configuration
             )
         }
+
+        func withReportedState(
+            directory: String? = nil,
+            directoryDisplayLabel: String? = nil,
+            ttyName: String? = nil,
+            shellActivityState: PanelShellActivityState? = nil
+        ) -> Self {
+            Self(
+                sourceWorkspaceId: sourceWorkspaceId,
+                panelId: panelId,
+                panel: panel,
+                title: title,
+                icon: icon,
+                iconImageData: iconImageData,
+                kind: kind,
+                isLoading: isLoading,
+                isPinned: isPinned,
+                directory: directory ?? self.directory,
+                directoryIsTrustedRemoteReport: directory != nil
+                    ? isRemoteTerminal
+                    : directoryIsTrustedRemoteReport,
+                directoryDisplayLabel: directory != nil
+                    ? directoryDisplayLabel
+                    : (directoryDisplayLabel ?? self.directoryDisplayLabel),
+                ttyName: ttyName ?? self.ttyName,
+                cachedTitle: cachedTitle,
+                customTitle: customTitle,
+                customTitleSource: customTitleSource,
+                manuallyUnread: manuallyUnread,
+                restoredUnreadIndicator: restoredUnreadIndicator,
+                restorableAgent: restorableAgent,
+                restorableAgentResumeState: restorableAgentResumeState,
+                restoredAgentCompletedGeneration: restoredAgentCompletedGeneration,
+                shellActivityState: shellActivityState ?? self.shellActivityState,
+                restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
+                resumeBinding: resumeBinding,
+                agentRuntime: agentRuntime,
+                isRemoteTerminal: isRemoteTerminal,
+                remoteRelayPort: remoteRelayPort,
+                remotePTYSessionID: remotePTYSessionID,
+                remoteCleanupConfiguration: remoteCleanupConfiguration
+            )
+        }
     }
 }

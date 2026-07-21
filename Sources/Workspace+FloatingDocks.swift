@@ -1,8 +1,81 @@
 import Bonsplit
+import CmuxWorkspaces
 import CoreGraphics
 import Foundation
 
 extension Workspace {
+    var controlReportingSurfaceIds: Set<UUID> {
+        var result = Set(panels.keys)
+        if let dock = _dockSplit {
+            result.formUnion(dock.panels.keys)
+        }
+        for floatingDock in floatingDocks {
+            result.formUnion(floatingDock.store.panels.keys)
+        }
+        return result
+    }
+
+    var controlReportingFocusedSurfaceId: UUID? {
+        if let floatingPanelId = floatingDocks
+            .first(where: \.ownsInputFocus)?
+            .store.focusedPanelId {
+            return floatingPanelId
+        }
+        if let focusedPanelId, panels[focusedPanelId] != nil {
+            return focusedPanelId
+        }
+        if let dock = _dockSplit, dock.isVisibleInUI, let dockPanelId = dock.focusedPanelId {
+            return dockPanelId
+        }
+        return nil
+    }
+
+    func controlOwnedPanel(for panelId: UUID) -> (any Panel)? {
+        if let panel = panels[panelId] { return panel }
+        if let panel = _dockSplit?.panels[panelId] { return panel }
+        return floatingDocks.lazy.compactMap { $0.store.panels[panelId] }.first
+    }
+
+    func controlOwningDockStore(for panelId: UUID) -> DockSplitStore? {
+        if let dock = _dockSplit, dock.containsPanel(panelId) { return dock }
+        return floatingDocks.lazy.map(\.store).first { $0.containsPanel(panelId) }
+    }
+
+    func updateDockTransferReportedState(
+        panelId: UUID,
+        directory: String? = nil,
+        directoryDisplayLabel: String? = nil,
+        ttyName: String? = nil,
+        shellActivityState: PanelShellActivityState? = nil
+    ) {
+        guard let dock = controlOwningDockStore(for: panelId),
+              let transfer = dock.detachedSurfaceTransfersByPanelId[panelId] else { return }
+        dock.detachedSurfaceTransfersByPanelId[panelId] = transfer.withReportedState(
+            directory: directory,
+            directoryDisplayLabel: directoryDisplayLabel,
+            ttyName: ttyName,
+            shellActivityState: shellActivityState
+        )
+    }
+
+    func isDockTransferredRemoteTerminal(_ panelId: UUID) -> Bool {
+        controlOwningDockStore(for: panelId)?
+            .detachedSurfaceTransfersByPanelId[panelId]?
+            .isRemoteTerminal == true
+    }
+
+    func recordReportedSurfaceTTY(_ ttyName: String, panelId: UUID) {
+        surfaceTTYNames[panelId] = ttyName
+        updateDockTransferReportedState(panelId: panelId, ttyName: ttyName)
+    }
+
+    func discardDockSurfaceReportingState(panelId: UUID) {
+        PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
+        pruneSurfaceMetadata(validSurfaceIds: controlReportingSurfaceIds.subtracting([panelId]))
+        recomputeListeningPorts()
+        syncRemotePortScanTTYs()
+    }
+
     /// Creates a workspace-scoped floating window with one native Bonsplit surface.
     @discardableResult
     func createFloatingDock(
@@ -60,6 +133,10 @@ extension Workspace {
                 return self.detachSurface(panelId: terminal.id)
             }
         )
+        guard sessionContent != nil || dock.initialContentWasCreated else {
+            dock.close()
+            return nil
+        }
         if let sessionContent {
             dock.restoreSessionContent(sessionContent)
         }
@@ -130,6 +207,18 @@ extension Workspace {
             remainingPanelBudget -= restoredPanelCost
         }
         return snapshots.isEmpty ? nil : snapshots
+    }
+
+    /// Hashes the same bounded projection that session persistence writes so
+    /// floating-window-only mutations cannot be skipped by periodic autosave.
+    func combineFloatingDocksIntoSessionAutosaveFingerprint(into hasher: inout Hasher) {
+        let snapshots = floatingDockSessionSnapshots() ?? []
+        hasher.combine(snapshots.count)
+        if let encoded = try? JSONEncoder().encode(snapshots) {
+            hasher.combine(encoded)
+        } else {
+            hasher.combine("floating-dock-snapshot-encoding-failed")
+        }
     }
 
     func restoreFloatingDocks(from snapshots: [SessionFloatingDockSnapshot]?) {

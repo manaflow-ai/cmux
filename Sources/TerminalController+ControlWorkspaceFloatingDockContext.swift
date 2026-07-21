@@ -8,6 +8,7 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
         let dockID: UUID
         let writer: WorkspaceFloatingDockNoteWriter
         let snapshotGeneration: Int
+        let writeSequence: UInt64
     }
 
     private enum FloatingDockNoteWritePreparation: Sendable {
@@ -80,7 +81,8 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
                     workspaceID: workspace.id,
                     dockID: dock.id,
                     writer: dock.noteWriter,
-                    snapshotGeneration: dock.noteSnapshotGeneration
+                    snapshotGeneration: dock.noteSnapshotGeneration,
+                    writeSequence: dock.noteWriter.reserveSequence()
                 ))
             }
         }
@@ -89,7 +91,10 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
             return .operationFailed("note mutation failed")
         }
 
-        guard case .saved = target.writer.saveSynchronously(content: text) else {
+        guard case .saved = target.writer.saveSynchronously(
+            content: text,
+            sequence: target.writeSequence
+        ) else {
             return .operationFailed("note mutation failed")
         }
 
@@ -108,13 +113,14 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
                     text: dock.noteTextSnapshot
                 ))
             }
-            guard dock.applyPersistedNoteText(text) else {
+            let notePanel = self.floatingDockNotePanel(for: dock, tabManager: tabManager)
+            guard dock.applyPersistedNoteText(text, to: notePanel) else {
                 return .operationFailed("note mutation failed")
             }
             return .resolved(self.floatingDockNotePayload(
                 dock: dock,
                 workspace: workspace,
-                notePanel: self.floatingDockNotePanel(for: dock, tabManager: tabManager),
+                notePanel: notePanel,
                 text: text
             ))
         }

@@ -721,6 +721,10 @@ final class DockSplitStore: BonsplitDelegate {
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspaceId, surfaceId: panelId)
             detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
             if let panel = panels.removeValue(forKey: panelId) { panel.close() }
+            if let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+               let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) {
+                workspace.discardDockSurfaceReportingState(panelId: panelId)
+            }
         }
     }
 

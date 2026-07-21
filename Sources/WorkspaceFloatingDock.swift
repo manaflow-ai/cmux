@@ -83,6 +83,7 @@ final class WorkspaceFloatingDock: Identifiable {
     @ObservationIgnored private(set) var noteTextSnapshot = ""
     @ObservationIgnored private var noteTextGeneration = 0
     @ObservationIgnored let noteWriter: WorkspaceFloatingDockNoteWriter
+    @ObservationIgnored private(set) var initialContentWasCreated = true
 
     init(
         id: UUID,
@@ -135,7 +136,7 @@ final class WorkspaceFloatingDock: Identifiable {
         loadPersistedNoteSnapshot()
 
         if let initialContent {
-            seedInitialContentIfNeeded(initialContent, url: initialURL)
+            initialContentWasCreated = seedInitialContentIfNeeded(initialContent, url: initialURL)
         }
     }
 
@@ -159,13 +160,14 @@ final class WorkspaceFloatingDock: Identifiable {
             noteTitle: String(localized: "floatingDock.note.title", defaultValue: "Notes")
         )
         bindNotePanel()
-        seedInitialContentIfNeeded(.terminal)
+        _ = seedInitialContentIfNeeded(.terminal)
     }
 
-    private func seedInitialContentIfNeeded(_ kind: DockSurfaceKind, url: URL? = nil) {
-        guard store.panels.isEmpty,
-              let rootPane = store.bonsplitController.allPaneIds.first else { return }
-        let panelId = store.newSurface(
+    @discardableResult
+    private func seedInitialContentIfNeeded(_ kind: DockSurfaceKind, url: URL? = nil) -> Bool {
+        guard store.panels.isEmpty else { return true }
+        guard let rootPane = store.bonsplitController.allPaneIds.first else { return false }
+        guard let panelId = store.newSurface(
             kind: kind,
             inPane: rootPane,
             url: url,
@@ -174,11 +176,12 @@ final class WorkspaceFloatingDock: Identifiable {
                 ? String(localized: "floatingDock.note.title", defaultValue: "Notes")
                 : nil,
             focus: false
-        )
+        ) else { return false }
         if kind == .note {
             notePanelId = panelId
             bindNotePanel()
         }
+        return true
     }
 
     func setNoteTextSnapshot(_ text: String) {
@@ -188,9 +191,9 @@ final class WorkspaceFloatingDock: Identifiable {
 
     var noteSnapshotGeneration: Int { noteTextGeneration }
 
-    func applyPersistedNoteText(_ text: String) -> Bool {
+    func applyPersistedNoteText(_ text: String, to panel: FilePreviewPanel?) -> Bool {
         do {
-            try notePanel?.applyPersistedAutosavedTextContent(text)
+            try panel?.applyPersistedAutosavedTextContent(text)
             setNoteTextSnapshot(text)
             return true
         } catch {

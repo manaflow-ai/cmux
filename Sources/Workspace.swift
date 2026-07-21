@@ -3749,19 +3749,19 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func terminalPanel(for panelId: UUID) -> TerminalPanel? {
-        panels[panelId] as? TerminalPanel
+        controlOwnedPanel(for: panelId) as? TerminalPanel
     }
 
     func browserPanel(for panelId: UUID) -> BrowserPanel? {
-        panels[panelId] as? BrowserPanel
+        controlOwnedPanel(for: panelId) as? BrowserPanel
     }
 
     func markdownPanel(for panelId: UUID) -> MarkdownPanel? {
-        panels[panelId] as? MarkdownPanel
+        controlOwnedPanel(for: panelId) as? MarkdownPanel
     }
 
     func filePreviewPanel(for panelId: UUID) -> FilePreviewPanel? {
-        panels[panelId] as? FilePreviewPanel
+        controlOwnedPanel(for: panelId) as? FilePreviewPanel
     }
 
     /// The working directory app-level actions (diff viewer, configured commands)
@@ -4390,6 +4390,11 @@ final class Workspace: Identifiable, ObservableObject {
         if usesRemoteDirectoryProvenance {
             notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: provenanceChanged)
         }
+        updateDockTransferReportedState(
+            panelId: panelId,
+            directory: trimmed,
+            directoryDisplayLabel: trimmedDisplayLabel.isEmpty ? nil : trimmedDisplayLabel
+        )
         return true
     }
 
@@ -4433,16 +4438,17 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
-        guard panels[panelId] != nil else { return }
+        guard let ownedPanel = controlOwnedPanel(for: panelId) else { return }
         let previousState = panelShellActivityStates[panelId] ?? .unknown
         if previousState == state {
-            if let terminalPanel = panels[panelId] as? TerminalPanel {
+            if let terminalPanel = ownedPanel as? TerminalPanel {
                 terminalPanel.updateShellActivityState(state)
             }
             return
         }
         panelShellActivityStates[panelId] = state
-        if let terminalPanel = panels[panelId] as? TerminalPanel {
+        updateDockTransferReportedState(panelId: panelId, shellActivityState: state)
+        if let terminalPanel = ownedPanel as? TerminalPanel {
             terminalPanel.updateShellActivityState(state)
         }
         if let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
@@ -4946,7 +4952,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     @MainActor
     func isRemoteTerminalSurface(_ panelId: UUID) -> Bool {
-        activeRemoteTerminalSurfaceIds.contains(panelId)
+        activeRemoteTerminalSurfaceIds.contains(panelId) || isDockTransferredRemoteTerminal(panelId)
     }
 
     @MainActor
