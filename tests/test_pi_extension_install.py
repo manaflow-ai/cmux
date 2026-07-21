@@ -98,6 +98,19 @@ def main() -> int:
         bin_dir.mkdir()
         fake_pi = bin_dir / "pi"
         make_executable(fake_pi, "#!/usr/bin/env bash\nexit 0\n")
+        legacy_package = root / "node_modules" / "@earendil-works" / "pi-coding-agent"
+        legacy_cli = legacy_package / "dist" / "cli.js"
+        legacy_cli.parent.mkdir(parents=True)
+        make_executable(legacy_cli, "#!/usr/bin/env node\n")
+        (legacy_package / "package.json").write_text(
+            json.dumps({"name": "@earendil-works/pi-coding-agent", "version": "0.74.0"}),
+            encoding="utf-8",
+        )
+        # Match npm's launcher shape so version detection exercises the unresolved bin/pi symlink.
+        legacy_bin_dir = root / "legacy-bin"
+        legacy_bin_dir.mkdir()
+        legacy_pi = legacy_bin_dir / "pi"
+        legacy_pi.symlink_to(legacy_cli)
 
         fake_cmux = root / "fake-cmux"
         fake_args_log = root / "fake-cmux-args.log"
@@ -179,6 +192,7 @@ esac
         check_env["CMUX_TEST_PI_STDIN_LOG"] = str(fake_stdin_log)
         check_env["CMUX_TEST_PI_ENV_LOG"] = str(fake_env_log)
         check_env["CMUX_TEST_PI_BINDING_FILE"] = str(fake_binding)
+        check_env["CMUX_TEST_PI_LEGACY_SCRIPT_PATH"] = str(legacy_pi)
         check_env["OPENAI_API_KEY"] = "openai-secret-should-not-leak"
         check_env["ANTHROPIC_AUTH_TOKEN"] = "anthropic-secret-should-not-leak"
         check_env["CUSTOM_PASSWORD"] = "password-should-not-leak"
@@ -332,7 +346,12 @@ completionCount += 2;
 if (await completionHookCount() !== completionCount) throw new Error("settlement did not attempt failed notification and stop");
 await handlers.get("agent_settled")({}, notificationFailureCtx);
 if (await completionHookCount() !== completionCount) throw new Error("failed notification was retried after duplicate settlement");
-process.env.CMUX_TEST_PI_VERSION = "0.74.0";
+process.argv.splice(
+  0,
+  process.argv.length,
+  "/opt/homebrew/bin/node",
+  process.env.CMUX_TEST_PI_LEGACY_SCRIPT_PATH
+);
 const legacyCtx = {
   cwd: "/tmp/pi-project",
   isIdle() { return true; },
@@ -349,7 +368,6 @@ await handlers.get("agent_end")({
 }, legacyCtx);
 completionCount += 2;
 if (await completionHookCount() !== completionCount) throw new Error("legacy Pi agent_end did not emit completion fallback");
-delete process.env.CMUX_TEST_PI_VERSION;
 """
         check = subprocess.run(
             [bun, "--eval", check_source],
