@@ -904,6 +904,36 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "Tests/SelfRealClockPropertyTests.swift",
+            "struct Fixture {\n"
+            "    let clock: ContinuousClock\n"
+            "    func verify() async {\n"
+            "        try await self.clock.sleep(for: .milliseconds(300))\n"
+            "        #expect(widget.isRendered)\n"
+            "    }\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/WrappedSelfRealClockPropertyTests.swift",
+            "struct Fixture {\n"
+            "    let clock: ContinuousClock\n"
+            "    func verify() async {\n"
+            "        try await self.clock\n"
+            "            .sleep(for: .milliseconds(300))\n"
+            "        #expect(widget.isRendered)\n"
+            "    }\n"
+            "}\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "Tests/SecondRealClockBindingTests.swift",
+            "let fakeClock = TestRelayClock(), clock = ContinuousClock()\n"
+            "try await clock.sleep(for: .milliseconds(300))\n"
+            "#expect(widget.isRendered)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "Tests/CapturedRealClockTests.swift",
             "func verify() async {\n"
             "    let clock = ContinuousClock()\n"
@@ -1269,6 +1299,23 @@ def _self_test() -> int:
             "try await fixture.clock\n"
             "    .sleep(until: deadline)\n"
             "#expect(await fixture.events.next() == expected)\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/SelfVirtualClockPropertyTests.swift",
+            "struct Fixture {\n"
+            "    let clock: TestRelayClock\n"
+            "    func verify() async {\n"
+            "        let clock = ContinuousClock()\n"
+            "        try await self.clock.sleep(until: deadline)\n"
+            "        #expect(await events.next() == expected)\n"
+            "    }\n"
+            "}\n",
+        ),
+        (
+            "Packages/CmuxClock/Tests/FirstVirtualClockBindingTests.swift",
+            "let clock = TestRelayClock(), wallClock = ContinuousClock()\n"
+            "try await clock.sleep(until: deadline)\n"
+            "#expect(await clockEvents.next() == expected)\n",
         ),
     ]
 
