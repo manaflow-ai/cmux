@@ -63,14 +63,21 @@ extension ReconnectRouteSelectionTests {
 
         store.recoverDeadConnection(trigger: .eventStreamEnded, expectedClient: client)
 
+        // Starvation-proof windows: under full-suite parallel load the
+        // recovery task may take seconds just to be scheduled (the suite is
+        // timing-flaky on loaded machines even on main). Generous polls cost
+        // time only on real failure.
+        let dialed = try await pollUntil(attempts: 3000) {
+            factory.attemptedKinds().count > dialsBeforeDrop
+        }
+        #expect(dialed, "the hung dial itself was attempted")
         // Pre-fix: the attempt never settles, isRedialingOrValidating stays
         // true forever, and this poll times out. Post-fix: the deadline
         // abandons the hung dial and settles the attempt as failed.
-        let settled = try await pollUntil {
+        let settled = try await pollUntil(attempts: 3000) {
             !store.connectionRecoveryOwner.isRedialingOrValidating
         }
         #expect(settled, "a hung dial must settle at the attempt deadline, not hold recovery forever")
-        #expect(factory.attemptedKinds().count > dialsBeforeDrop, "the hung dial itself was attempted")
         #expect(store.connectionState != .connected)
 
         // The timed-out attempt must feed the automatic retry loop: transient
@@ -78,13 +85,17 @@ extension ReconnectRouteSelectionTests {
         #expect(store.automaticIrohReconnectIsBlocked(accountID: "user-1"))
 
         // And the machine is unfrozen: a manual retry (hang lifted, modeling
-        // the network recovering) dials fresh and connects.
+        // the network recovering) dials fresh and connects. Release the
+        // parked dials so abandoned attempts unwind the way real dials
+        // eventually do; an eternal hang is a test artifact that races the
+        // auto-retry loop's leftover state.
         factory.setHangingKinds([])
+        await factory.releaseHangingTransports()
         let dialsBeforeManual = factory.attemptedKinds().count
         await store.reconnectOrRefresh()
         // Generous window: this tail runs under full-suite parallel load and
         // the manual path awaits several real round-trips.
-        let reconnected = try await pollUntil(attempts: 1500) {
+        let reconnected = try await pollUntil(attempts: 3000) {
             store.connectionState == .connected
         }
         #expect(reconnected, "manual retry after a settled deadline must reconnect")

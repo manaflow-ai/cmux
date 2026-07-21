@@ -85,6 +85,7 @@ extension MobileShellComposite {
         scheduleStateSyncFetch(client: client)
     }
 
+
     /// Awaitable variant for user-visible refresh gestures: the spinner must
     /// not end before the authoritative fetch applied (or failed). The
     /// single-flight slot is cancel-and-replace, so a delta-driven repair can

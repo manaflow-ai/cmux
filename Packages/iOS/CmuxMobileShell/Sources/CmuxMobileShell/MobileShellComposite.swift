@@ -7022,10 +7022,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             reason: "liveness_probe_repaired"
                         )
                     }
-                    // The same registration carries `workspace.updated`, so
-                    // workspace create/rename/delete events emitted during the
-                    // gap were missed too; re-fetch the authoritative list.
-                    self.scheduleWorkspaceListRefreshFromEvent()
+                    // The same registration carries `workspace.updated` and
+                    // `mobile.sync.delta`, so list changes emitted during the
+                    // gap were missed too; repair through the mode-appropriate
+                    // authoritative path.
+                    self.repairMissedEventWindow()
                 } else {
                     MobileDebugLog.anchormux("sync.liveness probe_ok silentMs=\(Int(silent * 1000))")
                 }
@@ -7852,22 +7853,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
     }
 
-    private func scheduleWorkspaceListRefreshFromEvent() {
-        guard remoteClient != nil else { return }
-        // With state sync v2 negotiated, `workspace.updated` is redundant with
-        // the `mobile.sync.delta` stream (the Mac emits both on the same tick
-        // for old and new phones); the delta already carried the change, so the
-        // full-list refetch this event used to trigger is pure amplification.
-        // BUT callers also use this path for "events were missed" recovery
-        // (the watchdog's lost-registration branch): missed events include
-        // missed deltas, so under v2 the repair is a cursor fetch, never a
-        // silent no-op.
+    /// Dedicated missed-event-window repair (the watchdog's lost-registration
+    /// branch): events emitted while the host had dropped this connection's
+    /// registration were lost, deltas included. Under v2, repair is a cursor
+    /// fetch; under legacy it is the full-list refetch. Ordinary paired
+    /// `workspace.updated` events never route here.
+    func repairMissedEventWindow() {
         if stateSyncActive {
             if let client = remoteClient {
                 requestStateSyncFetch(client: client)
             }
             return
         }
+        scheduleWorkspaceListRefreshFromEvent()
+    }
+
+    private func scheduleWorkspaceListRefreshFromEvent() {
+        guard remoteClient != nil else { return }
+        // With state sync v2 negotiated, `workspace.updated` is redundant with
+        // the `mobile.sync.delta` stream (the Mac emits both on the same tick
+        // for old and new phones); the delta already carried the change, so
+        // fetching here would add a per-event RPC and Mac-side rebuild, and
+        // its cancel-and-replace slot could starve a genuine gap repair.
+        // "Events were missed" recovery has its own dedicated entry
+        // (``repairMissedEventWindow``); ordinary paired events stay silent.
+        guard !stateSyncActive else { return }
         // Keep the event path's "latest event wins" semantics: a `workspace.updated`
         // arriving mid-fetch restarts the fetch so the applied list reflects the
         // change the Mac pushed *after* this fetch started. This cancels only the

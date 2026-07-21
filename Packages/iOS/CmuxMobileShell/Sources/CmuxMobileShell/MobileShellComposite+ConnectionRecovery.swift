@@ -887,9 +887,15 @@ extension MobileShellComposite {
             _ = await task.value
             guard let self else { return }
             self.abandonedReconnectDialCount = max(0, self.abandonedReconnectDialCount - 1)
+            // Re-arm the retry loop directly through the coalesced recovery
+            // entry, NEVER by recording backoff: a backoff write here can land
+            // mid-manual-retry and re-block the dial the user just requested
+            // (manual retries clear backoff on entry). Skip when any attempt
+            // or scheduled retry is already active.
             guard self.isSignedIn, self.connectionState != .connected,
-                  let accountID = self.identityProvider?.currentUserID else { return }
-            self.recordTransientAutomaticReconnectBackoff(accountID: accountID)
+                  !self.connectionRecoveryOwner.isRedialingOrValidating,
+                  self.automaticReconnectRetryTask == nil else { return }
+            self.recoverMobileConnection(trigger: .automaticBackoffExpired)
         }
     }
 
