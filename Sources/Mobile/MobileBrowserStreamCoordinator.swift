@@ -12,7 +12,8 @@ final class MobileBrowserStreamCoordinator {
 
     func start(
         connectionID: UUID,
-        panel: BrowserPanel
+        panel: BrowserPanel,
+        viewport: MobileBrowserViewport?
     ) async -> MobileBrowserPanelDescriptor? {
         guard let connection = MobileHostConnectionRegistry.shared.connection(id: connectionID) else {
             return nil
@@ -20,6 +21,14 @@ final class MobileBrowserStreamCoordinator {
         let key = SessionKey(connectionID: connectionID, panelID: panel.id)
         if let previous = sessions.removeValue(forKey: key) {
             await previous.stop(sendClosed: false)
+        }
+        if let viewport,
+           !panel.applyMobileStreamViewport(
+               width: viewport.width,
+               height: viewport.height,
+               scale: viewport.scale
+           ) {
+            return nil
         }
         let session = MobileBrowserStreamSession(
             connectionID: connectionID,
@@ -31,6 +40,24 @@ final class MobileBrowserStreamCoordinator {
         sessions[key] = session
         session.start()
         return MobileBrowserWireEncoder().descriptor(panel: panel)
+    }
+
+    func hasStream(connectionID: UUID, panelID: UUID) -> Bool {
+        sessions[SessionKey(connectionID: connectionID, panelID: panelID)] != nil
+    }
+
+    @discardableResult
+    func updateViewport(
+        connectionID: UUID,
+        panel: BrowserPanel,
+        viewport: MobileBrowserViewport
+    ) -> Bool {
+        guard hasStream(connectionID: connectionID, panelID: panel.id) else { return false }
+        return panel.applyMobileStreamViewport(
+            width: viewport.width,
+            height: viewport.height,
+            scale: viewport.scale
+        )
     }
 
     @discardableResult

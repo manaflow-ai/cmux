@@ -2736,6 +2736,9 @@ final class BrowserPanel: Panel, ObservableObject {
     var mobileBrowserStreamSignalHandlers: [UUID: (MobileBrowserPanelNativeSignal) -> Void] = [:]
     var mobileBrowserStreamMessageHandler: MobileBrowserDirtyMessageHandler?
     var mobileBrowserStreamScriptInstanceID: UUID?
+    var mobileBrowserStreamViewportIsActive = false
+    var mobileBrowserStreamPreviousAutomationViewport: BrowserViewport?
+    var mobileBrowserStreamViewport: MobileBrowserViewport?
     let mobileBrowserDialogBroker: MobileBrowserDialogBroker
 
     /// Monotonic identity for the current WKWebView instance.
@@ -5424,6 +5427,7 @@ final class BrowserPanel: Panel, ObservableObject {
         isClosingWebViewLifecycle = true
         navigationDelegate?.cancelPendingAuthenticationPrompts()
         mobileBrowserDialogBroker.resolveAll()
+        clearMobileStreamViewport()
         publishMobileBrowserStreamSignal(.closed)
         automationDocumentReadiness.invalidate()
         automationWatchdog.invalidate()

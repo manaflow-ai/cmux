@@ -1,3 +1,5 @@
+import CMUXMobileCore
+import CmuxBrowser
 import WebKit
 
 @MainActor
@@ -116,7 +118,49 @@ extension BrowserPanel {
         guard mobileBrowserStreamSignalHandlers.removeValue(forKey: handlerID) != nil else { return }
         guard mobileBrowserStreamSignalHandlers.isEmpty else { return }
         disableMobileBrowserDirtyBeacon()
+        clearMobileStreamViewport()
         reevaluateHiddenWebViewDiscardScheduling(reason: "mobile_browser_stream_stopped")
+    }
+
+    /// Applies the phone's point viewport through the shared automation reflow path.
+    @discardableResult
+    func applyMobileStreamViewport(width: Int, height: Int, scale: Double) -> Bool {
+        let reportedViewport = MobileBrowserViewport(width: width, height: height, scale: scale)
+        if mobileBrowserStreamViewportIsActive, mobileBrowserStreamViewport == reportedViewport {
+            return true
+        }
+        guard let mapping = MobileBrowserStreamViewportMapping(
+            width: width,
+            height: height,
+            scale: scale
+        ) else {
+            return false
+        }
+
+        let previousViewport = viewportModel.requestedViewport
+        switch setAutomationViewport(mapping.viewport) {
+        case .success:
+            if !mobileBrowserStreamViewportIsActive {
+                mobileBrowserStreamPreviousAutomationViewport = previousViewport
+                mobileBrowserStreamViewportIsActive = true
+            }
+            mobileBrowserStreamViewport = reportedViewport
+            publishMobileBrowserStreamSignal(.dirty(editableFocused: nil))
+            return true
+        case .failure:
+            return false
+        }
+    }
+
+    /// Restores the automation viewport that was active before phone streaming.
+    func clearMobileStreamViewport() {
+        guard mobileBrowserStreamViewportIsActive else { return }
+        let previousViewport = mobileBrowserStreamPreviousAutomationViewport
+        guard case .success = setAutomationViewport(previousViewport) else { return }
+        mobileBrowserStreamViewportIsActive = false
+        mobileBrowserStreamPreviousAutomationViewport = nil
+        mobileBrowserStreamViewport = nil
+        publishMobileBrowserStreamSignal(.dirty(editableFocused: nil))
     }
 
     func publishMobileBrowserStreamSignal(_ signal: MobileBrowserPanelNativeSignal) {

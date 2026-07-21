@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxBrowser
 import Foundation
 
 /// `mobile.browser.*` RPC handlers for streaming and driving Mac browser panels.
@@ -15,16 +16,60 @@ extension TerminalController {
             guard let connectionID else {
                 return .err(code: "unavailable", message: "Browser streaming requires a mobile connection", data: nil)
             }
-            guard let panel = mobileBrowserPanel(params: params) else {
+            guard let request = mobileBrowserDecode(
+                MobileBrowserStreamStartParameters.self,
+                params: params
+            ) else {
+                return .err(code: "invalid_params", message: "Invalid browser stream parameters", data: nil)
+            }
+            if let viewport = request.viewport,
+               MobileBrowserStreamViewportMapping(
+                   width: viewport.width,
+                   height: viewport.height,
+                   scale: viewport.scale
+               ) == nil {
+                return .err(code: "invalid_params", message: "Invalid browser viewport parameters", data: nil)
+            }
+            guard let panel = mobileBrowserPanel(id: request.panelID) else {
                 return mobileBrowserPanelResolutionError(params: params)
             }
             guard let descriptor = await MobileHostService.shared.mobileBrowserStreamCoordinator.start(
                 connectionID: connectionID,
-                panel: panel
+                panel: panel,
+                viewport: request.viewport
             ), let payload = MobileBrowserWireEncoder().object(descriptor) else {
                 return .err(code: "unavailable", message: "Mobile connection is no longer active", data: nil)
             }
             return .ok(payload)
+        case "mobile.browser.viewport":
+            guard let connectionID else {
+                return .err(code: "unavailable", message: "Browser streaming requires a mobile connection", data: nil)
+            }
+            guard let request = mobileBrowserDecode(
+                MobileBrowserViewportParameters.self,
+                params: params
+            ), MobileBrowserStreamViewportMapping(
+                width: request.viewport.width,
+                height: request.viewport.height,
+                scale: request.viewport.scale
+            ) != nil else {
+                return .err(code: "invalid_params", message: "Invalid browser viewport parameters", data: nil)
+            }
+            guard let panel = mobileBrowserPanel(id: request.panelID) else {
+                return .err(code: "not_found", message: "Browser panel not found", data: ["panel_id": request.panelID])
+            }
+            let coordinator = MobileHostService.shared.mobileBrowserStreamCoordinator
+            guard coordinator.hasStream(connectionID: connectionID, panelID: panel.id) else {
+                return .err(code: "not_found", message: "Browser stream not found", data: ["panel_id": request.panelID])
+            }
+            guard coordinator.updateViewport(
+                connectionID: connectionID,
+                panel: panel,
+                viewport: request.viewport
+            ) else {
+                return .err(code: "unavailable", message: "Browser viewport could not be applied", data: nil)
+            }
+            return .ok(["ok": true, "panel_id": request.panelID])
         case "mobile.browser.stream.stop":
             guard let connectionID else {
                 return .err(code: "unavailable", message: "Browser streaming requires a mobile connection", data: nil)
