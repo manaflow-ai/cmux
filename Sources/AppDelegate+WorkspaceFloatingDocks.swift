@@ -38,6 +38,11 @@ struct WorkspaceFloatingDockCreationRequest {
     }
 }
 
+enum WorkspaceFloatingDockClosePolicy: Equatable {
+    case confirmInteractive
+    case force
+}
+
 extension AppDelegate.MainWindowContext {
     func installWorkspaceFloatingDockPresenterIfNeeded() {
         guard let window else { return }
@@ -240,10 +245,11 @@ extension AppDelegate {
     func closeWorkspaceFloatingDock(
         _ dock: WorkspaceFloatingDock,
         in workspace: Workspace,
-        tabManager: TabManager
+        tabManager: TabManager,
+        policy: WorkspaceFloatingDockClosePolicy = .confirmInteractive
     ) -> Bool {
         guard workspace.floatingDock(id: dock.id) === dock,
-              dock.store.confirmCloseAllPanels(),
+              (policy == .force || dock.store.confirmCloseAllPanels()),
               workspace.closeFloatingDock(id: dock.id) else { return false }
         refreshWorkspaceFloatingDocks(for: tabManager)
         return true
@@ -252,10 +258,13 @@ extension AppDelegate {
     @discardableResult
     func closeAllWorkspaceFloatingDocks(
         in workspace: Workspace,
-        tabManager: TabManager
+        tabManager: TabManager,
+        policy: WorkspaceFloatingDockClosePolicy = .confirmInteractive
     ) -> Int? {
-        for dock in workspace.floatingDocks where !dock.store.confirmCloseAllPanels() {
-            return nil
+        if policy == .confirmInteractive {
+            for dock in workspace.floatingDocks where !dock.store.confirmCloseAllPanels() {
+                return nil
+            }
         }
         let closedCount = workspace.closeAllFloatingDocks()
         refreshWorkspaceFloatingDocks(for: tabManager)
@@ -263,9 +272,16 @@ extension AppDelegate {
     }
 
     @discardableResult
-    func closeAllWorkspaceFloatingDocks(in tabManager: TabManager) -> Int? {
+    func closeAllWorkspaceFloatingDocks(
+        in tabManager: TabManager,
+        policy: WorkspaceFloatingDockClosePolicy = .confirmInteractive
+    ) -> Int? {
         guard let workspace = tabManager.selectedWorkspace else { return nil }
-        return closeAllWorkspaceFloatingDocks(in: workspace, tabManager: tabManager)
+        return closeAllWorkspaceFloatingDocks(
+            in: workspace,
+            tabManager: tabManager,
+            policy: policy
+        )
     }
 
     func refreshAllWorkspaceFloatingDocks() {

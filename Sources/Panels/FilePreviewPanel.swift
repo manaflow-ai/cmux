@@ -1001,6 +1001,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @Published private(set) var textContent = ""
     @Published private(set) var isDirty = false
     @Published private(set) var isSaving = false
+    @Published private(set) var hasAutosaveError = false
     @Published private(set) var focusFlashToken = 0
     @Published private(set) var previewMode: FilePreviewMode
     let presentation: FilePreviewPresentation
@@ -1014,6 +1015,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
     private var autosaveRequested = false
+    private var autosaveFlushRequested = false
+    private var autosaveDebounceTask: Task<Void, Never>?
     var autosavedTextDidChange: ((String) -> Void)?
     weak var textView: NSTextView?
     let focusCoordinator: FilePreviewFocusCoordinator
@@ -1025,6 +1028,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         UInt64?
     ) async -> FilePreviewTextSaver.Result
     private let textSaveSequenceProvider: (@Sendable () -> UInt64)?
+    private let autosaveDelayNanoseconds: UInt64
 
     var fileURL: URL {
         URL(fileURLWithPath: filePath)
@@ -1045,7 +1049,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         ) async -> FilePreviewTextSaver.Result = { content, url, encoding, _ in
             await FilePreviewTextSaver.save(content: content, to: url, encoding: encoding)
         },
-        textSaveSequenceProvider: (@Sendable () -> UInt64)? = nil
+        textSaveSequenceProvider: (@Sendable () -> UInt64)? = nil,
+        autosaveDelayNanoseconds: UInt64 = 300_000_000
     ) {
         self.id = UUID()
         self.workspaceId = workspaceId
@@ -1055,6 +1060,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.textLoader = textLoader
         self.textSaver = textSaver
         self.textSaveSequenceProvider = textSaveSequenceProvider
+        self.autosaveDelayNanoseconds = autosaveDelayNanoseconds
         let fileURL = URL(fileURLWithPath: filePath)
         let initialPreviewMode = FilePreviewKindResolver.initialMode(for: fileURL)
         self.previewMode = initialPreviewMode
@@ -1077,7 +1083,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     func close() {
         if presentation.autosavesTextChanges {
-            requestAutosave()
+            requestAutosave(immediate: true)
         }
         nativeViewSessions.closeAll()
         textView = nil
@@ -1211,25 +1217,59 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         saveGeneration += 1
         activeSaveGeneration = nil
         autosaveRequested = false
+        autosaveFlushRequested = false
+        autosaveDebounceTask?.cancel()
+        autosaveDebounceTask = nil
         isSaving = false
         textView?.string = nextContent
         textContent = nextContent
         originalTextContent = nextContent
         isDirty = false
         isFileUnavailable = false
+        hasAutosaveError = false
         autosavedTextDidChange?(nextContent)
     }
 
-    private func requestAutosave() {
+    func retryAutosave() {
+        guard presentation.autosavesTextChanges, isDirty else { return }
+        requestAutosave(immediate: true)
+    }
+
+    private func requestAutosave(immediate: Bool = false) {
         autosaveRequested = true
-        guard !isSaving else { return }
-        autosaveRequested = false
-        guard let task = saveTextContent() else { return }
-        Task { [self] in
-            await task.value
-            guard autosaveRequested else { return }
-            requestAutosave()
+        if immediate {
+            autosaveFlushRequested = true
+            autosaveDebounceTask?.cancel()
+            autosaveDebounceTask = nil
+            beginAutosaveIfPossible()
+            return
         }
+        guard !isSaving else { return }
+        autosaveDebounceTask?.cancel()
+        let delay = autosaveDelayNanoseconds
+        autosaveDebounceTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: delay)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.autosaveDebounceTask = nil
+            self.beginAutosaveIfPossible()
+        }
+    }
+
+    private func beginAutosaveIfPossible() {
+        guard !isSaving else { return }
+        autosaveDebounceTask?.cancel()
+        autosaveDebounceTask = nil
+        guard autosaveRequested else {
+            autosaveFlushRequested = false
+            return
+        }
+        autosaveRequested = false
+        autosaveFlushRequested = false
+        _ = saveTextContent(fromAutosave: true)
     }
 
     private func prepareContentForPreviewMode() {
@@ -1298,6 +1338,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
                 originalTextContent = ""
                 isDirty = false
                 isFileUnavailable = false
+                hasAutosaveError = false
                 return
             }
             guard replacingDirtyContent || !isDirty else {
@@ -1321,6 +1362,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             textEncoding = encoding
             isDirty = false
             isFileUnavailable = false
+            hasAutosaveError = false
             if presentation.autosavesTextChanges {
                 autosavedTextDidChange?(content)
             }
@@ -1329,8 +1371,19 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     @discardableResult
     func saveTextContent() -> Task<Void, Never>? {
+        saveTextContent(fromAutosave: false)
+    }
+
+    @discardableResult
+    private func saveTextContent(fromAutosave: Bool) -> Task<Void, Never>? {
         guard previewMode == .text else { return nil }
         guard !isSaving else { return nil }
+        if !fromAutosave {
+            autosaveDebounceTask?.cancel()
+            autosaveDebounceTask = nil
+            autosaveRequested = false
+            autosaveFlushRequested = false
+        }
         let currentContent = textView?.string ?? textContent
         guard currentContent != originalTextContent else {
             textContent = currentContent
@@ -1348,9 +1401,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         let encoding = textEncoding
         let writeSequence = textSaveSequenceProvider?()
         let textSaver = textSaver
-        return Task { [weak self, currentContent, fileURL, encoding, generation, writeSequence, textSaver] in
+        return Task { [self, currentContent, fileURL, encoding, generation, writeSequence, textSaver] in
             let result = await textSaver(currentContent, fileURL, encoding, writeSequence)
-            guard let self, self.activeSaveGeneration == generation else { return }
+            guard activeSaveGeneration == generation else { return }
             self.activeSaveGeneration = nil
             self.isSaving = false
             switch result {
@@ -1358,8 +1411,17 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
                 self.originalTextContent = currentContent
                 self.isDirty = self.textContent != currentContent
                 self.isFileUnavailable = false
+                self.hasAutosaveError = false
             case .failed(let fileExists):
-                self.isFileUnavailable = !fileExists
+                if self.presentation.autosavesTextChanges {
+                    self.isFileUnavailable = false
+                    self.hasAutosaveError = true
+                } else {
+                    self.isFileUnavailable = !fileExists
+                }
+            }
+            if self.autosaveRequested {
+                self.requestAutosave(immediate: self.autosaveFlushRequested)
             }
         }
     }
@@ -1406,6 +1468,10 @@ struct FilePreviewPanelView: View {
                 header
                 Divider()
             }
+            if panel.presentation.autosavesTextChanges, panel.hasAutosaveError {
+                autosaveErrorBanner
+                Divider()
+            }
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1421,6 +1487,30 @@ struct FilePreviewPanelView: View {
         .onChange(of: panel.focusFlashToken) {
             triggerFocusFlashAnimation()
         }
+    }
+
+    private var autosaveErrorBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            Text(
+                String(
+                    localized: "filePreview.autosaveFailed",
+                    defaultValue: "Couldn’t save this note. Your edits are still open."
+                )
+            )
+            .lineLimit(2)
+            Spacer(minLength: 8)
+            Button(String(localized: "common.retry", defaultValue: "Retry")) {
+                panel.retryAutosave()
+            }
+            .buttonStyle(.borderless)
+        }
+        .font(.system(size: 12))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .foregroundStyle(Color(nsColor: themeForegroundColor))
+        .background(Color.orange.opacity(0.12))
     }
 
     private var header: some View {

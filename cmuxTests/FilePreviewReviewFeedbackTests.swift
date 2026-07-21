@@ -58,6 +58,89 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "saved by chord")
     }
 
+    func testNoteAutosaveDebouncesRapidEdits() async throws {
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let probe = FilePreviewAutosaveProbe()
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            presentation: .note(title: "Notes"),
+            textSaver: { content, url, _, _ in
+                await probe.save(content: content, url: url)
+            },
+            autosaveDelayNanoseconds: 50_000_000
+        )
+        defer { panel.close() }
+        await panel.loadTextContent().value
+
+        panel.updateTextContent("a")
+        panel.updateTextContent("ab")
+        panel.updateTextContent("abc")
+        try await Task.sleep(nanoseconds: 15_000_000)
+        let earlyWriteCount = await probe.writeCount()
+        XCTAssertEqual(earlyWriteCount, 0)
+
+        await waitForAutosaveWrite(probe, count: 1)
+        let savedContents = await probe.contents()
+        XCTAssertEqual(savedContents, ["abc"])
+        XCTAssertFalse(panel.isDirty)
+    }
+
+    func testNoteAutosaveFailureStaysEditableAndCanRetry() async throws {
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let probe = FilePreviewAutosaveProbe(result: .failed(fileExists: true))
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            presentation: .note(title: "Notes"),
+            textSaver: { content, url, _, _ in
+                await probe.save(content: content, url: url)
+            },
+            autosaveDelayNanoseconds: 1
+        )
+        defer { panel.close() }
+        await panel.loadTextContent().value
+
+        panel.updateTextContent("unsaved edit")
+        await waitForAutosaveWrite(probe, count: 1)
+        await Task.yield()
+        XCTAssertTrue(panel.hasAutosaveError)
+        XCTAssertTrue(panel.isDirty)
+        XCTAssertFalse(panel.isFileUnavailable)
+
+        await probe.setResult(.saved)
+        panel.retryAutosave()
+        await waitForAutosaveWrite(probe, count: 2)
+        await waitForPanelSave(panel)
+        XCTAssertFalse(panel.hasAutosaveError)
+        XCTAssertFalse(panel.isDirty)
+    }
+
+    func testClosingNoteFlushesPendingDebouncedAutosave() async throws {
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let probe = FilePreviewAutosaveProbe()
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            presentation: .note(title: "Notes"),
+            textSaver: { content, url, _, _ in
+                await probe.save(content: content, url: url)
+            },
+            autosaveDelayNanoseconds: 60_000_000_000
+        )
+        await panel.loadTextContent().value
+
+        panel.updateTextContent("flush me")
+        panel.close()
+        await waitForAutosaveWrite(probe, count: 1)
+
+        let savedContents = await probe.contents()
+        XCTAssertEqual(savedContents, ["flush me"])
+    }
+
     func testExtensionlessUTF16TextWithBOMResolvesAsTextAfterSniffing() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -480,6 +563,48 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         if panel.isSaving {
             XCTFail("Timed out waiting for panel save", file: file, line: line)
         }
+    }
+
+    private func waitForAutosaveWrite(
+        _ probe: FilePreviewAutosaveProbe,
+        count: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        let deadline = Date().addingTimeInterval(2)
+        while await probe.writeCount() < count, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        if await probe.writeCount() < count {
+            XCTFail("Timed out waiting for autosave write", file: file, line: line)
+        }
+    }
+}
+
+private actor FilePreviewAutosaveProbe {
+    private var result: FilePreviewTextSaver.Result
+    private var savedContents: [String] = []
+
+    init(result: FilePreviewTextSaver.Result = .saved) {
+        self.result = result
+    }
+
+    func save(content: String, url: URL) -> FilePreviewTextSaver.Result {
+        _ = url
+        savedContents.append(content)
+        return result
+    }
+
+    func setResult(_ result: FilePreviewTextSaver.Result) {
+        self.result = result
+    }
+
+    func writeCount() -> Int {
+        savedContents.count
+    }
+
+    func contents() -> [String] {
+        savedContents
     }
 }
 

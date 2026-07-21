@@ -211,7 +211,8 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
             guard AppDelegate.shared?.closeWorkspaceFloatingDock(
                 dock,
                 in: workspace,
-                tabManager: tabManager
+                tabManager: tabManager,
+                policy: .force
             ) == true else { return .operationFailed("close cancelled") }
             return .resolved(payload)
         case .closeAll:
@@ -220,7 +221,8 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
             }
             guard let closedCount = appDelegate.closeAllWorkspaceFloatingDocks(
                 in: workspace,
-                tabManager: tabManager
+                tabManager: tabManager,
+                policy: .force
             ) else { return .operationFailed("close cancelled") }
             return .resolved(.object([
                 "workspace_id": .string(workspace.id.uuidString),
