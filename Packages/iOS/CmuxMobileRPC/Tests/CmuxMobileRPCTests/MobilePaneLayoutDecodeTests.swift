@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileShellModel
 import Foundation
 import Testing
@@ -5,6 +6,49 @@ import Testing
 @testable import CmuxMobileRPC
 
 @Suite struct MobilePaneLayoutDecodeTests {
+    @Test func memberwiseWorkspaceProjectionRetainsSharedLayout() throws {
+        let sharedLayout = MobileWorkspaceLayout(
+            version: 21,
+            focusedPaneID: "pane-1",
+            root: .pane(
+                MobileWorkspaceLayoutPane(
+                    id: "pane-1",
+                    selectedSurfaceID: "surface-1",
+                    surfaces: [
+                        MobileWorkspaceLayoutSurface(
+                            id: "surface-1",
+                            type: "terminal",
+                            title: "Shell"
+                        )
+                    ]
+                )
+            )
+        )
+        let remote = MobileSyncWorkspaceListResponse.Workspace(
+            id: "workspace-1",
+            windowID: "window-1",
+            title: "Projected",
+            currentDirectory: nil,
+            isSelected: true,
+            isPinned: false,
+            groupID: nil,
+            preview: nil,
+            previewAt: nil,
+            lastActivityAt: 1,
+            hasUnread: false,
+            terminals: [],
+            layout: sharedLayout
+        )
+
+        #expect(remote.layout == sharedLayout)
+        let projected = MobileWorkspacePreview(remote: remote)
+        let layout = try #require(projected.layout)
+        #expect(layout.version == 21)
+        #expect(layout.focusedPaneID == "pane-1")
+        #expect(layout.orderedPanes.map(\.id) == ["pane-1"])
+        #expect(layout.orderedPanes.first?.selectedSurfaceID == "surface-1")
+    }
+
     @Test func decodesAndMapsFullNestedLayout() throws {
         let data = Data("""
         {

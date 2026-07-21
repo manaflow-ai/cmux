@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 public import CmuxMobileShellModel
 
@@ -25,7 +26,7 @@ extension MobileWorkspacePreview {
 }
 
 private extension MobilePaneLayout {
-    init(remote: MobileSyncWorkspaceListResponse.Layout) {
+    init(remote: MobileWorkspaceLayout) {
         self.init(
             version: remote.version,
             focusedPaneID: remote.focusedPaneID,
@@ -35,7 +36,7 @@ private extension MobilePaneLayout {
 }
 
 private extension MobilePaneLayout.Node {
-    init(remote: MobileSyncWorkspaceListResponse.Layout.Node) {
+    init(remote: MobileWorkspaceLayoutNode) {
         switch remote {
         case let .split(split):
             self = .split(MobilePaneSplit(remote: split))
@@ -46,11 +47,11 @@ private extension MobilePaneLayout.Node {
 }
 
 private extension MobilePaneSplit {
-    init(remote: MobileSyncWorkspaceListResponse.Layout.Split) {
+    init(remote: MobileWorkspaceLayoutSplit) {
         self.init(
             id: remote.id,
             orientation: MobilePaneSplitOrientation(remote: remote.orientation),
-            ratio: min(max(remote.ratio, 0.05), 0.95),
+            ratio: remote.ratio,
             first: MobilePaneLayout.Node(remote: remote.first),
             second: MobilePaneLayout.Node(remote: remote.second)
         )
@@ -58,7 +59,7 @@ private extension MobilePaneSplit {
 }
 
 private extension MobilePaneSplitOrientation {
-    init(remote: MobileSyncWorkspaceListResponse.Layout.Split.Orientation) {
+    init(remote: MobileWorkspaceLayoutOrientation) {
         switch remote {
         case .horizontal:
             self = .horizontal
@@ -69,7 +70,7 @@ private extension MobilePaneSplitOrientation {
 }
 
 private extension MobilePaneNode {
-    init(remote: MobileSyncWorkspaceListResponse.Layout.Pane) {
+    init(remote: MobileWorkspaceLayoutPane) {
         self.init(
             id: remote.id,
             selectedSurfaceID: remote.selectedSurfaceID,
@@ -79,7 +80,7 @@ private extension MobilePaneNode {
 }
 
 private extension MobilePaneSurface {
-    init(remote: MobileSyncWorkspaceListResponse.Layout.Surface) {
+    init(remote: MobileWorkspaceLayoutSurface) {
         self.init(
             id: remote.id,
             type: MobilePaneSurfaceType(remoteRawValue: remote.type),

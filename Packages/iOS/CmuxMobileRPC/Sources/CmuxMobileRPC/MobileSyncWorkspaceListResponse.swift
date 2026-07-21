@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// Typed decoder for the `workspace.list` / `mobile.workspace.list` RPC result.
@@ -5,6 +6,9 @@ public import Foundation
 /// The wire shape is snake_case (the Mac side of PR 5079 already emits it); the
 /// `CodingKeys` map it onto camelCase Swift properties without changing the wire.
 public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
+    /// Compatibility name for the shared workspace pane-layout DTO.
+    public typealias Layout = MobileWorkspaceLayout
+
     /// A workspace entry in the list response.
     public struct Workspace: Decodable, Sendable {
         /// Stable workspace identifier.
@@ -42,7 +46,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         /// Terminals belonging to this workspace.
         public let terminals: [Terminal]
         /// The workspace's pane layout, or `nil` when absent or malformed.
-        public let layout: Layout?
+        public let layout: MobileWorkspaceLayout?
 
         private enum CodingKeys: String, CodingKey {
             case id
@@ -77,107 +81,25 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             lastActivityAt = try container.decodeIfPresent(Double.self, forKey: .lastActivityAt)
             hasUnread = try container.decodeIfPresent(Bool.self, forKey: .hasUnread)
             terminals = try container.decode([Terminal].self, forKey: .terminals)
-            layout = try? container.decode(Layout.self, forKey: .layout)
-        }
-    }
-
-    /// A wire-level workspace pane layout snapshot.
-    public struct Layout: Decodable, Sendable {
-        /// A recursively decoded layout node.
-        public indirect enum Node: Decodable, Sendable {
-            /// A split branch with two child nodes.
-            case split(Split)
-            /// A leaf pane containing surface tabs.
-            case pane(Pane)
-
-            private enum CodingKeys: String, CodingKey {
-                case kind
-            }
-
-            private enum Kind: String, Decodable {
-                case split
-                case pane
-            }
-
-            /// Decodes a layout node based on its `kind` discriminator.
-            /// - Parameter decoder: The decoder for one layout node.
-            /// - Throws: A decoding error for unknown kinds or malformed node data.
-            public init(from decoder: any Decoder) throws {
-                let container = try decoder.container(keyedBy: CodingKeys.self)
-                let kind = try container.decode(Kind.self, forKey: .kind)
-                switch kind {
-                case .split:
-                    self = try .split(Split(from: decoder))
-                case .pane:
-                    self = try .pane(Pane(from: decoder))
-                }
-            }
+            layout = try? container.decode(MobileWorkspaceLayout.self, forKey: .layout)
         }
 
-        /// A wire-level split branch.
-        public struct Split: Decodable, Sendable {
-            /// A split orientation emitted by bonsplit.
-            public enum Orientation: String, Decodable, Sendable {
-                /// Places children side by side.
-                case horizontal
-                /// Stacks children vertically.
-                case vertical
-            }
-
-            /// The stable split identifier.
-            public let id: String
-            /// The axis along which this split divides its rectangle.
-            public let orientation: Orientation
-            /// The first child's proportional share.
-            public let ratio: Double
-            /// The first child node.
-            public let first: Node
-            /// The second child node.
-            public let second: Node
-        }
-
-        /// A wire-level leaf pane.
-        public struct Pane: Decodable, Sendable {
-            /// The stable pane identifier.
-            public let id: String
-            /// The selected surface identifier, when one is selected.
-            public let selectedSurfaceID: String?
-            /// The pane's surfaces in tab order.
-            public let surfaces: [Surface]
-
-            private enum CodingKeys: String, CodingKey {
-                case id
-                case selectedSurfaceID = "selected_surface_id"
-                case surfaces
-            }
-        }
-
-        /// A wire-level surface tab.
-        public struct Surface: Decodable, Sendable {
-            /// The stable surface identifier.
-            public let id: String
-            /// The raw panel type emitted by the Mac.
-            public let type: String
-            /// The surface's display title.
-            public let title: String
-        }
-
-        /// The Mac-side pane layout version.
-        public let version: Int
-        /// The focused pane identifier, when one is focused.
-        public let focusedPaneID: String?
-        /// The root of the recursive layout tree.
-        public let root: Node
-
-        private enum CodingKeys: String, CodingKey {
-            case version
-            case focusedPaneID = "focused_pane_id"
-            case root
-        }
-
-        /// Memberwise construction for callers that assemble a row from an
-        /// already-synced local source (mobile state sync v2 projects its
-        /// record mirror through the same apply path as the wire response).
+        /// Creates a workspace row from an already-synced local record.
+        ///
+        /// - Parameters:
+        ///   - id: The stable workspace identifier.
+        ///   - windowID: The owning Mac window identifier, when reported.
+        ///   - title: The workspace's display title.
+        ///   - currentDirectory: The presented working directory, when reported.
+        ///   - isSelected: Whether the Mac currently has this workspace selected.
+        ///   - isPinned: Whether the workspace is pinned, when reported.
+        ///   - groupID: The owning group identifier, when any.
+        ///   - preview: The latest activity preview, when any.
+        ///   - previewAt: The preview's Unix epoch timestamp, when any.
+        ///   - lastActivityAt: The workspace's last-activity timestamp, when reported.
+        ///   - hasUnread: Whether the workspace has unread activity, when reported.
+        ///   - terminals: Terminal rows belonging to this workspace.
+        ///   - layout: The shared pane-layout snapshot, when available.
         public init(
             id: String,
             windowID: String?,
@@ -190,7 +112,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             previewAt: Double?,
             lastActivityAt: Double?,
             hasUnread: Bool?,
-            terminals: [Terminal]
+            terminals: [Terminal],
+            layout: MobileWorkspaceLayout?
         ) {
             self.id = id
             self.windowID = windowID
@@ -204,6 +127,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             self.lastActivityAt = lastActivityAt
             self.hasUnread = hasUnread
             self.terminals = terminals
+            self.layout = layout
         }
     }
 
@@ -346,6 +270,5 @@ extension MobileSyncWorkspaceListResponse {
         self.createdTerminalID = createdTerminalID
     }
 }
-
 
 

@@ -98,6 +98,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
     public let sortIndex: Int
     /// Terminal rows belonging to this workspace, in spatial order.
     public let terminals: [Terminal]
+    /// The workspace's complete pane layout, when the Mac supports pane sync.
+    public let layout: MobileWorkspaceLayout?
 
     /// ``MobileSyncRecord`` identity: the workspace id.
     public var syncID: String { id }
@@ -118,7 +120,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         lastActivityAt: Double,
         hasUnread: Bool,
         sortIndex: Int,
-        terminals: [Terminal]
+        terminals: [Terminal],
+        layout: MobileWorkspaceLayout? = nil
     ) {
         self.id = id
         self.windowID = windowID
@@ -133,6 +136,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         self.hasUnread = hasUnread
         self.sortIndex = sortIndex
         self.terminals = terminals
+        self.layout = layout
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -149,6 +153,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         case hasUnread = "has_unread"
         case sortIndex = "sort_index"
         case terminals
+        case layout
     }
 }
 

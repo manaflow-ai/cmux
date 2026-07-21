@@ -4,6 +4,22 @@ import Testing
 @testable import CMUXMobileCore
 
 struct MobileStateSyncFrameCodingTests {
+    private var layout: MobileWorkspaceLayout {
+        MobileWorkspaceLayout(
+            version: 4,
+            focusedPaneID: "pane-1",
+            root: .pane(
+                MobileWorkspaceLayoutPane(
+                    id: "pane-1",
+                    selectedSurfaceID: "t-1",
+                    surfaces: [
+                        MobileWorkspaceLayoutSurface(id: "t-1", type: "terminal", title: "zsh")
+                    ]
+                )
+            )
+        )
+    }
+
     private var workspace: WorkspaceSyncRecord {
         WorkspaceSyncRecord(
             id: "ws-1",
@@ -26,7 +42,8 @@ struct MobileStateSyncFrameCodingTests {
                     isReady: true,
                     isFocused: false
                 )
-            ]
+            ],
+            layout: layout
         )
     }
 
@@ -45,6 +62,12 @@ struct MobileStateSyncFrameCodingTests {
         let terminals = object["terminals"] as? [[String: Any]]
         #expect(terminals?.first?["is_ready"] as? Bool == true)
         #expect(terminals?.first?["is_focused"] as? Bool == false)
+        let encodedLayout = try #require(object["layout"] as? [String: Any])
+        #expect(encodedLayout["version"] as? Int == 4)
+        #expect(encodedLayout["focused_pane_id"] as? String == "pane-1")
+        let root = try #require(encodedLayout["root"] as? [String: Any])
+        #expect(root["kind"] as? String == "pane")
+        #expect(root["selected_surface_id"] as? String == "t-1")
     }
 
     @Test func deltaEventRoundTripsThroughJSONObject() throws {
