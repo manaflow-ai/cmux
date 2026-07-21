@@ -21,6 +21,10 @@ struct RemoteTmuxControlStreamParser {
     private let maxCommandBlockBytes: Int
     private var buffer: [UInt8] = []
     private var inBlock = false
+    /// Whether control mode has been entered. Entering happens once per stream, so the scan for
+    /// the enter DCS stops after it — searching later lines could match a DCS that is genuinely
+    /// part of a pane's own bytes.
+    private var sawEnter = false
     private var blockNumber = 0
     private var blockLines: [String] = []
     private var blockBufferedBytes = 0
@@ -35,6 +39,22 @@ struct RemoteTmuxControlStreamParser {
 
     /// The DCS sequence tmux emits to enter control mode: `ESC P 1000 p`.
     private static let enterSequence: [UInt8] = [0x1b, 0x50, 0x31, 0x30, 0x30, 0x30, 0x70]
+
+    /// Index range of the first occurrence of `needle` in `haystack`, or nil.
+    private static func firstRange(of needle: [UInt8], in haystack: [UInt8]) -> Range<Int>? {
+        guard !needle.isEmpty, haystack.count >= needle.count else { return nil }
+        let last = haystack.count - needle.count
+        var start = 0
+        while start <= last {
+            if haystack[start] == needle[0] {
+                var offset = 1
+                while offset < needle.count, haystack[start + offset] == needle[offset] { offset += 1 }
+                if offset == needle.count { return start..<(start + needle.count) }
+            }
+            start += 1
+        }
+        return nil
+    }
 
     /// ASCII bytes of the `%output ` notification prefix (used to detect and parse
     /// `%output` lines from raw bytes, before any String decode).
@@ -67,10 +87,23 @@ struct RemoteTmuxControlStreamParser {
         var bytes = rawBytes
         var prefixMessages: [RemoteTmuxControlMessage] = []
 
-        // Strip a leading enter DCS (it is prepended to the first %begin line).
-        if bytes.starts(with: Self.enterSequence) {
+        // Strip the enter DCS. It usually opens the line, but it does not have to: a transport
+        // that types the command into a login shell (et) leaves the shell's echo and its OSC
+        // title sequences on the same line, with the DCS arriving partway through and no
+        // newline before it. Requiring it at offset 0 means `.enter` is never emitted there,
+        // and since commands are withheld until `.enter`, the mirror waits forever while the
+        // notifications after it parse normally.
+        //
+        // Everything before the DCS is pre-control-mode shell noise by definition — tmux emits
+        // this sequence when it takes over the terminal — so dropping that prefix is right
+        // rather than merely convenient.
+        // Scoped to before control mode is entered and outside a command block: block content is
+        // raw pane bytes (`capture-pane -e`) that can legitimately contain this DCS, and matching
+        // it there would cut the painted pane apart — the same hazard the ST strip below avoids.
+        if !sawEnter, !inBlock, let dcs = Self.firstRange(of: Self.enterSequence, in: bytes) {
+            sawEnter = true
             prefixMessages.append(.enter)
-            bytes.removeFirst(Self.enterSequence.count)
+            bytes.removeFirst(dcs.upperBound)
         }
         // Drop ST (ESC \) DCS-teardown framing — but ONLY on notification lines.
         // Command-block content (e.g. `capture-pane -e` output) is raw terminal
