@@ -206,7 +206,12 @@ _SLEEP_CALL = re.compile(
 
 _NAMED_SLEEP_CALL = re.compile(r"\b([A-Za-z_]\w*)[?!]?\.sleep\s*\(")
 _LOCAL_BINDING = re.compile(r"\b(?:let|var)\s+([A-Za-z_]\w*)\b")
-_LOCAL_SCOPE_HEADER = re.compile(r"^\s*(?:func\b|init\s*\(|(?:async\s+)?def\b)")
+_LOCAL_SCOPE_HEADER = re.compile(
+    r"^\s*"
+    r"(?:(?:@\w+(?:\([^)]*\))?|[A-Za-z_]\w*(?:\([^)]*\))?)\s+)*"
+    r"(?:func\b|init\s*\(|def\b)"
+)
+_LOCAL_CLOSURE_HEADER = re.compile(r"^\s*[^=]+\s*=\s*\{")
 _REAL_CLOCK_TYPE = re.compile(
     r":\s*(?:ContinuousClock|SuspendingClock)\??(?=\s|=|[,){]|$)"
 )
@@ -461,12 +466,30 @@ def _is_named_real_clock_sleep(lines: list[str], idx: int) -> bool:
     # The nearest local binding owns the receiver's meaning. Include the prefix
     # of the sleep line for compact `let clock = ...; await clock.sleep(...)`
     # forms, but never infer an arbitrary injected `clock.sleep(...)` as real.
+    # Stop rather than guessing across a completed block or closure: a binding
+    # inside that scope is no longer visible, and this guard prioritizes avoiding
+    # false positives over recognizing every possible real-clock spelling.
     for j in range(idx, -1, -1):
         candidate = lines[j]
         if j == idx:
             candidate = candidate[: sleep_match.start()]
-        elif _LOCAL_SCOPE_HEADER.search(candidate):
+
+        if _LOCAL_SCOPE_HEADER.search(candidate):
+            declaration_lines = [candidate]
+            if "{" not in candidate:
+                for k in range(j + 1, min(idx + 1, j + 20)):
+                    declaration_lines.append(lines[k])
+                    if "{" in lines[k]:
+                        break
+            declaration = " ".join(declaration_lines)
+            parameter = re.compile(
+                rf"\b{re.escape(receiver)}\s*"
+                r":\s*(?:ContinuousClock|SuspendingClock)\??(?=\s|[,)=]|$)"
+            )
+            return bool(parameter.search(declaration))
+        if _LOCAL_CLOSURE_HEADER.search(candidate) or "}" in candidate:
             return False
+
         bindings = list(_LOCAL_BINDING.finditer(candidate))
         for binding in reversed(bindings):
             if binding.group(1) != receiver:
