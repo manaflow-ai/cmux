@@ -8,13 +8,18 @@ struct TerminalFolderTapPolicy: Sendable {
     /// Bounds classification so taps never wait on the full RPC deadline for focus.
     let classificationDeadline: Duration
 
+    /// Clock backing the classification deadline, injected so tests control time.
+    let clock: any Clock<Duration>
+
     /// Creates a folder-tap policy with a bounded classification deadline.
     init(
         folderTapEnabled: Bool,
-        classificationDeadline: Duration = .seconds(2)
+        classificationDeadline: Duration = .seconds(2),
+        clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.folderTapEnabled = folderTapEnabled
         self.classificationDeadline = classificationDeadline
+        self.clock = clock
     }
 
     /// The action the terminal tap handler should take for a detected path.
@@ -52,10 +57,11 @@ struct TerminalFolderTapPolicy: Sendable {
             continuation.yield(decision)
             continuation.finish()
         }
-        let deadlineTask = Task {
+        let deadlineTask = Task { [clock] in
             do {
-                // This bounded, cancellable sleep is the intentional classification deadline.
-                try await Task.sleep(for: classificationDeadline)
+                // This bounded, cancellable clock sleep is the intentional
+                // classification deadline (injected clock per timing policy).
+                try await clock.sleep(for: classificationDeadline, tolerance: nil)
             } catch {
                 return
             }
