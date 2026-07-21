@@ -205,11 +205,18 @@ _SLEEP_CALL = re.compile(
 )
 
 _NAMED_SLEEP_CALL = re.compile(r"\b([A-Za-z_]\w*)[?!]?\.sleep\s*\(")
+_CONTINUED_SLEEP_CALL = re.compile(r"^\s*[?!]?\s*\.sleep\s*\(")
 _LOCAL_BINDING = re.compile(r"\b(?:let|var)\s+([A-Za-z_]\w*)\b")
 _LOCAL_SCOPE_HEADER = re.compile(
     r"^\s*"
     r"(?:(?:@\w+(?:\([^)]*\))?|[A-Za-z_]\w*(?:\([^)]*\))?)\s+)*"
     r"(?:func\b|init\s*\(|def\b)"
+)
+_CONDITIONAL_SCOPE_HEADER = re.compile(
+    r"^\s*(?:}\s*else\s+)?(?:if|while|for)\b"
+)
+_FOR_SCOPE_BINDING = re.compile(
+    r"^\s*for(?:\s+try)?(?:\s+await)?\s+([A-Za-z_]\w*)\s+in\b"
 )
 _REAL_CLOCK_TYPE = re.compile(
     r":\s*(?:ContinuousClock|SuspendingClock)\??(?=\s|=|[,){]|$)"
@@ -548,34 +555,70 @@ def _closure_receiver_kind(text: str, receiver: str) -> Optional[bool]:
     return None
 
 
-def _is_named_real_clock_sleep(lines: list[str], idx: int) -> bool:
+def _is_named_real_clock_sleep(masked_lines: list[str], idx: int) -> bool:
     """Resolve a named receiver through Swift-like lexical brace scopes."""
-    sleep_match = _NAMED_SLEEP_CALL.search(lines[idx])
-    if not sleep_match:
-        return False
-    receiver = sleep_match.group(1)
+    current = masked_lines[idx]
+    sleep_match = _NAMED_SLEEP_CALL.search(current)
+    sleep_start: int
+    if sleep_match:
+        receiver = sleep_match.group(1)
+        sleep_start = sleep_match.start()
+    else:
+        continuation = _CONTINUED_SLEEP_CALL.search(current)
+        if not continuation:
+            return False
+        previous = next(
+            (
+                masked_lines[j].rstrip()
+                for j in range(idx - 1, -1, -1)
+                if masked_lines[j].strip()
+            ),
+            "",
+        )
+        if re.search(
+            r"\b(?:ContinuousClock|SuspendingClock)\s*\(\s*\)\s*$", previous
+        ) or re.search(r"\bTask(?:\s*<[^>\n]+>)?\s*$", previous):
+            return True
+        receiver_match = re.search(r"\b([A-Za-z_]\w*)[?!]?\s*$", previous)
+        if not receiver_match:
+            return False
+        receiver = receiver_match.group(1)
+        sleep_start = continuation.start()
 
-    prefix_lines = lines[:idx] + [lines[idx][: sleep_match.start()]]
-    masked_lines = _mask_noncode(prefix_lines)
+    prefix_lines = masked_lines[:idx] + [current[:sleep_start]]
     scopes: list[dict[str, bool]] = [{}]
     pending_function = False
     pending_parameter: Optional[bool] = None
+    pending_conditional: Optional[dict[str, bool]] = None
 
-    for candidate in masked_lines:
+    for candidate in prefix_lines:
         if _LOCAL_SCOPE_HEADER.search(candidate):
             pending_function = True
             pending_parameter = _annotated_receiver_kind(candidate, receiver)
         elif pending_function and pending_parameter is None:
             pending_parameter = _annotated_receiver_kind(candidate, receiver)
+        if _CONDITIONAL_SCOPE_HEADER.search(candidate):
+            pending_conditional = {}
+            for_binding = _FOR_SCOPE_BINDING.search(candidate)
+            if for_binding and for_binding.group(1) == receiver:
+                pending_conditional[receiver] = False
 
         events: list[tuple[int, str, Optional[re.Match[str]]]] = []
-        events.extend((match.start(), "binding", match) for match in _LOCAL_BINDING.finditer(candidate))
-        events.extend((pos, brace, None) for pos, brace in enumerate(candidate) if brace in "{}")
+        events.extend(
+            (match.start(), "binding", match)
+            for match in _LOCAL_BINDING.finditer(candidate)
+        )
+        events.extend(
+            (pos, brace, None)
+            for pos, brace in enumerate(candidate)
+            if brace in "{}"
+        )
         events.sort(key=lambda event: event[0])
 
         for pos, event, binding in events:
             if event == "{":
-                scope: dict[str, bool] = {}
+                scope = dict(pending_conditional or {})
+                pending_conditional = None
                 if pending_function:
                     if pending_parameter is not None:
                         scope[receiver] = pending_parameter
@@ -590,10 +633,14 @@ def _is_named_real_clock_sleep(lines: list[str], idx: int) -> bool:
                     scopes.pop()
             elif binding is not None and binding.group(1) == receiver:
                 declaration = candidate[binding.end() :]
-                scopes[-1][receiver] = bool(
+                kind = bool(
                     _REAL_CLOCK_TYPE.search(declaration)
                     or _REAL_CLOCK_INIT.search(declaration)
                 )
+                if pending_conditional is not None:
+                    pending_conditional[receiver] = kind
+                else:
+                    scopes[-1][receiver] = kind
 
     for scope in reversed(scopes):
         if receiver in scope:
@@ -601,10 +648,14 @@ def _is_named_real_clock_sleep(lines: list[str], idx: int) -> bool:
     return False
 
 
-def detect_sleep_then_assert(lines: list[str], idx: int, path_suffix: str) -> bool:
+def detect_sleep_then_assert(
+    lines: list[str], masked_lines: list[str], idx: int, path_suffix: str
+) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
-    line = lines[idx]
-    is_sleep = bool(_SLEEP_CALL.search(line)) or _is_named_real_clock_sleep(lines, idx)
+    line = masked_lines[idx]
+    is_sleep = bool(_SLEEP_CALL.search(line)) or _is_named_real_clock_sleep(
+        masked_lines, idx
+    )
     if not is_sleep and path_suffix == ".sh":
         is_sleep = bool(_SHELL_BARE_SLEEP.search(line))
     if not is_sleep:
@@ -652,6 +703,8 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     raw_lines = text.splitlines()
     code_lines = [_strip_comment(l, suffix) for l in raw_lines]
+    needs_sleep_mask = "sleep" in text or "setTimeout" in text
+    masked_lines = _mask_noncode(code_lines) if needs_sleep_mask else code_lines
     findings: list[Finding] = []
 
     for i, code in enumerate(code_lines):
@@ -666,7 +719,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
             findings.append(Finding(rel_posix, line_no, RULE_LIVE_NETWORK_HOST, snippet))
         if detect_fixed_port_bind(code):
             findings.append(Finding(rel_posix, line_no, RULE_FIXED_PORT_BIND, snippet))
-        if detect_sleep_then_assert(code_lines, i, suffix):
+        if detect_sleep_then_assert(code_lines, masked_lines, i, suffix):
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
 
     return findings
