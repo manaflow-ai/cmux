@@ -193,7 +193,10 @@ _DURATION_COMPARE = re.compile(
 _SLEEP_CALL = re.compile(
     r"""(?x)
     \btime\.sleep\s*\(
-  | \bsleep\s*\(                            # qualified or unqualified sleep(...) call
+  | (?:
+        (?<!\.)\bsleep                       # unqualified sleep(...)
+      | (?:\b\w+|[)\]?!>])\.sleep           # receiver-qualified foo.sleep(...)
+    )\s*\(
   | \busleep\s*\(
   | \bnanosleep\s*\(
   | Thread\.sleep\s*\(
@@ -203,12 +206,6 @@ _SLEEP_CALL = re.compile(
   | \bsetTimeout\s*\(                       # JS, when used as a bare delay
     """
 )
-
-# Swift implicit-member values such as `.sleep(deadline)` can represent enum
-# data in an assertion. A receiver (`clock.sleep`, `clock?.sleep`,
-# `ContinuousClock().sleep`) prevents this match, so real qualified calls
-# remain candidates.
-_IMPLICIT_MEMBER_SLEEP_VALUE = re.compile(r"(?<![\w)\]?!>])\.sleep\s*\(")
 
 # The shell BARE-COMMAND sleep form (`sleep 0.3`) has no parentheses, so it can
 # only be recognized positionally. It is matched ONLY in shell files: in Swift /
@@ -452,13 +449,7 @@ def _sleep_in_loop(lines: list[str], idx: int) -> bool:
 def detect_sleep_then_assert(lines: list[str], idx: int, path_suffix: str) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
     line = lines[idx]
-    candidate_line = line
-    # Ignore only bare Swift implicit-member data inside an assertion. Explicit
-    # APIs such as Task.sleep, asyncio.sleep, and clock.sleep remain detectable
-    # even when the sleep itself is nested in an assertion expression.
-    if _is_assertion_line(line):
-        candidate_line = _IMPLICIT_MEMBER_SLEEP_VALUE.sub("", line)
-    is_sleep = bool(_SLEEP_CALL.search(candidate_line))
+    is_sleep = bool(_SLEEP_CALL.search(line))
     if not is_sleep and path_suffix == ".sh":
         is_sleep = bool(_SHELL_BARE_SLEEP.search(line))
     if not is_sleep:
@@ -825,6 +816,14 @@ def _self_test() -> int:
             "#expect(await clockEvents.next() == .sleep(initialRefresh))\n"
             "clock.advance(to: initialRefresh)\n"
             "#expect(await clockEvents.next() == .sleep(replacementRefresh))\n"
+            "#expect(await broker.requests() == 1)\n",
+        ),
+        # The implicit-member event remains data when formatting moves it to a
+        # continuation line that does not itself contain the assertion token.
+        (
+            "Packages/CmuxClock/Tests/FormattedVirtualClockTests.swift",
+            "#expect(await clockEvents.next() ==\n"
+            "    .sleep(initialRefresh))\n"
             "#expect(await broker.requests() == 1)\n",
         ),
     ]
