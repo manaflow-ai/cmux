@@ -23,7 +23,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use cmux_tui_core::platform::transport;
 use cmux_tui_core::{Mux, SurfaceOptions};
 use session::{RemoteSession, Session};
 
@@ -239,8 +238,10 @@ fn run_server(args: Args) -> anyhow::Result<()> {
         .socket
         .clone()
         .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
-    if args.should_attach_existing() && transport::connect(&socket_path).is_ok() {
-        let remote = RemoteSession::connect(&socket_path)?;
+    if args.should_attach_existing()
+        && socket_path.exists()
+        && let Ok(remote) = RemoteSession::connect(&socket_path)
+    {
         return run_tui(Session::Remote(remote), args.session);
     }
 

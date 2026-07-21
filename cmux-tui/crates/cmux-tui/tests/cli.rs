@@ -1,6 +1,8 @@
 use std::fs;
 #[cfg(unix)]
 use std::fs::File;
+#[cfg(unix)]
+use std::io::Read;
 use std::io::{BufRead, BufReader, Write};
 #[cfg(unix)]
 use std::os::fd::FromRawFd;
@@ -58,7 +60,7 @@ impl Drop for HeadlessServer {
 #[cfg(unix)]
 struct PtyChild {
     child: Child,
-    _master: File,
+    output_drain: Option<std::thread::JoinHandle<()>>,
 }
 
 #[cfg(unix)]
@@ -77,8 +79,12 @@ impl PtyChild {
             )
         };
         assert_eq!(opened, 0, "openpty failed: {}", std::io::Error::last_os_error());
-        let master = unsafe { File::from_raw_fd(master) };
+        let mut master = unsafe { File::from_raw_fd(master) };
         let slave = unsafe { File::from_raw_fd(slave) };
+        let output_drain = std::thread::spawn(move || {
+            let mut buffer = [0; 8192];
+            while master.read(&mut buffer).is_ok_and(|read| read > 0) {}
+        });
         let child = Command::new(bin())
             .args(args)
             .env_remove("CMUX_TUI_SOCKET")
@@ -87,7 +93,7 @@ impl PtyChild {
             .stderr(Stdio::from(slave))
             .spawn()
             .unwrap();
-        Self { child, _master: master }
+        Self { child, output_drain: Some(output_drain) }
     }
 }
 
@@ -96,6 +102,9 @@ impl Drop for PtyChild {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        if let Some(output_drain) = self.output_drain.take() {
+            let _ = output_drain.join();
+        }
     }
 }
 
