@@ -128,10 +128,10 @@ struct Args {
 }
 
 impl Args {
-    fn should_attach_existing(&self) -> bool {
+    fn should_attach_existing(&self, ws_addr: &Option<String>, ws_token: &Option<String>) -> bool {
         !self.headless
-            && self.ws.is_none()
-            && self.ws_token.is_none()
+            && ws_addr.is_none()
+            && ws_token.is_none()
             && !self.ws_insecure_bind
             && self.term.is_none()
     }
@@ -232,13 +232,16 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
 }
 
 fn run_server(args: Args) -> anyhow::Result<()> {
+    let config = config::load();
+    let ws_addr = args.ws.clone().or(config.server.ws.clone());
+    let ws_token = args.ws_token.clone().or(config.server.ws_token.clone());
     // Compute the socket path up front so a normal interactive launch can
     // reuse an existing local session and surface children inherit it.
     let socket_path = args
         .socket
         .clone()
         .unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
-    if args.should_attach_existing()
+    if args.should_attach_existing(&ws_addr, &ws_token)
         && socket_path.exists()
         && let Ok(remote) = RemoteSession::connect(&socket_path)
     {
@@ -246,9 +249,6 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     }
 
     let mut surface_options = SurfaceOptions::default();
-    let config = config::load();
-    let ws_addr = args.ws.or(config.server.ws.clone());
-    let ws_token = args.ws_token.or(config.server.ws_token.clone());
     config::apply_browser_to_surface_options(&config, &mut surface_options);
     if let Some(term) = args.term {
         surface_options.term = term;

@@ -66,6 +66,10 @@ struct PtyChild {
 #[cfg(unix)]
 impl PtyChild {
     fn start(args: &[&str]) -> Self {
+        Self::start_with_env(args, &[])
+    }
+
+    fn start_with_env(args: &[&str], env: &[(&str, &std::ffi::OsStr)]) -> Self {
         let mut master = -1;
         let mut slave = -1;
         let mut size = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
@@ -85,9 +89,12 @@ impl PtyChild {
             let mut buffer = [0; 8192];
             while master.read(&mut buffer).is_ok_and(|read| read > 0) {}
         });
-        let child = Command::new(bin())
-            .args(args)
-            .env_remove("CMUX_TUI_SOCKET")
+        let mut command = Command::new(bin());
+        command.args(args).env_remove("CMUX_TUI_SOCKET");
+        for (key, value) in env {
+            command.env(key, value);
+        }
+        let child = command
             .stdin(Stdio::from(slave.try_clone().unwrap()))
             .stdout(Stdio::from(slave.try_clone().unwrap()))
             .stderr(Stdio::from(slave))
@@ -135,6 +142,29 @@ fn plain_launch_attaches_to_existing_local_session() {
     }
 
     panic!("plain launch never attached as a TUI client");
+}
+
+#[cfg(unix)]
+#[test]
+fn configured_websocket_server_does_not_attach_to_existing_session() {
+    let server = HeadlessServer::start("configured-websocket-server");
+    let config = server.dir.join("config.json");
+    fs::write(&config, r#"{"server":{"ws":"127.0.0.1:0"}}"#).unwrap();
+    let mut tui = PtyChild::start_with_env(
+        &["--socket", server.socket.to_str().unwrap()],
+        &[("CMUX_TUI_CONFIG", config.as_os_str())],
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+
+    while Instant::now() < deadline {
+        if let Some(status) = tui.child.try_wait().unwrap() {
+            assert!(!status.success(), "server launch unexpectedly succeeded");
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    panic!("configured WebSocket server attached instead of preserving server mode");
 }
 
 #[test]
