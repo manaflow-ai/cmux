@@ -193,6 +193,7 @@ _SLEEP_CALL = re.compile(
     r"""(?x)
     \btime\.sleep\s*\(
   | (?<!\.)\bsleep\s*\(                    # unqualified C-style sleep(...)
+  | \b(?:Darwin|Glibc)\.sleep\s*\(
   | \busleep\s*\(
   | \bnanosleep\s*\(
   | Thread\.sleep\s*\(
@@ -466,11 +467,12 @@ def _sleep_in_loop(lines: list[str], idx: int) -> bool:
     return False
 
 
-def _mask_noncode(lines: list[str]) -> list[str]:
+def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
     """Replace quoted strings and block comments while preserving positions."""
     masked_lines: list[str] = []
     quote: Optional[str] = None
     block_comment_depth = 0
+    line_comment = "#" if path_suffix in (".py", ".sh") else "//"
 
     for line in lines:
         masked = list(line)
@@ -505,6 +507,9 @@ def _mask_noncode(lines: list[str]) -> list[str]:
                     i += 1
                 continue
 
+            if line.startswith(line_comment, i):
+                masked[i:] = " " * (len(line) - i)
+                break
             if line.startswith("/*", i):
                 masked[i : i + 2] = "  "
                 block_comment_depth = 1
@@ -805,7 +810,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     code_lines = [_strip_comment(l, suffix) for l in raw_lines]
     needs_sleep_mask = "sleep" in text or "setTimeout" in text
     masked_lines = (
-        [_strip_comment(line, suffix) for line in _mask_noncode(raw_lines)]
+        [_strip_comment(line, suffix) for line in _mask_noncode(raw_lines, suffix)]
         if needs_sleep_mask
         else code_lines
     )
