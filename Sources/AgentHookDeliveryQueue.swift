@@ -4,17 +4,14 @@ import Foundation
 actor AgentHookDeliveryQueue {
     typealias Delivery = @Sendable (AgentHookDeliveryEvent) async -> Void
 
-    private enum Admission: Sendable {
-        case event(AgentHookDeliveryEvent)
-        case barrier(CheckedContinuation<Void, Never>)
-    }
-
-    nonisolated private let admissionContinuation: AsyncStream<Admission>.Continuation
-    private let admissionTask: Task<Void, Never>
+    nonisolated private let admissionContinuation: AsyncStream<AgentHookDeliveryEvent>.Continuation
+    private let capacityContinuation: AsyncStream<Void>.Continuation
     private let delivery: Delivery
+    private let maximumConcurrentDeliveries: Int
+    private var admissionTask: Task<Void, Never>? = nil
     private var pendingByOrderingKey: [String: [AgentHookDeliveryEvent]] = [:]
-    private var drainTasksByOrderingKey: [String: Task<Void, Never>] = [:]
-    private var idleBarriers: [CheckedContinuation<Void, Never>] = []
+    private var readyOrderingKeys: [String] = []
+    private var activeOrderingKeys: Set<String> = []
 
     init(process: AgentHookDeliveryProcess = AgentHookDeliveryProcess()) {
         self.init { event in
@@ -22,36 +19,58 @@ actor AgentHookDeliveryQueue {
         }
     }
 
-    init(delivery: @escaping Delivery) {
-        let pair = AsyncStream.makeStream(
-            of: Admission.self,
-            bufferingPolicy: .bufferingOldest(4_096)
+    /// Builds a queue whose defaults retain at most eight validated events:
+    /// four actor-resident events and four events in synchronous ingress.
+    /// The event validator's payload and environment limits therefore also
+    /// place a finite byte bound on the complete accepted backlog.
+    init(
+        maximumConcurrentDeliveries: Int = 4,
+        maximumResidentEvents: Int = 4,
+        maximumIngressEvents: Int = 4,
+        delivery: @escaping Delivery
+    ) {
+        precondition(maximumConcurrentDeliveries > 0)
+        precondition(maximumResidentEvents >= maximumConcurrentDeliveries)
+        precondition(maximumIngressEvents > 0)
+
+        let admissionPair = AsyncStream.makeStream(
+            of: AgentHookDeliveryEvent.self,
+            bufferingPolicy: .bufferingOldest(maximumIngressEvents)
         )
-        admissionContinuation = pair.continuation
+        let capacityPair = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .bufferingOldest(maximumResidentEvents)
+        )
+        admissionContinuation = admissionPair.continuation
+        capacityContinuation = capacityPair.continuation
         self.delivery = delivery
-        admissionTask = Task { [weak self, stream = pair.stream] in
-            for await admission in stream {
-                guard let self else { return }
-                await self.accept(admission)
+        self.maximumConcurrentDeliveries = maximumConcurrentDeliveries
+
+        for _ in 0..<maximumResidentEvents {
+            capacityPair.continuation.yield(())
+        }
+
+        admissionTask = Task {
+            [weak self, admissionStream = admissionPair.stream, capacityStream = capacityPair.stream] in
+            var admissionIterator = admissionStream.makeAsyncIterator()
+            for await _ in capacityStream {
+                // Reserve actor capacity before removing an event from bounded ingress.
+                guard let event = await admissionIterator.next(), let self else { return }
+                await self.accept(event)
             }
         }
     }
 
     deinit {
         admissionContinuation.finish()
-        admissionTask.cancel()
-        for task in drainTasksByOrderingKey.values {
-            task.cancel()
-        }
-        for barrier in idleBarriers {
-            barrier.resume()
-        }
+        capacityContinuation.finish()
+        admissionTask?.cancel()
     }
 
-    /// Synchronously transfers ownership to the actor's admission stream. The
-    /// socket can acknowledge immediately after this returns true.
+    /// Synchronously transfers ownership to bounded ingress. The socket can
+    /// acknowledge immediately after this returns true; false fails open.
     nonisolated func enqueue(_ event: AgentHookDeliveryEvent) -> Bool {
-        switch admissionContinuation.yield(.event(event)) {
+        switch admissionContinuation.yield(event) {
         case .enqueued:
             return true
         case .dropped, .terminated:
@@ -61,53 +80,37 @@ actor AgentHookDeliveryQueue {
         }
     }
 
-    /// Waits until every delivery admitted before this call has finished.
-    func waitUntilIdle() async {
-        await withCheckedContinuation { continuation in
-            switch admissionContinuation.yield(.barrier(continuation)) {
-            case .enqueued:
-                break
-            case .dropped, .terminated:
-                continuation.resume()
-            @unknown default:
-                continuation.resume()
+    private func accept(_ event: AgentHookDeliveryEvent) {
+        let orderingKey = event.orderingKey
+        pendingByOrderingKey[orderingKey, default: []].append(event)
+        if !activeOrderingKeys.contains(orderingKey), !readyOrderingKeys.contains(orderingKey) {
+            readyOrderingKeys.append(orderingKey)
+        }
+        startReadyDeliveries()
+    }
+
+    private func startReadyDeliveries() {
+        while activeOrderingKeys.count < maximumConcurrentDeliveries,
+              let orderingKey = readyOrderingKeys.first {
+            readyOrderingKeys.removeFirst()
+            guard let event = takeNextEvent(orderingKey: orderingKey) else { continue }
+            activeOrderingKeys.insert(orderingKey)
+            let delivery = self.delivery
+            Task { [weak self] in
+                await delivery(event)
+                await self?.deliveryFinished(orderingKey: orderingKey)
             }
         }
     }
 
-    private func accept(_ admission: Admission) {
-        switch admission {
-        case .event(let event):
-            let orderingKey = event.orderingKey
-            pendingByOrderingKey[orderingKey, default: []].append(event)
-            guard drainTasksByOrderingKey[orderingKey] == nil else { return }
-            drainTasksByOrderingKey[orderingKey] = Task { [weak self] in
-                await self?.drain(orderingKey: orderingKey)
-            }
-        case .barrier(let continuation):
-            if pendingByOrderingKey.isEmpty, drainTasksByOrderingKey.isEmpty {
-                continuation.resume()
-            } else {
-                idleBarriers.append(continuation)
-            }
-        }
-    }
-
-    private func drain(orderingKey: String) async {
-        while !Task.isCancelled, let event = takeNextEvent(orderingKey: orderingKey) {
-            await delivery(event)
-        }
-        drainTasksByOrderingKey.removeValue(forKey: orderingKey)
+    private func deliveryFinished(orderingKey: String) {
+        guard activeOrderingKeys.remove(orderingKey) != nil else { return }
+        // Return exactly the resident-capacity permit reserved before acceptance.
+        capacityContinuation.yield(())
         if pendingByOrderingKey[orderingKey]?.isEmpty == false {
-            drainTasksByOrderingKey[orderingKey] = Task { [weak self] in
-                await self?.drain(orderingKey: orderingKey)
-            }
-            return
+            readyOrderingKeys.append(orderingKey)
         }
-        guard pendingByOrderingKey.isEmpty, drainTasksByOrderingKey.isEmpty else { return }
-        let barriers = idleBarriers
-        idleBarriers.removeAll(keepingCapacity: true)
-        barriers.forEach { $0.resume() }
+        startReadyDeliveries()
     }
 
     private func takeNextEvent(orderingKey: String) -> AgentHookDeliveryEvent? {

@@ -5,61 +5,91 @@ import Testing
 struct AgentHookDeliveryQueueTests {
     @Test("Queue admission returns while downstream delivery is blocked")
     func enqueueDoesNotWaitForDelivery() async throws {
-        let probe = AgentHookDeliveryTestProbe(blockedPayload: "first")
+        let probe = AgentHookDeliveryTestProbe(blockedPayloads: ["first"])
         let queue = AgentHookDeliveryQueue { event in
             await probe.deliver(event)
         }
-        let event = try makeEvent(payload: "first", surfaceID: "surface-a")
 
-        #expect(queue.enqueue(event))
-        let started = await probe.waitUntilStarted(count: 1)
-        #expect(started)
+        #expect(queue.enqueue(try makeEvent(payload: "first", surfaceID: "surface-a")))
+        await probe.waitUntilStarted(count: 1)
         #expect(await probe.completedPayloads().isEmpty)
+        #expect(queue.enqueue(try makeEvent(payload: "second", surfaceID: "surface-a")))
 
-        await probe.releaseBlockedDelivery()
-        await queue.waitUntilIdle()
-        #expect(await probe.completedPayloads() == ["first"])
+        await probe.release(payload: "first")
+        await probe.waitUntilCompleted(count: 2)
+        #expect(await probe.completedPayloads() == ["first", "second"])
+    }
+
+    @Test("Admission rejects overflow while delivery is blocked and recovers after capacity returns")
+    func admissionIsBoundedAcrossIngressAndResidentEvents() async throws {
+        let probe = AgentHookDeliveryTestProbe(blockedPayloads: ["first"])
+        let queue = AgentHookDeliveryQueue(
+            maximumConcurrentDeliveries: 1,
+            maximumResidentEvents: 1,
+            maximumIngressEvents: 1
+        ) { event in
+            await probe.deliver(event)
+        }
+
+        #expect(queue.enqueue(try makeEvent(payload: "first", surfaceID: "surface-a")))
+        await probe.waitUntilStarted(count: 1)
+        #expect(queue.enqueue(try makeEvent(payload: "second", surfaceID: "surface-b")))
+        #expect(!queue.enqueue(try makeEvent(payload: "overflow", surfaceID: "surface-c")))
+
+        await probe.release(payload: "first")
+        await probe.waitUntilCompleted(count: 2)
+        #expect(queue.enqueue(try makeEvent(payload: "after-capacity", surfaceID: "surface-c")))
+        await probe.waitUntilCompleted(count: 3)
+        #expect(await probe.completedPayloads().contains("after-capacity"))
     }
 
     @Test("Events in one delivery lane remain FIFO")
     func sameLaneDeliveryIsFIFO() async throws {
-        let probe = AgentHookDeliveryTestProbe(blockedPayload: "first")
+        let probe = AgentHookDeliveryTestProbe(blockedPayloads: ["first"])
         let queue = AgentHookDeliveryQueue { event in
             await probe.deliver(event)
         }
 
         #expect(queue.enqueue(try makeEvent(payload: "first", surfaceID: "surface-a")))
         #expect(queue.enqueue(try makeEvent(payload: "second", surfaceID: "surface-a")))
-        let firstStarted = await probe.waitUntilStarted(count: 1)
-        #expect(firstStarted)
+        await probe.waitUntilStarted(count: 1)
+        #expect(await probe.startedPayloads() == ["first"])
 
-        await probe.releaseBlockedDelivery()
-        await queue.waitUntilIdle()
+        await probe.release(payload: "first")
+        await probe.waitUntilCompleted(count: 2)
         #expect(await probe.startedPayloads() == ["first", "second"])
         #expect(await probe.completedPayloads() == ["first", "second"])
     }
 
-    @Test("Independent delivery lanes drain concurrently")
-    func differentSurfaceProgressesWhileFirstLaneIsBlocked() async throws {
-        let probe = AgentHookDeliveryTestProbe(blockedPayload: "first")
-        let queue = AgentHookDeliveryQueue { event in
+    @Test("Global delivery concurrency is capped and queued lanes progress when a slot frees")
+    func globalConcurrencyLimitQueuesDistinctLanes() async throws {
+        let payloads = (1...6).map { "event-\($0)" }
+        let probe = AgentHookDeliveryTestProbe(blockedPayloads: Set(payloads))
+        let queue = AgentHookDeliveryQueue(
+            maximumConcurrentDeliveries: 4,
+            maximumResidentEvents: 6,
+            maximumIngressEvents: 6
+        ) { event in
             await probe.deliver(event)
         }
 
-        #expect(queue.enqueue(try makeEvent(payload: "first", surfaceID: "surface-a")))
-        let firstStarted = await probe.waitUntilStarted(count: 1)
-        #expect(firstStarted)
-        #expect(queue.enqueue(try makeEvent(payload: "other", surfaceID: "surface-b")))
-        let bothStarted = await probe.waitUntilStarted(count: 2)
-        #expect(bothStarted)
-        let otherCompleted = await probe.waitUntilCompleted(count: 1)
-        #expect(otherCompleted)
-        #expect(await probe.startedPayloads().contains("other"))
-        #expect(await probe.completedPayloads() == ["other"])
+        for (index, payload) in payloads.enumerated() {
+            #expect(queue.enqueue(try makeEvent(payload: payload, surfaceID: "surface-\(index)")))
+        }
+        await probe.waitUntilStarted(count: 4)
+        #expect(await probe.startedPayloads().count == 4)
+        #expect(await probe.maximumConcurrentDeliveryCount() == 4)
 
-        await probe.releaseBlockedDelivery()
-        await queue.waitUntilIdle()
-        #expect(Set(await probe.completedPayloads()) == Set(["first", "other"]))
+        let firstStarted = try #require(await probe.startedPayloads().first)
+        await probe.release(payload: firstStarted)
+        await probe.waitUntilStarted(count: 5)
+        #expect(await probe.maximumConcurrentDeliveryCount() == 4)
+
+        for payload in payloads {
+            await probe.release(payload: payload)
+        }
+        await probe.waitUntilCompleted(count: payloads.count)
+        #expect(await probe.maximumConcurrentDeliveryCount() == 4)
     }
 
     @Test("Delivery routing rejects decision hooks and preserves lane identity")
@@ -118,30 +148,52 @@ struct AgentHookDeliveryQueueTests {
 }
 
 private actor AgentHookDeliveryTestProbe {
-    private let blockedPayload: String
+    private let blockedPayloads: Set<String>
+    private var releasedPayloads: Set<String> = []
     private var started: [String] = []
     private var completed: [String] = []
-    private var blockedContinuation: CheckedContinuation<Void, Never>?
-    private var releaseRequested = false
+    private var activeDeliveryCount = 0
+    private var maximumActiveDeliveryCount = 0
+    private var blockedContinuations: [String: CheckedContinuation<Void, Never>] = [:]
+    private var startedWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var completedWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
-    init(blockedPayload: String) {
-        self.blockedPayload = blockedPayload
+    init(blockedPayloads: Set<String>) {
+        self.blockedPayloads = blockedPayloads
     }
 
     func deliver(_ event: AgentHookDeliveryEvent) async {
         started.append(event.payload)
-        if event.payload == blockedPayload, !releaseRequested {
+        activeDeliveryCount += 1
+        maximumActiveDeliveryCount = max(maximumActiveDeliveryCount, activeDeliveryCount)
+        resumeStartedWaiters()
+        if blockedPayloads.contains(event.payload), !releasedPayloads.contains(event.payload) {
             await withCheckedContinuation { continuation in
-                blockedContinuation = continuation
+                blockedContinuations[event.payload] = continuation
             }
         }
         completed.append(event.payload)
+        activeDeliveryCount -= 1
+        resumeCompletedWaiters()
     }
 
-    func releaseBlockedDelivery() {
-        releaseRequested = true
-        blockedContinuation?.resume()
-        blockedContinuation = nil
+    func release(payload: String) {
+        releasedPayloads.insert(payload)
+        blockedContinuations.removeValue(forKey: payload)?.resume()
+    }
+
+    func waitUntilStarted(count: Int) async {
+        guard started.count < count else { return }
+        await withCheckedContinuation { continuation in
+            startedWaiters.append((count: count, continuation: continuation))
+        }
+    }
+
+    func waitUntilCompleted(count: Int) async {
+        guard completed.count < count else { return }
+        await withCheckedContinuation { continuation in
+            completedWaiters.append((count: count, continuation: continuation))
+        }
     }
 
     func startedPayloads() -> [String] {
@@ -152,21 +204,23 @@ private actor AgentHookDeliveryTestProbe {
         completed
     }
 
-    func waitUntilStarted(count: Int) async -> Bool {
-        await waitUntil { started.count >= count }
+    func maximumConcurrentDeliveryCount() -> Int {
+        maximumActiveDeliveryCount
     }
 
-    func waitUntilCompleted(count: Int) async -> Bool {
-        await waitUntil { completed.count >= count }
-    }
-
-    private func waitUntil(_ predicate: () -> Bool) async -> Bool {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(2))
-        while clock.now < deadline {
-            if predicate() { return true }
-            try? await clock.sleep(for: .milliseconds(10))
+    private func resumeStartedWaiters() {
+        let satisfied = startedWaiters.filter { started.count >= $0.count }
+        startedWaiters.removeAll { started.count >= $0.count }
+        for waiter in satisfied {
+            waiter.continuation.resume()
         }
-        return predicate()
+    }
+
+    private func resumeCompletedWaiters() {
+        let satisfied = completedWaiters.filter { completed.count >= $0.count }
+        completedWaiters.removeAll { completed.count >= $0.count }
+        for waiter in satisfied {
+            waiter.continuation.resume()
+        }
     }
 }
