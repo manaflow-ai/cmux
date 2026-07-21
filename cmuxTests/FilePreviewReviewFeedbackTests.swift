@@ -443,7 +443,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: destination, encoding: .utf8), "after")
     }
 
-    func testTextSaverRejectsOversizedContentWithoutReplacingExistingFile() throws {
+    func testTextSaverAllowsOrdinaryFileToGrowBeyondPreviewLoadLimit() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("txt")
@@ -454,12 +454,35 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
             count: Int(FilePreviewTextLoader.maximumLoadedTextBytes) + 1
         )
 
-        guard case .failed(let fileExists) = FilePreviewTextSaver.saveSynchronously(
+        guard case .saved = FilePreviewTextSaver.saveSynchronously(
             content: oversized,
             to: url,
             encoding: .utf8
         ) else {
-            XCTFail("Expected oversized text save to fail")
+            XCTFail("Expected an ordinary text file to save beyond the preview load limit")
+            return
+        }
+
+        XCTAssertEqual(
+            try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+            oversized.utf8.count
+        )
+    }
+
+    func testManagedNoteWriterRejectsOversizedContentWithoutReplacingExistingFile() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("md")
+        try "original".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let oversized = String(
+            repeating: "x",
+            count: Int(FilePreviewTextLoader.maximumLoadedTextBytes) + 1
+        )
+        let writer = WorkspaceFloatingDockNoteWriter(fileURL: url)
+
+        guard case .failed(let fileExists) = writer.saveSynchronously(content: oversized) else {
+            XCTFail("Expected an oversized managed note save to fail")
             return
         }
 

@@ -163,6 +163,57 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testFloatingDockTerminalRestoreUsesPersistedWorkspaceIDForRemotePTYFallback() throws {
+        let source = Workspace()
+        defer { source.teardownAllPanels() }
+        source.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "floating-host",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64008,
+                relayID: String(repeating: "c", count: 16),
+                relayToken: String(repeating: "d", count: 64),
+                localSocketPath: "/tmp/cmux-floating-restore-test.sock",
+                terminalStartupCommand: "ssh-pty-attach",
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "floating-restore"
+            ),
+            autoConnect: false
+        )
+        _ = try XCTUnwrap(source.createFloatingDock(initialContent: .terminal))
+
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let persistedWorkspaceID = try XCTUnwrap(snapshot.workspaceId)
+        var floatingDocks = try XCTUnwrap(snapshot.floatingDocks)
+        var content = try XCTUnwrap(floatingDocks[0].content)
+        let terminalIndex = try XCTUnwrap(content.surfaces.firstIndex(where: { $0.kind == .terminal }))
+        let persistedPanelID = content.surfaces[terminalIndex].id
+        content.surfaces[terminalIndex].terminal?.isRemoteTerminal = true
+        content.surfaces[terminalIndex].terminal?.remotePTYSessionID = nil
+        floatingDocks[0].content = content
+        snapshot.floatingDocks = floatingDocks
+
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredDock = try XCTUnwrap(restored.floatingDocks.first)
+        let restoredTransfer = try XCTUnwrap(
+            restoredDock.store.detachedSurfaceTransfersByPanelId.values.first
+        )
+        XCTAssertEqual(
+            restoredTransfer.remotePTYSessionID,
+            Workspace.defaultSSHPTYSessionID(
+                workspaceId: persistedWorkspaceID,
+                panelId: persistedPanelID
+            )
+        )
+    }
+
+    @MainActor
     func testFloatingDockCloseRefusesToDiscardFailedNoteAutosave() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-floating-close-autosave-\(UUID().uuidString)", isDirectory: true)
@@ -439,6 +490,44 @@ final class SessionPersistenceTests: XCTestCase {
         ])
         XCTAssertEqual(workspace.floatingDocks.count, 2)
         XCTAssertEqual(workspace.floatingDocks.reduce(0) { $0 + $1.store.panels.count }, 128)
+    }
+
+    @MainActor
+    func testFloatingDockRuntimeRejectsPanelsBeyondPersistedBudget() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-runtime-budget-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = try XCTUnwrap(workspace.createFloatingDock(initialContent: .note))
+        let pane = try XCTUnwrap(dock.store.bonsplitController.allPaneIds.first)
+        for index in 1..<SessionPersistencePolicy.maxFloatingDockPanelsPerWorkspace {
+            _ = try XCTUnwrap(dock.store.newSurface(
+                kind: .note,
+                inPane: pane,
+                noteFilePath: root.appendingPathComponent("note-\(index).md").path,
+                noteTitle: "Note \(index)",
+                focus: false
+            ))
+        }
+
+        XCTAssertEqual(
+            workspace.floatingDocks.reduce(0) { $0 + $1.store.panels.count },
+            SessionPersistencePolicy.maxFloatingDockPanelsPerWorkspace
+        )
+        XCTAssertNil(dock.store.newSurface(
+            kind: .note,
+            inPane: pane,
+            noteFilePath: root.appendingPathComponent("overflow.md").path,
+            noteTitle: "Overflow",
+            focus: false
+        ))
+        XCTAssertEqual(
+            workspace.floatingDockSessionSnapshots()?.flatMap { $0.content?.surfaces ?? [] }.count,
+            SessionPersistencePolicy.maxFloatingDockPanelsPerWorkspace
+        )
     }
 
     @MainActor
