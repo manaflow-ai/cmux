@@ -6,9 +6,34 @@ import Testing
 struct ToastCenterTests {
     private func makeCenter() -> (ToastCenter, ManualClock) {
         let clock = ManualClock()
-        let center = ToastCenter(clock: clock)
+        let center = ToastCenter(
+            clock: clock,
+            defaults: UserDefaults(suiteName: "toast-tests-\(UUID().uuidString)")!
+        )
+        center.isEnabled = true
         center.prefersExtendedDwell = { false }
         return (center, clock)
+    }
+
+    @Test func disabledCenterDropsEveryPresent() {
+        let clock = ManualClock()
+        let center = ToastCenter(
+            clock: clock,
+            defaults: UserDefaults(suiteName: "toast-tests-\(UUID().uuidString)")!
+        )
+        // Off by default (beta flag).
+        #expect(center.isEnabled == false)
+        center.present(.success("dropped"))
+        #expect(center.presented == nil)
+        #expect(center.queue.isEmpty)
+
+        center.isEnabled = true
+        center.present(.success("shown"))
+        #expect(center.presented?.toast.message == "shown")
+
+        // Turning the flag off clears anything on screen.
+        center.isEnabled = false
+        #expect(center.presented == nil)
     }
 
     /// Yields until `condition` holds, so a task spawned by the center can

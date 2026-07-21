@@ -162,6 +162,10 @@ struct WorkspaceShellView: View {
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
     @Environment(ToastCenter.self) var toasts
+    /// Legacy fallback while the Toasts beta flag is off: the old dismissible
+    /// bottom banner for workspace-action failures.
+    @State var workspaceActionToast: WorkspaceActionToastContent?
+    var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
     @State private var isTaskComposerPresented = false
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
@@ -270,9 +274,23 @@ struct WorkspaceShellView: View {
     }
 
     private func workspaceTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
-        // Workspace-action failures surface through the app-wide toast layer
-        // (ToastCenter); no local toast mount here anymore.
-        layoutContent(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
+        // With the Toasts beta flag on, failures surface through the app-wide
+        // toast layer; the legacy bottom banner below only ever receives
+        // content while the flag is off.
+        ZStack(alignment: .bottom) {
+            layoutContent(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
+            if let workspaceActionToast {
+                WorkspaceActionToast(
+                    content: workspaceActionToast,
+                    clock: workspaceActionToastClock,
+                    dismiss: dismissWorkspaceActionToast
+                )
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .accessibilityIdentifier("MobileWorkspaceActionToast")
+            }
+        }
     }
 
     private func layoutContent(canCreateWorkspaceForSelection: Bool) -> some View {

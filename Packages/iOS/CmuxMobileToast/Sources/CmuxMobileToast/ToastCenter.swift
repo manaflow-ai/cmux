@@ -25,6 +25,25 @@ public final class ToastCenter {
 
     public private(set) var presented: Presented?
 
+    /// Beta gate: while false (the default), `present(_:)` drops every toast
+    /// so the app behaves as if the system doesn't exist. Persisted, and
+    /// surfaced as the "Toasts" toggle under Settings → Beta Features.
+    /// Call sites with a legacy surface (the old workspace-action banner,
+    /// chat error banner, copy-button morph) branch on this to fall back.
+    public var isEnabled: Bool {
+        didSet {
+            guard oldValue != isEnabled else { return }
+            defaults.set(isEnabled, forKey: Self.enabledDefaultsKey)
+            if !isEnabled {
+                dismissAll()
+            }
+        }
+    }
+
+    public static let enabledDefaultsKey = "cmux.toasts.betaEnabled"
+
+    @ObservationIgnored private let defaults: UserDefaults
+
     /// Toasts waiting behind the visible one, oldest first. Capped: a burst
     /// of notices drops the oldest queued toast rather than backing up into
     /// a stale parade.
@@ -45,8 +64,21 @@ public final class ToastCenter {
     /// next arrival.
     static let interToastGap: Duration = .milliseconds(260)
 
-    public init(clock: any Clock<Duration> = ContinuousClock()) {
+    public init(
+        clock: any Clock<Duration> = ContinuousClock(),
+        defaults: UserDefaults = .standard
+    ) {
         self.clock = clock
+        self.defaults = defaults
+        var enabled = defaults.bool(forKey: Self.enabledDefaultsKey)
+        #if DEBUG
+        // The env-gated gallery harness exists to exercise toasts; a dark
+        // default there would make every gallery run a silent no-op.
+        if ProcessInfo.processInfo.environment["CMUX_TOAST_GALLERY"] == "1" {
+            enabled = true
+        }
+        #endif
+        self.isEnabled = enabled
         #if os(iOS)
         prefersExtendedDwell = {
             UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning
@@ -58,8 +90,10 @@ public final class ToastCenter {
 
     /// Present a toast: shows it now if nothing is visible, refreshes and
     /// re-bumps the visible toast when the ``Toast/coalescingKey`` matches,
-    /// and queues (FIFO, capped) otherwise.
+    /// and queues (FIFO, capped) otherwise. Dropped while ``isEnabled`` is
+    /// false (the beta flag is off).
     public func present(_ toast: Toast) {
+        guard isEnabled else { return }
         if let current = presented, current.toast.coalescingKey == toast.coalescingKey {
             presented = Presented(
                 toast: toast.adoptingIdentity(of: current.toast),

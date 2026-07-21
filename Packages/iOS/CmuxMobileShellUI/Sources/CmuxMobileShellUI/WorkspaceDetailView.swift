@@ -601,12 +601,16 @@ struct WorkspaceDetailView: View {
             switch outcome {
             case .sentToAgent, .emailed:
                 isFeedbackComposerPresented = false
-                // The toast supplies the success haptic; presenting after the
-                // composer dismisses keeps it as the single confirmation.
-                toasts.present(.success(L10n.string(
-                    "mobile.feedback.sentToast",
-                    defaultValue: "Feedback sent"
-                )))
+                if toasts.isEnabled {
+                    // The toast supplies the success haptic; presenting after
+                    // the composer dismisses keeps it the single confirmation.
+                    toasts.present(.success(L10n.string(
+                        "mobile.feedback.sentToast",
+                        defaultValue: "Feedback sent"
+                    )))
+                } else {
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                }
             case .failed:
                 UINotificationFeedbackGenerator().notificationOccurred(.error)
                 feedbackErrorMessage = L10n.string(

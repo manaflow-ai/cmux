@@ -120,8 +120,12 @@ struct ChatBlockDetailSheetView: View {
         guard !detail.copyText.isEmpty else { return }
         #if canImport(UIKit)
         UIPasteboard.general.string = detail.copyText
-        // The toast supplies the confirmation haptic.
-        toasts.present(.copied())
+        if toasts.isEnabled {
+            // The toast supplies the confirmation haptic.
+            toasts.present(.copied())
+        } else {
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        }
         #elseif canImport(AppKit)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(detail.copyText, forType: .string)

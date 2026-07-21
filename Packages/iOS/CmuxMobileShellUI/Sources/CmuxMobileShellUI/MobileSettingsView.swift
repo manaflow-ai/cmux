@@ -49,6 +49,7 @@ struct MobileSettingsView: View {
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
+        @Bindable var toasts = toasts
         return NavigationStack {
             Form {
                 MobileSettingsAccountSection(signOut: signOut)
@@ -189,6 +190,14 @@ struct MobileSettingsView: View {
                         ))
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalFilesChip")
+
+                    Toggle(isOn: $toasts.isEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.beta.toasts",
+                            defaultValue: "Toasts"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsToastsEnabled")
                 }
 
                 #if DEBUG

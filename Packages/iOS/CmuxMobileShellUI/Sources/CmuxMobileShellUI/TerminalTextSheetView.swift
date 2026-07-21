@@ -29,6 +29,10 @@ struct TerminalTextSheetView: View {
     /// read is in flight.
     @State private var snapshot: TerminalTextSnapshot?
     @State private var isLoading = true
+    /// Legacy fallback while the Toasts beta flag is off: flips the Copy All
+    /// label to a checkmark after a copy. Reset is the next presentation
+    /// (fresh `@State`), so no timer is needed.
+    @State private var didCopy = false
 
     var body: some View {
         NavigationStack {
@@ -75,7 +79,14 @@ struct TerminalTextSheetView: View {
 
     private var copyAllButton: some View {
         Button(action: copyAll) {
-            Text(L10n.string("mobile.textSheet.copyAll", defaultValue: "Copy All"))
+            if didCopy {
+                Label(
+                    L10n.string("mobile.textSheet.copied", defaultValue: "Copied"),
+                    systemImage: "checkmark"
+                )
+            } else {
+                Text(L10n.string("mobile.textSheet.copyAll", defaultValue: "Copy All"))
+            }
         }
         .disabled(snapshot?.text.isEmpty ?? true)
         .accessibilityIdentifier("MobileTerminalTextCopyAllButton")
@@ -118,8 +129,13 @@ struct TerminalTextSheetView: View {
     private func copyAll() {
         guard let text = snapshot?.text, !text.isEmpty else { return }
         UIPasteboard.general.string = text
-        // The app-wide copy toast confirms (and supplies the haptic).
-        toasts.present(.copied())
+        if toasts.isEnabled {
+            // The app-wide copy toast confirms (and supplies the haptic).
+            toasts.present(.copied())
+        } else {
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            didCopy = true
+        }
     }
 }
 #endif

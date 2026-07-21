@@ -28,14 +28,39 @@ extension WorkspaceShellView {
         action: WorkspaceActionToastAction
     ) {
         guard case let .failure(failure) = result else { return }
+        let title = Self.workspaceActionFailureTitle(action: action)
+        let reason = Self.workspaceActionFailureReasonText(failure)
+        guard toasts.isEnabled else {
+            // Toasts beta off: the legacy dismissible bottom banner, with the
+            // same title and reason joined into its single-line message.
+            withAnimation(.snappy(duration: 0.2)) {
+                workspaceActionToast = WorkspaceActionToastContent(
+                    message: String.localizedStringWithFormat(
+                        L10n.string(
+                            "mobile.workspaceAction.failure.legacyFormat",
+                            defaultValue: "%1$@: %2$@"
+                        ),
+                        title,
+                        reason
+                    )
+                )
+            }
+            return
+        }
         toasts.present(.failure(
-            Self.workspaceActionFailureReasonText(failure),
-            title: Self.workspaceActionFailureTitle(action: action),
+            reason,
+            title: title,
             // One key per action: a repeat of the same failed action re-bumps
             // the visible toast (even if the reason changed) instead of
             // queueing near-duplicates.
             coalescingKey: "workspaceAction.failure.\(action)"
         ))
+    }
+
+    func dismissWorkspaceActionToast() {
+        withAnimation(.snappy(duration: 0.2)) {
+            workspaceActionToast = nil
+        }
     }
 
     /// The toast's bold first line ("Couldn't rename workspace"). Static so

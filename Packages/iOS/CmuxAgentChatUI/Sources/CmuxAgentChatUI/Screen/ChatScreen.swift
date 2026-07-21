@@ -68,7 +68,17 @@ public struct ChatScreen: View {
     }
 
     public var body: some View {
-        chatLayout
+        ZStack(alignment: .top) {
+            chatLayout
+            // Legacy fallback while the Toasts beta flag is off: the inline
+            // error banner below the navigation bar (see errorBanner for the
+            // layering rationale). With the flag on, errors surface through
+            // the app-wide toast layer instead.
+            if !toasts.isEnabled {
+                errorBanner
+            }
+        }
+        .animation(.snappy(duration: 0.2), value: store.lastErrorDescription)
         .animation(.snappy(duration: 0.22), value: store.agentState == .ended)
         .modifier(ChatScreenChrome(
             store: store,
@@ -94,13 +104,15 @@ public struct ChatScreen: View {
             guard runsStoreTask else { return }
             await store.run()
         }
-        // Errors surface through the app-wide toast layer. Presenting hands
-        // display ownership to the ToastCenter, and clearing the store state
-        // immediately lets an identical follow-up error re-fire this bridge.
-        // One coalescing key per conversation store: a newer error replaces
-        // and re-bumps the visible one instead of queueing stale errors.
+        // With the Toasts beta flag on, errors surface through the app-wide
+        // toast layer. Presenting hands display ownership to the ToastCenter,
+        // and clearing the store state immediately lets an identical
+        // follow-up error re-fire this bridge. One coalescing key per
+        // conversation store: a newer error replaces and re-bumps the visible
+        // one instead of queueing stale errors. With the flag off, the store
+        // state stays put and drives the legacy inline banner.
         .onChange(of: store.lastErrorDescription) { _, error in
-            guard let error else { return }
+            guard toasts.isEnabled, let error else { return }
             toasts.present(.failure(
                 error,
                 coalescingKey: "chat.conversation.error.\(ObjectIdentifier(store))"
@@ -109,7 +121,39 @@ public struct ChatScreen: View {
         }
         #if canImport(UIKit)
         .onChange(of: store.rows.last?.id) { announceLatestAgentProse() }
+        .onChange(of: store.lastErrorDescription) { announceLastError() }
         #endif
+    }
+
+    @ViewBuilder
+    private var errorBanner: some View {
+        if let error = store.lastErrorDescription {
+            Text(error)
+                .font(.caption)
+                .foregroundStyle(.white)
+                .lineLimit(2)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.red.opacity(0.92), in: .capsule)
+                .padding(.top, 4)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .accessibilityIdentifier("ChatErrorBanner")
+                .onTapGesture { store.dismissError() }
+                // Swipe the banner up to dismiss, in addition to tap and the
+                // bounded auto-dismiss below.
+                .gesture(
+                    DragGesture(minimumDistance: 8)
+                        .onEnded { value in
+                            if value.translation.height < -8 { store.dismissError() }
+                        }
+                )
+                // Bounded auto-dismiss: the view is keyed on the error text,
+                // so a new error restarts the timer subscription.
+                .id(error)
+                .onReceive(Timer.publish(every: 8, on: .main, in: .common).autoconnect()) { _ in
+                    store.dismissError()
+                }
+        }
     }
 
     private var artifactIsPresented: Binding<Bool> {
@@ -196,6 +240,16 @@ public struct ChatScreen: View {
               case .prose(let prose) = snapshot.message.kind
         else { return }
         AccessibilityNotification.Announcement(prose.text).post()
+    }
+
+    /// Speaks the legacy error banner's text when an error surfaces while the
+    /// Toasts beta flag is off (the toast layer announces its own toasts).
+    private func announceLastError() {
+        guard !toasts.isEnabled,
+              UIAccessibility.isVoiceOverRunning,
+              let error = store.lastErrorDescription
+        else { return }
+        AccessibilityNotification.Announcement(error).post()
     }
     #endif
 
