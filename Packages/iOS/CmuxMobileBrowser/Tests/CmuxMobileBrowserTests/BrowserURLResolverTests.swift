@@ -72,6 +72,12 @@ import Testing
         #expect(url?.absoluteString == oauthURL)
     }
 
+    @Test func wrappedTextCannotConstructADifferentAuthority() {
+        let input = "https://trusted.example\n@evil.example/path"
+
+        #expect(BrowserURLResolver.resolve(input)?.host == "duckduckgo.com")
+    }
+
     @Test func httpSchemeIsPreserved() {
         let url = BrowserURLResolver.resolve("http://example.com")
         #expect(url?.scheme == "http")

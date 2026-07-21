@@ -77,6 +77,13 @@ import Testing
         #expect(resolver.navigableURL(from: "go\nexample.com/path") == nil)
     }
 
+    @Test func doesNotCompactTextThatConstructsADifferentAuthority() {
+        let input = "https://trusted.example\n@evil.example/path"
+
+        #expect(resolver.textForPaste(input) == input)
+        #expect(resolver.navigableURL(from: input) == nil)
+    }
+
     @Test func preservesExistingNavigationAndSearchBoundaries() throws {
         #expect(try #require(resolver.navigableURL(from: "localhost:3000")).absoluteString == "http://localhost:3000")
         #expect(
@@ -91,12 +98,13 @@ import Testing
         #expect(resolver.navigableURL(from: "node.js\ttutorial") == nil)
     }
 
-    @Test func onlyExactLoopbackHostsDefaultToHTTP() throws {
+    @Test func onlyLoopbackHostsDefaultToHTTP() throws {
         #expect(try #require(resolver.navigableURL(from: "localhost:3000")).scheme == "http")
         #expect(try #require(resolver.navigableURL(from: "dev.localhost:3000")).scheme == "http")
         #expect(try #require(resolver.navigableURL(from: "[::1]:3000")).scheme == "http")
+        #expect(try #require(resolver.navigableURL(from: "127.0.0.10:3000")).scheme == "http")
         #expect(try #require(resolver.navigableURL(from: "localhost.evil.com")).scheme == "https")
-        #expect(try #require(resolver.navigableURL(from: "127.0.0.10")).scheme == "https")
+        #expect(try #require(resolver.navigableURL(from: "127.0.0.1.evil.com")).scheme == "https")
     }
 
     @Test func preservesSupportedAndRejectedSchemes() throws {
