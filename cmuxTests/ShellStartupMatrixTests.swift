@@ -189,6 +189,62 @@ struct ShellStartupMatrixTests {
         expectEqual(result.resumeMarker, "resumed\n")
     }
 
+    @Test(arguments: ["zsh", "bash", "fish"])
+    func generatedSshBootstrapRunsInitialCommandOnceInSelectedSupportedShell(shellName: String) throws {
+        guard let shell = Self.supportedShellExecutable(named: shellName) else {
+            return
+        }
+
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-supported-shell-resume-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home")
+        let marker = home.appendingPathComponent(".cmux-resume-marker")
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 64_123,
+            shellFeatures: "ssh-env,ssh-terminfo",
+            initialCommand: #"printf '%s\n' "$SHELL" >> "$HOME/.cmux-resume-marker""#,
+            bundledZshIntegration: ":",
+            bundledBashIntegration: ":",
+            bundledFishIntegration: "true"
+        )
+        let arguments = [
+            "HOME=\(home.path)",
+            "SHELL=\(shell)",
+            "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
+            "TERM=xterm-256color",
+            "XDG_CONFIG_HOME=\(home.appendingPathComponent(".config").path)",
+            "/bin/sh",
+            "-c",
+            script,
+        ]
+
+        let first = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: arguments,
+            timeout: 5
+        )
+        expectEqual(first.status, 0, first.stderr)
+        expectFalse(first.timedOut, first.stderr)
+        expectEqual(try String(contentsOf: marker, encoding: .utf8), "\(shell)\n")
+
+        let reattach = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: arguments,
+            timeout: 5
+        )
+        expectEqual(reattach.status, 0, reattach.stderr)
+        expectFalse(reattach.timedOut, reattach.stderr)
+        expectEqual(
+            try String(contentsOf: marker, encoding: .utf8),
+            "\(shell)\n",
+            "The selected \(shellName) shell must consume the resume payload exactly once"
+        )
+    }
+
     @Test(arguments: ["zsh", "bash", "fish", "sh", "dash", "ksh", "tcsh", "csh"])
     func generatedSshBootstrapStartupStaysUnderPerformanceBudget(shellName: String) throws {
         let result = try runGeneratedBootstrap(shellName: shellName)
@@ -445,6 +501,21 @@ struct ShellStartupMatrixTests {
         String(format: "%.3fs", value)
     }
 
+    private static func supportedShellExecutable(named shellName: String) -> String? {
+        let candidates: [String]
+        switch shellName {
+        case "zsh":
+            candidates = ["/bin/zsh", "/usr/bin/zsh"]
+        case "bash":
+            candidates = ["/bin/bash", "/usr/bin/bash"]
+        case "fish":
+            candidates = ["/opt/homebrew/bin/fish", "/usr/local/bin/fish", "/usr/bin/fish", "/bin/fish"]
+        default:
+            return nil
+        }
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
     private func runProcess(
         executablePath: String,
         arguments: [String],
@@ -454,6 +525,7 @@ struct ShellStartupMatrixTests {
         let start = Date()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
+        process.standardInput = FileHandle.nullDevice
         let stdout = Pipe()
         let stderr = Pipe()
         process.standardOutput = stdout
