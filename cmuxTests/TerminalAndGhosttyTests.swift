@@ -5978,16 +5978,16 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
         }
     }
 
-    func testResolvesBareDomainAsEmbeddedBrowser() throws {
-        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("example.com/docs"))
-        switch target {
-        case let .embeddedBrowser(url):
-            XCTAssertEqual(url.scheme, "https")
-            XCTAssertEqual(url.host, "example.com")
-            XCTAssertEqual(url.path, "/docs")
-        default:
-            XCTFail("Expected bare domain to be normalized as an HTTPS browser URL")
+    func testSchemelessHostPathResolvesAsEmbeddedBrowser() throws {
+        guard case let .embeddedBrowser(url) = try XCTUnwrap(resolveTerminalOpenURLTarget("example.com/docs")) else {
+            return XCTFail("Expected host-like schemeless path to route to embedded browser")
         }
+        XCTAssertEqual(url.scheme, "https")
+        XCTAssertEqual(url.host, "example.com")
+        XCTAssertEqual(url.path, "/docs")
+    }
+    func testWrappedPathFragmentResolvesToNilWithRealNormalizer() {
+        ["s/pipeline-failure-state-model.md", "README.md:12"].forEach { XCTAssertNil(resolveTerminalOpenURLTarget($0)) }
     }
 
     func testResolvesFileSchemeAsExternal() throws {

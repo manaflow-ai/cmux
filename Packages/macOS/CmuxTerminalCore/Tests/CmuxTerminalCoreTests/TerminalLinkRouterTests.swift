@@ -2,26 +2,69 @@ import Foundation
 import Testing
 import CmuxTerminalCore
 
-/// A deterministic stand-in for the browser domain: hosts containing a dot or
-/// equal to localhost are navigable, and scheme-less host-ish text becomes an
-/// HTTPS URL the way the embedded browser's omnibox would treat it.
+/// A deterministic stand-in for the app normalizer, which accepts non-empty hosts.
 private struct StubHostNormalizer: BrowserHostNormalizing {
     var rejectsEveryHost = false
 
     func normalizedHost(_ rawHost: String) -> String? {
         guard !rejectsEveryHost else { return nil }
-        let trimmed = rawHost.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        var trimmed = rawHost.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !trimmed.isEmpty else { return nil }
-        guard trimmed.contains(".") || trimmed == "localhost" else { return nil }
-        return trimmed
+        if trimmed.hasPrefix("["),
+           let closing = trimmed.firstIndex(of: "]") {
+            trimmed = String(trimmed[trimmed.index(after: trimmed.startIndex)..<closing])
+        } else if let colon = trimmed.lastIndex(of: ":"),
+                  trimmed[trimmed.index(after: colon)...].allSatisfy(\.isNumber),
+                  trimmed.filter({ $0 == ":" }).count == 1 {
+            trimmed = String(trimmed[..<colon])
+        }
+        let dotted = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        return dotted.isEmpty ? nil : dotted
     }
 
     func navigableWebURL(_ input: String) -> URL? {
+        guard !rejectsEveryHost else { return nil }
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !trimmed.contains(" ") else { return nil }
-        if URL(string: trimmed)?.scheme != nil { return URL(string: trimmed) }
-        guard trimmed.contains(".") || trimmed.lowercased().hasPrefix("localhost") else { return nil }
-        return URL(string: "https://\(trimmed)")
+        let lower = trimmed.lowercased()
+        let bareHost = Self.bareHostCandidate(lower)
+        let normalizedBareHost = bareHost.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        if normalizedBareHost == "localhost" || normalizedBareHost == "127.0.0.1" ||
+            normalizedBareHost == "0.0.0.0" || lower.hasPrefix("[::1]") ||
+            normalizedBareHost.hasSuffix(".localhost") {
+            return URL(string: "http://\(trimmed)")
+        }
+        if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() {
+            if scheme == "http" || scheme == "https" { return url }
+            if scheme == "file", url.isFileURL, url.path.hasPrefix("/") { return url }
+            if Self.dottedHostWithPortCandidate(trimmed, schemeCandidate: scheme) {
+                return URL(string: "https://\(trimmed)")
+            }
+            return nil
+        }
+        if trimmed.contains(":") || trimmed.contains("/") || trimmed.contains(".") {
+            return URL(string: "https://\(trimmed)")
+        }
+        return nil
+    }
+
+    private static func bareHostCandidate(_ lowercasedInput: String) -> String {
+        let end = lowercasedInput.firstIndex { character in
+            character == ":" || character == "/" || character == "?" || character == "#"
+        } ?? lowercasedInput.endIndex
+        return String(lowercasedInput[..<end])
+    }
+
+    private static func dottedHostWithPortCandidate(_ input: String, schemeCandidate: String) -> Bool {
+        guard schemeCandidate.contains(".") else { return false }
+        guard input.count > schemeCandidate.count else { return false }
+        let afterScheme = input.dropFirst(schemeCandidate.count)
+        guard afterScheme.first == ":" else { return false }
+        let portAndRest = afterScheme.dropFirst()
+        let port = portAndRest.prefix(while: { $0.isNumber })
+        guard !port.isEmpty, UInt16(port) != nil else { return false }
+        let rest = portAndRest.dropFirst(port.count)
+        return rest.isEmpty || rest.first == "/" || rest.first == "?" || rest.first == "#"
     }
 }
 
@@ -39,15 +82,124 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         #expect(url.path == "/path")
     }
 
-    @Test func resolvesBareDomainAsEmbeddedBrowser() throws {
-        let target = try #require(router.resolveOpenURLTarget("example.com/docs"))
+    @Test func resolvesExplicitFileLikeHTTPSHostAsEmbeddedBrowser() throws {
+        let target = try #require(router.resolveOpenURLTarget("https://example.md:443"))
         guard case let .embeddedBrowser(url) = target else {
-            Issue.record("Expected bare domain to be normalized as an HTTPS browser URL")
+            Issue.record("Expected explicit HTTPS URL to route before file-line suppression")
+            return
+        }
+        #expect(url.scheme == "https")
+        #expect(url.host == "example.md")
+        #expect(url.port == 443)
+    }
+
+    @Test func schemelessHostPathResolvesAsEmbeddedBrowser() throws {
+        for (rawValue, expectedHost, expectedPath) in [
+            ("example.com/docs", "example.com", "/docs"),
+            ("0.0.0.0.evil.example/docs", "0.0.0.0.evil.example", "/docs"),
+            ("grafana/dashboard", "grafana", "/dashboard"),
+            ("grafana/dashboard.json", "grafana", "/dashboard.json"),
+            ("s/dashboard.json", "s", "/dashboard.json"),
+            ("x/app.js", "x", "/app.js"),
+            ("wiki/docs/intro.md", "wiki", "/docs/intro.md"),
+            ("gitlab/group/project/README.md", "gitlab", "/group/project/README.md"),
+        ] {
+            let target = try #require(router.resolveOpenURLTarget(rawValue))
+            guard case let .embeddedBrowser(url) = target else {
+                Issue.record("Expected host-like schemeless path to route to embedded browser")
+                return
+            }
+            #expect(url.scheme == "https")
+            #expect(url.host == expectedHost)
+            #expect(url.path == expectedPath)
+        }
+    }
+
+    @Test func schemelessDottedHostPortResolvesAsEmbeddedBrowser() throws {
+        let target = try #require(router.resolveOpenURLTarget("example.com:8443"))
+        guard case let .embeddedBrowser(url) = target else {
+            Issue.record("Expected host:port schemeless token to route to embedded browser")
             return
         }
         #expect(url.scheme == "https")
         #expect(url.host == "example.com")
-        #expect(url.path == "/docs")
+        #expect(url.port == 8443)
+    }
+
+    @Test func schemelessLoopbackPathResolvesAsHTTPEmbeddedBrowser() throws {
+        for (rawValue, expectedHost, expectedPort, expectedPath) in [
+            ("localhost:3000", "localhost", 3000, ""),
+            ("localhost:3000/docs", "localhost", 3000, "/docs"),
+            ("localhost.:3000/docs", "localhost.", 3000, "/docs"),
+            ("127.0.0.1:5173/docs", "127.0.0.1", 5173, "/docs"),
+            ("0.0.0.0:5173/docs", "0.0.0.0", 5173, "/docs"),
+            ("deep.api.localhost/docs", "deep.api.localhost", nil, "/docs"),
+            ("api.localhost.:3000/docs", "api.localhost.", 3000, "/docs"),
+        ] {
+            let target = try #require(router.resolveOpenURLTarget(rawValue))
+            guard case let .embeddedBrowser(url) = target else {
+                Issue.record("Expected loopback schemeless path to route to embedded browser")
+                return
+            }
+            #expect(url.scheme == "http")
+            #expect(url.host == expectedHost)
+            #expect(url.port == expectedPort)
+            #expect(url.path == expectedPath)
+        }
+    }
+
+    @Test func fileLineTokensDoNotResolveAsHostPorts() {
+        #expect(router.resolveOpenURLTarget("README.md:12") == nil)
+        #expect(router.resolveOpenURLTarget("README.md:443") == nil)
+        #expect(router.resolveOpenURLTarget("App.swift:42") == nil)
+        #expect(router.resolveOpenURLTarget("utils.py:42") == nil)
+        #expect(router.resolveOpenURLTarget("lib.rs:10") == nil)
+        #expect(router.resolveOpenURLTarget("foo.py:443") == nil)
+        #expect(router.resolveOpenURLTarget("changelog.md:443") == nil)
+        #expect(router.resolveOpenURLTarget("build.rs:8080") == nil)
+        #expect(router.resolveOpenURLTarget("script.sh:1024") == nil)
+        #expect(router.resolveOpenURLTarget("main.swift:42") == nil)
+        #expect(router.resolveOpenURLTarget("main.swift:443") == nil)
+        #expect(router.resolveOpenURLTarget("index.ts:3000") == nil)
+        #expect(router.resolveOpenURLTarget("server.go:8080") == nil)
+        #expect(router.resolveOpenURLTarget("src/main.swift:3000") == nil)
+        #expect(router.resolveOpenURLTarget("Sources/App.swift:8080") == nil)
+        #expect(router.resolveOpenURLTarget("App.swift:42:17") == nil)
+        #expect(router.resolveOpenURLTarget("Sources/App.swift:42:17") == nil)
+        #expect(router.resolveOpenURLTarget("models.py:10:2") == nil)
+        #expect(router.resolveOpenURLTarget("docs.rs:12:5") == nil)
+        #expect(router.resolveOpenURLTarget("docs.md:12") == nil)
+        #expect(router.resolveOpenURLTarget("models.py:10") == nil)
+        #expect(router.resolveOpenURLTarget("deploy.sh:2") == nil)
+    }
+
+    @Test func fileLikeTLDHostPortsResolveAsEmbeddedBrowser() throws {
+        for (rawValue, expectedHost, expectedPort) in [
+            ("docs.rs:443", "docs.rs", 443),
+            ("docs.rs:808", "docs.rs", 808),
+            ("bun.sh:443", "bun.sh", 443),
+            ("example.md:500", "example.md", 500),
+            ("example.md:443", "example.md", 443),
+            ("docs.md:8123", "docs.md", 8123),
+        ] {
+            let target = try #require(router.resolveOpenURLTarget(rawValue))
+            guard case let .embeddedBrowser(url) = target else {
+                Issue.record("Expected file-like TLD host:port to route through browser normalization")
+                return
+            }
+            #expect(url.scheme == "https")
+            #expect(url.host == expectedHost)
+            #expect(url.port == expectedPort)
+        }
+    }
+
+    @Test func wrappedPathFragmentDoesNotResolveAsHTTPSURL() {
+        let target = router.resolveOpenURLTarget("s/pipeline-failure-state-model.md")
+        #expect(target == nil)
+    }
+
+    @Test func unresolvedRelativePathDoesNotResolveAsHTTPSURL() {
+        #expect(router.resolveOpenURLTarget("foo_bar") == nil)
     }
 
     @Test func resolvesFileSchemeAsExternal() throws {
@@ -102,19 +254,28 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         #expect(url.host == "example.com")
     }
 
-    @Test func rejectedHostRoutesBareDomainExternally() throws {
-        let rejecting = TerminalLinkRouter(
-            hostNormalizer: StubHostNormalizer(rejectsEveryHost: true)
-        )
-        // The rejecting stub also refuses navigableWebURL inputs only at the
-        // host check, so build one that still yields a URL but fails the host
-        // gate: navigableWebURL is unaffected by rejectsEveryHost.
-        let target = rejecting.resolveOpenURLTarget("example.com/docs")
-        guard case let .external(url)? = target else {
-            Issue.record("Expected bare domain with rejected host to open externally")
-            return
+    @Test func rejectedHostLeavesSchemelessTextUnresolved() {
+        let rejecting = TerminalLinkRouter(hostNormalizer: StubHostNormalizer(rejectsEveryHost: true))
+        #expect(rejecting.resolveOpenURLTarget("example.com/docs") == nil)
+    }
+
+    @Test func schemelessHostWithoutPathResolvesAsEmbeddedBrowser() throws {
+        for (rawValue, expectedHost, expectedScheme) in [
+            ("example.com", "example.com", "https"),
+            ("example.com?x=1", "example.com", "https"),
+            ("bun.sh", "bun.sh", "https"),
+            ("docs.rs", "docs.rs", "https"),
+            ("example.md", "example.md", "https"),
+            ("localhost", "localhost", "http"),
+        ] {
+            let target = try #require(router.resolveOpenURLTarget(rawValue))
+            guard case let .embeddedBrowser(url) = target else {
+                Issue.record("Expected browser-navigable host to route to embedded browser")
+                return
+            }
+            #expect(url.scheme == expectedScheme)
+            #expect(url.host == expectedHost)
         }
-        #expect(url.host == "example.com")
     }
 
     @Test func emptyTextResolvesToNil() {
@@ -122,18 +283,8 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         #expect(router.resolveOpenURLTarget("   \n") == nil)
     }
 
-    @Test func nonNavigableTokenFallsBackToExternalURL() {
-        // Scheme-less text the browser cannot navigate still becomes an
-        // external URL when Foundation can parse it as a relative URL.
-        // (Multi-word text is deliberately not asserted here: URL(string:)
-        // rejects spaces on macOS 14/15 but percent-encodes them on newer
-        // Foundation, so its routing is OS-dependent.)
-        let target = router.resolveOpenURLTarget("foo_bar")
-        guard case let .external(url)? = target else {
-            Issue.record("Expected non-navigable token to fall back to external routing")
-            return
-        }
-        #expect(url.absoluteString == "foo_bar")
+    @Test func schemelessNonPathTokenResolvesToNil() {
+        #expect(router.resolveOpenURLTarget("foo_bar") == nil)
     }
 
     @Test func openTargetURLAccessorReturnsDestination() throws {

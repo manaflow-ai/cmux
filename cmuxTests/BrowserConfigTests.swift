@@ -5315,7 +5315,6 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
     }
 }
 
-
 @Suite struct BrowserNavigableURLResolutionTests {
     @Test func resolvesFileSchemeAsNavigableURL() throws {
         let resolved = try #require(resolveBrowserNavigableURL("file:///tmp/cmux-local-test.html"))
@@ -5324,15 +5323,19 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
     }
 
     @Test func resolvesBareLocalhostSubdomainAsHTTPURL() throws {
-        let resolved = try #require(resolveBrowserNavigableURL("api.localhost:3000"))
-        #expect(resolved.scheme == "http")
-        #expect(resolved.host == "api.localhost")
-        #expect(resolved.port == 3000)
-
-        let nested = try #require(resolveBrowserNavigableURL("deep.api.localhost/path"))
-        #expect(nested.scheme == "http")
-        #expect(nested.host == "deep.api.localhost")
-        #expect(nested.path == "/path")
+        for (rawValue, expectedHost, expectedPort, expectedPath) in [
+            ("api.localhost:3000", "api.localhost", 3000, ""),
+            ("api.localhost.:3000", "api.localhost.", 3000, ""),
+            ("deep.api.localhost/path", "deep.api.localhost", nil, "/path"),
+            ("localhost.:3000/status", "localhost.", 3000, "/status"),
+            ("0.0.0.0:5173/status", "0.0.0.0", 5173, "/status"),
+        ] {
+            let resolved = try #require(resolveBrowserNavigableURL(rawValue))
+            #expect(resolved.scheme == "http")
+            #expect(resolved.host == expectedHost)
+            #expect(resolved.port == expectedPort)
+            #expect(resolved.path == expectedPath)
+        }
     }
 
     @Test func rejectsNonWebNonFileScheme() {
@@ -5342,9 +5345,7 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
 
     @Test func resolvesDottedHostWithPortAsHTTPSURL() throws {
         // URL(string: "example.com:8443") parses "example.com" as a scheme, so
-        // the resolver must recover the bare host:port shape instead of
-        // sending it to search (https://github.com/manaflow-ai/cmux/issues/5913:
-        // the omnibar inline completion displays history hosts this way).
+        // the resolver must recover the bare host:port shape instead of search.
         let resolved = try #require(resolveBrowserNavigableURL("example.com:8443"))
         #expect(resolved.scheme == "https")
         #expect(resolved.host == "example.com")
@@ -5354,8 +5355,8 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         #expect(withPath.scheme == "https")
         #expect(withPath.port == 8443)
         #expect(withPath.path == "/admin")
+        #expect(try #require(resolveBrowserNavigableURL("0.0.0.0.evil.example/path")).scheme == "https")
     }
-
     @Test func keepsRejectingDottedSchemeInputsWithoutNumericPort() {
         #expect(resolveBrowserNavigableURL("example.com:notaport") == nil)
         #expect(resolveBrowserNavigableURL("example.com:99999") == nil)
@@ -5365,7 +5366,6 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         #expect(resolveBrowserNavigableURL("file://example.html") == nil)
     }
 }
-
 
 final class BrowserReadAccessURLTests: XCTestCase {
     func testUsesParentDirectoryForFileURL() throws {
