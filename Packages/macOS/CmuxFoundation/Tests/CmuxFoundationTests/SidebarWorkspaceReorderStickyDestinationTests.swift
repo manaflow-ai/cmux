@@ -68,11 +68,21 @@ import Testing
         #expect(explicitGroupId == groupId)
     }
 
-    /// The same slot with a top-level-sticky drag resolves to the root
-    /// level, even though the pointer-lane heuristic is not consulted.
-    /// (Drags `top`, so the slot below the group is not a no-op.)
-    @Test func topLevelStickyKeepsTailSlotAtRoot() throws {
-        let plan = try #require(resolvePlan(pointY: 85, pointX: 190, sticky: .topLevel, dragging: top))
+    /// A top-level drag enters the group's last slot once the floating row's
+    /// center crosses the last member's center.
+    @Test func topLevelStickyEntersTailWhileCenterOverlapsLastMember() throws {
+        let plan = try #require(resolvePlan(pointY: 85, sticky: .topLevel))
+        guard case .reorder(_, _, let explicitGroupId) = plan.action else {
+            Issue.record("expected reorder action")
+            return
+        }
+        #expect(explicitGroupId == groupId)
+    }
+
+    /// Once the floating center reaches the next root row's top half, a
+    /// top-level drag stays root instead of snapping into the preceding group.
+    @Test func topLevelStickyKeepsNextRootRowAtRoot() throws {
+        let plan = try #require(resolvePlan(pointY: 95, sticky: .topLevel, dragging: top))
         guard case .reorder(_, _, let explicitGroupId) = plan.action else {
             Issue.record("expected reorder action")
             return
@@ -80,7 +90,29 @@ import Testing
         #expect(explicitGroupId == nil)
     }
 
-    /// Stickiness releases a full row past the group's last visible row, so
+    /// A drag already previewing inside the group stays there through the
+    /// next root row's top half, preventing boundary chatter.
+    @Test func groupStickyHoldsThroughNextRootRowTopHalf() throws {
+        let plan = try #require(resolvePlan(pointY: 95, sticky: .group(groupId), dragging: top))
+        guard case .reorder(_, _, let explicitGroupId) = plan.action else {
+            Issue.record("expected reorder action")
+            return
+        }
+        #expect(explicitGroupId == groupId)
+    }
+
+    /// Crossing the next root row's midpoint exits the group on the same
+    /// center-to-center threshold used for ordinary reordering.
+    @Test func groupStickyReleasesAtNextRootRowMidpoint() throws {
+        let plan = try #require(resolvePlan(pointY: 110, sticky: .group(groupId), dragging: top))
+        guard case .reorder(_, _, let explicitGroupId) = plan.action else {
+            Issue.record("expected reorder action")
+            return
+        }
+        #expect(explicitGroupId == nil)
+    }
+
+    /// Stickiness releases a half row past the group's last visible row, so
     /// a group at the end of the list can still be exited downward.
     @Test func groupStickyReleasesFarBelowList() throws {
         // The group is the last thing in the list; the dragged row starts
@@ -97,7 +129,7 @@ import Testing
         ]
         let plan = try #require(SidebarWorkspaceReorderDropResolver().plan(
             for: SidebarWorkspaceReorderDropRequest(
-                point: CGPoint(x: 10, y: 200),
+                point: CGPoint(x: 10, y: 106),
                 draggedWorkspaceId: dragged,
                 workspaces: tailWorkspaces,
                 groups: groups,

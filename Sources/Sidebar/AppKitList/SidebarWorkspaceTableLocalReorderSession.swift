@@ -21,7 +21,6 @@ protocol SidebarWorkspaceTableLocalReorderDelegate: AnyObject {
     ) -> SidebarWorkspaceReorderDropPlan?
     func localReorderCommit(plan: SidebarWorkspaceReorderDropPlan) -> Bool
     func localReorderUpdateAutoscroll()
-    func localReorderSetOverlayExpanded(_ expanded: Bool)
     func localReorderSessionDidEnd(flushDeferredApply: Bool)
 }
 
@@ -61,7 +60,8 @@ final class SidebarWorkspaceTableLocalReorderController {
         var lastPlan: SidebarWorkspaceReorderDropPlan?
         var lastPoint: CGPoint?
         var floatingView: SidebarWorkspaceReorderFloatingRowView?
-        var hidDragImage = false
+        var sourceDragImageHidden = false
+        var sourceDragImageProviders: [(() -> [NSDraggingImageComponent])?]
 
         /// Boundary decisions bias toward where the drag already previews
         /// (blocks always stay top-level).
@@ -97,19 +97,17 @@ final class SidebarWorkspaceTableLocalReorderController {
     /// Starts a local session when the system drag begins. `screenPoint` is
     /// the drag origin used to compute the pointer's grab offset inside the
     /// dragged block.
-    func sessionWillBegin(draggedWorkspaceId: UUID, at screenPoint: NSPoint) {
+    func sessionWillBegin(
+        _ draggingSession: NSDraggingSession,
+        draggedWorkspaceId: UUID,
+        at screenPoint: NSPoint
+    ) {
         guard case .idle = phase,
               let delegate,
               let container = delegate.localReorderContainerView else { return }
         let rows = delegate.localReorderRows
         guard let block = Self.blockRowIndices(rows: rows, draggedWorkspaceId: draggedWorkspaceId),
               !block.isEmpty else { return }
-
-        // Expand the drop overlay beyond the sidebar band before any
-        // geometry is captured: a cursor drifting slightly out of the narrow
-        // sidebar keeps the drag alive (and dropping there still commits)
-        // instead of snapping the preview away.
-        delegate.localReorderSetOverlayExpanded(true)
 
         let overlay = container.reorderDropView
         let table = container.tableView
@@ -140,7 +138,11 @@ final class SidebarWorkspaceTableLocalReorderController {
             blockRowIds: block.map { rows[$0].id },
             originalOrder: rows.map(\.id),
             grabOffsetY: min(max(pointerY - blockRect.minY, 0), blockRect.height),
-            blockHeight: blockRect.height
+            blockHeight: blockRect.height,
+            sourceDragImageProviders: sourceDragImageProviders(
+                in: draggingSession,
+                relativeTo: overlay
+            )
         )
         next.floatingView = floating
         session = next
@@ -149,6 +151,14 @@ final class SidebarWorkspaceTableLocalReorderController {
         hiddenRowIds = Set(next.blockRowIds)
         delegate.localReorderSetCellsHidden(hiddenRowIds)
         overlay.addSubview(floating)
+        setSourceDragImage(hidden: true, in: draggingSession)
+#if DEBUG
+        cmuxDebugLog(
+            "sidebar.localReorder.begin screen=(\(screenPoint.x),\(screenPoint.y)) " +
+            "point=(\(pointerY)) band=\(sidebarBand(in: overlay)) " +
+            "corridor=\(Self.reorderCorridor(for: sidebarBand(in: overlay)))"
+        )
+#endif
     }
 
     /// Destination-side image hiding: while the drag is over this sidebar the
@@ -159,6 +169,34 @@ final class SidebarWorkspaceTableLocalReorderController {
         guard session != nil, case .dragging = phase else { return }
         hideDragImage(sender)
         setInsideSidebar(true)
+    }
+
+    /// Source-side motion remains available after the pointer leaves the
+    /// sidebar's view hierarchy. It is therefore authoritative for the local
+    /// reorder corridor, unlike destination callbacks, which stop at the
+    /// sidebar edge.
+    func draggingSession(
+        _ draggingSession: NSDraggingSession,
+        movedTo screenPoint: NSPoint
+    ) {
+        guard session != nil, case .dragging = phase,
+              let point = overlayPoint(fromScreen: screenPoint),
+              let overlay = delegate?.localReorderContainerView?.reorderDropView else { return }
+
+        let isInsideCorridor = Self.reorderCorridor(for: sidebarBand(in: overlay)).contains(point)
+#if DEBUG
+        cmuxDebugLog(
+            "sidebar.localReorder.sourceMove screen=(\(screenPoint.x),\(screenPoint.y)) " +
+            "point=(\(point.x),\(point.y)) inside=\(isInsideCorridor ? 1 : 0)"
+        )
+#endif
+        if isInsideCorridor {
+            setSourceDragImage(hidden: true, in: draggingSession)
+            _ = handleDragUpdate(point: point, targets: overlay.targets)
+        } else {
+            setSourceDragImage(hidden: false, in: draggingSession)
+            leaveReorderCorridor()
+        }
     }
 
     /// Continuous preview: resolve the same plan the drop would commit and
@@ -179,17 +217,16 @@ final class SidebarWorkspaceTableLocalReorderController {
         return true
     }
 
-    /// Slot decisions key off the FLOATING BLOCK's geometry, not the raw
+    /// Slot decisions key off the floating block's geometry, not the raw
     /// cursor: the swap fires when the block's vertical center crosses a
     /// neighbor's midpoint, wherever inside the row the user grabbed it. The
-    /// x clamps into the sidebar band so an overshooting cursor (the overlay
-    /// is expanded past the sidebar during local drags) hit-tests as if it
-    /// were still over the rows.
+    /// x clamps into the sidebar band so a pointer in the source-tracked
+    /// outside-sidebar corridor hit-tests as if it were still over the rows.
     private func hitTestPoint(forPointer point: CGPoint) -> CGPoint {
         guard let current = session,
               let container = delegate?.localReorderContainerView else { return point }
         let overlay = container.reorderDropView
-        let band = overlay.convert(container.scrollView.frame, from: container)
+        let band = sidebarBand(in: overlay)
         let top = floatingTop(forPointerY: point.y, blockHeight: current.blockHeight, band: band)
         return CGPoint(
             x: min(max(point.x, band.minX), band.maxX),
@@ -206,10 +243,17 @@ final class SidebarWorkspaceTableLocalReorderController {
         return min(max(pointerY - current.grabOffsetY, minY), maxY)
     }
 
-    /// Pointer left the sidebar: the preview restores to the original order
-    /// (the item may be headed to another window) and the system drag image
-    /// takes over as the visual.
+    /// Destination exit alone is not a reorder exit: the source-session
+    /// callback continues tracking through the corridor outside the sidebar.
     func draggingExited() {
+        // Source-side `draggingSession(_:movedTo:)` decides whether the pointer
+        // left the reorder corridor and restores only when it truly did.
+    }
+
+    /// Pointer left the reorder corridor: restore the original order because
+    /// the item may be headed to another window, and restore the system drag
+    /// image as the active visual.
+    private func leaveReorderCorridor() {
         guard let current = session, case .dragging = phase, let delegate else { return }
         setInsideSidebar(false)
         delegate.localReorderApplyOrder(
@@ -252,14 +296,45 @@ final class SidebarWorkspaceTableLocalReorderController {
         return true
     }
 
-    /// System drag session ended. A `.move` operation means the drop already
-    /// committed (settling); anything else is a cancel (escape, release
-    /// outside every destination) and restores the original order.
-    func sessionEnded(operation: NSDragOperation) {
+    /// System drag session ended. A release inside the source-tracked reorder
+    /// corridor commits even if the destination under the cursor was the
+    /// content area's outside-sidebar reset overlay. A release beyond the
+    /// corridor remains a cancel/cross-window handoff.
+    func sessionEnded(
+        _ draggingSession: NSDraggingSession,
+        at screenPoint: NSPoint,
+        operation: NSDragOperation
+    ) {
         guard session != nil else { return }
+#if DEBUG
+        let debugPoint = overlayPoint(fromScreen: screenPoint)
+        let debugInside = debugPoint.map { point in
+            guard let overlay = delegate?.localReorderContainerView?.reorderDropView else { return false }
+            return Self.reorderCorridor(for: sidebarBand(in: overlay)).contains(point)
+        } ?? false
+        cmuxDebugLog(
+            "sidebar.localReorder.end screen=(\(screenPoint.x),\(screenPoint.y)) " +
+            "point=\(String(describing: debugPoint)) inside=\(debugInside ? 1 : 0) " +
+            "operation=\(operation.rawValue)"
+        )
+#endif
         switch phase {
         case .dragging:
-            cancelAndRestore()
+            if let point = overlayPoint(fromScreen: screenPoint),
+               let overlay = delegate?.localReorderContainerView?.reorderDropView,
+               Self.shouldCommitSourceDrop(
+                   operation: operation,
+                   point: point,
+                   sidebarBand: sidebarBand(in: overlay)
+               ) {
+                // The underlying outside-sidebar destination reports `.move`,
+                // but does not mutate order. The local preview owns this drop.
+                draggingSession.animatesToStartingPositionsOnCancelOrFail = false
+                _ = handleDragUpdate(point: point, targets: overlay.targets)
+                _ = handlePerformDrop(point: point, targets: overlay.targets)
+            } else {
+                cancelAndRestore()
+            }
         case .idle, .settling, .restoring:
             break
         }
@@ -301,6 +376,76 @@ final class SidebarWorkspaceTableLocalReorderController {
         session?.floatingView?.isHidden = !inside
     }
 
+    /// Corridor geometry is deliberately independent of the overlay's frame:
+    /// extending a child view past its parent does not extend AppKit drag
+    /// destination routing. Source-session motion uses this expanded band.
+    static func reorderCorridor(for sidebarBand: CGRect) -> CGRect {
+        CGRect(
+            x: sidebarBand.minX - 80,
+            y: sidebarBand.minY - 60,
+            width: sidebarBand.width + 80 + 240,
+            height: sidebarBand.height + 60 + 100
+        )
+    }
+
+    /// A content-area release reports `.move` from the existing
+    /// outside-sidebar destination. Escape reports no operation, so requiring
+    /// `.move` preserves cancellation even when the pointer is in the corridor.
+    static func shouldCommitSourceDrop(
+        operation: NSDragOperation,
+        point: CGPoint,
+        sidebarBand: CGRect
+    ) -> Bool {
+        operation.contains(.move) && reorderCorridor(for: sidebarBand).contains(point)
+    }
+
+    private func sidebarBand(in overlay: NSView) -> CGRect {
+        guard let container = delegate?.localReorderContainerView else { return overlay.bounds }
+        return overlay.convert(container.scrollView.frame, from: container)
+    }
+
+    private func overlayPoint(fromScreen screenPoint: NSPoint) -> CGPoint? {
+        guard let container = delegate?.localReorderContainerView,
+              let window = container.window else { return nil }
+        return container.reorderDropView.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+    }
+
+    private func sourceDragImageProviders(
+        in draggingSession: NSDraggingSession,
+        relativeTo view: NSView
+    ) -> [(() -> [NSDraggingImageComponent])?] {
+        var providers: [(() -> [NSDraggingImageComponent])?] = []
+        draggingSession.enumerateDraggingItems(
+            options: [],
+            for: view,
+            classes: [NSPasteboardItem.self],
+            searchOptions: [:]
+        ) { item, index, _ in
+            while providers.count <= index { providers.append(nil) }
+            providers[index] = item.imageComponentsProvider
+        }
+        return providers
+    }
+
+    private func setSourceDragImage(hidden: Bool, in draggingSession: NSDraggingSession) {
+        guard var current = session, current.sourceDragImageHidden != hidden,
+              let view = delegate?.localReorderContainerView?.reorderDropView else { return }
+        draggingSession.enumerateDraggingItems(
+            options: [],
+            for: view,
+            classes: [NSPasteboardItem.self],
+            searchOptions: [:]
+        ) { item, index, _ in
+            item.imageComponentsProvider = hidden
+                ? { [] }
+                : current.sourceDragImageProviders.indices.contains(index)
+                    ? current.sourceDragImageProviders[index]
+                    : nil
+        }
+        current.sourceDragImageHidden = hidden
+        session = current
+    }
+
     private func hideDragImage(_ sender: NSDraggingInfo) {
         guard let container = delegate?.localReorderContainerView else { return }
         sender.enumerateDraggingItems(
@@ -311,7 +456,6 @@ final class SidebarWorkspaceTableLocalReorderController {
         ) { item, _, _ in
             item.imageComponentsProvider = { [] }
         }
-        session?.hidDragImage = true
     }
 
     private func resolveAndApplyPreview(
@@ -405,10 +549,10 @@ final class SidebarWorkspaceTableLocalReorderController {
         guard let current = session,
               let floating = current.floatingView,
               let container = delegate?.localReorderContainerView else { return }
-        // Clamp to the sidebar band (not the expanded overlay bounds) so the
-        // block never floats over the terminal or past the list edges.
+        // Clamp to the sidebar band so the block never floats over the
+        // terminal or past the list edges while the pointer uses the corridor.
         let overlay = container.reorderDropView
-        let band = overlay.convert(container.scrollView.frame, from: container)
+        let band = sidebarBand(in: overlay)
         var frame = floating.frame
         frame.origin.y = floatingTop(
             forPointerY: pointerY,
@@ -530,7 +674,6 @@ final class SidebarWorkspaceTableLocalReorderController {
         phase = .idle
         hiddenRowIds = []
         delegate?.localReorderSetCellsHidden([])
-        delegate?.localReorderSetOverlayExpanded(false)
         let pending = pendingApply
         pendingApply = nil
         delegate?.localReorderSessionDidEnd(flushDeferredApply: flushDeferredApply)

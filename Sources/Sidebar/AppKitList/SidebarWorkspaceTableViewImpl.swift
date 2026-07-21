@@ -67,6 +67,13 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
         }
     }
 
+    /// NSTableView is the dragging source, so this callback continues while
+    /// the pointer is outside the sidebar and its destination overlay.
+    override func draggingSession(_ session: NSDraggingSession, movedTo screenPoint: NSPoint) {
+        super.draggingSession(session, movedTo: screenPoint)
+        workspaceController?.localReorderDraggingSession(session, movedTo: screenPoint)
+    }
+
     override func menu(for event: NSEvent) -> NSMenu? {
         let row = row(at: convert(event.locationInWindow, from: nil))
         guard row < 0 else { return super.menu(for: event) }

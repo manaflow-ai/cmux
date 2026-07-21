@@ -146,17 +146,31 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         switch request.stickyDestination {
         case .group(let stickyGroupId):
             guard stickyGroupId == candidate.groupId else { return nil }
+            // Stickiness holds through the next root row's top half, then
+            // releases when the floating row centers cross. At list end, a
+            // half-row of empty space provides the equivalent exit threshold.
+            if let target = context.target,
+               target.groupId == nil,
+               context.edge == .bottom {
+                return nil
+            }
             // Stickiness holds through the boundary band, not forever: a
-            // pointer a full row past the group's last visible row has
+            // floating-row center half a row past the group's last visible row has
             // clearly left (otherwise a group at the end of the list could
             // never be exited downward).
             if context.target == nil, let previous = context.previousTarget,
-               request.point.y > previous.frame.maxY + max(previous.frame.height, 1) {
+               request.point.y > previous.frame.maxY + max(previous.frame.height, 1) / 2 {
                 return nil
             }
             return candidate.groupId
         case .topLevel:
-            return nil
+            // A top-level drag enters the tail slot while its floating center
+            // still overlaps the last group member. Once it reaches the next
+            // root row, it stays root. This makes the last slot easy to enter
+            // without making the adjacent root slot hard to select.
+            return context.target?.groupId == candidate.groupId
+                ? candidate.groupId
+                : nil
         case .none:
             break
         }

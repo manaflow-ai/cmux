@@ -443,6 +443,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     ) {
         guard let row = rowIndexes.first, rows.indices.contains(row) else { return }
         localReorder.sessionWillBegin(
+            session,
             draggedWorkspaceId: rows[row].workspaceId,
             at: screenPoint
         )
@@ -454,7 +455,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         endedAt screenPoint: NSPoint,
         operation: NSDragOperation
     ) {
-        localReorder.sessionEnded(operation: operation)
+        localReorder.sessionEnded(session, at: screenPoint, operation: operation)
         actions?.endWorkspaceDrag()
         workspaceDragSessionDidEnd()
     }
@@ -476,6 +477,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if dropTargetGeometry.setWorkspaceDragSessionActive(true, rows: rows) {
             positionAppKitDropIndicator()
         }
+    }
+
+    func localReorderDraggingSession(_ session: NSDraggingSession, movedTo screenPoint: NSPoint) {
+        localReorder.draggingSession(session, movedTo: screenPoint)
     }
 
     func workspaceDragSessionDidEnd() {
@@ -1178,14 +1183,6 @@ extension SidebarWorkspaceTableController: SidebarWorkspaceTableLocalReorderDele
         stickyDestination: SidebarWorkspaceReorderStickyDestination
     ) -> SidebarWorkspaceReorderDropPlan? {
         actions?.resolveWorkspaceReorderPlan(point, targets, stickyDestination)
-    }
-
-    /// Grows/restores the drop overlay's slop region around the sidebar for
-    /// a local drag, then rebuilds targets: the overlay's origin moved, so
-    /// every stored target frame is in stale coordinates until refreshed.
-    func localReorderSetOverlayExpanded(_ expanded: Bool) {
-        containerView?.setReorderOverlayExpanded(expanded)
-        updateDropTargets()
     }
 
     func localReorderCommit(plan: SidebarWorkspaceReorderDropPlan) -> Bool {
