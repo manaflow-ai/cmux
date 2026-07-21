@@ -186,20 +186,15 @@ import Testing
 
     // MARK: - Seam 2: who owns reconnection decides what EOF means
 
-    /// ssh ends when the connection drops, so EOF is cmux's cue to respawn.
-    @Test func endOfStreamOverSSHMeansReconnect() {
-        #expect(
-            RemoteTmuxStreamEndDisposition.forStreamEnd(reconnectsInternally: false) == .reconnect
-        )
-    }
-
-    /// A transport that reconnects internally does not end for a network drop — the stream
-    /// pauses and resumes. So if it ends, the session is genuinely over, and respawning
-    /// would be cmux fighting the transport for ownership of recovery.
-    @Test func endOfStreamOverAPersistentTransportMeansTheSessionIsOver() {
-        #expect(
-            RemoteTmuxStreamEndDisposition.forStreamEnd(reconnectsInternally: true) == .sessionOver
-        )
+    /// EOF means reconnect, whoever owns reconnection, because EOF cannot say which of the
+    /// transport and the session died.
+    ///
+    /// This test previously asserted the opposite for a self-reconnecting transport, on the
+    /// reasoning that such a transport does not end for a network drop. Measured against
+    /// et 6.2.11+7: restarting only `etserver` ends the stream while `tmux has-session` still
+    /// succeeds, so that reasoning discarded live, reattachable sessions.
+    @Test func endOfStreamAlwaysMeansReconnectAndLetTheReattachDecide() {
+        #expect(RemoteTmuxStreamEndDisposition.forStreamEnd() == .reconnect)
     }
 
     // MARK: - Seam 3: the pre-connect hook
@@ -505,8 +500,6 @@ import Testing
         let profile = RemoteTmuxETTransportProfile()
         #expect(profile.reconnectsInternally)
         #expect(profile.requiresPseudoTerminal)
-        #expect(RemoteTmuxStreamEndDisposition.forStreamEnd(
-            reconnectsInternally: profile.reconnectsInternally) == .sessionOver)
     }
 
     // MARK: - Seam 2: telling a stall from a death
@@ -529,16 +522,16 @@ import Testing
     }
 
     /// The property that makes the probe necessary in the first place.
+    ///
+    /// A transport that reconnects internally produces no EOF for a network drop, so the failure it
+    /// can suffer — alive but no longer carrying the protocol — is one EOF never reports. That is
+    /// what the probe is for. EOF itself is not the discriminator it once looked like: it now means
+    /// reconnect for every transport, because it cannot say whether the transport or the session
+    /// ended (see endOfStreamAlwaysMeansReconnectAndLetTheReattachDecide).
     @Test func aStallIsNotADeathForATransportThatReconnectsItself() {
         let et = RemoteTmuxETTransportProfile()
         #expect(et.reconnectsInternally)
-        // EOF from such a transport means the session is genuinely over...
-        #expect(RemoteTmuxStreamEndDisposition.forStreamEnd(
-            reconnectsInternally: true) == .sessionOver)
-        // ...whereas ssh's EOF is cmux's cue to respawn. Same event, opposite meaning, which
-        // is why a stall has to be diagnosed by asking rather than by waiting for EOF.
-        #expect(RemoteTmuxStreamEndDisposition.forStreamEnd(
-            reconnectsInternally: false) == .reconnect)
+        #expect(!RemoteTmuxSSHTransportProfile().reconnectsInternally)
     }
 
     // MARK: - Runtime selection
@@ -680,7 +673,6 @@ private struct SplitMix64 {
         #expect(profile.reconnectsInternally, "this suite is about internally-reconnecting transports")
 
         var model = Model()
-        let spawnsAtStart = model.spawnCount
 
         for step in 0..<40 {
             let event = Event.allCases[rng.int(0..<Event.allCases.count)]
@@ -690,15 +682,16 @@ private struct SplitMix64 {
             case .stall:
                 guard model.processAlive, !model.ended else { continue }
                 model.streamFlowing = false
-                // INVARIANT 1: a stall is not a death for this transport, so nothing respawns.
-                #expect(model.spawnCount == spawnsAtStart, "respawned on a stall — \(context)")
-                // INVARIANT 2: a stall never ends the connection.
+                // INVARIANT 1: a stall never ENDS the connection. It does now trigger recovery —
+                // a wedged transport is not going to un-wedge itself, and a respawn reattaches to
+                // the session that is still there. What must never happen is losing the mirror.
                 #expect(!model.ended, "a stall ended the connection — \(context)")
 
             case .resume:
                 guard model.processAlive, !model.ended else { continue }
                 model.streamFlowing = true
-                #expect(model.spawnCount == spawnsAtStart, "respawned on a resume — \(context)")
+                // A resume is the transport doing its job: nothing for cmux to do, and above all
+                // the connection must not have been ended while it was paused.
                 #expect(!model.ended, "a resume ended the connection — \(context)")
 
             case .dropMidFrameThenResume:
@@ -718,12 +711,14 @@ private struct SplitMix64 {
             case .exitClean:
                 guard model.processAlive, !model.ended else { continue }
                 model.processAlive = false
-                // INVARIANT 2 (other half): a genuine exit DOES end it, because this
-                // transport would not have exited for a mere network drop.
-                let disposition = RemoteTmuxStreamEndDisposition.forStreamEnd(
-                    reconnectsInternally: profile.reconnectsInternally)
-                #expect(disposition == .sessionOver, "a real exit did not end the session — \(context)")
-                model.ended = true
+                // INVARIANT 2 (other half): an exit does NOT end the session on its own. This
+                // branch used to assert the opposite, on the premise that such a transport would
+                // not exit for a mere network drop — measured against et 6.2.11+7, restarting only
+                // `etserver` exits while `tmux has-session` still succeeds, so ending here threw
+                // away a live session. Reconnect, and let the reattach report whether it is gone.
+                let disposition = RemoteTmuxStreamEndDisposition.forStreamEnd()
+                #expect(disposition == .reconnect, "an exit did not lead to a reattach — \(context)")
+                model.spawnCount += 1
 
             case .exitAuthFailure:
                 guard model.processAlive, !model.ended else { continue }
@@ -772,10 +767,11 @@ private struct SplitMix64 {
             }
         }
 
-        // INVARIANT 8: teardown is ordering-independent — nothing above may have respawned.
+        // INVARIANT 8: teardown is ordering-independent. Respawns are expected now (an exit
+        // reattaches), so this asserts the connection is not left both ended and alive.
         #expect(
-            model.spawnCount == spawnsAtStart,
-            "seed=\(String(seed, radix: 16)) respawned \(model.spawnCount - spawnsAtStart) time(s) for an internally-reconnecting transport"
+            !(model.ended && model.processAlive),
+            "seed=\(String(seed, radix: 16)) left the connection both ended and alive"
         )
     }
 

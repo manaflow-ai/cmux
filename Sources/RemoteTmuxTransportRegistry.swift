@@ -84,22 +84,29 @@ protocol RemoteTmuxTransportProfile: Sendable {
 
 /// What end-of-stream on the control connection means.
 ///
-/// cmux's recovery is built on stdout EOF: the stream ends, so respawn with backoff. That
-/// is right for ssh, where a dropped connection ends the process. It is wrong for a
-/// transport that owns its own reconnection: such a transport does not end for a network
-/// drop — the stream pauses and resumes — so if it *does* end, it has genuinely exited and
-/// the session is over. Respawning then would be cmux fighting the transport for ownership
-/// of recovery, and the failure it must watch for instead is "alive but wedged".
+/// cmux's recovery is built on stdout EOF: the stream ends, so respawn with backoff.
+///
+/// The tempting rule is that a transport owning its own reconnection does not end for a network
+/// drop, so its exit must mean the session ended. Measured against et 6.2.11+7, that is false:
+/// restarting only `etserver` closes the stream while `tmux has-session` still succeeds. Acting on
+/// it discarded mirrors whose sessions were alive and reattachable.
+///
+/// EOF cannot distinguish "the transport died" from "the session died", for any transport, so this
+/// does not try. Reattaching answers the question: the reconnect path already classifies a genuinely
+/// gone session from what the reattach reports. The failure such a transport still needs watching
+/// for is the one EOF never reports at all — alive but wedged.
 enum RemoteTmuxStreamEndDisposition: Sendable, Equatable {
     /// cmux owns recovery: respawn the transport with backoff.
     case reconnect
     /// The transport owned recovery, so its exit is terminal.
     case sessionOver
 
-    /// Decides from who owns reconnection.
-    static func forStreamEnd(reconnectsInternally: Bool) -> RemoteTmuxStreamEndDisposition {
-        reconnectsInternally ? .sessionOver : .reconnect
-    }
+    /// What EOF on the control stream means, for every transport: reconnect and find out.
+    ///
+    /// Deliberately takes no argument. It used to branch on who owns reconnection, and that branch
+    /// was wrong (see this type's documentation) — a parameter that no longer decides anything
+    /// would just invite the same inference back.
+    static func forStreamEnd() -> RemoteTmuxStreamEndDisposition { .reconnect }
 }
 
 /// A command to run before opening a connection to a host.
