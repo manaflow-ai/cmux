@@ -4283,6 +4283,9 @@ struct CMUXCLI {
                         params["caller"] = caller
                     }
                 }
+                if effectiveWindowRaw == nil, let callerTTY = resolveCallerTTYName() {
+                    params["caller_tty"] = callerTTY
+                }
             }
             let response = try client.sendV2(method: "system.identify", params: params)
             print(jsonString(formatIDs(response, mode: idFormat)))

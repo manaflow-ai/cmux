@@ -227,6 +227,37 @@ final class TerminalNotificationCallerTests: XCTestCase {
         XCTAssertFalse(store.hasUnreadNotification(forTabId: fallbackWorkspace.id, surfaceId: fallbackWorkspace.focusedPanelId))
     }
 
+    func testIdentifyCallerTTYBindingRequiresOneLiveTarget() {
+        let target = TerminalCallerTTYBinding(workspaceId: UUID(), surfaceId: UUID())
+        let otherTarget = TerminalCallerTTYBinding(workspaceId: UUID(), surfaceId: UUID())
+
+        XCTAssertEqual(
+            uniqueTerminalCallerTTYBinding(
+                callerTTY: "/dev/ttys8362",
+                candidates: [
+                    TerminalCallerTTYCandidate(binding: target, ttyName: "ttys8362"),
+                    TerminalCallerTTYCandidate(binding: target, ttyName: "/dev/ttys8362"),
+                ]
+            ),
+            target
+        )
+        XCTAssertNil(
+            uniqueTerminalCallerTTYBinding(
+                callerTTY: "ttys8362",
+                candidates: [
+                    TerminalCallerTTYCandidate(binding: target, ttyName: "ttys8362"),
+                    TerminalCallerTTYCandidate(binding: otherTarget, ttyName: "ttys8362"),
+                ]
+            )
+        )
+        XCTAssertNil(
+            uniqueTerminalCallerTTYBinding(
+                callerTTY: "ttys8362",
+                candidates: [TerminalCallerTTYCandidate(binding: target, ttyName: "ttys9999")]
+            )
+        )
+    }
+
     func testNotifyTargetUpdatesStoreBeforeResponseWhenAsyncDrainsAreSuspended() async throws {
         let socketPath = makeSocketPath("notify-sync")
         let store = TerminalNotificationStore.shared
