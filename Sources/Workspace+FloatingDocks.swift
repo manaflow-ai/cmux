@@ -399,7 +399,6 @@ extension DockSplitStore {
         if let filePreview = snapshot.filePreview {
             return restoreFloatingDockFilePreview(filePreview, placement: placement)
         }
-        let browserURL = snapshot.browser?.urlString.flatMap { URL(string: $0) }
         let workingDirectory = snapshot.terminal?.workingDirectory
         let panelId: UUID?
         switch placement {
@@ -407,7 +406,7 @@ extension DockSplitStore {
             panelId = newSurface(
                 kind: snapshot.kind,
                 inPane: pane,
-                url: browserURL,
+                url: nil,
                 workingDirectory: workingDirectory,
                 tmuxStartCommand: snapshot.terminal?.tmuxStartCommand,
                 noteFilePath: snapshot.kind == .note ? noteFilePath : nil,
@@ -421,7 +420,7 @@ extension DockSplitStore {
                 orientation: orientation,
                 insertFirst: false,
                 sourcePanelId: sourcePanelId,
-                url: browserURL,
+                url: nil,
                 workingDirectory: workingDirectory,
                 tmuxStartCommand: snapshot.terminal?.tmuxStartCommand,
                 noteFilePath: snapshot.kind == .note ? noteFilePath : nil,
@@ -434,7 +433,7 @@ extension DockSplitStore {
         guard let panelId else { return nil }
         if let browserSnapshot = snapshot.browser,
            let browser = panels[panelId] as? BrowserPanel {
-            browser.restoreSessionSnapshot(browserSnapshot)
+            browser.restoreCompleteSessionSnapshot(browserSnapshot)
         }
         if let terminalSnapshot = snapshot.terminal,
            let terminal = panels[panelId] as? TerminalPanel {

@@ -385,6 +385,7 @@ struct ContentView: View {
     @State private var commandPaletteScrollTargetIndex: Int?
     @State private var commandPaletteScrollTargetAnchor: UnitPoint?
     @State private var commandPaletteRestoreFocusTarget: CommandPaletteRestoreFocusTarget?
+    @State private var commandPalettePendingRequestFocusTarget: CommandPaletteRestoreFocusTarget?
     @State private var commandPaletteSearchCorpus: [CommandPaletteSearchCorpusEntry<String>] = []
     @State private var commandPaletteSearchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>] = [:]
     @State private var commandPaletteSearchCommandsByID: [String: CommandPaletteCommand] = [:]
@@ -441,6 +442,22 @@ struct ContentView: View {
         let workspaceId: UUID
         let panelId: UUID
         let intent: PanelFocusIntent
+        let dockStore: DockSplitStore?
+        let sourceWindow: NSWindow?
+
+        init(
+            workspaceId: UUID,
+            panelId: UUID,
+            intent: PanelFocusIntent,
+            dockStore: DockSplitStore? = nil,
+            sourceWindow: NSWindow? = nil
+        ) {
+            self.workspaceId = workspaceId
+            self.panelId = panelId
+            self.intent = intent
+            self.dockStore = dockStore
+            self.sourceWindow = sourceWindow
+        }
     }
 
     static func tmuxWorkspacePaneExactRect(
@@ -2392,6 +2409,7 @@ struct ContentView: View {
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
             ) else { return }
+            adoptCommandPaletteFloatingDockFocusSource(from: notification)
             toggleCommandPalette()
         })
 
@@ -2403,6 +2421,7 @@ struct ContentView: View {
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
             ) else { return }
+            adoptCommandPaletteFloatingDockFocusSource(from: notification)
             openCommandPaletteCommands()
         })
 
@@ -2420,6 +2439,7 @@ struct ContentView: View {
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
             ) else { return }
+            adoptCommandPaletteFloatingDockFocusSource(from: notification)
             openCommandPaletteSwitcher()
         })
 
@@ -2459,6 +2479,7 @@ struct ContentView: View {
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
             ) else { return }
+            adoptCommandPaletteFloatingDockFocusSource(from: notification)
             openCommandPaletteRenameTabInput()
         })
 
@@ -2470,6 +2491,7 @@ struct ContentView: View {
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
             ) else { return }
+            adoptCommandPaletteFloatingDockFocusSource(from: notification)
             openCommandPaletteRenameWorkspaceInput()
         })
 
@@ -2490,6 +2512,7 @@ struct ContentView: View {
             )
 #endif
             guard shouldHandle else { return }
+            adoptCommandPaletteFloatingDockFocusSource(from: notification)
             openCommandPaletteWorkspaceDescriptionInput()
         })
 
@@ -8354,9 +8377,16 @@ struct ContentView: View {
 
     private func forwardCommandPaletteUnhandledNavigationKeyToFocusedTerminal(_ event: NSEvent) -> Bool {
         guard let target = commandPaletteRestoreFocusTarget,
-              target.intent == .terminal(.surface),
-              let workspace = tabManager.tabs.first(where: { $0.id == target.workspaceId }),
-              let terminalPanel = workspace.panels[target.panelId] as? TerminalPanel else { return false }
+              target.intent == .terminal(.surface) else { return false }
+        let terminalPanel: TerminalPanel?
+        if let dockStore = target.dockStore {
+            terminalPanel = dockStore.panels[target.panelId] as? TerminalPanel
+        } else {
+            terminalPanel = tabManager.tabs
+                .first(where: { $0.id == target.workspaceId })?
+                .panels[target.panelId] as? TerminalPanel
+        }
+        guard let terminalPanel else { return false }
         terminalPanel.hostedView.forwardKeyDownToSurface(event); return true
     }
 
@@ -8625,6 +8655,28 @@ struct ContentView: View {
         return false
     }
 
+    private func adoptCommandPaletteFloatingDockFocusSource(from notification: Notification) {
+        guard let source = notification.userInfo?[commandPaletteFloatingDockFocusSourceUserInfoKey]
+            as? CommandPaletteFloatingDockFocusSource else {
+            if !isCommandPalettePresented {
+                commandPalettePendingRequestFocusTarget = nil
+            }
+            return
+        }
+        let target = CommandPaletteRestoreFocusTarget(
+            workspaceId: source.store.workspaceId,
+            panelId: source.panelId,
+            intent: source.intent,
+            dockStore: source.store,
+            sourceWindow: source.window
+        )
+        if isCommandPalettePresented {
+            commandPaletteRestoreFocusTarget = target
+        } else {
+            commandPalettePendingRequestFocusTarget = target
+        }
+    }
+
     static func shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
         focusedPanelIsBrowser: Bool,
         focusedBrowserAddressBarPanelId: UUID?,
@@ -8705,7 +8757,9 @@ struct ContentView: View {
 
     private func presentCommandPalette(initialQuery: String) {
         refreshCachedDefaultTerminalStatus(refreshSearchCorpusIfPresented: false)
-        if let panelContext = focusedPanelContext {
+        if let requestedTarget = commandPalettePendingRequestFocusTarget {
+            commandPaletteRestoreFocusTarget = requestedTarget
+        } else if let panelContext = focusedPanelContext {
             commandPaletteRestoreFocusTarget = CommandPaletteRestoreFocusTarget(
                 workspaceId: panelContext.workspace.id,
                 panelId: panelContext.panelId,
@@ -8714,6 +8768,7 @@ struct ContentView: View {
         } else {
             commandPaletteRestoreFocusTarget = nil
         }
+        commandPalettePendingRequestFocusTarget = nil
         isCommandPalettePresented = true
         commandPaletteForkableAgentActivePanelKey = nil
         pruneCommandPaletteForkableAgentProbeResults()
@@ -8847,6 +8902,7 @@ struct ContentView: View {
         isCommandPaletteSearchFocused = false
         isCommandPaletteRenameFocused = false
         commandPaletteRestoreFocusTarget = nil
+        commandPalettePendingRequestFocusTarget = nil
         commandPaletteSearchCorpus = []
         commandPaletteSearchCorpusByID = [:]
         commandPaletteSearchCommandsByID = [:]
@@ -8891,6 +8947,24 @@ struct ContentView: View {
     private func attemptCommandPaletteFocusRestoreIfNeeded() {
         guard !isCommandPalettePresented else { return }
         guard let target = commandPalettePendingDismissFocusTarget else { return }
+        if let dockStore = target.dockStore {
+            guard let panel = dockStore.panels[target.panelId] else {
+                commandPalettePendingDismissFocusTarget = nil
+                commandPaletteRestoreTimeoutWorkItem?.cancel()
+                commandPaletteRestoreTimeoutWorkItem = nil
+                return
+            }
+            if let sourceWindow = target.sourceWindow, !sourceWindow.isKeyWindow {
+                sourceWindow.makeKeyAndOrderFront(nil)
+            }
+            dockStore.focusPanel(target.panelId)
+            guard dockStore.focusedPanelId == target.panelId,
+                  panel.restoreFocusIntent(target.intent) else { return }
+            commandPalettePendingDismissFocusTarget = nil
+            commandPaletteRestoreTimeoutWorkItem?.cancel()
+            commandPaletteRestoreTimeoutWorkItem = nil
+            return
+        }
         guard tabManager.tabs.contains(where: { $0.id == target.workspaceId }) else {
             commandPalettePendingDismissFocusTarget = nil
             commandPaletteRestoreTimeoutWorkItem?.cancel()

@@ -176,7 +176,7 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNil(restoredBrowser.navigationDelegate?.lastAttemptedURL)
         XCTAssertFalse(restoredBrowser.shouldRenderWebView)
         XCTAssertEqual(restoredBrowser.currentPageZoomFactor(), 1.75, accuracy: 0.000_001)
-        XCTAssertTrue(restoredBrowser.isDeveloperToolsVisible())
+        XCTAssertTrue(restoredBrowser.forceDeveloperToolsRefreshOnNextAttach)
     }
 
     @MainActor

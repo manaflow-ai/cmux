@@ -4825,6 +4825,22 @@ final class BrowserPanel: Panel, ObservableObject {
         deferRestoredWebViewLoadUntilVisible(url: restoredURL, reason: "session_restore")
     }
 
+    func restoreCompleteSessionSnapshot(_ snapshot: SessionBrowserPanelSnapshot) {
+        let pageZoom = CGFloat(max(0.25, min(5.0, snapshot.pageZoom)))
+        if pageZoom.isFinite {
+            _ = setPageZoomFactor(pageZoom)
+        }
+
+        restoreSessionSnapshot(snapshot)
+
+        if snapshot.developerToolsVisible && BrowserAvailabilitySettings.isEnabled() {
+            _ = showDeveloperTools()
+            requestDeveloperToolsRefreshAfterNextAttach(reason: "session_restore")
+        } else {
+            _ = hideDeveloperTools()
+        }
+    }
+
     private func deferRestoredWebViewLoadUntilVisible(url: URL, reason: String) {
         currentURL = url
         shouldRenderWebView = false

@@ -1,6 +1,15 @@
 import AppKit
 import CmuxFoundation
 
+let commandPaletteFloatingDockFocusSourceUserInfoKey = "floatingDockFocusSource"
+
+struct CommandPaletteFloatingDockFocusSource {
+    let store: DockSplitStore
+    let panelId: UUID
+    let window: NSWindow
+    let intent: PanelFocusIntent
+}
+
 struct WorkspaceFloatingDockCreationRequest {
     var title: String?
     var initialContent: DockSurfaceKind
@@ -69,6 +78,21 @@ extension AppDelegate {
     func workspaceFloatingDock(owning window: NSWindow?) -> WorkspaceFloatingDock? {
         guard let context = contextForShortcutSourceWindow(window) else { return nil }
         return context.workspaceFloatingDockPresenter?.dock(owning: window)
+    }
+
+    func commandPaletteFloatingDockFocusSource(
+        for window: NSWindow?
+    ) -> CommandPaletteFloatingDockFocusSource? {
+        guard let window,
+              let dock = workspaceFloatingDock(owning: window),
+              let panelId = dock.store.focusedPanelId,
+              let panel = dock.store.panels[panelId] else { return nil }
+        return CommandPaletteFloatingDockFocusSource(
+            store: dock.store,
+            panelId: panelId,
+            window: window,
+            intent: panel.captureFocusIntent(in: window)
+        )
     }
 
     func workspaceFloatingDock(owning store: DockSplitStore) -> (

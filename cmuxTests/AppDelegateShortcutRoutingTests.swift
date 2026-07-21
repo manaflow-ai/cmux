@@ -621,6 +621,29 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
         XCTAssertEqual(workspace.panels.count, workspacePanelCount)
         XCTAssertEqual(dock.store.panels.count, dockPanelCount + 1)
+
+        let mainWindow = try XCTUnwrap(appDelegate.windowForMainWindowId(windowId))
+        var paletteRequest: Notification?
+        let observer = NotificationCenter.default.addObserver(
+            forName: .commandPaletteRequested,
+            object: mainWindow,
+            queue: nil
+        ) { notification in
+            paletteRequest = notification
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        appDelegate.requestCommandPaletteCommands(
+            preferredWindow: mainWindow,
+            sourceWindow: dockWindow,
+            source: "test.floatingDock"
+        )
+        let focusSource = try XCTUnwrap(
+            paletteRequest?.userInfo?[commandPaletteFloatingDockFocusSourceUserInfoKey]
+                as? CommandPaletteFloatingDockFocusSource
+        )
+        XCTAssertTrue(focusSource.store === dock.store)
+        XCTAssertEqual(focusSource.panelId, dock.store.focusedPanelId)
+        XCTAssertTrue(focusSource.window === dockWindow)
 #else
         throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
 #endif

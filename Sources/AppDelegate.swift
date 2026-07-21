@@ -5107,9 +5107,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func postCommandPaletteRequest(
         kind: CommandPaletteRequestKind,
         preferredWindow: NSWindow?,
+        sourceWindow: NSWindow?,
         source: String
     ) {
-        let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
+        let rawTargetWindow = preferredWindow ?? shortcutRoutingActiveWindow
+        let targetWindow = contextForShortcutSourceWindow(rawTargetWindow)?.window ?? rawTargetWindow
+        let floatingDockFocusSource = commandPaletteFloatingDockFocusSource(
+            for: sourceWindow ?? rawTargetWindow
+        )
         if let targetWindow,
            let context = contextForMainWindow(targetWindow) {
             _ = context.tabManager.setFocusedBrowserFocusModeActive(false, reason: "commandPaletteRequest.\(source)")
@@ -5118,7 +5123,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if markPending {
             markCommandPaletteOpenRequested(for: targetWindow)
         }
-        NotificationCenter.default.post(name: Notification.Name(kind.notificationName), object: targetWindow)
+        let userInfo = floatingDockFocusSource.map {
+            [commandPaletteFloatingDockFocusSourceUserInfoKey: $0]
+        }
+        NotificationCenter.default.post(
+            name: Notification.Name(kind.notificationName),
+            object: targetWindow,
+            userInfo: userInfo
+        )
 #if DEBUG
         cmuxDebugLog(
             "shortcut.palette.request source=\(source) " +
@@ -5128,18 +5140,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
-    func requestCommandPaletteCommands(preferredWindow: NSWindow? = nil, source: String = "api.commandPalette") {
+    func requestCommandPaletteCommands(
+        preferredWindow: NSWindow? = nil,
+        sourceWindow: NSWindow? = nil,
+        source: String = "api.commandPalette"
+    ) {
         postCommandPaletteRequest(
             kind: .commands,
             preferredWindow: preferredWindow,
+            sourceWindow: sourceWindow,
             source: source
         )
     }
 
-    func requestCommandPaletteSwitcher(preferredWindow: NSWindow? = nil, source: String = "api.commandPaletteSwitcher") {
+    func requestCommandPaletteSwitcher(
+        preferredWindow: NSWindow? = nil,
+        sourceWindow: NSWindow? = nil,
+        source: String = "api.commandPaletteSwitcher"
+    ) {
         postCommandPaletteRequest(
             kind: .switcher,
             preferredWindow: preferredWindow,
+            sourceWindow: sourceWindow,
             source: source
         )
     }
@@ -5148,6 +5170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         postCommandPaletteRequest(
             kind: .renameTab,
             preferredWindow: preferredWindow,
+            sourceWindow: preferredWindow,
             source: source
         )
     }
@@ -5159,6 +5182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         postCommandPaletteRequest(
             kind: .renameWorkspace,
             preferredWindow: preferredWindow,
+            sourceWindow: preferredWindow,
             source: source
         )
     }
@@ -5170,6 +5194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         postCommandPaletteRequest(
             kind: .editWorkspaceDescription,
             preferredWindow: preferredWindow,
+            sourceWindow: preferredWindow,
             source: source
         )
     }
@@ -13123,14 +13148,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if commandPaletteEffectiveInTargetWindow {
             if matchConfiguredShortcut(event: event, action: .commandPalette) {
                 let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
-                requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.commandPalette")
+                requestCommandPaletteCommands(
+                    preferredWindow: targetWindow,
+                    sourceWindow: event.window ?? shortcutRoutingActiveWindow,
+                    source: "shortcut.commandPalette"
+                )
                 return true
             }
 
             if !hasFocusedAddressBarInShortcutContext,
                matchConfiguredShortcut(event: event, action: .goToWorkspace) {
                 let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
-                requestCommandPaletteSwitcher(preferredWindow: targetWindow, source: "shortcut.goToWorkspace")
+                requestCommandPaletteSwitcher(
+                    preferredWindow: targetWindow,
+                    sourceWindow: event.window ?? shortcutRoutingActiveWindow,
+                    source: "shortcut.goToWorkspace"
+                )
                 return true
             }
 
@@ -13350,7 +13383,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .commandPalette) {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
-            requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.commandPalette")
+            requestCommandPaletteCommands(
+                preferredWindow: targetWindow,
+                sourceWindow: event.window ?? shortcutRoutingActiveWindow,
+                source: "shortcut.commandPalette"
+            )
             return true
         }
 
@@ -13359,7 +13396,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !hasFocusedAddressBarInShortcutContext,
            matchConfiguredShortcut(event: event, action: .goToWorkspace) {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
-            requestCommandPaletteSwitcher(preferredWindow: targetWindow, source: "shortcut.goToWorkspace")
+            requestCommandPaletteSwitcher(
+                preferredWindow: targetWindow,
+                sourceWindow: event.window ?? shortcutRoutingActiveWindow,
+                source: "shortcut.goToWorkspace"
+            )
             return true
         }
 

@@ -1641,20 +1641,8 @@ extension Workspace {
 
         if let browserSnapshot = snapshot.browser,
            let browserPanel = browserPanel(for: panelId) {
-            let pageZoom = CGFloat(max(0.25, min(5.0, browserSnapshot.pageZoom)))
-            if pageZoom.isFinite {
-                _ = browserPanel.setPageZoomFactor(pageZoom)
-            }
-
-            browserPanel.restoreSessionSnapshot(browserSnapshot)
+            browserPanel.restoreCompleteSessionSnapshot(browserSnapshot)
             syncBrowserAudioMuteStateForPanel(panelId, browserPanel: browserPanel)
-
-            if browserSnapshot.developerToolsVisible && BrowserAvailabilitySettings.isEnabled() {
-                _ = browserPanel.showDeveloperTools()
-                browserPanel.requestDeveloperToolsRefreshAfterNextAttach(reason: "session_restore")
-            } else {
-                _ = browserPanel.hideDeveloperTools()
-            }
         }
     }
 

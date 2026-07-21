@@ -6,18 +6,23 @@ extension CMUXCLI {
         commandArgs: [String], client: SocketClient, jsonOutput: Bool,
         idFormat: CLIIDFormat, windowOverride: String?
     ) throws {
-        if hasHelpRequest(beforeSeparator: commandArgs) {
+        let separatorIndex = commandArgs.firstIndex(of: "--")
+        let optionArgs = separatorIndex.map { Array(commandArgs[..<$0]) } ?? commandArgs
+        let literalArgs = separatorIndex.map {
+            Array(commandArgs[commandArgs.index(after: $0)...])
+        } ?? []
+        if hasHelpRequest(beforeSeparator: optionArgs) {
             print(Self.workspaceFloatingDockUsage)
             return
         }
-        guard let subcommand = commandArgs.first?.lowercased() else {
+        guard let subcommand = optionArgs.first?.lowercased() else {
             throw CLIError(message: floatingDockCLIString(
                 "cli.workspace.float.error.subcommandRequired",
                 defaultValue: "workspace float requires a subcommand. Try: list, create, show, hide, minimize, restore, focus, close, close-all, frame, color, note, surface, pane"
             ))
         }
         let target = try workspaceFloatingDockTarget(
-            Array(commandArgs.dropFirst()), client: client, windowOverride: windowOverride
+            Array(optionArgs.dropFirst()), client: client, windowOverride: windowOverride
         )
         var params = target.params
         let args = target.rest
@@ -84,7 +89,12 @@ extension CMUXCLI {
             )
         case "note":
             try runWorkspaceFloatingDockNote(
-                args: args, params: params, client: client, jsonOutput: jsonOutput, idFormat: idFormat
+                args: args,
+                literalArgs: literalArgs,
+                params: params,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat
             )
         case "surface":
             try runWorkspaceFloatingDockSurface(
@@ -166,7 +176,7 @@ extension CMUXCLI {
     }
 
     private func runWorkspaceFloatingDockNote(
-        args: [String], params initialParams: [String: Any], client: SocketClient,
+        args: [String], literalArgs: [String], params initialParams: [String: Any], client: SocketClient,
         jsonOutput: Bool, idFormat: CLIIDFormat
     ) throws {
         guard let verb = args.first?.lowercased(), verb == "get" || verb == "set" else {
@@ -179,10 +189,10 @@ extension CMUXCLI {
         var params = initialParams
         params["float"] = selector
         if verb == "set" {
-            let positional = remaining.filter { !$0.hasPrefix("--") }
+            let textArguments = remaining + literalArgs
             let text: String
-            if !positional.isEmpty {
-                text = positional.joined(separator: " ")
+            if !textArguments.isEmpty {
+                text = textArguments.joined(separator: " ")
             } else if isatty(STDIN_FILENO) == 0 {
                 var lines: [String] = []
                 while let line = readLine(strippingNewline: false) { lines.append(line) }
