@@ -145,6 +145,21 @@ struct MobileStateSyncStoreTests {
         #expect(Set(covered.removedIDs) == Set(["b", "c"]))
     }
 
+    @Test func removedThenReaddedRecordTravelsAsUpsertWithoutTombstone() {
+        let store = MobileSyncCollectionStore<WorkspaceSyncRecord>()
+        _ = store.apply(rows: [workspace(id: "a"), workspace(id: "b")])
+        _ = store.apply(rows: [workspace(id: "b")])
+        _ = store.apply(rows: [workspace(id: "b"), workspace(id: "a", title: "reborn")])
+        // A cursor from before the removal spans remove-then-readd. The
+        // payload must deliver the live row and no tombstone for it; a client
+        // applying both would delete the re-added record.
+        let payload = store.payload(since: 1)
+        #expect(payload.mode == .delta)
+        #expect(payload.records.map(\.syncID) == ["a"])
+        #expect(payload.records.first?.title == "reborn")
+        #expect(payload.removedIDs.isEmpty)
+    }
+
     @Test func rootStoreMismatchedEpochResolvesToSnapshot() {
         let store = MobileStateSyncStore(epoch: "epoch-1")
         _ = store.workspaces.apply(rows: [workspace(id: "a")])

@@ -99,6 +99,7 @@ secondary Macs move to the same path once the foreground path is proven.
 
 - Fractional ordering keys to avoid N sort_index bumps on reorder.
 - Per-client outbox coalescing for slow phones (today's bounded per-connection
-  event queue suffices because delta frames are ~1000x smaller than the
-  refetches they replace).
+  event queue suffices because a typical one-row delta frame is around two
+  orders of magnitude smaller than the full-list refetch it replaces at a
+  100+ workspace scale).
 - Binary record encoding once the control stream grows an opcode envelope.

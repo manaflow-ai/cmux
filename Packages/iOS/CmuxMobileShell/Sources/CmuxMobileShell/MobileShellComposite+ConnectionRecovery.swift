@@ -819,6 +819,16 @@ extension MobileShellComposite {
             )
             let response = try MobileSyncWorkspaceListResponse.decode(data)
             guard remoteClient === client, connectionState == .connected else { return false }
+            if stateSyncActive {
+                // The round-trip above already proved liveness, which is all
+                // this path's probe callers need. While state sync v2 owns the
+                // list, applying this legacy full response would overwrite
+                // mirror-projected state with a snapshot the next delta then
+                // contradicts; re-base the mirror through its cursor instead
+                // (the fetch also refreshes the Mac-side store from truth).
+                requestStateSyncFetch(client: client)
+                return true
+            }
             applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
             syncSelectedTerminalForWorkspace()
             return true

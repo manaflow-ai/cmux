@@ -778,6 +778,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Single-flight handle for negotiation and gap-repair fetches, restart-on-
     /// newest like ``workspaceListRefreshTask``.
     var stateSyncFetchTask: Task<Void, Never>?
+    /// Identifies the fetch generation that owns ``stateSyncFetchTask``, so a
+    /// cancelled predecessor's deferred cleanup cannot clear its replacement.
+    var stateSyncFetchGeneration = UUID()
     /// The user pull-to-refresh round-trip, kept on its own handle so the
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.

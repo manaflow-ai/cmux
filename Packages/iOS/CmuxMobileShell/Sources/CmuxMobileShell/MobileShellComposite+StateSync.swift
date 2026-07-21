@@ -30,8 +30,12 @@ extension MobileShellComposite {
     /// The caller already proved the event belongs to the current client and a
     /// connected session.
     func handleStateSyncDeltaEvent(_ event: MobileEventEnvelope) {
-        guard let payload = event.payloadJSON else { return }
+        guard let payload = event.payloadJSON else {
+            scheduleStateSyncRepairIfActive()
+            return
+        }
         guard let header = try? JSONDecoder().decode(MobileSyncDeltaEventHeader.self, from: payload) else {
+            scheduleStateSyncRepairIfActive()
             return
         }
         let result: MobileSyncApplyResult
@@ -39,12 +43,21 @@ extension MobileShellComposite {
         case .workspaces:
             guard let delta = try? JSONDecoder().decode(
                 MobileSyncDeltaEvent<WorkspaceSyncRecord>.self, from: payload
-            ) else { return }
+            ) else {
+                // A delta we KNOW is for a mirrored collection but cannot
+                // decode is a lost update: without repair the mirror stays
+                // silently stale until the next unrelated change gaps it.
+                scheduleStateSyncRepairIfActive()
+                return
+            }
             result = stateSyncMirror.workspaces.apply(delta: delta)
         case .groups:
             guard let delta = try? JSONDecoder().decode(
                 MobileSyncDeltaEvent<GroupSyncRecord>.self, from: payload
-            ) else { return }
+            ) else {
+                scheduleStateSyncRepairIfActive()
+                return
+            }
             result = stateSyncMirror.groups.apply(delta: delta)
         default:
             // A newer Mac may sync collections this build does not know; they
@@ -66,12 +79,33 @@ extension MobileShellComposite {
         }
     }
 
+    /// Entry point for sibling composite extensions (liveness probe and
+    /// pull-to-refresh paths): re-base the mirror through its cursor.
+    func requestStateSyncFetch(client: MobileCoreRPCClient) {
+        scheduleStateSyncFetch(client: client)
+    }
+
+    /// Repairs the mirror with a cursor fetch when the current client is v2.
+    private func scheduleStateSyncRepairIfActive() {
+        guard stateSyncActive, let client = remoteClient else { return }
+        scheduleStateSyncFetch(client: client)
+    }
+
     /// Single-flight, restart-on-newest cursor fetch (negotiation and gap
     /// repair share it, mirroring ``workspaceListRefreshTask`` semantics).
     private func scheduleStateSyncFetch(client: MobileCoreRPCClient) {
         stateSyncFetchTask?.cancel()
+        let generation = UUID()
+        stateSyncFetchGeneration = generation
         stateSyncFetchTask = Task { @MainActor [weak self] in
-            defer { self?.stateSyncFetchTask = nil }
+            defer {
+                // Only the generation that still owns the handle may clear
+                // it: a cancelled predecessor's deferred cleanup must not
+                // erase the replacement's cancel handle.
+                if let self, self.stateSyncFetchGeneration == generation {
+                    self.stateSyncFetchTask = nil
+                }
+            }
             await self?.runStateSyncFetch(client: client)
         }
     }

@@ -95,6 +95,22 @@ struct MobileStateSyncMirrorTests {
         #expect(mirror.orderedRecords.count == 1)
     }
 
+    @Test func staleSameEpochSnapshotIsIgnored() {
+        let mirror = MobileSyncCollectionMirror<GroupSyncRecord>()
+        _ = mirror.apply(payload: snapshot([group(id: "a"), group(id: "b")], rev: 8), epoch: "e1")
+        // An in-flight fetch response from rev 5 lands after newer deltas
+        // advanced the mirror to 8: applying it would roll state back until
+        // the next delta gaps. It must be ignored.
+        let result = mirror.apply(payload: snapshot([group(id: "a")], rev: 5), epoch: "e1")
+        #expect(result == .staleIgnored)
+        #expect(mirror.rev == 8)
+        #expect(mirror.orderedRecords.count == 2)
+        // A NEW epoch's snapshot always applies, whatever its revision.
+        let newEpoch = mirror.apply(payload: snapshot([group(id: "c")], rev: 1), epoch: "e2")
+        #expect(newEpoch == .applied)
+        #expect(mirror.orderedRecords.map(\.syncID) == ["c"])
+    }
+
     @Test func epochMismatchReportsGap() {
         let mirror = MobileSyncCollectionMirror<GroupSyncRecord>()
         _ = mirror.apply(payload: snapshot([group(id: "a")], rev: 5), epoch: "e1")

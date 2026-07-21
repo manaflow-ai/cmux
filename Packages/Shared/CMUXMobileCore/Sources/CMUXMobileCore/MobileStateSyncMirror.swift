@@ -46,6 +46,12 @@ public final class MobileSyncCollectionMirror<Record: MobileSyncRecord> {
     public func apply(payload: MobileSyncCollectionPayload<Record>, epoch payloadEpoch: String) -> MobileSyncApplyResult {
         switch payload.mode {
         case .snapshot:
+            // A same-epoch snapshot older than the cursor is a stale in-flight
+            // response overtaken by newer deltas; applying it would roll the
+            // mirror back until the next delta gaps and repairs. Ignore it.
+            if let epoch, epoch == payloadEpoch, payload.rev < rev {
+                return .staleIgnored
+            }
             recordsByID = Dictionary(
                 payload.records.map { ($0.syncID, $0) },
                 uniquingKeysWith: { _, last in last }
@@ -85,11 +91,14 @@ public final class MobileSyncCollectionMirror<Record: MobileSyncRecord> {
         guard let epoch, epoch == changeEpoch else { return .gap }
         guard fromRev <= rev else { return .gap }
         guard toRev > rev else { return .staleIgnored }
-        for record in records {
-            recordsByID[record.syncID] = record
-        }
+        // Removals first: the producer already excludes tombstones for
+        // currently-live ids, so within one payload an id in both lists means
+        // the upsert is the newer fact and must win.
         for id in removedIDs {
             recordsByID[id] = nil
+        }
+        for record in records {
+            recordsByID[record.syncID] = record
         }
         rev = toRev
         return .applied

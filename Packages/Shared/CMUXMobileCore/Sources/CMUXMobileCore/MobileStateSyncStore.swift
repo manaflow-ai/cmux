@@ -132,7 +132,13 @@ public final class MobileSyncCollectionStore<Record: MobileSyncRecord> {
             )
         }
         let upserts = stampedByID.values.filter { $0.rev > rev }.map(\.record)
-        let removals = tombstones.filter { $0.rev > rev }.map(\.id)
+        // A tombstone whose id is live again (removed then re-added inside the
+        // cursor span) must not travel: the upsert alone is the correct final
+        // state, and a client applying upserts and removals from one payload
+        // would otherwise delete the re-added record.
+        let removals = tombstones
+            .filter { $0.rev > rev && stampedByID[$0.id] == nil }
+            .map(\.id)
         return MobileSyncCollectionPayload(
             mode: .delta,
             rev: headRev,
