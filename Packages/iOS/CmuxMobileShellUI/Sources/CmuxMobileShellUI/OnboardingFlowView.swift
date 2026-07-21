@@ -78,7 +78,11 @@ struct OnboardingFlowView: View {
     @ViewBuilder
     private func page(for pageStage: OnboardingStage) -> some View {
         if pageStage == .connect && !isAuthenticated {
-            OnboardingSignInBridgeView()
+            if stage == .connect {
+                OnboardingSignInBridgeView()
+            } else {
+                Color.clear
+            }
         } else {
             switch pageStage {
             case .agents:

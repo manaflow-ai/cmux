@@ -34,5 +34,13 @@ import Testing
             didFinishSearch: false
         ) == .ready)
     }
+
+    @Test func replayCanDeclareNoSearchPending() {
+        #expect(OnboardingConnectionPhase.resolve(
+            isMacReady: false,
+            isSearching: false,
+            didFinishSearch: true
+        ) == .fallback)
+    }
 }
 #endif

@@ -1,4 +1,5 @@
 import Foundation
+import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -16,6 +17,7 @@ struct CMUXMobileRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
+    @Environment(\.analytics) private var analytics
     private let signOutHook: MobileSignOutHook
     private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
     #if os(iOS)
@@ -207,6 +209,14 @@ struct CMUXMobileRootView: View {
                        progress: onboardingStore.progress,
                        isConnected: true
                    ) {
+                    analytics.capture(
+                        "ios_onboarding_completed",
+                        [
+                            "context": .string(OnboardingContext.firstRun.rawValue),
+                            "stage": .string(OnboardingStage.connect.analyticsValue),
+                            "source": .string("auto_connect")
+                        ]
+                    )
                     completeOnboarding()
                 }
                 #endif

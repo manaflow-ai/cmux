@@ -36,6 +36,7 @@ struct MobileSettingsView: View {
     @State private var notificationsEnabled = false
     @State private var showingHostPicker = false
     @State private var showingOnboarding = false
+    @State private var startsPairingAfterDismiss = false
     @State private var showingSetupHelp = false
     #if DEBUG
     @State private var showingChatDemo = false
@@ -382,14 +383,16 @@ struct MobileSettingsView: View {
                     connectionPhase: OnboardingConnectionPhase.resolve(
                         isMacReady: store?.connectionState == .connected,
                         isSearching: store?.isReconnectingStoredMac == true,
-                        didFinishSearch: store?.didFinishStoredMacReconnectAttempt ?? true
+                        didFinishSearch: store?.isReconnectingStoredMac == true
+                            ? store?.didFinishStoredMacReconnectAttempt ?? false
+                            : true
                     ),
                     onReachedConnection: {},
                     onSkip: { showingOnboarding = false },
                     onRetryConnection: retryAutomaticConnection,
                     onStartFallbackPairing: {
+                        startsPairingAfterDismiss = true
                         showingOnboarding = false
-                        (startPairing ?? rescanQR)?()
                         dismiss()
                     },
                     onComplete: { showingOnboarding = false }
@@ -404,6 +407,11 @@ struct MobileSettingsView: View {
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
+        .onDisappear {
+            guard startsPairingAfterDismiss else { return }
+            startsPairingAfterDismiss = false
+            startPairing?()
+        }
     }
 
     private static var crashReportingEnabled: Bool {
