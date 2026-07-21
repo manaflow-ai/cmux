@@ -145,10 +145,49 @@ extension BrowserPanel {
                 mobileBrowserStreamViewportIsActive = true
             }
             mobileBrowserStreamViewport = reportedViewport
+            forceMobileStreamRepaintAfterReflow()
             publishMobileBrowserStreamSignal(.dirty(editableFocused: nil))
             return true
         case .failure:
             return false
+        }
+    }
+
+    /// Forces a compositor repaint after a viewport reflow so the next capture
+    /// is not a blank frame.
+    ///
+    /// An already-loaded, idle page reflowed to a new viewport relayouts but does
+    /// not necessarily repaint on its own, so `takeSnapshot` right after the
+    /// reflow can capture a WHITE frame that then sticks (the idle page sends no
+    /// further dirty signal, so nothing re-captures). A user scroll recovers it,
+    /// which is exactly the compositor nudge this reproduces programmatically: a
+    /// double-`requestAnimationFrame` (runs after the relayout paints) followed
+    /// by a net-zero 1px scroll jitter and a `resize` dispatch. Both fire the
+    /// stream dirty beacon's listeners, so the settled, painted layout is
+    /// captured and replaces the premature blank frame. The scroll is restored
+    /// to its exact prior offset, so it is imperceptible; the `resize` dispatch
+    /// covers short pages that have no scroll room to jitter.
+    private func forceMobileStreamRepaintAfterReflow() {
+        let script = """
+        (() => {
+          const nudge = () => {
+            try {
+              const x = window.scrollX, y = window.scrollY;
+              window.scrollTo(x, y + 1);
+              window.scrollTo(x, y);
+              window.dispatchEvent(new Event('resize'));
+            } catch (_) {}
+          };
+          try {
+            requestAnimationFrame(() => requestAnimationFrame(nudge));
+          } catch (_) {
+            nudge();
+          }
+        })()
+        """
+        let activeWebView = webView
+        Task { @MainActor [weak activeWebView] in
+            try? await activeWebView?.evaluateJavaScript(script, contentWorld: .page)
         }
     }
 
