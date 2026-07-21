@@ -52,6 +52,7 @@ final class SidebarRowIconTextLine: NSView {
     private let iconView = NSImageView()
     private let iconLabel = NSTextField(labelWithString: "")
     private let textView = SidebarRowTextView(lines: 1)
+    private let metadataButton = SidebarRowLinkButton()
     private let secondTextView = SidebarRowTextView(lines: 1)
     private var iconSize: CGFloat = 0
     private var stacked = false
@@ -64,6 +65,9 @@ final class SidebarRowIconTextLine: NSView {
         addSubview(iconView)
         addSubview(iconLabel)
         addSubview(textView)
+        metadataButton.alignment = .left
+        metadataButton.isHidden = true
+        addSubview(metadataButton)
         secondTextView.isHidden = true
         addSubview(secondTextView)
     }
@@ -75,7 +79,8 @@ final class SidebarRowIconTextLine: NSView {
     func configureMetadataEntry(
         _ entry: SidebarStatusEntry,
         model: SidebarWorkspaceRowModel,
-        color: NSColor
+        color: NSColor,
+        onOpenURL: @escaping (URL) -> Void
     ) {
         stacked = false
         secondTextView.isHidden = true
@@ -106,10 +111,25 @@ final class SidebarRowIconTextLine: NSView {
                 }
             }
         }
-        let text = entry.key.isEmpty ? entry.value : "\(entry.key): \(entry.value)"
-        textView.stringValue = text
-        textView.font = .systemFont(ofSize: model.scaled(10))
-        textView.textColor = color
+        let font = NSFont.systemFont(ofSize: model.scaled(10))
+        if let url = entry.url {
+            textView.isHidden = true
+            metadataButton.isHidden = false
+            metadataButton.configure(
+                title: entry.sidebarDisplayText,
+                font: font,
+                color: color,
+                underlined: true,
+                toolTip: url.absoluteString,
+                onClick: { onOpenURL(url) }
+            )
+        } else {
+            metadataButton.isHidden = true
+            textView.isHidden = false
+            textView.stringValue = entry.sidebarDisplayText
+            textView.font = font
+            textView.textColor = color
+        }
         needsLayout = true
     }
 
@@ -119,6 +139,8 @@ final class SidebarRowIconTextLine: NSView {
         palette: SidebarRowPalette
     ) {
         stacked = false
+        metadataButton.isHidden = true
+        textView.isHidden = false
         secondTextView.isHidden = true
         iconLabel.isHidden = true
         let iconName: String
@@ -164,6 +186,8 @@ final class SidebarRowIconTextLine: NSView {
         model: SidebarWorkspaceRowModel,
         palette: SidebarRowPalette
     ) {
+        metadataButton.isHidden = true
+        textView.isHidden = false
         iconView.isHidden = true
         iconLabel.isHidden = true
         iconSize = 0
@@ -208,7 +232,9 @@ final class SidebarRowIconTextLine: NSView {
 
     func measuredHeight(width: CGFloat) -> CGFloat {
         resolveCandidates(width: width)
-        let first = textView.measuredHeight(width: max(10, width - iconSize))
+        let first = metadataButton.isHidden
+            ? textView.measuredHeight(width: max(10, width - iconSize))
+            : ceil(metadataButton.intrinsicContentSize.height)
         let second = secondTextView.isHidden ? 0 : secondTextView.measuredHeight(width: max(10, width - iconSize)) + 1
         return first + second
     }
@@ -241,8 +267,12 @@ final class SidebarRowIconTextLine: NSView {
             icon.frame = NSRect(x: 0, y: 1, width: side, height: side)
             x = side + 4
         }
-        let firstHeight = textView.measuredHeight(width: max(10, bounds.width - x))
-        textView.frame = NSRect(x: x, y: 0, width: max(10, bounds.width - x), height: firstHeight)
+        let availableWidth = max(10, bounds.width - x)
+        let firstHeight = metadataButton.isHidden
+            ? textView.measuredHeight(width: availableWidth)
+            : ceil(metadataButton.intrinsicContentSize.height)
+        let primaryView: NSView = metadataButton.isHidden ? textView : metadataButton
+        primaryView.frame = NSRect(x: x, y: 0, width: availableWidth, height: firstHeight)
         if !secondTextView.isHidden {
             let secondHeight = secondTextView.measuredHeight(width: max(10, bounds.width - x))
             secondTextView.frame = NSRect(x: x, y: firstHeight + 1, width: max(10, bounds.width - x), height: secondHeight)
@@ -323,18 +353,25 @@ final class SidebarRowPullRequestLine: NSView {
             x: 0, y: (bounds.height - iconSize.height) / 2,
             width: iconSize.width, height: iconSize.height
         )
-        let statusSize = statusLabel.intrinsicContentSize
+        // sidebarNaturalCellSize, never intrinsicContentSize: see the
+        // extension note — a pooled truncating label laid out narrow once
+        // reports the truncated width forever ("PR #4  o…").
+        let statusSize = statusLabel.sidebarNaturalCellSize
         let titleX = iconSize.width + 4
-        let titleWidth = max(10, bounds.width - titleX - statusSize.width - 8)
+        // The short status word keeps its natural width; the title absorbs
+        // any shortfall (it is the long, truncatable part).
+        let titleWidth = max(10, bounds.width - titleX - ceil(statusSize.width) - 8)
         let title: NSView = titleButton.isHidden ? titleLabel : titleButton
-        let titleSize = titleButton.isHidden ? titleLabel.intrinsicContentSize : titleButton.intrinsicContentSize
+        let titleSize = titleButton.isHidden
+            ? titleLabel.sidebarNaturalCellSize
+            : titleButton.intrinsicContentSize
         title.frame = NSRect(
             x: titleX, y: (bounds.height - titleSize.height) / 2,
             width: min(ceil(titleSize.width), titleWidth), height: titleSize.height
         )
         statusLabel.frame = NSRect(
             x: title.frame.maxX + 4, y: (bounds.height - statusSize.height) / 2,
-            width: statusSize.width, height: statusSize.height
+            width: ceil(statusSize.width), height: statusSize.height
         )
     }
 }

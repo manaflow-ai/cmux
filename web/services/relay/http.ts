@@ -100,7 +100,13 @@ export function relayErrorResponse(error: unknown): Response {
     console.error("relay.policy.catalog_rollback", {
       configuredSequence: (error as { configuredSequence?: unknown }).configuredSequence,
       persistedSequence: (error as { persistedSequence?: unknown }).persistedSequence,
+      reason: (error as { reason?: unknown }).reason,
     });
+    return jsonResponse({ error: "relay_policy_unavailable" }, 503);
+  }
+  if (tag === "RelayCatalogIntegrityError") {
+    const typed = error as Extract<RelayServiceError, { _tag: "RelayCatalogIntegrityError" }>;
+    console.error("relay.policy.catalog_integrity", { reason: typed.reason });
     return jsonResponse({ error: "relay_policy_unavailable" }, 503);
   }
   if (
@@ -111,7 +117,9 @@ export function relayErrorResponse(error: unknown): Response {
     console.error("relay.policy.unavailable", tag);
     return jsonResponse({ error: "relay_policy_unavailable" }, 503);
   }
-  console.error("relay.policy.unexpected", error);
+  // Unexpected errors can carry database causes, relay origins, or credentials.
+  // Keep the operational event while making its payload intentionally coarse.
+  console.error("relay.policy.unexpected", { failure: "unexpected" });
   return jsonResponse({ error: "internal_error" }, 500);
 }
 

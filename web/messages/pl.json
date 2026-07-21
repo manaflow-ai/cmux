@@ -745,6 +745,9 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "Do przełączania się między sieciami użyj cmux mosh-tmux. Otwiera on w pełni zintegrowany terminal Mosh dołączony do nazwanej sesji tmux; nie zastępuje natywnego odwzorowania workspace’ów, kart i podziałów udostępnianego przez tryb sterowania tmux przez SSH."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Szybki start",
@@ -1495,10 +1498,16 @@
       "flagName": "Flaga",
       "flagDesc": "Opis",
       "flagNameVal": "Ustaw tytuł obszaru roboczego",
+      "flagCommand": "Uruchom tekst polecenia jeden raz w początkowym zdalnym terminalu po starcie powłoki",
       "flagPort": "Port SSH (domyślnie 22)",
       "flagIdentity": "Ścieżka do pliku tożsamości",
       "flagSshOption": "Przekaż dowolne opcje SSH (np. -o StrictHostKeyChecking=no)",
+      "flagTransport": "Transport terminala interaktywnego: ssh (domyślnie) lub mosh",
       "flagNoFocus": "Utwórz obszar roboczy bez przełączania się na niego",
+      "moshTitle": "Transport terminala Mosh",
+      "moshDesc": "Użyj cmux ssh user@remote --transport mosh, gdy terminal interaktywny ma przetrwać zmiany Wi-Fi, VPN lub hotspotu oraz uśpienie i wybudzenie. Mosh przenosi tylko PTY terminala; SSH nadal obsługuje zdalne metadane, konfigurację i sterowanie usługą cmux, proxy przeglądarki, przesyłanie plików i ponowne łączenie.",
+      "moshFallback": "cmux wymaga lokalnie Mosh 1.4 lub nowszego i przed uruchomieniem sprawdza zdalny mosh-server. Jeśli klient jest niedostępny lub niezgodny, brakuje serwera albo zdalne sprawdzenie się nie powiedzie, cmux wyjaśnia przyczynę i kontynuuje przez SSH.",
+      "moshTmux": "Utwórz workspace Mosh, który tworzy lub dołącza do nazwanej sesji tmux (domyślnie: main). Profil tmux jest zachowywany po ponownym połączeniu i odtworzeniu sesji aplikacji. To terminal tmux z roamingiem, a nie natywne lustro z cmux ssh-tmux. --session <name> wybiera sesję; pozostałe flagi są takie jak w cmux mosh. Bez Mosh ten sam profil działa przez SSH.",
       "deepLinksTitle": "Głębokie linki SSH",
       "deepLinksDesc": "Użyj głębokich linków cmux SSH, gdy witryna lub narzędzie chce zaoferować przycisk Otwórz w cmux. Link otwiera cmux, wyświetla monit o potwierdzenie, a następnie uruchamia równoważne polecenie cmux ssh po potwierdzeniu przez użytkownika.",
       "deepLinksWebFallbackDesc": "Użyj zastępczego adresu URL cmux.com dla przycisków witryny. Otwiera natywny link i pokazuje pobieranie, jeśli cmux nie jest zainstalowany.",

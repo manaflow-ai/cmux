@@ -1,3 +1,4 @@
+internal import CMUXMobileCore
 public import CmuxMobilePairedMac
 public import Foundation
 import os
@@ -60,10 +61,17 @@ public struct PairedMacRestore: Sendable {
         if !isCurrent() {
             return RestoreOutcome(completed: false, restored: 0)
         }
-        let tombstoneIDs = Set(snapshot.deletedMacDeviceIDs
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty })
-            .union(locallyDeletedMacDeviceIDs)
+        func canonicalPairingID(_ value: String) -> String? {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            let identity = MobilePairedMac.pairingIdentity(from: trimmed)
+            return MobilePairedMac.pairingID(
+                macDeviceID: identity.macDeviceID,
+                instanceTag: identity.instanceTag
+            )
+        }
+        let tombstoneIDs = Set(snapshot.deletedMacDeviceIDs.compactMap(canonicalPairingID))
+            .union(locallyDeletedMacDeviceIDs.compactMap(canonicalPairingID))
         let liveRecords = snapshot.records.filter { record in
             !tombstoneIDs.contains(MobilePairedMac.pairingID(
                 macDeviceID: record.macDeviceID,
@@ -128,8 +136,9 @@ public struct PairedMacRestore: Sendable {
             if !isCurrent() {
                 return RestoreOutcome(completed: false, restored: restored)
             }
+            let canonicalDeviceID = cmxCanonicalDeviceID(record.macDeviceID)
             let pairingID = MobilePairedMac.pairingID(
-                macDeviceID: record.macDeviceID,
+                macDeviceID: canonicalDeviceID,
                 instanceTag: record.instanceTag
             )
             let backupSeconds = record.lastSeenAt / 1000.0
@@ -154,7 +163,7 @@ public struct PairedMacRestore: Sendable {
             do {
                 let backupDate = Date(timeIntervalSince1970: backupSeconds)
                 let restoredThisRecord = try await store.upsertIfNewer(
-                    macDeviceID: record.macDeviceID,
+                    macDeviceID: canonicalDeviceID,
                     displayName: record.displayName,
                     routes: record.routes,
                     instanceTag: record.instanceTag,
@@ -170,7 +179,7 @@ public struct PairedMacRestore: Sendable {
                 if !isCurrent() {
                     if localByID[pairingID] == nil {
                         try? await store.remove(
-                            macDeviceID: record.macDeviceID,
+                            macDeviceID: canonicalDeviceID,
                             instanceTag: record.instanceTag,
                             stackUserID: accountID,
                             teamID: teamID
@@ -184,7 +193,7 @@ public struct PairedMacRestore: Sendable {
                 restored += 1
             } catch {
                 pairedMacRestoreLog.warning(
-                    "failed to restore paired mac \(record.macDeviceID, privacy: .public): \(String(describing: error), privacy: .public)"
+                    "failed to restore paired mac \(canonicalDeviceID, privacy: .public): \(String(describing: error), privacy: .public)"
                 )
             }
         }

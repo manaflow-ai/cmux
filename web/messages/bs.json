@@ -745,6 +745,9 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "Za roaming između mreža koristite cmux mosh-tmux. Otvara punopravni Mosh terminal spojen na imenovanu tmux sesiju; ne zamjenjuje izvorno preslikavanje radnih prostora, kartica i podjela koje pruža SSH tmux kontrolni režim."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Početak rada",
@@ -1494,10 +1497,16 @@
       "flagName": "Zastava",
       "flagDesc": "Opis",
       "flagNameVal": "Postavite naslov radnog prostora",
+      "flagCommand": "Pokrenite tekst naredbe jednom u početnom udaljenom terminalu nakon pokretanja ljuske",
       "flagPort": "SSH port (zadano 22)",
       "flagIdentity": "Put do datoteke identiteta",
       "flagSshOption": "Proslijedi proizvoljne SSH opcije (npr. -o StrictHostKeyChecking=no)",
+      "flagTransport": "Transport interaktivnog terminala: ssh (zadano) ili mosh",
       "flagNoFocus": "Kreirajte radni prostor bez prelaska na njega",
+      "moshTitle": "Mosh transport terminala",
+      "moshDesc": "Koristite cmux ssh user@remote --transport mosh kada interaktivni terminal treba preživjeti promjene Wi-Fi mreže, VPN-a, pristupne tačke te uspavljivanje i buđenje. Mosh prenosi samo terminalski PTY; SSH i dalje upravlja udaljenim metapodacima, postavljanjem i kontrolom cmux usluge, proxyjem preglednika, prijenosima i ponovnim povezivanjem.",
+      "moshFallback": "cmux lokalno zahtijeva Mosh 1.4 ili noviji i prije pokretanja provjerava udaljeni mosh-server. Ako klijent nedostaje ili nije kompatibilan, server nedostaje ili udaljena provjera ne uspije, cmux objašnjava razlog i nastavlja putem SSH-a.",
+      "moshTmux": "Kreirajte Mosh workspace koji kreira ili spaja imenovanu tmux sesiju (zadano: main). Tmux profil opstaje kroz ponovno povezivanje i vraćanje sesije aplikacije. Ovo je roaming tmux terminal, a ne izvorni mirror iz cmux ssh-tmux. --session <name> bira sesiju; ostale opcije odgovaraju cmux mosh. Bez Mosha isti profil radi preko SSH-a.",
       "deepLinksTitle": "SSH duboke veze",
       "deepLinksDesc": "Koristite cmux SSH dubinske veze kada web lokacija ili alat želi ponuditi dugme Otvori u cmux. Veza otvara cmux, prikazuje prompt za potvrdu, a zatim pokreće ekvivalentnu cmux ssh naredbu nakon što korisnik potvrdi.",
       "deepLinksWebFallbackDesc": "Koristite zamjenski URL cmux.com za dugmad web stranice. Otvara izvornu vezu i prikazuje preuzimanje ako cmux nije instaliran.",

@@ -7,6 +7,9 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var createResolution: ControlSurfaceCreateResolution = .tabManagerUnavailable
     var reportPWDResolution: ControlSurfaceReportPWDResolution = .recorded(surfaceID: UUID())
     var reportedPWD: (workspaceID: UUID, requestedSurfaceID: UUID?, path: String)?
+    var reportGitResolution: ControlSurfaceReportGitBranchResolution = .recorded(surfaceID: UUID())
+    var reportedGit: (workspaceID: UUID, requestedSurfaceID: UUID?, branch: String, isDirty: Bool?)?
+    var clearedGit: (workspaceID: UUID, requestedSurfaceID: UUID?)?
 
     func controlWindowSummaries() -> [ControlWindowSummary] { [] }
     func controlResolveCurrentWindow(routing: ControlRoutingSelectors) -> ControlCurrentWindowResolution {
@@ -43,5 +46,23 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     ) -> ControlSurfaceReportPWDResolution {
         reportedPWD = (workspaceID, requestedSurfaceID, path)
         return reportPWDResolution
+    }
+
+    func controlSurfaceReportGitBranch(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?,
+        branch: String,
+        isDirty: Bool?
+    ) -> ControlSurfaceReportGitBranchResolution {
+        reportedGit = (workspaceID, requestedSurfaceID, branch, isDirty)
+        return reportGitResolution
+    }
+
+    func controlSurfaceClearGitBranch(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?
+    ) -> ControlSurfaceReportGitBranchResolution {
+        clearedGit = (workspaceID, requestedSurfaceID)
+        return reportGitResolution
     }
 }
