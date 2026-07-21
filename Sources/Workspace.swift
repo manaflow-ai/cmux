@@ -520,14 +520,8 @@ extension Workspace {
                 : nil
             let agentWasRunning: Bool? = {
                 guard effectiveRestorableAgent != nil else { return nil }
-                switch panelShellActivityStates[panelId] {
-                case .some(.commandRunning):
-                    return true
-                case .some(.promptIdle):
-                    return false
-                case .some(.unknown), .none:
-                    return nil
-                }
+                return (restorableAgentObservation?.processLiveness ?? .unknown)
+                    .wasRunning(fallingBackTo: panelShellActivityStates[panelId])
             }()
             let resumeStartupInput = sessionRestorePolicy.surfaceResumeStartupInput(
                 resumeBinding,

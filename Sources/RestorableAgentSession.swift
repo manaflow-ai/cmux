@@ -931,6 +931,8 @@ struct RestorableAgentSessionIndex: Sendable {
         let snapshot: SessionRestorableAgentSnapshot
         let lifecycle: AgentHibernationLifecycleState?
         let updatedAt: TimeInterval
+        /// Unlike an empty process ID set, this distinguishes an exited recorded process from no PID evidence.
+        let processLiveness: RestorableAgentProcessLiveness
         let processIDs: Set<Int>
         let agentProcessIDs: Set<Int>
         let agentProcessIdentities: [Int: AgentPIDProcessIdentity]
@@ -1082,6 +1084,10 @@ struct RestorableAgentSessionIndex: Sendable {
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         },
+        processPresenceProvider: (Int) -> PIDPresence = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
+            return PIDPresence.current(pid: pid_t($0))
+        },
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -1161,17 +1167,20 @@ struct RestorableAgentSessionIndex: Sendable {
                 let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
                 let panelKindKey = PanelKindKey(panelKey: key, kind: kind)
                 let panelIDKindKey = PanelIDKindKey(panelId: panelId, kind: kind)
-                let liveProcessID = liveScopedProcessID(
+                let processObservation = scopedProcessObservation(
                     for: effectiveRecord,
                     kind: kind,
                     workspaceId: workspaceId,
                     panelId: panelId,
-                    processArgumentsProvider: processArgumentsProvider
+                    processArgumentsProvider: processArgumentsProvider,
+                    processPresenceProvider: processPresenceProvider
                 )
+                let liveProcessID = processObservation.processID
                 let entry = Entry(
                     snapshot: snapshot,
                     lifecycle: effectiveRecord.agentLifecycle,
                     updatedAt: effectiveRecord.updatedAt,
+                    processLiveness: processObservation.liveness,
                     processIDs: liveProcessID.map { [$0] } ?? [],
                     agentProcessIDs: liveProcessID.map { [$0] } ?? [],
                     agentProcessIdentities: agentProcessIdentities(
@@ -1211,8 +1220,8 @@ struct RestorableAgentSessionIndex: Sendable {
                     hookCandidatesBySession[sessionKey] = entry
                 }
                 // A saved PID is liveness evidence only. It can go stale while the
-                // transcript and hook record are still restorable, so keep the
-                // snapshot and leave processIDs empty when the process is gone.
+                // transcript and hook record are still restorable, so keep the snapshot,
+                // record the exited generation, and leave processIDs empty when it is gone.
                 if shouldReplaceHookEntry(existing: resolved[key], incoming: entry) {
                     resolved[key] = entry
                 }
@@ -1222,6 +1231,7 @@ struct RestorableAgentSessionIndex: Sendable {
         func processDetectedEntry(snapshot: SessionRestorableAgentSnapshot, lifecycle: AgentHibernationLifecycleState?, updatedAt: TimeInterval, detected: ProcessDetectedSnapshotEntry) -> Entry {
             Entry(
                 snapshot: snapshot, lifecycle: lifecycle, updatedAt: updatedAt,
+                processLiveness: .running,
                 processIDs: detected.processIDs, agentProcessIDs: detected.agentProcessIDs,
                 agentProcessIdentities: agentProcessIdentities(
                     for: detected.agentProcessIDs,
@@ -2167,30 +2177,40 @@ struct RestorableAgentSessionIndex: Sendable {
         regularFileState(atPath: path, fileManager: fileManager) == .nonEmpty
     }
 
-    private static func liveScopedProcessID(
+    private static func scopedProcessObservation(
         for record: RestorableAgentHookSessionRecord,
         kind: RestorableAgentKind,
         workspaceId: UUID,
         panelId: UUID,
-        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
-    ) -> Int? {
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?,
+        processPresenceProvider: (Int) -> PIDPresence
+    ) -> (processID: Int?, liveness: RestorableAgentProcessLiveness) {
         guard let pid = record.pid else {
-            return nil
+            return (nil, .unknown)
         }
-        guard pid > 0,
-              let process = processArgumentsProvider(pid),
-              process.matchesCMUXScope(workspaceId: workspaceId, surfaceId: panelId) else {
-            return nil
+        guard pid > 0, pid <= Int(Int32.max) else {
+            return (nil, .exited)
+        }
+        guard let process = processArgumentsProvider(pid) else {
+            // A present process may be temporarily uninspectable. Only ESRCH-grade
+            // absence proves that the recorded generation exited.
+            let liveness: RestorableAgentProcessLiveness = processPresenceProvider(pid) == .absent
+                ? .exited
+                : .unknown
+            return (nil, liveness)
+        }
+        guard process.matchesCMUXScope(workspaceId: workspaceId, surfaceId: panelId) else {
+            return (nil, .exited)
         }
 
         if let liveKind = normalizedProcessValue(process.environment["CMUX_AGENT_LAUNCH_KIND"]),
            liveKind.compare(kind.rawValue, options: [.caseInsensitive, .literal]) != .orderedSame {
-            return nil
+            return (nil, .exited)
         }
 
         guard let recordedExecutable = recordedExecutableBasename(record),
               let liveExecutable = process.arguments.first.map(executableBasename) else {
-            return pid
+            return (pid, .running)
         }
         guard liveProcessExecutableMatchesRecordedAgent(
             kind: kind,
@@ -2199,9 +2219,9 @@ struct RestorableAgentSessionIndex: Sendable {
             arguments: process.arguments,
             environment: process.environment
         ) else {
-            return nil
+            return (nil, .exited)
         }
-        return pid
+        return (pid, .running)
     }
 
     private static func recordedExecutableBasename(_ record: RestorableAgentHookSessionRecord) -> String? {
