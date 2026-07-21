@@ -87,6 +87,40 @@ struct CLICallerWorkspaceDefaultTests {
     /// shell has no injected workspace or surface identity. The app can then
     /// recover the caller from the live PTY instead of returning `caller: null`.
     @Test func identifyWithoutCallerIdsSendsCallerTTY() throws {
+        let (requests, result) = try runIdentify(arguments: [], callerWorkspaceId: nil)
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        let identify = try #require(requests.first { $0["method"] as? String == "system.identify" })
+        let params = try #require(identify["params"] as? [String: Any])
+        #expect(params["caller"] == nil)
+        #expect(params["caller_tty"] as? String == "ttys8362")
+    }
+
+    /// An explicit caller selector must fail closed on the server instead of
+    /// silently falling back to the ambient terminal when that selector is stale.
+    @Test func identifyExplicitCallerSelectorsSuppressCallerTTY() throws {
+        let workspaceRun = try runIdentify(
+            arguments: ["--workspace", Self.otherWorkspaceId],
+            callerWorkspaceId: nil
+        )
+        let surfaceRun = try runIdentify(
+            arguments: ["--surface", Self.callerSurfaceId],
+            callerWorkspaceId: Self.callerWorkspaceId
+        )
+
+        for (requests, result) in [workspaceRun, surfaceRun] {
+            #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+            let identify = try #require(requests.last { $0["method"] as? String == "system.identify" })
+            let params = try #require(identify["params"] as? [String: Any])
+            #expect(params["caller"] != nil)
+            #expect(params["caller_tty"] == nil)
+        }
+    }
+
+    private func runIdentify(
+        arguments: [String],
+        callerWorkspaceId: String?
+    ) throws -> ([[String: Any]], ProcessRunResult) {
         let socketPath = Self.makeSocketPath("identify-tty")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
         defer {
@@ -115,11 +149,11 @@ struct CLICallerWorkspaceDefaultTests {
             ])
         }
 
-        var environment = cliEnvironment(socketPath: socketPath, callerWorkspaceId: nil)
+        var environment = cliEnvironment(socketPath: socketPath, callerWorkspaceId: callerWorkspaceId)
         environment["CMUX_CLI_TTY_NAME"] = "/dev/ttys8362"
         let result = Self.runProcess(
             executablePath: try Self.bundledCLIPath(),
-            arguments: ["identify"],
+            arguments: ["identify"] + arguments,
             environment: environment,
             timeout: 5
         )
@@ -127,12 +161,7 @@ struct CLICallerWorkspaceDefaultTests {
         #expect(handled.wait(timeout: .now() + 5) == .success)
         #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
-        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
-        let requests = try state.requestObjects()
-        let identify = try #require(requests.first { $0["method"] as? String == "system.identify" })
-        let params = try #require(identify["params"] as? [String: Any])
-        #expect(params["caller"] == nil)
-        #expect(params["caller_tty"] as? String == "ttys8362")
+        return (try state.requestObjects(), result)
     }
 
     /// Drives `mark-notification-read --workspace <argument>` against a mock socket and

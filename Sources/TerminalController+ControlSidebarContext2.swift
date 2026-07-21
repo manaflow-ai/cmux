@@ -296,7 +296,7 @@ extension TerminalController {
                 tab.syncRemotePortScanTTYs()
                 _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: scope.panelID)
             } else {
-                self.portScanner.registerTTY(workspaceId: scope.workspaceID, panelId: scope.panelID, ttyName: ttyName)
+                PortScanner.shared.registerTTY(workspaceId: scope.workspaceID, panelId: scope.panelID, ttyName: ttyName)
             }
         }
     }
@@ -313,7 +313,7 @@ extension TerminalController {
                 tab.syncRemotePortScanTTYs()
                 _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)
             } else {
-                portScanner.registerTTY(workspaceId: tab.id, panelId: surfaceId, ttyName: ttyName)
+                PortScanner.shared.registerTTY(workspaceId: tab.id, panelId: surfaceId, ttyName: ttyName)
             }
         }
     }
@@ -342,7 +342,7 @@ extension TerminalController {
             if tab.isRemoteWorkspace {
                 tab.kickRemotePortScan(panelId: scope.panelID, reason: reason)
             } else {
-                self.portScanner.kick(workspaceId: scope.workspaceID, panelId: scope.panelID)
+                PortScanner.shared.kick(workspaceId: scope.workspaceID, panelId: scope.panelID)
             }
         }
     }
@@ -361,7 +361,7 @@ extension TerminalController {
             if tab.isRemoteWorkspace {
                 tab.kickRemotePortScan(panelId: surfaceId, reason: reason)
             } else {
-                portScanner.kick(workspaceId: tab.id, panelId: surfaceId)
+                PortScanner.shared.kick(workspaceId: tab.id, panelId: surfaceId)
             }
         }
     }

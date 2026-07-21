@@ -4255,8 +4255,9 @@ struct CMUXCLI {
             let includeCaller = !hasFlag(commandArgs, name: "--no-caller")
             if includeCaller {
                 let idWsFlag = optionValue(commandArgs, name: "--workspace")
+                let idSurfaceFlag = optionValue(commandArgs, name: "--surface")
                 let workspaceArg = idWsFlag ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-                let surfaceArg = optionValue(commandArgs, name: "--surface") ?? (idWsFlag == nil && effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+                let surfaceArg = idSurfaceFlag ?? (idWsFlag == nil && effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
                 if workspaceArg != nil || surfaceArg != nil {
                     let workspaceId = try normalizeWorkspaceHandle(
                         workspaceArg,
@@ -4283,7 +4284,10 @@ struct CMUXCLI {
                         params["caller"] = caller
                     }
                 }
-                if effectiveWindowRaw == nil, let callerTTY = resolveCallerTTYName() {
+                if effectiveWindowRaw == nil,
+                   idWsFlag == nil,
+                   idSurfaceFlag == nil,
+                   let callerTTY = resolveCallerTTYName() {
                     params["caller_tty"] = callerTTY
                 }
             }
