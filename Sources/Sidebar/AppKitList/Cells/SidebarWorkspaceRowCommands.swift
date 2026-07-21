@@ -160,7 +160,12 @@ struct SidebarWorkspaceRowCommands {
         alert.accessoryView = input
         alert.addButton(withTitle: String(localized: "alert.renameWorkspace.rename", defaultValue: "Rename"))
         alert.addButton(withTitle: String(localized: "alert.renameWorkspace.cancel", defaultValue: "Cancel"))
-        alert.window.initialFirstResponder = input
+        let alertWindow = alert.window
+        alertWindow.initialFirstResponder = input
+        DispatchQueue.main.async {
+            alertWindow.makeFirstResponder(input)
+            input.selectText(nil)
+        }
         let response = alert.runCmuxModal(
             presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(tab.id)
         )
@@ -195,7 +200,12 @@ struct SidebarWorkspaceRowCommands {
         alert.accessoryView = input
         alert.addButton(withTitle: String(localized: "alert.customColor.apply", defaultValue: "Apply"))
         alert.addButton(withTitle: String(localized: "alert.customColor.cancel", defaultValue: "Cancel"))
-        alert.window.initialFirstResponder = input
+        let alertWindow = alert.window
+        alertWindow.initialFirstResponder = input
+        DispatchQueue.main.async {
+            alertWindow.makeFirstResponder(input)
+            input.selectText(nil)
+        }
         let response = alert.runCmuxModal(
             presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(tab.id)
         )
