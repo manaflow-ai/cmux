@@ -139,6 +139,40 @@ struct ArtifactByteReaderTests {
         }
     }
 
+    @Test("descriptor validation rejects a FIFO without blocking")
+    func fifoDescriptorValidation() throws {
+        try withTemporaryDirectory { directory in
+            let fifo = directory.appendingPathComponent("pipe")
+            try #require(Darwin.mkfifo(fifo.path, 0o600) == 0)
+            let clock = ContinuousClock()
+            let start = clock.now
+
+            do {
+                let opened = try ArtifactByteReader().openVerifiedRegularFile(path: fifo.path)
+                try? opened.handle.close()
+                Issue.record("descriptor validation should reject a FIFO")
+            } catch ArtifactByteReader.Error.unsupportedMedia {
+                // Expected: the nonblocking descriptor is identified as a FIFO.
+            } catch {
+                Issue.record("unexpected error: \(error)")
+            }
+
+            #expect(clock.now - start < .seconds(1))
+        }
+    }
+
+    @Test("missing files retain extension-derived kinds")
+    func missingFileExtensionKinds() throws {
+        try withTemporaryDirectory { directory in
+            let missingImage = directory.appendingPathComponent("missing.png")
+            let missingExtensionless = directory.appendingPathComponent("missing-extensionless")
+            let reader = ArtifactByteReader()
+
+            #expect(reader.kind(path: missingImage.path, isDirectory: false) == .image)
+            #expect(reader.kind(path: missingExtensionless.path, isDirectory: false) == .binary)
+        }
+    }
+
     private func withTemporaryDirectory(
         _ operation: (URL) throws -> Void
     ) throws {
