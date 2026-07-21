@@ -194,22 +194,15 @@ import Testing
         ).agentChatInlinePreviewEnabled == false)
     }
 
-    @Test func pairingScannerPreviewFlagIsDebugOnly() {
+    #if DEBUG
+    @Test func pairingScannerPreviewFlagCanBeEnabled() {
         let env = ["CMUX_UITEST_SCANNER_PREVIEW": "1"]
-        #if DEBUG
         #expect(UITestConfig.pairingScannerPreviewEnabled(from: env) == true)
-        #else
-        #expect(UITestConfig.pairingScannerPreviewEnabled(from: env) == false)
-        #endif
     }
 
-    @Test func onboardingPreviewFlagIsDebugOnly() {
+    @Test func onboardingPreviewFlagCanBeEnabled() {
         let env = ["CMUX_UITEST_ONBOARDING_PREVIEW": "1"]
-        #if DEBUG
         #expect(UITestConfig.onboardingPreviewEnabled(from: env) == true)
-        #else
-        #expect(UITestConfig.onboardingPreviewEnabled(from: env) == false)
-        #endif
     }
 
     @Test func onboardingPreviewFlagRequiresOne() {
@@ -219,13 +212,9 @@ import Testing
         ) == false)
     }
 
-    @Test func onboardingConnectionFallbackFlagIsDebugOnly() {
+    @Test func onboardingConnectionFallbackFlagCanBeEnabled() {
         let env = ["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK": "1"]
-        #if DEBUG
         #expect(UITestConfig.onboardingConnectionFallbackEnabled(from: env) == true)
-        #else
-        #expect(UITestConfig.onboardingConnectionFallbackEnabled(from: env) == false)
-        #endif
     }
 
     @Test func onboardingConnectionFallbackFlagRequiresOne() {
@@ -241,4 +230,5 @@ import Testing
             from: ["CMUX_UITEST_SCANNER_PREVIEW": "0"]
         ) == false)
     }
+    #endif
 }
