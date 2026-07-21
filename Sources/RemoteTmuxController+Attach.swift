@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 @MainActor
@@ -325,11 +326,25 @@ extension RemoteTmuxController {
             }
             loginOffers.noteConnected(host: key)
         }
+        // The host is authenticated, so any waiter for it has nothing left to wait on. Its
+        // guards would end it on the next tick anyway; cancelling means it stops now rather
+        // than running one more `ssh -O check` for a question already answered.
+        cancelAuthWait(host: key)
         // One mirror connecting proves the master is authenticated, and the host's other
         // parked connections are waiting on exactly that. Releasing the offer without
         // resuming them leaves those mirrors frozen with their waiter already gone, since
         // the waiter exits once the offer disappears.
         resumeReconnectAfterAuthentication(host: host)
+    }
+
+    /// Stops a host's login waiter.
+    ///
+    /// Held so it can be stopped: the waiter probes the shared master on a timer, and one that
+    /// outlives its offer would keep probing with nothing able to stop it.
+    func cancelAuthWait(host key: String) {
+        authWaitTasks[key]?.cancel()
+        authWaitTasks[key] = nil
+        hostsWaitingForAuth.remove(key)
     }
 
     /// Closes a login workspace wherever it lives, if it still exists.
@@ -386,14 +401,18 @@ extension RemoteTmuxController {
 
     /// Waits for the login terminal to open the shared master, then resumes.
     ///
-    /// The probe is `ssh -O check` (``RemoteTmuxSSHTransport/isMasterLive()``): local,
-    /// instant, and unable to prompt, so asking repeatedly costs nothing and can never
-    /// consume an authentication attempt while the user is mid-login.
+    /// Waiting on a *person* rules out a deadline — an MFA push or a hardware-key touch can take
+    /// seconds or many minutes, and a wait that expired while the login terminal was still open
+    /// would strand the mirror, parked with retrying stopped and nothing left to resume it. It
+    /// does not rule out an event, which is the mistake an earlier version of this made: opening
+    /// the master creates the socket at ``RemoteTmuxHost/controlSocketPath``, so the filesystem
+    /// reports the moment being waited for and ``FileWatcher`` delivers it.
     ///
-    /// This waits on a *person*, so there is no event to subscribe to and no honest
-    /// deadline: an MFA push or a hardware-key touch can take seconds or many minutes,
-    /// and a wait that expires while the login terminal is still open would strand the
-    /// mirror — parked, with retrying stopped and nothing left to resume it.
+    /// `ssh -O check` (``RemoteTmuxSSHTransport/isMasterLive()``) is still how the socket is
+    /// confirmed usable rather than stale — local, instant, and unable to prompt, so it can never
+    /// consume an authentication attempt mid-login — but it runs once per event instead of on a
+    /// clock. A timer's interval is dead time a frozen mirror spends *after* the user has already
+    /// finished, and no interval is short enough to make that right.
     ///
     /// So the wait ends on state rather than on a clock, and every ending is derived by
     /// looking at what exists rather than by trusting some teardown path to signal:
@@ -410,18 +429,39 @@ extension RemoteTmuxController {
         let key = host.connectionHash
         let transport = transport(for: host)
         hostsWaitingForAuth.insert(key)
-        Task { @MainActor [weak self] in
-            defer { self?.hostsWaitingForAuth.remove(key) }
-            var interval: Duration = .seconds(2)
-            let maxInterval: Duration = .seconds(15)
-            while true {
-                do {
-                    try await Task.sleep(for: interval)
-                } catch {
-                    return  // Cancelled (app teardown); the connection stays parked.
-                }
-                interval = min(interval * 2, maxInterval)
+        authWaitTasks[key]?.cancel()
+        authWaitTasks[key] = Task { @MainActor [weak self] in
+            defer {
+                self?.hostsWaitingForAuth.remove(key)
+                self?.authWaitTasks[key] = nil
+            }
+            // Edge-driven, not polled. Completing the login is the user opening the shared ssh
+            // master, and opening it creates the socket at cmux's own ControlPath — so the
+            // filesystem already reports the exact moment being waited for. `FileWatcher` watches
+            // the path's parent directory too, which is what makes creation (not just change)
+            // visible, and this socket does not exist yet when the wait starts.
+            //
+            // A timer here would be strictly worse: the interval is dead time a frozen mirror
+            // spends after the user has finished, and no interval is short enough to be right —
+            // this is a person typing a password, not a bounded computation.
+            //
+            // `isMasterLive()` still runs, but once per event rather than on a clock: the socket
+            // appearing is the edge, and `ssh -O check` is how we confirm it is usable rather
+            // than a stale file. The loop continues on a negative answer because the directory
+            // reports unrelated churn too (other hosts' masters live in the same directory).
+            let watcher = FileWatcher(path: host.controlSocketPath)
+            defer { Task { await watcher.stop() } }
+            // The master may already be live: the user can finish signing in between the failure
+            // that parked this connection and this waiter starting, and an edge that already
+            // happened is never delivered. Checking once up front is what stops an event-driven
+            // wait from hanging on a condition that was true before anyone was listening.
+            if await transport.isMasterLive() {
+                self?.resumeReconnectAfterAuthentication(host: host)
+                return
+            }
+            for await _ in watcher.events {
                 guard let self else { return }
+                if Task.isCancelled { return }
                 // Another path already gave up on this host, or replaced this offer with a
                 // newer one that its own waiter owns.
                 guard let offer = loginOffers.openedWorkspace(host: key) else { return }
@@ -437,19 +477,34 @@ extension RemoteTmuxController {
                     self.resumeReconnectAfterAuthentication(host: host)
                     return
                 }
-                if !Self.workspaceExists(offer.workspace) {
-                    // The user closed it without signing in. Keep retrying so a host that
-                    // starts accepting authentication recovers on its own, but stop offering
-                    // for this outage — otherwise the retry fails the same way, a new login
-                    // opens, and closing the tab looks like it does nothing.
-                    Self.logger.info(
-                        "reconnect-auth: login dismissed for \(host.destination, privacy: .public); retrying quietly")
-                    loginOffers.noteDeclined(host: key, generation: offer.generation)
-                    self.resumeReconnectAfterAuthentication(host: host)
-                    return
-                }
             }
         }
+    }
+
+    /// The user closed a login cmux opened, which is a decline.
+    ///
+    /// Called from the close path rather than noticed by the waiter: a closed tab produces no
+    /// filesystem or protocol event, so this is the only edge for it. Retrying resumes quietly so
+    /// a host that starts accepting authentication recovers on its own, while the offer is marked
+    /// declined for this outage — otherwise the retry fails the same way, a new login opens, and
+    /// closing the tab looks like it did nothing.
+    func noteLoginWorkspaceClosed(workspaceId: UUID) {
+        guard let key = loginOffers.host(forOpenedWorkspace: workspaceId) else { return }
+        guard let offer = loginOffers.openedWorkspace(host: key) else { return }
+        // No mirror left for this host means there is nothing to resume, so recording the decline
+        // is the whole job: it stops this outage from offering another login the user would have
+        // to dismiss again.
+        guard let host = sessionMirrors.values.first(where: { $0.host.connectionHash == key })?.host
+        else {
+            loginOffers.noteDeclined(host: key, generation: offer.generation)
+            cancelAuthWait(host: key)
+            return
+        }
+        Self.logger.info(
+            "reconnect-auth: login dismissed for \(host.destination, privacy: .public); retrying quietly")
+        loginOffers.noteDeclined(host: key, generation: offer.generation)
+        cancelAuthWait(host: key)
+        resumeReconnectAfterAuthentication(host: host)
     }
 
     /// Resumes every parked control connection for `host` after authentication.
