@@ -715,9 +715,7 @@ final class RemoteTmuxControlConnection {
             // reconnection: for ssh it is a transport loss cmux recovers from, but a
             // transport that reconnects internally does not end for a network drop, so its
             // exit is the session genuinely ending.
-            switch RemoteTmuxStreamEndDisposition.forStreamEnd(
-                reconnectsInternally: transportProfile.reconnectsInternally
-            ) {
+            switch RemoteTmuxStreamEndDisposition.forStreamEnd() {
             case .reconnect:
                 // Keep the mirror frozen and reconnect.
                 beginReconnecting()
