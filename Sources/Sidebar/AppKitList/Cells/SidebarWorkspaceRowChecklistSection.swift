@@ -18,7 +18,12 @@ final class SidebarRowChecklistSection: NSView {
     private let summaryLine = SidebarRowChecklistSummaryLine()
     private let scrollView = NSScrollView()
     private let itemsDocumentView = SidebarRowChecklistFlippedView()
-    private var itemLines: [SidebarRowChecklistItemLine] = []
+    /// Item lines keyed by item ID (legacy `ForEach` identity): positional
+    /// pooling reassigned lines across items during reorders, which tore
+    /// down and re-seeded an active editor with stale text.
+    private var itemLinesById: [UUID: SidebarRowChecklistItemLine] = [:]
+    private var orderedLines: [SidebarRowChecklistItemLine] = []
+    private var freeLines: [SidebarRowChecklistItemLine] = []
     private let addRow = SidebarRowChecklistAddRow()
     private let popoverPresenter = SidebarRowSwiftUIPopoverPresenter()
 
@@ -161,16 +166,20 @@ final class SidebarRowChecklistSection: NSView {
             ? SidebarWorkspaceChecklistDisplayPolicy.orderedItems(snapshot.checklistItems)
             : []
         scrollView.isHidden = !showsExpandedList || orderedItems.isEmpty
-        Self.pool(&itemLines, count: orderedItems.count, parent: itemsDocumentView) {
-            SidebarRowChecklistItemLine()
-        }
-        // Surplus pooled lines are only hidden by the pool helper — clear
-        // their captured item/action state so they stop retaining workspaces.
-        for line in itemLines.dropFirst(orderedItems.count) {
-            line.resetForReuse()
-        }
-        for (index, item) in orderedItems.enumerated() {
-            itemLines[index].configure(
+        // Reuse lines by item ID so reorders MOVE a line (with any active
+        // editor) instead of reassigning it to a different item.
+        var previousById = itemLinesById
+        itemLinesById.removeAll(keepingCapacity: true)
+        orderedLines = orderedItems.map { item in
+            let line = previousById.removeValue(forKey: item.id)
+                ?? freeLines.popLast()
+                ?? SidebarRowChecklistItemLine()
+            if line.superview !== itemsDocumentView {
+                itemsDocumentView.addSubview(line)
+            }
+            line.isHidden = false
+            itemLinesById[item.id] = line
+            line.configure(
                 item,
                 model: model,
                 primary: primary,
@@ -178,6 +187,14 @@ final class SidebarRowChecklistSection: NSView {
                 isEditing: model.editingChecklistItemId == item.id,
                 actions: actions
             )
+            return line
+        }
+        // Lines whose items vanished: clear captured workspace state and
+        // park them for reuse.
+        for line in previousById.values {
+            line.resetForReuse()
+            line.isHidden = true
+            freeLines.append(line)
         }
 
         let isAdding = showsExpandedList && canAddItems && model.checklistAddFieldActivationToken > 0
@@ -354,9 +371,13 @@ final class SidebarRowChecklistSection: NSView {
     }
 
     private func resetTransientChildren() {
-        for line in itemLines {
+        for line in orderedLines {
             line.resetForReuse()
+            line.isHidden = true
+            freeLines.append(line)
         }
+        orderedLines.removeAll()
+        itemLinesById.removeAll(keepingCapacity: true)
         addRow.resetForReuse()
     }
 
@@ -443,29 +464,13 @@ final class SidebarRowChecklistSection: NSView {
 
     private func layoutItems(width: CGFloat) {
         var y: CGFloat = 0
-        for (index, line) in itemLines.enumerated() where !line.isHidden {
+        for (index, line) in orderedLines.enumerated() {
             if index > 0 { y += Self.rowSpacing }
             let height = line.measuredHeight(width: width)
             line.frame = NSRect(x: 0, y: y, width: width, height: height)
             y += height
         }
         itemsDocumentView.frame = NSRect(x: 0, y: 0, width: width, height: y)
-    }
-
-    private static func pool<View: NSView>(
-        _ views: inout [View],
-        count: Int,
-        parent: NSView,
-        make: () -> View
-    ) {
-        while views.count < count {
-            let view = make()
-            parent.addSubview(view)
-            views.append(view)
-        }
-        for (index, view) in views.enumerated() {
-            view.isHidden = index >= count
-        }
     }
 }
 
