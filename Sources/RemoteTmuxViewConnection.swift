@@ -33,6 +33,14 @@ final class RemoteTmuxViewConnection {
     /// Fires when the view connection permanently ends.
     var onEnded: (() -> Void)?
 
+    /// A parked shared stream needs a login, and the payload is the `ssh` argv to run under a tty.
+    ///
+    /// One stream carries every session on the host, so one login unblocks all of them — which is
+    /// why this is a single host-level callback rather than a per-session fan-out. Returns `true`
+    /// only if a login was actually presented; reporting `true` merely for being subscribed would
+    /// suppress the connection's retry fallback and strand the host.
+    var onAuthRequired: ((_ sshArgv: [String]) -> Bool)?
+
     private let transport: RemoteTmuxSSHTransport
     private let initialCols: Int
     private let initialRows: Int
@@ -111,6 +119,9 @@ final class RemoteTmuxViewConnection {
                     // surfaced), so this can't resurrect closed work.
                     self.didBootstrapEmptyHost = false
                 }
+            },
+            onAuthRequired: { [weak self] sshArgv in
+                self?.onAuthRequired?(sshArgv) ?? false
             })
         try conn.start()
         conn.setClientSize(columns: initialCols, rows: initialRows)
