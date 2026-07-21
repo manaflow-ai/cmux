@@ -219,7 +219,6 @@ extension TerminalSurface {
         surface = runtimeSurface
         portalLifecycleState = .live
         runtimeSurfaceFreedOutOfBandForTesting = false
-        rendererRuntimeSurfaceDidCreate()
     }
 #endif
 }

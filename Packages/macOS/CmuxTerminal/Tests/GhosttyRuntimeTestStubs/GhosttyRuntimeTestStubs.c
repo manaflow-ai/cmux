@@ -18,6 +18,7 @@ typedef struct {
 static bool cmux_test_needs_confirm_quit = false;
 static uint64_t cmux_test_foreground_pid = 0;
 static const char* cmux_test_tty_name = NULL;
+static void* cmux_test_renderer_realized_target = NULL;
 static bool cmux_test_renderer_realized_calls[16];
 static uint32_t cmux_test_renderer_realized_call_count = 0;
 static bool cmux_test_renderer_realized_result = true;
@@ -26,6 +27,16 @@ void cmux_test_ghostty_runtime_stubs_reset(void) {
     cmux_test_needs_confirm_quit = false;
     cmux_test_foreground_pid = 0;
     cmux_test_tty_name = NULL;
+}
+
+void cmux_test_ghostty_renderer_realized_begin(void* surface) {
+    cmux_test_renderer_realized_target = surface;
+    cmux_test_renderer_realized_call_count = 0;
+    cmux_test_renderer_realized_result = true;
+}
+
+void cmux_test_ghostty_renderer_realized_reset(void) {
+    cmux_test_renderer_realized_target = NULL;
     cmux_test_renderer_realized_call_count = 0;
     cmux_test_renderer_realized_result = true;
 }
@@ -142,7 +153,7 @@ void ghostty_surface_set_display_id(void) {}
 void ghostty_surface_set_focus(void) {}
 void ghostty_surface_set_occlusion(void) {}
 bool ghostty_surface_set_renderer_realized(void *surface, bool realized) {
-    (void)surface;
+    if (surface != cmux_test_renderer_realized_target) return true;
     if (cmux_test_renderer_realized_call_count < 16) {
         cmux_test_renderer_realized_calls[cmux_test_renderer_realized_call_count] = realized;
         cmux_test_renderer_realized_call_count++;

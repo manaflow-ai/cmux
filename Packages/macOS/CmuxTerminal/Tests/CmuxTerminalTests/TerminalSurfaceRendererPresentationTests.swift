@@ -3,8 +3,11 @@ import GhosttyKit
 import Testing
 @testable import CmuxTerminal
 
-@_silgen_name("cmux_test_ghostty_runtime_stubs_reset")
-private func resetGhosttyRuntimeStubs()
+@_silgen_name("cmux_test_ghostty_renderer_realized_begin")
+private func beginRendererRealizedTracking(_ surface: UnsafeMutableRawPointer)
+
+@_silgen_name("cmux_test_ghostty_renderer_realized_reset")
+private func resetRendererRealizedTracking()
 
 @_silgen_name("cmux_test_ghostty_renderer_realized_call_count")
 private func rendererRealizedCallCount() -> UInt32
@@ -22,13 +25,14 @@ private func setRendererRealizedResult(_ result: Bool)
         let surface = makeSurface(registry: registry)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
-        resetGhosttyRuntimeStubs()
+        beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.rendererRuntimeSurfaceDidCreate()
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
-            resetGhosttyRuntimeStubs()
+            resetRendererRealizedTracking()
         }
 
         #expect(!surface.isRendererRealized)
@@ -50,13 +54,14 @@ private func setRendererRealizedResult(_ result: Bool)
         let surface = makeSurface(registry: registry)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
-        resetGhosttyRuntimeStubs()
+        beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.rendererRuntimeSurfaceDidCreate()
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
-            resetGhosttyRuntimeStubs()
+            resetRendererRealizedTracking()
         }
 
         #expect(surface.isRendererPortalVisible)
@@ -74,13 +79,14 @@ private func setRendererRealizedResult(_ result: Bool)
         let surface = makeSurface(registry: registry)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
-        resetGhosttyRuntimeStubs()
+        beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.rendererRuntimeSurfaceDidCreate()
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
-            resetGhosttyRuntimeStubs()
+            resetRendererRealizedTracking()
         }
 
         surface.setRendererPortalVisible(false)
@@ -102,17 +108,18 @@ private func setRendererRealizedResult(_ result: Bool)
         let surface = makeSurface(registry: registry, rendererRealization: scheduler)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
-        resetGhosttyRuntimeStubs()
+        beginRendererRealizedTracking(runtimeSurface)
         setRendererRealizedResult(false)
         surface.setRendererPortalVisible(false)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.rendererRuntimeSurfaceDidCreate()
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
-            resetGhosttyRuntimeStubs()
+            resetRendererRealizedTracking()
         }
 
-        resetGhosttyRuntimeStubs()
+        beginRendererRealizedTracking(runtimeSurface)
         setRendererRealizedResult(false)
         surface.setRendererPortalVisible(true)
         surface.ensureRendererPresented()
@@ -135,16 +142,17 @@ private func setRendererRealizedResult(_ result: Bool)
         let surface = makeSurface(registry: registry, rendererRealization: scheduler)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
-        resetGhosttyRuntimeStubs()
+        beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.rendererRuntimeSurfaceDidCreate()
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
-            resetGhosttyRuntimeStubs()
+            resetRendererRealizedTracking()
         }
 
-        resetGhosttyRuntimeStubs()
+        beginRendererRealizedTracking(runtimeSurface)
         setRendererRealizedResult(false)
         surface.setRendererPortalVisible(true)
         for _ in 0..<5 {
