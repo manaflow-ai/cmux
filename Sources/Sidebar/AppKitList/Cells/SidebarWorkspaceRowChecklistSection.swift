@@ -123,6 +123,15 @@ final class SidebarRowChecklistSection: NSView {
                 activePopoverDismissContext?()
             }
             activePopoverDismissContext = nil
+            // Unmounted = fully closed: a future mount is a fresh session.
+            // Leaving the dismissal latch and token tracker armed dropped
+            // the NEXT "Add Checklist Item…" request — consuming the token
+            // removes it, so the next request is token 1 again and matched
+            // the stale tracker instead of clearing the latch.
+            awaitingPopoverDismissAck = false
+            lastAddFieldToken = 0
+            lastPopoverModel = nil
+            pendingPopoverPresentation = false
             // Recycled cells must not retain the previous workspace through
             // configured children: field closures and action bundles capture
             // the Workspace strongly.
@@ -167,8 +176,14 @@ final class SidebarRowChecklistSection: NSView {
             : []
         scrollView.isHidden = !showsExpandedList || orderedItems.isEmpty
         // Reuse lines by item ID so reorders MOVE a line (with any active
-        // editor) instead of reassigning it to a different item.
+        // editor) instead of reassigning it to a different item. Reclamation
+        // walks the previous ORDERED lines by identity, not the ID map:
+        // persisted data can carry duplicate item IDs (restore does not
+        // dedupe), and map-only bookkeeping would orphan the earlier
+        // duplicate's line as a leaked, still-visible subview.
         var previousById = itemLinesById
+        let previousLines = orderedLines
+        var reusedLines = Set<ObjectIdentifier>()
         itemLinesById.removeAll(keepingCapacity: true)
         orderedLines = orderedItems.map { item in
             let line = previousById.removeValue(forKey: item.id)
@@ -178,6 +193,7 @@ final class SidebarRowChecklistSection: NSView {
                 itemsDocumentView.addSubview(line)
             }
             line.isHidden = false
+            reusedLines.insert(ObjectIdentifier(line))
             itemLinesById[item.id] = line
             line.configure(
                 item,
@@ -189,9 +205,10 @@ final class SidebarRowChecklistSection: NSView {
             )
             return line
         }
-        // Lines whose items vanished: clear captured workspace state and
-        // park them for reuse.
-        for line in previousById.values {
+        // Every previous line not reused this pass — vanished items AND
+        // duplicate-ID casualties — clears its captured workspace state and
+        // parks for reuse.
+        for line in previousLines where !reusedLines.contains(ObjectIdentifier(line)) {
             line.resetForReuse()
             line.isHidden = true
             freeLines.append(line)
