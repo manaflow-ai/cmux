@@ -88,6 +88,41 @@ extension CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func rateLimitIsScopedByOperationWhenMethodsShareAPath() async throws {
+        let transport = RouteRecordingBrokerTransport(responsesByPath: [
+            "/api/devices/iroh": [
+                .json(
+                    status: 429,
+                    body: #"{"error":"rate_limited"}"#,
+                    headers: ["Retry-After": "600"]
+                ),
+                .json(
+                    status: 200,
+                    body: #"{"revoked":true,"lan_rendezvous_rotated":true}"#
+                ),
+            ],
+        ])
+        let client = try makeNetworkClient(transport: transport)
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.rateLimited(
+            code: "rate_limited",
+            retryAfterSeconds: 600
+        )) {
+            _ = try await client.discover()
+        }
+
+        try await client.revoke(bindingID: "binding-1")
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.rateLimited(
+            code: "rate_limited",
+            retryAfterSeconds: 600
+        )) {
+            _ = try await client.discover()
+        }
+        #expect(await transport.requests().map(\.httpMethod) == ["GET", "DELETE"])
+    }
+
+    @Test
     func missingAuthFailsBeforeAnyNetworkRequest() async throws {
         let transport = RecordingBrokerTransport(responses: [])
         let client = try CmxIrohTrustBrokerClient(
