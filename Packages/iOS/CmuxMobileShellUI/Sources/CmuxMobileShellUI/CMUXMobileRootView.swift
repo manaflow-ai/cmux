@@ -13,6 +13,8 @@ import AppKit
 #endif
 
 struct CMUXMobileRootView: View {
+    private static let startupRestoringGateSeconds: Double = 6
+
     @Bindable var store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthCoordinator.self) private var authManager
@@ -26,6 +28,7 @@ struct CMUXMobileRootView: View {
     #endif
     @State private var pendingAttachURL: String?
     @State private var didAuthenticateWithAttachTicket = false
+    @State private var didExceedStartupRestoringGate = false
     @State private var isShowingAddDeviceSheet = false
     @State private var pairingPresentation: PairingPresentation = .manual
     @State private var pendingPairingPresentation: PairingPresentation?
@@ -409,7 +412,9 @@ struct CMUXMobileRootView: View {
     }
 
     private var shouldShowRestoringStoredMac: Bool {
-        store.workspaceListConnectionStatus != .connected && MobileRootAuthGate.shouldShowRestoringStoredMac(
+        !didExceedStartupRestoringGate
+            && store.workspaceListConnectionStatus != .connected
+            && MobileRootAuthGate.shouldShowRestoringStoredMac(
             authenticated: isAuthenticated,
             connectionState: store.connectionState,
             isReconnectingStoredMac: store.isReconnectingStoredMac,
@@ -451,7 +456,16 @@ struct CMUXMobileRootView: View {
               ) else { return }
         guard let startupAttempt = startupConnectionCoordinator.claimStoredReconnect() else { return }
         let stackUserID = authManager.currentUser?.id
+        didExceedStartupRestoringGate = false
+        let restoringGateDeadline = Task { @MainActor in
+            try? await ContinuousClock().sleep(
+                for: .seconds(Self.startupRestoringGateSeconds)
+            )
+            guard !Task.isCancelled, store.connectionState != .connected else { return }
+            didExceedStartupRestoringGate = true
+        }
         Task {
+            defer { restoringGateDeadline.cancel() }
             _ = await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
             startupConnectionCoordinator.finishStoredReconnect(startupAttempt)
         }
@@ -587,6 +601,7 @@ struct CMUXMobileRootView: View {
             // front and only then runs its bounded best-effort server teardown
             // (push-token DELETE, Stack session revocation).
             didAuthenticateWithAttachTicket = false
+            didExceedStartupRestoringGate = false
             startupConnectionCoordinator.reset()
             store.signOut()
             let serverTeardown = signOutHook.begin()

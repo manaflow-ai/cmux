@@ -81,7 +81,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// connect hang on a slow timeout; this caps the visible "Restoring session…"
     /// window so a returning user is never stuck on it. The connect keeps trying
     /// in the background, so a later success still flips to the workspaces.
-    private static let storedMacReconnectRestoringDeadlineSeconds: Double = 15
+    private var storedMacReconnectRestoringDeadlineSeconds: Double = 15
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     static let terminalVerifiedReplayCapability = "terminal.render_grid.verified_replay.v1"
@@ -1810,11 +1810,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         storedMacReconnectGeneration &+= 1
         let generation = storedMacReconnectGeneration
         isReconnectingStoredMac = true
+        let restoringDeadlineSeconds = storedMacReconnectRestoringDeadlineSeconds
         // Bound the complete visible retry window, including scope resolution,
         // backup refresh, and local-store reads before dialing starts.
         let restoringDeadline = Task { [weak self] in
             try? await ContinuousClock().sleep(
-                for: .seconds(Self.storedMacReconnectRestoringDeadlineSeconds)
+                for: .seconds(restoringDeadlineSeconds)
             )
             guard let self, !Task.isCancelled,
                   generation == self.storedMacReconnectGeneration,
@@ -4146,6 +4147,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connections[macDeviceID]?.route
     }
     func storedMacReconnectGenerationForTesting() -> Int { storedMacReconnectGeneration }
+    func setStoredMacReconnectRestoringDeadlineForTesting(seconds: Double) {
+        storedMacReconnectRestoringDeadlineSeconds = seconds
+    }
     func refreshRoutesFromRegistryForTesting(
         for mac: MobilePairedMac,
         scope: MobileShellScopeSnapshot
