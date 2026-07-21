@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 )
 
@@ -28,6 +30,14 @@ func runPersistentPTYExecHelper(arguments []string, stderr io.Writer) int {
 	}
 	executable := arguments[0]
 	argv := arguments[1:]
+	if !strings.ContainsRune(executable, os.PathSeparator) {
+		resolved, err := exec.LookPath(executable)
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "persistent PTY exec helper could not resolve %s through PATH: %v\n", executable, err)
+			return 126
+		}
+		executable = resolved
+	}
 
 	// Keep the ignored disposition as a second layer for shells that explicitly
 	// unblock job-control signals. Agent runtimes that reset the disposition are

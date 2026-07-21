@@ -1334,7 +1334,12 @@ func (h *wsPTYHub) waitSessionProcess(session *wsPTYSession) {
 	if session.tmpScript != "" {
 		_ = os.Remove(session.tmpScript)
 	}
-	session.closeTTYFile()
+	// The process created by startPTYCommand is the POSIX session leader. Its
+	// exit ends the terminal session even when a shielded background job still
+	// holds the PTY slave open, so tear down every remaining member before
+	// closing the master and allowing pumpSession to finalize hub state.
+	session.terminateProcesses()
+	session.closePTYFiles()
 }
 
 func (session *wsPTYSession) closePTYFiles() {
@@ -1394,7 +1399,7 @@ func terminatePTYSessionMembers(sessionID int) {
 	// for signaled processes to disappear from the process table. A process that
 	// intentionally created its own session remains outside this lifecycle.
 	signaled := make(map[int]struct{})
-	for attempt := 0; attempt < 8; attempt++ {
+	for {
 		members := ptySessionMemberPIDs(sessionID)
 		newMembers := 0
 		for _, pid := range members {
