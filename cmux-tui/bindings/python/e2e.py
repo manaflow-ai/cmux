@@ -20,7 +20,7 @@ def main() -> int:
     with CmuxClient(socket_path=socket_path, timeout=5.0, allow_protocol_v6_attach=True) as client:
         info = client.identify()
         assert info.app == "cmux-tui", info
-        assert 5 <= info.protocol <= 7, info
+        assert 5 <= info.protocol <= 9, info
         created = client.new_workspace(name=marker, cols=80, rows=24)
         client.send(created.surface, text=f"printf '{marker}\\n'\r")
         wait_for_marker(client, created.surface, marker)
@@ -47,7 +47,7 @@ def main() -> int:
                 raise AssertionError("same-size resize emitted surface-resized")
         finally:
             events.close()
-        attach = client.attach_surface(created.surface)
+        attach = client.attach_surface(created.surface, cols=100, rows=31)
         try:
             first = next(attach)
             assert first.event == "vt-state", first

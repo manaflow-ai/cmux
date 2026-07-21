@@ -172,6 +172,14 @@ struct MobileSettingsView: View {
                 }
 
                 Section(L10n.string("mobile.settings.betaFeatures", defaultValue: "Beta Features")) {
+                    Toggle(isOn: $displaySettings.taskComposerEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.taskComposer",
+                            defaultValue: "New Task Composer"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsTaskComposer")
+
                     Toggle(isOn: $displaySettings.terminalFilesChipEnabled) {
                         Text(L10n.string(
                             "mobile.settings.terminalFilesChip",
@@ -230,6 +238,24 @@ struct MobileSettingsView: View {
                         identifier: "MobileSettingsProfilePictureSize"
                     )
                 }
+
+                Section(L10n.string(
+                    "mobile.settings.cmuxLabs",
+                    defaultValue: "CMUX Labs"
+                )) {
+                    NavigationLink {
+                        TaskComposerShellIconLabView()
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.settings.shellIconLab",
+                                defaultValue: "Shell Icon Lab"
+                            ),
+                            systemImage: "terminal"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsShellIconLab")
+                }
                 #endif
 
                 Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
@@ -257,7 +283,7 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsPreviewLines")
                 }
 
-                Section(L10n.string("mobile.settings.notifications", defaultValue: "Notifications")) {
+                Section(L10n.string("mobile.settings.notifications", defaultValue: "Push Alerts")) {
                     Button {
                         Task {
                             if notificationsEnabled {
@@ -270,8 +296,8 @@ struct MobileSettingsView: View {
                     } label: {
                         Label(
                             notificationsEnabled
-                                ? L10n.string("mobile.notifications.disable", defaultValue: "Turn Off Agent Notifications")
-                                : L10n.string("mobile.notifications.enable", defaultValue: "Notify Me About Agents"),
+                                ? L10n.string("mobile.notifications.disable", defaultValue: "Turn Off Push Alerts")
+                                : L10n.string("mobile.notifications.enable", defaultValue: "Notify Me When Agents Need Me"),
                             systemImage: notificationsEnabled ? "bell.slash" : "bell"
                         )
                     }

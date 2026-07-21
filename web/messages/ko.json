@@ -745,6 +745,9 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "네트워크 간 로밍에는 cmux mosh-tmux를 사용하세요. 이름 있는 tmux 세션에 연결된 완전한 Mosh 터미널을 열며, SSH tmux 제어 모드가 제공하는 네이티브 워크스페이스·탭·분할 미러를 대체하지는 않습니다."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "시작하기",
@@ -1493,10 +1496,16 @@
       "flagName": "깃발",
       "flagDesc": "설명",
       "flagNameVal": "작업공간 제목 설정",
+      "flagCommand": "셸 시작 후 첫 원격 터미널에서 명령 텍스트를 한 번만 실행",
       "flagPort": "SSH 포트(기본값 22)",
       "flagIdentity": "ID 파일 경로",
       "flagSshOption": "임의 SSH 옵션 전달(예: -o StrictHostKeyChecking=no)",
+      "flagTransport": "대화형 터미널 전송 방식: ssh(기본값) 또는 mosh",
       "flagNoFocus": "작업공간으로 전환하지 않고 작업공간 만들기",
+      "moshTitle": "Mosh 터미널 전송 방식",
+      "moshDesc": "Wi-Fi, VPN, 핫스팟 전환이나 잠자기 및 깨우기 후에도 대화형 터미널을 유지하려면 cmux ssh user@remote --transport mosh를 사용하세요. Mosh는 터미널 PTY만 전달하며, 원격 메타데이터, cmux 서비스 설정 및 제어, 브라우저 프록시, 업로드, 재연결은 계속 SSH가 관리합니다.",
+      "moshFallback": "cmux는 로컬에 Mosh 1.4 이상이 필요하며 시작 전에 원격 mosh-server를 확인합니다. 클라이언트가 없거나 호환되지 않거나, 서버가 없거나, 원격 확인에 실패하면 cmux가 이유를 설명하고 SSH로 계속합니다.",
+      "moshTmux": "이름 있는 tmux 세션을 만들거나 연결하는 Mosh 워크스페이스를 만듭니다(기본값: main). tmux 프로필은 재연결 및 앱 세션 복원 후에도 유지됩니다. 이는 로밍 tmux 터미널이며 cmux ssh-tmux의 네이티브 미러가 아닙니다. --session <name>으로 세션을 선택하며 나머지 플래그는 cmux mosh와 같습니다. Mosh가 없으면 같은 프로필을 SSH로 실행합니다.",
       "deepLinksTitle": "SSH 딥링크",
       "deepLinksDesc": "웹사이트나 도구가 cmux에서 열기 버튼을 제공하려는 경우 cmux SSH 딥 링크를 사용하세요. 링크는 cmux를 열고 확인 프롬프트를 표시한 다음 사용자가 확인한 후 해당 cmux ssh 명령을 실행합니다.",
       "deepLinksWebFallbackDesc": "웹사이트 버튼에는 cmux.com 대체 URL을 사용하세요. 기본 링크가 열리고 cmux가 설치되지 않은 경우 다운로드가 표시됩니다.",

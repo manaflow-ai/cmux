@@ -116,13 +116,13 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
 @MainActor
 class TerminalController {
     static let shared = TerminalController()
-
     private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
+    /// One process-wide admission budget shared by every mobile connection.
+    nonisolated let mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota
     var tabManager: TabManager?
-    /// The shared auth coordinator + browser sign-in flow, injected once via
-    /// `attachAuth` at app startup (AppDelegate `configure`) before the socket
-    /// listener starts. Socket auth commands read these on the main actor.
+    let workspaceCreateIdempotencyCache = WorkspaceCreateIdempotencyCache(capacity: 256)
+    /// Auth coordinator and browser flow are injected by `attachAuth` before socket startup.
     @MainActor private(set) var authCoordinator: AuthCoordinator?
     @MainActor private(set) var browserSignInFlow: HostBrowserSignInFlow?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
@@ -355,6 +355,7 @@ class TerminalController {
         socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter = .init(
             maximumConcurrentClaims: 32
         ),
+        mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota = .init(),
         terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
@@ -368,6 +369,7 @@ class TerminalController {
         self.socketPasswordFileWatcher = socketPasswordFileWatcher
         self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
+        self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
@@ -961,6 +963,8 @@ class TerminalController {
     /// `surface.ports_kick` scans resolve the surface.
     private nonisolated static let socketWorkerCoordinatorHopMethods: Set<String> = [
         "surface.report_pwd",
+        "surface.report_git_branch",
+        "surface.clear_git_branch",
         "surface.report_shell_state",
         "surface.report_tty",
         "surface.ports_kick",
@@ -2431,6 +2435,8 @@ class TerminalController {
             "surface.send_key",
             "surface.report_tty",
             "surface.report_pwd",
+            "surface.report_git_branch",
+            "surface.clear_git_branch",
             "surface.report_shell_state",
             "surface.ports_kick",
             "surface.read_text",
@@ -13793,7 +13799,10 @@ class TerminalController {
     // MARK: - Mobile Host V2 Methods
 
     @MainActor
-    func mobileHostHandleRPC(_ request: MobileHostRPCRequest) async -> MobileHostRPCResult {
+    func mobileHostHandleRPC(
+        _ request: MobileHostRPCRequest,
+        executionContext: MobileHostRPCExecutionContext? = nil
+    ) async -> MobileHostRPCResult {
         // The mobile data-plane RPC speaks `MobileHostRPCRequest` /
         // `MobileHostRPCResult` and dispatches directly to the app-side
         // `v2Mobile*` bodies. It deliberately does NOT route through the v2
@@ -13811,8 +13820,18 @@ class TerminalController {
             result = await v2MobileAttachTicketCreate(params: request.params)
         case "mobile.workspace.list", "workspace.list":
             result = v2MobileWorkspaceList(params: request.params)
+        case "mobile.directory.search":
+            result = await v2MobileDirectorySearch(
+                params: request.params,
+                filesystemJobQuota: mobileTaskFilesystemJobQuota
+            )
+        case "mobile.directory.list":
+            result = await v2MobileDirectoryList(
+                params: request.params,
+                filesystemJobQuota: mobileTaskFilesystemJobQuota
+            )
         case "workspace.create":
-            result = v2MobileWorkspaceCreate(params: request.params)
+            result = await v2MobileWorkspaceCreate(params: request.params)
         case "mobile.terminal.create", "terminal.create":
             result = v2MobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":
@@ -13830,7 +13849,11 @@ class TerminalController {
         case "mobile.terminal.mouse", "terminal.mouse":
             result = v2MobileTerminalMouse(params: request.params)
         case let method where method.hasPrefix("mobile.terminal.artifact."):
-            result = await v2MobileTerminalArtifactDispatch(method: method, params: request.params)
+            result = await v2MobileTerminalArtifactDispatch(
+                method: method,
+                params: request.params,
+                executionContext: executionContext
+            )
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
         case "workspace.move":
@@ -13838,7 +13861,11 @@ class TerminalController {
         case "workspace.group.action", "workspace.group.create":
             result = request.method == "workspace.group.create" ? v2MobileWorkspaceGroupCreate(params: request.params) : v2MobileWorkspaceGroupAction(params: request.params)
         case let method where method.hasPrefix("mobile.chat."):
-            result = await v2MobileChatDispatch(method: method, params: request.params)
+            result = await v2MobileChatDispatch(
+                method: method,
+                params: request.params,
+                executionContext: executionContext
+            )
         case "workspace.close":
             result = v2MobileWorkspaceClose(params: request.params)
         case "workspace.group.collapse":
@@ -13849,6 +13876,14 @@ class TerminalController {
             result = v2MobileNotificationDismiss(params: request.params)
         case "notification.reconcile":
             result = v2MobileNotificationReconcile(params: request.params)
+        case "notification.feed.list":
+            result = v2MobileNotificationFeedList(params: request.params)
+        case "notification.feed.mark_read":
+            result = v2MobileNotificationFeedMarkRead(params: request.params)
+        case "notification.feed.mark_unread":
+            result = v2MobileNotificationFeedMarkUnread(params: request.params)
+        case "notification.feed.mark_all_read":
+            result = v2MobileNotificationFeedMarkAllRead(params: request.params)
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
         default:

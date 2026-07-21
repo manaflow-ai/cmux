@@ -77,10 +77,14 @@ fn draw_plugin(app: &mut App, frame: &mut Frame) {
             .entry(surface_id)
             .or_insert_with(|| ghostty_vt::RenderState::new().expect("render state alloc"));
         if let Ok(render) = surface.render_frame(rs) {
-            let _ =
-                super::terminal_grid::draw_render_frame(frame, content, &render, &theme, |_, _| {
-                    false
-                });
+            let _ = super::terminal_grid::draw_render_frame(
+                frame,
+                content,
+                &render,
+                &theme,
+                &app.chrome,
+                |_, _| false,
+            );
             {
                 let buf = frame.buffer_mut();
                 for y in 0..height {

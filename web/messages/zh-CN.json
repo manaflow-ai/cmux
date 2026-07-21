@@ -745,6 +745,9 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "如需在网络之间漫游，请使用 cmux mosh-tmux。它会打开一个连接到命名 tmux 会话的完整 Mosh 终端；不会取代 SSH tmux 控制模式提供的原生工作区、标签页和分屏镜像。"
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "入门指南",
@@ -1494,10 +1497,16 @@
       "flagName": "旗帜",
       "flagDesc": "描述",
       "flagNameVal": "设置工作区标题",
+      "flagCommand": "在 shell 启动后于初始远程终端中运行一次命令文本",
       "flagPort": "SSH 端口（默认 22）",
       "flagIdentity": "身份文件的路径",
       "flagSshOption": "传递任意 SSH 选项（例如 -o StrictHostKeyChecking=no）",
+      "flagTransport": "交互式终端传输方式：ssh（默认）或 mosh",
       "flagNoFocus": "创建工作区而不切换到它",
+      "moshTitle": "Mosh 终端传输",
+      "moshDesc": "如果交互式终端需要在切换 Wi-Fi、VPN、热点或睡眠与唤醒后保持连接，请使用 cmux ssh user@remote --transport mosh。Mosh 仅承载终端 PTY；SSH 仍负责远程元数据、cmux 服务的设置与控制、浏览器代理、上传和重新连接。",
+      "moshFallback": "cmux 要求本地安装 Mosh 1.4 或更高版本，并在启动前检查远程 mosh-server。如果客户端缺失或不兼容、服务器缺失，或远程检查失败，cmux 会说明原因并继续使用 SSH。",
+      "moshTmux": "创建一个 Mosh 工作区，用于创建或附加命名的 tmux 会话（默认：main）。tmux 配置会在重连和应用会话恢复后保留。这是可漫游的 tmux 终端，而不是 cmux ssh-tmux 的原生镜像。--session <name> 选择会话；其他选项与 cmux mosh 相同。没有 Mosh 时，同一配置会通过 SSH 运行。",
       "deepLinksTitle": "SSH 深层链接",
       "deepLinksDesc": "当网站或工具想要提供“在 cmux 中打开”按钮时，请使用 cmux SSH 深层链接。该链接将打开 cmux，显示确认提示，然后在用户确认后运行等效的 cmux ssh 命令。",
       "deepLinksWebFallbackDesc": "使用网站按钮的 cmux.com 后备 URL。如果未安装 cmux，它将打开本机链接并显示下载。",
