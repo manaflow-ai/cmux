@@ -127,6 +127,38 @@ struct WindowDockRoutingSocketTests {
         try body(manager, workspace, windowId)
     }
 
+    @MainActor
+    private func withSocketAppContext(
+        fileExplorerState: FileExplorerState? = nil,
+        _ body: @MainActor (TabManager, Workspace, UUID) async throws -> Void
+    ) async rethrows {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let appDelegate = AppDelegate()
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            if let fileExplorerState {
+                appDelegate.fileExplorerState = fileExplorerState
+            }
+            TerminalController.shared.setActiveTabManager(manager)
+            let windowId = appDelegate.registerMainWindowContextForTesting(
+                tabManager: manager,
+                fileExplorerState: fileExplorerState
+            )
+            defer {
+                TerminalController.shared.setActiveTabManager(previousManager)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let workspace = try #require(manager.tabs.first)
+            try await body(manager, workspace, windowId)
+        }
+    }
+
     @Test("Legacy global Dock alias workspace_id routes to the caller window's Dock")
     @MainActor
     func legacyDockAliasRoutesToCallerWindowDock() throws {
@@ -233,6 +265,35 @@ struct WindowDockRoutingSocketTests {
             #expect(failed["ok"] as? Bool == false)
             #expect(blockedDock.noteTextSnapshot.isEmpty)
         }
+    }
+
+    @Test("Floating Dock note writer rejects stale autosave completions")
+    func floatingDockNoteWriterRejectsStaleAutosaveCompletions() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-note-sequence-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let noteURL = root.appendingPathComponent("note.md")
+        let writer = WorkspaceFloatingDockNoteWriter(fileURL: noteURL)
+        let staleAutosaveSequence = writer.reserveSequence()
+        let socketWriteSequence = writer.reserveSequence()
+
+        guard case .saved = writer.saveSynchronously(
+            content: "socket write",
+            sequence: socketWriteSequence
+        ) else {
+            Issue.record("Expected socket note write to succeed")
+            return
+        }
+        guard case .saved = writer.saveSynchronously(
+            content: "stale autosave",
+            sequence: staleAutosaveSequence
+        ) else {
+            Issue.record("Expected stale autosave to be discarded without failure")
+            return
+        }
+        #expect(try String(contentsOf: noteURL, encoding: .utf8) == "socket write")
     }
 
 

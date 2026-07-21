@@ -144,6 +144,8 @@ public final class ControlCommandCoordinator {
             return surfaceSendText(request.params, context: context)
         case "surface.send_key":
             return surfaceSendKey(request.params, context: context)
+        case "workspace.float.note.set":
+            return workspaceFloatingDockNoteSet(request.params, context: context)
         default:
             return nil
         }

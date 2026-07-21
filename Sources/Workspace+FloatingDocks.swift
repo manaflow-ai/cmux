@@ -500,7 +500,11 @@ extension DockSplitStore {
         let panel = FilePreviewPanel(
             workspaceId: workspaceId,
             filePath: snapshot.filePath,
-            presentation: presentation
+            presentation: presentation,
+            textSaver: noteTextSaver ?? { content, url, encoding, _ in
+                await FilePreviewTextSaver.save(content: content, to: url, encoding: encoding)
+            },
+            textSaveSequenceProvider: noteTextSaveSequenceProvider
         )
         switch placement {
         case .tab(let pane):

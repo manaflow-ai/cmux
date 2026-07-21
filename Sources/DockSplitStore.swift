@@ -40,6 +40,13 @@ final class DockSplitStore: BonsplitDelegate {
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
     private let terminalTransferProvider: TerminalTransferProvider?
+    let noteTextSaver: (@Sendable (
+        String,
+        URL,
+        String.Encoding,
+        UInt64?
+    ) async -> FilePreviewTextSaver.Result)?
+    let noteTextSaveSequenceProvider: (@Sendable () -> UInt64)?
     private let loadsConfiguration: Bool
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
@@ -86,7 +93,14 @@ final class DockSplitStore: BonsplitDelegate {
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
         browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() },
-        terminalTransferProvider: TerminalTransferProvider? = nil
+        terminalTransferProvider: TerminalTransferProvider? = nil,
+        noteTextSaver: (@Sendable (
+            String,
+            URL,
+            String.Encoding,
+            UInt64?
+        ) async -> FilePreviewTextSaver.Result)? = nil,
+        noteTextSaveSequenceProvider: (@Sendable () -> UInt64)? = nil
     ) {
         self.workspaceId = workspaceId
         self.scope = scope
@@ -95,6 +109,8 @@ final class DockSplitStore: BonsplitDelegate {
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
         self.terminalTransferProvider = terminalTransferProvider
+        self.noteTextSaver = noteTextSaver
+        self.noteTextSaveSequenceProvider = noteTextSaveSequenceProvider
         self.bonsplitController = BonsplitController(configuration: Self.makeConfiguration())
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
         self.bonsplitController.delegate = self
@@ -168,6 +184,10 @@ final class DockSplitStore: BonsplitDelegate {
         guard let paneId = bonsplitController.focusedPaneId,
               let tabId = bonsplitController.selectedTab(inPane: paneId)?.id else { return nil }
         return surfaceIdToPanelId[tabId]
+    }
+
+    var focusedPanel: (any Panel)? {
+        focusedPanelId.flatMap { panels[$0] }
     }
 
     // MARK: - Lifecycle
@@ -536,7 +556,11 @@ final class DockSplitStore: BonsplitDelegate {
                 filePath: noteFilePath,
                 presentation: .note(
                     title: noteTitle ?? String(localized: "floatingDock.note.title", defaultValue: "Notes")
-                )
+                ),
+                textSaver: noteTextSaver ?? { content, url, encoding, _ in
+                    await FilePreviewTextSaver.save(content: content, to: url, encoding: encoding)
+                },
+                textSaveSequenceProvider: noteTextSaveSequenceProvider
             )
         }
     }

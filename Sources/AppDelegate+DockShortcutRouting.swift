@@ -41,16 +41,10 @@ extension AppDelegate {
         focusAddressBar: Bool,
         preferredWindow: NSWindow?
     ) -> UUID? {
-        if kind == .browser, !BrowserAvailabilitySettings.isEnabled() {
-            return nil
-        }
         guard let store = focusedDockStoreForShortcut(preferredWindow: preferredWindow),
-              let pane = store.resolvePane(requestedPaneID: nil),
-              let panelId = store.newSurface(kind: kind, inPane: pane, focus: true) else {
+              store.performSurfaceCommand(.create(kind: kind, focusAddressBar: focusAddressBar)),
+              let panelId = store.focusedPanelId else {
             return nil
-        }
-        if focusAddressBar, kind == .browser, let browser = store.browserPanel(for: panelId) {
-            focusBrowserAddressBar(in: browser)
         }
         return panelId
     }
@@ -65,19 +59,10 @@ extension AppDelegate {
         direction: SplitDirection,
         preferredWindow: NSWindow?
     ) -> Bool {
-        if kind == .browser, !BrowserAvailabilitySettings.isEnabled() {
-            return false
-        }
         guard let store = focusedDockStoreForShortcut(preferredWindow: preferredWindow) else {
             return false
         }
-        return store.newSplit(
-            kind: kind,
-            orientation: direction.orientation,
-            insertFirst: direction.insertFirst,
-            sourcePanelId: store.focusedPanelId,
-            focus: true
-        ) != nil
+        return store.performSurfaceCommand(.split(kind: kind, direction: direction))
     }
 
     /// Executes a semantic surface/focus command when the Dock owns keyboard

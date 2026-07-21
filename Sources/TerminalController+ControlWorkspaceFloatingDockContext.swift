@@ -3,6 +3,18 @@ import CmuxControlSocket
 import Foundation
 
 extension TerminalController: ControlWorkspaceFloatingDockContext {
+    private struct FloatingDockNoteWriteTarget: Sendable {
+        let workspaceID: UUID
+        let dockID: UUID
+        let writer: WorkspaceFloatingDockNoteWriter
+        let snapshotGeneration: Int
+    }
+
+    private enum FloatingDockNoteWritePreparation: Sendable {
+        case resolution(ControlWorkspaceFloatingDockResolution)
+        case ready(FloatingDockNoteWriteTarget)
+    }
+
     private enum FloatingDockWorkspaceResolution {
         case tabManagerUnavailable
         case notFound
@@ -45,6 +57,66 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
             return .workspaceNotFound
         case .found(let tabManager, let workspace):
             return performFloatingDockAction(action, tabManager: tabManager, workspace: workspace)
+        }
+    }
+
+    nonisolated func controlSetWorkspaceFloatingDockNote(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        selector: String,
+        text: String
+    ) -> ControlWorkspaceFloatingDockResolution {
+        let preparation: FloatingDockNoteWritePreparation = v2MainSync {
+            switch self.resolveFloatingDockWorkspace(routing: routing, workspaceID: workspaceID) {
+            case .tabManagerUnavailable:
+                return .resolution(.tabManagerUnavailable)
+            case .notFound:
+                return .resolution(.workspaceNotFound)
+            case .found(_, let workspace):
+                guard let dock = workspace.floatingDock(selector: selector) else {
+                    return .resolution(.floatingDockNotFound)
+                }
+                return .ready(FloatingDockNoteWriteTarget(
+                    workspaceID: workspace.id,
+                    dockID: dock.id,
+                    writer: dock.noteWriter,
+                    snapshotGeneration: dock.noteSnapshotGeneration
+                ))
+            }
+        }
+        guard case .ready(let target) = preparation else {
+            if case .resolution(let resolution) = preparation { return resolution }
+            return .operationFailed("note mutation failed")
+        }
+
+        guard case .saved = target.writer.saveSynchronously(content: text) else {
+            return .operationFailed("note mutation failed")
+        }
+
+        return v2MainSync {
+            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: target.workspaceID),
+                  let workspace = tabManager.tabs.first(where: { $0.id == target.workspaceID }),
+                  let dock = workspace.floatingDocks.first(where: { $0.id == target.dockID }),
+                  dock.noteWriter === target.writer else {
+                return .operationFailed("note target changed during persistence")
+            }
+            if dock.noteSnapshotGeneration != target.snapshotGeneration {
+                return .resolved(self.floatingDockNotePayload(
+                    dock: dock,
+                    workspace: workspace,
+                    notePanel: self.floatingDockNotePanel(for: dock, tabManager: tabManager),
+                    text: dock.noteTextSnapshot
+                ))
+            }
+            guard dock.applyPersistedNoteText(text) else {
+                return .operationFailed("note mutation failed")
+            }
+            return .resolved(self.floatingDockNotePayload(
+                dock: dock,
+                workspace: workspace,
+                notePanel: self.floatingDockNotePanel(for: dock, tabManager: tabManager),
+                text: text
+            ))
         }
     }
 
@@ -173,23 +245,9 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
                 dock: dock, workspace: workspace, notePanel: notePanel, text: text
             ))
         case .noteSet(let selector, let text):
-            guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
-            let notePanel = floatingDockNotePanel(for: dock, tabManager: tabManager)
-            do {
-                if let notePanel {
-                    try notePanel.replaceAutosavedTextContent(text)
-                } else {
-                    guard dock.persistNoteTextSnapshot(text) else {
-                        return .operationFailed("note mutation failed")
-                    }
-                }
-            } catch {
-                cmuxDebugLog("floatingDock.note.set.failed dock=\(dock.id) error=\(error)")
-                return .operationFailed("note mutation failed")
-            }
-            return .resolved(floatingDockNotePayload(
-                dock: dock, workspace: workspace, notePanel: notePanel, text: text
-            ))
+            return .operationFailed(
+                "workspace.float.note.set must run on the socket worker (selector: \(selector), bytes: \(text.utf8.count))"
+            )
         case .surfaceCreate(let selector, let paneID, let kindRaw, let urlRaw, let focus):
             guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
             guard let kind = floatingDockSurfaceKind(kindRaw) else { return .invalidSurfaceKind(kindRaw) }

@@ -1,6 +1,8 @@
 internal import Foundation
 
 extension ControlCommandCoordinator {
+    nonisolated private static let maximumFloatingDockNoteBytes = 16 * 1024 * 1024
+
     func handleWorkspaceFloatingDock(_ request: ControlRequest) -> ControlCallResult? {
         let workspaceID = uuid(request.params, "workspace_id")
         if hasNonNull(request.params, "workspace_id"), workspaceID == nil {
@@ -110,6 +112,67 @@ extension ControlCommandCoordinator {
         return floatingDockResult(resolution)
     }
 
+    nonisolated func workspaceFloatingDockNoteSet(
+        _ params: [String: JSONValue],
+        context: (any ControlCommandContext)?
+    ) -> ControlCallResult {
+        guard let context else {
+            return .err(code: "unavailable", message: "Workspace controls are unavailable", data: nil)
+        }
+        let parsed: FloatingDockNoteSetParse = context.controlResolveOnMain { _ in
+            let workspaceID = self.uuid(params, "workspace_id")
+            if self.hasNonNull(params, "workspace_id"), workspaceID == nil {
+                return .invalidWorkspaceID
+            }
+            guard let selector = self.floatingDockSelector(params) else {
+                return .missingSelector
+            }
+            guard case .string(let text)? = params["text"] else {
+                return .missingText
+            }
+            return .ready(
+                routing: self.routingSelectors(params),
+                workspaceID: workspaceID,
+                selector: selector,
+                text: text
+            )
+        }
+        switch parsed {
+        case .invalidWorkspaceID:
+            return invalidFloatingDockIdentifier("workspace_id")
+        case .missingSelector:
+            return missingFloatingDock()
+        case .missingText:
+            return .err(code: "invalid_params", message: "Missing or invalid text", data: nil)
+        case let .ready(routing, workspaceID, selector, text):
+            guard text.utf8.count <= Self.maximumFloatingDockNoteBytes else {
+                return .err(
+                    code: "invalid_params",
+                    message: "Floating Dock note exceeds the 16 MiB limit",
+                    data: .object(["maximum_bytes": .int(Int64(Self.maximumFloatingDockNoteBytes))])
+                )
+            }
+            return floatingDockResult(context.controlSetWorkspaceFloatingDockNote(
+                routing: routing,
+                workspaceID: workspaceID,
+                selector: selector,
+                text: text
+            ))
+        }
+    }
+
+    private enum FloatingDockNoteSetParse: Sendable {
+        case invalidWorkspaceID
+        case missingSelector
+        case missingText
+        case ready(
+            routing: ControlRoutingSelectors,
+            workspaceID: UUID?,
+            selector: String,
+            text: String
+        )
+    }
+
     private func floatingDockSelector(_ params: [String: JSONValue]) -> String? {
         string(params, "float") ?? string(params, "float_id")
     }
@@ -134,15 +197,15 @@ extension ControlCommandCoordinator {
         return (.init(x: x, y: y, width: width, height: height), nil)
     }
 
-    private func missingFloatingDock() -> ControlCallResult {
+    nonisolated private func missingFloatingDock() -> ControlCallResult {
         .err(code: "invalid_params", message: "Missing floating Dock selector", data: nil)
     }
 
-    private func invalidFloatingDockIdentifier(_ key: String) -> ControlCallResult {
+    nonisolated private func invalidFloatingDockIdentifier(_ key: String) -> ControlCallResult {
         .err(code: "invalid_params", message: "\(key) must be a UUID", data: nil)
     }
 
-    private func floatingDockResult(
+    nonisolated private func floatingDockResult(
         _ resolution: ControlWorkspaceFloatingDockResolution
     ) -> ControlCallResult {
         switch resolution {

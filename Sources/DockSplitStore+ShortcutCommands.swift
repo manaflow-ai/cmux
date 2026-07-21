@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxPanes
 import CmuxWorkspaces
 import Foundation
 
@@ -14,7 +15,61 @@ enum DockShortcutCommand {
     case triggerFlash
 }
 
+enum DockSurfaceCommand {
+    case create(kind: DockSurfaceKind, focusAddressBar: Bool)
+    case split(kind: DockSurfaceKind, direction: SplitDirection)
+    case closeFocused
+    case equalizeSplits
+}
+
 extension DockSplitStore {
+    /// Shared semantic mutation entrypoint for keyboard shortcuts and the
+    /// command palette. The caller resolves the target container once, then
+    /// this store owns every Bonsplit mutation.
+    @discardableResult
+    func performSurfaceCommand(_ command: DockSurfaceCommand) -> Bool {
+        switch command {
+        case let .create(kind, focusAddressBar):
+            if kind == .browser, !BrowserAvailabilitySettings.isEnabled() { return false }
+            guard let pane = resolvePane(requestedPaneID: nil),
+                  let panelID = newSurface(kind: kind, inPane: pane, focus: true) else {
+                return false
+            }
+            if focusAddressBar, let browser = browserPanel(for: panelID) {
+                AppDelegate.shared?.focusBrowserAddressBar(in: browser)
+            }
+            return true
+        case let .split(kind, direction):
+            if kind == .browser, !BrowserAvailabilitySettings.isEnabled() { return false }
+            return newSplit(
+                kind: kind,
+                orientation: direction.orientation,
+                insertFirst: direction.insertFirst,
+                sourcePanelId: focusedPanelId,
+                focus: true
+            ) != nil
+        case .closeFocused:
+            guard let focusedPanelId else { return false }
+            return closePanel(focusedPanelId)
+        case .equalizeSplits:
+            let splitIDs = splitIDs(in: bonsplitController.treeSnapshot())
+            guard !splitIDs.isEmpty else { return false }
+            return splitIDs.reduce(true) { result, splitID in
+                bonsplitController.setDividerPosition(0.5, forSplit: splitID) && result
+            }
+        }
+    }
+
+    private func splitIDs(in node: ExternalTreeNode) -> [UUID] {
+        switch node {
+        case .pane:
+            return []
+        case .split(let split):
+            guard let id = UUID(uuidString: split.id) else { return [] }
+            return [id] + splitIDs(in: split.first) + splitIDs(in: split.second)
+        }
+    }
+
     /// Executes surface and focus commands against the Dock's own Bonsplit tree.
     /// AppDelegate resolves configured key bindings and sends only the semantic
     /// command here, keeping every Dock entrypoint on the same ownership path.

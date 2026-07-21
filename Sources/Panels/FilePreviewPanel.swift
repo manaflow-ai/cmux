@@ -968,7 +968,8 @@ enum FilePreviewTextSaver {
     static func saveSynchronously(
         content: String,
         to url: URL,
-        encoding: String.Encoding
+        encoding: String.Encoding,
+        options: Data.WritingOptions = []
     ) -> Result {
         guard let data = content.data(using: encoding) else {
             return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
@@ -979,7 +980,7 @@ enum FilePreviewTextSaver {
                 at: url.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            try data.write(to: url, options: .atomic)
+            try data.write(to: url, options: options)
             return .saved
         } catch {
             return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
@@ -1017,6 +1018,13 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     weak var textView: NSTextView?
     let focusCoordinator: FilePreviewFocusCoordinator
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
+    private let textSaver: @Sendable (
+        String,
+        URL,
+        String.Encoding,
+        UInt64?
+    ) async -> FilePreviewTextSaver.Result
+    private let textSaveSequenceProvider: (@Sendable () -> UInt64)?
 
     var fileURL: URL {
         URL(fileURLWithPath: filePath)
@@ -1028,7 +1036,16 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         presentation: FilePreviewPresentation = .file,
         textLoader: @escaping @Sendable (URL) async -> FilePreviewTextLoader.Result = { url in
             await FilePreviewTextLoader.load(url: url)
-        }
+        },
+        textSaver: @escaping @Sendable (
+            String,
+            URL,
+            String.Encoding,
+            UInt64?
+        ) async -> FilePreviewTextSaver.Result = { content, url, encoding, _ in
+            await FilePreviewTextSaver.save(content: content, to: url, encoding: encoding)
+        },
+        textSaveSequenceProvider: (@Sendable () -> UInt64)? = nil
     ) {
         self.id = UUID()
         self.workspaceId = workspaceId
@@ -1036,6 +1053,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.presentation = presentation
         self.displayTitle = presentation.displayTitle ?? URL(fileURLWithPath: filePath).lastPathComponent
         self.textLoader = textLoader
+        self.textSaver = textSaver
+        self.textSaveSequenceProvider = textSaveSequenceProvider
         let fileURL = URL(fileURLWithPath: filePath)
         let initialPreviewMode = FilePreviewKindResolver.initialMode(for: fileURL)
         self.previewMode = initialPreviewMode
@@ -1181,6 +1200,26 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         requestAutosave()
     }
 
+    /// Applies content that the managed-note writer has already committed.
+    /// This keeps the editor and dirty state in sync without scheduling a
+    /// second write that could race a later socket mutation.
+    func applyPersistedAutosavedTextContent(_ nextContent: String) throws {
+        guard presentation.autosavesTextChanges, previewMode == .text else {
+            throw CocoaError(.featureUnsupported)
+        }
+        textLoadGeneration += 1
+        saveGeneration += 1
+        activeSaveGeneration = nil
+        autosaveRequested = false
+        isSaving = false
+        textView?.string = nextContent
+        textContent = nextContent
+        originalTextContent = nextContent
+        isDirty = false
+        isFileUnavailable = false
+        autosavedTextDidChange?(nextContent)
+    }
+
     private func requestAutosave() {
         autosaveRequested = true
         guard !isSaving else { return }
@@ -1307,8 +1346,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         activeSaveGeneration = generation
         let fileURL = fileURL
         let encoding = textEncoding
-        return Task { [weak self, currentContent, fileURL, encoding, generation] in
-            let result = await FilePreviewTextSaver.save(content: currentContent, to: fileURL, encoding: encoding)
+        let writeSequence = textSaveSequenceProvider?()
+        let textSaver = textSaver
+        return Task { [weak self, currentContent, fileURL, encoding, generation, writeSequence, textSaver] in
+            let result = await textSaver(currentContent, fileURL, encoding, writeSequence)
             guard let self, self.activeSaveGeneration == generation else { return }
             self.activeSaveGeneration = nil
             self.isSaving = false

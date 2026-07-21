@@ -2,6 +2,66 @@ import CoreGraphics
 import Foundation
 import Observation
 
+final class WorkspaceFloatingDockNoteWriter: @unchecked Sendable {
+    private let sequenceLock = NSLock()
+    private let writeLock = NSLock()
+    private var nextSequence: UInt64 = 0
+    private var latestCommittedSequence: UInt64 = 0
+    let fileURL: URL
+
+    init(fileURL: URL) {
+        self.fileURL = fileURL
+    }
+
+    func reserveSequence() -> UInt64 {
+        sequenceLock.withLock {
+            nextSequence &+= 1
+            return nextSequence
+        }
+    }
+
+    func saveSynchronously(
+        content: String,
+        encoding: String.Encoding = .utf8,
+        sequence requestedSequence: UInt64? = nil
+    ) -> FilePreviewTextSaver.Result {
+        let sequence = sequenceLock.withLock {
+            if let requestedSequence {
+                return requestedSequence
+            } else {
+                nextSequence &+= 1
+                return nextSequence
+            }
+        }
+        return writeLock.withLock {
+            let isCurrent = sequenceLock.withLock { sequence >= latestCommittedSequence }
+            guard isCurrent else { return .saved }
+            let result = FilePreviewTextSaver.saveSynchronously(
+                content: content,
+                to: fileURL,
+                encoding: encoding,
+                options: .atomic
+            )
+            if case .saved = result {
+                sequenceLock.withLock {
+                    latestCommittedSequence = max(latestCommittedSequence, sequence)
+                }
+            }
+            return result
+        }
+    }
+
+    func save(
+        content: String,
+        encoding: String.Encoding,
+        sequence: UInt64
+    ) async -> FilePreviewTextSaver.Result {
+        await Task.detached(priority: .userInitiated) { [self] in
+            saveSynchronously(content: content, encoding: encoding, sequence: sequence)
+        }.value
+    }
+}
+
 /// One window-like Bonsplit container owned by a workspace.
 @MainActor
 @Observable
@@ -22,7 +82,7 @@ final class WorkspaceFloatingDock: Identifiable {
     @ObservationIgnored private(set) var notePanelId: UUID?
     @ObservationIgnored private(set) var noteTextSnapshot = ""
     @ObservationIgnored private var noteTextGeneration = 0
-    @ObservationIgnored private let notePersistenceQueue: DispatchQueue
+    @ObservationIgnored let noteWriter: WorkspaceFloatingDockNoteWriter
 
     init(
         id: UUID,
@@ -51,16 +111,26 @@ final class WorkspaceFloatingDock: Identifiable {
         self.displaySnapshot = displaySnapshot
         self.configFrames = configFrames
         self.noteFilePath = noteFilePath
-        self.notePersistenceQueue = DispatchQueue(
-            label: "com.cmuxterm.floating-dock-note.\(id.uuidString.lowercased())"
+        let noteWriter = WorkspaceFloatingDockNoteWriter(
+            fileURL: URL(fileURLWithPath: noteFilePath)
         )
+        self.noteWriter = noteWriter
         self.store = DockSplitStore(
             workspaceId: workspaceId,
             scope: .workspace,
             loadsConfiguration: false,
             baseDirectoryProvider: baseDirectoryProvider,
             remoteBrowserSettingsProvider: remoteBrowserSettingsProvider,
-            terminalTransferProvider: terminalTransferProvider
+            terminalTransferProvider: terminalTransferProvider,
+            noteTextSaver: { content, _, encoding, sequence in
+                let sequence = sequence ?? noteWriter.reserveSequence()
+                return await noteWriter.save(
+                    content: content,
+                    encoding: encoding,
+                    sequence: sequence
+                )
+            },
+            noteTextSaveSequenceProvider: { noteWriter.reserveSequence() }
         )
         loadPersistedNoteSnapshot()
 
@@ -116,14 +186,16 @@ final class WorkspaceFloatingDock: Identifiable {
         noteTextSnapshot = text
     }
 
-    func persistNoteTextSnapshot(_ text: String) -> Bool {
-        let url = URL(fileURLWithPath: noteFilePath)
-        let result = notePersistenceQueue.sync {
-            FilePreviewTextSaver.saveSynchronously(content: text, to: url, encoding: .utf8)
+    var noteSnapshotGeneration: Int { noteTextGeneration }
+
+    func applyPersistedNoteText(_ text: String) -> Bool {
+        do {
+            try notePanel?.applyPersistedAutosavedTextContent(text)
+            setNoteTextSnapshot(text)
+            return true
+        } catch {
+            return false
         }
-        guard case .saved = result else { return false }
-        setNoteTextSnapshot(text)
-        return true
     }
 
     private func bindNotePanel() {
