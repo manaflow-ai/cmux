@@ -494,7 +494,7 @@ struct CMUXMobileRootView: View {
                 showAddDevice()
             }
             clearAttachTicketAuthentication(after: result)
-            if store.connectionState != .connected {
+            if result == .failed, store.connectionState != .connected {
                 reconnectStoredMacIfNeeded()
             }
         }
