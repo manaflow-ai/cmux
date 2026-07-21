@@ -1199,18 +1199,19 @@ final class SidebarRowChecklistAttachmentButton: NSControl {
         }
     }
 
-    /// Legacy label frame: `minWidth/minHeight = iconPointSize + 8`, plus
-    /// the borderless-menu chevron after the label.
+    /// Legacy footprint: the borderless-menu chevron packs INSIDE the
+    /// `minWidth = iconPointSize + 8` slot next to the paperclip, so the
+    /// whole control stays ~17pt wide and item text wraps at the same
+    /// width as the SwiftUI row.
     func measuredSize() -> NSSize {
         let iconSize = iconView.image?.size ?? .zero
         let chevronSize = chevronView.image?.size ?? .zero
-        var width = iconSize.width
+        var width = iconSize.width + (chevronSize.width > 0 ? chevronSize.width + 2 : 0)
         if !countLabel.isHidden {
             width += 2 + ceil(countLabel.sidebarNaturalCellSize.width)
         }
-        width = max(width, iconPointSize + 8) + (chevronSize.width > 0 ? chevronSize.width + 2 : 0)
         return NSSize(
-            width: width,
+            width: max(width, iconPointSize + 8),
             height: max(iconSize.height, iconPointSize + 8)
         )
     }
