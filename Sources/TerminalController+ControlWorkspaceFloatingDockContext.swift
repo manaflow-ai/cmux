@@ -516,24 +516,10 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
 
     private func floatingDockNotePanel(
         for dock: WorkspaceFloatingDock,
-        tabManager: TabManager
+        tabManager _: TabManager
     ) -> FilePreviewPanel? {
         if let panel = dock.notePanel { return panel }
-        for workspace in tabManager.tabs {
-            if let panel = workspace.panels.values
-                .compactMap({ $0 as? FilePreviewPanel })
-                .first(where: { $0.filePath == dock.noteFilePath }) {
-                return panel
-            }
-        }
-        for store in DockSplitStore.liveStores {
-            if let panel = store.panels.values
-                .compactMap({ $0 as? FilePreviewPanel })
-                .first(where: { $0.filePath == dock.noteFilePath }) {
-                return panel
-            }
-        }
-        return nil
+        return WorkspaceFloatingDockNoteOwnerRegistry.panels(for: dock).first
     }
 
     private func floatingDockSurfaceMutationPayload(

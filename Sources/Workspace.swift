@@ -8298,6 +8298,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         installFilePreviewPanelSubscription(filePreviewPanel)
+        WorkspaceFloatingDockNoteOwnerRegistry.register(filePreviewPanel)
         return filePreviewPanel
     }
 
@@ -9141,6 +9142,9 @@ final class Workspace: Identifiable, ObservableObject {
         if let filePreviewPanel = detached.panel as? FilePreviewPanel,
            panelSubscriptions[filePreviewPanel.id] == nil {
             installFilePreviewPanelSubscription(filePreviewPanel)
+        }
+        if let filePreviewPanel = detached.panel as? FilePreviewPanel {
+            WorkspaceFloatingDockNoteOwnerRegistry.register(filePreviewPanel)
         }
         if let agentPanel = detached.panel as? AgentSessionPanel {
             agentPanel.updateWorkspaceId(id)

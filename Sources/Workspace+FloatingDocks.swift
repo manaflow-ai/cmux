@@ -862,6 +862,7 @@ extension DockSplitStore {
             installSubscription(for: panel, tracksTerminalTitle: false)
             applyVisibility(to: panel)
         }
+        WorkspaceFloatingDockNoteOwnerRegistry.register(panel)
         return panel.id
     }
 }

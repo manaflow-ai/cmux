@@ -3,6 +3,22 @@ import Foundation
 import Observation
 
 final class WorkspaceFloatingDockNoteWriter: @unchecked Sendable {
+    struct Persistence: Sendable {
+        let save: @Sendable (
+            String,
+            URL,
+            String.Encoding,
+            UInt64?
+        ) async -> FilePreviewTextSaver.Result
+        let saveSynchronously: @Sendable (
+            String,
+            URL,
+            String.Encoding,
+            UInt64?
+        ) -> FilePreviewTextSaver.Result
+        let reserveSequence: @Sendable () -> UInt64
+    }
+
     private let sequenceLock = NSLock()
     private let writeLock = NSLock()
     private var nextSequence: UInt64 = 0
@@ -11,6 +27,26 @@ final class WorkspaceFloatingDockNoteWriter: @unchecked Sendable {
 
     init(fileURL: URL) {
         self.fileURL = fileURL
+    }
+
+    var persistence: Persistence {
+        Persistence(
+            save: { [self] content, _, encoding, sequence in
+                await self.save(
+                    content: content,
+                    encoding: encoding,
+                    sequence: sequence ?? self.reserveSequence()
+                )
+            },
+            saveSynchronously: { [self] content, _, encoding, sequence in
+                self.saveSynchronously(
+                    content: content,
+                    encoding: encoding,
+                    sequence: sequence
+                )
+            },
+            reserveSequence: { [self] in self.reserveSequence() }
+        )
     }
 
     func reserveSequence() -> UInt64 {
@@ -78,41 +114,94 @@ final class WorkspaceFloatingDockNoteWriter: @unchecked Sendable {
         let writer = WorkspaceFloatingDockNoteWriter(
             fileURL: URL(fileURLWithPath: filePath)
         )
+        let persistence = writer.persistence
         return FilePreviewPanel(
             workspaceId: workspaceId,
             filePath: filePath,
             presentation: presentation,
-            textSaver: { content, _, encoding, sequence in
-                await writer.save(
-                    content: content,
-                    encoding: encoding,
-                    sequence: sequence ?? writer.reserveSequence()
-                )
-            },
-            textSaverSynchronously: { content, _, encoding, sequence in
-                writer.saveSynchronously(
-                    content: content,
-                    encoding: encoding,
-                    sequence: sequence
-                )
-            },
-            textSaveSequenceProvider: { writer.reserveSequence() }
+            textSaver: persistence.save,
+            textSaverSynchronously: persistence.saveSynchronously,
+            textSaveSequenceProvider: persistence.reserveSequence
         )
     }
 }
 
-/// Coalesces the initial persisted-note read across the background preload and
-/// concurrent socket callers. Disk I/O stays off the main actor, while every
-/// waiter observes the same completed result.
-final class WorkspaceFloatingDockNoteLoader: @unchecked Sendable {
-    private enum State {
-        case unloaded
-        case loading
-        case loaded(FilePreviewTextLoader.Result)
+@MainActor
+enum WorkspaceFloatingDockNoteOwnerRegistry {
+    private final class WeakDock {
+        weak var value: WorkspaceFloatingDock?
+
+        init(_ value: WorkspaceFloatingDock) {
+            self.value = value
+        }
     }
 
-    private let condition = NSCondition()
-    private var state: State = .unloaded
+    private final class WeakPanel {
+        weak var value: FilePreviewPanel?
+
+        init(_ value: FilePreviewPanel) {
+            self.value = value
+        }
+    }
+
+    private static var owners: [String: WeakDock] = [:]
+    private static var panels: [String: [WeakPanel]] = [:]
+
+    static func register(_ dock: WorkspaceFloatingDock) {
+        let key = canonicalPath(dock.noteFilePath)
+        owners[key] = WeakDock(dock)
+        livePanels(forKey: key).forEach { dock.bindManagedNotePanel($0) }
+    }
+
+    static func unregister(_ dock: WorkspaceFloatingDock) {
+        let key = canonicalPath(dock.noteFilePath)
+        if owners[key]?.value === dock {
+            owners.removeValue(forKey: key)
+        }
+        _ = livePanels(forKey: key)
+    }
+
+    static func register(_ panel: FilePreviewPanel) {
+        guard panel.presentation.autosavesTextChanges else { return }
+        let key = canonicalPath(panel.filePath)
+        var live = livePanels(forKey: key)
+        if !live.contains(where: { $0 === panel }) {
+            live.append(panel)
+            panels[key] = live.map(WeakPanel.init)
+        }
+        owner(forKey: key)?.bindManagedNotePanel(panel)
+    }
+
+    static func panels(for dock: WorkspaceFloatingDock) -> [FilePreviewPanel] {
+        livePanels(forKey: canonicalPath(dock.noteFilePath))
+    }
+
+    private static func owner(forKey key: String) -> WorkspaceFloatingDock? {
+        guard let owner = owners[key]?.value else {
+            owners.removeValue(forKey: key)
+            return nil
+        }
+        return owner
+    }
+
+    private static func livePanels(forKey key: String) -> [FilePreviewPanel] {
+        let live = panels[key, default: []].compactMap(\.value)
+        if live.isEmpty {
+            panels.removeValue(forKey: key)
+        } else {
+            panels[key] = live.map(WeakPanel.init)
+        }
+        return live
+    }
+
+    private static func canonicalPath(_ path: String) -> String {
+        (path as NSString).resolvingSymlinksInPath
+    }
+}
+
+/// Performs bounded, on-demand persisted-note reads without retaining their
+/// contents. The live editor or mutation snapshot owns text once it is needed.
+final class WorkspaceFloatingDockNoteLoader: @unchecked Sendable {
     let fileURL: URL
 
     init(fileURL: URL) {
@@ -120,31 +209,11 @@ final class WorkspaceFloatingDockNoteLoader: @unchecked Sendable {
     }
 
     func loadSynchronously() -> FilePreviewTextLoader.Result {
-        condition.lock()
-        while true {
-            switch state {
-            case .loaded(let result):
-                condition.unlock()
-                return result
-            case .loading:
-                condition.wait()
-            case .unloaded:
-                state = .loading
-                condition.unlock()
-                let result = FilePreviewTextLoader.loadSynchronously(url: fileURL)
-                condition.lock()
-                state = .loaded(result)
-                condition.broadcast()
-                condition.unlock()
-                return result
-            }
-        }
+        FilePreviewTextLoader.loadSynchronously(url: fileURL)
     }
 
     func load() async -> FilePreviewTextLoader.Result {
-        await Task.detached(priority: .userInitiated) { [self] in
-            loadSynchronously()
-        }.value
+        await FilePreviewTextLoader.load(url: fileURL)
     }
 }
 
@@ -204,6 +273,7 @@ final class WorkspaceFloatingDock: Identifiable {
         self.noteFilePath = noteFilePath
         let noteFileURL = URL(fileURLWithPath: noteFilePath)
         let noteWriter = WorkspaceFloatingDockNoteWriter(fileURL: noteFileURL)
+        let notePersistence = noteWriter.persistence
         self.noteWriter = noteWriter
         self.noteLoader = WorkspaceFloatingDockNoteLoader(fileURL: noteFileURL)
         self.store = DockSplitStore(
@@ -215,36 +285,25 @@ final class WorkspaceFloatingDock: Identifiable {
             surfaceCreationAllowedProvider: surfaceCreationAllowedProvider,
             terminalTransferProvider: terminalTransferProvider,
             terminalRestoreTransferProvider: terminalRestoreTransferProvider,
-            noteTextSaver: { content, _, encoding, sequence in
-                let sequence = sequence ?? noteWriter.reserveSequence()
-                return await noteWriter.save(
-                    content: content,
-                    encoding: encoding,
-                    sequence: sequence
-                )
-            },
-            noteTextSaverSynchronously: { content, _, encoding, sequence in
-                noteWriter.saveSynchronously(
-                    content: content,
-                    encoding: encoding,
-                    sequence: sequence
-                )
-            },
-            noteTextSaveSequenceProvider: { noteWriter.reserveSequence() }
+            noteTextSaver: notePersistence.save,
+            noteTextSaverSynchronously: notePersistence.saveSynchronously,
+            noteTextSaveSequenceProvider: notePersistence.reserveSequence
         )
 
+        WorkspaceFloatingDockNoteOwnerRegistry.register(self)
         if let initialContent {
             initialContentWasCreated = seedInitialContentIfNeeded(initialContent, url: initialURL)
         }
-        loadPersistedNoteSnapshot()
     }
 
     var notePanel: FilePreviewPanel? {
-        if let notePanelId, let panel = store.panels[notePanelId] as? FilePreviewPanel {
+        if let notePanelId,
+           let panel = store.panels[notePanelId] as? FilePreviewPanel,
+           isManagedNotePanel(panel) {
             return panel
         }
         return store.panels.values.compactMap { $0 as? FilePreviewPanel }.first {
-            $0.filePath == noteFilePath && $0.presentation.autosavesTextChanges
+            isManagedNotePanel($0)
         }
     }
 
@@ -306,7 +365,6 @@ final class WorkspaceFloatingDock: Identifiable {
 
     func applyLoadedNoteTextSnapshot(_ text: String, generation: Int) -> String {
         guard noteTextGeneration == generation else { return noteTextSnapshot }
-        setNoteTextSnapshot(text)
         return text
     }
 
@@ -322,29 +380,29 @@ final class WorkspaceFloatingDock: Identifiable {
 
     private func bindNotePanel() {
         guard let panel = notePanel else { return }
+        WorkspaceFloatingDockNoteOwnerRegistry.register(panel)
+    }
+
+    func bindManagedNotePanel(_ panel: FilePreviewPanel) {
+        guard isManagedNotePanel(panel) else { return }
+        guard panel.rebindAutosavingTextPersistence(noteWriter.persistence) else { return }
         panel.autosavedTextDidChange = { [weak self] text in
             self?.setNoteTextSnapshot(text)
         }
     }
 
-    private func loadPersistedNoteSnapshot() {
-        let generation = noteTextGeneration
-        let loader = noteLoader
-        Task { [weak self, loader, generation] in
-            let result = await loader.load()
-            guard let self else { return }
-            switch result {
-            case .loaded(let text, _):
-                _ = self.applyLoadedNoteTextSnapshot(text, generation: generation)
-            case .unavailable:
-                _ = self.applyLoadedNoteTextSnapshot("", generation: generation)
-            }
-        }
+    private func isManagedNotePanel(_ panel: FilePreviewPanel) -> Bool {
+        panel.presentation.autosavesTextChanges
+            && (panel.filePath as NSString).resolvingSymlinksInPath
+                == (noteFilePath as NSString).resolvingSymlinksInPath
     }
 
     func close() {
         ownsInputFocus = false
-        notePanel?.autosavedTextDidChange = nil
+        WorkspaceFloatingDockNoteOwnerRegistry.panels(for: self).forEach {
+            $0.autosavedTextDidChange = nil
+        }
+        WorkspaceFloatingDockNoteOwnerRegistry.unregister(self)
         store.closeAllPanels()
     }
 }

@@ -1035,23 +1035,38 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     weak var textView: NSTextView?
     let focusCoordinator: FilePreviewFocusCoordinator
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
-    private let textSaver: @Sendable (
+    private var textSaver: @Sendable (
         String,
         URL,
         String.Encoding,
         UInt64?
     ) async -> FilePreviewTextSaver.Result
-    private let textSaverSynchronously: @Sendable (
+    private var textSaverSynchronously: @Sendable (
         String,
         URL,
         String.Encoding,
         UInt64?
     ) -> FilePreviewTextSaver.Result
-    private let textSaveSequenceProvider: (@Sendable () -> UInt64)?
+    private var textSaveSequenceProvider: (@Sendable () -> UInt64)?
     private let autosaveDelayNanoseconds: UInt64
 
     var hasSequencedTextPersistence: Bool {
         textSaveSequenceProvider != nil
+    }
+
+    /// Moves an autosaving note onto its floating Dock's serialized writer.
+    /// Flushing first prevents an independent restore-time writer from
+    /// committing after the shared owner begins accepting mutations.
+    @discardableResult
+    func rebindAutosavingTextPersistence(
+        _ persistence: WorkspaceFloatingDockNoteWriter.Persistence
+    ) -> Bool {
+        guard presentation.autosavesTextChanges,
+              flushPendingAutosaveSynchronously() else { return false }
+        textSaver = persistence.save
+        textSaverSynchronously = persistence.saveSynchronously
+        textSaveSequenceProvider = persistence.reserveSequence
+        return true
     }
 
     var fileURL: URL {

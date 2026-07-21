@@ -257,6 +257,9 @@ extension DockSplitStore {
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface"
         )
+        if let filePreviewPanel = panel as? FilePreviewPanel {
+            WorkspaceFloatingDockNoteOwnerRegistry.register(filePreviewPanel)
+        }
         return detached.panelId
     }
 
@@ -327,6 +330,9 @@ extension DockSplitStore {
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface.split"
         )
+        if let filePreviewPanel = panel as? FilePreviewPanel {
+            WorkspaceFloatingDockNoteOwnerRegistry.register(filePreviewPanel)
+        }
         return detached.panelId
     }
 
