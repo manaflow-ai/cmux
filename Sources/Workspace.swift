@@ -3290,6 +3290,15 @@ final class Workspace: Identifiable {
                         }
                         self.reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
                     }
+                    // No blanket invalidation here (the legacy objectWillChange
+                    // send is gone deliberately): reconcile above mutates the
+                    // tracked RestoredAgentLifecycleCoordinator state, and the
+                    // remaining SharedLiveAgentIndex-derived surface — fork
+                    // conversation availability — is pulled at NSMenu build
+                    // time (bonsplit TabContextMenuBuilder.makeMenu and
+                    // GhosttyNSView+ForkConversationContextMenu), so menus
+                    // opened after a probe read fresh state and open menus
+                    // never live-updated under ObservableObject either.
                 }
             }
         }
