@@ -86,7 +86,7 @@ extension RemoteTmuxControlConnection {
         )
     }
 
-    func failPaneSeedCommand(_ kind: CommandKind) {
+    func failPaneSeedCommand(_ kind: CommandKind, errorLines: [String]) {
         let paneId: Int
         let seedID: UUID
         switch kind {
@@ -101,6 +101,20 @@ extension RemoteTmuxControlConnection {
             return
         }
         guard var seeds = pendingPaneSeeds[paneId], seeds.first?.id == seedID else { return }
+        // A short-lived pane can exit after a growth/layout event queued its
+        // repaint but before tmux executes the capture. There is no surface left
+        // to recover, so reconnecting the whole control client only disrupts the
+        // surviving panes. Drop every seed for the vanished target and refresh
+        // topology; unknown boundary failures still reconnect below because their
+        // snapshot/live ordering cannot be proven safe.
+        if errorLines.joined(separator: " ")
+            .localizedCaseInsensitiveContains("find pane")
+        {
+            record("pane-seed-target-gone %\(paneId)")
+            discardPendingPaneSeeds(paneId: paneId)
+            requestWindows()
+            return
+        }
         // Once this client's cursor was reset, replaying buffered bytes after a
         // failed capture would either duplicate the grid or lose the reset backlog.
         // A fresh control client is the only authoritative recovery. The reset

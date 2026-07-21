@@ -27,7 +27,7 @@ extension RemoteTmuxControlConnection {
             }
         }
         guard !isError else {
-            failPaneSeedCommand(kind)
+            failPaneSeedCommand(kind, errorLines: lines)
             // An errored activity query must still complete (with nil) — a close
             // decision is waiting on it and falls back to the cached state.
             if case let .activityQuery(token) = kind,
