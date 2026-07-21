@@ -22,11 +22,13 @@ struct CLIClaudeHookTimeoutRegressionTests {
         let binDirectory = root.appendingPathComponent("bin", isDirectory: true)
         let fakeCLI = binDirectory.appendingPathComponent("cmux", isDirectory: false)
         let fakeClaude = binDirectory.appendingPathComponent("claude", isDirectory: false)
+        let fakeSleep = binDirectory.appendingPathComponent("sleep", isDirectory: false)
         let settingsFile = root.appendingPathComponent("settings.json", isDirectory: false)
         let capturedStdin = root.appendingPathComponent("hook-stdin.json", isDirectory: false)
         let capturedArguments = root.appendingPathComponent("hook-args.txt", isDirectory: false)
         let capturedPID = root.appendingPathComponent("hook-pid.txt", isDirectory: false)
         let deliveryDone = root.appendingPathComponent("hook-done.txt", isDirectory: false)
+        let watchdogPIDFile = root.appendingPathComponent("watchdog-pid.txt", isDirectory: false)
         let socketPath = makeCodexHookSocketPath("claude")
         let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
         try fileManager.createDirectory(at: binDirectory, withIntermediateDirectories: true)
@@ -43,7 +45,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
             "printf '%s\\n' \"$*\" > \"$CMUX_TEST_ARGS\"",
             "printf '%s\\n' \"${CMUX_CLAUDE_PID:-}\" > \"$CMUX_TEST_PID\"",
             "cat > \"$CMUX_TEST_STDIN\"",
-            "sleep 2",
+            "/bin/sleep 2",
             "printf done > \"$CMUX_TEST_DONE\"",
         ])
         try makeCodexHookExecutableShellFile(at: fakeClaude, lines: [
@@ -52,6 +54,11 @@ struct CLIClaudeHookTimeoutRegressionTests {
             "  if [ \"$1\" = \"--settings\" ]; then shift; printf '%s' \"$1\" > \"$CMUX_TEST_SETTINGS\"; fi",
             "  shift",
             "done",
+        ])
+        try makeCodexHookExecutableShellFile(at: fakeSleep, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$$\" > \"$CMUX_TEST_WATCHDOG_PID\"",
+            "exec /bin/sleep \"$@\"",
         ])
 
         let baseEnvironment = [
@@ -69,6 +76,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
             "CMUX_TEST_ARGS": capturedArguments.path,
             "CMUX_TEST_PID": capturedPID.path,
             "CMUX_TEST_DONE": deliveryDone.path,
+            "CMUX_TEST_WATCHDOG_PID": watchdogPIDFile.path,
         ]
         let wrapperRun = runCodexHookProcess(
             executablePath: wrapper.path,
@@ -177,7 +185,12 @@ struct CLIClaudeHookTimeoutRegressionTests {
             )
         )
         #expect(waitForFile(capturedPID, containing: "8535", timeout: 1))
+        #expect(waitForFile(watchdogPIDFile, containing: "\n", timeout: 1))
         #expect(waitForFile(deliveryDone, containing: "done", timeout: 3))
+        let watchdogPID = try #require(
+            Int32(String(contentsOf: watchdogPIDFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines))
+        )
+        #expect(waitForProcessExit(watchdogPID, timeout: 1))
     }
 
     private func expectDeferredHook(
@@ -214,5 +227,14 @@ struct CLIClaudeHookTimeoutRegressionTests {
         } else {
             #expect(hook["async"] == nil)
         }
+    }
+
+    private func waitForProcessExit(_ pid: pid_t, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Darwin.kill(pid, 0) == 0 {
+            guard Date() < deadline else { return false }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        return errno == ESRCH
     }
 }
