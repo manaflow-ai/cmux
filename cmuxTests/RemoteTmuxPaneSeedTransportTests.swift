@@ -145,6 +145,105 @@ import Testing
         #expect(reconnectReadyCount == 1)
     }
 
+    @Test func reconnectReseedLimitsConcurrentPaneSnapshots() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        fixture.connection.windowsByID = Dictionary(uniqueKeysWithValues: (1...5).map {
+            windowID in
+            (
+                windowID,
+                RemoteTmuxWindow(
+                    id: windowID,
+                    width: 80,
+                    height: 24,
+                    layout: RemoteTmuxLayoutNode(
+                        width: 80,
+                        height: 24,
+                        x: 0,
+                        y: 0,
+                        content: .pane(windowID + 10)
+                    )
+                )
+            )
+        })
+
+        fixture.connection.reseedAfterReconnect()
+        #expect(fixture.connection.pendingReconnectSeedIDs.count == 2)
+        #expect(fixture.connection.pendingPaneSeeds.count == 2)
+
+        let firstPaneID = try #require(fixture.connection.pendingPaneSeeds.keys.min())
+        let firstSeedID = try #require(
+            fixture.connection.pendingPaneSeeds[firstPaneID]?.first?.id
+        )
+        fixture.connection.cancelPaneSeed(paneId: firstPaneID, seedID: firstSeedID)
+
+        #expect(fixture.connection.pendingReconnectSeedIDs.count == 2)
+        #expect(fixture.connection.pendingPaneSeeds.count == 2)
+        #expect(fixture.connection.pendingPaneSeeds[firstPaneID] == nil)
+    }
+
+    @Test func parserValidLargeSeedWaitsForGridWithoutReconnecting() {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        fixture.connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1,
+            width: 80,
+            height: 24,
+            layout: RemoteTmuxLayoutNode(
+                width: 80, height: 24, x: 0, y: 0, content: .pane(7)
+            )
+        )
+        fixture.connection.windowOrder = [1]
+        fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = manager.selectedWorkspace!
+        workspace.isRemoteTmuxMirror = true
+        let sessionMirror = RemoteTmuxSessionMirror(
+            host: fixture.connection.host,
+            sessionName: "work",
+            connection: fixture.connection,
+            tabManager: manager,
+            workspace: workspace
+        )
+        defer { sessionMirror.detachObserver() }
+
+        let snapshot = Data(repeating: UInt8(ascii: "x"), count: 9 * 1_024 * 1_024)
+        sessionMirror.routeSeed(
+            paneId: 7,
+            seed: RemoteTmuxPaneSeed(
+                discardedOutput: [],
+                snapshot: snapshot,
+                catchUpOutput: [],
+                state: Data()
+            )
+        )
+
+        #expect(fixture.connection.connectionState == .connected)
+        #expect(sessionMirror.pendingPaneSeedByteCounts[7] == snapshot.count)
+    }
+
+    @Test func pendingSeedCoalescesTinyLiveOutputChunks() {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        let seedID = fixture.connection.beginPaneSeed(paneId: 7, clearScrollback: true)
+        for _ in 0..<10_000 {
+            #expect(
+                fixture.connection.absorbPaneOutputIntoPendingSeed(
+                    paneId: 7,
+                    data: Data([UInt8(ascii: "x")])
+                )
+            )
+        }
+
+        let pending = fixture.connection.pendingPaneSeeds[7]?.first
+        #expect(pending?.id == seedID)
+        #expect(pending?.bufferedLiveByteCount == 10_000)
+        #expect(pending?.discardedOutput.count == 1)
+    }
+
     @Test func outputCursorResetFailureReconnectsWithoutReplayingBacklog() {
         let fixture = attachedConnection()
         defer { fixture.close() }
