@@ -3,6 +3,7 @@ import Foundation
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import CmuxMobileToast
 import CmuxMobileWorkspace
 import SwiftUI
 #if os(iOS)
@@ -160,11 +161,17 @@ struct WorkspaceShellView: View {
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
+    @Environment(ToastCenter.self) var toasts
+    /// Legacy fallback while the Toasts beta flag is off: the old dismissible
+    /// bottom banner for workspace-action failures.
     @State var workspaceActionToast: WorkspaceActionToastContent?
+    var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
     @State private var isTaskComposerPresented = false
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
-    var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
+    /// True once this shell has held a live connection, so only genuine
+    /// reconnections toast (the expected first attach stays silent).
+    @State private var hasHeldConnection = false
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -267,6 +274,9 @@ struct WorkspaceShellView: View {
     }
 
     private func workspaceTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
+        // With the Toasts beta flag on, failures surface through the app-wide
+        // toast layer; the legacy bottom banner below only ever receives
+        // content while the flag is off.
         ZStack(alignment: .bottom) {
             layoutContent(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
             if let workspaceActionToast {
@@ -305,6 +315,21 @@ struct WorkspaceShellView: View {
             )
         }
         #endif
+        // `initial: true` primes `hasHeldConnection` when the view mounts
+        // already connected, so the first genuine reconnect still toasts.
+        .onChange(of: store.connectionState, initial: true) { _, state in
+            guard state == .connected else { return }
+            if hasHeldConnection {
+                toasts.present(.success(
+                    L10n.string(
+                        "mobile.connection.reconnectedToast",
+                        defaultValue: "Reconnected to your Mac."
+                    ),
+                    coalescingKey: "connection.reconnected"
+                ))
+            }
+            hasHeldConnection = true
+        }
         .accessibilityIdentifier("MobileWorkspaceShell")
     }
 
