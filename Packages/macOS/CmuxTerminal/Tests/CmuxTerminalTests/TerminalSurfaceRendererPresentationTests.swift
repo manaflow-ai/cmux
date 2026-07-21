@@ -102,7 +102,7 @@ private func setRendererRealizedResult(_ result: Bool)
         #expect(rendererRealizedCalls() == [false, true])
     }
 
-    @Test func hiddenBirthReleaseFailureUsesBoundedRepairBudgetUntilRecovery() {
+    @Test func failedFirstPresentationWaitsForRendererActivityBeforeSchedulingRepair() {
         let registry = TerminalSurfaceRegistry()
         let scheduler = FakeRendererRealizationScheduler()
         let surface = makeSurface(registry: registry, rendererRealization: scheduler)
@@ -122,60 +122,10 @@ private func setRendererRealizedResult(_ result: Bool)
         beginRendererRealizedTracking(runtimeSurface)
         setRendererRealizedResult(false)
         surface.setRendererPortalVisible(true)
-        surface.ensureRendererPresented()
 
         #expect(!surface.isRendererPresented)
-        #expect(rendererRealizedCalls() == [false, false])
-        #expect(scheduler.scheduledPassCount == 2)
-
-        setRendererRealizedResult(true)
-        surface.ensureRendererPresented()
-
-        #expect(surface.isRendererPresented)
-        #expect(rendererRealizedCalls() == [false, false, false, true])
-        #expect(scheduler.scheduledPassCount == 2)
-    }
-
-    @Test func persistentRealizeFailureSchedulesBoundedRepairsPerVisibilityEpoch() {
-        let registry = TerminalSurfaceRegistry()
-        let scheduler = FakeRendererRealizationScheduler()
-        let surface = makeSurface(registry: registry, rendererRealization: scheduler)
-        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
-        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
-        beginRendererRealizedTracking(runtimeSurface)
-        surface.setRendererPortalVisible(false)
-        surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        surface.rendererRuntimeSurfaceDidCreate()
-        defer {
-            surface.releaseSurfaceForTesting()
-            runtimeSurface.deallocate()
-            resetRendererRealizedTracking()
-        }
-
-        beginRendererRealizedTracking(runtimeSurface)
-        setRendererRealizedResult(false)
-        surface.setRendererPortalVisible(true)
-        for _ in 0..<5 {
-            surface.ensureRendererPresented()
-        }
-
-        #expect(!surface.isRendererPresented)
-        #expect(rendererRealizedCalls() == Array(repeating: true, count: 6))
-        #expect(scheduler.scheduledPassCount == 3)
-
-        surface.setRendererPortalVisible(false)
-        surface.setRendererPortalVisible(true)
-        for _ in 0..<5 {
-            surface.ensureRendererPresented()
-        }
-
-        #expect(scheduler.scheduledPassCount == 6)
-
-        setRendererRealizedResult(true)
-        surface.ensureRendererPresented()
-
-        #expect(surface.isRendererPresented)
-        #expect(scheduler.scheduledPassCount == 6)
+        #expect(rendererRealizedCalls() == [false])
+        #expect(scheduler.scheduledPassCount == 0)
     }
 
     private func rendererRealizedCalls() -> [Bool] {
