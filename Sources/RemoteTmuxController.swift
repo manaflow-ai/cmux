@@ -660,6 +660,9 @@ final class RemoteTmuxController {
         // ControlMaster now — the last-session teardown paths already do this, and
         // a window close must too or the master lingers for the full
         // ControlPersist window.
+        for (_, host) in affectedHosts {
+            releaseLoginOfferIfHostHasNoMirrors(host: host)
+        }
         for (hash, host) in affectedHosts {
             let stillUsed = sessionMirrors.values.contains { $0.host.connectionHash == hash }
                 || connectionsByHostSession.values.contains { $0.host.connectionHash == hash }
@@ -716,6 +719,7 @@ final class RemoteTmuxController {
         removeCachedConnection(forKey: entry.key)?.stop()
         let hostHasOtherMirrors = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash }
         if !hostHasOtherMirrors, !connectionsByHostSession.values.contains(where: { $0.host.connectionHash == host.connectionHash }) { transportRegistry.remove(connectionHash: host.connectionHash); RemoteTmuxSSHTransport.spawnControlMasterExit(host: host) }
+        releaseLoginOfferIfHostHasNoMirrors(host: host)
     }
 
     /// User-initiated mirrored workspace close detaches locally and kills the remote session.

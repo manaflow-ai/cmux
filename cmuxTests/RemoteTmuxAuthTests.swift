@@ -222,6 +222,31 @@ import Testing
         #expect(!offers.isDeclined(host: "h1"))
     }
 
+    /// A login exists to unfreeze mirrors, so when the last mirror for the host is gone the offer,
+    /// its waiter and the pane are all orphaned. Modelled on the offer bookkeeping the controller
+    /// drives, which is the part that decides whether a stale login can be replaced later.
+    @Test func abandoningAnOfferLetsTheHostOfferAgainLater() {
+        var offers = RemoteTmuxLoginOffers()
+        let workspace = UUID()
+        guard case .present(let generation) = offers.claim(host: "h1", isOpen: { _ in false }) else {
+            Issue.record("expected a fresh claim to be presentable")
+            return
+        }
+        offers.recordOpened(host: "h1", workspace: workspace, generation: generation)
+        #expect(offers.hasOffer(host: "h1"))
+
+        // What the controller does once the host has no mirrors left.
+        offers.abandon(host: "h1", generation: generation)
+        #expect(!offers.hasOffer(host: "h1"), "an abandoned offer must not linger")
+        #expect(offers.host(forOpenedWorkspace: workspace) == nil)
+
+        // And the host is not poisoned: a later outage can offer a login again.
+        guard case .present = offers.claim(host: "h1", isOpen: { _ in false }) else {
+            Issue.record("abandoning must not stop a later login from being offered")
+            return
+        }
+    }
+
     @Test func connectionHashVariesByPortAndIdentity() {
         // The controller keys transports / connections / windows / persistence by
         // connectionHash, so distinct endpoints must produce distinct hashes (and
